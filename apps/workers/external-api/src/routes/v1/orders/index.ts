@@ -6,7 +6,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
-import { generateId } from '../../../lib/id';
+import { generateId, randomSuffix } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
@@ -56,7 +56,7 @@ app.post('/', requireScope('orders:write'), zValidator('json', createOrderSchema
   // orderNumber is NOT NULL with no DB default — generate when absent.
   const orderNumber =
     (body.orderNumber as string | undefined) ??
-    `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    `ORD-${Date.now().toString(36).toUpperCase()}-${randomSuffix(4).toUpperCase()}`;
   const [row] = await db
     .insert(table)
     .values({ id, createdAt: now, updatedAt: now, ...body, orderNumber } as typeof table.$inferInsert)

@@ -13,11 +13,13 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { randomUUID } from 'expo-crypto';
 import api from '@/services/api';
 
 const QUEUE_STORAGE_KEY = '@weldbooks/offline-queue';
@@ -127,7 +129,7 @@ export function OfflineQueueProvider({ children }: Readonly<{ children: React.Re
     async (item: Omit<QueueItem, 'id' | 'createdAt'>) => {
       const newItem: QueueItem = {
         ...item,
-        id: `oq_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        id: `oq_${randomUUID()}`,
         createdAt: new Date().toISOString(),
         entityId: item.entityId ?? api.getAccountingEntityId() ?? undefined,
       };
@@ -138,10 +140,13 @@ export function OfflineQueueProvider({ children }: Readonly<{ children: React.Re
 
   const clearQueue = useCallback(() => persist([]), [persist]);
 
+  const value = useMemo(
+    () => ({ queue, isOnline, isSyncing, addToQueue, syncQueue, clearQueue }),
+    [queue, isOnline, isSyncing, addToQueue, syncQueue, clearQueue],
+  );
+
   return (
-    <OfflineQueueContext.Provider
-      value={{ queue, isOnline, isSyncing, addToQueue, syncQueue, clearQueue }}
-    >
+    <OfflineQueueContext.Provider value={value}>
       {children}
     </OfflineQueueContext.Provider>
   );

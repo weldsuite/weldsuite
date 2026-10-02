@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Check, X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -43,6 +43,7 @@ export function FilterCountrySelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxId = useId();
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -63,6 +64,7 @@ export function FilterCountrySelect({
           {/* Tags-input: selected countries render as chips inside the field,
               with the search box inline alongside them. */}
           <div
+            role="presentation"
             className={cn(
               'flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1 text-sm',
               'focus-within:outline-none focus-within:ring-1 focus-within:ring-ring',
@@ -117,6 +119,7 @@ export function FilterCountrySelect({
               // password-manager overlays — this is our own combobox.
               role="combobox"
               aria-expanded={open}
+              aria-controls={listboxId}
               aria-autocomplete="list"
               // Chrome ignores autoComplete="off" for fields it reads as an
               // address "country" (from the id/label); "new-password" is the
@@ -134,6 +137,7 @@ export function FilterCountrySelect({
           </div>
         </PopoverAnchor>
         <PopoverContent
+          id={listboxId}
           className="z-[9999] w-(--radix-popover-trigger-width) p-0"
           align="start"
           sideOffset={4}

@@ -51,6 +51,111 @@ interface Column {
   deals: Deal[];
 }
 
+const DEFAULT_COLUMNS: Column[] = [
+  { id: 'lead', title: 'Lead', color: '#6B7280', deals: [] },
+  { id: 'qualified', title: 'Qualified', color: '#3B82F6', deals: [] },
+  { id: 'proposal', title: 'Proposal', color: '#8B5CF6', deals: [] },
+  { id: 'negotiation', title: 'Negotiation', color: '#F59E0B', deals: [] },
+  { id: 'won', title: 'Won', color: '#10B981', deals: [] },
+];
+
+const DAY_MS = 1000 * 60 * 60 * 24;
+
+const matchesCustomerQuery = (c: CustomerRecord, query: string): boolean =>
+  [c.fullName, c.firstName, c.lastName, c.companyName, c.email].some(field => field?.toLowerCase().includes(query));
+
+const formatRelativeTime = (dateStr: string) => {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / DAY_MS);
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
+  return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
+};
+
+const formatDate = (dateStr?: string) => {
+  if (!dateStr) return 'No date';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const formatCurrency = (value?: string) => {
+  if (!value) return undefined;
+  const num = Number.parseFloat(value);
+  if (Number.isNaN(num)) return value;
+  return `$${num.toLocaleString()}`;
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  active: '#10B981',
+  lead: '#3B82F6',
+  prospect: '#F59E0B',
+  inactive: '#9CA3AF',
+};
+
+const getStatusColor = (status?: string) => STATUS_COLORS[status?.toLowerCase() ?? ''] ?? '#6B7280';
+
+const getDisplayStatus = (status?: string) => {
+  if (!status) return 'Unknown';
+  return status.charAt(0).toUpperCase() + status.slice(1);
+};
+
+// Get display name from customer record (handles B2C and B2B)
+const getDisplayName = (customer: CustomerRecord) => {
+  if (customer.fullName) return customer.fullName;
+  if (customer.firstName || customer.lastName) {
+    return [customer.firstName, customer.lastName].filter(Boolean).join(' ');
+  }
+  if (customer.companyName) return customer.companyName;
+  return customer.email; // Fallback to email
+};
+
+const getInitials = (customer: CustomerRecord) => {
+  const name = getDisplayName(customer);
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+};
+
+// Parse closing date or use current date + 30 days as default
+const resolveCloseDate = (closingDate: string): string => {
+  const fallback = () => new Date(Date.now() + 30 * DAY_MS).toISOString();
+  if (!closingDate) return fallback();
+  // Try to parse the date string (e.g., "1 Jan 2026")
+  const parsed = new Date(closingDate);
+  return Number.isNaN(parsed.getTime()) ? fallback() : parsed.toISOString();
+};
+
+// Parse probability from chance string (e.g., "50%" -> 50)
+const parseChance = (chance: string): number | undefined =>
+  chance ? Number.parseInt(chance.replace('%', '')) : undefined;
+
+const parseAmount = (value: string): number => (value ? Number.parseFloat(value) : 0);
+
+const formatDealValue = (value: string): string | undefined =>
+  value ? `$${Number.parseFloat(value).toLocaleString()}` : undefined;
+
+const apiErrorMessage = (error: string | { message?: string } | null | undefined, fallback: string): string =>
+  typeof error === 'string' ? error : (error?.message || fallback);
+
+const buildColumns = (pipeline: PipelineWithStages, opportunities: OpportunityRecord[]): Column[] =>
+  pipeline.stages.map(stage => ({
+    id: stage.id,
+    title: stage.name,
+    color: stage.color || '#6B7280',
+    deals: opportunities
+      .filter(opp => opp.stageId === stage.id)
+      .map(opp => ({
+        id: opp.id,
+        title: opp.name,
+        value: formatCurrency(opp.value),
+        date: formatDate(opp.expectedCloseDate),
+        customerId: opp.customerId,
+      })),
+  }));
+
 export default function CustomersScreen() {
   const { colors } = useTheme();
   const toast = useToast();
@@ -84,42 +189,7 @@ export default function CustomersScreen() {
 
   const chanceOptions = ['10%', '25%', '50%', '75%', '90%', '100%'];
 
-  const filteredCustomers = customers.filter(c => {
-    const query = (searchQuery || customerSearch).toLowerCase();
-    return (
-      (c.fullName?.toLowerCase().includes(query)) ||
-      (c.firstName?.toLowerCase().includes(query)) ||
-      (c.lastName?.toLowerCase().includes(query)) ||
-      (c.companyName?.toLowerCase().includes(query)) ||
-      (c.email?.toLowerCase().includes(query))
-    );
-  });
-
-  const formatRelativeTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
-    return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
-  };
-
-  const formatDate = (dateStr?: string) => {
-    if (!dateStr) return 'No date';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
-
-  const formatCurrency = (value?: string) => {
-    if (!value) return undefined;
-    const num = Number.parseFloat(value);
-    if (Number.isNaN(num)) return value;
-    return `$${num.toLocaleString()}`;
-  };
+  const filteredCustomers = customers.filter(c => matchesCustomerQuery(c, (searchQuery || customerSearch).toLowerCase()));
 
   useEffect(() => {
     loadData();
@@ -150,35 +220,13 @@ export default function CustomersScreen() {
         setOpportunities(opportunitiesRes.data.items || opportunitiesRes.data.data || []);
       }
 
-      // Build pipeline columns from real data
-      if (pipelinesRes.success && pipelinesRes.data && pipelinesRes.data.length > 0) {
-        const pipeline = pipelinesRes.data[0]; // Use first pipeline
+      // Build pipeline columns from real data (fallback to default columns if no pipelines exist)
+      const firstPipeline = pipelinesRes.success ? pipelinesRes.data?.[0] : undefined;
+      if (firstPipeline) {
         const opportunityData = opportunitiesRes.data?.items || opportunitiesRes.data?.data || [];
-
-        const cols: Column[] = pipeline.stages.map(stage => ({
-          id: stage.id,
-          title: stage.name,
-          color: stage.color || '#6B7280',
-          deals: opportunityData
-            .filter(opp => opp.stageId === stage.id)
-            .map(opp => ({
-              id: opp.id,
-              title: opp.name,
-              value: formatCurrency(opp.value),
-              date: formatDate(opp.expectedCloseDate),
-              customerId: opp.customerId,
-            })),
-        }));
-        setColumns(cols);
+        setColumns(buildColumns(firstPipeline, opportunityData)); // Use first pipeline
       } else {
-        // Fallback to default columns if no pipelines exist
-        setColumns([
-          { id: 'lead', title: 'Lead', color: '#6B7280', deals: [] },
-          { id: 'qualified', title: 'Qualified', color: '#3B82F6', deals: [] },
-          { id: 'proposal', title: 'Proposal', color: '#8B5CF6', deals: [] },
-          { id: 'negotiation', title: 'Negotiation', color: '#F59E0B', deals: [] },
-          { id: 'won', title: 'Won', color: '#10B981', deals: [] },
-        ]);
+        setColumns(DEFAULT_COLUMNS);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -211,29 +259,18 @@ export default function CustomersScreen() {
     if (!newDealTitle.trim() || !selectedColumnId || !selectedCustomer) return;
 
     try {
-      // Parse closing date or use current date + 30 days as default
-      let closeDate: string;
-      if (newDealClosingDate) {
-        // Try to parse the date string (e.g., "1 Jan 2026")
-        const parsed = new Date(newDealClosingDate);
-        closeDate = !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-      } else {
-        closeDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-      }
-
-      // Parse probability from chance string (e.g., "50%" -> 50)
-      const probability = newDealChance ? Number.parseInt(newDealChance.replace('%', '')) : undefined;
+      const closeDate = resolveCloseDate(newDealClosingDate);
 
       // Get the first pipeline ID if available
-      const pipelineId = pipelines.length > 0 ? pipelines[0].id : undefined;
+      const pipelineId = pipelines[0]?.id;
 
       // Create the opportunity via API
       const response = await api.createOpportunity({
         name: newDealTitle.trim(),
         customerId: selectedCustomer.id,
-        amount: newDealValue ? Number.parseFloat(newDealValue) : 0,
+        amount: parseAmount(newDealValue),
         stageId: selectedColumnId,
-        probability,
+        probability: parseChance(newDealChance),
         closeDate,
         notes: newDealNotes || undefined,
         pipelineId,
@@ -244,26 +281,18 @@ export default function CustomersScreen() {
         const newDeal: Deal = {
           id: response.data.id,
           title: newDealTitle,
-          value: newDealValue ? `$${Number.parseFloat(newDealValue).toLocaleString()}` : undefined,
+          value: formatDealValue(newDealValue),
           date: formatDate(closeDate),
           customerId: selectedCustomer.id,
         };
 
-        setColumns(prevColumns => {
-          return prevColumns.map(column => {
-            if (column.id === selectedColumnId) {
-              return {
-                ...column,
-                deals: [...column.deals, newDeal],
-              };
-            }
-            return column;
-          });
-        });
+        setColumns(prevColumns => prevColumns.map(column => (
+          column.id === selectedColumnId ? { ...column, deals: [...column.deals, newDeal] } : column
+        )));
 
         toast.success('Deal created successfully');
       } else {
-        toast.error(typeof response.error === 'string' ? response.error : (response.error?.message || 'Failed to create deal'));
+        toast.error(apiErrorMessage(response.error, 'Failed to create deal'));
       }
     } catch (error) {
       console.error('Error creating deal:', error);
@@ -351,37 +380,6 @@ export default function CustomersScreen() {
   const getCustomerInitials = () => {
     if (!selectedCustomer) return 'ND';
     return getInitials(selectedCustomer);
-  };
-
-  const getStatusColor = (status?: string) => {
-    const s = status?.toLowerCase();
-    switch (s) {
-      case 'active': return '#10B981';
-      case 'lead': return '#3B82F6';
-      case 'prospect': return '#F59E0B';
-      case 'inactive': return '#9CA3AF';
-      default: return '#6B7280';
-    }
-  };
-
-  const getDisplayStatus = (status?: string) => {
-    if (!status) return 'Unknown';
-    return status.charAt(0).toUpperCase() + status.slice(1);
-  };
-
-  // Get display name from customer record (handles B2C and B2B)
-  const getDisplayName = (customer: CustomerRecord) => {
-    if (customer.fullName) return customer.fullName;
-    if (customer.firstName || customer.lastName) {
-      return [customer.firstName, customer.lastName].filter(Boolean).join(' ');
-    }
-    if (customer.companyName) return customer.companyName;
-    return customer.email; // Fallback to email
-  };
-
-  const getInitials = (customer: CustomerRecord) => {
-    const name = getDisplayName(customer);
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   // Table View Component

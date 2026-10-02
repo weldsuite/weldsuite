@@ -9,8 +9,8 @@ interface ArticleContentProps {
 // contain `url(`, parens (except rgb/hsl), or `;`, so the CSS-exfiltration /
 // expression() vectors stay closed while real formatting renders.
 const HEX = /^#(?:[0-9a-fA-F]{3,8})$/
-const RGB = /^rgba?\(\s*[\d.,\s%]+\)$/
-const HSL = /^hsla?\(\s*[\d.,\s%]+\)$/
+const RGB = /^rgba?\([\d.,\s%]+\)$/
+const HSL = /^hsla?\([\d.,\s%]+\)$/
 const NAMED = /^[a-zA-Z]+$/
 const COLORS = [HEX, RGB, HSL, NAMED]
 

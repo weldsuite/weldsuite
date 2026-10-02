@@ -20,6 +20,96 @@ import appApi, { type CreditsBalance } from '@/services/app-api';
 import type { ConversationSummary } from '@weldsuite/app-api-client/schemas/weldagent';
 import type { WorkspaceAgent, WorkspaceAgentRun } from '@weldsuite/app-api-client/schemas/workspace-agents';
 
+type HomeRun = WorkspaceAgentRun & { agentName: string };
+type Translations = ReturnType<typeof useI18n>['t'];
+type Format = ReturnType<typeof useI18n>['format'];
+
+async function fetchAgentRuns(agent: WorkspaceAgent): Promise<HomeRun[]> {
+  try {
+    const res = await appApi.agents.listRuns(agent.id, 5);
+    return (res.data ?? []).map((run) => ({ ...run, agentName: agent.name }));
+  } catch {
+    return [];
+  }
+}
+
+async function fetchRecentRuns(agentList: WorkspaceAgent[]): Promise<HomeRun[]> {
+  const runBatches = await Promise.all(agentList.slice(0, 8).map(fetchAgentRuns));
+  const merged = runBatches.flat().sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
+  return merged.slice(0, 8);
+}
+
+function creditsSubLabel(
+  credits: CreditsBalance | null,
+  t: Translations,
+  format: Format,
+): string | undefined {
+  if (!credits) return undefined;
+  if (credits.isExhausted) return t.home.creditsEmpty;
+  if (credits.isLow) return t.home.creditsLow;
+  return format(t.home.creditsSub, { count: Math.round(credits.currentBalance) });
+}
+
+function RecentChatsSection({
+  loading,
+  chats,
+  onOpen,
+}: {
+  loading: boolean;
+  chats: ConversationSummary[];
+  onOpen: (id: string) => void;
+}) {
+  const { t, format } = useI18n();
+  if (loading) return <ListSkeleton count={4} />;
+  if (chats.length === 0) {
+    return <EmptyState title={t.home.emptyChats} subtitle={t.home.emptyChatsSub} />;
+  }
+  return (
+    <>
+      {chats.slice(0, 8).map((chat) => (
+        <RecordRow
+          key={chat.id}
+          title={chat.name}
+          subtitle={formatRelativeTime(chat.lastMessageAt, t.relativeTime, format)}
+          leading={<IconTile icon={MessageSquare} color={BRAND} />}
+          onPress={() => onOpen(chat.id)}
+        />
+      ))}
+    </>
+  );
+}
+
+function RecentRunsSection({
+  loading,
+  runs,
+  onOpen,
+}: {
+  loading: boolean;
+  runs: HomeRun[];
+  onOpen: (agentId: string) => void;
+}) {
+  const { t, format } = useI18n();
+  if (loading) return <ListSkeleton count={3} />;
+  if (runs.length === 0) {
+    return <EmptyState title={t.home.emptyRuns} subtitle={t.home.emptyRunsSub} />;
+  }
+  return (
+    <>
+      {runs.map((run) => (
+        <RecordRow
+          key={run.id}
+          title={run.agentName}
+          subtitle={run.result?.summary ?? run.error ?? t.common.dash}
+          meta={formatRelativeTime(run.createdAt, t.relativeTime, format)}
+          leading={<IconTile icon={run.triggerType === 'chat' ? Sparkles : Bot} color={ACCENTS.activity} />}
+          badge={<StatusBadge status={run.status} />}
+          onPress={() => onOpen(run.agentId)}
+        />
+      ))}
+    </>
+  );
+}
+
 export default function HomeScreen() {
   const { markInteractive } = useObserve();
   const { colors } = useTheme();
@@ -29,7 +119,7 @@ export default function HomeScreen() {
   const [credits, setCredits] = useState<CreditsBalance | null>(null);
   const [chats, setChats] = useState<ConversationSummary[]>([]);
   const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
-  const [runs, setRuns] = useState<Array<WorkspaceAgentRun & { agentName: string }>>([]);
+  const [runs, setRuns] = useState<HomeRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,19 +136,7 @@ export default function HomeScreen() {
       setChats(chatsRes.data ?? []);
       const agentList = agentsRes.data ?? [];
       setAgents(agentList);
-
-      const runBatches = await Promise.all(
-        agentList.slice(0, 8).map(async (agent) => {
-          try {
-            const res = await appApi.agents.listRuns(agent.id, 5);
-            return (res.data ?? []).map((run) => ({ ...run, agentName: agent.name }));
-          } catch {
-            return [];
-          }
-        }),
-      );
-      const merged = runBatches.flat().sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
-      setRuns(merged.slice(0, 8));
+      setRuns(await fetchRecentRuns(agentList));
     } catch (err) {
       setError(err instanceof Error ? err.message : t.common.somethingWentWrong);
     } finally {
@@ -79,13 +157,7 @@ export default function HomeScreen() {
   };
 
   const creditsValue = credits ? String(Math.round(credits.currentBalance)) : t.common.dash;
-  const creditsSub = credits
-    ? credits.isExhausted
-      ? t.home.creditsEmpty
-      : credits.isLow
-        ? t.home.creditsLow
-        : format(t.home.creditsSub, { count: Math.round(credits.currentBalance) })
-    : undefined;
+  const creditsSub = creditsSubLabel(credits, t, format);
 
   return (
     <Screen
@@ -148,40 +220,10 @@ export default function HomeScreen() {
           />
 
           <SectionLabel>{t.home.recentChats}</SectionLabel>
-          {loading ? (
-            <ListSkeleton count={4} />
-          ) : chats.length === 0 ? (
-            <EmptyState title={t.home.emptyChats} subtitle={t.home.emptyChatsSub} />
-          ) : (
-            chats.slice(0, 8).map((chat) => (
-              <RecordRow
-                key={chat.id}
-                title={chat.name}
-                subtitle={formatRelativeTime(chat.lastMessageAt, t.relativeTime, format)}
-                leading={<IconTile icon={MessageSquare} color={BRAND} />}
-                onPress={() => router.push(`/chat/${chat.id}`)}
-              />
-            ))
-          )}
+          <RecentChatsSection loading={loading} chats={chats} onOpen={(id) => router.push(`/chat/${id}`)} />
 
           <SectionLabel>{t.home.recentRuns}</SectionLabel>
-          {loading ? (
-            <ListSkeleton count={3} />
-          ) : runs.length === 0 ? (
-            <EmptyState title={t.home.emptyRuns} subtitle={t.home.emptyRunsSub} />
-          ) : (
-            runs.map((run) => (
-              <RecordRow
-                key={run.id}
-                title={run.agentName}
-                subtitle={run.result?.summary ?? run.error ?? t.common.dash}
-                meta={formatRelativeTime(run.createdAt, t.relativeTime, format)}
-                leading={<IconTile icon={run.triggerType === 'chat' ? Sparkles : Bot} color={ACCENTS.activity} />}
-                badge={<StatusBadge status={run.status} />}
-                onPress={() => router.push(`/agent/${run.agentId}`)}
-              />
-            ))
-          )}
+          <RecentRunsSection loading={loading} runs={runs} onOpen={(id) => router.push(`/agent/${id}`)} />
         </ScrollView>
       )}
     </Screen>

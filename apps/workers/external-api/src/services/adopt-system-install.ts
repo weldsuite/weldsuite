@@ -21,6 +21,108 @@ export type AdoptSystemInstallResult = 'adopted' | 'already' | 'none';
  */
 const NATIVE_ONLY_APP_CODES: readonly string[] = ['weldcommerce'];
 
+/** Reserved first-party module codes that count as official even without a `weldsuite` publisher. */
+const RESERVED_FIRST_PARTY_CODES: ReadonlySet<string> = new Set([
+  'weldcrm',
+  'weldcommerce',
+  'welddesk',
+  'weldmail',
+  'weldflow',
+  'weldconnect',
+  'weldstash',
+  'weldhost',
+  'weldbooks',
+  'weldmeet',
+  'weldchat',
+  'weldagent',
+]);
+
+function isOfficialPublisher(app: UserApp): boolean {
+  return app.publisherType === 'weldsuite' || RESERVED_FIRST_PARTY_CODES.has(app.code);
+}
+
+/** True when the app is a live, approved, public, non-native first-party app. */
+function isAdoptableApp(app: UserApp): boolean {
+  if (app.deletedAt || !app.isActive) return false;
+  if (app.visibility !== 'public' || app.reviewStatus !== 'approved') return false;
+  if (NATIVE_ONLY_APP_CODES.includes(app.code)) return false;
+  return isOfficialPublisher(app);
+}
+
+type TenantInstalledApp = typeof schema.workspaceInstalledApps.$inferSelect;
+
+/**
+ * Decide from the tenant row whether adoption should proceed:
+ * `none` (leave alone), `already` (linked and active), or `proceed`.
+ */
+async function checkTenantLink(
+  master: MasterDatabase,
+  tenantRow: TenantInstalledApp,
+  app: UserApp,
+  workspaceId: string,
+): Promise<'none' | 'already' | 'proceed'> {
+  const { userAppInstalls } = masterSchema;
+
+  if (tenantRow.appType === 'user') {
+    if (tenantRow.userAppId && tenantRow.userAppId !== app.id) return 'none';
+    if (tenantRow.userAppId === app.id) {
+      const [install] = await master
+        .select({ id: userAppInstalls.id, status: userAppInstalls.status })
+        .from(userAppInstalls)
+        .where(and(eq(userAppInstalls.appId, app.id), eq(userAppInstalls.workspaceId, workspaceId)))
+        .limit(1);
+      if (install?.status === 'active') return 'already';
+    }
+    return 'proceed';
+  }
+  return tenantRow.appType === 'system' ? 'proceed' : 'none';
+}
+
+type MasterInstall = typeof masterSchema.userAppInstalls.$inferSelect;
+
+/** Create or re-activate the master install row. Returns true when the app's install count should be bumped. */
+async function ensureActiveInstall(params: {
+  master: MasterDatabase;
+  existing: MasterInstall | undefined;
+  app: UserApp;
+  workspaceId: string;
+  scopes: string[];
+  installedBy?: string | null;
+  now: Date;
+}): Promise<boolean> {
+  const { master, existing, app, workspaceId, scopes, installedBy, now } = params;
+  const { userAppInstalls } = masterSchema;
+
+  if (!existing) {
+    await master.insert(userAppInstalls).values({
+      id: generateId('uai'),
+      appId: app.id,
+      workspaceId,
+      status: 'active',
+      grantedScopes: scopes,
+      installedBy: installedBy || 'system',
+      installedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return true;
+  }
+  if (existing.status === 'active') return false;
+  await master
+    .update(userAppInstalls)
+    .set({
+      status: 'active',
+      grantedScopes: scopes,
+      pendingScopes: null,
+      installedBy: installedBy ?? existing.installedBy,
+      installedAt: now,
+      revokedAt: null,
+      updatedAt: now,
+    })
+    .where(eq(userAppInstalls.id, existing.id));
+  return true;
+}
+
 export async function adoptSystemInstallInTenant(params: {
   master: MasterDatabase;
   tenantDb: Database;
@@ -29,24 +131,7 @@ export async function adoptSystemInstallInTenant(params: {
   installedBy?: string | null;
 }): Promise<AdoptSystemInstallResult> {
   const { master, tenantDb, app, workspaceId, installedBy } = params;
-  if (app.deletedAt || !app.isActive) return 'none';
-  if (app.visibility !== 'public' || app.reviewStatus !== 'approved') return 'none';
-  if (NATIVE_ONLY_APP_CODES.includes(app.code)) return 'none';
-  const reserved = new Set([
-    'weldcrm',
-    'weldcommerce',
-    'welddesk',
-    'weldmail',
-    'weldflow',
-    'weldconnect',
-    'weldstash',
-    'weldhost',
-    'weldbooks',
-    'weldmeet',
-    'weldchat',
-    'weldagent',
-  ]);
-  if (app.publisherType !== 'weldsuite' && !reserved.has(app.code)) return 'none';
+  if (!isAdoptableApp(app)) return 'none';
 
   const { workspaceInstalledApps } = schema;
   const { userAppInstalls, userApps } = masterSchema;
@@ -59,18 +144,8 @@ export async function adoptSystemInstallInTenant(params: {
 
   if (!tenantRow || !tenantRow.isActive) return 'none';
 
-  if (tenantRow.appType === 'user' && tenantRow.userAppId === app.id) {
-    const [install] = await master
-      .select({ id: userAppInstalls.id, status: userAppInstalls.status })
-      .from(userAppInstalls)
-      .where(and(eq(userAppInstalls.appId, app.id), eq(userAppInstalls.workspaceId, workspaceId)))
-      .limit(1);
-    if (install?.status === 'active') return 'already';
-  } else if (tenantRow.appType === 'user' && tenantRow.userAppId && tenantRow.userAppId !== app.id) {
-    return 'none';
-  } else if (tenantRow.appType !== 'system' && tenantRow.appType !== 'user') {
-    return 'none';
-  }
+  const link = await checkTenantLink(master, tenantRow, app, workspaceId);
+  if (link !== 'proceed') return link;
 
   const scopes = app.requestedScopes ?? [];
   const now = new Date();
@@ -81,37 +156,15 @@ export async function adoptSystemInstallInTenant(params: {
     .where(and(eq(userAppInstalls.appId, app.id), eq(userAppInstalls.workspaceId, workspaceId)))
     .limit(1);
 
-  let bumpInstallCount = false;
-  if (existing) {
-    if (existing.status !== 'active') {
-      await master
-        .update(userAppInstalls)
-        .set({
-          status: 'active',
-          grantedScopes: scopes,
-          pendingScopes: null,
-          installedBy: installedBy ?? existing.installedBy,
-          installedAt: now,
-          revokedAt: null,
-          updatedAt: now,
-        })
-        .where(eq(userAppInstalls.id, existing.id));
-      bumpInstallCount = true;
-    }
-  } else {
-    await master.insert(userAppInstalls).values({
-      id: generateId('uai'),
-      appId: app.id,
-      workspaceId,
-      status: 'active',
-      grantedScopes: scopes,
-      installedBy: installedBy || 'system',
-      installedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
-    bumpInstallCount = true;
-  }
+  const bumpInstallCount = await ensureActiveInstall({
+    master,
+    existing,
+    app,
+    workspaceId,
+    scopes,
+    installedBy,
+    now,
+  });
 
   const alreadyLinked =
     tenantRow.appType === 'user' && tenantRow.userAppId === app.id && existing?.status === 'active';
@@ -145,21 +198,7 @@ export async function sweepAdoptSystemInstallsForApp(params: {
   installedBy?: string | null;
 }): Promise<{ adopted: number; failed: number }> {
   const { env, app, installedBy } = params;
-  const reserved = new Set([
-    'weldcrm',
-    'weldcommerce',
-    'welddesk',
-    'weldmail',
-    'weldflow',
-    'weldconnect',
-    'weldstash',
-    'weldhost',
-    'weldbooks',
-    'weldmeet',
-    'weldchat',
-    'weldagent',
-  ]);
-  if (app.publisherType !== 'weldsuite' && !reserved.has(app.code)) {
+  if (!isOfficialPublisher(app)) {
     return { adopted: 0, failed: 0 };
   }
 

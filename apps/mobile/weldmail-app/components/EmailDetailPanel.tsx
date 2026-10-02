@@ -192,6 +192,417 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
   );
 }
 
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+// Message rows come straight from the tenant mail API in several shapes
+// (see the field fallbacks below), so they stay loosely typed here.
+type MessageRecord = any;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isMessageGone(err: unknown): boolean {
+  return isApiError(err) && err.status === 404;
+}
+
+/**
+ * Fetch the message with a few retries. Only a genuine 404 means it's really
+ * gone; a network drop, a not-yet-ready auth token, or a 5xx are transient and
+ * must NOT surface as "Email not found".
+ */
+async function fetchMessageWithRetry(
+  emailId: string,
+  isCancelled: () => boolean,
+): Promise<{ fetched: MessageRecord; gone: boolean }> {
+  let fetched: MessageRecord = null;
+  let gone = false;
+  for (let attempt = 0; attempt < 3 && !isCancelled(); attempt++) {
+    try {
+      fetched = await getMessage(emailId);
+      break;
+    } catch (err) {
+      if (isMessageGone(err)) {
+        gone = true;
+        break;
+      }
+      if (attempt < 2) await delay(300 * (attempt + 1));
+    }
+  }
+  return { fetched, gone };
+}
+
+function countAddresses(value: string): number {
+  return value ? value.split(/[,;]\s*/).filter(Boolean).length : 0;
+}
+
+function isMultiRecipient(message: MessageRecord): boolean {
+  const toStr = formatRecipients(message.to);
+  const ccStr = formatRecipients(message.cc);
+  return countAddresses(toStr) + countAddresses(ccStr) > 1;
+}
+
+function getReceivedAt(message: MessageRecord) {
+  return message.receivedAt || message.receivedDate || message.createdAt;
+}
+
+function formatFullDate(value: string | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })} ${date.getFullYear()} at ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+}
+
+function getAttachmentName(attachment: MessageRecord): string {
+  return attachment.fileName || attachment.filename || attachment.name || 'Attachment';
+}
+
+function hasAttachments(message: MessageRecord): boolean {
+  return !!message.attachments && message.attachments.length > 0;
+}
+
+function EmptyPanel({ colors }: Readonly<{ colors: ThemeColors }>) {
+  return (
+    <View style={[styles.emptyContainer, { backgroundColor: colors.background }]}>
+      <Mail size={48} color={colors.divider} strokeWidth={1} />
+      <Text style={[styles.emptyText, { color: colors.muted }]}>Select an email to read</Text>
+    </View>
+  );
+}
+
+function LoadingPanel({ colors }: Readonly<{ colors: ThemeColors }>) {
+  return (
+    <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
+      {/* UI-thread spinner — stays smooth while the JS thread is busy fetching. */}
+      <ActivityIndicator size="large" color={colors.text} />
+    </View>
+  );
+}
+
+function LoadFailedPanel({ isGone, onRetry, colors }: Readonly<{ isGone: boolean; onRetry: () => void; colors: ThemeColors }>) {
+  return (
+    <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
+      <Text style={[styles.errorText, { color: colors.text }]}>
+        {isGone ? 'Email not found' : "Couldn't load this email"}
+      </Text>
+      {!isGone && (
+        <TouchableOpacity
+          onPress={onRetry}
+          style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: '#4D94F8' }}
+          activeOpacity={0.7}
+        >
+          <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>Retry</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+function PanelHeader({ isStarred, isDark, colors, paddingTop, onClose, onArchiveAndNext, onStar, onArchive, onDelete, onMore }: Readonly<{
+  isStarred: boolean;
+  isDark: boolean;
+  colors: ThemeColors;
+  paddingTop: number;
+  onClose: () => void;
+  onArchiveAndNext: () => void;
+  onStar: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+  onMore: () => void;
+}>) {
+  const starColor = isStarred ? '#F59E0B' : colors.muted;
+  return (
+    <View style={[styles.fixedHeader, { paddingTop, backgroundColor: colors.background }]}>
+      <View style={styles.headerBar}>
+        <CloseArchiveButtons
+          onClose={onClose}
+          onArchiveAndNext={onArchiveAndNext}
+          borderColor={isDark ? colors.border : '#E5E7EB'}
+          iconColor={isDark ? colors.mutedForeground : '#6B7280'}
+        />
+        <View style={styles.headerActions}>
+          <TouchableOpacity onPress={onStar} style={styles.actionButton}>
+            <Star
+              size={22}
+              color={starColor}
+              fill={isStarred ? '#F59E0B' : 'transparent'}
+              strokeWidth={2}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onArchive} style={styles.actionButton}>
+            <Archive size={22} color="#4B5563" strokeWidth={2} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onDelete} style={styles.actionButton}>
+            <Trash2 size={22} color="#4B5563" strokeWidth={2} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onMore} style={styles.actionButton}>
+            <MoreVertical size={22} color="#4B5563" strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function SenderSection({ email, senderName, avatarColor, showDetails, onToggleDetails, colors }: Readonly<{
+  email: MessageRecord;
+  senderName: string;
+  avatarColor: string;
+  showDetails: boolean;
+  onToggleDetails: () => void;
+  colors: ThemeColors;
+}>) {
+  const Chevron = showDetails ? ChevronUp : ChevronDown;
+  return (
+    <View style={styles.senderSection}>
+      <View style={[styles.senderAvatar, { backgroundColor: avatarColor + '20' }]}>
+        <Text style={[styles.senderAvatarText, { color: avatarColor }]}>
+          {senderName.charAt(0).toUpperCase()}
+        </Text>
+      </View>
+      <View style={styles.senderInfo}>
+        <View style={styles.senderNameRow}>
+          <Text style={[styles.senderNameText, { color: colors.text }]}>
+            {senderName}
+          </Text>
+          <TouchableOpacity
+            style={styles.toMeRow}
+            onPress={onToggleDetails}
+            activeOpacity={0.6}
+          >
+            <Text style={[styles.recipientLabel, { color: '#6B7280' }]}>to me</Text>
+            <Chevron size={14} color="#4B5563" strokeWidth={2} style={{ marginTop: 3 }} />
+          </TouchableOpacity>
+        </View>
+      </View>
+      <View style={styles.dateTime}>
+        <Text style={[styles.dateText, { color: '#6B7280' }]}>
+          {formatMessageDate(getReceivedAt(email))}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function EmailDetailsCard({ email, senderName, senderEmail, colors }: Readonly<{
+  email: MessageRecord;
+  senderName: string;
+  senderEmail: string;
+  colors: ThemeColors;
+}>) {
+  return (
+    <View style={[styles.emailDetailsPanel, { borderColor: colors.border || colors.divider }]}>
+      <View style={styles.detailRow}>
+        <Text style={[styles.detailLabel, { color: colors.muted }]}>From</Text>
+        <View style={styles.detailValue}>
+          <Text style={[styles.detailName, { color: colors.text }]}>{senderName}</Text>
+          <Text style={[styles.detailEmail, { color: colors.muted }]}>{senderEmail}</Text>
+        </View>
+      </View>
+      <View style={styles.detailRow}>
+        <Text style={[styles.detailLabel, { color: colors.muted }]}>To</Text>
+        <Text style={[styles.detailEmail, { color: colors.text }]}>
+          {formatRecipients(email.to)}
+        </Text>
+      </View>
+      <View style={styles.detailRow}>
+        <Text style={[styles.detailLabel, { color: colors.muted }]}>Date</Text>
+        <Text style={[styles.detailEmail, { color: colors.text }]}>
+          {formatFullDate(getReceivedAt(email))}
+        </Text>
+      </View>
+      <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
+        <Lock size={16} color={colors.muted} strokeWidth={2} />
+        <View style={styles.detailValue}>
+          <Text style={[styles.detailEmail, { color: colors.text }]}>Standard encryption (TLS)</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function EmailHeaderBlock({ email, senderName, senderEmail, threadCount, hasThread, showDetails, onToggleDetails, colors }: Readonly<{
+  email: MessageRecord;
+  senderName: string;
+  senderEmail: string;
+  threadCount: number;
+  hasThread: boolean;
+  showDetails: boolean;
+  onToggleDetails: () => void;
+  colors: ThemeColors;
+}>) {
+  return (
+    <View style={styles.emailHeader}>
+      <View style={styles.subjectLine}>
+        <Text style={[styles.subjectText, { color: colors.text }]}>
+          {email.subject || '(no subject)'}
+        </Text>
+        {hasThread && (
+          <View style={styles.threadBadge}>
+            <Text style={styles.threadBadgeText}>{threadCount}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Sender info */}
+      <SenderSection
+        email={email}
+        senderName={senderName}
+        avatarColor={getInitialColor(senderName)}
+        showDetails={showDetails}
+        onToggleDetails={onToggleDetails}
+        colors={colors}
+      />
+
+      {/* Email Details */}
+      {showDetails && (
+        <EmailDetailsCard email={email} senderName={senderName} senderEmail={senderEmail} colors={colors} />
+      )}
+    </View>
+  );
+}
+
+function AttachmentCard({ attachment, isDark, colors }: Readonly<{ attachment: MessageRecord; isDark: boolean; colors: ThemeColors }>) {
+  const name = getAttachmentName(attachment);
+  const { kind, color, ext } = getAttachmentVisual(name);
+  const Icon = ATTACHMENT_ICONS[kind];
+  const sizeLabel = attachment.size > 0 ? formatFileSize(attachment.size) : '';
+  return (
+    <TouchableOpacity
+      style={[styles.attachmentCard, { borderColor: colors.border || '#E5E7EB', backgroundColor: isDark ? '#1F1F23' : '#FFFFFF' }]}
+      activeOpacity={0.7}
+      onPress={() => openAttachment(attachment)}
+    >
+      <View style={[styles.attachmentCardIcon, { backgroundColor: color + '1A' }]}>
+        <Icon size={20} color={color} strokeWidth={2} />
+      </View>
+      <View style={styles.attachmentCardMeta}>
+        <Text style={[styles.attachmentCardName, { color: colors.text }]} numberOfLines={1}>
+          {name}
+        </Text>
+        <Text style={[styles.attachmentCardSub, { color: colors.muted }]} numberOfLines={1}>
+          {[ext, sizeLabel].filter(Boolean).join(' · ')}
+        </Text>
+      </View>
+      <Download size={16} color={colors.muted} strokeWidth={2} />
+    </TouchableOpacity>
+  );
+}
+
+/** Gmail-style cards in a horizontal rail with typed icons. */
+function AttachmentsSection({ attachments, isDark, colors }: Readonly<{ attachments: MessageRecord[]; isDark: boolean; colors: ThemeColors }>) {
+  return (
+    <View style={styles.attachmentsSection}>
+      <View style={styles.attachmentsHeader}>
+        <Paperclip size={13} color={colors.muted} strokeWidth={2} />
+        <Text style={[styles.attachmentsHeaderText, { color: colors.muted }]}>
+          {attachments.length} {attachments.length === 1 ? 'ATTACHMENT' : 'ATTACHMENTS'}
+        </Text>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.attachmentRail}
+      >
+        {attachments.map((attachment) => (
+          <AttachmentCard
+            key={attachment.id || getAttachmentName(attachment)}
+            attachment={attachment}
+            isDark={isDark}
+            colors={colors}
+          />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function EmailBody({ email, colors }: Readonly<{ email: MessageRecord; colors: ThemeColors }>) {
+  const html = email.bodyHtml || email.htmlBody || email.htmlContent;
+  return (
+    <View style={styles.bodySection}>
+      {html ? (
+        <EmailHtmlView
+          html={html}
+          fontSize={16}
+          lineHeight={1.6}
+          initialHeight={300}
+          style={styles.webViewBody}
+        />
+      ) : (
+        <Text style={[styles.body, { color: colors.text }]}>
+          {email.textBody || email.textContent || email.body || email.preview || email.snippet || 'No content'}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function ThreadSection({ olderMessages, expandedIds, onToggle, onCompose, colors, router }: Readonly<{
+  olderMessages: MessageRecord[];
+  expandedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onCompose: (msg: MessageRecord, mode: 'reply' | 'replyAll' | 'forward') => void;
+  colors: ThemeColors;
+  router: ReturnType<typeof useRouter>;
+}>) {
+  return (
+    <View style={styles.threadSection}>
+      <Text style={[styles.threadSectionLabel, { color: colors.muted }]}>
+        {olderMessages.length} earlier {olderMessages.length === 1 ? 'message' : 'messages'}
+      </Text>
+      {olderMessages.map((msg) => (
+        <ThreadMessage
+          key={msg.id}
+          message={msg}
+          colors={colors}
+          isExpanded={expandedIds.has(msg.id)}
+          onToggle={() => onToggle(msg.id)}
+          onReply={(m) => onCompose(m, 'reply')}
+          onReplyAll={(m) => onCompose(m, 'replyAll')}
+          onForward={(m) => onCompose(m, 'forward')}
+          router={router}
+        />
+      ))}
+    </View>
+  );
+}
+
+function ReplyActionBar({ showReplyAll, paddingBottom, onCompose, colors }: Readonly<{
+  showReplyAll: boolean;
+  paddingBottom: number;
+  onCompose: (mode: 'reply' | 'replyAll' | 'forward') => void;
+  colors: ThemeColors;
+}>) {
+  return (
+    <View style={[styles.actionBar, { backgroundColor: colors.background, paddingBottom }]}>
+      <TouchableOpacity
+        style={[styles.replyButton, { borderColor: '#E5E7EB' }]}
+        activeOpacity={0.7}
+        onPress={() => onCompose('reply')}
+      >
+        <Reply size={16} color={colors.text} strokeWidth={2} />
+        <Text style={[styles.replyText, { color: colors.text }]}>Reply</Text>
+      </TouchableOpacity>
+      {showReplyAll && (
+        <TouchableOpacity
+          style={[styles.replyButton, { borderColor: '#E5E7EB' }]}
+          activeOpacity={0.7}
+          onPress={() => onCompose('replyAll')}
+        >
+          <ReplyAll size={16} color={colors.text} strokeWidth={2} />
+          <Text style={[styles.replyText, { color: colors.text }]}>Reply All</Text>
+        </TouchableOpacity>
+      )}
+      <TouchableOpacity
+        style={[styles.replyButton, { borderColor: '#E5E7EB' }]}
+        activeOpacity={0.7}
+        onPress={() => onCompose('forward')}
+      >
+        <Forward size={16} color={colors.text} strokeWidth={2} />
+        <Text style={[styles.replyText, { color: colors.text }]}>Forward</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 interface EmailDetailPanelProps {
   emailId: string | null;
   onEmailDeleted?: (id: string) => void;
@@ -236,26 +647,9 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
     // would otherwise keep showing (and replying to) the old messages.
     setThreadMessages([]);
     let cancelled = false;
-    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
     const load = async () => {
-      // Fetch the message with a few retries. Only a genuine 404 means it's
-      // really gone; a network drop, a not-yet-ready auth token, or a 5xx are
-      // transient and must NOT surface as "Email not found".
-      let fetched: any = null;
-      let gone = false;
-      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
-        try {
-          fetched = await getMessage(emailId);
-          break;
-        } catch (err) {
-          if (isApiError(err) && err.status === 404) {
-            gone = true;
-            break;
-          }
-          if (attempt < 2) await delay(300 * (attempt + 1));
-        }
-      }
+      const { fetched, gone } = await fetchMessageWithRetry(emailId, () => cancelled);
       if (cancelled) return;
 
       if (fetched) {
@@ -399,289 +793,75 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
   };
 
   // Empty state
-  if (!emailId) {
-    return (
-      <View style={[styles.emptyContainer, { backgroundColor: colors.background }]}>
-        <Mail size={48} color={colors.divider} strokeWidth={1} />
-        <Text style={[styles.emptyText, { color: colors.muted }]}>Select an email to read</Text>
-      </View>
-    );
-  }
+  if (!emailId) return <EmptyPanel colors={colors} />;
 
-  if (loading) {
-    return (
-      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
-        {/* UI-thread spinner — stays smooth while the JS thread is busy fetching. */}
-        <ActivityIndicator size="large" color={colors.text} />
-      </View>
-    );
-  }
+  if (loading) return <LoadingPanel colors={colors} />;
 
-  if (!email) {
-    const isGone = loadOutcome === 'gone';
-    return (
-      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
-        <Text style={[styles.errorText, { color: colors.text }]}>
-          {isGone ? 'Email not found' : "Couldn't load this email"}
-        </Text>
-        {!isGone && (
-          <TouchableOpacity
-            onPress={retryLoad}
-            style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: '#4D94F8' }}
-            activeOpacity={0.7}
-          >
-            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>Retry</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    );
-  }
+  if (!email) return <LoadFailedPanel isGone={loadOutcome === 'gone'} onRetry={retryLoad} colors={colors} />;
 
   const senderName = getSenderName(email.from) || email.fromName || 'Unknown';
   const senderEmail = email.fromEmail || getSenderEmail(email.from);
-  const avatarColor = getInitialColor(senderName);
-
-  const toStr = typeof email.to === 'string' ? email.to : formatRecipients(email.to);
-  const ccStr = typeof email.cc === 'string' ? email.cc : formatRecipients(email.cc);
-  const toCount = toStr ? toStr.split(/[,;]\s*/).filter(Boolean).length : 0;
-  const ccCount = ccStr ? ccStr.split(/[,;]\s*/).filter(Boolean).length : 0;
-  const hasMultipleRecipients = (toCount + ccCount) > 1;
 
   const olderMessages = threadMessages.filter(m => m.id !== emailId).reverse();
   const hasThread = olderMessages.length > 0;
-  const threadCount = olderMessages.length + 1;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header toolbar */}
-      <View style={[styles.fixedHeader, { paddingTop: insets.top + 4, backgroundColor: colors.background }]}>
-        <View style={styles.headerBar}>
-          <CloseArchiveButtons
-            onClose={handleClose}
-            onArchiveAndNext={handleArchiveAndNext}
-            borderColor={isDark ? colors.border : '#E5E7EB'}
-            iconColor={isDark ? colors.mutedForeground : '#6B7280'}
-          />
-          <View style={styles.headerActions}>
-            <TouchableOpacity onPress={handleStarToggle} style={styles.actionButton}>
-              <Star
-                size={22}
-                color={email.isStarred ? '#F59E0B' : colors.muted}
-                fill={email.isStarred ? '#F59E0B' : 'transparent'}
-                strokeWidth={2}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleArchive} style={styles.actionButton}>
-              <Archive size={22} color="#4B5563" strokeWidth={2} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleDelete} style={styles.actionButton}>
-              <Trash2 size={22} color="#4B5563" strokeWidth={2} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleMoreMenu} style={styles.actionButton}>
-              <MoreVertical size={22} color="#4B5563" strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
+      <PanelHeader
+        isStarred={!!email.isStarred}
+        isDark={isDark}
+        colors={colors}
+        paddingTop={insets.top + 4}
+        onClose={handleClose}
+        onArchiveAndNext={handleArchiveAndNext}
+        onStar={handleStarToggle}
+        onArchive={handleArchive}
+        onDelete={handleDelete}
+        onMore={handleMoreMenu}
+      />
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Subject */}
-        <View style={styles.emailHeader}>
-          <View style={styles.subjectLine}>
-            <Text style={[styles.subjectText, { color: colors.text }]}>
-              {email.subject || '(no subject)'}
-            </Text>
-            {hasThread && (
-              <View style={styles.threadBadge}>
-                <Text style={styles.threadBadgeText}>{threadCount}</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Sender info */}
-          <View style={styles.senderSection}>
-            <View style={[styles.senderAvatar, { backgroundColor: avatarColor + '20' }]}>
-              <Text style={[styles.senderAvatarText, { color: avatarColor }]}>
-                {senderName.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.senderInfo}>
-              <View style={styles.senderNameRow}>
-                <Text style={[styles.senderNameText, { color: colors.text }]}>
-                  {senderName}
-                </Text>
-                <TouchableOpacity
-                  style={styles.toMeRow}
-                  onPress={() => setShowEmailDetails(!showEmailDetails)}
-                  activeOpacity={0.6}
-                >
-                  <Text style={[styles.recipientLabel, { color: '#6B7280' }]}>to me</Text>
-                  {showEmailDetails ? (
-                    <ChevronUp size={14} color="#4B5563" strokeWidth={2} style={{ marginTop: 3 }} />
-                  ) : (
-                    <ChevronDown size={14} color="#4B5563" strokeWidth={2} style={{ marginTop: 3 }} />
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-            <View style={styles.dateTime}>
-              <Text style={[styles.dateText, { color: '#6B7280' }]}>
-                {formatMessageDate(email.receivedAt || email.receivedDate || email.createdAt)}
-              </Text>
-            </View>
-          </View>
-
-          {/* Email Details */}
-          {showEmailDetails && (
-            <View style={[styles.emailDetailsPanel, { borderColor: colors.border || colors.divider }]}>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: colors.muted }]}>From</Text>
-                <View style={styles.detailValue}>
-                  <Text style={[styles.detailName, { color: colors.text }]}>{senderName}</Text>
-                  <Text style={[styles.detailEmail, { color: colors.muted }]}>{senderEmail}</Text>
-                </View>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: colors.muted }]}>To</Text>
-                <Text style={[styles.detailEmail, { color: colors.text }]}>
-                  {typeof email.to === 'string' ? email.to : formatRecipients(email.to)}
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: colors.muted }]}>Date</Text>
-                <Text style={[styles.detailEmail, { color: colors.text }]}>
-                  {(() => {
-                    const d = email.receivedAt || email.receivedDate || email.createdAt;
-                    if (!d) return '';
-                    const date = new Date(d);
-                    if (Number.isNaN(date.getTime())) return '';
-                    return `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })} ${date.getFullYear()} at ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-                  })()}
-                </Text>
-              </View>
-              <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
-                <Lock size={16} color={colors.muted} strokeWidth={2} />
-                <View style={styles.detailValue}>
-                  <Text style={[styles.detailEmail, { color: colors.text }]}>Standard encryption (TLS)</Text>
-                </View>
-              </View>
-            </View>
-          )}
-        </View>
+        {/* Subject, sender info and email details */}
+        <EmailHeaderBlock
+          email={email}
+          senderName={senderName}
+          senderEmail={senderEmail}
+          threadCount={olderMessages.length + 1}
+          hasThread={hasThread}
+          showDetails={showEmailDetails}
+          onToggleDetails={() => setShowEmailDetails(!showEmailDetails)}
+          colors={colors}
+        />
 
         {/* Attachments — Gmail-style cards in a horizontal rail with typed icons */}
-        {email.attachments && email.attachments.length > 0 && (
-          <View style={styles.attachmentsSection}>
-            <View style={styles.attachmentsHeader}>
-              <Paperclip size={13} color={colors.muted} strokeWidth={2} />
-              <Text style={[styles.attachmentsHeaderText, { color: colors.muted }]}>
-                {email.attachments.length} {email.attachments.length === 1 ? 'ATTACHMENT' : 'ATTACHMENTS'}
-              </Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.attachmentRail}
-            >
-              {email.attachments.map((attachment: any) => {
-                const name = attachment.fileName || attachment.filename || attachment.name || 'Attachment';
-                const { kind, color, ext } = getAttachmentVisual(name);
-                const Icon = ATTACHMENT_ICONS[kind];
-                return (
-                  <TouchableOpacity
-                    key={attachment.id || name}
-                    style={[styles.attachmentCard, { borderColor: colors.border || '#E5E7EB', backgroundColor: isDark ? '#1F1F23' : '#FFFFFF' }]}
-                    activeOpacity={0.7}
-                    onPress={() => openAttachment(attachment)}
-                  >
-                    <View style={[styles.attachmentCardIcon, { backgroundColor: color + '1A' }]}>
-                      <Icon size={20} color={color} strokeWidth={2} />
-                    </View>
-                    <View style={styles.attachmentCardMeta}>
-                      <Text style={[styles.attachmentCardName, { color: colors.text }]} numberOfLines={1}>
-                        {name}
-                      </Text>
-                      <Text style={[styles.attachmentCardSub, { color: colors.muted }]} numberOfLines={1}>
-                        {[ext, attachment.size > 0 ? formatFileSize(attachment.size) : ''].filter(Boolean).join(' · ')}
-                      </Text>
-                    </View>
-                    <Download size={16} color={colors.muted} strokeWidth={2} />
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
+        {hasAttachments(email) && (
+          <AttachmentsSection attachments={email.attachments} isDark={isDark} colors={colors} />
         )}
 
         {/* Email Body */}
-        <View style={styles.bodySection}>
-          {(email.bodyHtml || email.htmlBody || email.htmlContent) ? (
-            <EmailHtmlView
-              html={email.bodyHtml || email.htmlBody || email.htmlContent}
-              fontSize={16}
-              lineHeight={1.6}
-              initialHeight={300}
-              style={styles.webViewBody}
-            />
-          ) : (
-            <Text style={[styles.body, { color: colors.text }]}>
-              {email.textBody || email.textContent || email.body || email.preview || email.snippet || 'No content'}
-            </Text>
-          )}
-        </View>
+        <EmailBody email={email} colors={colors} />
 
         {/* Thread messages */}
         {hasThread && (
-          <View style={styles.threadSection}>
-            <Text style={[styles.threadSectionLabel, { color: colors.muted }]}>
-              {olderMessages.length} earlier {olderMessages.length === 1 ? 'message' : 'messages'}
-            </Text>
-            {olderMessages.map((msg) => (
-              <ThreadMessage
-                key={msg.id}
-                message={msg}
-                colors={colors}
-                isExpanded={expandedThreadIds.has(msg.id)}
-                onToggle={() => toggleThreadExpanded(msg.id)}
-                onReply={(m) => openComposeForMessage(m, 'reply')}
-                onReplyAll={(m) => openComposeForMessage(m, 'replyAll')}
-                onForward={(m) => openComposeForMessage(m, 'forward')}
-                router={router}
-              />
-            ))}
-          </View>
+          <ThreadSection
+            olderMessages={olderMessages}
+            expandedIds={expandedThreadIds}
+            onToggle={toggleThreadExpanded}
+            onCompose={openComposeForMessage}
+            colors={colors}
+            router={router}
+          />
         )}
       </ScrollView>
 
       {/* Action Bar */}
-      <View style={[styles.actionBar, { backgroundColor: colors.background, paddingBottom: insets.bottom + 6 }]}>
-        <TouchableOpacity
-          style={[styles.replyButton, { borderColor: '#E5E7EB' }]}
-          activeOpacity={0.7}
-          onPress={() => openCompose('reply')}
-        >
-          <Reply size={16} color={colors.text} strokeWidth={2} />
-          <Text style={[styles.replyText, { color: colors.text }]}>Reply</Text>
-        </TouchableOpacity>
-        {hasMultipleRecipients && (
-          <TouchableOpacity
-            style={[styles.replyButton, { borderColor: '#E5E7EB' }]}
-            activeOpacity={0.7}
-            onPress={() => openCompose('replyAll')}
-          >
-            <ReplyAll size={16} color={colors.text} strokeWidth={2} />
-            <Text style={[styles.replyText, { color: colors.text }]}>Reply All</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={[styles.replyButton, { borderColor: '#E5E7EB' }]}
-          activeOpacity={0.7}
-          onPress={() => openCompose('forward')}
-        >
-          <Forward size={16} color={colors.text} strokeWidth={2} />
-          <Text style={[styles.replyText, { color: colors.text }]}>Forward</Text>
-        </TouchableOpacity>
-      </View>
+      <ReplyActionBar
+        showReplyAll={isMultiRecipient(email)}
+        paddingBottom={insets.bottom + 6}
+        onCompose={openCompose}
+        colors={colors}
+      />
 
       <SnoozePickerModal
         visible={snoozePickerVisible}

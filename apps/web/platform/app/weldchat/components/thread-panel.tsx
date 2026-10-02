@@ -35,6 +35,23 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
     if (titleRef.current) titleRef.current.innerText = initial;
   }, [messageId, t.weldchat.threadPanel.defaultName]);
 
+  function focusAndSelectTitle() {
+    const el = titleRef.current;
+    if (!el) return;
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
+
+  function startEditing() {
+    if (editingTitle) return;
+    setEditingTitle(true);
+    setTimeout(focusAndSelectTitle, 0);
+  }
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-2.5 border-b flex-shrink-0 min-h-[53px]">
@@ -52,6 +69,10 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
           <span
             ref={titleRef}
+            role="textbox"
+            tabIndex={0}
+            aria-readonly={!editingTitle}
+            aria-label={t.weldchat.threadPanel.clickToRename}
             contentEditable={editingTitle}
             suppressContentEditableWarning
             className={cn(
@@ -60,22 +81,7 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
                 ? 'border-gray-400 dark:border-gray-500'
                 : 'border-transparent hover:border-border cursor-text',
             )}
-            onClick={() => {
-              if (!editingTitle) {
-                setEditingTitle(true);
-                setTimeout(() => {
-                  const el = titleRef.current;
-                  if (el) {
-                    el.focus();
-                    const range = document.createRange();
-                    range.selectNodeContents(el);
-                    const sel = window.getSelection();
-                    sel?.removeAllRanges();
-                    sel?.addRange(range);
-                  }
-                }, 0);
-              }
-            }}
+            onClick={startEditing}
             onBlur={() => {
               const el = titleRef.current;
               const trimmed = (el?.innerText ?? '').trim();
@@ -107,6 +113,14 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
               }
             }}
             onKeyDown={(e) => {
+              if (!editingTitle) {
+                // Read-only until activated: Enter / Space starts renaming (keyboard parity with click).
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  startEditing();
+                }
+                return;
+              }
               if (e.key === 'Enter') {
                 e.preventDefault();
                 (e.target as HTMLElement).blur();

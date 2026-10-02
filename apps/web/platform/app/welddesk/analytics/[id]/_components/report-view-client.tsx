@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef, useTransition } from 'react';
+import { useState, useEffect, useRef, useTransition, type ComponentProps, type ReactNode } from 'react';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { Plus, Edit2, GripVertical, MoreVertical, Trash2, Copy, Unlock } from 'lucide-react';
@@ -81,6 +81,9 @@ interface ReportViewClientProps {
   initialCharts: AnalyticsChart[];
   allReports: AnalyticsReport[];
 }
+
+/** Ref callback for inline-edit inputs: focus once when the input mounts. */
+const focusOnMount = (el: HTMLInputElement | null) => el?.focus();
 
 export function ReportViewClient({ report, initialCharts, allReports }: Readonly<ReportViewClientProps>) {
   const router = useRouter();
@@ -618,7 +621,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                     }}
                     onBlur={() => setIsEditingTitle(false)}
                     onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
-                    autoFocus
+                    ref={focusOnMount}
                     className="absolute inset-0 text-2xl font-bold tracking-tight bg-transparent border-b border-primary focus:outline-none"
                     placeholder={t.helpdesk.analyticsReports.pageTitle}
                   />
@@ -651,7 +654,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                     }}
                     onBlur={() => setIsEditingDescription(false)}
                     onKeyDown={(e) => e.key === 'Enter' && setIsEditingDescription(false)}
-                    autoFocus
+                    ref={focusOnMount}
                     className="absolute inset-0 text-muted-foreground bg-transparent border-b border-primary focus:outline-none"
                     placeholder={t.helpdesk.analyticsReports.pageDescription}
                   />
@@ -836,6 +839,28 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                 },
               } satisfies ChartConfig;
 
+              const points = chartData[chart.id];
+              let chartBody: ReactNode;
+              if (isLoadingData && !points) {
+                chartBody = (
+                  <div className="h-full w-full flex items-center justify-center">
+                    <div className="text-sm text-muted-foreground">{t.helpdesk.analyticsReports.loadingData}</div>
+                  </div>
+                );
+              } else if (!points || points.length === 0) {
+                chartBody = (
+                  <div className="h-full w-full flex flex-col items-center justify-center">
+                    <p className="text-sm text-muted-foreground">{t.helpdesk.analyticsReports.noDataAvailable}</p>
+                  </div>
+                );
+              } else {
+                chartBody = (
+                  <ChartContainer config={dynamicChartConfig} className="h-full w-full">
+                    {renderChart(chart, points, t.helpdesk.analyticsReports.total)}
+                  </ChartContainer>
+                );
+              }
+
               return (
                 <div key={chart.id} className="h-full w-full">
                   <Card className={`relative w-full h-full flex flex-col border-gray-200/50 dark:border-border/50 shadow-none ${isDragging ? 'opacity-80' : ''}`}>
@@ -925,19 +950,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                       </div>
                     </CardHeader>
                     <CardContent className="pb-2 pt-0 flex-1 min-h-[200px] overflow-hidden">
-                      {isLoadingData && !chartData[chart.id] ? (
-                        <div className="h-full w-full flex items-center justify-center">
-                          <div className="text-sm text-muted-foreground">{t.helpdesk.analyticsReports.loadingData}</div>
-                        </div>
-                      ) : !chartData[chart.id] || chartData[chart.id].length === 0 ? (
-                        <div className="h-full w-full flex flex-col items-center justify-center">
-                          <p className="text-sm text-muted-foreground">{t.helpdesk.analyticsReports.noDataAvailable}</p>
-                        </div>
-                      ) : (
-                        <ChartContainer config={dynamicChartConfig} className="h-full w-full">
-                          {renderChart(chart, chartData[chart.id] || [], t.helpdesk.analyticsReports.total)}
-                        </ChartContainer>
-                      )}
+                      {chartBody}
                     </CardContent>
                   </Card>
                 </div>
@@ -993,168 +1006,213 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
 // Data format: { label: string, value: number, fill?: string, name?: string }
 function renderChart(chart: AnalyticsChart, data: ChartDataPoint[], totalLabel: string = 'Total') {
   const hasData = data && data.length > 0;
+  const points: ChartDataPoint[] = hasData ? data : [];
 
   switch (chart.chartType) {
     case 'area-chart':
     case undefined:
-      return (
-        <AreaChart accessibilityLayer data={hasData ? data : []} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 7) : String(value)} />
-          <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent labelFormatter={(value) => String(value)} />} />
-          <Area dataKey="value" type={chart.smoothCurve ? "natural" : "linear"} fill={chart.fillArea ? chart.color : "transparent"} fillOpacity={chart.fillArea ? 0.2 : 0} stroke={chart.color} strokeWidth={2} dot={chart.showDataLabels} />
-        </AreaChart>
-      );
-
+      return renderAreaChart(chart, points);
     case 'area-linear':
-      return (
-        <AreaChart accessibilityLayer data={hasData ? data : []} margin={{ left: 12, right: 12 }}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 7) : String(value)} />
-          <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent indicator="dot" labelKey="label" />} />
-          <Area dataKey="value" type="linear" fill={chart.color} fillOpacity={0.4} stroke={chart.color} />
-        </AreaChart>
-      );
-
+      return renderAreaLinearChart(chart, points);
     case 'area-stacked':
       // For stacked charts with real data, use single value for now
-      return (
-        <AreaChart accessibilityLayer data={hasData ? data : []} margin={{ left: 12, right: 12 }}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 7) : String(value)} />
-          <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent indicator="dot" labelKey="label" />} />
-          <Area dataKey="value" type="natural" fill={chart.color} fillOpacity={0.4} stroke={chart.color} />
-        </AreaChart>
-      );
-
+      return renderAreaStackedChart(chart, points);
     case 'bar-multiple':
       // For bar charts with real data, use single value
-      return (
-        <BarChart accessibilityLayer data={hasData ? data : []}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 7) : String(value)} />
-          <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent indicator="dashed" />} />
-          <Bar dataKey="value" fill={chart.color} radius={4} />
-        </BarChart>
-      );
-
+      return renderBarMultipleChart(chart, points);
     case 'bar-mixed':
-      return (
-        <BarChart accessibilityLayer data={hasData ? data : []} layout="vertical" margin={{ left: 0 }}>
-          <YAxis dataKey="label" type="category" tickLine={false} tickMargin={10} axisLine={false} width={80} />
-          <XAxis dataKey="value" type="number" hide />
-          <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent hideLabel />} />
-          {/* `layout` lives on BarChart (recharts v3 removed it from Bar); already set above. */}
-          <Bar dataKey="value" radius={5} />
-        </BarChart>
-      );
-
+      return renderBarMixedChart(points);
     case 'bar-stacked':
       // For stacked bar charts with real data, use single value
-      return (
-        <BarChart accessibilityLayer data={hasData ? data : []}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 7) : String(value)} />
-          <ChartTooltip wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent hideLabel />} />
-          <Bar dataKey="value" fill={chart.color} radius={4} />
-        </BarChart>
-      );
-
+      return renderBarStackedChart(chart, points);
     case 'bar-negative':
-      return (
-        <BarChart accessibilityLayer data={hasData ? data : []}>
-          <CartesianGrid vertical={false} />
-          <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent hideLabel hideIndicator />} />
-          <Bar dataKey="value">
-            <LabelList position="top" dataKey="label" fillOpacity={1} />
-            {(hasData ? data : []).map((item: ChartDataPoint, index: number) => (
-              <Cell key={item.label || index} fill={item.value > 0 ? "var(--chart-1)" : "var(--chart-2)"} />
-            ))}
-          </Bar>
-        </BarChart>
-      );
-
+      return renderBarNegativeChart(points);
     case 'pie-label':
-      return (
-        <PieChart>
-          <ChartTooltip wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent nameKey="name" hideLabel />} />
-          <Pie data={hasData ? data : []} dataKey="value" nameKey="name">
-            <LabelList dataKey="label" className="fill-background" stroke="none" fontSize={12} />
-          </Pie>
-        </PieChart>
-      );
-
+      return renderPieLabelChart(points);
     case 'pie-donut':
-      return (
-        <PieChart>
-          <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent hideLabel />} />
-          <Pie data={hasData ? data : []} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
-            <RechartsLabel
-              content={({ viewBox }) => {
-                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                  const total = Array.isArray(data) ? data.reduce((acc: number, curr: ChartDataPoint) => acc + (curr.value || 0), 0) : 0;
-                  return (
-                    <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-                      <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">{total.toLocaleString()}</tspan>
-                      <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">{totalLabel}</tspan>
-                    </text>
-                  );
-                }
-              }}
-            />
-          </Pie>
-        </PieChart>
-      );
-
+      return renderPieDonutChart(points, totalLabel);
     case 'radar-lines':
-      return (
-        <RadarChart data={hasData ? data : []}>
-          <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent indicator="line" />} />
-          <PolarAngleAxis dataKey="label" />
-          <PolarGrid radialLines={false} />
-          <Radar dataKey="value" fill={chart.color} fillOpacity={0} stroke={chart.color} strokeWidth={2} />
-        </RadarChart>
-      );
-
+      return renderRadarLinesChart(chart, points);
     case 'radial-simple':
-      return (
-        <RadialBarChart data={hasData ? data : []} innerRadius={30} outerRadius={110}>
-          <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent hideLabel nameKey="name" />} />
-          <RadialBar dataKey="value" background />
-        </RadialBarChart>
-      );
-
+      return renderRadialSimpleChart(points);
     case 'radial-text':
-      return (
-        <RadialBarChart data={hasData && data.length > 0 ? [data[0]] : []} startAngle={0} endAngle={250} innerRadius={80} outerRadius={110}>
-          <PolarGrid gridType="circle" radialLines={false} stroke="none" className="first:fill-muted last:fill-background" polarRadius={[86, 74]} />
-          <RadialBar dataKey="value" background cornerRadius={10} />
-          <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
-            <RechartsLabel
-              content={({ viewBox }) => {
-                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                  const value = hasData && data.length > 0 ? (data[0]?.value || 0) : 0;
-                  return (
-                    <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-                      <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-4xl font-bold">{value.toLocaleString()}</tspan>
-                      <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">{totalLabel}</tspan>
-                    </text>
-                  );
-                }
-              }}
-            />
-          </PolarRadiusAxis>
-        </RadialBarChart>
-      );
-
+      return renderRadialTextChart(points, totalLabel);
     default:
-      return (
-        <AreaChart accessibilityLayer data={hasData ? data : []} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 7) : String(value)} />
-          <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent labelFormatter={(value) => String(value)} />} />
-          <Area dataKey="value" type="natural" fill={chart.color} fillOpacity={0.2} stroke={chart.color} strokeWidth={2} />
-        </AreaChart>
-      );
+      return renderDefaultChart(chart, points);
   }
+}
+
+const TOOLTIP_WRAPPER_STYLE = { zIndex: 1000, outline: 'none' } as const;
+
+function formatTick(value: unknown): string {
+  return typeof value === 'string' ? value.slice(0, 7) : String(value);
+}
+
+type LabelViewBox = ComponentProps<typeof RechartsLabel>['viewBox'];
+
+// Centered value + caption inside polar charts; renders nothing without a polar view box
+function renderCenterLabel(viewBox: LabelViewBox, value: number, valueClassName: string, totalLabel: string) {
+  if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) return null;
+
+  return (
+    <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+      <tspan x={viewBox.cx} y={viewBox.cy} className={valueClassName}>{value.toLocaleString()}</tspan>
+      <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">{totalLabel}</tspan>
+    </text>
+  );
+}
+
+function renderAreaChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
+  return (
+    <AreaChart accessibilityLayer data={points} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
+      <CartesianGrid vertical={false} />
+      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatTick} />
+      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={(value) => String(value)} />} />
+      <Area dataKey="value" type={chart.smoothCurve ? "natural" : "linear"} fill={chart.fillArea ? chart.color : "transparent"} fillOpacity={chart.fillArea ? 0.2 : 0} stroke={chart.color} strokeWidth={2} dot={chart.showDataLabels} />
+    </AreaChart>
+  );
+}
+
+function renderAreaLinearChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
+  return (
+    <AreaChart accessibilityLayer data={points} margin={{ left: 12, right: 12 }}>
+      <CartesianGrid vertical={false} />
+      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatTick} />
+      <ChartTooltip cursor={false} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent indicator="dot" labelKey="label" />} />
+      <Area dataKey="value" type="linear" fill={chart.color} fillOpacity={0.4} stroke={chart.color} />
+    </AreaChart>
+  );
+}
+
+function renderAreaStackedChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
+  return (
+    <AreaChart accessibilityLayer data={points} margin={{ left: 12, right: 12 }}>
+      <CartesianGrid vertical={false} />
+      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatTick} />
+      <ChartTooltip cursor={false} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent indicator="dot" labelKey="label" />} />
+      <Area dataKey="value" type="natural" fill={chart.color} fillOpacity={0.4} stroke={chart.color} />
+    </AreaChart>
+  );
+}
+
+function renderBarMultipleChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
+  return (
+    <BarChart accessibilityLayer data={points}>
+      <CartesianGrid vertical={false} />
+      <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={formatTick} />
+      <ChartTooltip cursor={false} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent indicator="dashed" />} />
+      <Bar dataKey="value" fill={chart.color} radius={4} />
+    </BarChart>
+  );
+}
+
+function renderBarMixedChart(points: ChartDataPoint[]) {
+  return (
+    <BarChart accessibilityLayer data={points} layout="vertical" margin={{ left: 0 }}>
+      <YAxis dataKey="label" type="category" tickLine={false} tickMargin={10} axisLine={false} width={80} />
+      <XAxis dataKey="value" type="number" hide />
+      <ChartTooltip cursor={false} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent hideLabel />} />
+      {/* `layout` lives on BarChart (recharts v3 removed it from Bar); already set above. */}
+      <Bar dataKey="value" radius={5} />
+    </BarChart>
+  );
+}
+
+function renderBarStackedChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
+  return (
+    <BarChart accessibilityLayer data={points}>
+      <CartesianGrid vertical={false} />
+      <XAxis dataKey="label" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={formatTick} />
+      <ChartTooltip wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent hideLabel />} />
+      <Bar dataKey="value" fill={chart.color} radius={4} />
+    </BarChart>
+  );
+}
+
+function renderBarNegativeChart(points: ChartDataPoint[]) {
+  return (
+    <BarChart accessibilityLayer data={points}>
+      <CartesianGrid vertical={false} />
+      <ChartTooltip cursor={false} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent hideLabel hideIndicator />} />
+      <Bar dataKey="value">
+        <LabelList position="top" dataKey="label" fillOpacity={1} />
+        {points.map((item: ChartDataPoint, index: number) => (
+          <Cell key={item.label || index} fill={item.value > 0 ? "var(--chart-1)" : "var(--chart-2)"} />
+        ))}
+      </Bar>
+    </BarChart>
+  );
+}
+
+function renderPieLabelChart(points: ChartDataPoint[]) {
+  return (
+    <PieChart>
+      <ChartTooltip wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent nameKey="name" hideLabel />} />
+      <Pie data={points} dataKey="value" nameKey="name">
+        <LabelList dataKey="label" className="fill-background" stroke="none" fontSize={12} />
+      </Pie>
+    </PieChart>
+  );
+}
+
+function renderPieDonutChart(points: ChartDataPoint[], totalLabel: string) {
+  const total = points.reduce((acc: number, curr: ChartDataPoint) => acc + (curr.value || 0), 0);
+
+  return (
+    <PieChart>
+      <ChartTooltip cursor={false} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent hideLabel />} />
+      <Pie data={points} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
+        <RechartsLabel
+          content={({ viewBox }) => renderCenterLabel(viewBox, total, "fill-foreground text-3xl font-bold", totalLabel)}
+        />
+      </Pie>
+    </PieChart>
+  );
+}
+
+function renderRadarLinesChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
+  return (
+    <RadarChart data={points}>
+      <ChartTooltip cursor={false} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent indicator="line" />} />
+      <PolarAngleAxis dataKey="label" />
+      <PolarGrid radialLines={false} />
+      <Radar dataKey="value" fill={chart.color} fillOpacity={0} stroke={chart.color} strokeWidth={2} />
+    </RadarChart>
+  );
+}
+
+function renderRadialSimpleChart(points: ChartDataPoint[]) {
+  return (
+    <RadialBarChart data={points} innerRadius={30} outerRadius={110}>
+      <ChartTooltip cursor={false} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent hideLabel nameKey="name" />} />
+      <RadialBar dataKey="value" background />
+    </RadialBarChart>
+  );
+}
+
+function renderRadialTextChart(points: ChartDataPoint[], totalLabel: string) {
+  const value = points[0]?.value || 0;
+
+  return (
+    <RadialBarChart data={points.slice(0, 1)} startAngle={0} endAngle={250} innerRadius={80} outerRadius={110}>
+      <PolarGrid gridType="circle" radialLines={false} stroke="none" className="first:fill-muted last:fill-background" polarRadius={[86, 74]} />
+      <RadialBar dataKey="value" background cornerRadius={10} />
+      <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
+        <RechartsLabel
+          content={({ viewBox }) => renderCenterLabel(viewBox, value, "fill-foreground text-4xl font-bold", totalLabel)}
+        />
+      </PolarRadiusAxis>
+    </RadialBarChart>
+  );
+}
+
+function renderDefaultChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
+  return (
+    <AreaChart accessibilityLayer data={points} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
+      <CartesianGrid vertical={false} />
+      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatTick} />
+      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={(value) => String(value)} />} />
+      <Area dataKey="value" type="natural" fill={chart.color} fillOpacity={0.2} stroke={chart.color} strokeWidth={2} />
+    </AreaChart>
+  );
 }

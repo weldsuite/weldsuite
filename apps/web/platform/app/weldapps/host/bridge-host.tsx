@@ -79,6 +79,129 @@ interface PendingModal {
   resolve: (outcome: { dismissed: boolean; result?: unknown }) => void;
 }
 
+/** What a bridge method hands back to be posted as the `ok` response. */
+interface BridgeResult {
+  payload: unknown;
+  transfer?: Transferable[];
+  /** Runs after the response was posted (e.g. closing the modal hosting the frame). */
+  afterRespond?: () => void;
+}
+
+type BridgeMethodHandler = (payload: unknown, opts: BridgeHostOptions) => BridgeResult | Promise<BridgeResult>;
+
+interface BridgeMethodDeps {
+  live: { current: { router: { push: (to: string) => void }; pendingModal: PendingModal | null } };
+  proxyFetch: (payload: unknown) => Promise<{ response: ProxyFetchResponse; transfer: Transferable[] }>;
+  mintLegacyToken: () => Promise<{ token: string; tokenExpiresAt: string; apiBaseUrl: string } | null>;
+  setPendingConfirm: (pending: PendingConfirm) => void;
+  setPendingModal: (pending: PendingModal) => void;
+}
+
+function showAppToast(payload: unknown): void {
+  const body = (payload ?? {}) as { message?: unknown; variant?: string };
+  if (typeof body.message !== 'string') return;
+  const message = body.message.slice(0, 500);
+  switch (body.variant) {
+    case 'success':
+      toast.success(message);
+      break;
+    case 'error':
+      toast.error(message);
+      break;
+    case 'warning':
+      toast.warning(message);
+      break;
+    default:
+      toast(message);
+  }
+}
+
+/** One handler per bridge request method; unknown methods are rejected by the caller. */
+function createBridgeMethods(deps: BridgeMethodDeps): Map<string, BridgeMethodHandler> {
+  const { live, proxyFetch, mintLegacyToken, setPendingConfirm, setPendingModal } = deps;
+
+  const fetchMethod: BridgeMethodHandler = async (payload) => {
+    const { response, transfer } = await proxyFetch(payload);
+    return { payload: response, transfer };
+  };
+
+  const getTokenMethod: BridgeMethodHandler = async () => {
+    const session = await mintLegacyToken();
+    if (!session) throw new BridgeRequestError('Failed to mint session token');
+    return { payload: session };
+  };
+
+  const navigateMethod: BridgeMethodHandler = (payload) => {
+    const to = (payload as { to?: unknown } | undefined)?.to;
+    if (typeof to !== 'string' || !to.startsWith('/') || to.startsWith('//')) {
+      throw new BridgeRequestError('Only platform-internal paths are allowed');
+    }
+    live.current.router.push(to);
+    return { payload: { to } };
+  };
+
+  const toastMethod: BridgeMethodHandler = (payload) => {
+    showAppToast(payload);
+    return { payload: {} };
+  };
+
+  const setBreadcrumbsMethod: BridgeMethodHandler = (payload, opts) => {
+    const items = (payload as { items?: unknown } | undefined)?.items;
+    opts.onBreadcrumbs?.(toPlatformBreadcrumbs(opts.appCode, items));
+    return { payload: {} };
+  };
+
+  const setDirtyMethod: BridgeMethodHandler = (payload, opts) => {
+    const body = (payload ?? {}) as { dirty?: unknown; message?: unknown };
+    const message = typeof body.message === 'string' ? body.message.slice(0, 300) : undefined;
+    opts.onDirty?.(body.dirty === true ? { message } : null);
+    return { payload: {} };
+  };
+
+  const confirmMethod: BridgeMethodHandler = async (payload) => {
+    const request = parseConfirmRequest(payload);
+    if (!request) throw new BridgeRequestError('confirm() needs a title');
+    const confirmed = await new Promise<boolean>((resolve) => {
+      setPendingConfirm({ request, resolve });
+    });
+    return { payload: { confirmed } };
+  };
+
+  const openModalMethod: BridgeMethodHandler = async (payload, opts) => {
+    if (opts.surface !== 'page') throw new BridgeRequestError('A modal cannot open another modal');
+    if (live.current.pendingModal) throw new BridgeRequestError('A modal is already open');
+    const request = parseOpenModalRequest(payload);
+    if (!request) throw new BridgeRequestError('openModal() needs an app-relative path');
+    const outcome = await new Promise<{ dismissed: boolean; result?: unknown }>((resolve) => {
+      setPendingModal({ request, resolve });
+    });
+    return { payload: outcome };
+  };
+
+  const closeModalMethod: BridgeMethodHandler = (payload, opts) => {
+    const { onCloseModal } = opts;
+    if (opts.surface !== 'modal' || !onCloseModal) {
+      throw new BridgeRequestError('closeModal() is only available inside a modal');
+    }
+    return {
+      payload: {},
+      afterRespond: () => onCloseModal((payload as { result?: unknown } | undefined)?.result),
+    };
+  };
+
+  return new Map<string, BridgeMethodHandler>([
+    ['fetch', fetchMethod],
+    ['getToken', getTokenMethod],
+    ['navigate', navigateMethod],
+    ['toast', toastMethod],
+    ['setBreadcrumbs', setBreadcrumbsMethod],
+    ['setDirty', setDirtyMethod],
+    ['confirm', confirmMethod],
+    ['openModal', openModalMethod],
+    ['closeModal', closeModalMethod],
+  ]);
+}
+
 /**
  * Runs the host side of the bridge for one iframe: handshake, proxied API
  * calls with the member's platform session, theme / locale / route pushes,
@@ -190,86 +313,16 @@ export function useBridgeHost(options: BridgeHostOptions): ReactNode {
       }
     };
 
+    const methods = createBridgeMethods({ live, proxyFetch, mintLegacyToken, setPendingConfirm, setPendingModal });
+
     const handleRequest = async (id: string, method: string, payload: unknown) => {
       const { options: opts } = live.current;
       try {
-        switch (method) {
-          case 'fetch': {
-            const { response, transfer } = await proxyFetch(payload);
-            respond(id, { ok: true, payload: response, transfer });
-            return;
-          }
-          case 'getToken': {
-            const session = await mintLegacyToken();
-            if (!session) throw new BridgeRequestError('Failed to mint session token');
-            respond(id, { ok: true, payload: session });
-            return;
-          }
-          case 'navigate': {
-            const to = (payload as { to?: unknown } | undefined)?.to;
-            if (typeof to !== 'string' || !to.startsWith('/') || to.startsWith('//')) {
-              throw new BridgeRequestError('Only platform-internal paths are allowed');
-            }
-            live.current.router.push(to);
-            respond(id, { ok: true, payload: { to } });
-            return;
-          }
-          case 'toast': {
-            const body = (payload ?? {}) as { message?: unknown; variant?: string };
-            if (typeof body.message === 'string') {
-              const message = body.message.slice(0, 500);
-              if (body.variant === 'success') toast.success(message);
-              else if (body.variant === 'error') toast.error(message);
-              else if (body.variant === 'warning') toast.warning(message);
-              else toast(message);
-            }
-            respond(id, { ok: true, payload: {} });
-            return;
-          }
-          case 'setBreadcrumbs': {
-            const items = (payload as { items?: unknown } | undefined)?.items;
-            opts.onBreadcrumbs?.(toPlatformBreadcrumbs(opts.appCode, items));
-            respond(id, { ok: true, payload: {} });
-            return;
-          }
-          case 'setDirty': {
-            const body = (payload ?? {}) as { dirty?: unknown; message?: unknown };
-            const message = typeof body.message === 'string' ? body.message.slice(0, 300) : undefined;
-            opts.onDirty?.(body.dirty === true ? { message } : null);
-            respond(id, { ok: true, payload: {} });
-            return;
-          }
-          case 'confirm': {
-            const request = parseConfirmRequest(payload);
-            if (!request) throw new BridgeRequestError('confirm() needs a title');
-            const confirmed = await new Promise<boolean>((resolve) => {
-              setPendingConfirm({ request, resolve });
-            });
-            respond(id, { ok: true, payload: { confirmed } });
-            return;
-          }
-          case 'openModal': {
-            if (opts.surface !== 'page') throw new BridgeRequestError('A modal cannot open another modal');
-            if (live.current.pendingModal) throw new BridgeRequestError('A modal is already open');
-            const request = parseOpenModalRequest(payload);
-            if (!request) throw new BridgeRequestError('openModal() needs an app-relative path');
-            const outcome = await new Promise<{ dismissed: boolean; result?: unknown }>((resolve) => {
-              setPendingModal({ request, resolve });
-            });
-            respond(id, { ok: true, payload: outcome });
-            return;
-          }
-          case 'closeModal': {
-            if (opts.surface !== 'modal' || !opts.onCloseModal) {
-              throw new BridgeRequestError('closeModal() is only available inside a modal');
-            }
-            respond(id, { ok: true, payload: {} });
-            opts.onCloseModal((payload as { result?: unknown } | undefined)?.result);
-            return;
-          }
-          default:
-            throw new BridgeRequestError(`Unknown method: ${method}`);
-        }
+        const handler = methods.get(method);
+        if (!handler) throw new BridgeRequestError(`Unknown method: ${method}`);
+        const result = await handler(payload, opts);
+        respond(id, { ok: true, payload: result.payload, transfer: result.transfer });
+        result.afterRespond?.();
       } catch (error) {
         respond(id, { ok: false, message: error instanceof Error ? error.message : 'Request failed' });
       }

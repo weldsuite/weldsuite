@@ -138,9 +138,15 @@ export interface GrantCreditsResult {
 // Helpers
 // ============================================================================
 
+/** Cryptographically secure base-36 string of exactly `length` characters. */
+function randomBase36(length: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 function generateId(prefix: string): string {
   const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).substring(2, 12);
+  const rand = randomBase36(10);
   return `${prefix}_${ts}${rand}`;
 }
 

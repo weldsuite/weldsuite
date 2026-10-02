@@ -131,6 +131,73 @@ async function fetchGravatar(
   }
 }
 
+/** Fetch a logo image from Hunter.io. Returns null when there is no usable image. */
+async function fetchHunterLogo(
+  domain: string,
+): Promise<{ body: ArrayBuffer; contentType: string } | null> {
+  const response = await fetch(`https://logos.hunter.io/${domain}`, {
+    headers: { Accept: 'image/*' },
+  });
+  if (!response.ok) return null;
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.startsWith('image/')) return null;
+  const body = await response.arrayBuffer();
+  if (body.byteLength === 0) return null;
+  return { body, contentType };
+}
+
+/** Store a Gravatar in R2 when the email has one. Returns its public URL, or null. */
+async function tryStoreGravatar(
+  email: string,
+  basePath: string,
+  storage: R2Bucket,
+  r2PublicUrl: string,
+): Promise<string | null> {
+  const gravatar = await fetchGravatar(email);
+  if (!gravatar) return null;
+  const ext = gravatar.contentType.includes('svg') ? 'svg' : 'png';
+  const r2Key = `${basePath}/logo.${ext}`;
+  await storage.put(r2Key, gravatar.body, {
+    httpMetadata: { contentType: gravatar.contentType },
+  });
+  const publicUrl = `${r2PublicUrl}/${r2Key}`;
+  console.log('[LogoFetch] Stored gravatar for', logSafe(email), 'at', logSafe(publicUrl));
+  return publicUrl;
+}
+
+/** Store a Hunter.io logo in R2 when the website has one. Returns its public URL, or null. */
+async function tryStoreHunterLogo(
+  website: string,
+  basePath: string,
+  storage: R2Bucket,
+  r2PublicUrl: string,
+): Promise<string | null> {
+  const domain = extractDomain(website);
+  if (!domain) return null;
+  console.log('[LogoFetch] Fetching logo for', domain);
+
+  try {
+    const logo = await fetchHunterLogo(domain);
+    if (logo) {
+      const ext = logo.contentType.includes('svg') ? 'svg' : 'png';
+      const r2Key = `${basePath}/logo.${ext}`;
+
+      await storage.put(r2Key, logo.body, {
+        httpMetadata: { contentType: logo.contentType },
+      });
+
+      const publicUrl = `${r2PublicUrl}/${r2Key}`;
+      console.log('[LogoFetch] Stored logo for', logSafe(domain), 'at', logSafe(publicUrl));
+      return publicUrl;
+    }
+
+    console.log('[LogoFetch] No logo found for', domain, '- falling back to initials');
+  } catch (err) {
+    console.log('[LogoFetch] Failed to fetch logo for', domain, '- falling back to initials:', err);
+  }
+  return null;
+}
+
 /**
  * Fetch a company logo from Hunter.io and store it in R2.
  * If no logo is found (or no website provided), generates an initials avatar instead.
@@ -152,55 +219,14 @@ export async function fetchAndStoreLogo({
   // appropriate than Hunter for individual people; falls through cleanly
   // on miss thanks to `d=404`.
   if (email) {
-    const gravatar = await fetchGravatar(email);
-    if (gravatar) {
-      const ext = gravatar.contentType.includes('svg') ? 'svg' : 'png';
-      const r2Key = `${basePath}/logo.${ext}`;
-      await storage.put(r2Key, gravatar.body, {
-        httpMetadata: { contentType: gravatar.contentType },
-      });
-      const publicUrl = `${r2PublicUrl}/${r2Key}`;
-      console.log('[LogoFetch] Stored gravatar for', logSafe(email), 'at', logSafe(publicUrl));
-      return publicUrl;
-    }
+    const gravatarUrl = await tryStoreGravatar(email, basePath, storage, r2PublicUrl);
+    if (gravatarUrl) return gravatarUrl;
   }
 
   // Try Hunter.io if a website/domain is provided
   if (website) {
-    const domain = extractDomain(website);
-    if (domain) {
-      const logoUrl = `https://logos.hunter.io/${domain}`;
-      console.log('[LogoFetch] Fetching logo for', domain);
-
-      try {
-        const response = await fetch(logoUrl, {
-          headers: { Accept: 'image/*' },
-        });
-
-        if (response.ok) {
-          const contentType = response.headers.get('content-type') || '';
-          if (contentType.startsWith('image/')) {
-            const body = await response.arrayBuffer();
-            if (body.byteLength > 0) {
-              const ext = contentType.includes('svg') ? 'svg' : 'png';
-              const r2Key = `${basePath}/logo.${ext}`;
-
-              await storage.put(r2Key, body, {
-                httpMetadata: { contentType },
-              });
-
-              const publicUrl = `${r2PublicUrl}/${r2Key}`;
-              console.log('[LogoFetch] Stored logo for', logSafe(domain), 'at', logSafe(publicUrl));
-              return publicUrl;
-            }
-          }
-        }
-
-        console.log('[LogoFetch] No logo found for', domain, '- falling back to initials');
-      } catch (err) {
-        console.log('[LogoFetch] Failed to fetch logo for', domain, '- falling back to initials:', err);
-      }
-    }
+    const hunterUrl = await tryStoreHunterLogo(website, basePath, storage, r2PublicUrl);
+    if (hunterUrl) return hunterUrl;
   }
 
   // Fallback: generate an initials avatar

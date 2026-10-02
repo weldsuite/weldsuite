@@ -1,5 +1,4 @@
-
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Trash2, UserPlus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -57,6 +56,34 @@ export function ShareCalendarDialog({ calendarId, open, onOpenChange }: Readonly
     await removeShare.mutateAsync({ calendarId, shareId });
   };
 
+  let sharesContent: ReactNode;
+  if (isLoading) {
+    sharesContent = <p className="text-sm text-muted-foreground">{t.shareCalendar.loading}</p>;
+  } else if (shares.length === 0) {
+    sharesContent = <p className="text-sm text-muted-foreground">{t.shareCalendar.notShared}</p>;
+  } else {
+    sharesContent = (
+      <div className="space-y-2">
+        {shares.map((share) => (
+          <div key={share.id} className="flex items-center justify-between gap-2 p-2 border rounded-md">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{share.sharedWithId}</p>
+              <p className="text-xs text-muted-foreground">{PERMISSION_LABELS[share.permission]}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-destructive"
+              onClick={() => handleRemove(share.id)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
@@ -94,30 +121,7 @@ export function ShareCalendarDialog({ calendarId, open, onOpenChange }: Readonly
           {/* Current shares */}
           <div className="space-y-2">
             <Label>{t.shareCalendar.sharedWithLabel}</Label>
-            {isLoading ? (
-              <p className="text-sm text-muted-foreground">{t.shareCalendar.loading}</p>
-            ) : shares.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t.shareCalendar.notShared}</p>
-            ) : (
-              <div className="space-y-2">
-                {shares.map((share) => (
-                  <div key={share.id} className="flex items-center justify-between gap-2 p-2 border rounded-md">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{share.sharedWithId}</p>
-                      <p className="text-xs text-muted-foreground">{PERMISSION_LABELS[share.permission]}</p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive"
-                      onClick={() => handleRemove(share.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
+            {sharesContent}
           </div>
         </div>
       </DialogContent>

@@ -2,16 +2,11 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-react';
-import { Check, Search } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
-import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
 import { DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
 import { useMeeting, useUpdateMeeting, useLatestSession, useUpdateHostControls, type MeetingSession } from '@/hooks/queries/use-weldmeet-queries';
 import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
 import { useWorkspaceId } from '@/contexts/workspace-context';
-import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
 import { useMeetingPanelOpen } from '@/hooks/use-meeting-panel-open';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
@@ -30,6 +25,7 @@ import {
 } from '@weldsuite/weldmeet-ui';
 import { getTranslations } from '@/lib/i18n';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
+import { MeetingInvitePicker } from './meeting-invite-picker';
 
 // ============================================================================
 // Platform-specific bits the shared component takes as slots
@@ -58,153 +54,28 @@ type SessionParticipantWithLinks = MeetingSession['participants'][number] & {
   customParticipantId?: string;
 };
 
-interface WorkspaceMemberOption {
-  userId: string;
-  name?: string | null;
-  email?: string | null;
-}
-
-function AddPeopleDialogContent({ shareUrl }: Readonly<{ shareUrl: string }>) {
+function AddPeopleDialogContent({ meetingId }: Readonly<{ meetingId: string }>) {
   const t = getTranslations('weldmeet');
-  const { data: membersData } = useWorkspaceMembers(1, 50);
-  const [search, setSearch] = useState('');
-  const [invited, setInvited] = useState<Set<string>>(new Set());
-
-  const members = (membersData?.data ?? []).filter((m: WorkspaceMemberOption) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q));
-  });
-
-  const handleInvite = (member: WorkspaceMemberOption) => {
-    setInvited(prev => new Set(prev).add(member.userId));
-    navigator.clipboard?.writeText(shareUrl).catch(() => { /* ignore */ });
-  };
-
   return (
     <>
       <DialogHeader>
         <DialogTitle className="text-[17px]">{t.overlay.addPeople.title}</DialogTitle>
       </DialogHeader>
-
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-        <Input
-          placeholder={t.overlay.addPeople.searchPlaceholder}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-[35px] text-xs pl-8"
-          autoFocus
-        />
-      </div>
-
-      <div className="max-h-[300px] overflow-y-auto -mx-4 px-4 -mt-2">
-        {members.length === 0 && (
-          <p className="text-xs text-muted-foreground text-center py-6">{t.overlay.addPeople.noMembersFound}</p>
-        )}
-        {members.map((m: WorkspaceMemberOption) => {
-          const isInvited = invited.has(m.userId);
-          return (
-            <div key={m.userId} className="flex items-center gap-3 py-2.5">
-              <Avatar className="h-7 w-7 !rounded-[8px]">
-                <AvatarFallback className="text-[10px] !rounded-[8px]">
-                  {(m.name ?? m.email ?? '?').charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{m.name ?? t.overlay.addPeople.unknown}</p>
-                {m.email && <p className="text-xs text-muted-foreground truncate">{m.email}</p>}
-              </div>
-              <Button
-                size="sm"
-                variant={isInvited ? 'ghost' : 'outline'}
-                className="shrink-0"
-                onClick={() => handleInvite(m)}
-                disabled={isInvited}
-              >
-                {isInvited ? (
-                  <><Check className="h-3.5 w-3.5" /> {t.overlay.addPeople.invited}</>
-                ) : (
-                  t.overlay.addPeople.invite
-                )}
-              </Button>
-            </div>
-          );
-        })}
-      </div>
+      <MeetingInvitePicker meetingId={meetingId} />
     </>
   );
 }
 
-function InvitePopoverContent({ shareUrl }: Readonly<{ shareUrl: string }>) {
+function InvitePopoverContent({ meetingId }: Readonly<{ meetingId: string }>) {
   const t = getTranslations('weldmeet');
-  const { data: membersData } = useWorkspaceMembers(1, 50);
-  const [search, setSearch] = useState('');
-  const [invited, setInvited] = useState<Set<string>>(new Set());
-
-  const members = (membersData?.data ?? []).filter((m: WorkspaceMemberOption) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q));
-  });
-
-  const handleInvite = (member: WorkspaceMemberOption) => {
-    setInvited(prev => new Set(prev).add(member.userId));
-    navigator.clipboard?.writeText(shareUrl).catch(() => { /* ignore */ });
-  };
-
   return (
     <>
       <div className="px-4 pt-4 pb-3">
         <p className="text-sm font-semibold">{t.overlay.invitePopover.title}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{t.overlay.invitePopover.description}</p>
       </div>
-
       <div className="px-4 pb-3">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder={t.overlay.invitePopover.searchPlaceholder}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-[35px] text-xs pl-8"
-          />
-        </div>
-      </div>
-
-      <div className="max-h-[240px] overflow-y-auto px-2 pb-2">
-        {members.length === 0 && (
-          <p className="text-xs text-muted-foreground text-center py-4">{t.overlay.invitePopover.noMembersFound}</p>
-        )}
-        {members.map((m: WorkspaceMemberOption) => {
-          const isInvited = invited.has(m.userId);
-          return (
-            <div key={m.userId} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-muted/50">
-              <Avatar className="h-7 w-7 !rounded-[8px]">
-                <AvatarFallback className="text-[10px] !rounded-[8px]">
-                  {(m.name ?? m.email ?? '?').charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium truncate">{m.name ?? t.overlay.invitePopover.unknown}</p>
-                {m.email && <p className="text-[11px] text-muted-foreground truncate">{m.email}</p>}
-              </div>
-              <Button
-                size="xs"
-                variant={isInvited ? 'ghost' : 'secondary'}
-                className="shrink-0"
-                onClick={() => handleInvite(m)}
-                disabled={isInvited}
-              >
-                {isInvited ? (
-                  <><Check className="h-3 w-3" /> {t.overlay.invitePopover.invited}</>
-                ) : (
-                  t.overlay.invitePopover.invite
-                )}
-              </Button>
-            </div>
-          );
-        })}
+        <MeetingInvitePicker meetingId={meetingId} compact />
       </div>
     </>
   );
@@ -449,8 +320,10 @@ function MeetingRoomAdapter() {
   }, [activeMeetingId]);
 
   const invitePopoverSlot = useMemo(
-    () => shareUrl ? <InvitePopover popoverContent={<InvitePopoverContent shareUrl={shareUrl} />} /> : null,
-    [shareUrl],
+    () => shareUrl && activeMeetingId
+      ? <InvitePopover popoverContent={<InvitePopoverContent meetingId={activeMeetingId} />} />
+      : null,
+    [shareUrl, activeMeetingId],
   );
 
   // Live participants (minus self) offered in the chat composer's @-mention
@@ -565,7 +438,7 @@ function MeetingRoomAdapter() {
       meeting={meeting}
       participants={participants}
       selfIsHost={isOrganizer}
-      addPeopleDialogContent={shareUrl ? <AddPeopleDialogContent shareUrl={shareUrl} /> : undefined}
+      addPeopleDialogContent={shareUrl && activeMeetingId ? <AddPeopleDialogContent meetingId={activeMeetingId} /> : undefined}
       onClickPerson={handleClickParticipantDetails}
     />
   );
@@ -685,7 +558,7 @@ function MeetingRoomAdapter() {
       invitePopoverSlot={invitePopoverSlot}
       peoplePanelSlot={peoplePanelSlot}
       hostControlsSlot={hostControlsSlot}
-      addPeopleDialogContent={shareUrl ? <AddPeopleDialogContent shareUrl={shareUrl} /> : undefined}
+      addPeopleDialogContent={shareUrl && activeMeetingId ? <AddPeopleDialogContent meetingId={activeMeetingId} /> : undefined}
       onClickParticipantDetails={handleClickParticipantDetails}
       // Treat the object detail panel as an external panel too: when it opens
       // (objectPanelWidth > 0) MeetingRoomView closes its internal panels

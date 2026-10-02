@@ -75,6 +75,21 @@ interface ProjectTab {
   icon: LucideIcon;
 }
 
+// Tabs whose content manages its own top spacing (no extra `pt-4` wrapper padding).
+const TABS_WITHOUT_TOP_PADDING = new Set([
+  'whiteboard',
+  'documents',
+  'goals',
+  'table',
+  'gantt',
+  'workload',
+  'members',
+  'pipeline',
+  'timesheet',
+  'tasks',
+  'settings',
+]);
+
 function SortableTab({ id, children }: Readonly<{ id: string; children: React.ReactNode }>) {
   const {
     attributes,
@@ -511,8 +526,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
           <div
             className={cn(
               'h-full overflow-auto flex flex-col min-h-0',
-              activeTab === 'whiteboard' ? '' :
-                activeTab === 'documents' || activeTab === 'goals' || activeTab === 'table' || activeTab === 'gantt' || activeTab === 'workload' || activeTab === 'members' || activeTab === 'pipeline' || activeTab === 'timesheet' || activeTab === 'tasks' || activeTab === 'settings' ? '' : 'pt-4'
+              !TABS_WITHOUT_TOP_PADDING.has(activeTab) && 'pt-4'
             )}
           >
             {children}
@@ -551,6 +565,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
           >
             {/* Resize handle on the left edge — drag to resize */}
             <div
+              role="presentation"
               className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group"
               onMouseDown={handleResizeMouseDown}
             >

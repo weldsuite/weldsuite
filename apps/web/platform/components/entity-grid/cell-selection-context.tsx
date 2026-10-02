@@ -129,6 +129,54 @@ interface CellSelectionProviderProps<TEntity> {
   children: React.ReactNode;
 }
 
+interface CopyColumn<TEntity> {
+  id: string;
+  isCustom?: boolean;
+  getValue: (entity: TEntity) => unknown;
+}
+
+function readCopyCell<TEntity>(
+  column: CopyColumn<TEntity> | undefined,
+  merged: TEntity,
+  customFieldData: Record<string, Record<string, unknown>>,
+): string {
+  if (!column) return '';
+  let value: unknown;
+  if (column.isCustom) {
+    const id = (merged as Record<string, unknown> | undefined)?.id as string | null ?? null;
+    value = id ? customFieldData[id]?.[column.id] : undefined;
+  } else {
+    value = column.getValue(merged);
+  }
+  return formatCopyValue(value);
+}
+
+/** Serialises the selected rectangle as TSV (one row per line). */
+function buildCopyText<TEntity>(
+  range: CellRange,
+  entities: TEntity[],
+  visibleColumns: CopyColumn<TEntity>[],
+  getMerged: (entity: TEntity) => TEntity,
+  customFieldData: Record<string, Record<string, unknown>>,
+): string {
+  const minR = Math.min(range.anchor.row, range.head.row);
+  const maxR = Math.max(range.anchor.row, range.head.row);
+  const minC = Math.min(range.anchor.col, range.head.col);
+  const maxC = Math.max(range.anchor.col, range.head.col);
+  const lines: string[] = [];
+  for (let row = minR; row <= maxR; row++) {
+    const entity = entities[row];
+    if (!entity) continue;
+    const merged = getMerged(entity);
+    const cells: string[] = [];
+    for (let col = minC; col <= maxC; col++) {
+      cells.push(readCopyCell(visibleColumns[col], merged, customFieldData));
+    }
+    lines.push(cells.join('\t'));
+  }
+  return lines.join('\n');
+}
+
 /**
  * Spreadsheet-style cell range selection: click+drag to select a rectangle
  * of cells, Cmd/Ctrl+C copies the selected values as TSV (tab-separated, one
@@ -170,35 +218,7 @@ export function CellSelectionProvider<TEntity>({ entities, children }: CellSelec
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
       }
-      const visibleColumns = getVisibleColumns();
-      const minR = Math.min(r.anchor.row, r.head.row);
-      const maxR = Math.max(r.anchor.row, r.head.row);
-      const minC = Math.min(r.anchor.col, r.head.col);
-      const maxC = Math.max(r.anchor.col, r.head.col);
-      const lines: string[] = [];
-      for (let row = minR; row <= maxR; row++) {
-        const entity = entities[row];
-        if (!entity) continue;
-        const merged = getEntityWithOptimisticUpdates(entity);
-        const cells: string[] = [];
-        for (let col = minC; col <= maxC; col++) {
-          const column = visibleColumns[col];
-          if (!column) {
-            cells.push('');
-            continue;
-          }
-          let value: unknown;
-          if (column.isCustom) {
-            const id = (merged as Record<string, unknown> | undefined)?.id as string | null ?? null;
-            value = id ? customFieldData[id]?.[column.id] : undefined;
-          } else {
-            value = column.getValue(merged);
-          }
-          cells.push(formatCopyValue(value));
-        }
-        lines.push(cells.join('\t'));
-      }
-      const text = lines.join('\n');
+      const text = buildCopyText(r, entities, getVisibleColumns(), getEntityWithOptimisticUpdates, customFieldData);
       if (!text) return;
       e.preventDefault();
       void navigator.clipboard.writeText(text).catch(() => {});
@@ -284,24 +304,25 @@ const EMPTY_ACTIONS = {
   extendSelection: (_: CellPos) => {},
 };
 
+function formatObjectCopyValue(v: Record<string, unknown>): string {
+  for (const key of ['label', 'name', 'title'] as const) {
+    if (typeof v[key] === 'string') return v[key];
+  }
+  if (typeof v.email === 'string') return v.email;
+  if (typeof v.city === 'string' || typeof v.country === 'string') {
+    return [v.city, v.state, v.country].filter(Boolean).join(', ');
+  }
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return '';
+  }
+}
+
 function formatCopyValue(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (Array.isArray(value)) return value.map((v) => formatCopyValue(v)).join(', ');
   if (value instanceof Date) return value.toISOString().slice(0, 10);
-  if (typeof value === 'object') {
-    const v = value as Record<string, unknown>;
-    if (typeof v.label === 'string') return v.label;
-    if (typeof v.name === 'string') return v.name;
-    if (typeof v.title === 'string') return v.title;
-    if (typeof v.email === 'string') return v.email;
-    if (typeof v.city === 'string' || typeof v.country === 'string') {
-      return [v.city, v.state, v.country].filter(Boolean).join(', ');
-    }
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return '';
-    }
-  }
+  if (typeof value === 'object') return formatObjectCopyValue(value as Record<string, unknown>);
   return String(value);
 }

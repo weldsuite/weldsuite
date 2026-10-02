@@ -105,6 +105,64 @@ function mapSendError(c: Parameters<typeof error.badRequest>[0], err: PersonalMa
   }
 }
 
+type ListFilters = z.infer<typeof listQuery>;
+
+/** WHERE conditions for every list filter except the cursor, scoped to the account. */
+function buildListConditions(filters: ListFilters, personalAccountId: string): SQL[] {
+  const conditions: SQL[] = [
+    eq(personalMailMessages.personalAccountId, personalAccountId),
+    isNull(personalMailMessages.deletedAt)!,
+  ];
+
+  if (filters.accountId) {
+    conditions.push(eq(personalMailMessages.accountId, filters.accountId));
+  }
+  if (filters.label) {
+    conditions.push(
+      sql`${personalMailMessages.labels} @> ${JSON.stringify([filters.label])}::jsonb`,
+    );
+  }
+  if (filters.threadId) {
+    conditions.push(eq(personalMailMessages.threadId, filters.threadId));
+  }
+  if (filters.unreadOnly) {
+    conditions.push(eq(personalMailMessages.isRead, false));
+  }
+  if (filters.search?.trim()) {
+    const term = `%${escapeLike(filters.search.trim())}%`;
+    conditions.push(
+      or(
+        ilike(personalMailMessages.subject, term),
+        ilike(personalMailMessages.preview, term),
+        sql`${personalMailMessages.from}->>'name' ILIKE ${term}`,
+        sql`${personalMailMessages.from}->>'email' ILIKE ${term}`,
+      )!,
+    );
+  }
+  return conditions;
+}
+
+/** Keyset condition continuing after the cursor message, or null when it has no sent date. */
+async function buildCursorCondition(
+  personalDb: ReturnType<typeof getPersonalDb>,
+  cursorId: string,
+  ascending: boolean,
+): Promise<SQL | null> {
+  const [cur] = await personalDb
+    .select({
+      sentDate: personalMailMessages.sentDate,
+      id: personalMailMessages.id,
+    })
+    .from(personalMailMessages)
+    .where(eq(personalMailMessages.id, cursorId))
+    .limit(1);
+  if (!cur?.sentDate) return null;
+
+  return ascending
+    ? sql`(${personalMailMessages.sentDate} > ${cur.sentDate} OR (${personalMailMessages.sentDate} = ${cur.sentDate} AND ${personalMailMessages.id} > ${cur.id}))`
+    : sql`(${personalMailMessages.sentDate} < ${cur.sentDate} OR (${personalMailMessages.sentDate} = ${cur.sentDate} AND ${personalMailMessages.id} < ${cur.id}))`;
+}
+
 app.get('/', zValidator('query', listQuery), async (c) => {
   const personalAccountId = c.get('personalAccountId');
   if (!personalAccountId) return error.personalAccountRequired(c);
@@ -114,57 +172,15 @@ app.get('/', zValidator('query', listQuery), async (c) => {
 
   try {
     const personalDb = getPersonalDb(c.env);
-    const conditions: SQL[] = [
-      eq(personalMailMessages.personalAccountId, personalAccountId),
-      isNull(personalMailMessages.deletedAt)!,
-    ];
-
-    if (filters.accountId) {
-      conditions.push(eq(personalMailMessages.accountId, filters.accountId));
-    }
-    if (filters.label) {
-      conditions.push(
-        sql`${personalMailMessages.labels} @> ${JSON.stringify([filters.label])}::jsonb`,
-      );
-    }
-    if (filters.threadId) {
-      conditions.push(eq(personalMailMessages.threadId, filters.threadId));
-    }
-    if (filters.unreadOnly) {
-      conditions.push(eq(personalMailMessages.isRead, false));
-    }
-    if (filters.search?.trim()) {
-      const term = `%${escapeLike(filters.search.trim())}%`;
-      conditions.push(
-        or(
-          ilike(personalMailMessages.subject, term),
-          ilike(personalMailMessages.preview, term),
-          sql`${personalMailMessages.from}->>'name' ILIKE ${term}`,
-          sql`${personalMailMessages.from}->>'email' ILIKE ${term}`,
-        )!,
-      );
-    }
+    const conditions = buildListConditions(filters, personalAccountId);
 
     // A thread view reads oldest-first (conversation order); every other view
     // is newest-first, and the cursor comparison has to match that direction.
     const ascending = Boolean(filters.threadId);
 
     if (filters.cursor) {
-      const [cur] = await personalDb
-        .select({
-          sentDate: personalMailMessages.sentDate,
-          id: personalMailMessages.id,
-        })
-        .from(personalMailMessages)
-        .where(eq(personalMailMessages.id, filters.cursor))
-        .limit(1);
-      if (cur?.sentDate) {
-        conditions.push(
-          ascending
-            ? sql`(${personalMailMessages.sentDate} > ${cur.sentDate} OR (${personalMailMessages.sentDate} = ${cur.sentDate} AND ${personalMailMessages.id} > ${cur.id}))`
-            : sql`(${personalMailMessages.sentDate} < ${cur.sentDate} OR (${personalMailMessages.sentDate} = ${cur.sentDate} AND ${personalMailMessages.id} < ${cur.id}))`,
-        );
-      }
+      const cursorCondition = await buildCursorCondition(personalDb, filters.cursor, ascending);
+      if (cursorCondition) conditions.push(cursorCondition);
     }
 
     const where = and(...conditions);
@@ -399,6 +415,57 @@ app.get('/:id', async (c) => {
   }
 });
 
+type MessageUpdate = z.infer<typeof updateBody>;
+
+interface MessagePatch {
+  updatedAt: Date;
+  isRead?: boolean;
+  isStarred?: boolean;
+  isTrash?: boolean;
+  isSpam?: boolean;
+  labels?: string[];
+}
+
+/** Labels to store for an explicit `labels` update. */
+function nextExplicitLabels(requested: string[], had: string[]): string[] {
+  // Moving a promotion to the inbox takes it out of Promotions, matching
+  // app-api's location-label behaviour.
+  return requested.includes('INBOX') && !had.includes('INBOX')
+    ? requested.filter((l) => l !== 'PROMOTIONS')
+    : requested;
+}
+
+/** Spam flag change without an explicit label list also moves the location labels. */
+function spamPatch(isSpam: boolean, current: string[]): Pick<MessagePatch, 'isSpam' | 'labels'> {
+  if (isSpam) {
+    return {
+      isSpam: true,
+      labels: [...new Set([...current.filter((l) => l !== 'INBOX'), 'SPAM'])],
+    };
+  }
+  let next = current.filter((l) => l !== 'SPAM');
+  if (!next.includes('TRASH') && !next.includes('ARCHIVE')) {
+    next = [...new Set([...next, 'INBOX'])];
+  }
+  return { isSpam: false, labels: next };
+}
+
+/** Build the column patch for a message update given the labels it currently has. */
+function buildMessagePatch(body: MessageUpdate, existingLabels: string[]): MessagePatch {
+  const patch: MessagePatch = { updatedAt: new Date() };
+  if (body.isRead !== undefined) patch.isRead = body.isRead;
+  if (body.isStarred !== undefined) patch.isStarred = body.isStarred;
+  if (body.isTrash !== undefined) patch.isTrash = body.isTrash;
+
+  if (body.labels !== undefined) {
+    patch.labels = nextExplicitLabels(body.labels, existingLabels);
+    if (body.isSpam !== undefined) patch.isSpam = body.isSpam;
+  } else if (body.isSpam !== undefined) {
+    Object.assign(patch, spamPatch(body.isSpam, existingLabels));
+  }
+  return patch;
+}
+
 app.patch('/:id', zValidator('json', updateBody), async (c) => {
   const personalAccountId = c.get('personalAccountId');
   if (!personalAccountId) return error.personalAccountRequired(c);
@@ -435,41 +502,7 @@ app.patch('/:id', zValidator('json', updateBody), async (c) => {
 
     if (!existing) return error.notFound(c, 'Message', id);
 
-    const patch: {
-      updatedAt: Date;
-      isRead?: boolean;
-      isStarred?: boolean;
-      isTrash?: boolean;
-      isSpam?: boolean;
-      labels?: string[];
-    } = { updatedAt: new Date() };
-    if (body.isRead !== undefined) patch.isRead = body.isRead;
-    if (body.isStarred !== undefined) patch.isStarred = body.isStarred;
-    if (body.isTrash !== undefined) patch.isTrash = body.isTrash;
-    if (body.labels !== undefined) {
-      const had = (existing.labels as string[] | null) ?? [];
-      // Moving a promotion to the inbox takes it out of Promotions, matching
-      // app-api's location-label behaviour.
-      patch.labels =
-        body.labels.includes('INBOX') && !had.includes('INBOX')
-          ? body.labels.filter((l) => l !== 'PROMOTIONS')
-          : body.labels;
-    }
-
-    if (body.isSpam === true && body.labels === undefined) {
-      patch.isSpam = true;
-      const cur = (existing.labels as string[] | null) ?? [];
-      patch.labels = [...new Set([...cur.filter((l) => l !== 'INBOX'), 'SPAM'])];
-    } else if (body.isSpam === false && body.labels === undefined) {
-      patch.isSpam = false;
-      let next = ((existing.labels as string[] | null) ?? []).filter((l) => l !== 'SPAM');
-      if (!next.includes('TRASH') && !next.includes('ARCHIVE')) {
-        next = [...new Set([...next, 'INBOX'])];
-      }
-      patch.labels = next;
-    } else if (body.isSpam !== undefined) {
-      patch.isSpam = body.isSpam;
-    }
+    const patch = buildMessagePatch(body, (existing.labels as string[] | null) ?? []);
 
     const [updated] = await personalDb
       .update(personalMailMessages)

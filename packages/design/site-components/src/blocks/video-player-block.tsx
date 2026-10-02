@@ -2,6 +2,8 @@
 
 import type { StoreData } from '../types';
 import React, { useState, useRef } from 'react';
+import { buildEmbedUrl } from '../lib/video-embed';
+import { VideoCover } from '../components/video-cover';
 
 interface VideoPlayerBlockProps {
   // Video source
@@ -40,6 +42,19 @@ interface VideoPlayerBlockProps {
   store?: StoreData;
 }
 
+// Alignment classes
+const ALIGNMENT_MAP = {
+  'top-left': 'items-start justify-start text-left',
+  'top-center': 'items-start justify-center text-center',
+  'top-right': 'items-start justify-end text-right',
+  'center-left': 'items-center justify-start text-left',
+  'center': 'items-center justify-center text-center',
+  'center-right': 'items-center justify-end text-right',
+  'bottom-left': 'items-end justify-start text-left',
+  'bottom-center': 'items-end justify-center text-center',
+  'bottom-right': 'items-end justify-end text-right',
+};
+
 export function VideoPlayerBlock({
   url = '',
   videoType = 'youtube',
@@ -73,59 +88,16 @@ export function VideoPlayerBlock({
   };
 
   const sectionHeight = heightMap[height];
-
-  // Alignment classes
-  const alignmentMap = {
-    'top-left': 'items-start justify-start text-left',
-    'top-center': 'items-start justify-center text-center',
-    'top-right': 'items-start justify-end text-right',
-    'center-left': 'items-center justify-start text-left',
-    'center': 'items-center justify-center text-center',
-    'center-right': 'items-center justify-end text-right',
-    'bottom-left': 'items-end justify-start text-left',
-    'bottom-center': 'items-end justify-center text-center',
-    'bottom-right': 'items-end justify-end text-right',
+  const containerHeightStyle = {
+    height: typeof sectionHeight === 'number' ? `${sectionHeight}px` : sectionHeight,
+    maxHeight: height === 'fullscreen' ? '100vh' : undefined,
   };
 
   // Check if it's a YouTube or Vimeo URL
   const isYouTube = videoType === 'youtube' || url.includes('youtube.com') || url.includes('youtu.be');
   const isVimeo = videoType === 'vimeo' || url.includes('vimeo.com');
 
-  const getEmbedUrl = () => {
-    if (isYouTube) {
-      const videoId = url.match(/(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/)?.[1];
-      if (!videoId) return '';
-
-      const params = new URLSearchParams();
-      if (autoplay) params.set('autoplay', '1');
-      if (loop) {
-        params.set('loop', '1');
-        params.set('playlist', videoId);
-      }
-      if (muted) params.set('mute', '1');
-      if (!showControls) params.set('controls', '0');
-      params.set('rel', '0');
-
-      return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
-    }
-
-    if (isVimeo) {
-      const videoId = url.match(/vimeo\.com\/(\d+)/)?.[1];
-      if (!videoId) return '';
-
-      const params = new URLSearchParams();
-      if (autoplay) params.set('autoplay', '1');
-      if (loop) params.set('loop', '1');
-      if (muted) params.set('muted', '1');
-      if (!showControls) params.set('controls', '0');
-
-      return `https://player.vimeo.com/video/${videoId}?${params.toString()}`;
-    }
-
-    return url;
-  };
-
-  const embedUrl = getEmbedUrl();
+  const embedUrl = buildEmbedUrl({ url, isYouTube, isVimeo, autoplay, loop, muted, showControls });
 
   const handlePlay = () => {
     setIsPlaying(true);
@@ -138,10 +110,7 @@ export function VideoPlayerBlock({
     return (
       <div
         className="flex items-center justify-center bg-muted rounded-lg"
-        style={{
-          height: typeof sectionHeight === 'number' ? `${sectionHeight}px` : sectionHeight,
-          maxHeight: height === 'fullscreen' ? '100vh' : undefined
-        }}
+        style={containerHeightStyle}
       >
         <div className="text-center p-8">
           <div className="text-muted-foreground mb-4">
@@ -159,78 +128,31 @@ export function VideoPlayerBlock({
   return (
     <div
       className="relative overflow-hidden rounded-lg"
-      style={{
-        height: typeof sectionHeight === 'number' ? `${sectionHeight}px` : sectionHeight,
-        maxHeight: height === 'fullscreen' ? '100vh' : undefined
-      }}
+      style={containerHeightStyle}
     >
       {/* Video Container */}
       <div className="absolute inset-0">
-        {isYouTube || isVimeo ? (
-          <>
-            {!isPlaying && coverImage ? (
-              <div className="relative w-full h-full">
-                <img
-                  src={coverImage}
-                  alt={heading || 'Video cover'}
-                  className="w-full h-full object-cover"
-                />
-                <button
-                  onClick={handlePlay}
-                  className="absolute inset-0 flex items-center justify-center group"
-                  aria-label="Play video"
-                >
-                  <div className="w-20 h-20 bg-white/90 rounded-full flex items-center justify-center group-hover:bg-white transition-colors">
-                    <svg className="w-10 h-10 text-black ml-1" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </div>
-                </button>
-              </div>
-            ) : (
-              <iframe
-                src={embedUrl}
-                className="absolute inset-0 w-full h-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                title={heading || 'Video'}
-              />
-            )}
-          </>
+        {!isPlaying && coverImage ? (
+          <VideoCover coverImage={coverImage} heading={heading} onPlay={handlePlay} />
+        ) : isYouTube || isVimeo ? (
+          <iframe
+            src={embedUrl}
+            className="absolute inset-0 w-full h-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            title={heading || 'Video'}
+          />
         ) : (
-          <>
-            {!isPlaying && coverImage ? (
-              <div className="relative w-full h-full">
-                <img
-                  src={coverImage}
-                  alt={heading || 'Video cover'}
-                  className="w-full h-full object-cover"
-                />
-                <button
-                  onClick={handlePlay}
-                  className="absolute inset-0 flex items-center justify-center group"
-                  aria-label="Play video"
-                >
-                  <div className="w-20 h-20 bg-white/90 rounded-full flex items-center justify-center group-hover:bg-white transition-colors">
-                    <svg className="w-10 h-10 text-black ml-1" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </div>
-                </button>
-              </div>
-            ) : (
-              <video
-                ref={videoRef}
-                src={embedUrl}
-                className="w-full h-full object-cover"
-                autoPlay={autoplay}
-                loop={loop}
-                muted={muted}
-                controls={showControls !== undefined ? showControls : controls}
-                playsInline
-              />
-            )}
-          </>
+          <video
+            ref={videoRef}
+            src={embedUrl}
+            className="w-full h-full object-cover"
+            autoPlay={autoplay}
+            loop={loop}
+            muted={muted}
+            controls={showControls !== undefined ? showControls : controls}
+            playsInline
+          />
         )}
 
         {/* Overlay */}
@@ -244,7 +166,7 @@ export function VideoPlayerBlock({
 
       {/* Content Overlay */}
       {(heading || description || showButton) && (
-        <div className={`relative h-full flex flex-col ${alignmentMap[contentAlignment]} px-4 md:px-8 py-12 md:py-20 z-10`}>
+        <div className={`relative h-full flex flex-col ${ALIGNMENT_MAP[contentAlignment]} px-4 md:px-8 py-12 md:py-20 z-10`}>
           <div className="max-w-2xl space-y-4 md:space-y-6">
             {heading && (
               <h2

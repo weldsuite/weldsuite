@@ -16,6 +16,7 @@ import type {
   CrmSyncAdapter,
   SyncEntityType,
   SyncEntityStats,
+  ExternalEntity,
   FieldMappingDefinition,
 } from './types';
 import type {
@@ -105,6 +106,134 @@ export interface SyncOptions {
   defaultValues?: Record<string, unknown>;
 }
 
+/** Everything the per-entity sync step needs, resolved once per sync run. */
+interface EntitySyncContext {
+  db: TenantDb;
+  connection: IntegrationConnection;
+  entityType: SyncEntityType;
+  fieldMapper: FieldMapper | null;
+  conflictResolver: ConflictResolver;
+  defaultValues?: Record<string, unknown>;
+  table: ReturnType<typeof getEntityTable>['table'];
+  prefix: string;
+  internalType: string;
+}
+
+/**
+ * Bidirectional conflict resolution, run BEFORE the write. Returns 'conflict'
+ * when the conflict was queued for manual review, 'skip' when the internal
+ * version wins, and 'proceed' when the shared upsert should run.
+ */
+async function resolveBidirectionalConflict(
+  ctx: EntitySyncContext,
+  entity: ExternalEntity,
+  checksum: string,
+): Promise<'proceed' | 'conflict' | 'skip'> {
+  const { db, connection, entityType, fieldMapper, conflictResolver, table } = ctx;
+
+  const [existingMapping] = await db
+    .select()
+    .from(schema.integrationEntityMappings)
+    .where(
+      and(
+        eq(schema.integrationEntityMappings.connectionId, connection.id),
+        eq(schema.integrationEntityMappings.externalEntityType, entityType),
+        eq(schema.integrationEntityMappings.externalEntityId, entity.id),
+      )
+    )
+    .limit(1);
+
+  if (!existingMapping || existingMapping.syncChecksum === checksum) return 'proceed';
+
+  const [internalRecord] = await db
+    .select()
+    .from(table)
+    .where(eq(table.id, existingMapping.internalEntityId))
+    .limit(1);
+
+  if (!internalRecord) return 'proceed';
+
+  const internalData = internalRecord as Record<string, unknown>;
+  const conflictFields = fieldMapper ? fieldMapper.detectConflicts(internalData, entity.data) : [];
+  if (conflictFields.length === 0) return 'proceed';
+
+  const resolution = conflictResolver.resolve(
+    new Date(String(internalData.updatedAt || 0)),
+    new Date(entity.updatedAt),
+  );
+
+  if (resolution.action === 'queue_manual') {
+    await db.insert(schema.integrationSyncConflicts).values({
+      id: generateId('cnfl'),
+      connectionId: connection.id,
+      entityType,
+      internalEntityId: existingMapping.internalEntityId,
+      externalEntityId: entity.id,
+      conflictType: 'field_mismatch',
+      internalData: internalData as Record<string, unknown>,
+      externalData: entity.data,
+      conflictFields,
+    });
+    return 'conflict';
+  }
+
+  if (resolution.action === 'use_internal') return 'skip';
+  // 'use_external' falls through to the shared upsert
+  return 'proceed';
+}
+
+/**
+ * Sync one external entity into the tenant DB and update the run stats.
+ * Throws on failure; the caller counts it as failed.
+ */
+async function syncOneEntity(
+  ctx: EntitySyncContext,
+  entity: ExternalEntity,
+  stats: SyncEntityStats,
+): Promise<void> {
+  const { db, connection, entityType, fieldMapper, defaultValues, table, prefix, internalType } = ctx;
+
+  const checksum = await computeChecksum(entity.raw);
+  const mappedData = {
+    // No field mapper: entity.data is already in internal format.
+    ...(fieldMapper ? fieldMapper.mapToInternal(entity.data) : entity.data),
+    ...defaultValues,
+  };
+
+  // Inbound-only syncs (the default, and what Attio uses) skip straight to the shared
+  // upsert below — the same canonical write path the webhook ingress uses.
+  const entityConfig = connection.entityConfig as Record<string, string> | null;
+  const direction = entityConfig?.[entityType] || 'inbound';
+
+  if (direction === 'bidirectional') {
+    const outcome = await resolveBidirectionalConflict(ctx, entity, checksum);
+    if (outcome === 'conflict') {
+      stats.conflicts++;
+      return;
+    }
+    if (outcome === 'skip') {
+      stats.skipped++;
+      return;
+    }
+  }
+
+  // Shared write path: mapping → checksum-skip → email dedup → create.
+  const result = await upsertByMapping({
+    db,
+    connectionId: connection.id,
+    externalEntityType: entityType,
+    externalEntityId: entity.id,
+    internalEntityType: internalType,
+    table,
+    idPrefix: prefix,
+    values: mappedData,
+    checksum,
+  });
+  if (result.action === 'created') stats.created++;
+  else if (result.action === 'updated') stats.updated++;
+  else stats.skipped++;
+}
+
 /**
  * Sync a single entity type for a connection. Returns stats.
  */
@@ -128,14 +257,23 @@ export async function syncEntityType(
   const mappingDefs = await loadFieldMappings(db, connection.id, entityType, adapter);
   // When adapter returns no field mappings (e.g. Google Calendar uses hardcoded transforms),
   // entity.data is already in internal format — use it directly.
-  const useDirectData = mappingDefs.length === 0;
-
-  const fieldMapper = useDirectData ? null : new FieldMapper(mappingDefs);
+  const fieldMapper = mappingDefs.length === 0 ? null : new FieldMapper(mappingDefs);
   const conflictResolver = new ConflictResolver(
     (connection.conflictStrategy as ConflictStrategy) || 'last_write_wins'
   );
 
-  const { prefix, internalType } = getEntityTable(entityType);
+  const { table, prefix, internalType } = getEntityTable(entityType);
+  const ctx: EntitySyncContext = {
+    db,
+    connection,
+    entityType,
+    fieldMapper,
+    conflictResolver,
+    defaultValues: options?.defaultValues,
+    table,
+    prefix,
+    internalType,
+  };
 
   // Load cursor for incremental sync
   const cursors = (connection.syncCursor as IntegrationSyncCursor) || {};
@@ -149,91 +287,7 @@ export async function syncEntityType(
       stats.processed++;
 
       try {
-        const checksum = await computeChecksum(entity.raw);
-        const mappedData = {
-          ...(useDirectData ? entity.data : fieldMapper!.mapToInternal(entity.data)),
-          ...options?.defaultValues,
-        };
-
-        const { table } = getEntityTable(entityType);
-
-        // Bidirectional conflict resolution runs BEFORE the write. Inbound-only
-        // syncs (the default, and what Attio uses) skip straight to the shared
-        // upsert below — the same canonical write path the webhook ingress uses.
-        const entityConfig = connection.entityConfig as Record<string, string> | null;
-        const direction = entityConfig?.[entityType] || 'inbound';
-
-        if (direction === 'bidirectional') {
-          const [existingMapping] = await db
-            .select()
-            .from(schema.integrationEntityMappings)
-            .where(
-              and(
-                eq(schema.integrationEntityMappings.connectionId, connection.id),
-                eq(schema.integrationEntityMappings.externalEntityType, entityType),
-                eq(schema.integrationEntityMappings.externalEntityId, entity.id),
-              )
-            )
-            .limit(1);
-
-          if (existingMapping && existingMapping.syncChecksum !== checksum) {
-            const [internalRecord] = await db
-              .select()
-              .from(table)
-              .where(eq(table.id, existingMapping.internalEntityId))
-              .limit(1);
-
-            if (internalRecord) {
-              const internalData = internalRecord as Record<string, unknown>;
-              const conflictFields = fieldMapper ? fieldMapper.detectConflicts(internalData, entity.data) : [];
-
-              if (conflictFields.length > 0) {
-                const resolution = conflictResolver.resolve(
-                  new Date(String(internalData.updatedAt || 0)),
-                  new Date(entity.updatedAt),
-                );
-
-                if (resolution.action === 'queue_manual') {
-                  await db.insert(schema.integrationSyncConflicts).values({
-                    id: generateId('cnfl'),
-                    connectionId: connection.id,
-                    entityType,
-                    internalEntityId: existingMapping.internalEntityId,
-                    externalEntityId: entity.id,
-                    conflictType: 'field_mismatch',
-                    internalData: internalData as Record<string, unknown>,
-                    externalData: entity.data,
-                    conflictFields,
-                  });
-                  stats.conflicts++;
-                  continue;
-                }
-
-                if (resolution.action === 'use_internal') {
-                  stats.skipped++;
-                  continue;
-                }
-                // 'use_external' falls through to the shared upsert
-              }
-            }
-          }
-        }
-
-        // Shared write path: mapping → checksum-skip → email dedup → create.
-        const result = await upsertByMapping({
-          db,
-          connectionId: connection.id,
-          externalEntityType: entityType,
-          externalEntityId: entity.id,
-          internalEntityType: internalType,
-          table,
-          idPrefix: prefix,
-          values: mappedData,
-          checksum,
-        });
-        if (result.action === 'created') stats.created++;
-        else if (result.action === 'updated') stats.updated++;
-        else stats.skipped++;
+        await syncOneEntity(ctx, entity, stats);
       } catch (err) {
         stats.failed++;
         console.error(`[SyncOrchestrator] Failed to sync ${entityType} ${entity.id}:`, err);

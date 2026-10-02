@@ -129,6 +129,202 @@ function getEventColor(event: CalendarEvent, calendarColorMap: Record<string, st
   return event.color || calColor || EVENT_TYPE_COLORS[event.type] || '#6b7280';
 }
 
+interface QuickCreatePos {
+  x: number;
+  y: number;
+  cardBottomY: number | null;
+}
+
+function queryCalendarBody(): HTMLElement | null {
+  return document.querySelector('[data-calendar-body]') as HTMLElement | null;
+}
+
+/**
+ * Left bound = the calendar grid's left edge, NOT viewport 0, so the popover
+ * never slides over the sidebar.
+ */
+function getCalendarLeftBound(calBody: HTMLElement | null): number {
+  return calBody ? calBody.getBoundingClientRect().left + 4 : 4;
+}
+
+function queryDayColumn(date: Date): HTMLElement | null {
+  const dateKey = format(date, 'yyyy-MM-dd');
+  return document.querySelector(`[data-day-col="${dateKey}"]`) as HTMLElement | null;
+}
+
+/**
+ * Popover position next to a day column at the event's start hour. The card
+ * bottom is reported so the popover can flip when it would overflow.
+ */
+function computeDayColumnPos(dayCol: HTMLElement, s: Date, e: Date, leftBound: number): QuickCreatePos {
+  const colRect = dayCol.getBoundingClientRect();
+  const firstHourCell = dayCol.querySelector('[data-calendar-cell]') as HTMLElement | null;
+  const hourHeight = firstHourCell ? firstHourCell.offsetHeight : 48;
+  const startHour = s.getHours() + s.getMinutes() / 60;
+  const endHour = e.getHours() + e.getMinutes() / 60;
+  const y = colRect.top + startHour * hourHeight;
+  const cardBottomY = colRect.top + endHour * hourHeight;
+  let x = colRect.left - 364;
+  if (x < leftBound) x = colRect.right + 4;
+  if (x + 370 > window.innerWidth) x = Math.max(leftBound, window.innerWidth - 370);
+  return { x, y, cardBottomY };
+}
+
+/** Popover position next to a month-view cell, kept inside the viewport. */
+function computeMonthCellPos(rect: DOMRect, anchorY: number, leftBound: number): QuickCreatePos {
+  let x = rect.left - 364;
+  let y = anchorY;
+  if (x < leftBound) x = rect.right + 4;
+  if (x + 370 > window.innerWidth) x = Math.max(leftBound, rect.left);
+  if (y + 310 > window.innerHeight) y = Math.max(10, window.innerHeight - 320);
+  return { x, y, cardBottomY: null };
+}
+
+/** Popover centred in the calendar area, or in the viewport without one. */
+function computeCenteredPos(calBody: HTMLElement | null, yOffset: number): QuickCreatePos {
+  const toolbarEl = calBody?.parentElement;
+  if (toolbarEl) {
+    const rect = toolbarEl.getBoundingClientRect();
+    return {
+      x: Math.round(rect.left + (rect.width - 360) / 2),
+      y: Math.round(rect.top + (rect.height - 400) / 2) - yOffset,
+      cardBottomY: null,
+    };
+  }
+  return {
+    x: Math.round((window.innerWidth - 360) / 2),
+    y: Math.round((window.innerHeight - 400) / 2),
+    cardBottomY: null,
+  };
+}
+
+/**
+ * Popover position relative to a given start/end time by reading the matching
+ * [data-day-col]'s screen rect. Used after a preview-drag completes.
+ */
+function computeQuickCreatePosFromDate(s: Date, e: Date): QuickCreatePos {
+  const dayCol = queryDayColumn(s);
+  const leftBound = getCalendarLeftBound(queryCalendarBody());
+  if (!dayCol) {
+    return {
+      x: Math.max(leftBound, Math.round((window.innerWidth - 360) / 2)),
+      y: 100,
+      cardBottomY: null,
+    };
+  }
+  return computeDayColumnPos(dayCol, s, e, leftBound);
+}
+
+/** Popover position for a click / drag on the calendar grid; null keeps the current one. */
+function computeQuickCreatePosForClick(
+  currentView: View,
+  mouseEvent: React.MouseEvent,
+  s: Date,
+  e: Date,
+): QuickCreatePos | null {
+  const cell = (mouseEvent.target as HTMLElement).closest('[data-calendar-cell]') as HTMLElement | null;
+  const calBody = queryCalendarBody();
+
+  // Day view: center on calendar area
+  if (currentView === 'day') return computeCenteredPos(calBody, 60);
+  if (!cell) return null;
+  const leftBound = getCalendarLeftBound(calBody);
+  const rect = cell.getBoundingClientRect();
+
+  if (cell.dataset.date !== undefined) {
+    // Month view: position next to the clicked cell. Align Y with the last
+    // event button, where the preview will appear.
+    const eventBtns = cell.querySelectorAll('button');
+    const lastBtn = eventBtns.length > 0 ? eventBtns[eventBtns.length - 1] : null;
+    const anchorY = lastBtn ? lastBtn.getBoundingClientRect().bottom + 2 : rect.top + 28;
+    return computeMonthCellPos(rect, anchorY, leftBound);
+  }
+
+  // Week/4Day views: prefer the day-column rect over the (sometimes-stale)
+  // hover-cell rect so the popover anchors to the actual start column. Y is
+  // derived from the start time, not mouseEvent.clientY (the drag-end
+  // position, i.e. the bottom of the rendered card). The popover height is
+  // measured in a layout effect — if it would overflow the viewport it gets
+  // flipped so its bottom aligns with the card bottom (cardBottomY).
+  const dayCol = queryDayColumn(s);
+  if (dayCol) return computeDayColumnPos(dayCol, s, e, leftBound);
+
+  // Default: popover sits to the LEFT of the column. If that pushes it past
+  // the calendar's left edge, flip it to the RIGHT of the column instead.
+  let x = rect.left - 364;
+  if (x < leftBound) x = rect.right + 4;
+  if (x + 370 > window.innerWidth) x = Math.max(leftBound, window.innerWidth - 370);
+  return { x, y: mouseEvent.clientY, cardBottomY: null };
+}
+
+/**
+ * Popover position when opened from the toolbar button — mirrors the
+ * drag-to-schedule positioning so it anchors to the same spot.
+ */
+function computeQuickCreatePosForToolbar(s: Date, e: Date): QuickCreatePos {
+  const dateKey = format(s, 'yyyy-MM-dd');
+  const dayCol = queryDayColumn(s);
+  const monthCell = document.querySelector(`[data-date="${dateKey}"]`) as HTMLElement | null;
+  const calBody = queryCalendarBody();
+  const leftBound = getCalendarLeftBound(calBody);
+
+  // Week / Day / 4Day views: next to the day column at the start hour.
+  if (dayCol) return computeDayColumnPos(dayCol, s, e, leftBound);
+  if (monthCell) {
+    const rect = monthCell.getBoundingClientRect();
+    return computeMonthCellPos(rect, rect.top + 28, leftBound);
+  }
+  return computeCenteredPos(calBody, 0);
+}
+
+/** Next full hour, used as the start of a new event without a chosen slot. */
+function getNextFullHour(): Date {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  d.setHours(d.getHours() + 1);
+  return d;
+}
+
+/** "Apr – May 2026" style label; just "May 2026" when start and end share a month. */
+function formatSpanLabel(start: Date, end: Date): string {
+  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+    return format(start, 'MMMM yyyy');
+  }
+  const yearLabel = start.getFullYear() === end.getFullYear()
+    ? format(end, 'yyyy')
+    : `${format(start, 'yyyy')} – ${format(end, 'yyyy')}`;
+  return `${format(start, 'MMM')} – ${format(end, 'MMM')} ${yearLabel}`;
+}
+
+function getHeaderLabel(currentDate: Date, currentView: View): string {
+  switch (currentView) {
+    case 'month':
+    case 'day':
+      return format(currentDate, 'MMMM yyyy');
+    case 'week': {
+      // When the visible week spans two months, show the boundary.
+      const ws = startOfWeek(currentDate, { weekStartsOn: 1 });
+      return formatSpanLabel(ws, addDays(ws, 6));
+    }
+    case '4day':
+      return formatSpanLabel(currentDate, addDays(currentDate, 3));
+    case 'year':
+      return format(currentDate, 'yyyy');
+    case 'schedule':
+      return formatSpanLabel(currentDate, addDays(currentDate, 60));
+  }
+}
+
+/**
+ * On mobile, fold week/4day/year onto the closest of the 3 mobile options so
+ * the Select always shows a matching entry.
+ */
+function foldViewForMobile(currentView: View): View {
+  if (currentView === 'week' || currentView === '4day' || currentView === 'day') return 'day';
+  if (currentView === 'year') return 'month';
+  return currentView;
+}
+
 export function CalendarView() {
   const t = getTranslations('weldcalendar');
 
@@ -384,40 +580,13 @@ export function CalendarView() {
   // launched from a time-grid drag). It's used to flip the popover so its
   // bottom aligns with the card bottom when the natural top alignment would
   // overflow the viewport. `null` means no card to flip against.
-  const [quickCreatePos, setQuickCreatePos] = useState<{ x: number; y: number; cardBottomY: number | null }>({ x: 0, y: 0, cardBottomY: null });
+  const [quickCreatePos, setQuickCreatePos] = useState<QuickCreatePos>({ x: 0, y: 0, cardBottomY: null });
   const quickCreateRef = useRef<HTMLDivElement>(null);
   // Tracks whether the current mouse gesture (mousedown→mouseup) is the one
   // that closed an open popover. The same gesture's mouseup must NOT then
   // re-open the popover via onSelectSlot — the user has to click again.
   const dismissedByCurrentGestureRef = useRef(false);
 
-  // Compute popover position relative to a given start/end time by reading the
-  // matching [data-day-col]'s screen rect. Used both on initial open (cell
-  // branch) and after a preview-drag completes.
-  const computeQuickCreatePosFromDate = useCallback((s: Date, e: Date): { x: number; y: number; cardBottomY: number | null } => {
-    const dateKey = format(s, 'yyyy-MM-dd');
-    const dayCol = document.querySelector(`[data-day-col="${dateKey}"]`) as HTMLElement | null;
-    const calBody = document.querySelector('[data-calendar-body]') as HTMLElement | null;
-    const leftBound = calBody ? calBody.getBoundingClientRect().left + 4 : 4;
-    if (!dayCol) {
-      return {
-        x: Math.max(leftBound, Math.round((window.innerWidth - 360) / 2)),
-        y: 100,
-        cardBottomY: null,
-      };
-    }
-    const colRect = dayCol.getBoundingClientRect();
-    const firstHourCell = dayCol.querySelector('[data-calendar-cell]') as HTMLElement | null;
-    const hourHeight = firstHourCell ? firstHourCell.offsetHeight : 48;
-    const startHour = s.getHours() + s.getMinutes() / 60;
-    const endHour = e.getHours() + e.getMinutes() / 60;
-    const y = colRect.top + startHour * hourHeight;
-    const cardBottomY = colRect.top + endHour * hourHeight;
-    let x = colRect.left - 364;
-    if (x < leftBound) x = colRect.right + 4;
-    if (x + 370 > window.innerWidth) x = Math.max(leftBound, window.innerWidth - 370);
-    return { x, y, cardBottomY };
-  }, []);
   const [defaultEventType, setDefaultEventType] = useState<string>('event');
   const handleCreateEvent = useCallback((start?: Date, end?: Date, type?: string, mouseEvent?: React.MouseEvent, wasDrag?: boolean) => {
     // If the same gesture just dismissed an open popover (mousedown closed it,
@@ -429,7 +598,7 @@ export function CalendarView() {
       if (!wasDrag) return;
     }
     setSelectedEvent(null);
-    const s = start || (() => { const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1); return d; })();
+    const s = start || getNextFullHour();
     const e = end || new Date(s.getTime() + 60 * 60 * 1000);
     setDefaultStart(s);
     setDefaultEnd(e);
@@ -437,132 +606,10 @@ export function CalendarView() {
     setEventPreviewOpen(false);
     closeObjectPanels();
 
-    if (mouseEvent) {
-      const cell = (mouseEvent.target as HTMLElement).closest('[data-calendar-cell]') as HTMLElement;
-      const isMonthCell = cell && cell.hasAttribute('data-date');
-
-      if (currentView === 'day') {
-        // Day view: center on calendar area
-        const calArea = document.querySelector('[data-calendar-body]') as HTMLElement;
-        const toolbarEl = calArea?.parentElement;
-        if (toolbarEl) {
-          const rect = toolbarEl.getBoundingClientRect();
-          setQuickCreatePos({
-            x: Math.round(rect.left + (rect.width - 360) / 2),
-            y: Math.round(rect.top + (rect.height - 400) / 2) - 60,
-            cardBottomY: null,
-          });
-        } else {
-          setQuickCreatePos({
-            x: Math.round((window.innerWidth - 360) / 2),
-            y: Math.round((window.innerHeight - 400) / 2),
-            cardBottomY: null,
-          });
-        }
-      } else if (isMonthCell) {
-        // Month view: position next to the clicked cell
-        const rect = cell.getBoundingClientRect();
-        // Find last event button to align Y with where preview will appear
-        const eventBtns = cell.querySelectorAll('button');
-        const lastBtn = eventBtns.length > 0 ? eventBtns[eventBtns.length - 1] : null;
-        // Left bound = the calendar grid's left edge, NOT viewport 0, so the
-        // popover never slides over the sidebar.
-        const calBody = document.querySelector('[data-calendar-body]') as HTMLElement | null;
-        const leftBound = calBody ? calBody.getBoundingClientRect().left + 4 : 4;
-        let x = rect.left - 364;
-        let y = lastBtn ? lastBtn.getBoundingClientRect().bottom + 2 : rect.top + 28;
-        if (x < leftBound) x = rect.right + 4;
-        if (x + 370 > window.innerWidth) x = Math.max(leftBound, rect.left);
-        if (y + 310 > window.innerHeight) y = Math.max(10, window.innerHeight - 320);
-        setQuickCreatePos({ x, y, cardBottomY: null });
-      } else if (cell) {
-        // Week/4Day/Day views: position to the left of the clicked column, Y at the top
-        // of the dragged event preview (derived from the start time inside the day
-        // column). Using mouseEvent.clientY would put the popover at the drag-end
-        // position, i.e. the bottom of the rendered card. The actual popover height
-        // is measured in a layout effect below — if it would overflow the viewport,
-        // it gets flipped so its bottom aligns with the card bottom (cardBottomY).
-        const rect = cell.getBoundingClientRect();
-        const dateKey = format(s, 'yyyy-MM-dd');
-        const dayCol = document.querySelector(`[data-day-col="${dateKey}"]`) as HTMLElement | null;
-        const calBody = document.querySelector('[data-calendar-body]') as HTMLElement | null;
-        // Left bound = the calendar grid's left edge, NOT viewport 0. Otherwise the
-        // popover slides over the sidebar when the event is in a leftmost column.
-        const leftBound = calBody ? calBody.getBoundingClientRect().left + 4 : 4;
-        let y = mouseEvent.clientY;
-        let cardBottomY: number | null = null;
-        // Prefer the day-column rect over the (sometimes-stale) hover-cell rect
-        // for X math — that way the popover anchors to the actual start column.
-        let colLeft = rect.left;
-        let colRight = rect.right;
-        if (dayCol) {
-          const colRect = dayCol.getBoundingClientRect();
-          colLeft = colRect.left;
-          colRight = colRect.right;
-          const firstHourCell = dayCol.querySelector('[data-calendar-cell]') as HTMLElement | null;
-          const hourHeight = firstHourCell ? firstHourCell.offsetHeight : 48;
-          const startHour = s.getHours() + s.getMinutes() / 60;
-          const endHour = e.getHours() + e.getMinutes() / 60;
-          y = colRect.top + startHour * hourHeight;
-          cardBottomY = colRect.top + endHour * hourHeight;
-        }
-        // Default: popover sits to the LEFT of the column. If that pushes it past
-        // the calendar's left edge (e.g. leftmost column with sidebar visible),
-        // flip and place it to the RIGHT of the column instead.
-        let x = colLeft - 364;
-        if (x < leftBound) x = colRight + 4;
-        if (x + 370 > window.innerWidth) x = Math.max(leftBound, window.innerWidth - 370);
-        setQuickCreatePos({ x, y, cardBottomY });
-      }
-    } else {
-      // From toolbar button — mirror the drag-to-schedule positioning so the
-      // popover anchors to the same spot as if the user had dragged to create.
-      const dateKey = format(s, 'yyyy-MM-dd');
-      const dayCol = document.querySelector(`[data-day-col="${dateKey}"]`) as HTMLElement | null;
-      const monthCell = document.querySelector(`[data-date="${dateKey}"]`) as HTMLElement | null;
-      const calBody = document.querySelector('[data-calendar-body]') as HTMLElement | null;
-      const leftBound = calBody ? calBody.getBoundingClientRect().left + 4 : 4;
-
-      if (dayCol) {
-        // Week / Day / 4Day views — position next to the day column at the
-        // start hour, same as the drag branch above.
-        const colRect = dayCol.getBoundingClientRect();
-        const firstHourCell = dayCol.querySelector('[data-calendar-cell]') as HTMLElement | null;
-        const hourHeight = firstHourCell ? firstHourCell.offsetHeight : 48;
-        const startHour = s.getHours() + s.getMinutes() / 60;
-        const endHour = e.getHours() + e.getMinutes() / 60;
-        const y = colRect.top + startHour * hourHeight;
-        const cardBottomY = colRect.top + endHour * hourHeight;
-        let x = colRect.left - 364;
-        if (x < leftBound) x = colRect.right + 4;
-        if (x + 370 > window.innerWidth) x = Math.max(leftBound, window.innerWidth - 370);
-        setQuickCreatePos({ x, y, cardBottomY });
-      } else if (monthCell) {
-        const rect = monthCell.getBoundingClientRect();
-        let x = rect.left - 364;
-        let y = rect.top + 28;
-        if (x < leftBound) x = rect.right + 4;
-        if (x + 370 > window.innerWidth) x = Math.max(leftBound, rect.left);
-        if (y + 310 > window.innerHeight) y = Math.max(10, window.innerHeight - 320);
-        setQuickCreatePos({ x, y, cardBottomY: null });
-      } else {
-        const toolbarEl = calBody?.parentElement;
-        if (toolbarEl) {
-          const rect = toolbarEl.getBoundingClientRect();
-          setQuickCreatePos({
-            x: Math.round(rect.left + (rect.width - 360) / 2),
-            y: Math.round(rect.top + (rect.height - 400) / 2),
-            cardBottomY: null,
-          });
-        } else {
-          setQuickCreatePos({
-            x: Math.round((window.innerWidth - 360) / 2),
-            y: Math.round((window.innerHeight - 400) / 2),
-            cardBottomY: null,
-          });
-        }
-      }
-    }
+    const pos = mouseEvent
+      ? computeQuickCreatePosForClick(currentView, mouseEvent, s, e)
+      : computeQuickCreatePosForToolbar(s, e);
+    if (pos) setQuickCreatePos(pos);
     setQuickCreateOpen(true);
   }, [currentView, closeObjectPanels]);
 
@@ -641,7 +688,7 @@ export function CalendarView() {
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, [defaultStart, defaultEnd, computeQuickCreatePosFromDate]);
+  }, [defaultStart, defaultEnd]);
 
   // Resize the unsaved preview card from the top or bottom edge to adjust the
   // start or end time. Snaps to 15-minute increments. While resizing the
@@ -712,7 +759,7 @@ export function CalendarView() {
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, [defaultStart, defaultEnd, computeQuickCreatePosFromDate]);
+  }, [defaultStart, defaultEnd]);
 
   // Close the popover on outside mousedown. The TimeSlotPreview inside the
   // calendar must remain interactive (so it can be dragged), so we use a
@@ -884,47 +931,20 @@ export function CalendarView() {
     return () => window.removeEventListener('weldcalendar:navigate-to-booking-new', handler);
   }, [navigate]);
 
+  const showDay = useCallback((day: Date) => {
+    setCurrentDate(day);
+    setCurrentView('day');
+  }, [setCurrentView]);
+
+  const handleSelectSlot = useCallback(
+    (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => {
+      handleCreateEvent(start, end, undefined, e as React.MouseEvent, wasDrag);
+    },
+    [handleCreateEvent],
+  );
+
   // Header label
-  const headerLabel = useMemo(() => {
-    switch (currentView) {
-      case 'month': return format(currentDate, 'MMMM yyyy');
-      case 'week': {
-        // When the visible week spans two months, show "Apr – May 2026" so the
-        // user still sees the boundary; otherwise just "May 2026".
-        const ws = startOfWeek(currentDate, { weekStartsOn: 1 });
-        const we = addDays(ws, 6);
-        if (ws.getMonth() === we.getMonth() && ws.getFullYear() === we.getFullYear()) {
-          return format(ws, 'MMMM yyyy');
-        }
-        const yearLabel = ws.getFullYear() === we.getFullYear()
-          ? format(we, 'yyyy')
-          : `${format(ws, 'yyyy')} – ${format(we, 'yyyy')}`;
-        return `${format(ws, 'MMM')} – ${format(we, 'MMM')} ${yearLabel}`;
-      }
-      case '4day': {
-        const end = addDays(currentDate, 3);
-        if (currentDate.getMonth() === end.getMonth() && currentDate.getFullYear() === end.getFullYear()) {
-          return format(currentDate, 'MMMM yyyy');
-        }
-        const yearLabel = currentDate.getFullYear() === end.getFullYear()
-          ? format(end, 'yyyy')
-          : `${format(currentDate, 'yyyy')} – ${format(end, 'yyyy')}`;
-        return `${format(currentDate, 'MMM')} – ${format(end, 'MMM')} ${yearLabel}`;
-      }
-      case 'day': return format(currentDate, 'MMMM yyyy');
-      case 'year': return format(currentDate, 'yyyy');
-      case 'schedule': {
-        const end = addDays(currentDate, 60);
-        if (currentDate.getMonth() === end.getMonth() && currentDate.getFullYear() === end.getFullYear()) {
-          return format(currentDate, 'MMMM yyyy');
-        }
-        const yearLabel = currentDate.getFullYear() === end.getFullYear()
-          ? format(end, 'yyyy')
-          : `${format(currentDate, 'yyyy')} – ${format(end, 'yyyy')}`;
-        return `${format(currentDate, 'MMM')} – ${format(end, 'MMM')} ${yearLabel}`;
-      }
-    }
-  }, [currentDate, currentView]);
+  const headerLabel = useMemo(() => getHeaderLabel(currentDate, currentView), [currentDate, currentView]);
 
   // Color the inline quick-create preview renders with. Mirrors the priority
   // used by `getEventColor` on saved events so the preview matches the
@@ -959,53 +979,15 @@ export function CalendarView() {
               {t.calendarView.today}
             </Button>
           )}
-          {/* Search — collapsed icon-only on mobile; expanding input on md+. */}
-          <div className="relative flex items-center">
-            <div className={cn(
-              "flex items-center transition-all duration-200 ease-out",
-              searchOpen ? "w-36 md:w-48" : "w-8"
-            )}>
-              <Button
-                variant="outline"
-                size="sm"
-                className={cn(
-                  "h-8 w-8 p-0 flex-shrink-0 shadow-none transition-opacity duration-200",
-                  searchOpen && "opacity-0 pointer-events-none absolute"
-                )}
-                onClick={() => setSearchOpen(true)}
-              >
-                <Search className="h-4 w-4" />
-              </Button>
-              <div className={cn(
-                "relative transition-all duration-200 ease-out",
-                searchOpen ? "opacity-100 w-36 md:w-48" : "opacity-0 w-0 pointer-events-none"
-              )}>
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder={t.calendarView.searchPlaceholder}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onBlur={() => !searchQuery && setSearchOpen(false)}
-                  onKeyDown={(e) => { if (e.key === 'Escape') { setSearchQuery(''); setSearchOpen(false); } }}
-                  ref={(el) => { if (el && searchOpen) el.focus(); }}
-                  className="h-8 w-full pl-8 pr-3 text-sm border border-gray-200 dark:border-border rounded-md bg-white dark:bg-background focus:outline-none"
-                />
-              </div>
-            </div>
-          </div>
+          <CalendarSearchInput
+            open={searchOpen}
+            query={searchQuery}
+            placeholder={t.calendarView.searchPlaceholder}
+            onOpenChange={setSearchOpen}
+            onQueryChange={setSearchQuery}
+          />
           <Select
-            value={
-              // On mobile, fold week/4day/year onto the closest of the 3
-              // mobile options so the Select always shows a matching entry.
-              isMobile
-                ? (currentView === 'week' || currentView === '4day' || currentView === 'day'
-                    ? 'day'
-                    : currentView === 'year'
-                    ? 'month'
-                    : currentView)
-                : currentView
-            }
+            value={isMobile ? foldViewForMobile(currentView) : currentView}
             onValueChange={(v) => setCurrentView(v as View)}
           >
             <SelectTrigger size="sm" className="w-[110px] md:w-[130px] shadow-none">
@@ -1030,139 +1012,28 @@ export function CalendarView() {
 
       {/* Calendar Body */}
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden" data-calendar-body>
-        {currentView === 'month' && (
-          isMobile ? (
-            <MobileMonthView
-              currentDate={currentDate}
-              events={filteredEvents}
-              calendarColorMap={calendarColorMap}
-              onSelectEvent={handleSelectEvent}
-              onSelectDay={setCurrentDate}
-            />
-          ) : (
-            <MonthView
-              currentDate={currentDate}
-              events={filteredEvents}
-              calendarColorMap={calendarColorMap}
-              onSelectEvent={handleSelectEvent}
-              onShowDay={(day) => {
-                setCurrentDate(day);
-                setCurrentView('day');
-              }}
-              selectedEventId={eventPreviewOpen ? selectedEvent?.id : undefined}
-              onSelectSlot={(start, end, e, wasDrag) => {
-                handleCreateEvent(start, end, undefined, e as React.MouseEvent, wasDrag);
-              }}
-              selectedDate={quickCreateOpen ? defaultStart : undefined}
-              selectedEndDate={quickCreateOpen ? defaultEnd : undefined}
-              selectedType={quickCreateOpen ? defaultEventType : undefined}
-              selectedColor={selectedPreviewColor}
-              onEventDrop={handleEventDrop}
-            />
-          )
-        )}
-        {(currentView === 'week' || (isMobile && currentView === '4day')) && (
-          isMobile ? (
-            <MobileWeekTimelineView
-              currentDate={currentDate}
-              events={filteredEvents}
-              calendarColorMap={calendarColorMap}
-              onSelectEvent={handleSelectEvent}
-              onSelectDay={setCurrentDate}
-              onSelectSlot={(start, end, e, wasDrag) => handleCreateEvent(start, end, undefined, e as React.MouseEvent, wasDrag)}
-              selectedDate={quickCreateOpen ? defaultStart : undefined}
-              selectedEndDate={quickCreateOpen ? defaultEnd : undefined}
-              selectedType={quickCreateOpen ? defaultEventType : undefined}
-              selectedColor={selectedPreviewColor}
-              onEventDrop={handleEventDrop}
-              workingHours={workingHoursData}
-              onPreviewMouseDown={handlePreviewMouseDown}
-              onPreviewResize={handlePreviewResize}
-            />
-          ) : (
-            <WeekView
-              currentDate={currentDate}
-              events={filteredEvents}
-              calendarColorMap={calendarColorMap}
-              onSelectEvent={handleSelectEvent}
-              onSelectSlot={(start, end, e, wasDrag) => handleCreateEvent(start, end, undefined, e as React.MouseEvent, wasDrag)}
-              selectedDate={quickCreateOpen ? defaultStart : undefined}
-              selectedEndDate={quickCreateOpen ? defaultEnd : undefined}
-              selectedType={quickCreateOpen ? defaultEventType : undefined}
-              selectedColor={selectedPreviewColor}
-              onEventDrop={handleEventDrop}
-              workingHours={workingHoursData}
-              onPreviewMouseDown={handlePreviewMouseDown}
-              onPreviewResize={handlePreviewResize}
-            />
-          )
-        )}
-        {currentView === '4day' && !isMobile && (
-          <FourDayView
-            currentDate={currentDate}
-            events={filteredEvents}
-            calendarColorMap={calendarColorMap}
-            onSelectEvent={handleSelectEvent}
-            onSelectSlot={(start, end, e, wasDrag) => handleCreateEvent(start, end, undefined, e as React.MouseEvent, wasDrag)}
-            selectedDate={quickCreateOpen ? defaultStart : undefined}
-            selectedEndDate={quickCreateOpen ? defaultEnd : undefined}
-            selectedType={quickCreateOpen ? defaultEventType : undefined}
-            selectedColor={selectedPreviewColor}
-            onEventDrop={handleEventDrop}
-            workingHours={workingHoursData}
-            onPreviewMouseDown={handlePreviewMouseDown}
-            onPreviewResize={handlePreviewResize}
-          />
-        )}
-        {currentView === 'day' && (
-          isMobile ? (
-            <MobileWeekTimelineView
-              currentDate={currentDate}
-              events={filteredEvents}
-              calendarColorMap={calendarColorMap}
-              onSelectEvent={handleSelectEvent}
-              onSelectDay={setCurrentDate}
-              onSelectSlot={(start, end, e, wasDrag) => handleCreateEvent(start, end, undefined, e as React.MouseEvent, wasDrag)}
-              selectedDate={quickCreateOpen ? defaultStart : undefined}
-              selectedEndDate={quickCreateOpen ? defaultEnd : undefined}
-              selectedType={quickCreateOpen ? defaultEventType : undefined}
-              selectedColor={selectedPreviewColor}
-              onEventDrop={handleEventDrop}
-              workingHours={workingHoursData}
-              onPreviewMouseDown={handlePreviewMouseDown}
-              onPreviewResize={handlePreviewResize}
-            />
-          ) : (
-            <DayView
-              currentDate={currentDate}
-              events={filteredEvents}
-              calendarColorMap={calendarColorMap}
-              onSelectEvent={handleSelectEvent}
-              onSelectSlot={(start, end, e, wasDrag) => handleCreateEvent(start, end, undefined, e as React.MouseEvent, wasDrag)}
-              selectedDate={quickCreateOpen ? defaultStart : undefined}
-              selectedEndDate={quickCreateOpen ? defaultEnd : undefined}
-              selectedType={quickCreateOpen ? defaultEventType : undefined}
-              selectedColor={selectedPreviewColor}
-              onEventDrop={handleEventDrop}
-              workingHours={workingHoursData}
-              onPreviewMouseDown={handlePreviewMouseDown}
-              onPreviewResize={handlePreviewResize}
-            />
-          )
-        )}
-        {currentView === 'year' && (
-          <YearView
-            currentDate={currentDate}
-            onDateClick={(date) => { setCurrentDate(date); setCurrentView('day'); }}
-          />
-        )}
-        {currentView === 'schedule' && (
-          <ScheduleView
-            events={filteredEvents}
-            calendarColorMap={calendarColorMap}
-            onSelectEvent={handleSelectEvent}
-          />
-        )}
+        <CalendarBody
+          currentView={currentView}
+          isMobile={isMobile}
+          onSelectDay={setCurrentDate}
+          onShowDay={showDay}
+          selectedEventId={eventPreviewOpen ? selectedEvent?.id : undefined}
+          timeGrid={{
+            currentDate,
+            events: filteredEvents,
+            calendarColorMap,
+            onSelectEvent: handleSelectEvent,
+            onSelectSlot: handleSelectSlot,
+            selectedDate: quickCreateOpen ? defaultStart : undefined,
+            selectedEndDate: quickCreateOpen ? defaultEnd : undefined,
+            selectedType: quickCreateOpen ? defaultEventType : undefined,
+            selectedColor: selectedPreviewColor,
+            onEventDrop: handleEventDrop,
+            workingHours: workingHoursData,
+            onPreviewMouseDown: handlePreviewMouseDown,
+            onPreviewResize: handlePreviewResize,
+          }}
+        />
       </div>
 
       {/* Inline quick-create card — rendered as fixed overlay so it's never clipped.
@@ -1235,6 +1106,782 @@ export function CalendarView() {
   );
 }
 
+/** Collapsed icon-only on mobile; expanding input on md+. */
+function CalendarSearchInput({
+  open,
+  query,
+  placeholder,
+  onOpenChange,
+  onQueryChange,
+}: {
+  open: boolean;
+  query: string;
+  placeholder: string;
+  onOpenChange: (open: boolean) => void;
+  onQueryChange: (query: string) => void;
+}) {
+  return (
+    <div className="relative flex items-center">
+      <div className={cn(
+        "flex items-center transition-all duration-200 ease-out",
+        open ? "w-36 md:w-48" : "w-8"
+      )}>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "h-8 w-8 p-0 flex-shrink-0 shadow-none transition-opacity duration-200",
+            open && "opacity-0 pointer-events-none absolute"
+          )}
+          onClick={() => onOpenChange(true)}
+        >
+          <Search className="h-4 w-4" />
+        </Button>
+        <div className={cn(
+          "relative transition-all duration-200 ease-out",
+          open ? "opacity-100 w-36 md:w-48" : "opacity-0 w-0 pointer-events-none"
+        )}>
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder={placeholder}
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            onBlur={() => !query && onOpenChange(false)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { onQueryChange(''); onOpenChange(false); } }}
+            ref={(el) => { if (el && open) el.focus(); }}
+            className="h-8 w-full pl-8 pr-3 text-sm border border-gray-200 dark:border-border rounded-md bg-white dark:bg-background focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Props shared by the week / 4-day / day / mobile timeline grids (month uses a subset). */
+interface TimeGridViewProps {
+  currentDate: Date;
+  events: CalendarEvent[];
+  calendarColorMap: Record<string, string>;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
+  onSelectSlot: (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => void;
+  selectedDate?: Date;
+  selectedEndDate?: Date;
+  selectedType?: string;
+  selectedColor?: string;
+  onEventDrop: (event: CalendarEvent, newStart: Date, newEnd: Date) => void;
+  workingHours?: WorkingHours | null;
+  onPreviewMouseDown?: (e: React.MouseEvent) => void;
+  onPreviewResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
+}
+
+const DESKTOP_TIME_GRID_VIEWS = {
+  week: WeekView,
+  '4day': FourDayView,
+  day: DayView,
+} as const;
+
+/** Picks the calendar view component for the current view + viewport. */
+function CalendarBody({
+  currentView,
+  isMobile,
+  onSelectDay,
+  onShowDay,
+  selectedEventId,
+  timeGrid,
+}: {
+  currentView: View;
+  isMobile: boolean;
+  onSelectDay: (day: Date) => void;
+  onShowDay: (day: Date) => void;
+  selectedEventId?: string;
+  timeGrid: TimeGridViewProps;
+}) {
+  if (currentView === 'year') {
+    return <YearView currentDate={timeGrid.currentDate} onDateClick={onShowDay} />;
+  }
+  if (currentView === 'schedule') {
+    return (
+      <ScheduleView
+        events={timeGrid.events}
+        calendarColorMap={timeGrid.calendarColorMap}
+        onSelectEvent={timeGrid.onSelectEvent}
+      />
+    );
+  }
+  if (currentView === 'month') {
+    if (isMobile) {
+      return (
+        <MobileMonthView
+          currentDate={timeGrid.currentDate}
+          events={timeGrid.events}
+          calendarColorMap={timeGrid.calendarColorMap}
+          onSelectEvent={timeGrid.onSelectEvent}
+          onSelectDay={onSelectDay}
+        />
+      );
+    }
+    // Month view takes no working hours or preview drag / resize handlers.
+    return (
+      <MonthView
+        currentDate={timeGrid.currentDate}
+        events={timeGrid.events}
+        calendarColorMap={timeGrid.calendarColorMap}
+        onSelectEvent={timeGrid.onSelectEvent}
+        onShowDay={onShowDay}
+        selectedEventId={selectedEventId}
+        onSelectSlot={timeGrid.onSelectSlot}
+        selectedDate={timeGrid.selectedDate}
+        selectedEndDate={timeGrid.selectedEndDate}
+        selectedType={timeGrid.selectedType}
+        selectedColor={timeGrid.selectedColor}
+        onEventDrop={timeGrid.onEventDrop}
+      />
+    );
+  }
+  if (isMobile) return <MobileWeekTimelineView {...timeGrid} onSelectDay={onSelectDay} />;
+  const DesktopView = DESKTOP_TIME_GRID_VIEWS[currentView];
+  return <DesktopView {...timeGrid} />;
+}
+
+type GuestEntry = { id: string; name: string; email: string };
+
+interface MeetingSettings {
+  accessType: 'workspace' | 'invited_only' | 'anyone_with_link';
+  waitingRoom: boolean;
+  allowRecording: boolean;
+}
+
+/** Initial form values: the event being edited wins over the caller's defaults. */
+function getQuickCreateInitialValues(
+  editEvent: CalendarEvent | null | undefined,
+  defaults: { type: string; title?: string; location?: string; description?: string; calendarId?: string },
+): {
+  type: string;
+  title: string;
+  allDay: boolean;
+  location: string;
+  description: string;
+  meetingUrl: string;
+  calendarId: string | undefined;
+} {
+  return {
+    type: editEvent?.type || defaults.type,
+    title: editEvent?.title || defaults.title || '',
+    allDay: editEvent?.allDay || false,
+    location: editEvent?.location || defaults.location || '',
+    description: editEvent?.description || defaults.description || '',
+    meetingUrl: editEvent?.meetingUrl || '',
+    calendarId: editEvent?.calendarId || defaults.calendarId,
+  };
+}
+
+/** "When" summary for the event preview: the date for all-day events, else date + time range. */
+function formatEventWhen(event: CalendarEvent): string {
+  if (event.allDay) return format(new Date(event.startTime), 'EEEE, MMMM d');
+  const start = format(new Date(event.startTime), 'EEE, MMM d · h:mm a');
+  const end = event.endTime ? ` – ${format(new Date(event.endTime), 'h:mm a')}` : '';
+  return `${start}${end}`;
+}
+
+/** Time column of the schedule list: the all-day label, a start – end range, or just the start. */
+function formatScheduleTime(start: Date, end: Date | null, allDayLabel: string | null): string {
+  if (allDayLabel) return allDayLabel;
+  const startLabel = format(start, 'h:mma').toLowerCase();
+  if (!end) return startLabel;
+  return `${startLabel} – ${format(end, 'h:mma').toLowerCase()}`;
+}
+
+/**
+ * Keyboard handler that makes a clickable row behave like a button: Enter / Space
+ * activate it. Ignores key events bubbling up from inputs nested inside the row.
+ */
+function activateOnKey(activate: () => void) {
+  return (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      activate();
+    }
+  };
+}
+
+/** Task labels row: inline input while active, otherwise the chips or a placeholder. */
+function TaskLabelsRow({
+  labels,
+  isActive,
+  onToggle,
+  onClose,
+  onAddLabel,
+  onRemoveLabel,
+}: {
+  labels: string[];
+  isActive: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onAddLabel: (label: string) => void;
+  onRemoveLabel: (label: string) => void;
+}) {
+  const t = getTranslations('weldcalendar');
+  const summary =
+    labels.length > 0 ? (
+      <div className="flex items-center gap-1 flex-wrap">
+        {labels.map((l) => (
+          <span key={l} className="text-xs bg-accent px-2 py-0.5 rounded">{l}</span>
+        ))}
+      </div>
+    ) : (
+      <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.labelsLabel}</span>
+    );
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+      onClick={onToggle}
+      onKeyDown={activateOnKey(onToggle)}
+    >
+      <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
+      {isActive ? (
+        <div role="presentation" className="flex-1" onClick={(e) => e.stopPropagation()}>
+          <Input
+            placeholder={t.quickCreate.labelsPlaceholder}
+            className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
+            autoFocus
+            onBlur={() => setTimeout(onClose, 150)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                const val = (e.target as HTMLInputElement).value.trim();
+                if (!labels.includes(val)) onAddLabel(val);
+                (e.target as HTMLInputElement).value = '';
+              }
+            }}
+          />
+          {labels.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap mt-1.5">
+              {labels.map((l) => (
+                <span key={l} className="inline-flex items-center gap-1 text-xs bg-accent rounded px-2 py-0.5">
+                  {l}
+                  <Button variant="ghost" className="hover:text-foreground" onMouseDown={(e) => e.preventDefault()} onClick={() => onRemoveLabel(l)}>
+                    <X className="h-2.5 w-2.5" />
+                  </Button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        summary
+      )}
+    </div>
+  );
+}
+
+/** Guests / assignees row: the list with a search input while active, else a placeholder. */
+function PeopleRow({
+  people,
+  isActive,
+  emptyLabel,
+  search,
+  onSearchChange,
+  onActivate,
+  onDeactivate,
+  onAdd,
+  onRemove,
+}: {
+  people: GuestEntry[];
+  isActive: boolean;
+  emptyLabel: string;
+  search: string;
+  onSearchChange: (value: string) => void;
+  onActivate: () => void;
+  onDeactivate: () => void;
+  onAdd: (guest: GuestEntry) => void;
+  onRemove: (id: string) => void;
+}) {
+  if (people.length === 0 && !isActive) {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+        onClick={onActivate}
+        onKeyDown={activateOnKey(onActivate)}
+      >
+        <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+        <span className="text-sm text-foreground h-7 flex items-center">{emptyLabel}</span>
+      </div>
+    );
+  }
+  const activateIfIdle = () => {
+    if (!isActive) onActivate();
+  };
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="px-4 py-[10px] cursor-pointer"
+      onClick={activateIfIdle}
+      onKeyDown={activateOnKey(activateIfIdle)}
+    >
+      <div className="flex gap-3">
+        <Users className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
+        <div className="flex-1 min-w-0 space-y-1">
+          {people.map((g) => (
+            <div key={g.id} className="flex items-center justify-between gap-2 h-7">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <div className="h-[20px] w-[20px] rounded-[5.5px] bg-primary/10 flex items-center justify-center shrink-0 leading-none">
+                  <span className="text-[10px] font-medium text-primary leading-none -mt-[0.5px]">
+                    {(g.name?.[0] || g.email[0] || '?').toUpperCase()}
+                  </span>
+                </div>
+                <span className="text-sm truncate leading-none">{g.name || g.email}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 rounded-[5.5px] hover:bg-muted flex items-center justify-center shrink-0"
+                onClick={(e) => { e.stopPropagation(); onRemove(g.id); }}
+              >
+                <X className="h-3 w-3 text-muted-foreground" />
+              </Button>
+            </div>
+          ))}
+          {isActive && (
+            <GuestSearchInput
+              value={search}
+              onChange={onSearchChange}
+              selectedIds={people.map((g) => g.id)}
+              onSelect={onAdd}
+              onBlurAway={onDeactivate}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Description row: auto-growing textarea while active, else the text or a placeholder. */
+function DescriptionRow({
+  isActive,
+  description,
+  descriptionRef,
+  placeholder,
+  emptyPlaceholder,
+  onActivate,
+  onDeactivate,
+  onChange,
+}: {
+  isActive: boolean;
+  description: string;
+  descriptionRef: React.RefObject<HTMLTextAreaElement | null>;
+  placeholder: string;
+  emptyPlaceholder: string;
+  onActivate: () => void;
+  onDeactivate: () => void;
+  onChange: (value: string) => void;
+}) {
+  // Focus the textarea when the row becomes active (replaces the autoFocus attribute).
+  useEffect(() => {
+    if (isActive) descriptionRef.current?.focus();
+  }, [isActive, descriptionRef]);
+  const summary = description ? (
+    <span className="flex-1 min-w-0 text-sm text-foreground leading-7 truncate">{description}</span>
+  ) : (
+    <span className="flex-1 text-sm text-foreground leading-7">{emptyPlaceholder}</span>
+  );
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="flex items-start gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+      onClick={onActivate}
+      onKeyDown={activateOnKey(onActivate)}
+    >
+      <AlignLeft className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
+      {isActive ? (
+        <textarea
+          ref={descriptionRef}
+          placeholder={placeholder}
+          value={description}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onDeactivate}
+          rows={1}
+          className="flex-1 text-sm leading-7 py-0 bg-transparent resize-none focus:outline-none overflow-hidden"
+        />
+      ) : (
+        summary
+      )}
+    </div>
+  );
+}
+
+/** Event date / time row: pickers while active, otherwise a one-line summary. */
+function EventTimeRow({
+  isActive,
+  onToggle,
+  allDay,
+  onAllDayChange,
+  startDate,
+  endDate,
+  startTime,
+  endTime,
+  onStartDateChange,
+  onEndDateChange,
+  onStartTimeChange,
+  onEndTimeChange,
+}: {
+  isActive: boolean;
+  onToggle: () => void;
+  allDay: boolean;
+  onAllDayChange: (allDay: boolean) => void;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  onStartDateChange: (value: string) => void;
+  onEndDateChange: (value: string) => void;
+  onStartTimeChange: (value: string) => void;
+  onEndTimeChange: (value: string) => void;
+}) {
+  const t = getTranslations('weldcalendar');
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className={cn(
+        'flex items-start gap-3 px-4 py-[10px] cursor-pointer transition-colors',
+        !isActive && 'hover:bg-accent/50',
+      )}
+      onClick={onToggle}
+      onKeyDown={activateOnKey(onToggle)}
+    >
+      <Clock className="h-4 w-4 text-muted-foreground shrink-0 mt-[5px]" />
+      <div className="flex-1 min-w-0 space-y-2">
+        {isActive ? (
+          <div role="presentation" onClick={(e) => e.stopPropagation()} className="space-y-2.5">
+            <div className="flex items-center gap-2">
+              <DatePickerField
+                value={new Date(startDate)}
+                onChange={(d) => onStartDateChange(format(d, 'yyyy-MM-dd'))}
+              />
+              <span className="text-muted-foreground text-xs shrink-0">–</span>
+              <DatePickerField
+                value={new Date(endDate)}
+                onChange={(d) => onEndDateChange(format(d, 'yyyy-MM-dd'))}
+              />
+            </div>
+            {!allDay && (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => onStartTimeChange(e.target.value)}
+                  className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
+                />
+                <span className="text-muted-foreground text-xs shrink-0">–</span>
+                <Input
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => onEndTimeChange(e.target.value)}
+                  className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
+                />
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">{t.calendarView.allDay}</span>
+              <Switch checked={allDay} onCheckedChange={onAllDayChange} className="h-[18.5px] [&_[data-slot=switch-thumb]]:translate-y-0" />
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 text-sm h-7">
+            <span>{format(new Date(startDate), 'EEEE, MMM d')}</span>
+            {!allDay && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <span>{format(new Date(`${startDate}T${startTime}`), 'h:mm a')}</span>
+                <span className="text-muted-foreground">–</span>
+                <span>{format(new Date(`${endDate}T${endTime}`), 'h:mm a')}</span>
+              </>
+            )}
+            {allDay && startDate !== endDate && (
+              <>
+                <span className="text-muted-foreground">–</span>
+                <span>{format(new Date(endDate), 'EEEE, MMM d')}</span>
+              </>
+            )}
+            {allDay && startDate === endDate && (
+              <span className="text-xs text-muted-foreground ml-1">· {t.calendarView.allDay}</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** WeldMeet row: add link, creating spinner, or the link with copy / settings / remove actions. */
+function MeetingRow({
+  meetingUrl,
+  isCreating,
+  linkCopied,
+  settings,
+  onCreate,
+  onCopyLink,
+  onUpdateSetting,
+  onRemove,
+}: {
+  meetingUrl: string;
+  isCreating: boolean;
+  linkCopied: boolean;
+  settings: MeetingSettings;
+  onCreate: () => void;
+  onCopyLink: () => void;
+  onUpdateSetting: (patch: Partial<MeetingSettings>) => void;
+  onRemove: () => void;
+}) {
+  const t = getTranslations('weldcalendar');
+  const canCreate = !isCreating && !meetingUrl;
+  // The row is only a button while it still offers "add WeldMeet".
+  const buttonProps = canCreate
+    ? { role: 'button', tabIndex: 0, onClick: onCreate, onKeyDown: activateOnKey(onCreate) }
+    : {};
+  return (
+    <div
+      className={cn(
+        'group flex items-center gap-3 px-4 py-[10px]',
+        canCreate && 'cursor-pointer hover:bg-accent/50 transition-colors',
+      )}
+      {...buttonProps}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+        className="h-[18px] w-[18px] -mx-px text-muted-foreground shrink-0"
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
+        />
+      </svg>
+      {isCreating && (
+        <div className="flex items-center gap-2 h-7">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">{t.quickCreate.creatingMeetingLink}</span>
+        </div>
+      )}
+      {!isCreating && meetingUrl && (
+        <div className="flex items-center justify-between flex-1 h-7 min-w-0 gap-2">
+          <span className="text-sm text-primary truncate">{meetingUrl}</span>
+          <div className="flex items-center gap-0.5 shrink-0">
+            {/* Copy link — revealed on row hover */}
+            <Button
+              variant="ghost"
+              size="icon"
+              type="button"
+              title={t.quickCreate.copyMeetingLink}
+              aria-label={t.quickCreate.copyMeetingLink}
+              className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopyLink();
+              }}
+            >
+              {linkCopied ? (
+                <Check className="h-3.5 w-3.5 text-green-600" />
+              ) : (
+                <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+            </Button>
+
+            {/* Meeting settings — revealed on row hover, opens a popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  type="button"
+                  title={t.quickCreate.meetingSettings}
+                  aria-label={t.quickCreate.meetingSettings}
+                  className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center data-[state=open]:bg-muted"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Settings className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="w-72 p-3"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <p className="text-sm font-medium mb-3">{t.quickCreate.meetingSettings}</p>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground">{t.quickCreate.meetingAccess}</label>
+                    <Select
+                      value={settings.accessType}
+                      onValueChange={(v) =>
+                        onUpdateSetting({ accessType: v as MeetingSettings['accessType'] })
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="anyone_with_link">{t.quickCreate.meetingAccessAnyone}</SelectItem>
+                        <SelectItem value="workspace">{t.quickCreate.meetingAccessWorkspace}</SelectItem>
+                        <SelectItem value="invited_only">{t.quickCreate.meetingAccessInvited}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="weldmeet-waiting-room" className="text-sm">{t.quickCreate.meetingWaitingRoom}</label>
+                    <Switch
+                      id="weldmeet-waiting-room"
+                      checked={settings.waitingRoom}
+                      onCheckedChange={(c) => onUpdateSetting({ waitingRoom: c })}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="weldmeet-allow-recording" className="text-sm">{t.quickCreate.meetingAllowRecording}</label>
+                    <Switch
+                      id="weldmeet-allow-recording"
+                      checked={settings.allowRecording}
+                      onCheckedChange={(c) => onUpdateSetting({ allowRecording: c })}
+                    />
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Remove meeting link */}
+            <Button
+              variant="ghost"
+              size="icon"
+              type="button"
+              className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+            >
+              <X className="h-3 w-3 text-muted-foreground" />
+            </Button>
+          </div>
+        </div>
+      )}
+      {canCreate && (
+        <span className="text-sm text-foreground h-7 flex items-center">
+          {t.quickCreate.addWeldMeet}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Location row: autocomplete while active, else the value or a placeholder. */
+function LocationRow({
+  isActive,
+  location,
+  onActivate,
+  onDeactivate,
+  onChange,
+}: {
+  isActive: boolean;
+  location: string;
+  onActivate: () => void;
+  onDeactivate: () => void;
+  onChange: (value: string) => void;
+}) {
+  const t = getTranslations('weldcalendar');
+  const summary = location ? (
+    <span className="text-sm text-foreground h-7 flex items-center truncate">{location}</span>
+  ) : (
+    <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.addLocation}</span>
+  );
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+      onClick={onActivate}
+      onKeyDown={activateOnKey(onActivate)}
+    >
+      <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+      {isActive ? (
+        <LocationAutocomplete
+          placeholder={t.quickCreate.addLocation}
+          value={location}
+          onChange={onChange}
+          className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
+          autoFocus
+          onBlurAfterGrace={onDeactivate}
+        />
+      ) : (
+        summary
+      )}
+    </div>
+  );
+}
+
+/** Repeat frequency picker for tasks (footer of the quick-create card). */
+function RepeatPopover({
+  repeat,
+  onChange,
+}: {
+  repeat: string | null;
+  onChange: (repeat: string | null) => void;
+}) {
+  const t = getTranslations('weldcalendar');
+  const options: { value: string | null; label: string }[] = [
+    { value: null, label: t.quickCreate.noRepeat },
+    { value: 'daily', label: t.quickCreate.repeatDaily },
+    { value: 'weekly', label: t.quickCreate.repeatWeekly },
+    { value: 'monthly', label: t.quickCreate.repeatMonthly },
+    { value: 'yearly', label: t.quickCreate.repeatYearly },
+  ];
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size={repeat ? 'sm' : 'icon'}
+          className={cn(
+            'h-8',
+            repeat
+              ? 'gap-1.5 px-2.5 bg-primary/5 text-primary border-primary/10 hover:bg-primary/10 hover:text-primary'
+              : 'w-8',
+          )}
+        >
+          <Repeat2 className="h-4 w-4" />
+          {repeat && <span className="text-xs">{repeat.charAt(0).toUpperCase() + repeat.slice(1)}</span>}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[140px] p-1 z-[80]" align="end" sideOffset={4}>
+        {options.map((opt) => (
+          <Button
+            variant="ghost"
+            key={opt.label}
+            className={cn(
+              'w-full text-left text-sm px-3 py-1.5 rounded-md transition-colors',
+              repeat === opt.value ? 'bg-accent font-medium' : 'hover:bg-accent/50',
+            )}
+            onClick={() => onChange(opt.value)}
+          >
+            {opt.label}
+          </Button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ============================================================================
 // Quick Create Card (Google Calendar-style inline creation)
 // ============================================================================
@@ -1272,9 +1919,18 @@ export function QuickCreateCard({
   editEvent?: CalendarEvent | null;
 }) {
   const t = getTranslations('weldcalendar');
-  const [type, setType] = useState(editEvent?.type || defaultType);
-  const [title, setTitle] = useState(editEvent?.title || defaultTitle || '');
-  const [allDay, setAllDay] = useState(editEvent?.allDay || false);
+  const [initial] = useState(() =>
+    getQuickCreateInitialValues(editEvent, {
+      type: defaultType,
+      title: defaultTitle,
+      location: defaultLocation,
+      description: defaultDescription,
+      calendarId: defaultCalendarId,
+    }),
+  );
+  const [type, setType] = useState(initial.type);
+  const [title, setTitle] = useState(initial.title);
+  const [allDay, setAllDay] = useState(initial.allDay);
   const [startDate, setStartDate] = useState(() => {
     const d = defaultStart || new Date();
     return format(d, 'yyyy-MM-dd');
@@ -1298,20 +1954,20 @@ export function QuickCreateCard({
     return format(d, 'HH:mm');
   });
 
-  const [location, setLocation] = useState(editEvent?.location || defaultLocation || '');
-  const [description, setDescription] = useState(editEvent?.description || defaultDescription || '');
-  const [meetingUrl, setMeetingUrl] = useState(editEvent?.meetingUrl || '');
+  const [location, setLocation] = useState(initial.location);
+  const [description, setDescription] = useState(initial.description);
+  const [meetingUrl, setMeetingUrl] = useState(initial.meetingUrl);
   // Id + settings of the WeldMeet meeting created from this form, so the
   // hover actions (copy link / adjust settings) on the meeting row can act on it.
   const [meetingId, setMeetingId] = useState('');
   const [meetingLinkCopied, setMeetingLinkCopied] = useState(false);
-  const [meetingSettings, setMeetingSettings] = useState<{
-    accessType: 'workspace' | 'invited_only' | 'anyone_with_link';
-    waitingRoom: boolean;
-    allowRecording: boolean;
-  }>({ accessType: 'anyone_with_link', waitingRoom: true, allowRecording: false });
+  const [meetingSettings, setMeetingSettings] = useState<MeetingSettings>({
+    accessType: 'anyone_with_link',
+    waitingRoom: true,
+    allowRecording: false,
+  });
   const [guestSearch, setGuestSearch] = useState('');
-  const [selectedGuests, setSelectedGuests] = useState<{ id: string; name: string; email: string }[]>(() => {
+  const [selectedGuests, setSelectedGuests] = useState<GuestEntry[]>(() => {
     if (editEvent?.attendees?.length) {
       return editEvent.attendees.map((a, i) => ({
         id: `attendee-${i}`,
@@ -1345,7 +2001,7 @@ export function QuickCreateCard({
   });
   const [taskLabels, setTaskLabels] = useState<string[]>([]);
   const [taskAssigneeSearch, setTaskAssigneeSearch] = useState('');
-  const [taskAssignees, setTaskAssignees] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [taskAssignees, setTaskAssignees] = useState<GuestEntry[]>([]);
   const [taskRepeat, setTaskRepeat] = useState<string | null>(null);
 
   const createEvent = useCreateCalendarEvent();
@@ -1368,7 +2024,7 @@ export function QuickCreateCard({
   }, [meetingUrl, t.quickCreate.meetingLinkCopied]);
 
   const updateMeetingSetting = useCallback(
-    (patch: Partial<typeof meetingSettings>) => {
+    (patch: Partial<MeetingSettings>) => {
       setMeetingSettings((prev) => {
         const next = { ...prev, ...patch };
         if (meetingId) {
@@ -1382,7 +2038,7 @@ export function QuickCreateCard({
 
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [pendingEventData, setPendingEventData] = useState<Partial<CalendarEvent> | null>(null);
-  const [selectedCalendarId, setSelectedCalendarId] = useState(editEvent?.calendarId || defaultCalendarId);
+  const [selectedCalendarId, setSelectedCalendarId] = useState(initial.calendarId);
   const isEditMode = !!editEvent?.id;
   const isTask = type === 'reminder';
 
@@ -1392,50 +2048,82 @@ export function QuickCreateCard({
     appointment: t.quickCreate.defaultTitleAppointment,
   };
 
+  const taskStatusLabels = {
+    todo: t.quickCreate.statusTodo,
+    in_progress: t.quickCreate.statusInProgress,
+    done: t.quickCreate.statusDone,
+  };
+  const taskPriorityLabels = {
+    low: t.quickCreate.priorityLow,
+    medium: t.quickCreate.priorityMedium,
+    high: t.quickCreate.priorityHigh,
+  };
+
+  const handleCreateMeeting = async () => {
+    const result = await createMeetingAndGetUrl(title || 'Meeting');
+    if (result) {
+      setMeetingUrl(result.url);
+      setMeetingId(result.meetingId);
+    }
+  };
+
+  const saveTask = async (finalTitle: string) => {
+    await createTask.mutateAsync({
+      title: finalTitle,
+      description: description.trim() || undefined,
+      status: taskStatus,
+      priority: taskPriority || undefined,
+      dueDate: taskDueDate && taskDueTime
+        ? new Date(`${format(taskDueDate, 'yyyy-MM-dd')}T${taskDueTime}`)
+        : taskDueDate,
+      labels: taskLabels.length > 0 ? taskLabels : undefined,
+      repeat: taskRepeat ? { frequency: taskRepeat as NonNullable<Task['repeat']>['frequency'] } : undefined,
+    });
+  };
+
+  const buildEventData = (finalTitle: string) => {
+    const start = allDay ? new Date(`${startDate}T00:00:00`) : new Date(`${startDate}T${startTimeVal}`);
+    const end = allDay ? new Date(`${endDate}T23:59:59`) : new Date(`${endDate}T${endTimeVal}`);
+    return {
+      calendarId: selectedCalendarId,
+      title: finalTitle,
+      type: type as CalendarEvent['type'],
+      allDay,
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+      status: 'confirmed' as const,
+      priority: 'normal' as const,
+      location: location.trim() || undefined,
+      description: description.trim() || undefined,
+      isVirtual: !!meetingUrl.trim(),
+      meetingUrl: meetingUrl.trim() || undefined,
+      attendees: selectedGuests.length > 0 ? selectedGuests.map((g) => ({ email: g.email, name: g.name })) : undefined,
+    };
+  };
+
+  /** Returns false when saving waits on the notification dialog (don't close yet). */
+  const saveEvent = async (finalTitle: string): Promise<boolean> => {
+    const eventData = buildEventData(finalTitle);
+    if (!isEditMode || !editEvent?.id) {
+      await createEvent.mutateAsync(eventData);
+      return true;
+    }
+    if (editEvent.attendees?.length) {
+      setPendingEventData(eventData);
+      setShowUpdateDialog(true);
+      return false;
+    }
+    await updateEvent.mutateAsync({ id: editEvent.id, data: eventData });
+    return true;
+  };
+
   const handleSave = async () => {
     const finalTitle = title.trim() || defaultTitles[type] || t.calendarView.untitled;
 
     if (isTask) {
-      await createTask.mutateAsync({
-        title: finalTitle,
-        description: description.trim() || undefined,
-        status: taskStatus,
-        priority: taskPriority || undefined,
-        dueDate: taskDueDate && taskDueTime
-          ? new Date(`${format(taskDueDate, 'yyyy-MM-dd')}T${taskDueTime}`)
-          : taskDueDate,
-        labels: taskLabels.length > 0 ? taskLabels : undefined,
-        repeat: taskRepeat ? { frequency: taskRepeat as NonNullable<Task['repeat']>['frequency'] } : undefined,
-      });
-    } else {
-      const start = allDay ? new Date(`${startDate}T00:00:00`) : new Date(`${startDate}T${startTimeVal}`);
-      const end = allDay ? new Date(`${endDate}T23:59:59`) : new Date(`${endDate}T${endTimeVal}`);
-      const eventData = {
-        calendarId: selectedCalendarId,
-        title: finalTitle,
-        type: type as CalendarEvent['type'],
-        allDay,
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-        status: 'confirmed' as const,
-        priority: 'normal' as const,
-        location: location.trim() || undefined,
-        description: description.trim() || undefined,
-        isVirtual: !!meetingUrl.trim(),
-        meetingUrl: meetingUrl.trim() || undefined,
-        attendees: selectedGuests.length > 0 ? selectedGuests.map((g) => ({ email: g.email, name: g.name })) : undefined,
-      };
-      if (isEditMode && editEvent?.id) {
-        const hasExistingAttendees = !!editEvent.attendees?.length;
-        if (hasExistingAttendees) {
-          setPendingEventData(eventData);
-          setShowUpdateDialog(true);
-          return; // don't close yet — wait for dialog
-        }
-        await updateEvent.mutateAsync({ id: editEvent.id, data: eventData });
-      } else {
-        await createEvent.mutateAsync(eventData);
-      }
+      await saveTask(finalTitle);
+    } else if (!(await saveEvent(finalTitle))) {
+      return; // don't close yet — wait for dialog
     }
     onClose();
   };
@@ -1451,6 +2139,7 @@ export function QuickCreateCard({
 
   return (
     <div
+      role="presentation"
       className="overflow-y-auto max-h-[80vh]"
       onClick={() => setActiveField(null)}
       onKeyDown={(e) => {
@@ -1489,14 +2178,14 @@ export function QuickCreateCard({
       <Separator />
 
       {/* Rows */}
-      <div className="divide-y" onClick={(e) => e.stopPropagation()}>
+      <div role="presentation" className="divide-y" onClick={(e) => e.stopPropagation()}>
         {isTask ? (
           <>
             {/* Task: Status row */}
             <InlineSelectRow
               icon={<CircleDot className="h-4 w-4 text-muted-foreground shrink-0" />}
               value={taskStatus}
-              displayValue={taskStatus === 'todo' ? t.quickCreate.statusTodo : taskStatus === 'in_progress' ? t.quickCreate.statusInProgress : t.quickCreate.statusDone}
+              displayValue={taskStatusLabels[taskStatus]}
               options={[
                 { value: 'todo', label: t.quickCreate.statusTodo },
                 { value: 'in_progress', label: t.quickCreate.statusInProgress },
@@ -1509,7 +2198,7 @@ export function QuickCreateCard({
             <InlineSelectRow
               icon={<Flag className="h-4 w-4 text-muted-foreground shrink-0" />}
               value={taskPriority || 'none'}
-              displayValue={taskPriority === 'low' ? t.quickCreate.priorityLow : taskPriority === 'medium' ? t.quickCreate.priorityMedium : taskPriority === 'high' ? t.quickCreate.priorityHigh : t.quickCreate.priorityLabel}
+              displayValue={taskPriority ? taskPriorityLabels[taskPriority] : t.quickCreate.priorityLabel}
               options={[
                 { value: 'none', label: t.quickCreate.priorityNone },
                 { value: 'low', label: t.quickCreate.priorityLow },
@@ -1520,94 +2209,30 @@ export function QuickCreateCard({
             />
 
             {/* Task: Labels row */}
-            <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setActiveField(activeField === 'labels' ? null : 'labels')}>
-              <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
-              {activeField === 'labels' ? (
-                <div className="flex-1" onClick={(e) => e.stopPropagation()}>
-                  <Input
-                    placeholder={t.quickCreate.labelsPlaceholder}
-                    className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
-                    autoFocus
-                    onBlur={() => setTimeout(() => setActiveField(null), 150)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
-                        const val = (e.target as HTMLInputElement).value.trim();
-                        if (!taskLabels.includes(val)) setTaskLabels((prev) => [...prev, val]);
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }}
-                  />
-                  {taskLabels.length > 0 && (
-                    <div className="flex items-center gap-1 flex-wrap mt-1.5">
-                      {taskLabels.map((l) => (
-                        <span key={l} className="inline-flex items-center gap-1 text-xs bg-accent rounded px-2 py-0.5">
-                          {l}
-                          <Button variant="ghost" className="hover:text-foreground" onMouseDown={(e) => e.preventDefault()} onClick={() => setTaskLabels((prev) => prev.filter((x) => x !== l))}>
-                            <X className="h-2.5 w-2.5" />
-                          </Button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : taskLabels.length > 0 ? (
-                <div className="flex items-center gap-1 flex-wrap">
-                  {taskLabels.map((l) => (
-                    <span key={l} className="text-xs bg-accent px-2 py-0.5 rounded">{l}</span>
-                  ))}
-                </div>
-              ) : (
-                <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.labelsLabel}</span>
-              )}
-            </div>
+            <TaskLabelsRow
+              labels={taskLabels}
+              isActive={activeField === 'labels'}
+              onToggle={() => setActiveField(activeField === 'labels' ? null : 'labels')}
+              onClose={() => setActiveField(null)}
+              onAddLabel={(label) => setTaskLabels((prev) => [...prev, label])}
+              onRemoveLabel={(label) => setTaskLabels((prev) => prev.filter((x) => x !== label))}
+            />
 
             {/* Task: Assignees row */}
-            {taskAssignees.length > 0 || activeField === 'assignee' ? (
-              <div className="px-4 py-[10px] cursor-pointer" onClick={() => activeField !== 'assignee' && setActiveField('assignee')}>
-                <div className="flex gap-3">
-                  <Users className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
-                  <div className="flex-1 min-w-0 space-y-1">
-                    {taskAssignees.map((g) => (
-                      <div key={g.id} className="flex items-center justify-between gap-2 h-7">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <div className="h-[20px] w-[20px] rounded-[5.5px] bg-primary/10 flex items-center justify-center shrink-0 leading-none">
-                            <span className="text-[10px] font-medium text-primary leading-none -mt-[0.5px]">
-                              {(g.name?.[0] || g.email[0] || '?').toUpperCase()}
-                            </span>
-                          </div>
-                          <span className="text-sm truncate leading-none">{g.name || g.email}</span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5 rounded-[5.5px] hover:bg-muted flex items-center justify-center shrink-0"
-                          onClick={(e) => { e.stopPropagation(); setTaskAssignees((prev) => prev.filter((p) => p.id !== g.id)); }}
-                        >
-                          <X className="h-3 w-3 text-muted-foreground" />
-                        </Button>
-                      </div>
-                    ))}
-                    {activeField === 'assignee' && (
-                      <GuestSearchInput
-                        value={taskAssigneeSearch}
-                        onChange={setTaskAssigneeSearch}
-                        selectedIds={taskAssignees.map((g) => g.id)}
-                        onSelect={(guest) => {
-                          setTaskAssignees((prev) => [...prev, guest]);
-                          setTaskAssigneeSearch('');
-                        }}
-                        onBlurAway={() => setActiveField(null)}
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setActiveField('assignee')}>
-                <Users className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.assigneeLabel}</span>
-              </div>
-            )}
+            <PeopleRow
+              people={taskAssignees}
+              isActive={activeField === 'assignee'}
+              emptyLabel={t.quickCreate.assigneeLabel}
+              search={taskAssigneeSearch}
+              onSearchChange={setTaskAssigneeSearch}
+              onActivate={() => setActiveField('assignee')}
+              onDeactivate={() => setActiveField(null)}
+              onAdd={(guest) => {
+                setTaskAssignees((prev) => [...prev, guest]);
+                setTaskAssigneeSearch('');
+              }}
+              onRemove={(id) => setTaskAssignees((prev) => prev.filter((p) => p.id !== id))}
+            />
 
             {/* Task: Due date & time row */}
             <InlineDateTimeRow
@@ -1620,28 +2245,16 @@ export function QuickCreateCard({
             />
 
             {/* Task: Description row */}
-            <div
-              className="flex items-start gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
-              onClick={() => setActiveField('description')}
-            >
-              <AlignLeft className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
-              {activeField === 'description' ? (
-                <textarea
-                  ref={descriptionRef}
-                  placeholder={t.quickCreate.descriptionPlaceholder}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  onBlur={() => setActiveField(null)}
-                  rows={1}
-                  className="flex-1 text-sm leading-7 py-0 bg-transparent resize-none focus:outline-none overflow-hidden"
-                  autoFocus
-                />
-              ) : description ? (
-                <span className="flex-1 min-w-0 text-sm text-foreground leading-7 truncate">{description}</span>
-              ) : (
-                <span className="flex-1 text-sm text-foreground leading-7">{t.quickCreate.descriptionPlaceholder}</span>
-              )}
-            </div>
+            <DescriptionRow
+              isActive={activeField === 'description'}
+              description={description}
+              descriptionRef={descriptionRef}
+              placeholder={t.quickCreate.descriptionPlaceholder}
+              emptyPlaceholder={t.quickCreate.descriptionPlaceholder}
+              onActivate={() => setActiveField('description')}
+              onDeactivate={() => setActiveField(null)}
+              onChange={setDescription}
+            />
 
             {/* Task: Attachment row */}
             <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors">
@@ -1652,310 +2265,72 @@ export function QuickCreateCard({
         ) : (
           <>
             {/* Event: Date/time row */}
-            <div
-              className={cn(
-                'flex items-start gap-3 px-4 py-[10px] cursor-pointer transition-colors',
-                activeField !== 'time' && 'hover:bg-accent/50',
-              )}
-              onClick={() => setActiveField(activeField === 'time' ? null : 'time')}
-            >
-              <Clock className="h-4 w-4 text-muted-foreground shrink-0 mt-[5px]" />
-              <div className="flex-1 min-w-0 space-y-2">
-                {activeField === 'time' ? (
-                  <div onClick={(e) => e.stopPropagation()} className="space-y-2.5">
-                    <div className="flex items-center gap-2">
-                      <DatePickerField
-                        value={new Date(startDate)}
-                        onChange={(d) => setStartDate(format(d, 'yyyy-MM-dd'))}
-                      />
-                      <span className="text-muted-foreground text-xs shrink-0">–</span>
-                      <DatePickerField
-                        value={new Date(endDate)}
-                        onChange={(d) => setEndDate(format(d, 'yyyy-MM-dd'))}
-                      />
-                    </div>
-                    {!allDay && (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="time"
-                          value={startTimeVal}
-                          onChange={(e) => setStartTimeVal(e.target.value)}
-                          className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
-                        />
-                        <span className="text-muted-foreground text-xs shrink-0">–</span>
-                        <Input
-                          type="time"
-                          value={endTimeVal}
-                          onChange={(e) => setEndTimeVal(e.target.value)}
-                          className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
-                        />
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">{t.calendarView.allDay}</span>
-                      <Switch checked={allDay} onCheckedChange={setAllDay} className="h-[18.5px] [&_[data-slot=switch-thumb]]:translate-y-0" />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1 text-sm h-7">
-                    <span>{format(new Date(startDate), 'EEEE, MMM d')}</span>
-                    {!allDay && (
-                      <>
-                        <span className="text-muted-foreground">·</span>
-                        <span>{format(new Date(`${startDate}T${startTimeVal}`), 'h:mm a')}</span>
-                        <span className="text-muted-foreground">–</span>
-                        <span>{format(new Date(`${endDate}T${endTimeVal}`), 'h:mm a')}</span>
-                      </>
-                    )}
-                    {allDay && startDate !== endDate && (
-                      <>
-                        <span className="text-muted-foreground">–</span>
-                        <span>{format(new Date(endDate), 'EEEE, MMM d')}</span>
-                      </>
-                    )}
-                    {allDay && startDate === endDate && (
-                      <span className="text-xs text-muted-foreground ml-1">· {t.calendarView.allDay}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+            <EventTimeRow
+              isActive={activeField === 'time'}
+              onToggle={() => setActiveField(activeField === 'time' ? null : 'time')}
+              allDay={allDay}
+              onAllDayChange={setAllDay}
+              startDate={startDate}
+              endDate={endDate}
+              startTime={startTimeVal}
+              endTime={endTimeVal}
+              onStartDateChange={setStartDate}
+              onEndDateChange={setEndDate}
+              onStartTimeChange={setStartTimeVal}
+              onEndTimeChange={setEndTimeVal}
+            />
 
             {/* Event: Participants row */}
-            {selectedGuests.length > 0 || activeField === 'guests' ? (
-              <div className="px-4 py-[10px] cursor-pointer" onClick={() => activeField !== 'guests' && setActiveField('guests')}>
-                <div className="flex gap-3">
-                  <Users className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
-                  <div className="flex-1 min-w-0 space-y-1">
-                    {selectedGuests.map((g) => (
-                      <div key={g.id} className="flex items-center justify-between gap-2 h-7">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <div className="h-[20px] w-[20px] rounded-[5.5px] bg-primary/10 flex items-center justify-center shrink-0 leading-none">
-                            <span className="text-[10px] font-medium text-primary leading-none -mt-[0.5px]">
-                              {(g.name?.[0] || g.email[0] || '?').toUpperCase()}
-                            </span>
-                          </div>
-                          <span className="text-sm truncate leading-none">{g.name || g.email}</span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5 rounded-[5.5px] hover:bg-muted flex items-center justify-center shrink-0"
-                          onClick={(e) => { e.stopPropagation(); setSelectedGuests((prev) => prev.filter((p) => p.id !== g.id)); }}
-                        >
-                          <X className="h-3 w-3 text-muted-foreground" />
-                        </Button>
-                      </div>
-                    ))}
-                    {activeField === 'guests' && (
-                      <GuestSearchInput
-                        value={guestSearch}
-                        onChange={setGuestSearch}
-                        selectedIds={selectedGuests.map((g) => g.id)}
-                        onSelect={(guest) => {
-                          setSelectedGuests((prev) => [...prev, guest]);
-                          setGuestSearch('');
-                        }}
-                        onBlurAway={() => setActiveField(null)}
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setActiveField('guests')}>
-                <Users className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.addParticipants}</span>
-              </div>
-            )}
+            <PeopleRow
+              people={selectedGuests}
+              isActive={activeField === 'guests'}
+              emptyLabel={t.quickCreate.addParticipants}
+              search={guestSearch}
+              onSearchChange={setGuestSearch}
+              onActivate={() => setActiveField('guests')}
+              onDeactivate={() => setActiveField(null)}
+              onAdd={(guest) => {
+                setSelectedGuests((prev) => [...prev, guest]);
+                setGuestSearch('');
+              }}
+              onRemove={(id) => setSelectedGuests((prev) => prev.filter((p) => p.id !== id))}
+            />
 
             {/* Event: WeldMeet row */}
-            <div
-              className={cn(
-                'group flex items-center gap-3 px-4 py-[10px]',
-                !isCreatingMeeting && !meetingUrl && 'cursor-pointer hover:bg-accent/50 transition-colors',
-              )}
-              onClick={
-                !isCreatingMeeting && !meetingUrl
-                  ? async () => {
-                      const result = await createMeetingAndGetUrl(title || 'Meeting');
-                      if (result) {
-                        setMeetingUrl(result.url);
-                        setMeetingId(result.meetingId);
-                      }
-                    }
-                  : undefined
-              }
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="h-[18px] w-[18px] -mx-px text-muted-foreground shrink-0"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
-                />
-              </svg>
-              {isCreatingMeeting ? (
-                <div className="flex items-center gap-2 h-7">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">{t.quickCreate.creatingMeetingLink}</span>
-                </div>
-              ) : meetingUrl ? (
-                <div className="flex items-center justify-between flex-1 h-7 min-w-0 gap-2">
-                  <span className="text-sm text-primary truncate">{meetingUrl}</span>
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    {/* Copy link — revealed on row hover */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      type="button"
-                      title={t.quickCreate.copyMeetingLink}
-                      aria-label={t.quickCreate.copyMeetingLink}
-                      className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCopyMeetingLink();
-                      }}
-                    >
-                      {meetingLinkCopied ? (
-                        <Check className="h-3.5 w-3.5 text-green-600" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
-                    </Button>
-
-                    {/* Meeting settings — revealed on row hover, opens a popover */}
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          type="button"
-                          title={t.quickCreate.meetingSettings}
-                          aria-label={t.quickCreate.meetingSettings}
-                          className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center data-[state=open]:bg-muted"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Settings className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="end"
-                        className="w-72 p-3"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <p className="text-sm font-medium mb-3">{t.quickCreate.meetingSettings}</p>
-                        <div className="space-y-3">
-                          <div className="space-y-1.5">
-                            <label className="text-xs text-muted-foreground">{t.quickCreate.meetingAccess}</label>
-                            <Select
-                              value={meetingSettings.accessType}
-                              onValueChange={(v) =>
-                                updateMeetingSetting({ accessType: v as typeof meetingSettings.accessType })
-                              }
-                            >
-                              <SelectTrigger className="h-8 text-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="anyone_with_link">{t.quickCreate.meetingAccessAnyone}</SelectItem>
-                                <SelectItem value="workspace">{t.quickCreate.meetingAccessWorkspace}</SelectItem>
-                                <SelectItem value="invited_only">{t.quickCreate.meetingAccessInvited}</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <label htmlFor="weldmeet-waiting-room" className="text-sm">{t.quickCreate.meetingWaitingRoom}</label>
-                            <Switch
-                              id="weldmeet-waiting-room"
-                              checked={meetingSettings.waitingRoom}
-                              onCheckedChange={(c) => updateMeetingSetting({ waitingRoom: c })}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <label htmlFor="weldmeet-allow-recording" className="text-sm">{t.quickCreate.meetingAllowRecording}</label>
-                            <Switch
-                              id="weldmeet-allow-recording"
-                              checked={meetingSettings.allowRecording}
-                              onCheckedChange={(c) => updateMeetingSetting({ allowRecording: c })}
-                            />
-                          </div>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-
-                    {/* Remove meeting link */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      type="button"
-                      className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMeetingUrl('');
-                        setMeetingId('');
-                      }}
-                    >
-                      <X className="h-3 w-3 text-muted-foreground" />
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <span className="text-sm text-foreground h-7 flex items-center">
-                  {t.quickCreate.addWeldMeet}
-                </span>
-              )}
-            </div>
+            <MeetingRow
+              meetingUrl={meetingUrl}
+              isCreating={isCreatingMeeting}
+              linkCopied={meetingLinkCopied}
+              settings={meetingSettings}
+              onCreate={handleCreateMeeting}
+              onCopyLink={handleCopyMeetingLink}
+              onUpdateSetting={updateMeetingSetting}
+              onRemove={() => {
+                setMeetingUrl('');
+                setMeetingId('');
+              }}
+            />
 
             {/* Event: Location row */}
-            <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setActiveField('location')}>
-              <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-              {activeField === 'location' ? (
-                <LocationAutocomplete
-                  placeholder={t.quickCreate.addLocation}
-                  value={location}
-                  onChange={setLocation}
-                  className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
-                  autoFocus
-                  onBlurAfterGrace={() => setActiveField(null)}
-                />
-              ) : location ? (
-                <span className="text-sm text-foreground h-7 flex items-center truncate">{location}</span>
-              ) : (
-                <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.addLocation}</span>
-              )}
-            </div>
+            <LocationRow
+              isActive={activeField === 'location'}
+              location={location}
+              onActivate={() => setActiveField('location')}
+              onDeactivate={() => setActiveField(null)}
+              onChange={setLocation}
+            />
 
             {/* Event: Description row */}
-            <div
-              className="flex items-start gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
-              onClick={() => setActiveField('description')}
-            >
-              <AlignLeft className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
-              {activeField === 'description' ? (
-                <textarea
-                  ref={descriptionRef}
-                  placeholder={t.quickCreate.descriptionPlaceholder}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  onBlur={() => setActiveField(null)}
-                  rows={1}
-                  className="flex-1 text-sm leading-7 py-0 bg-transparent resize-none focus:outline-none overflow-hidden"
-                  autoFocus
-                />
-              ) : description ? (
-                <span className="flex-1 min-w-0 text-sm text-foreground leading-7 truncate">{description}</span>
-              ) : (
-                <span className="flex-1 text-sm text-foreground leading-7">{t.quickCreate.descriptionWithDrivePlaceholder}</span>
-              )}
-            </div>
+            <DescriptionRow
+              isActive={activeField === 'description'}
+              description={description}
+              descriptionRef={descriptionRef}
+              placeholder={t.quickCreate.descriptionPlaceholder}
+              emptyPlaceholder={t.quickCreate.descriptionWithDrivePlaceholder}
+              onActivate={() => setActiveField('description')}
+              onDeactivate={() => setActiveField(null)}
+              onChange={setDescription}
+            />
 
             {/* Event: Calendar row */}
             {calendars.length > 0 && (
@@ -1972,46 +2347,9 @@ export function QuickCreateCard({
       <Separator />
 
       {/* Footer */}
-      <div className="flex items-center justify-end px-4 py-3" onClick={(e) => e.stopPropagation()}>
+      <div role="presentation" className="flex items-center justify-end px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-1.5">
-          <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size={taskRepeat ? 'sm' : 'icon'}
-                  className={cn(
-                    'h-8',
-                    taskRepeat
-                      ? 'gap-1.5 px-2.5 bg-primary/5 text-primary border-primary/10 hover:bg-primary/10 hover:text-primary'
-                      : 'w-8',
-                  )}
-                >
-                  <Repeat2 className="h-4 w-4" />
-                  {taskRepeat && <span className="text-xs">{taskRepeat.charAt(0).toUpperCase() + taskRepeat.slice(1)}</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[140px] p-1 z-[80]" align="end" sideOffset={4}>
-                {[
-                  { value: null, label: t.quickCreate.noRepeat },
-                  { value: 'daily', label: t.quickCreate.repeatDaily },
-                  { value: 'weekly', label: t.quickCreate.repeatWeekly },
-                  { value: 'monthly', label: t.quickCreate.repeatMonthly },
-                  { value: 'yearly', label: t.quickCreate.repeatYearly },
-                ].map((opt) => (
-                  <Button
-                    variant="ghost"
-                    key={opt.label}
-                    className={cn(
-                      'w-full text-left text-sm px-3 py-1.5 rounded-md transition-colors',
-                      taskRepeat === opt.value ? 'bg-accent font-medium' : 'hover:bg-accent/50',
-                    )}
-                    onClick={() => setTaskRepeat(opt.value)}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-              </PopoverContent>
-            </Popover>
+          <RepeatPopover repeat={taskRepeat} onChange={setTaskRepeat} />
           <Button
             variant="default"
             size="sm"
@@ -2196,6 +2534,47 @@ function MonthView({
     pendingDragRef.current = true;
   }, []);
 
+  // Event chips (plus the "+N more" line) of one day cell. `reserved` is the
+  // number of slots taken by the quick-create preview / drag ghost.
+  const renderDayEventChips = (day: Date, dayEvents: CalendarEvent[], reserved: number) => {
+    const { visible, hidden } = splitMonthCellEvents(dayEvents.length, chipCapacity, reserved);
+    return (
+      <>
+        {dayEvents.slice(0, visible).map((evt, ei) => {
+          const isEventSelected = selectedEventId === evt.id;
+          const isDragging = dragEvent?.id === evt.id;
+          return (
+            <MonthEventChip
+              key={evt.id || ei}
+              color={getEventColor(evt, calendarColorMap)}
+              time={evt.allDay ? null : format(new Date(evt.startTime), 'h:mm')}
+              title={evt.title}
+              className={cn(
+                isEventSelected && "ring-2 ring-foreground/50 ring-offset-1 brightness-90",
+                isDragging && "opacity-40 pointer-events-none",
+              )}
+              style={{ cursor: 'grab' }}
+              onMouseDown={(e) => handleEventDragStart(evt, e)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!dragEvent && !justDraggedRef.current) onSelectEvent(evt, e);
+              }}
+            />
+          );
+        })}
+        {hidden > 0 && (
+          <MonthMoreButton
+            label={t.misc.moreEvents.replace('{count}', String(hidden))}
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowDay(day);
+            }}
+          />
+        )}
+      </>
+    );
+  };
+
   const dayNames = [
     t.bookingEditorDays.mon,
     t.bookingEditorDays.tue,
@@ -2240,6 +2619,7 @@ function MonthView({
               return (
                 <div
                   key={key}
+                  role="presentation"
                   data-calendar-cell
                   data-date={key}
                   className={cn(
@@ -2264,46 +2644,8 @@ function MonthView({
                     </span>
                   </div>
                   <div className="space-y-0.5 overflow-hidden">
-                    {(() => {
-                      // The quick-create preview / drag ghost occupies a slot too.
-                      const reserved = (isSelected && !dragEvent) || isDragOver ? 1 : 0;
-                      const { visible, hidden } = splitMonthCellEvents(dayEvents.length, chipCapacity, reserved);
-                      return (
-                        <>
-                          {dayEvents.slice(0, visible).map((evt, ei) => {
-                            const isEventSelected = selectedEventId === evt.id;
-                            const isDragging = dragEvent?.id === evt.id;
-                            return (
-                              <MonthEventChip
-                                key={evt.id || ei}
-                                color={getEventColor(evt, calendarColorMap)}
-                                time={evt.allDay ? null : format(new Date(evt.startTime), 'h:mm')}
-                                title={evt.title}
-                                className={cn(
-                                  isEventSelected && "ring-2 ring-foreground/50 ring-offset-1 brightness-90",
-                                  isDragging && "opacity-40 pointer-events-none",
-                                )}
-                                style={{ cursor: 'grab' }}
-                                onMouseDown={(e) => handleEventDragStart(evt, e)}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (!dragEvent && !justDraggedRef.current) onSelectEvent(evt, e);
-                                }}
-                              />
-                            );
-                          })}
-                          {hidden > 0 && (
-                            <MonthMoreButton
-                              label={t.misc.moreEvents.replace('{count}', String(hidden))}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onShowDay(day);
-                              }}
-                            />
-                          )}
-                        </>
-                      );
-                    })()}
+                    {/* The quick-create preview / drag ghost occupies a slot too. */}
+                    {renderDayEventChips(day, dayEvents, (isSelected && !dragEvent) || isDragOver ? 1 : 0)}
                     {/* Ghost preview on drag target */}
                     {isDragOver && dragEvent && (
                       <div
@@ -2341,6 +2683,13 @@ function MonthView({
 // or per-cell event labels in a month grid, so on viewports under md (768px)
 // we swap the desktop grids for these compact equivalents.
 // ============================================================================
+
+/** Inline colour for a mobile day number: filled blue when today is selected, blue text when only today. */
+function mobileDayNumberStyle(selected: boolean, today: boolean): React.CSSProperties | undefined {
+  if (selected && today) return { backgroundColor: TODAY_BLUE };
+  if (today) return { color: TODAY_BLUE };
+  return undefined;
+}
 
 /** A horizontal 7-day strip used as the header on mobile week / day views.
  *  Single-letter day initials, large date number, today in brand blue,
@@ -2389,13 +2738,7 @@ function MobileWeekDayStrip({
                 !selected && today && 'font-semibold',
                 !selected && !today && 'text-foreground',
               )}
-              style={
-                selected && today
-                  ? { backgroundColor: TODAY_BLUE }
-                  : !selected && today
-                  ? { color: TODAY_BLUE }
-                  : undefined
-              }
+              style={mobileDayNumberStyle(selected, today)}
             >
               <span className="translate-y-px">{format(day, 'd')}</span>
             </span>
@@ -2633,8 +2976,8 @@ function MobileMonthBlock({
         ) : null}
       </div>
       <div className="grid">
-        {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7">
+        {weeks.map((week) => (
+          <div key={format(week[0], 'yyyy-MM-dd')} className="grid grid-cols-7">
             {week.map((day) => {
               const inMonth = isSameMonth(day, month);
               if (!inMonth) {
@@ -2660,13 +3003,7 @@ function MobileMonthBlock({
                       selected && today && 'text-white',
                       selected && !today && 'bg-foreground text-background',
                     )}
-                    style={
-                      selected && today
-                        ? { backgroundColor: TODAY_BLUE }
-                        : today && !selected
-                        ? { color: TODAY_BLUE }
-                        : undefined
-                    }
+                    style={mobileDayNumberStyle(selected, today)}
                   >
                     <span className="translate-y-px">{format(day, 'd')}</span>
                   </span>
@@ -2750,6 +3087,28 @@ function MobileMonthView({
 // Week View
 // ============================================================================
 
+/** Height in px of one hour row: 24 rows fill the scroll container, never
+ *  below 48px. Re-measures when the container resizes. */
+function useFittedHourHeight(containerRef: React.RefObject<HTMLDivElement | null>): number {
+  const [hourHeight, setHourHeight] = useState(48);
+
+  useEffect(() => {
+    const updateHeight = () => {
+      if (containerRef.current) {
+        const available = containerRef.current.clientHeight;
+        const calculated = Math.max(48, Math.floor(available / 24));
+        setHourHeight(calculated);
+      }
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [containerRef]);
+
+  return hourHeight;
+}
+
 function WeekView({
   currentDate,
   events,
@@ -2782,21 +3141,7 @@ function WeekView({
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const containerRef = useRef<HTMLDivElement>(null);
-  const [hourHeight, setHourHeight] = useState(48);
-
-  useEffect(() => {
-    const updateHeight = () => {
-      if (containerRef.current) {
-        const available = containerRef.current.clientHeight;
-        const calculated = Math.max(48, Math.floor(available / 24));
-        setHourHeight(calculated);
-      }
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
+  const hourHeight = useFittedHourHeight(containerRef);
 
   const { handleCellMouseDown, isSlotDragging, slotSelection } = useSlotDrag({
     hourHeight,
@@ -2840,6 +3185,7 @@ function WeekView({
                 {HOURS.map((hour) => (
                   <div
                     key={hour}
+                    role="presentation"
                     data-calendar-cell
                     className={cn(
                       'border-b border-border cursor-pointer hover:bg-accent/40 transition-colors',
@@ -2968,7 +3314,7 @@ function DayView({
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [hourHeight, setHourHeight] = useState(48);
+  const hourHeight = useFittedHourHeight(containerRef);
 
   const { handleCellMouseDown, isSlotDragging, slotSelection } = useSlotDrag({
     hourHeight,
@@ -2979,20 +3325,6 @@ function DayView({
     hourHeight,
     onResize: onEventDrop,
   });
-
-  useEffect(() => {
-    const updateHeight = () => {
-      if (containerRef.current) {
-        const available = containerRef.current.clientHeight;
-        const calculated = Math.max(48, Math.floor(available / 24));
-        setHourHeight(calculated);
-      }
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
 
   const { handleDragStart: handleEventDragStart, dragState, justDraggedRef } = useEventDrag({
     hourHeight,
@@ -3014,6 +3346,7 @@ function DayView({
           {HOURS.map((hour) => (
             <div
               key={hour}
+              role="presentation"
               data-calendar-cell
               className={cn(
                 'border-b border-border cursor-pointer hover:bg-accent/40 transition-colors',
@@ -3134,8 +3467,13 @@ function TimeSlotEvent({
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
   const holdCleanupRef = useRef<(() => void) | null>(null);
 
+  let scheduleIcon: React.ReactNode = null;
+  if (event.autoScheduled === false) scheduleIcon = <Pin className="h-2.5 w-2.5 text-white" />;
+  else if (event.autoScheduled === true) scheduleIcon = <Sparkles className="h-2.5 w-2.5 text-white" />;
+
   return (
     <div
+      role="presentation"
       className={cn(
         "absolute left-[3px] right-[3px] rounded-[6px] px-2.5 py-1.5 text-white text-[12px] leading-tight overflow-hidden hover:brightness-95 transition-[filter,opacity] z-[2] border border-white/10 text-left items-start justify-start select-none group/event",
         dimmed && "opacity-40 pointer-events-none",
@@ -3189,6 +3527,7 @@ function TimeSlotEvent({
       {/* Resize handle at top edge */}
       {onResizeTopStart && heightPx >= 22 && (
         <div
+          role="presentation"
           className="absolute top-0 left-0 right-0 h-2.5 cursor-ns-resize z-10"
           onMouseDown={(e) => {
             e.stopPropagation();
@@ -3202,11 +3541,7 @@ function TimeSlotEvent({
       {/* Auto-schedule / pin state indicator */}
       {(event.sourceType === 'task' || event.sourceType === 'activity') && (
         <span className="absolute top-1 right-1.5 opacity-70" aria-hidden>
-          {event.autoScheduled === false ? (
-            <Pin className="h-2.5 w-2.5 text-white" />
-          ) : event.autoScheduled === true ? (
-            <Sparkles className="h-2.5 w-2.5 text-white" />
-          ) : null}
+          {scheduleIcon}
         </span>
       )}
       <span className="font-semibold truncate block pr-4">{event.title}</span>
@@ -3218,6 +3553,7 @@ function TimeSlotEvent({
       {/* Resize handle at bottom edge */}
       {onResizeBottomStart && heightPx >= 22 && (
         <div
+          role="presentation"
           className="absolute bottom-0 left-0 right-0 h-2.5 cursor-ns-resize z-10"
           onMouseDown={(e) => {
             e.stopPropagation();
@@ -3510,18 +3846,22 @@ function EventDetailPanel({
   };
 
   const panel = (
-    <div
+    <dialog
+      open
       className={cn(
-        'flex flex-col overflow-hidden bg-background border border-border',
-        // Desktop: in-flow rounded card sibling in ModuleContent's content row
-        // (same shell as FloatingDrawer / EntityDetailView panel mode).
-        'md:h-full md:shrink-0 md:rounded-xl',
+        // <dialog> ships UA styles (absolute, auto margins, padding, fit-content
+        // max sizes, CanvasText colour) that would pull the panel out of the
+        // content row, so reset them and keep the layout identical to a div.
+        'relative m-0 p-0 h-auto max-h-none max-w-none text-inherit',
+        'flex flex-col overflow-hidden bg-background border-border max-md:border-t',
+        // Desktop: in-flow column attached to the content on the shell
+        // background (same shell as EntityDetailView panel mode).
+        'md:h-full md:shrink-0 md:border-l',
         // Mobile: full-screen sheet below the mobile header.
         'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-[56px] max-md:z-50 max-md:!w-full',
         'animate-in slide-in-from-right fade-in-50 duration-200',
       )}
       style={{ width }}
-      role="dialog"
       aria-modal="false"
     >
       <EventNotificationDialog
@@ -3578,11 +3918,22 @@ function EventDetailPanel({
           />
           <div
             ref={titleRef}
+            role="textbox"
+            aria-label={t.eventDialog.titlePlaceholder}
+            tabIndex={0}
             contentEditable={isEditingTitle}
             suppressContentEditableWarning
             onClick={() => { if (!isEditingTitle) setIsEditingTitle(true); }}
-            onBlur={handleTitleSave}
+            onBlur={isEditingTitle ? handleTitleSave : undefined}
             onKeyDown={(e) => {
+              // Keyboard users enter edit mode with Enter (mouse users click).
+              if (!isEditingTitle) {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setIsEditingTitle(true);
+                }
+                return;
+              }
               if (e.key === 'Enter') {
                 e.preventDefault();
                 (e.target as HTMLDivElement).blur();
@@ -3616,14 +3967,27 @@ function EventDetailPanel({
               ? 'border-gray-400 dark:border-gray-500'
               : 'border-transparent hover:border-gray-200 dark:hover:border-gray-700 cursor-pointer',
           )}
+          role="presentation"
           onClick={() => { if (!isEditingDescription) setIsEditingDescription(true); }}
         >
           <div
             ref={descriptionRef}
+            role="textbox"
+            aria-multiline="true"
+            aria-label={t.eventPreview.addDescription}
+            tabIndex={0}
             contentEditable={isEditingDescription}
             suppressContentEditableWarning
-            onBlur={handleDescriptionSave}
+            onBlur={isEditingDescription ? handleDescriptionSave : undefined}
             onKeyDown={(e) => {
+              // Keyboard users enter edit mode with Enter (mouse users click).
+              if (!isEditingDescription) {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setIsEditingDescription(true);
+                }
+                return;
+              }
               if (e.key === 'Escape') {
                 if (descriptionRef.current) descriptionRef.current.textContent = event.description ?? '';
                 setIsEditingDescription(false);
@@ -3745,9 +4109,7 @@ function EventDetailPanel({
                   className="h-8 text-sm inline-flex items-center self-start group/field text-left"
                 >
                   <span className="px-1.5 -mx-1.5 rounded ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 h-[22px] inline-flex items-center transition-shadow">
-                    {event.allDay
-                      ? format(new Date(event.startTime), 'EEEE, MMMM d')
-                      : `${format(new Date(event.startTime), 'EEE, MMM d · h:mm a')}${event.endTime ? ` – ${format(new Date(event.endTime), 'h:mm a')}` : ''}`}
+                    {formatEventWhen(event)}
                   </span>
                 </Button>
               </div>
@@ -3863,7 +4225,7 @@ function EventDetailPanel({
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 
   return createPortal(panel, panelSlot);
@@ -3984,7 +4346,8 @@ const ATTENDEE_AVATAR_PALETTE = [
 
 function attendeeFallbackColor(seed: string): string {
   let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  // Math.imul(n, 1) is ToInt32(n): keeps the hash wrapped to 32 bits.
+  for (let i = 0; i < seed.length; i++) hash = Math.imul(hash * 31 + seed.charCodeAt(i), 1);
   return ATTENDEE_AVATAR_PALETTE[Math.abs(hash) % ATTENDEE_AVATAR_PALETTE.length]!;
 }
 
@@ -4287,6 +4650,12 @@ function GuestSearchInput({
     return items.slice(0, 8);
   }, [contacts, members, selectedIds, value]);
 
+  const pickGuest = (e: React.MouseEvent, item: GuestResult) => {
+    e.preventDefault();
+    onSelect({ id: item.id, name: item.name, email: item.email });
+    setOpen(false);
+  };
+
   const showDropdown = open && value.length >= 1 && results.length > 0;
   const hasMembers = results.some((r) => r.type === 'member');
   const hasContacts = results.some((r) => r.type === 'contact');
@@ -4317,11 +4686,7 @@ function GuestSearchInput({
               variant="ghost"
               key={item.id}
               className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent transition-colors"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onSelect({ id: item.id, name: item.name, email: item.email });
-                setOpen(false);
-              }}
+              onMouseDown={(e) => pickGuest(e, item)}
             >
               <div className="h-[24px] w-[24px] rounded-[5.5px] bg-blue-500/10 flex items-center justify-center shrink-0">
                 <span className="text-xs font-medium text-blue-600">{item.initial}</span>
@@ -4343,11 +4708,7 @@ function GuestSearchInput({
               variant="ghost"
               key={item.id}
               className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent transition-colors"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onSelect({ id: item.id, name: item.name, email: item.email });
-                setOpen(false);
-              }}
+              onMouseDown={(e) => pickGuest(e, item)}
             >
               <div className="h-[24px] w-[24px] rounded-[5.5px] bg-primary/10 flex items-center justify-center shrink-0">
                 <span className="text-xs font-medium text-primary">{item.initial}</span>
@@ -4426,6 +4787,26 @@ function DatePickerField({
 // Inline Select Row (Popover-based select for quick-create card)
 // ============================================================================
 
+/**
+ * Shared state for the inline-row dropdowns: open flag, the row element ref and the
+ * fixed position just below the row. `toggle` re-measures the row on every open/close.
+ */
+function useRowDropdown() {
+  const [open, setOpen] = useState(false);
+  const rowRef = React.useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  const toggle = () => {
+    if (rowRef.current) {
+      const rect = rowRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left + 44 });
+    }
+    setOpen(!open);
+  };
+
+  return { open, setOpen, rowRef, pos, toggle };
+}
+
 function InlineSelectRow({
   icon,
   value,
@@ -4439,31 +4820,24 @@ function InlineSelectRow({
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const rowRef = React.useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-
-  const handleClick = () => {
-    if (rowRef.current) {
-      const rect = rowRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left + 44 });
-    }
-    setOpen(!open);
-  };
+  const { open, setOpen, rowRef, pos, toggle: handleClick } = useRowDropdown();
 
   return (
     <>
       <div
         ref={rowRef}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={handleClick}
+        onKeyDown={activateOnKey(handleClick)}
       >
         {icon}
         <span className="text-sm text-foreground h-7 flex items-center">{displayValue}</span>
       </div>
       {open && (
         <>
-          <div className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
+          <div role="presentation" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
           <div
             className="fixed z-[80] w-[160px] p-1 bg-popover border rounded-md shadow-md animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150"
             style={{ top: pos.top, left: pos.left }}
@@ -4537,8 +4911,11 @@ function InlineDateTimeRow({
     <>
       <div
         ref={rowRef}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={handleClick}
+        onKeyDown={activateOnKey(handleClick)}
       >
         {icon}
         <span className="text-sm text-foreground h-7 flex items-center">
@@ -4548,7 +4925,7 @@ function InlineDateTimeRow({
       </div>
       {open && (
         <>
-          <div className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
+          <div role="presentation" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
           <div
             className="fixed z-[80] bg-popover border rounded-md shadow-md animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 overflow-hidden"
             style={{ top: pos.top, left: pos.left }}
@@ -4593,18 +4970,8 @@ function CalendarSelectRow({
   onChange: (id: string) => void;
 }) {
   const t = getTranslations('weldcalendar');
-  const [open, setOpen] = useState(false);
-  const rowRef = React.useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const { open, setOpen, rowRef, pos, toggle: handleClick } = useRowDropdown();
   const selected = calendars.find((c) => c.id === selectedId) || calendars[0];
-
-  const handleClick = () => {
-    if (rowRef.current) {
-      const rect = rowRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left + 44 });
-    }
-    setOpen(!open);
-  };
 
   return (
     // Single wrapper so the open dropdown's fixed overlay/popover don't become
@@ -4613,8 +4980,11 @@ function CalendarSelectRow({
     <div>
       <div
         ref={rowRef}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={handleClick}
+        onKeyDown={activateOnKey(handleClick)}
       >
         <div className="h-3 w-3 rounded-[4px] shrink-0" style={{ backgroundColor: selected?.color || '#3b82f6' }} />
         <div className="h-7 flex items-center gap-2">
@@ -4623,7 +4993,7 @@ function CalendarSelectRow({
       </div>
       {open && (
         <>
-          <div className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
+          <div role="presentation" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
           <div
             className="fixed z-[80] w-[200px] p-1 bg-popover border rounded-md shadow-md animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150"
             style={{ top: pos.top, left: pos.left }}
@@ -4687,21 +5057,7 @@ function FourDayView({
 }) {
   const days = Array.from({ length: 4 }, (_, i) => addDays(currentDate, i));
   const containerRef = useRef<HTMLDivElement>(null);
-  const [hourHeight, setHourHeight] = useState(48);
-
-  useEffect(() => {
-    const updateHeight = () => {
-      if (containerRef.current) {
-        const available = containerRef.current.clientHeight;
-        const calculated = Math.max(48, Math.floor(available / 24));
-        setHourHeight(calculated);
-      }
-    };
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
+  const hourHeight = useFittedHourHeight(containerRef);
 
   const { handleCellMouseDown, isSlotDragging, slotSelection } = useSlotDrag({
     hourHeight,
@@ -4735,6 +5091,7 @@ function FourDayView({
                 {HOURS.map((hour) => (
                   <div
                     key={hour}
+                    role="presentation"
                     data-calendar-cell
                     className={cn(
                       'border-b border-border cursor-pointer hover:bg-accent/40 transition-colors',
@@ -4939,7 +5296,7 @@ function ScheduleView({
 }: {
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
 }) {
   const t = getTranslations('weldcalendar');
   const items: ScheduleItem[] = useMemo(() => {
@@ -4956,9 +5313,7 @@ function ScheduleView({
         date: format(start, 'yyyy-MM-dd'),
         dateLabel: `${format(start, 'd')} ${format(start, 'MMM, EEE').toUpperCase()}`,
         dateGroup: getDateGroup(start),
-        time: evt.allDay ? t.calendarView.allDay : end
-          ? `${format(start, 'h:mma').toLowerCase()} – ${format(end, 'h:mma').toLowerCase()}`
-          : format(start, 'h:mma').toLowerCase(),
+        time: formatScheduleTime(start, end, evt.allDay ? t.calendarView.allDay : null),
         color: getEventColor(evt, calendarColorMap),
         isToday: isToday(start),
         allDay: evt.allDay || false,
@@ -5019,8 +5374,11 @@ function ScheduleView({
     return (
       <div
         key={item.id}
-        className="flex items-center gap-2 md:gap-4 px-2 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
+        role="button"
+        tabIndex={0}
+        className="flex items-center gap-2 md:gap-4 px-2 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={(e) => onSelectEvent(item.event, e)}
+        onKeyDown={activateOnKey(() => onSelectEvent(item.event))}
       >
         {/* Color dot */}
         <div className="w-[16px] md:w-[24px] shrink-0 flex justify-center">
@@ -5121,6 +5479,7 @@ function TimeSlotPreview({
 
   return (
     <div
+      role="presentation"
       onMouseDown={onMouseDown}
       className="absolute left-[3px] right-[3px] rounded-[6px] px-2.5 py-1.5 text-white text-[12px] leading-tight overflow-hidden z-[2] opacity-70 animate-in fade-in-50 cursor-grab active:cursor-grabbing"
       style={{
@@ -5131,6 +5490,7 @@ function TimeSlotPreview({
     >
       {onResize && (
         <div
+          role="presentation"
           onMouseDown={(e) => onResize('top', e)}
           className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize z-[3]"
         />
@@ -5143,6 +5503,7 @@ function TimeSlotPreview({
       </span>
       {onResize && (
         <div
+          role="presentation"
           onMouseDown={(e) => onResize('bottom', e)}
           className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize z-[3]"
         />

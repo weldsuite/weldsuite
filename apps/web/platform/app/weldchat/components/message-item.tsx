@@ -8,7 +8,7 @@ import { MessageContextMenu } from './message-context-menu';
 import { FilePreview } from './file-preview';
 import { cn } from '@/lib/utils';
 import { Link } from '@tanstack/react-router';
-import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot } from 'lucide-react';
+import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot, type LucideIcon } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
@@ -89,6 +89,12 @@ function renderContent(text: string, members?: Map<string, string>) {
   if (segments.length === 0) return text;
 
   const parts: React.ReactNode[] = [];
+  const keyCounts = new Map<string, number>();
+  const nextKey = (base: string) => {
+    const n = keyCounts.get(base) ?? 0;
+    keyCounts.set(base, n + 1);
+    return `${base}-${n}`;
+  };
   segments.forEach((seg, segIdx) => {
     if (seg.kind === 'text') {
       parts.push(...parseInlineFormatting(seg.text, `t${segIdx}-`));
@@ -99,7 +105,7 @@ function renderContent(text: string, members?: Map<string, string>) {
         : (seg.displayName ?? members?.get(seg.userId) ?? seg.userId);
       parts.push(
         <span
-          key={`u-${segIdx}`}
+          key={nextKey(`u-${seg.userId}`)}
           className="inline-block bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded px-1.5 py-0.5 text-[12px] font-medium align-middle"
         >
           @{name}
@@ -108,7 +114,7 @@ function renderContent(text: string, members?: Map<string, string>) {
     } else {
       parts.push(
         <EntityMentionChip
-          key={`e-${segIdx}`}
+          key={nextKey(`e-${seg.entityType}-${seg.entityId}`)}
           type={seg.entityType}
           id={seg.entityId}
           fallbackLabel={seg.label}
@@ -140,6 +146,12 @@ interface ForwardedFromInfo {
   attachments?: Array<ChatAttachment | ChatClipAttachment>;
 }
 
+function forwardedChannelIcon(channelType: ForwardedFromInfo['channelType']): LucideIcon | null {
+  if (channelType === 'private') return Lock;
+  if (channelType === 'dm') return null;
+  return Hash;
+}
+
 function ForwardedMessage({
   forwardedFrom,
   channelId,
@@ -152,12 +164,7 @@ function ForwardedMessage({
   membersMap?: Map<string, string>;
 }>) {
   const { t } = useI18n();
-  const ChannelIcon =
-    forwardedFrom.channelType === 'private'
-      ? Lock
-      : forwardedFrom.channelType === 'dm'
-      ? null
-      : Hash;
+  const ChannelIcon = forwardedChannelIcon(forwardedFrom.channelType);
   const sourceTime = new Date(forwardedFrom.createdAt).toLocaleString();
 
   return (
@@ -242,6 +249,137 @@ interface MessageItemProps {
   hasActiveCall?: boolean;
 }
 
+/** Derives the icon and call state of a system message from its text. */
+function classifySystemText(lowerText: string): { icon: LucideIcon | null; isCallStarted: boolean } {
+  const isPinMessage = lowerText.includes('pinned');
+  const isVoiceCall = lowerText.includes('voice call') || lowerText.includes('audio call');
+  const isVideoCall = lowerText.includes('video call');
+  const isCall = isVoiceCall || isVideoCall || lowerText.includes('started a call') || lowerText.includes('ended a call');
+  const isCallStarted = isCall && lowerText.includes('started');
+
+  if (isPinMessage) return { icon: Pin, isCallStarted };
+  if (isVideoCall) return { icon: Video, isCallStarted };
+  if (isCall) return { icon: Phone, isCallStarted };
+  return { icon: null, isCallStarted };
+}
+
+function SystemMessage({
+  message,
+  systemMatch,
+  hasActiveCall,
+}: Readonly<{
+  message: MessageItemMessage;
+  systemMatch: RegExpMatchArray | null | undefined;
+  hasActiveCall?: boolean;
+}>) {
+  const linkedMessageId = systemMatch?.[1];
+  const labelText = systemMatch
+    ? `${message.authorName} ${systemMatch[2]}`
+    : message.content;
+
+  const handleSystemClick = () => {
+    if (!linkedMessageId) return;
+    const el = document.querySelector(`[data-message-id="${linkedMessageId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('pinned-highlight');
+      setTimeout(() => el.classList.remove('pinned-highlight'), 1000);
+    }
+  };
+
+  const { icon: SystemIcon, isCallStarted } = classifySystemText(labelText?.toLowerCase() || '');
+  const isCallLive = isCallStarted && !!hasActiveCall;
+
+  const chipClassName = cn(
+    'inline-flex items-center gap-1.5 text-xs rounded-md px-3 py-1',
+    isCallLive
+      ? 'text-green-700 dark:text-green-400 bg-green-500/10 dark:bg-green-500/5'
+      : 'text-muted-foreground bg-muted/70 dark:bg-muted/50',
+    linkedMessageId && 'cursor-pointer hover:bg-muted',
+  );
+  const chipContent = (
+    <>
+      {SystemIcon && <SystemIcon className={cn("h-3 w-3 flex-shrink-0", isCallLive && "text-green-600 dark:text-green-400")} {...(isCallLive ? { fill: 'currentColor' } : {})} />}
+      {labelText}
+      {isCallLive && <LiveCallTimer startedAt={message.createdAt ?? ''} />}
+    </>
+  );
+
+  return (
+    <div className="flex justify-center py-1.5 px-2 md:px-4">
+      {linkedMessageId ? (
+        <button type="button" onClick={handleSystemClick} className={chipClassName}>
+          {chipContent}
+        </button>
+      ) : (
+        <span className={chipClassName}>{chipContent}</span>
+      )}
+    </div>
+  );
+}
+
+function MessageAvatar({
+  message,
+  compact,
+  onAuthorClick,
+}: Readonly<{
+  message: MessageItemMessage;
+  compact?: boolean;
+  onAuthorClick: () => void;
+}>) {
+  const { t } = useI18n();
+
+  if (compact) {
+    return (
+      <div className="w-7 flex-shrink-0 flex items-center justify-center">
+        <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100">
+          {new Date(message.createdAt ?? '').toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </span>
+      </div>
+    );
+  }
+
+  if (message.authorType === 'agent') {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={onAuthorClick}
+        style={{ marginTop: '3px' }}
+        className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] bg-muted flex items-center justify-center text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
+        title={`${message.authorName} ${t.weldchat.messageItem.agentClickDetails}`}
+      >
+        {message.authorAvatar || <Bot className="h-3.5 w-3.5 text-muted-foreground" />}
+      </Button>
+    );
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      onClick={onAuthorClick}
+      style={{ marginTop: '3px' }}
+      className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
+      title={t.weldchat.messageItem.viewProfile.replace('{name}', message.authorName ?? '')}
+    >
+      <Avatar className="h-7 w-7 !rounded-[9px]">
+        {message.authorAvatar && (
+          <AvatarImage src={message.authorAvatar} className="!rounded-[9px]" />
+        )}
+        <AvatarFallback className="text-[9px] !rounded-[9px]">
+          {(message.authorName || '?')[0].toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+    </Button>
+  );
+}
+
 export function MessageItem({
   message,
   compact,
@@ -277,49 +415,7 @@ export function MessageItem({
   const isSystemLabel = isSystem || !!systemMatch;
 
   if (isSystemLabel) {
-    const linkedMessageId = systemMatch?.[1];
-    const labelText = systemMatch
-      ? `${message.authorName} ${systemMatch[2]}`
-      : message.content;
-
-    const handleSystemClick = () => {
-      if (!linkedMessageId) return;
-      const el = document.querySelector(`[data-message-id="${linkedMessageId}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('pinned-highlight');
-        setTimeout(() => el.classList.remove('pinned-highlight'), 1000);
-      }
-    };
-
-    const lowerText = labelText?.toLowerCase() || '';
-    const isPinMessage = lowerText.includes('pinned');
-    const isVoiceCall = lowerText.includes('voice call') || lowerText.includes('audio call');
-    const isVideoCall = lowerText.includes('video call');
-    const isCall = isVoiceCall || isVideoCall || lowerText.includes('started a call') || lowerText.includes('ended a call');
-    const isCallStarted = isCall && lowerText.includes('started');
-    const isCallLive = isCallStarted && !!hasActiveCall;
-
-    const SystemIcon = isPinMessage ? Pin : isVideoCall ? Video : isCall ? Phone : null;
-
-    return (
-      <div className="flex justify-center py-1.5 px-2 md:px-4">
-        <span
-          onClick={linkedMessageId ? handleSystemClick : undefined}
-          className={cn(
-            'inline-flex items-center gap-1.5 text-xs rounded-md px-3 py-1',
-            isCallLive
-              ? 'text-green-700 dark:text-green-400 bg-green-500/10 dark:bg-green-500/5'
-              : 'text-muted-foreground bg-muted/70 dark:bg-muted/50',
-            linkedMessageId && 'cursor-pointer hover:bg-muted',
-          )}
-        >
-          {SystemIcon && <SystemIcon className={cn("h-3 w-3 flex-shrink-0", isCallLive && "text-green-600 dark:text-green-400")} {...(isCallLive ? { fill: 'currentColor' } : {})} />}
-          {labelText}
-          {isCallLive && <LiveCallTimer startedAt={message.createdAt ?? ''} />}
-        </span>
-      </div>
-    );
+    return <SystemMessage message={message} systemMatch={systemMatch} hasActiveCall={hasActiveCall} />;
   }
 
   const timeStr = new Date(message.createdAt ?? '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -359,49 +455,7 @@ export function MessageItem({
       )}
       <div className="flex items-start gap-2 md:gap-3">
       {/* Avatar or spacer */}
-      {compact ? (
-        <div className="w-7 flex-shrink-0 flex items-center justify-center">
-          <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100">
-            {new Date(message.createdAt ?? '').toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </span>
-        </div>
-      ) : (
-        message.authorType === 'agent' ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={handleAuthorClick}
-            style={{ marginTop: '3px' }}
-            className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] bg-muted flex items-center justify-center text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
-            title={`${message.authorName} ${t.weldchat.messageItem.agentClickDetails}`}
-          >
-            {message.authorAvatar || <Bot className="h-3.5 w-3.5 text-muted-foreground" />}
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={handleAuthorClick}
-            style={{ marginTop: '3px' }}
-            className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
-            title={t.weldchat.messageItem.viewProfile.replace('{name}', message.authorName ?? '')}
-          >
-            <Avatar className="h-7 w-7 !rounded-[9px]">
-              {message.authorAvatar && (
-                <AvatarImage src={message.authorAvatar} className="!rounded-[9px]" />
-              )}
-              <AvatarFallback className="text-[9px] !rounded-[9px]">
-                {(message.authorName || '?')[0].toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-          </Button>
-        )
-      )}
+      <MessageAvatar message={message} compact={compact} onAuthorClick={handleAuthorClick} />
 
       {/* Content */}
       <div className="flex-1 min-w-0">

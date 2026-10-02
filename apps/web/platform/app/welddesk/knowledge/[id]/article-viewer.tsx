@@ -34,139 +34,170 @@ interface ArticleViewerProps {
   article: Article;
 }
 
+type ListType = 'bullet' | 'numbered';
+
+interface MarkdownState {
+  elements: ReactElement[];
+  listItems: string[];
+  listType: ListType | null;
+  codeBlock: string[];
+  inCodeBlock: boolean;
+}
+
+const LIST_STYLES = {
+  bullet: { Tag: 'ul', className: 'list-disc list-inside space-y-1 mb-4' },
+  numbered: { Tag: 'ol', className: 'list-decimal list-inside space-y-1 mb-4' },
+} as const;
+
+const HEADINGS = [
+  { prefix: '# ', Tag: 'h1', className: 'text-4xl font-bold mb-4 mt-8' },
+  { prefix: '## ', Tag: 'h2', className: 'text-3xl font-bold mb-3 mt-6' },
+  { prefix: '### ', Tag: 'h3', className: 'text-2xl font-semibold mb-3 mt-4' },
+] as const;
+
+/**
+ * Pair each string with a stable React key built from its text plus how many
+ * times that text has already appeared (duplicates stay unique without using
+ * the array position as the key).
+ */
+function keyByOccurrence(items: readonly string[]): { item: string; key: string; index: number }[] {
+  const seen = new Map<string, number>();
+  return items.map((item, index) => {
+    const n = (seen.get(item) ?? 0) + 1;
+    seen.set(item, n);
+    return { item, key: `${item}#${n}`, index };
+  });
+}
+
+function flushList(state: MarkdownState) {
+  if (state.listItems.length === 0) return;
+  if (state.listType) {
+    const { Tag, className } = LIST_STYLES[state.listType];
+    state.elements.push(
+      <Tag key={state.elements.length} className={className}>
+        {keyByOccurrence(state.listItems).map(({ item, key }) => (
+          <li key={key}>{item}</li>
+        ))}
+      </Tag>
+    );
+  }
+  state.listItems = [];
+  state.listType = null;
+}
+
+function toggleCodeBlock(state: MarkdownState) {
+  if (!state.inCodeBlock) {
+    flushList(state);
+    state.inCodeBlock = true;
+    return;
+  }
+  state.elements.push(
+    <pre key={state.elements.length} className="bg-muted p-4 rounded-lg overflow-x-auto mb-4">
+      <code className="font-mono text-sm">{state.codeBlock.join('\n')}</code>
+    </pre>
+  );
+  state.codeBlock = [];
+  state.inCodeBlock = false;
+}
+
+function handleHeading(state: MarkdownState, line: string): boolean {
+  const heading = HEADINGS.find((h) => line.startsWith(h.prefix));
+  if (!heading) return false;
+  flushList(state);
+  const { Tag, className, prefix } = heading;
+  state.elements.push(
+    <Tag key={state.elements.length} className={className}>
+      {line.substring(prefix.length)}
+    </Tag>
+  );
+  return true;
+}
+
+function handleListItem(state: MarkdownState, line: string): boolean {
+  let type: ListType;
+  let text: string;
+  if (line.startsWith('- ')) {
+    type = 'bullet';
+    text = line.substring(2);
+  } else if (/^\d+\. /.test(line)) {
+    type = 'numbered';
+    text = line.replace(/^\d+\. /, '');
+  } else {
+    return false;
+  }
+  if (state.listType !== type) {
+    flushList(state);
+    state.listType = type;
+  }
+  state.listItems.push(text);
+  return true;
+}
+
+function renderInlineMarkdown(line: string): string {
+  return line
+    // Bold
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    // Inline code
+    .replace(/`(.*?)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">$1</code>');
+}
+
+function processMarkdownLine(state: MarkdownState, line: string) {
+  if (line.startsWith('```')) {
+    toggleCodeBlock(state);
+    return;
+  }
+  if (state.inCodeBlock) {
+    state.codeBlock.push(line);
+    return;
+  }
+  if (handleHeading(state, line) || handleListItem(state, line)) return;
+
+  flushList(state);
+  const { elements } = state;
+  if (line.startsWith('> ')) {
+    elements.push(
+      <blockquote
+        key={elements.length}
+        className="border-l-4 border-muted-foreground/30 pl-4 italic text-muted-foreground mb-4"
+      >
+        {line.substring(2)}
+      </blockquote>
+    );
+  } else if (line.trim() === '') {
+    if (elements.length > 0 && elements[elements.length - 1].type !== 'br') {
+      elements.push(<br key={elements.length} />);
+    }
+  } else {
+    elements.push(
+      <p
+        key={elements.length}
+        className="mb-4 leading-relaxed"
+        dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(line) }}
+      />
+    );
+  }
+}
+
+// Parse markdown content to HTML-like structure for display
+function renderMarkdownContent(content: string): ReactElement[] {
+  const state: MarkdownState = {
+    elements: [],
+    listItems: [],
+    listType: null,
+    codeBlock: [],
+    inCodeBlock: false,
+  };
+  content.split('\n').forEach((line) => processMarkdownLine(state, line));
+  flushList(state);
+  return state.elements;
+}
+
 export function ArticleViewer({ article }: Readonly<ArticleViewerProps>) {
   const { t } = useI18n();
   const router = useRouter();
   const [isHelpful, setIsHelpful] = useState<boolean | null>(null);
-
-  // Parse markdown content to HTML-like structure for display
-  const renderContent = (content: string) => {
-    const lines = content.split('\n');
-    const elements: ReactElement[] = [];
-    let listItems: string[] = [];
-    let listType: 'bullet' | 'numbered' | null = null;
-    let codeBlock: string[] = [];
-    let inCodeBlock = false;
-
-    const flushList = () => {
-      if (listItems.length > 0) {
-        if (listType === 'bullet') {
-          elements.push(
-            <ul key={elements.length} className="list-disc list-inside space-y-1 mb-4">
-              {listItems.map((item, i) => (
-                <li key={i}>{item}</li>
-              ))}
-            </ul>
-          );
-        } else if (listType === 'numbered') {
-          elements.push(
-            <ol key={elements.length} className="list-decimal list-inside space-y-1 mb-4">
-              {listItems.map((item, i) => (
-                <li key={i}>{item}</li>
-              ))}
-            </ol>
-          );
-        }
-        listItems = [];
-        listType = null;
-      }
-    };
-
-    lines.forEach((line) => {
-      if (line.startsWith('```')) {
-        if (inCodeBlock) {
-          elements.push(
-            <pre key={elements.length} className="bg-muted p-4 rounded-lg overflow-x-auto mb-4">
-              <code className="font-mono text-sm">{codeBlock.join('\n')}</code>
-            </pre>
-          );
-          codeBlock = [];
-          inCodeBlock = false;
-        } else {
-          flushList();
-          inCodeBlock = true;
-        }
-        return;
-      }
-
-      if (inCodeBlock) {
-        codeBlock.push(line);
-        return;
-      }
-
-      if (line.startsWith('# ')) {
-        flushList();
-        elements.push(
-          <h1 key={elements.length} className="text-4xl font-bold mb-4 mt-8">
-            {line.substring(2)}
-          </h1>
-        );
-      } else if (line.startsWith('## ')) {
-        flushList();
-        elements.push(
-          <h2 key={elements.length} className="text-3xl font-bold mb-3 mt-6">
-            {line.substring(3)}
-          </h2>
-        );
-      } else if (line.startsWith('### ')) {
-        flushList();
-        elements.push(
-          <h3 key={elements.length} className="text-2xl font-semibold mb-3 mt-4">
-            {line.substring(4)}
-          </h3>
-        );
-      } else if (line.startsWith('- ')) {
-        if (listType !== 'bullet') {
-          flushList();
-          listType = 'bullet';
-        }
-        listItems.push(line.substring(2));
-      } else if (line.match(/^\d+\. /)) {
-        if (listType !== 'numbered') {
-          flushList();
-          listType = 'numbered';
-        }
-        listItems.push(line.replace(/^\d+\. /, ''));
-      } else if (line.startsWith('> ')) {
-        flushList();
-        elements.push(
-          <blockquote
-            key={elements.length}
-            className="border-l-4 border-muted-foreground/30 pl-4 italic text-muted-foreground mb-4"
-          >
-            {line.substring(2)}
-          </blockquote>
-        );
-      } else if (line.trim() === '') {
-        flushList();
-        if (elements.length > 0 && elements[elements.length - 1].type !== 'br') {
-          elements.push(<br key={elements.length} />);
-        }
-      } else {
-        flushList();
-        // Parse inline markdown
-        let content = line;
-        // Bold
-        content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        // Italic
-        content = content.replace(/\*(.*?)\*/g, '<em>$1</em>');
-        // Inline code
-        content = content.replace(/`(.*?)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">$1</code>');
-
-        elements.push(
-          <p
-            key={elements.length}
-            className="mb-4 leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: content }}
-          />
-        );
-      }
-    });
-
-    flushList();
-
-    return elements;
-  };
 
   /**
    * Record whether this article was helpful.
@@ -267,7 +298,7 @@ export function ArticleViewer({ article }: Readonly<ArticleViewerProps>) {
 
           {/* Article Content */}
           <div className="prose prose-lg max-w-none dark:prose-invert">
-            {renderContent(article.content)}
+            {renderMarkdownContent(article.content)}
           </div>
 
           {/* Feedback Section */}

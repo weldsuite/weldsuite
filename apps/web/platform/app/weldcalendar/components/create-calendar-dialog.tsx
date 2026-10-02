@@ -58,6 +58,13 @@ export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: Reado
 
   const isPending = createCalendar.isPending || updateCalendar.isPending;
 
+  let submitLabel: string;
+  if (isEdit) {
+    submitLabel = isPending ? t.createCalendar.saving : t.createCalendar.save;
+  } else {
+    submitLabel = isPending ? t.createCalendar.creating : t.createCalendar.create;
+  }
+
   const onSubmit = async (values: FormValues) => {
     if (editCalendar) {
       await updateCalendar.mutateAsync({ id: editCalendar.id, data: values });
@@ -104,9 +111,7 @@ export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: Reado
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t.createCalendar.cancel}</Button>
             <Button type="submit" disabled={isPending}>
-              {isEdit
-                ? (isPending ? t.createCalendar.saving : t.createCalendar.save)
-                : (isPending ? t.createCalendar.creating : t.createCalendar.create)}
+              {submitLabel}
             </Button>
           </DialogFooter>
         </form>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
@@ -141,7 +141,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const registerPushToken = useCallback(async (token: string) => {
     const deviceId = await getDeviceId();
     const isExpoToken = token.startsWith('ExponentPushToken[');
-    const tokenType = isExpoToken ? 'expo' : Platform.OS === 'android' ? 'fcm' : 'apns';
+    const nativeTokenType = Platform.OS === 'android' ? 'fcm' : 'apns';
+    const tokenType = isExpoToken ? 'expo' : nativeTokenType;
     const payload = {
       token,
       platform: Platform.OS as 'ios' | 'android',
@@ -162,7 +163,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     ]);
   }, []);
 
-  const requestPermissions = async (): Promise<boolean> => {
+  const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (!notifUtils || !hasProjectId) {
       console.warn('[Notifications] EAS project ID is not configured; skipping push registration');
       return false;
@@ -179,12 +180,12 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       console.error('[Notifications] Error:', error);
       return false;
     }
-  };
+  }, [registerPushToken]);
 
-  const openNotificationSettings = async () => {
+  const openNotificationSettings = useCallback(async () => {
     if (Platform.OS === 'ios') await Linking.openURL('app-settings:');
     else await Linking.openSettings();
-  };
+  }, []);
 
   const refreshBadgeCount = useCallback(async () => {
     try {
@@ -216,7 +217,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   // the JWT still points at the *leaving* workspace. Deliberately NOT
   // `unregisterDevice`: that also deactivates the personal token, and the
   // personal calendar is not workspace-scoped.
-  const prepareWorkspaceSwitch = async () => {
+  const prepareWorkspaceSwitch = useCallback(async () => {
     try {
       const deviceId = await getDeviceId();
       await appApi.pushTokens.unregister(deviceId).catch(() => {});
@@ -225,7 +226,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
     await notifUtils?.dismissAllPresentedNotifications();
     await notifUtils?.setBadgeCount(0);
-  };
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -329,19 +330,31 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     };
   }, [user, organizationId, registerPushToken, refreshBadgeCount, router, setActive]);
 
+  const contextValue = useMemo(
+    () => ({
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      requestPermissions,
+      openNotificationSettings,
+      refreshBadgeCount,
+      unregisterDevice,
+      prepareWorkspaceSwitch,
+    }),
+    [
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      requestPermissions,
+      openNotificationSettings,
+      refreshBadgeCount,
+      unregisterDevice,
+      prepareWorkspaceSwitch,
+    ],
+  );
+
   return (
-    <NotificationContext.Provider
-      value={{
-        unreadCount,
-        isConnected,
-        isPermissionGranted,
-        requestPermissions,
-        openNotificationSettings,
-        refreshBadgeCount,
-        unregisterDevice,
-        prepareWorkspaceSwitch,
-      }}
-    >
+    <NotificationContext.Provider value={contextValue}>
       {children}
     </NotificationContext.Provider>
   );

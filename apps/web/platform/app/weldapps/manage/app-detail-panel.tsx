@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Check, Copy, Loader2, Trash2 } from 'lucide-react';
 import {
@@ -58,6 +58,177 @@ function formatBytes(bytes?: number | null): string {
     unitIndex += 1;
   }
   return `${value.toFixed(value < 10 && unitIndex > 0 ? 1 : 0)} ${units[unitIndex]}`;
+}
+
+function AppStatusBadges({ app }: Readonly<{ app: UserApp }>) {
+  const { t } = useI18n();
+  const wa = t.weldapps;
+
+  const reviewStatusLabel = (status: UserApp['reviewStatus']) => {
+    switch (status) {
+      case 'draft': return wa.manage.statusDraft;
+      case 'submitted': return wa.manage.statusSubmitted;
+      case 'approved': return wa.manage.statusApproved;
+      case 'rejected': return wa.manage.statusRejected;
+      default: return status;
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge variant="outline">
+        {app.visibility === 'public' ? wa.manage.visibilityPublic : wa.manage.visibilityPrivate}
+      </Badge>
+      <Badge variant={app.reviewStatus === 'rejected' ? 'destructive' : 'secondary'}>
+        {reviewStatusLabel(app.reviewStatus)}
+      </Badge>
+      {app.publisherType === 'weldsuite' ? (
+        <Badge className="bg-blue-100 text-blue-700 border-transparent dark:bg-blue-950 dark:text-blue-400">
+          {wa.store.badgeOfficial}
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function AppListingSection({ app }: Readonly<{ app: UserApp }>) {
+  const { t } = useI18n();
+  const wa = t.weldapps;
+  const hasScreenshots = !!app.screenshots && app.screenshots.length > 0;
+  const hasListing = !!(app.websiteUrl || app.privacyUrl || app.webhookUrl) || hasScreenshots;
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-foreground mb-2">{wa.manage.listingTitle}</h3>
+      {hasListing ? (
+        <div className="space-y-1.5 text-sm">
+          {app.websiteUrl ? (
+            <p>
+              <a href={app.websiteUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+                {wa.store.website}
+              </a>
+            </p>
+          ) : null}
+          {app.privacyUrl ? (
+            <p>
+              <a href={app.privacyUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+                {wa.store.privacy}
+              </a>
+            </p>
+          ) : null}
+          {app.webhookUrl ? (
+            <p className="text-xs text-muted-foreground font-mono truncate">{wa.manage.listingWebhook}: {app.webhookUrl}</p>
+          ) : null}
+          {hasScreenshots ? (
+            <div className="flex gap-2 overflow-x-auto pt-1">
+              {app.screenshots?.map((src) => (
+                <img key={src} src={src} alt="" className="h-16 w-24 object-cover rounded-md border border-border shrink-0" />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">{wa.manage.listingEmpty}</p>
+      )}
+    </div>
+  );
+}
+
+function AppVersionsSection({
+  versions,
+  isLoading,
+  onUpload,
+}: Readonly<{
+  versions: ReturnType<typeof useUserAppVersions>['data'];
+  isLoading: boolean;
+  onUpload: () => void;
+}>) {
+  const { t } = useI18n();
+  const wa = t.weldapps;
+
+  let body: ReactNode;
+  if (isLoading) {
+    body = (
+      <div className="flex items-center justify-center py-6">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (!versions || versions.length === 0) {
+    body = (
+      <div className="rounded-md border border-dashed border-border p-4 text-center">
+        <p className="text-sm font-medium text-foreground">{wa.versions.empty}</p>
+        <p className="text-xs text-muted-foreground mt-1">{wa.versions.emptyDescription}</p>
+      </div>
+    );
+  } else {
+    body = (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{wa.versions.columnVersion}</TableHead>
+            <TableHead>{wa.versions.columnStatus}</TableHead>
+            <TableHead>{wa.versions.columnSize}</TableHead>
+            <TableHead>{wa.versions.columnDate}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {versions.map((v) => (
+            <TableRow key={v.version}>
+              <TableCell className="font-medium">{v.version}</TableCell>
+              <TableCell className="capitalize">{v.status}</TableCell>
+              <TableCell>{formatBytes(v.bundleSize)}</TableCell>
+              <TableCell>{new Date(v.createdAt).toLocaleDateString()}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-foreground">{wa.versions.title}</h3>
+        <Button size="sm" variant="outline" onClick={onUpload}>
+          {wa.versions.uploadVersion}
+        </Button>
+      </div>
+      {body}
+    </div>
+  );
+}
+
+function AppOauthSection({
+  clientId,
+  canDevelop,
+  pending,
+  onCreate,
+}: Readonly<{
+  clientId?: string | null;
+  canDevelop: boolean;
+  pending: boolean;
+  onCreate: () => void;
+}>) {
+  const { t } = useI18n();
+  const wa = t.weldapps;
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-foreground mb-1">{wa.oauth.title}</h3>
+      <p className="text-xs text-muted-foreground mb-2">{wa.oauth.description}</p>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 text-sm text-muted-foreground truncate">
+          {clientId ? <span className="font-mono">{clientId}</span> : wa.oauth.noClient}
+        </div>
+        {canDevelop && (
+          <Button size="sm" variant="outline" onClick={onCreate} disabled={pending}>
+            {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {clientId ? wa.oauth.rotate : wa.oauth.create}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 interface AppDetailPanelProps {
@@ -155,16 +326,6 @@ export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: Readonl
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const reviewStatusLabel = (status: UserApp['reviewStatus']) => {
-    switch (status) {
-      case 'draft': return wa.manage.statusDraft;
-      case 'submitted': return wa.manage.statusSubmitted;
-      case 'approved': return wa.manage.statusApproved;
-      case 'rejected': return wa.manage.statusRejected;
-      default: return status;
-    }
-  };
-
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
@@ -180,19 +341,7 @@ export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: Readonl
             </div>
           ) : (
             <div className="space-y-6 mt-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">
-                  {app.visibility === 'public' ? wa.manage.visibilityPublic : wa.manage.visibilityPrivate}
-                </Badge>
-                <Badge variant={app.reviewStatus === 'rejected' ? 'destructive' : 'secondary'}>
-                  {reviewStatusLabel(app.reviewStatus)}
-                </Badge>
-                {app.publisherType === 'weldsuite' ? (
-                  <Badge className="bg-blue-100 text-blue-700 border-transparent dark:bg-blue-950 dark:text-blue-400">
-                    {wa.store.badgeOfficial}
-                  </Badge>
-                ) : null}
-              </div>
+              <AppStatusBadges app={app} />
 
               {app.reviewStatus === 'rejected' && app.reviewNotes && (
                 <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
@@ -221,101 +370,22 @@ export function AppDetailPanel({ appId, open, onOpenChange, onDeleted }: Readonl
                 )}
               </div>
 
-              <div>
-                <h3 className="text-sm font-semibold text-foreground mb-2">{wa.manage.listingTitle}</h3>
-                {app.websiteUrl || app.privacyUrl || app.webhookUrl || (app.screenshots && app.screenshots.length > 0) ? (
-                  <div className="space-y-1.5 text-sm">
-                    {app.websiteUrl ? (
-                      <p>
-                        <a href={app.websiteUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-                          {wa.store.website}
-                        </a>
-                      </p>
-                    ) : null}
-                    {app.privacyUrl ? (
-                      <p>
-                        <a href={app.privacyUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-                          {wa.store.privacy}
-                        </a>
-                      </p>
-                    ) : null}
-                    {app.webhookUrl ? (
-                      <p className="text-xs text-muted-foreground font-mono truncate">{wa.manage.listingWebhook}: {app.webhookUrl}</p>
-                    ) : null}
-                    {app.screenshots && app.screenshots.length > 0 ? (
-                      <div className="flex gap-2 overflow-x-auto pt-1">
-                        {app.screenshots.map((src) => (
-                          <img key={src} src={src} alt="" className="h-16 w-24 object-cover rounded-md border border-border shrink-0" />
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">{wa.manage.listingEmpty}</p>
-                )}
-              </div>
+              <AppListingSection app={app} />
 
               {/* Versions */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-foreground">{wa.versions.title}</h3>
-                  <Button size="sm" variant="outline" onClick={() => setUploadOpen(true)}>
-                    {wa.versions.uploadVersion}
-                  </Button>
-                </div>
-                {versionsLoading ? (
-                  <div className="flex items-center justify-center py-6">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  </div>
-                ) : !versions || versions.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border p-4 text-center">
-                    <p className="text-sm font-medium text-foreground">{wa.versions.empty}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{wa.versions.emptyDescription}</p>
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{wa.versions.columnVersion}</TableHead>
-                        <TableHead>{wa.versions.columnStatus}</TableHead>
-                        <TableHead>{wa.versions.columnSize}</TableHead>
-                        <TableHead>{wa.versions.columnDate}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {versions.map((v) => (
-                        <TableRow key={v.version}>
-                          <TableCell className="font-medium">{v.version}</TableCell>
-                          <TableCell className="capitalize">{v.status}</TableCell>
-                          <TableCell>{formatBytes(v.bundleSize)}</TableCell>
-                          <TableCell>{new Date(v.createdAt).toLocaleDateString()}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
+              <AppVersionsSection
+                versions={versions}
+                isLoading={versionsLoading}
+                onUpload={() => setUploadOpen(true)}
+              />
 
               {/* OAuth client */}
-              <div>
-                <h3 className="text-sm font-semibold text-foreground mb-1">{wa.oauth.title}</h3>
-                <p className="text-xs text-muted-foreground mb-2">{wa.oauth.description}</p>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 text-sm text-muted-foreground truncate">
-                    {oauthClient?.clientId ? (
-                      <span className="font-mono">{oauthClient.clientId}</span>
-                    ) : (
-                      wa.oauth.noClient
-                    )}
-                  </div>
-                  {canDevelop && (
-                    <Button size="sm" variant="outline" onClick={handleCreateOauth} disabled={createOauthMutation.isPending}>
-                      {createOauthMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                      {oauthClient?.clientId ? wa.oauth.rotate : wa.oauth.create}
-                    </Button>
-                  )}
-                </div>
-              </div>
+              <AppOauthSection
+                clientId={oauthClient?.clientId}
+                canDevelop={canDevelop}
+                pending={createOauthMutation.isPending}
+                onCreate={handleCreateOauth}
+              />
 
               {/* Delete */}
               {canDevelop && (

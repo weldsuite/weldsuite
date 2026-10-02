@@ -242,77 +242,84 @@ export function ParticipantContextMenu({
             controls are gated on `canManageParticipants` so guests (meeting
             portal) never see them. */}
         {(isSelf || canManageParticipants) && (
-        <>
-        <div className="-mx-px h-px bg-border" />
+          <DestructiveActions
+            participant={participant}
+            isSelf={isSelf}
+            meeting={meeting}
+            onClose={onClose}
+          />
+        )}
+      </div>
+    </>
+  );
+}
 
-        <div className="p-1">
-          {isSelf ? (
+/** Runs a participant-level RTK action, logging (not throwing) on failure, then closes the menu. */
+async function runAndClose(
+  action: (() => Promise<unknown> | undefined) | undefined,
+  failureMessage: string,
+  onClose: () => void,
+) {
+  try {
+    await action?.();
+  } catch (err) {
+    console.warn(failureMessage, err);
+  }
+  onClose();
+}
+
+const MENU_BUTTON_BASE =
+  'relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors';
+
+/** "Leave call" for yourself; host-only controls (mute / video off / remove) for others. */
+function DestructiveActions({
+  participant,
+  isSelf,
+  meeting,
+  onClose,
+}: Pick<ParticipantContextMenuProps, 'participant' | 'isSelf' | 'meeting' | 'onClose'>) {
+  return (
+    <>
+      <div className="-mx-px h-px bg-border" />
+
+      <div className="p-1">
+        {isSelf ? (
+          <button
+            onClick={() => {
+              meeting?.leave?.();
+              onClose();
+            }}
+            className={MENU_BUTTON_BASE}
+          >
+            <PhoneOff className="h-4 w-4" />
+            Leave call
+          </button>
+        ) : (
+          <>
             <button
-              onClick={() => {
-                meeting?.leave?.();
-                onClose();
-              }}
-              className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors"
+              onClick={() => runAndClose(() => participant.disableAudio?.(), 'Mute for everyone failed:', onClose)}
+              disabled={!participant.audioEnabled}
+              className={cn(MENU_BUTTON_BASE, !participant.audioEnabled && 'opacity-40 pointer-events-none')}
             >
-              <PhoneOff className="h-4 w-4" />
-              Leave call
+              <MicOff className="h-4 w-4" />
+              Mute for everyone
             </button>
-          ) : (
-            <>
-              <button
-                onClick={async () => {
-                  try {
-                    await participant.disableAudio?.();
-                  } catch (err) {
-                    console.warn('Mute for everyone failed:', err);
-                  }
-                  onClose();
-                }}
-                disabled={!participant.audioEnabled}
-                className={cn(
-                  'relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors',
-                  !participant.audioEnabled && 'opacity-40 pointer-events-none',
-                )}
-              >
-                <MicOff className="h-4 w-4" />
-                Mute for everyone
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await participant.disableVideo?.();
-                  } catch (err) {
-                    console.warn('Disable video failed:', err);
-                  }
-                  onClose();
-                }}
-                disabled={!participant.videoEnabled}
-                className={cn(
-                  'relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors',
-                  !participant.videoEnabled && 'opacity-40 pointer-events-none',
-                )}
-              >
-                <VideoOff className="h-4 w-4" />
-                Turn off video
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await participant.kick?.();
-                  } catch (err) {
-                    console.warn('Kick failed:', err);
-                  }
-                  onClose();
-                }}
-                className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors"
-              >
-                <UserX className="h-4 w-4" />
-                Remove from call
-              </button>
-            </>
-          )}
-        </div>
-        </>
+            <button
+              onClick={() => runAndClose(() => participant.disableVideo?.(), 'Disable video failed:', onClose)}
+              disabled={!participant.videoEnabled}
+              className={cn(MENU_BUTTON_BASE, !participant.videoEnabled && 'opacity-40 pointer-events-none')}
+            >
+              <VideoOff className="h-4 w-4" />
+              Turn off video
+            </button>
+            <button
+              onClick={() => runAndClose(() => participant.kick?.(), 'Kick failed:', onClose)}
+              className={MENU_BUTTON_BASE}
+            >
+              <UserX className="h-4 w-4" />
+              Remove from call
+            </button>
+          </>
         )}
       </div>
     </>

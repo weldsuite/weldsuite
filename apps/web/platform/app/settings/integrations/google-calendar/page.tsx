@@ -66,6 +66,26 @@ function formatDateExact(dateStr: string | null): string {
   });
 }
 
+type SyncTriggerLabels = {
+  manualSync: string;
+  scheduledSync: string;
+  webhookUpdate: string;
+  sync: string;
+};
+
+function syncTriggerLabel(triggeredBy: string, labels: SyncTriggerLabels): string {
+  switch (triggeredBy) {
+    case 'manual':
+      return labels.manualSync;
+    case 'scheduled':
+      return labels.scheduledSync;
+    case 'webhook':
+      return labels.webhookUpdate;
+    default:
+      return labels.sync;
+  }
+}
+
 const googleCalendarIcon = (
   <img
     src="https://api.iconify.design/logos:google-calendar.svg"
@@ -242,9 +262,7 @@ export default function GoogleCalendarSettingsPage() {
                               {log.status === 'running' && <Loader2 className="h-4 w-4 text-blue-500 animate-spin shrink-0" />}
                               {log.status === 'pending' && <Clock className="h-4 w-4 text-muted-foreground shrink-0" />}
                               <span className="truncate">
-                                {log.triggeredBy === 'manual' ? ts.manualSync :
-                                 log.triggeredBy === 'scheduled' ? ts.scheduledSync :
-                                 log.triggeredBy === 'webhook' ? ts.webhookUpdate : ts.sync}
+                                {syncTriggerLabel(log.triggeredBy, ts)}
                               </span>
                             </div>
                           </TableCell>

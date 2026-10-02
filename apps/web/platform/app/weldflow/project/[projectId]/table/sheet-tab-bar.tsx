@@ -131,7 +131,7 @@ export function SheetTabBar({
   const menuSheet = menuSheetId ? sheets.find(s => s.id === menuSheetId) : null;
 
   return (
-    <div className="flex items-center px-1 py-1 gap-0.5 overflow-x-auto flex-1 min-w-0 relative" onContextMenu={(e) => e.stopPropagation()}>
+    <div role="tablist" className="flex items-center px-1 py-1 gap-0.5 overflow-x-auto flex-1 min-w-0 relative" onContextMenu={(e) => e.stopPropagation()}>
       {sheets.map((sheet) => {
         const isActive = sheet.id === activeSheetId;
         const isEditing = editingId === sheet.id;
@@ -141,6 +141,9 @@ export function SheetTabBar({
         return (
           <div
             key={sheet.id}
+            role="tab"
+            tabIndex={0}
+            aria-selected={isActive}
             draggable={!isEditing}
             onDragStart={(e) => handleDragStart(e, sheet.id)}
             onDragOver={(e) => handleDragOver(e, sheet.id)}
@@ -156,6 +159,16 @@ export function SheetTabBar({
               isDragOver && 'border-l-2 border-l-primary',
             )}
             onClick={() => !isEditing && onSelectSheet(sheet.id)}
+            onKeyDown={(e) => {
+              if (e.target !== e.currentTarget) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelectSheet(sheet.id);
+              } else if (e.key === 'F2') {
+                e.preventDefault();
+                startRename(sheet);
+              }
+            }}
             onDoubleClick={() => startRename(sheet)}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -190,7 +203,6 @@ export function SheetTabBar({
           ref={menuRef}
           className="fixed z-50 min-w-[160px] rounded-md border bg-popover p-1 shadow-md"
           style={{ left: menuPos.x, bottom: window.innerHeight - menuPos.y }}
-          onMouseDown={(e) => e.stopPropagation()}
         >
           <Button
             variant="ghost"

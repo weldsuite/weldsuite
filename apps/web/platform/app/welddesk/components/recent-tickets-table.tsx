@@ -66,6 +66,92 @@ interface ActivityTableProps {
   activities: ActivityItem[]
 }
 
+type DashboardLabels = ReturnType<typeof useI18n>['t']['helpdesk']['dashboard']
+
+function CustomerCell({ row }: Readonly<{ row: ActivityRow }>) {
+  return (
+    <div className="flex items-center gap-3">
+      <Avatar className="h-7 w-7 flex-shrink-0 rounded-md">
+        <AvatarFallback className={cn('text-[11px] text-white font-medium rounded-md', row.avatarColor)}>
+          {row.customerInitial}
+        </AvatarFallback>
+      </Avatar>
+      <div className="-space-y-0.5">
+        <div className="font-medium text-sm">{row.customerName}</div>
+        <div className="text-muted-foreground text-xs">{row.description}</div>
+      </div>
+    </div>
+  )
+}
+
+function ActionsCell({ activity, td }: Readonly<{ activity: ActivityRow; td: DashboardLabels }>) {
+  return (
+    <div className="text-right">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" className="h-8 w-8 p-0">
+            <span className="sr-only">{td.openMenu}</span>
+            <EllipsisVertical />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>{td.actions}</DropdownMenuLabel>
+          <DropdownMenuItem
+            onClick={() => navigator.clipboard.writeText(activity.id)}
+          >
+            {td.copyId}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>{td.viewCustomer}</DropdownMenuItem>
+          <DropdownMenuItem>{td.viewDetails}</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+function buildColumns(
+  td: DashboardLabels,
+  activityTypeLabels: Record<ActivityType, string>,
+): ColumnDef<ActivityRow>[] {
+  return [
+    {
+      accessorKey: "customerName",
+      header: () => <div>{td.recentActivity}</div>,
+      cell: ({ row }) => <CustomerCell row={row.original} />,
+    },
+    {
+      accessorKey: "type",
+      header: td.type,
+      cell: ({ row }) => (
+        <div className="text-sm">{activityTypeLabels[row.original.type]}</div>
+      ),
+    },
+    {
+      accessorKey: "detail",
+      header: td.detail,
+      cell: ({ row }) => (
+        <div className="text-sm text-muted-foreground max-w-[250px] truncate">
+          {row.original.detail || '—'}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "date",
+      header: () => <div className="text-right">{td.time}</div>,
+      cell: ({ row }) => (
+        <div className="text-right text-sm text-muted-foreground">{row.original.date}</div>
+      ),
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      header: () => <div className="text-right"></div>,
+      cell: ({ row }) => <ActionsCell activity={row.original} td={td} />,
+    },
+  ]
+}
+
 export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>) {
   const router = useRouter()
   const { t } = useI18n()
@@ -97,82 +183,7 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
     return then.toLocaleDateString()
   }, [td])
 
-  const columns: ColumnDef<ActivityRow>[] = React.useMemo(() => [
-    {
-      accessorKey: "customerName",
-      header: () => <div>{td.recentActivity}</div>,
-      cell: ({ row }) => {
-        return (
-          <div className="flex items-center gap-3">
-            <Avatar className="h-7 w-7 flex-shrink-0 rounded-md">
-              <AvatarFallback className={cn('text-[11px] text-white font-medium rounded-md', row.original.avatarColor)}>
-                {row.original.customerInitial}
-              </AvatarFallback>
-            </Avatar>
-            <div className="-space-y-0.5">
-              <div className="font-medium text-sm">{row.original.customerName}</div>
-              <div className="text-muted-foreground text-xs">{row.original.description}</div>
-            </div>
-          </div>
-        )
-      },
-    },
-    {
-      accessorKey: "type",
-      header: td.type,
-      cell: ({ row }) => (
-        <div className="text-sm">{activityTypeLabels[row.original.type]}</div>
-      ),
-    },
-    {
-      accessorKey: "detail",
-      header: td.detail,
-      cell: ({ row }) => (
-        <div className="text-sm text-muted-foreground max-w-[250px] truncate">
-          {row.original.detail || '—'}
-        </div>
-      ),
-    },
-    {
-      accessorKey: "date",
-      header: () => <div className="text-right">{td.time}</div>,
-      cell: ({ row }) => (
-        <div className="text-right text-sm text-muted-foreground">{row.original.date}</div>
-      ),
-    },
-    {
-      id: "actions",
-      enableHiding: false,
-      header: () => <div className="text-right"></div>,
-      cell: ({ row }) => {
-        const activity = row.original
-
-        return (
-          <div className="text-right">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-8 w-8 p-0">
-                  <span className="sr-only">{td.openMenu}</span>
-                  <EllipsisVertical />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{td.actions}</DropdownMenuLabel>
-                <DropdownMenuItem
-                  onClick={() => navigator.clipboard.writeText(activity.id)}
-                >
-                  {td.copyId}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem>{td.viewCustomer}</DropdownMenuItem>
-                <DropdownMenuItem>{td.viewDetails}</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        )
-      },
-    },
-  ], [td, activityTypeLabels])
+  const columns = React.useMemo(() => buildColumns(td, activityTypeLabels), [td, activityTypeLabels])
 
   const data: ActivityRow[] = React.useMemo(() =>
     activities.map(activity => ({

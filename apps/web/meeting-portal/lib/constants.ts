@@ -17,9 +17,10 @@ export const POLLING_INTERVAL_MS = {
 /**
  * Same shape used by the join form before we adopted RHF + zodResolver.
  * Kept here so the disabled-state guard in the landing form stays consistent
- * with the schema validation done inside zodResolver.
+ * with the schema validation done inside zodResolver. Domain labels exclude
+ * `.` so the pattern cannot backtrack super-linearly.
  */
-export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 // ── Person theme palette ──────────────────────────────────────────────────
 
@@ -42,13 +43,13 @@ export const PERSON_THEMES = [
 
 export type PersonTheme = (typeof PERSON_THEMES)[number];
 
-export function getPersonTheme(seed: string): PersonTheme {
+export function getPersonTheme(seed = 'guest'): PersonTheme {
+  // 31-multiplier string hash, wrapped to int32 (Math.imul wraps its operands).
   let h = 0;
-  const s = seed || 'guest';
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) - h) + s.charCodeAt(i);
-    h |= 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = Math.imul(h, 31) + seed.charCodeAt(i);
   }
+  h = Math.imul(h, 1);
   return PERSON_THEMES[Math.abs(h) % PERSON_THEMES.length]!;
 }
 

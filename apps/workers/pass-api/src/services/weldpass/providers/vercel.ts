@@ -94,6 +94,87 @@ function prunableKeys(
   });
 }
 
+/** Upsert every secret in one call, recording a detail per key. Returns the pushed count. */
+async function pushSecrets(
+  request: PushRequest,
+  teamId: string | undefined,
+  projectPath: string,
+  targets: VercelTarget[],
+  details: PushDetail[],
+): Promise<number> {
+  const keys = Object.keys(request.secrets);
+  if (keys.length === 0) return 0;
+
+  const body = keys.map((key) => ({
+    key,
+    value: request.secrets[key],
+    type: 'encrypted' as const,
+    target: targets,
+  }));
+
+  // `upsert=true` makes this idempotent; without it an existing key is a 409.
+  const result = await vercelFetch<{
+    failed?: Array<{ error?: { message?: string; key?: string } }>;
+  }>(request.token, `/v10/projects/${projectPath}/env?upsert=true`, {
+    method: 'POST',
+    body,
+    teamId,
+  });
+
+  const failures = new Map<string, string>();
+  for (const failure of result.failed ?? []) {
+    const key = failure.error?.key;
+    if (key) failures.set(key, failure.error?.message ?? 'Rejected by Vercel');
+  }
+
+  let pushed = 0;
+  for (const key of keys) {
+    const message = failures.get(key);
+    if (message) {
+      details.push({ key, action: 'failed', message });
+    } else {
+      details.push({ key, action: 'pushed' });
+      pushed += 1;
+    }
+  }
+  return pushed;
+}
+
+/** Delete variables that are no longer desired, recording a detail per key. Returns the removed count. */
+async function pruneSecrets(
+  request: PushRequest,
+  teamId: string | undefined,
+  projectPath: string,
+  targets: VercelTarget[],
+  details: PushDetail[],
+): Promise<number> {
+  const existing = await vercelFetch<{ envs?: VercelEnvVar[] }>(
+    request.token,
+    `/v9/projects/${projectPath}/env`,
+    { teamId },
+  );
+
+  let removed = 0;
+  for (const row of prunableKeys(existing.envs ?? [], request.secrets, targets)) {
+    try {
+      await vercelFetch(
+        request.token,
+        `/v9/projects/${projectPath}/env/${encodeURIComponent(row.id)}`,
+        { method: 'DELETE', teamId },
+      );
+      details.push({ key: row.key, action: 'removed' });
+      removed += 1;
+    } catch (err) {
+      details.push({
+        key: row.key,
+        action: 'failed',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return removed;
+}
+
 export const vercelProvider: SyncProvider = {
   id: 'vercel',
   label: 'Vercel',
@@ -123,69 +204,10 @@ export const vercelProvider: SyncProvider = {
     const projectPath = encodeURIComponent(config.projectId);
     const details: PushDetail[] = [];
 
-    const keys = Object.keys(request.secrets);
-    let pushed = 0;
-
-    if (keys.length > 0) {
-      const body = keys.map((key) => ({
-        key,
-        value: request.secrets[key],
-        type: 'encrypted' as const,
-        target: targets,
-      }));
-
-      // `upsert=true` makes this idempotent; without it an existing key is a 409.
-      const result = await vercelFetch<{
-        failed?: Array<{ error?: { message?: string; key?: string } }>;
-      }>(request.token, `/v10/projects/${projectPath}/env?upsert=true`, {
-        method: 'POST',
-        body,
-        teamId: config.teamId,
-      });
-
-      const failures = new Map<string, string>();
-      for (const failure of result.failed ?? []) {
-        const key = failure.error?.key;
-        if (key) failures.set(key, failure.error?.message ?? 'Rejected by Vercel');
-      }
-
-      for (const key of keys) {
-        const message = failures.get(key);
-        if (message) {
-          details.push({ key, action: 'failed', message });
-        } else {
-          details.push({ key, action: 'pushed' });
-          pushed += 1;
-        }
-      }
-    }
-
-    let removed = 0;
-    if (request.prune) {
-      const existing = await vercelFetch<{ envs?: VercelEnvVar[] }>(
-        request.token,
-        `/v9/projects/${projectPath}/env`,
-        { teamId: config.teamId },
-      );
-
-      for (const row of prunableKeys(existing.envs ?? [], request.secrets, targets)) {
-        try {
-          await vercelFetch(
-            request.token,
-            `/v9/projects/${projectPath}/env/${encodeURIComponent(row.id)}`,
-            { method: 'DELETE', teamId: config.teamId },
-          );
-          details.push({ key: row.key, action: 'removed' });
-          removed += 1;
-        } catch (err) {
-          details.push({
-            key: row.key,
-            action: 'failed',
-            message: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-    }
+    const pushed = await pushSecrets(request, config.teamId, projectPath, targets, details);
+    const removed = request.prune
+      ? await pruneSecrets(request, config.teamId, projectPath, targets, details)
+      : 0;
 
     return {
       pushed,

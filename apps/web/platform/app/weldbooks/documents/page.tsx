@@ -338,7 +338,7 @@ export default function DocumentInboxPage() {
       header: '',
       width: 'w-[80px]',
       render: (doc) => (
-        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1" role="presentation" onClick={(e) => e.stopPropagation()}>
           {doc.status === 'pending' && (
             <Button
               size="sm"
@@ -613,6 +613,21 @@ function CreateSupplierFromOcrDialog({
   );
 }
 
+/**
+ * Pairs each item with a stable React key derived from its content plus an
+ * occurrence counter, so identical rows still get unique keys without using
+ * the array index.
+ */
+function withOccurrenceKeys<T>(items: readonly T[], base: (item: T) => string): Array<[string, T]> {
+  const seen = new Map<string, number>();
+  return items.map((item): [string, T] => {
+    const b = base(item);
+    const n = (seen.get(b) ?? 0) + 1;
+    seen.set(b, n);
+    return [`${b}#${n}`, item];
+  });
+}
+
 function OcrResultView({ result, matchedContactId, td }: Readonly<{ result: OcrResult; matchedContactId: string | null; td: DocumentsTranslations }>) {
   const { formatMoney: fmt } = useCurrentEntityCurrency();
   return (
@@ -669,8 +684,8 @@ function OcrResultView({ result, matchedContactId, td }: Readonly<{ result: OcrR
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {result.lineItems.map((item, i: number) => (
-                  <TableRow key={i}>
+                {withOccurrenceKeys(result.lineItems, (item) => `${item.description}|${item.total}`).map(([rowKey, item]) => (
+                  <TableRow key={rowKey}>
                     <TableCell className="text-sm">{item.description}</TableCell>
                     <TableCell className="text-right text-sm">{item.quantity ?? '-'}</TableCell>
                     <TableCell className="text-right text-sm">{item.unitPrice != null ? fmt(item.unitPrice, result.currency) : '-'}</TableCell>
@@ -691,8 +706,8 @@ function OcrResultView({ result, matchedContactId, td }: Readonly<{ result: OcrR
             <span>{td.ocrSubtotal}</span>
             <span>{result.subtotal != null ? fmt(result.subtotal, result.currency) : '-'}</span>
           </div>
-          {result.taxBreakdown?.map((tb, i: number) => (
-            <div key={i} className="flex justify-between text-muted-foreground">
+          {withOccurrenceKeys(result.taxBreakdown ?? [], (tb) => `${tb.rate}|${tb.taxableAmount}`).map(([rowKey, tb]) => (
+            <div key={rowKey} className="flex justify-between text-muted-foreground">
               <span>{td.ocrVatLine.replace('{rate}', String(tb.rate)).replace('{amount}', fmt(tb.taxableAmount, result.currency))}</span>
               <span>{fmt(tb.taxAmount, result.currency)}</span>
             </div>

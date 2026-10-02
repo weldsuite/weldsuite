@@ -35,10 +35,11 @@ export function CalendarTab() {
   const cells = useMemo(() => {
     const daysInMonth = new Date(year, month, 0).getDate();
     const leadingBlank = (first.getDay() - WEEKDAY_LABELS_START + 7) % 7;
-    const out: Array<{ date: string | null; day: number | null }> = [];
-    for (let i = 0; i < leadingBlank; i++) out.push({ date: null, day: null });
+    const out: Array<{ key: string; date: string | null; day: number | null }> = [];
+    for (let i = 0; i < leadingBlank; i++) out.push({ key: `blank-${i}`, date: null, day: null });
     for (let d = 1; d <= daysInMonth; d++) {
-      out.push({ date: `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`, day: d });
+      const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      out.push({ key: date, date, day: d });
     }
     return out;
   }, [year, month, first]);
@@ -80,13 +81,13 @@ export function CalendarTab() {
             ))}
           </div>
           <div className="grid grid-cols-7">
-            {cells.map((cell, i) => {
+            {cells.map((cell) => {
               const entries = cell.date ? leaveOn(cell.date) : [];
               const shown = entries.slice(0, 3);
               const extra = entries.length - shown.length;
               return (
                 <div
-                  key={i}
+                  key={cell.key}
                   className={`min-h-24 border-b border-r p-1.5 last:border-r-0 ${cell.date === today ? 'bg-primary/5' : ''}`}
                 >
                   {cell.day && (

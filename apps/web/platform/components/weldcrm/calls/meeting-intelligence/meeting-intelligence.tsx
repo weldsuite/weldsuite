@@ -268,21 +268,54 @@ export function MeetingIntelligence({
     const startTime = Date.now();
     const TIMEOUT_MS = 10 * 60 * 1000;
 
+    const stopPolling = () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    };
+
+    const finishTranscribing = () => {
+      setIsTranscribing(false);
+      setTranscriptionProgress(0);
+    };
+
+    const handleTimeout = () => {
+      stopPolling();
+      if (showToasts) {
+        toast.error(t('sweep.weldcrm.meetingIntelligence.transcriptionTimedOut'), {
+          description: t('sweep.weldcrm.meetingIntelligence.transcriptionTimedOutDescription'),
+        });
+      }
+      finishTranscribing();
+    };
+
+    const handleCompleted = async () => {
+      stopPolling();
+      setTranscriptionProgress(100);
+      await fetchTranscription();
+      if (showToasts) {
+        toast.success(t('sweep.weldcrm.meetingIntelligence.transcriptionComplete'), {
+          description: t('sweep.weldcrm.meetingIntelligence.transcriptionCompleteDescription'),
+        });
+      }
+      setTimeout(finishTranscribing, 500);
+    };
+
+    const handleFailed = (errorMessage: string | undefined) => {
+      stopPolling();
+      const errorMsg = errorMessage || t('sweep.weldcrm.meetingIntelligence.transcriptionFailed');
+      if (showToasts) {
+        toast.error(t('sweep.weldcrm.meetingIntelligence.transcriptionFailed'), { description: errorMsg });
+      }
+      finishTranscribing();
+    };
+
     pollIntervalRef.current = setInterval(async () => {
       try {
         progress = Math.min(90, progress + progressIncrement);
         setTranscriptionProgress(progress);
 
         if (Date.now() - startTime > TIMEOUT_MS) {
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-          if (showToasts) {
-            toast.error(t('sweep.weldcrm.meetingIntelligence.transcriptionTimedOut'), {
-              description: t('sweep.weldcrm.meetingIntelligence.transcriptionTimedOutDescription'),
-            });
-          }
-          setIsTranscribing(false);
-          setTranscriptionProgress(0);
+          handleTimeout();
           return;
         }
 
@@ -291,28 +324,9 @@ export function MeetingIntelligence({
         const status = statusResult.status?.status;
 
         if (status === 'completed') {
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-          setTranscriptionProgress(100);
-          await fetchTranscription();
-          if (showToasts) {
-            toast.success(t('sweep.weldcrm.meetingIntelligence.transcriptionComplete'), {
-              description: t('sweep.weldcrm.meetingIntelligence.transcriptionCompleteDescription'),
-            });
-          }
-          setTimeout(() => {
-            setIsTranscribing(false);
-            setTranscriptionProgress(0);
-          }, 500);
+          await handleCompleted();
         } else if (status === 'failed') {
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-          const errorMsg = statusResult.status?.errorMessage || t('sweep.weldcrm.meetingIntelligence.transcriptionFailed');
-          if (showToasts) {
-            toast.error(t('sweep.weldcrm.meetingIntelligence.transcriptionFailed'), { description: errorMsg });
-          }
-          setIsTranscribing(false);
-          setTranscriptionProgress(0);
+          handleFailed(statusResult.status?.errorMessage);
         }
       } catch {
         // Don't stop polling on transient errors
@@ -621,6 +635,10 @@ ${transcriptionText}
 
   const hasTranscription = !!transcription;
 
+  const headerMinimizeHandler = enableFloatingVideo && stableRecordingUrl.current && floatingCallCtx ? handleMinimize : undefined;
+  const playerMinimizeHandler = enableFloatingVideo && floatingVideoCtx && stableRecordingUrl.current ? handleVideoMinimize : undefined;
+  const transcribeHandler = transcriptionActions ? handleTranscribe : undefined;
+
   // Full-width layout (for call detail pages)
   return (
     <div className="h-full flex bg-gray-50 dark:bg-background overflow-hidden">
@@ -635,7 +653,7 @@ ${transcriptionText}
           isLoadingTranscription={isLoadingTranscription}
           onBack={() => backUrl ? router.push(backUrl) : router.push('/weldcrm/calls')}
           onDelete={onDelete ? () => setShowDeleteDialog(true) : undefined}
-          onMinimize={enableFloatingVideo && stableRecordingUrl.current && floatingCallCtx ? handleMinimize : undefined}
+          onMinimize={headerMinimizeHandler}
           onCopyJoinCode={headerMenuActions?.onCopyJoinCode}
           onCopyLink={headerMenuActions?.onCopyLink}
           onRename={headerMenuActions?.onRename}
@@ -687,7 +705,7 @@ ${transcriptionText}
                 segments={transcription?.segments}
                 onTogglePlayPause={togglePlayPause}
                 onSeek={handleSeek}
-                onMinimize={enableFloatingVideo && floatingVideoCtx && stableRecordingUrl.current ? handleVideoMinimize : undefined}
+                onMinimize={playerMinimizeHandler}
               />
             )}
 
@@ -739,15 +757,7 @@ ${transcriptionText}
                         searchQuery={transcriptSearchQuery}
                         onSearchQueryChange={setTranscriptSearchQuery}
                       />
-                      <Select value={autoScroll ? 'on' : 'off'} onValueChange={(v) => setAutoScroll(v === 'on')}>
-                        <SelectTrigger size="sm" className="h-8 text-[14px] w-auto gap-1.5 px-2.5 leading-none">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="on">{t('sweep.weldcrm.meetingIntelligence.autoScroll')}</SelectItem>
-                          <SelectItem value="off">{t('sweep.weldcrm.meetingIntelligence.manualScroll')}</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <AutoScrollSelect autoScroll={autoScroll} onAutoScrollChange={setAutoScroll} />
                     </div>
                   )}
                   {activeTab === 'speakers' && speakers.length > 0 && (
@@ -771,7 +781,7 @@ ${transcriptionText}
                       searchQuery={transcriptSearchQuery}
                       onSeekToSegment={seekToSegment}
                       onSeekToTime={seekToSegment}
-                      onTranscribe={transcriptionActions ? handleTranscribe : undefined}
+                      onTranscribe={transcribeHandler}
                       segmentRefs={segmentRefs}
                     />
                   </div>
@@ -788,7 +798,7 @@ ${transcriptionText}
                     hasTranscription={hasTranscription}
                     isTranscribing={isTranscribing}
                     onSeekToSegment={seekToSegment}
-                    onTranscribe={transcriptionActions ? handleTranscribe : undefined}
+                    onTranscribe={transcribeHandler}
                   />
                 </TabsContent>
               )}
@@ -814,6 +824,28 @@ ${transcriptionText}
 // Inline small toolbar components to keep them co-located with the orchestrator
 
 import { Search } from 'lucide-react';
+
+function AutoScrollSelect({
+  autoScroll,
+  onAutoScrollChange,
+}: {
+  autoScroll: boolean;
+  onAutoScrollChange: (value: boolean) => void;
+}) {
+  const t = useTranslations();
+
+  return (
+    <Select value={autoScroll ? 'on' : 'off'} onValueChange={(v) => onAutoScrollChange(v === 'on')}>
+      <SelectTrigger size="sm" className="h-8 text-[14px] w-auto gap-1.5 px-2.5 leading-none">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="on">{t('sweep.weldcrm.meetingIntelligence.autoScroll')}</SelectItem>
+        <SelectItem value="off">{t('sweep.weldcrm.meetingIntelligence.manualScroll')}</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
 
 function TranscriptSearchToolbar({
   searchQuery,

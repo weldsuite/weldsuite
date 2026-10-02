@@ -23,6 +23,50 @@ interface PostDetailData {
   accounts: SocialAccount[];
 }
 
+interface TargetsListProps {
+  post: SocialPost;
+  accountsById: Map<string, SocialAccount>;
+}
+
+/** "Name (@username)" for a known account, else the raw account id. */
+function targetLabel(account: SocialAccount | undefined, accountId: string): string {
+  if (!account) return accountId;
+  const handle = account.username ? ` (@${account.username})` : '';
+  return `${account.name}${handle}`;
+}
+
+function TargetsList({ post, accountsById }: TargetsListProps) {
+  const { colors } = useTheme();
+  if (!(post.targetAccountIds ?? []).length) {
+    return <Text style={{ color: colors.mutedForeground }}>No target accounts selected.</Text>;
+  }
+  return (
+    <View style={{ gap: 8 }}>
+      {post.targetAccountIds.map((accountId) => {
+        const account = accountsById.get(accountId);
+        const meta = account ? PLATFORM_META[account.platform] : null;
+        const platformResult = post.platformContent?.find((p) => p.accountId === accountId);
+        return (
+          <View key={accountId} style={styles.targetRow}>
+            <View style={[styles.platformDot, { backgroundColor: meta?.color ?? colors.muted }]} />
+            <Text style={[styles.targetName, { color: colors.text }]} numberOfLines={1}>
+              {targetLabel(account, accountId)}
+            </Text>
+            {platformResult?.publishedUrl && (
+              <TouchableOpacity
+                onPress={() => Linking.openURL(platformResult.publishedUrl!)}
+                accessibilityLabel="Open published post"
+              >
+                <ExternalLink size={16} color={colors.info} />
+              </TouchableOpacity>
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function PostDetailScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -82,6 +126,98 @@ export default function PostDetailScreen() {
   const canPublish = post ? ['draft', 'approved', 'failed', 'cancelled'].includes(post.status) : false;
   const canCancel = post ? post.status === 'scheduled' : false;
 
+  const renderBody = () => {
+    if (loading && !post) {
+      return (
+        <View style={styles.loading}>
+          <Spinner label="Loading…" />
+        </View>
+      );
+    }
+    if (error && !post) {
+      return (
+        <View style={styles.bannerWrap}>
+          <Banner variant="error" title="Couldn't load post">{error}</Banner>
+        </View>
+      );
+    }
+    if (!post) return null;
+    return (
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32, gap: 16 }}>
+        <View style={styles.statusRow}>
+          {status && <Badge variant={status.variant}>{status.label}</Badge>}
+          {!!post.scheduledAt && post.status === 'scheduled' && (
+            <Text style={[styles.when, { color: colors.mutedForeground }]}>
+              {formatDateTime(post.scheduledAt)}
+            </Text>
+          )}
+          {!!post.publishedAt && post.status === 'published' && (
+            <Text style={[styles.when, { color: colors.mutedForeground }]}>
+              {formatDateTime(post.publishedAt)}
+            </Text>
+          )}
+        </View>
+
+        {!!post.title && <Text style={[styles.title, { color: colors.text }]}>{post.title}</Text>}
+        <Text style={[styles.content, { color: colors.text }]}>{post.content || 'No content'}</Text>
+
+        <Divider />
+
+        <View>
+          <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>TARGETS</Text>
+          <TargetsList post={post} accountsById={accountsById} />
+        </View>
+
+        {post.status === 'failed' && (
+          <Banner variant="error" title="Last publish failed">
+            Check the post&apos;s targets and try publishing again.
+          </Banner>
+        )}
+
+        <View style={{ gap: 10 }}>
+          {canPublish && (
+            <Button
+              title="Publish now"
+              onPress={() => runAction('publish', () => appApi.social.posts.publish(postId), 'Post published')}
+              loading={busy === 'publish'}
+              disabled={busy !== null}
+              fullWidth
+            />
+          )}
+          {isEditable && (
+            <Button
+              title="Edit post"
+              variant="secondary"
+              onPress={() => router.push(`/compose?id=${postId}`)}
+              disabled={busy !== null}
+              fullWidth
+            />
+          )}
+          {canCancel && (
+            <Button
+              title="Cancel scheduled post"
+              variant="outline"
+              onPress={() => setConfirm('cancel')}
+              disabled={busy !== null}
+              loading={busy === 'cancel'}
+              fullWidth
+            />
+          )}
+          {post.status !== 'published' && (
+            <Button
+              title="Delete post"
+              variant="destructive"
+              onPress={() => setConfirm('delete')}
+              disabled={busy !== null}
+              loading={busy === 'delete'}
+              fullWidth
+            />
+          )}
+        </View>
+      </ScrollView>
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.divider }]}>
@@ -102,114 +238,7 @@ export default function PostDetailScreen() {
         )}
       </View>
 
-      {loading && !post ? (
-        <View style={styles.loading}>
-          <Spinner label="Loading…" />
-        </View>
-      ) : error && !post ? (
-        <View style={styles.bannerWrap}>
-          <Banner variant="error" title="Couldn't load post">{error}</Banner>
-        </View>
-      ) : post ? (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32, gap: 16 }}>
-          <View style={styles.statusRow}>
-            {status && <Badge variant={status.variant}>{status.label}</Badge>}
-            {!!post.scheduledAt && post.status === 'scheduled' && (
-              <Text style={[styles.when, { color: colors.mutedForeground }]}>
-                {formatDateTime(post.scheduledAt)}
-              </Text>
-            )}
-            {!!post.publishedAt && post.status === 'published' && (
-              <Text style={[styles.when, { color: colors.mutedForeground }]}>
-                {formatDateTime(post.publishedAt)}
-              </Text>
-            )}
-          </View>
-
-          {!!post.title && <Text style={[styles.title, { color: colors.text }]}>{post.title}</Text>}
-          <Text style={[styles.content, { color: colors.text }]}>{post.content || 'No content'}</Text>
-
-          <Divider />
-
-          <View>
-            <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>TARGETS</Text>
-            {(post.targetAccountIds ?? []).length ? (
-              <View style={{ gap: 8 }}>
-                {post.targetAccountIds.map((accountId) => {
-                  const account = accountsById.get(accountId);
-                  const meta = account ? PLATFORM_META[account.platform] : null;
-                  const platformResult = post.platformContent?.find((p) => p.accountId === accountId);
-                  return (
-                    <View key={accountId} style={styles.targetRow}>
-                      <View style={[styles.platformDot, { backgroundColor: meta?.color ?? colors.muted }]} />
-                      <Text style={[styles.targetName, { color: colors.text }]} numberOfLines={1}>
-                        {account ? `${account.name}${account.username ? ` (@${account.username})` : ''}` : accountId}
-                      </Text>
-                      {platformResult?.publishedUrl && (
-                        <TouchableOpacity
-                          onPress={() => Linking.openURL(platformResult.publishedUrl!)}
-                          accessibilityLabel="Open published post"
-                        >
-                          <ExternalLink size={16} color={colors.info} />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <Text style={{ color: colors.mutedForeground }}>No target accounts selected.</Text>
-            )}
-          </View>
-
-          {post.status === 'failed' && (
-            <Banner variant="error" title="Last publish failed">
-              Check the post&apos;s targets and try publishing again.
-            </Banner>
-          )}
-
-          <View style={{ gap: 10 }}>
-            {canPublish && (
-              <Button
-                title="Publish now"
-                onPress={() => runAction('publish', () => appApi.social.posts.publish(postId), 'Post published')}
-                loading={busy === 'publish'}
-                disabled={busy !== null}
-                fullWidth
-              />
-            )}
-            {isEditable && (
-              <Button
-                title="Edit post"
-                variant="secondary"
-                onPress={() => router.push(`/compose?id=${postId}`)}
-                disabled={busy !== null}
-                fullWidth
-              />
-            )}
-            {canCancel && (
-              <Button
-                title="Cancel scheduled post"
-                variant="outline"
-                onPress={() => setConfirm('cancel')}
-                disabled={busy !== null}
-                loading={busy === 'cancel'}
-                fullWidth
-              />
-            )}
-            {post.status !== 'published' && (
-              <Button
-                title="Delete post"
-                variant="destructive"
-                onPress={() => setConfirm('delete')}
-                disabled={busy !== null}
-                loading={busy === 'delete'}
-                fullWidth
-              />
-            )}
-          </View>
-        </ScrollView>
-      ) : null}
+      {renderBody()}
 
       <ConfirmModal
         visible={confirm === 'cancel'}

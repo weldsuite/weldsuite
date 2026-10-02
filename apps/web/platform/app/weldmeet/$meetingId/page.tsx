@@ -5,11 +5,13 @@ import type { MeetingAttendee } from '@/lib/api/domains/weldmeet';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { MeetingIntelligence } from '@/components/weldcrm/calls/meeting-intelligence';
 import type { TranscriptionActions, MeetingIntelligenceCall, TranscriptionData } from '@/components/weldcrm/calls/meeting-intelligence';
+import type { HeaderAction, MeetingIntelligenceProps } from '@/components/weldcrm/calls/meeting-intelligence/types';
 import { MeetingChatHistory } from '../components/meeting-chat-history';
+import { MeetingInvitePicker } from '../components/meeting-invite-picker';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { X, MessageSquare, Loader2 } from 'lucide-react';
+import { X, MessageSquare, Loader2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 
@@ -21,6 +23,169 @@ interface TranscriptionStatusResponse {
   exists: boolean;
   status?: string;
   errorMessage?: string;
+}
+
+type LatestSession = ReturnType<typeof useLatestSession>['data'];
+type WeldmeetStrings = ReturnType<typeof getTranslations<'weldmeet'>>;
+
+function buildNormalizedCall(
+  meeting: Meeting,
+  meetingId: string,
+  latestSession: LatestSession,
+  recordingDuration: number | null | undefined,
+): MeetingIntelligenceCall {
+  return {
+    id: meetingId,
+    subject: meeting.title,
+    description: meeting.description,
+    date: meeting.scheduledStart || meeting.createdAt,
+    duration: recordingDuration ?? undefined,
+    attendees: meeting.attendees?.map((a: MeetingAttendeeWithLinks) => a.name) ?? [],
+    attendeeDetails: meeting.attendees?.map((a: MeetingAttendeeWithLinks) => ({
+      name: a.name,
+      email: a.email,
+      avatar: a.avatar,
+      role: a.role,
+      workspaceMemberId: a.workspaceMemberId,
+      contactId: a.contactId,
+    })) ?? [],
+    sessionParticipants: latestSession?.participants?.map((p) => ({
+      userId: p.userId,
+      userName: p.userName,
+      userAvatar: p.userAvatar,
+      joinedAt: p.joinedAt,
+      leftAt: p.leftAt,
+    })),
+    sessionDuration: latestSession?.duration ?? undefined,
+    sessionStartedAt: latestSession?.startedAt ?? undefined,
+    sessionEndedAt: latestSession?.endedAt ?? undefined,
+  };
+}
+
+function buildTranscriptionActions(
+  getClient: ReturnType<typeof useAppApiClient>['getClient'],
+  transcribeMeeting: (vars: { meetingId: string }) => Promise<unknown>,
+): TranscriptionActions {
+  return {
+    onTranscribe: async (id) => {
+      // app-api returns { data: { id, status } } — no success/error/message fields
+      await transcribeMeeting({ meetingId: id });
+      return { success: true };
+    },
+    onFetchTranscription: async (id) => {
+      const client = await getClient();
+      // app-api returns { data: { ...transcription, segments: [...] } }
+      const result = await client.get<{ data: TranscriptionData }>(`/meetings/${id}/recording/transcription`);
+      return { success: true, transcription: result.data };
+    },
+    onPollStatus: async (id) => {
+      const client = await getClient();
+      // app-api returns { data: { exists, status?, ... } }
+      const result = await client.get<{ data: TranscriptionStatusResponse }>(`/meetings/${id}/recording/transcription-status`);
+      return { status: result.data };
+    },
+  };
+}
+
+function buildHeaderMenuActions({
+  t,
+  meetingId,
+  recordingUrl,
+  hasRecording,
+  onRename,
+  onScheduleAgain,
+}: {
+  t: WeldmeetStrings;
+  meetingId: string;
+  recordingUrl: string | undefined;
+  hasRecording: boolean;
+  onRename: () => void;
+  onScheduleAgain: () => void;
+}): MeetingIntelligenceProps['headerMenuActions'] {
+  return {
+    onCopyLink: () => {
+      navigator.clipboard.writeText(`${window.location.origin}/weldmeet/${meetingId}`);
+      toast.success(t.meetingDetailPage.meetingLinkCopied);
+    },
+    onRename,
+    onScheduleAgain,
+    onDownloadRecording: recordingUrl ? () => window.open(recordingUrl, '_blank') : undefined,
+    onExportTranscript: hasRecording ? () => {
+      toast.success(t.meetingDetailPage.transcriptExported);
+    } : undefined,
+  };
+}
+
+function buildChatToggleAction(t: WeldmeetStrings, showChat: boolean, onToggle: () => void): HeaderAction {
+  return {
+    label: showChat ? t.meetingDetailPage.hideChat : t.meetingDetailPage.chat,
+    icon: <MessageSquare className="h-4 w-4" />,
+    onClick: onToggle,
+    variant: showChat ? 'default' : 'ghost',
+  };
+}
+
+function ChatHistorySidebar({ t, meetingId, onClose }: { t: WeldmeetStrings; meetingId: string; onClose: () => void }) {
+  return (
+    <>
+      <div className="px-4 border-b flex-shrink-0 h-[53px] flex items-center justify-between">
+        <span className="text-[15px] font-semibold">{t.meetingDetailPage.chatHistoryTitle}</span>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <MeetingChatHistory meetingId={meetingId} hideHeader />
+    </>
+  );
+}
+
+function RenameMeetingDialog({
+  t,
+  open,
+  onOpenChange,
+  draft,
+  onDraftChange,
+  onRename,
+}: {
+  t: WeldmeetStrings;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  draft: string;
+  onDraftChange: (draft: string) => void;
+  onRename: (title: string) => void;
+}) {
+  const commit = () => {
+    const title = draft.trim();
+    if (!title) return;
+    onRename(title);
+    toast.success(t.meetingDetailPage.meetingRenamed);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>{t.meetingDetailPage.renameMeeting.title}</DialogTitle>
+        </DialogHeader>
+        <Input
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+          }}
+          placeholder={t.meetingDetailPage.renameMeeting.placeholder}
+          autoFocus
+        />
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t.meetingDetailPage.renameMeeting.cancel}</Button>
+          <Button onClick={commit} disabled={!draft.trim()}>
+            {t.meetingDetailPage.renameMeeting.save}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default function MeetingDetailPage() {
@@ -35,6 +200,7 @@ export default function MeetingDetailPage() {
   const [showChat, setShowChat] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
+  const [addPeopleOpen, setAddPeopleOpen] = useState(false);
   const { mutate: updateMeeting } = useUpdateMeeting();
   const { mutate: deleteMeeting } = useDeleteMeeting();
 
@@ -63,52 +229,25 @@ export default function MeetingDetailPage() {
   const meetingStatus = meeting.status as Meeting['status'] | 'failed';
   const hasChat = meetingStatus === 'completed' || meetingStatus === 'failed';
 
-  const normalizedCall: MeetingIntelligenceCall = {
-    id: meetingId,
-    subject: meeting.title,
-    description: meeting.description,
-    date: meeting.scheduledStart || meeting.createdAt,
-    duration: recordingDuration ?? undefined,
-    attendees: meeting.attendees?.map((a: MeetingAttendeeWithLinks) => a.name) ?? [],
-    attendeeDetails: meeting.attendees?.map((a: MeetingAttendeeWithLinks) => ({
-      name: a.name,
-      email: a.email,
-      avatar: a.avatar,
-      role: a.role,
-      workspaceMemberId: a.workspaceMemberId,
-      contactId: a.contactId,
-    })) ?? [],
-    sessionParticipants: latestSession?.participants?.map((p) => ({
-      userId: p.userId,
-      userName: p.userName,
-      userAvatar: p.userAvatar,
-      joinedAt: p.joinedAt,
-      leftAt: p.leftAt,
-    })),
-    sessionDuration: latestSession?.duration ?? undefined,
-    sessionStartedAt: latestSession?.startedAt ?? undefined,
-    sessionEndedAt: latestSession?.endedAt ?? undefined,
-  };
+  // People can be invited until the meeting is over; invitations need its join link.
+  const canInvite = !!meeting.joinCode && (meetingStatus === 'scheduled' || meetingStatus === 'in_progress');
+  const headerActions: HeaderAction[] = [
+    ...(canInvite
+      ? [{
+          label: t.meetingDetailPage.addPeople,
+          icon: <UserPlus className="h-4 w-4" />,
+          onClick: () => setAddPeopleOpen(true),
+          variant: 'outline' as const,
+        }]
+      : []),
+    ...(hasChat ? [buildChatToggleAction(t, showChat, () => setShowChat(v => !v))] : []),
+  ];
 
-  const transcriptionActions: TranscriptionActions | undefined = hasRecording ? {
-    onTranscribe: async (id) => {
-      // app-api returns { data: { id, status } } — no success/error/message fields
-      await transcribeMut.mutateAsync({ meetingId: id });
-      return { success: true };
-    },
-    onFetchTranscription: async (id) => {
-      const client = await getClient();
-      // app-api returns { data: { ...transcription, segments: [...] } }
-      const result = await client.get<{ data: TranscriptionData }>(`/meetings/${id}/recording/transcription`);
-      return { success: true, transcription: result.data };
-    },
-    onPollStatus: async (id) => {
-      const client = await getClient();
-      // app-api returns { data: { exists, status?, ... } }
-      const result = await client.get<{ data: TranscriptionStatusResponse }>(`/meetings/${id}/recording/transcription-status`);
-      return { status: result.data };
-    },
-  } : undefined;
+  const normalizedCall = buildNormalizedCall(meeting, meetingId, latestSession, recordingDuration);
+
+  const transcriptionActions: TranscriptionActions | undefined = hasRecording
+    ? buildTranscriptionActions(getClient, transcribeMut.mutateAsync)
+    : undefined;
 
   return (
     <>
@@ -132,11 +271,11 @@ export default function MeetingDetailPage() {
         { label: t.meetingDetailPage.breadcrumbMeetings, href: '/weldmeet/history' },
         { label: meeting.title },
       ]}
-      headerMenuActions={{
-        onCopyLink: () => {
-          navigator.clipboard.writeText(`${window.location.origin}/weldmeet/${meetingId}`);
-          toast.success(t.meetingDetailPage.meetingLinkCopied);
-        },
+      headerMenuActions={buildHeaderMenuActions({
+        t,
+        meetingId,
+        recordingUrl,
+        hasRecording,
         onRename: () => {
           setRenameDraft(meeting.title);
           setRenameOpen(true);
@@ -144,68 +283,34 @@ export default function MeetingDetailPage() {
         onScheduleAgain: () => {
           navigate({ to: '/weldmeet/new' });
         },
-        onDownloadRecording: recordingUrl ? () => window.open(recordingUrl, '_blank') : undefined,
-        onExportTranscript: hasRecording ? () => {
-          toast.success(t.meetingDetailPage.transcriptExported);
-        } : undefined,
-      }}
-      headerActions={hasChat ? [
-        {
-          label: showChat ? t.meetingDetailPage.hideChat : t.meetingDetailPage.chat,
-          icon: <MessageSquare className="h-4 w-4" />,
-          onClick: () => setShowChat(v => !v),
-          variant: showChat ? 'default' : 'ghost',
-        },
-      ] : undefined}
+      })}
+      headerActions={headerActions.length > 0 ? headerActions : undefined}
       renderSidebar={hasChat && showChat ? () => (
-        <>
-          <div className="px-4 border-b flex-shrink-0 h-[53px] flex items-center justify-between">
-            <span className="text-[15px] font-semibold">{t.meetingDetailPage.chatHistoryTitle}</span>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowChat(false)}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <MeetingChatHistory meetingId={meetingId} hideHeader />
-        </>
+        <ChatHistorySidebar t={t} meetingId={meetingId} onClose={() => setShowChat(false)} />
       ) : undefined}
     />
 
+    {/* Add people dialog */}
+    {canInvite && (
+      <Dialog open={addPeopleOpen} onOpenChange={setAddPeopleOpen}>
+        <DialogContent className="sm:max-w-[480px] p-4">
+          <DialogHeader>
+            <DialogTitle className="text-[17px]">{t.meetingDetailPage.addPeople}</DialogTitle>
+          </DialogHeader>
+          <MeetingInvitePicker meetingId={meetingId} />
+        </DialogContent>
+      </Dialog>
+    )}
+
     {/* Rename dialog */}
-    <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-      <DialogContent className="sm:max-w-[400px]">
-        <DialogHeader>
-          <DialogTitle>{t.meetingDetailPage.renameMeeting.title}</DialogTitle>
-        </DialogHeader>
-        <Input
-          value={renameDraft}
-          onChange={(e) => setRenameDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && renameDraft.trim()) {
-              updateMeeting({ id: meetingId, data: { title: renameDraft.trim() } });
-              toast.success(t.meetingDetailPage.meetingRenamed);
-              setRenameOpen(false);
-            }
-          }}
-          placeholder={t.meetingDetailPage.renameMeeting.placeholder}
-          autoFocus
-        />
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setRenameOpen(false)}>{t.meetingDetailPage.renameMeeting.cancel}</Button>
-          <Button
-            onClick={() => {
-              if (renameDraft.trim()) {
-                updateMeeting({ id: meetingId, data: { title: renameDraft.trim() } });
-                toast.success(t.meetingDetailPage.meetingRenamed);
-                setRenameOpen(false);
-              }
-            }}
-            disabled={!renameDraft.trim()}
-          >
-            {t.meetingDetailPage.renameMeeting.save}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <RenameMeetingDialog
+      t={t}
+      open={renameOpen}
+      onOpenChange={setRenameOpen}
+      draft={renameDraft}
+      onDraftChange={setRenameDraft}
+      onRename={(title) => updateMeeting({ id: meetingId, data: { title } })}
+    />
   </>
   );
 }

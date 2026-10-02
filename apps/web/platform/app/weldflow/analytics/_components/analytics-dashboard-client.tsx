@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -90,6 +90,189 @@ interface AnalyticsDashboardClientProps {
   hideActiveProjects?: boolean;
 }
 
+type DashboardLabels = ReturnType<typeof useI18n>['t']['projects']['dashboard'];
+type ChartRow = { name: string; value: number };
+type KpiCard = ReturnType<typeof buildKpiCards>[number];
+
+function periodLabel(period: ProjectKpiPeriod, td: DashboardLabels): string {
+  if (period === '7d') return td.period7d;
+  if (period === '90d') return td.period90d;
+  return td.period30d;
+}
+
+function KpiSkeletonGrid({ count }: Readonly<{ count: number }>) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {Array.from({ length: count }, (_, i) => `kpi-skeleton-${i}`).map((id) => (
+        <Card key={id}>
+          <CardHeader className="pb-2">
+            <Skeleton className="h-4 w-24" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-8 w-16" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function KpiCardGrid({ cards }: Readonly<{ cards: KpiCard[] }>) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {cards.map((card) => (
+        <Card key={card.label}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              {card.label}
+            </CardTitle>
+            <card.icon className={`h-4 w-4 ${card.warn ? 'text-destructive' : 'text-muted-foreground'}`} />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${card.warn ? 'text-destructive' : ''}`}>
+              {card.value}
+            </div>
+            {card.sub ? (
+              <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function ProjectsByStatusCard({
+  td,
+  data,
+  config,
+}: Readonly<{ td: DashboardLabels; data: ChartRow[]; config: ChartConfig }>) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{td.projectsByStatus}</CardTitle>
+        <CardDescription>{td.projectsDashboard}</CardDescription>
+      </CardHeader>
+      <CardContent className="h-[260px]">
+        {data.length === 0 ? (
+          <EmptyChart message={td.noChartData} />
+        ) : (
+          <ChartContainer config={config} className="h-full w-full">
+            <PieChart>
+              <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
+              <Pie
+                data={data}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={50}
+                outerRadius={90}
+                strokeWidth={2}
+              >
+                {data.map((entry, i) => (
+                  <Cell
+                    key={entry.name}
+                    fill={STATUS_COLORS[i % STATUS_COLORS.length]}
+                  />
+                ))}
+              </Pie>
+              <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+            </PieChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProjectsByHealthCard({
+  td,
+  data,
+  config,
+}: Readonly<{ td: DashboardLabels; data: ChartRow[]; config: ChartConfig }>) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{td.projectsByHealth}</CardTitle>
+      </CardHeader>
+      <CardContent className="h-[260px]">
+        {data.length === 0 ? (
+          <EmptyChart message={td.noChartData} />
+        ) : (
+          <ChartContainer config={config} className="h-full w-full">
+            <BarChart data={data} layout="vertical" margin={{ left: 12 }}>
+              <CartesianGrid horizontal={false} />
+              <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} width={80}
+                tickFormatter={(v) => String(v).replace(/_/g, ' ')}
+              />
+              <XAxis type="number" allowDecimals={false} />
+              <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+              <Bar dataKey="value" radius={4}>
+                {data.map((entry) => (
+                  <Cell
+                    key={entry.name}
+                    fill={HEALTH_COLORS[entry.name] ?? '#64748b'}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ThroughputCard({
+  td,
+  period,
+  summary,
+  config,
+  fullWidth,
+}: Readonly<{
+  td: DashboardLabels;
+  period: ProjectKpiPeriod;
+  summary: ProjectKpiSummary;
+  config: ChartConfig;
+  fullWidth: boolean;
+}>) {
+  return (
+    <Card className={fullWidth ? 'lg:col-span-2' : ''}>
+      <CardHeader>
+        <CardTitle className="text-base">{td.throughput}</CardTitle>
+        <CardDescription>{periodLabel(period, td)}</CardDescription>
+      </CardHeader>
+      <CardContent className="h-[260px]">
+        {(summary.throughputByDay?.length ?? 0) === 0 ? (
+          <EmptyChart message={td.noChartData} />
+        ) : (
+          <ChartContainer config={config} className="h-full w-full">
+            <AreaChart data={summary.throughputByDay} margin={{ left: 8, right: 8 }}>
+              <CartesianGrid vertical={false} />
+              <XAxis
+                dataKey="date"
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => String(v).slice(5)}
+                minTickGap={24}
+              />
+              <YAxis allowDecimals={false} width={32} />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Area
+                type="monotone"
+                dataKey="completed"
+                stroke="var(--color-completed)"
+                fill="var(--color-completed)"
+                fillOpacity={0.2}
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AnalyticsDashboardClient({
   projectId,
   hideActiveProjects = !!projectId,
@@ -110,6 +293,43 @@ export function AnalyticsDashboardClient({
   };
 
   const cards = buildKpiCards(summary, td, hideActiveProjects);
+
+  let body: ReactNode;
+  if (isLoading) {
+    body = <KpiSkeletonGrid count={hideActiveProjects ? 5 : 6} />;
+  } else if (isError || !summary) {
+    body = (
+      <Card>
+        <CardContent className="py-8 text-center text-muted-foreground">
+          {td.noChartData}
+        </CardContent>
+      </Card>
+    );
+  } else {
+    body = (
+      <>
+        <KpiCardGrid cards={cards} />
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          {!hideActiveProjects && (
+            <ProjectsByStatusCard td={td} data={statusData} config={statusConfig} />
+          )}
+
+          {!hideActiveProjects && (
+            <ProjectsByHealthCard td={td} data={healthData} config={healthConfig} />
+          )}
+
+          <ThroughputCard
+            td={td}
+            period={period}
+            summary={summary}
+            config={throughputConfig}
+            fullWidth={hideActiveProjects}
+          />
+        </div>
+      </>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -132,156 +352,7 @@ export function AnalyticsDashboardClient({
         </Select>
       </div>
 
-      {isLoading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          {Array.from({ length: hideActiveProjects ? 5 : 6 }).map((_, i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-24" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : isError || !summary ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            {td.noChartData}
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {cards.map((card) => (
-              <Card key={card.label}>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    {card.label}
-                  </CardTitle>
-                  <card.icon className={`h-4 w-4 ${card.warn ? 'text-destructive' : 'text-muted-foreground'}`} />
-                </CardHeader>
-                <CardContent>
-                  <div className={`text-2xl font-bold ${card.warn ? 'text-destructive' : ''}`}>
-                    {card.value}
-                  </div>
-                  {card.sub ? (
-                    <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
-                  ) : null}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            {!hideActiveProjects && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{td.projectsByStatus}</CardTitle>
-                  <CardDescription>{td.projectsDashboard}</CardDescription>
-                </CardHeader>
-                <CardContent className="h-[260px]">
-                  {statusData.length === 0 ? (
-                    <EmptyChart message={td.noChartData} />
-                  ) : (
-                    <ChartContainer config={statusConfig} className="h-full w-full">
-                      <PieChart>
-                        <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
-                        <Pie
-                          data={statusData}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius={50}
-                          outerRadius={90}
-                          strokeWidth={2}
-                        >
-                          {statusData.map((entry, i) => (
-                            <Cell
-                              key={entry.name}
-                              fill={STATUS_COLORS[i % STATUS_COLORS.length]}
-                            />
-                          ))}
-                        </Pie>
-                        <ChartLegend content={<ChartLegendContent nameKey="name" />} />
-                      </PieChart>
-                    </ChartContainer>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {!hideActiveProjects && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{td.projectsByHealth}</CardTitle>
-                </CardHeader>
-                <CardContent className="h-[260px]">
-                  {healthData.length === 0 ? (
-                    <EmptyChart message={td.noChartData} />
-                  ) : (
-                    <ChartContainer config={healthConfig} className="h-full w-full">
-                      <BarChart data={healthData} layout="vertical" margin={{ left: 12 }}>
-                        <CartesianGrid horizontal={false} />
-                        <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} width={80}
-                          tickFormatter={(v) => String(v).replace(/_/g, ' ')}
-                        />
-                        <XAxis type="number" allowDecimals={false} />
-                        <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                        <Bar dataKey="value" radius={4}>
-                          {healthData.map((entry) => (
-                            <Cell
-                              key={entry.name}
-                              fill={HEALTH_COLORS[entry.name] ?? '#64748b'}
-                            />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ChartContainer>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            <Card className={hideActiveProjects ? 'lg:col-span-2' : ''}>
-              <CardHeader>
-                <CardTitle className="text-base">{td.throughput}</CardTitle>
-                <CardDescription>
-                  {period === '7d' ? td.period7d : period === '90d' ? td.period90d : td.period30d}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="h-[260px]">
-                {(summary.throughputByDay?.length ?? 0) === 0 ? (
-                  <EmptyChart message={td.noChartData} />
-                ) : (
-                  <ChartContainer config={throughputConfig} className="h-full w-full">
-                    <AreaChart data={summary.throughputByDay} margin={{ left: 8, right: 8 }}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis
-                        dataKey="date"
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={(v) => String(v).slice(5)}
-                        minTickGap={24}
-                      />
-                      <YAxis allowDecimals={false} width={32} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Area
-                        type="monotone"
-                        dataKey="completed"
-                        stroke="var(--color-completed)"
-                        fill="var(--color-completed)"
-                        fillOpacity={0.2}
-                        strokeWidth={2}
-                      />
-                    </AreaChart>
-                  </ChartContainer>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </>
-      )}
+      {body}
     </div>
   );
 }

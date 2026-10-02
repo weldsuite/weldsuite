@@ -1,6 +1,6 @@
 /** Personal data card: encrypted, audited, revealed on demand, edited inline. */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Eye, EyeOff, Loader2, ShieldAlert } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
@@ -24,6 +24,19 @@ export function SensitivePanel({ employeeId }: Readonly<{ employeeId: string }>)
   const [revealed, setRevealed] = useState(false);
   const [editing, setEditing] = useState(false);
   const { data, isLoading, error } = useHrEmployeeSensitive(employeeId, revealed);
+
+  let body: ReactNode;
+  if (isLoading) {
+    body = (
+      <div className="flex justify-center py-6">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (editing) {
+    body = <SensitiveForm employeeId={employeeId} data={data ?? null} onDone={() => setEditing(false)} />;
+  } else {
+    body = <SensitiveView data={data ?? null} onEdit={() => setEditing(true)} />;
+  }
 
   return (
     <Card className="p-4">
@@ -60,15 +73,7 @@ export function SensitivePanel({ employeeId }: Readonly<{ employeeId: string }>)
       {revealed && (
         <div className="mt-4 border-t pt-4">
           <ErrorBanner error={error ? errorMessage(error, t('weldhr.employees.detail.personalTab.loadFailed')) : null} />
-          {isLoading ? (
-            <div className="flex justify-center py-6">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            </div>
-          ) : editing ? (
-            <SensitiveForm employeeId={employeeId} data={data ?? null} onDone={() => setEditing(false)} />
-          ) : (
-            <SensitiveView data={data ?? null} onEdit={() => setEditing(true)} />
-          )}
+          {body}
         </div>
       )}
     </Card>
@@ -86,12 +91,11 @@ function Field({ label, value }: Readonly<{ label: string; value: string | null 
 
 function SensitiveView({ data, onEdit }: Readonly<{ data: HrEmployeeSensitive | null; onEdit: () => void }>) {
   const t = useTranslations();
-  const salary =
-    data?.salaryAmount !== null && data?.salaryAmount !== undefined
-      ? `${data.salaryAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${data.salaryCurrency ?? ''} / ${
-          data.salaryPeriod ? t(`weldhr.employees.detail.personalTab.salaryPeriod.${data.salaryPeriod}`) : ''
-        }`
-      : null;
+  let salary: string | null = null;
+  if (data?.salaryAmount !== null && data?.salaryAmount !== undefined) {
+    const salaryPeriod = data.salaryPeriod ? t(`weldhr.employees.detail.personalTab.salaryPeriod.${data.salaryPeriod}`) : '';
+    salary = `${data.salaryAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${data.salaryCurrency ?? ''} / ${salaryPeriod}`;
+  }
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">

@@ -339,43 +339,76 @@ export async function setValues(
     // In non-patch mode a missing slug means "clear"; in patch mode we skip it.
     if (raw === undefined && patch) continue;
 
-    const isEmpty = raw === null || raw === undefined || raw === '';
-    const prior = existingByFieldId.get(def.id);
+    const normalized = normalizeFieldValue(def, slug, raw, enforceRequired);
+    await persistFieldValue(db, {
+      def,
+      entityType,
+      entityId,
+      normalized,
+      prior: existingByFieldId.get(def.id),
+      now,
+      generateId,
+    });
+  }
+}
 
-    let normalized: string | number | boolean | string[] | Record<string, unknown> | null;
-    if (isEmpty && !enforceRequired) {
-      // Migration-window mirror: never block on a required-but-absent field.
-      normalized = null;
-    } else {
-      const result = validateCustomFieldValue(def as CustomFieldDefinitionLike, raw);
-      if (!result.ok) throw new CustomFieldValidationError(result.error ?? `Invalid value for '${slug}'`);
-      normalized = result.value ?? null;
-    }
+type NormalizedFieldValue = string | number | boolean | string[] | Record<string, unknown> | null;
 
-    if (normalized === null) {
-      if (prior) {
-        await db.delete(vals).where(eq(vals.id, prior.id));
-      }
-      continue;
-    }
+/** Validate/coerce a raw value against its definition (`null` = clear the field). */
+function normalizeFieldValue(
+  def: Definition,
+  slug: string,
+  raw: CustomFieldMap[string] | undefined,
+  enforceRequired: boolean,
+): NormalizedFieldValue {
+  const isEmpty = raw === null || raw === undefined || raw === '';
+  if (isEmpty && !enforceRequired) {
+    // Migration-window mirror: never block on a required-but-absent field.
+    return null;
+  }
+  const result = validateCustomFieldValue(def as CustomFieldDefinitionLike, raw);
+  if (!result.ok) throw new CustomFieldValidationError(result.error ?? `Invalid value for '${slug}'`);
+  return result.value ?? null;
+}
 
-    const columns = toValueColumns(def, normalized);
+/** Delete, update or insert the typed value row for one field. */
+async function persistFieldValue(
+  db: AnyDb,
+  args: {
+    def: Definition;
+    entityType: string;
+    entityId: string;
+    normalized: NormalizedFieldValue;
+    prior: typeof vals.$inferSelect | undefined;
+    now: Date;
+    generateId: IdGenerator;
+  },
+): Promise<void> {
+  const { def, entityType, entityId, normalized, prior, now, generateId } = args;
+
+  if (normalized === null) {
     if (prior) {
-      await db
-        .update(vals)
-        .set({ ...columns, updatedAt: now })
-        .where(eq(vals.id, prior.id));
-    } else {
-      await db.insert(vals).values({
-        id: generateId('cfv'),
-        fieldId: def.id,
-        entityType,
-        entityId,
-        createdAt: now,
-        updatedAt: now,
-        ...columns,
-      } as typeof vals.$inferInsert);
+      await db.delete(vals).where(eq(vals.id, prior.id));
     }
+    return;
+  }
+
+  const columns = toValueColumns(def, normalized);
+  if (prior) {
+    await db
+      .update(vals)
+      .set({ ...columns, updatedAt: now })
+      .where(eq(vals.id, prior.id));
+  } else {
+    await db.insert(vals).values({
+      id: generateId('cfv'),
+      fieldId: def.id,
+      entityType,
+      entityId,
+      createdAt: now,
+      updatedAt: now,
+      ...columns,
+    } as typeof vals.$inferInsert);
   }
 }
 

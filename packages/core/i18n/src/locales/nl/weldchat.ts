@@ -138,6 +138,9 @@ export const weldchat = {
       cancel: 'Annuleren',
       uploading: 'Uploaden…',
       uploadFailed: '{fileName} kon niet worden geüpload',
+      threadSuggestion: 'Dit lijkt een gesprek. Verder in een thread?',
+      createThread: 'Thread starten',
+      dismissThreadSuggestion: 'Sluiten',
     },
     channelEmptyState: {
       channelCreated: 'heeft dit kanaal aangemaakt',
@@ -146,7 +149,8 @@ export const weldchat = {
       veryBeginning: 'Dit is het allereerste begin van het',
       channel: 'kanaal.',
       groupConversationBeginning: 'Dit is het allereerste begin van je groepsgesprek.',
-      privateConversation: 'Alles wat je hier deelt blijft privé tussen jullie tweeën.',
+      dmStarted: 'heeft dit privégesprek gestart',
+      dmStartedNoAuthor: 'Dit privégesprek is gestart',
     },
     pinnedMessages: {
       title: 'Vastgezette berichten',
@@ -281,6 +285,9 @@ export const weldchat = {
     dmCreate: {
       title: 'Nieuw bericht',
       searchPeople: 'Personen zoeken...',
+      noResults: 'Geen personen gevonden.',
+      people: 'Personen',
+      navigate: 'Navigeren',
       cancel: 'Annuleren',
       startConversation: 'Gesprek starten',
       creating: 'Aanmaken...',
@@ -765,6 +772,8 @@ export const weldchat = {
       generatingTranscriptBadge: 'Transcript genereren...',
       viewFullscreen: 'Volledig scherm weergeven',
       close: 'Sluiten',
+      seek: 'Zoeken in clip',
+      playPause: 'Afspelen of pauzeren',
     },
     typingIndicator: {
       someone: 'Iemand',

@@ -306,6 +306,54 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
   }
 });
 
+type LedgerTaxLine = {
+  debit: string | null;
+  credit: string | null;
+  taxRateId: string | null;
+  taxAmount: string | null;
+};
+
+/** Rebuild the rubrieken totals from posted ledger lines (amounts rounded to cents). */
+function recalculateRubrieken(
+  lines: LedgerTaxLine[],
+  taxRateMap: Map<string, { jurisdictionMetadata: unknown }>,
+): VatRubrieken {
+  const recalculated: VatRubrieken = {
+    r1a: 0, r1b: 0, r1c: 0, r1d: 0, r1e: 0, r1f: 0,
+    r2a: 0, r3a: 0, r3b: 0, r3c: 0, r4a: 0, r4b: 0,
+    r5a: 0, r5b: 0, r5c: 0, r5d: 0, r5e: 0, r5f: 0,
+  };
+  for (const line of lines) {
+    if (!line.taxRateId) continue;
+    const rate = taxRateMap.get(line.taxRateId);
+    const rubriek = (rate?.jurisdictionMetadata as { btwRubriek?: string } | null)?.btwRubriek;
+    if (!rubriek) continue;
+    const credit = parseFloat(line.credit || '0');
+    const debit = parseFloat(line.debit || '0');
+    const taxAmount = parseFloat(line.taxAmount || '0');
+    const baseAmount = Math.abs(credit - debit) - Math.abs(taxAmount);
+    switch (rubriek) {
+      case '1a': recalculated.r1a += baseAmount; recalculated.r1b += taxAmount; break;
+      case '1c': recalculated.r1c += baseAmount; recalculated.r1d += taxAmount; break;
+      case '1e': recalculated.r1e += baseAmount; recalculated.r1f += taxAmount; break;
+      case '2a': recalculated.r2a += baseAmount; break;
+      case '3a': recalculated.r3a += baseAmount; break;
+      case '3b': recalculated.r3b += baseAmount; break;
+      case '3c': recalculated.r3c += baseAmount; break;
+      case '4a': recalculated.r4a += baseAmount; break;
+      case '4b': recalculated.r4b += baseAmount; break;
+      case '5b': recalculated.r5b += Math.abs(taxAmount); break;
+    }
+  }
+  recalculated.r5a = recalculated.r1b + recalculated.r1d + recalculated.r1f;
+  recalculated.r5c = recalculated.r5a - recalculated.r5b;
+  recalculated.r5f = recalculated.r5c - recalculated.r5d - recalculated.r5e;
+  for (const key of Object.keys(recalculated) as Array<keyof VatRubrieken>) {
+    recalculated[key] = Math.round(recalculated[key] * 100) / 100;
+  }
+  return recalculated;
+}
+
 // POST /:id/suppletie — build a correction return against a FILED return.
 // Recalculates the period from the current ledger and diffs against the
 // filed rubrieken. Belastingdienst rules: net corrections ≤ €1,000 may be
@@ -348,39 +396,7 @@ app.post('/:id/suppletie', requirePermission('reports:create'), async (c) => {
     const taxRates = await db.select().from(taxRatesTable).where(isNull(taxRatesTable.deletedAt));
     const taxRateMap = new Map(taxRates.map((r) => [r.id, r]));
 
-    const recalculated: VatRubrieken = {
-      r1a: 0, r1b: 0, r1c: 0, r1d: 0, r1e: 0, r1f: 0,
-      r2a: 0, r3a: 0, r3b: 0, r3c: 0, r4a: 0, r4b: 0,
-      r5a: 0, r5b: 0, r5c: 0, r5d: 0, r5e: 0, r5f: 0,
-    };
-    for (const line of lines) {
-      if (!line.taxRateId) continue;
-      const rate = taxRateMap.get(line.taxRateId);
-      const rubriek = (rate?.jurisdictionMetadata as { btwRubriek?: string } | null)?.btwRubriek;
-      if (!rubriek) continue;
-      const credit = parseFloat(line.credit || '0');
-      const debit = parseFloat(line.debit || '0');
-      const taxAmount = parseFloat(line.taxAmount || '0');
-      const baseAmount = Math.abs(credit - debit) - Math.abs(taxAmount);
-      switch (rubriek) {
-        case '1a': recalculated.r1a += baseAmount; recalculated.r1b += taxAmount; break;
-        case '1c': recalculated.r1c += baseAmount; recalculated.r1d += taxAmount; break;
-        case '1e': recalculated.r1e += baseAmount; recalculated.r1f += taxAmount; break;
-        case '2a': recalculated.r2a += baseAmount; break;
-        case '3a': recalculated.r3a += baseAmount; break;
-        case '3b': recalculated.r3b += baseAmount; break;
-        case '3c': recalculated.r3c += baseAmount; break;
-        case '4a': recalculated.r4a += baseAmount; break;
-        case '4b': recalculated.r4b += baseAmount; break;
-        case '5b': recalculated.r5b += Math.abs(taxAmount); break;
-      }
-    }
-    recalculated.r5a = recalculated.r1b + recalculated.r1d + recalculated.r1f;
-    recalculated.r5c = recalculated.r5a - recalculated.r5b;
-    recalculated.r5f = recalculated.r5c - recalculated.r5d - recalculated.r5e;
-    for (const key of Object.keys(recalculated) as Array<keyof VatRubrieken>) {
-      recalculated[key] = Math.round(recalculated[key] * 100) / 100;
-    }
+    const recalculated = recalculateRubrieken(lines, taxRateMap);
 
     const filed = original.rubrieken as VatRubrieken;
     const netDiff = Math.round(((recalculated.r5f ?? 0) - (filed.r5f ?? 0)) * 100) / 100;

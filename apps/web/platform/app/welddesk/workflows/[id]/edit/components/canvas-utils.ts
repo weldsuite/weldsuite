@@ -86,30 +86,35 @@ function indexToLetter(i: number): string {
 
 // ── Path height estimation ─────────────────────────────────────────────────
 
+// Extra height a step adds for the reply buttons / branch labels rendered below it
+function estimateBranchExtraHeight(step: WorkflowStep): number {
+  // Reply buttons below send_choices
+  if (step.type === 'send_choices') {
+    const opts = Array.isArray(step.config?.options) ? (step.config!.options as unknown[]) : [];
+    return opts.length * REPLY_BTN_H + ADD_BTN_ROW_H; // buttons + "+ Add button" row
+  }
+
+  // Branch labels below ai_auto_reply (escalated / resolved)
+  if (step.type === 'ai_auto_reply') {
+    return 2 * BRANCH_LABEL_H;
+  }
+
+  // Branch labels below condition
+  if (step.type === 'condition') {
+    const branches = Array.isArray(step.config?.branches) ? (step.config!.branches as unknown[]) : [];
+    const count = branches.length > 0 ? branches.length : 2; // default True/False
+    return count * BRANCH_LABEL_H;
+  }
+
+  return 0;
+}
+
 export function estimatePathHeight(path: DerivedPath): number {
   let h = TAB_H + 16; // tab label above the card + body padding (py-2 = 8px top + 8px bottom)
 
   for (const { step } of path.steps) {
     h += STEP_H + 4; // step + gap
-
-    // Reply buttons below send_choices
-    if (step.type === 'send_choices') {
-      const opts = Array.isArray(step.config?.options) ? (step.config!.options as unknown[]) : [];
-      h += opts.length * REPLY_BTN_H;
-      h += ADD_BTN_ROW_H; // "+ Add button" row
-    }
-
-    // Branch labels below ai_auto_reply (escalated / resolved)
-    if (step.type === 'ai_auto_reply') {
-      h += 2 * BRANCH_LABEL_H;
-    }
-
-    // Branch labels below condition
-    if (step.type === 'condition') {
-      const branches = Array.isArray(step.config?.branches) ? (step.config!.branches as unknown[]) : [];
-      const count = branches.length > 0 ? branches.length : 2; // default True/False
-      h += count * BRANCH_LABEL_H;
-    }
+    h += estimateBranchExtraHeight(step);
   }
 
   // When path ends with a terminal action, the "Add step" button is rendered
@@ -139,6 +144,66 @@ function stepHasWarning(step: WorkflowStep): boolean {
   return false;
 }
 
+// ── Branch definitions ─────────────────────────────────────────────────────
+
+interface BranchDef {
+  id: string;
+  label: string;
+  sourceType: DerivedPath['sourceType'];
+  edgeId: string;
+  fromKey: string;
+}
+
+function getBranchDefs(step: WorkflowStep): BranchDef[] {
+  if (step.type === 'send_choices') {
+    const opts: Array<{ label?: string; value?: string }> =
+      Array.isArray(step.config?.options) ? step.config!.options : [];
+
+    return opts.map((opt, oi) => {
+      const branchId = `${step.id}_branch_${opt.value || oi}`;
+      return {
+        id: branchId,
+        label: opt.label || `Option ${oi + 1}`,
+        sourceType: 'reply_button' as const,
+        edgeId: `edge_${step.id}_opt_${opt.value || oi}_to_${branchId}`,
+        fromKey: `step:${step.id}:opt:${opt.value || oi}`,
+      };
+    });
+  }
+
+  let branches: Array<{ id: string; label: string; value: string }> = [];
+
+  // WeldAgent reply branches into escalated/resolved sub-paths
+  if (step.type === 'ai_auto_reply') {
+    branches = [
+      { id: `${step.id}_branch_escalated`, label: 'Escalated', value: 'escalated' },
+      { id: `${step.id}_branch_resolved`, label: 'Resolved', value: 'resolved' },
+    ];
+  } else if (step.type === 'condition') {
+    const condBranches: Array<{ value: string; label: string }> =
+      Array.isArray(step.config?.branches) ? step.config!.branches : [];
+    branches =
+      condBranches.length > 0
+        ? condBranches.map((b) => ({
+            id: `${step.id}_branch_${b.value}`,
+            label: b.label,
+            value: b.value,
+          }))
+        : [
+            { id: `${step.id}_if`, label: 'True', value: 'if' },
+            { id: `${step.id}_if_not`, label: 'False', value: 'if_not' },
+          ];
+  }
+
+  return branches.map((bd) => ({
+    id: bd.id,
+    label: bd.label,
+    sourceType: 'condition' as const,
+    edgeId: `edge_${step.id}_branch_${bd.value}_to_${bd.id}`,
+    fromKey: `step:${step.id}:branch:${bd.value}`,
+  }));
+}
+
 // ── derivePaths ────────────────────────────────────────────────────────────
 
 export function derivePaths(
@@ -153,114 +218,30 @@ export function derivePaths(
     generation: number,
   ) {
     for (const { step } of parentSteps) {
-      if (step.type === 'send_choices') {
-        const opts: Array<{ label?: string; value?: string }> =
-          Array.isArray(step.config?.options) ? step.config!.options : [];
+      for (const def of getBranchDefs(step)) {
+        const branchSteps = steps
+          .map((s, si) => ({ step: s, index: si }))
+          .filter(({ step: s }) => s.parentBranchId === def.id);
 
-        opts.forEach((opt, oi) => {
-          const branchId = `${step.id}_branch_${opt.value || oi}`;
-          const branchSteps = steps
-            .map((s, si) => ({ step: s, index: si }))
-            .filter(({ step: s }) => s.parentBranchId === branchId);
-
-          const path: DerivedPath = {
-            id: branchId,
-            letter: indexToLetter(letterIdx++),
-            steps: branchSteps,
-            sourceStepId: step.id,
-            sourceType: 'reply_button',
-            sourceLabel: opt.label || `Option ${oi + 1}`,
-            hasWarning: branchSteps.some(({ step: s }) => stepHasWarning(s)),
-            generation,
-          };
-          paths.push(path);
-
-          edges.push({
-            id: `edge_${step.id}_opt_${opt.value || oi}_to_${branchId}`,
-            fromKey: `step:${step.id}:opt:${opt.value || oi}`,
-            toKey: `path:${branchId}:in`,
-          });
-
-          // Recurse into branch steps
-          collectBranches(branchSteps, generation + 1);
+        paths.push({
+          id: def.id,
+          letter: indexToLetter(letterIdx++),
+          steps: branchSteps,
+          sourceStepId: step.id,
+          sourceType: def.sourceType,
+          sourceLabel: def.label,
+          hasWarning: branchSteps.some(({ step: s }) => stepHasWarning(s)),
+          generation,
         });
-      }
 
-      // WeldAgent reply branches into escalated/resolved sub-paths
-      if (step.type === 'ai_auto_reply') {
-        const branchDefs = [
-          { id: `${step.id}_branch_escalated`, label: 'Escalated', value: 'escalated' },
-          { id: `${step.id}_branch_resolved`, label: 'Resolved', value: 'resolved' },
-        ];
-
-        branchDefs.forEach((bd) => {
-          const branchSteps = steps
-            .map((s, si) => ({ step: s, index: si }))
-            .filter(({ step: s }) => s.parentBranchId === bd.id);
-
-          const path: DerivedPath = {
-            id: bd.id,
-            letter: indexToLetter(letterIdx++),
-            steps: branchSteps,
-            sourceStepId: step.id,
-            sourceType: 'condition',
-            sourceLabel: bd.label,
-            hasWarning: branchSteps.some(({ step: s }) => stepHasWarning(s)),
-            generation,
-          };
-          paths.push(path);
-
-          edges.push({
-            id: `edge_${step.id}_branch_${bd.value}_to_${bd.id}`,
-            fromKey: `step:${step.id}:branch:${bd.value}`,
-            toKey: `path:${bd.id}:in`,
-          });
-
-          collectBranches(branchSteps, generation + 1);
+        edges.push({
+          id: def.edgeId,
+          fromKey: def.fromKey,
+          toKey: `path:${def.id}:in`,
         });
-      }
 
-      if (step.type === 'condition') {
-        const condBranches: Array<{ value: string; label: string }> =
-          Array.isArray(step.config?.branches) ? step.config!.branches : [];
-        const branchDefs =
-          condBranches.length > 0
-            ? condBranches.map((b) => ({
-                id: `${step.id}_branch_${b.value}`,
-                label: b.label,
-                value: b.value,
-              }))
-            : [
-                { id: `${step.id}_if`, label: 'True', value: 'if' },
-                { id: `${step.id}_if_not`, label: 'False', value: 'if_not' },
-              ];
-
-        branchDefs.forEach((bd) => {
-          const branchSteps = steps
-            .map((s, si) => ({ step: s, index: si }))
-            .filter(({ step: s }) => s.parentBranchId === bd.id);
-
-          const path: DerivedPath = {
-            id: bd.id,
-            letter: indexToLetter(letterIdx++),
-            steps: branchSteps,
-            sourceStepId: step.id,
-            sourceType: 'condition',
-            sourceLabel: bd.label,
-            hasWarning: branchSteps.some(({ step: s }) => stepHasWarning(s)),
-            generation,
-          };
-          paths.push(path);
-
-          edges.push({
-            id: `edge_${step.id}_branch_${bd.value}_to_${bd.id}`,
-            fromKey: `step:${step.id}:branch:${bd.value}`,
-            toKey: `path:${bd.id}:in`,
-          });
-
-          // Recurse
-          collectBranches(branchSteps, generation + 1);
-        });
+        // Recurse into branch steps
+        collectBranches(branchSteps, generation + 1);
       }
     }
   }
@@ -351,6 +332,52 @@ export function computeLayout(
   };
 }
 
+// Connector keys (one per reply button / branch label) rendered below a step
+interface ConnectorSlots {
+  keys: string[];
+  itemHeight: number;
+  trailingHeight: number; // extra height after the items (e.g. the "+ Add button" row)
+}
+
+function getConnectorSlots(step: WorkflowStep): ConnectorSlots | null {
+  if (step.type === 'send_choices') {
+    const opts = Array.isArray(step.config?.options)
+      ? (step.config!.options as Array<{ value?: string }>)
+      : [];
+    return {
+      keys: opts.map((opt, oi) => `step:${step.id}:opt:${opt.value || oi}`),
+      itemHeight: REPLY_BTN_H,
+      trailingHeight: ADD_BTN_ROW_H,
+    };
+  }
+
+  if (step.type === 'ai_auto_reply') {
+    // WeldAgent reply branch connectors
+    return {
+      keys: ['escalated', 'resolved'].map((value) => `step:${step.id}:branch:${value}`),
+      itemHeight: BRANCH_LABEL_H,
+      trailingHeight: 0,
+    };
+  }
+
+  if (step.type === 'condition') {
+    const branches = Array.isArray(step.config?.branches)
+      ? (step.config!.branches as Array<{ value: string; label: string }>)
+      : [];
+    const defs: Array<{ value: string; label: string }> =
+      branches.length > 0
+        ? branches
+        : [{ value: 'if', label: 'True' }, { value: 'if_not', label: 'False' }];
+    return {
+      keys: defs.map((bd) => `step:${step.id}:branch:${bd.value}`),
+      itemHeight: BRANCH_LABEL_H,
+      trailingHeight: 0,
+    };
+  }
+
+  return null;
+}
+
 // ── computeConnectorPositions ──────────────────────────────────────────────
 
 export function computeConnectorPositions(
@@ -384,54 +411,17 @@ export function computeConnectorPositions(
     for (const { step } of path.steps) {
       yOffset += STEP_H + 4;
 
-      if (step.type === 'send_choices') {
-        const opts = Array.isArray(step.config?.options)
-          ? (step.config!.options as Array<{ value?: string }>)
-          : [];
-        opts.forEach((opt, oi) => {
-          const btnY = yOffset + oi * REPLY_BTN_H + REPLY_BTN_H / 2;
-          map.set(`step:${step.id}:opt:${opt.value || oi}`, {
-            x: pathLayout.x + pathLayout.width + DOT_OFFSET,
-            y: pathLayout.y + btnY,
-          });
-        });
-        yOffset += opts.length * REPLY_BTN_H + ADD_BTN_ROW_H;
-      }
+      const slots = getConnectorSlots(step);
+      if (!slots) continue;
 
-      // WeldAgent reply branch connectors
-      if (step.type === 'ai_auto_reply') {
-        const defs = [
-          { value: 'escalated', label: 'Escalated' },
-          { value: 'resolved', label: 'Resolved' },
-        ];
-        defs.forEach((bd, bi) => {
-          const labelY = yOffset + bi * BRANCH_LABEL_H + BRANCH_LABEL_H / 2;
-          map.set(`step:${step.id}:branch:${bd.value}`, {
-            x: pathLayout.x + pathLayout.width + DOT_OFFSET,
-            y: pathLayout.y + labelY,
-          });
+      slots.keys.forEach((key, i) => {
+        const slotY = yOffset + i * slots.itemHeight + slots.itemHeight / 2;
+        map.set(key, {
+          x: pathLayout.x + pathLayout.width + DOT_OFFSET,
+          y: pathLayout.y + slotY,
         });
-        yOffset += defs.length * BRANCH_LABEL_H;
-      }
-
-      if (step.type === 'condition') {
-        const branches = Array.isArray(step.config?.branches)
-          ? (step.config!.branches as Array<{ value: string; label: string }>)
-          : [];
-        const defs: Array<{ value: string; label: string }> =
-          branches.length > 0
-            ? branches
-            : [{ value: 'if', label: 'True' }, { value: 'if_not', label: 'False' }];
-
-        defs.forEach((bd, bi) => {
-          const labelY = yOffset + bi * BRANCH_LABEL_H + BRANCH_LABEL_H / 2;
-          map.set(`step:${step.id}:branch:${bd.value}`, {
-            x: pathLayout.x + pathLayout.width + DOT_OFFSET,
-            y: pathLayout.y + labelY,
-          });
-        });
-        yOffset += defs.length * BRANCH_LABEL_H;
-      }
+      });
+      yOffset += slots.keys.length * slots.itemHeight + slots.trailingHeight;
     }
   }
 

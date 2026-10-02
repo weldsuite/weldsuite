@@ -309,7 +309,7 @@ async function search(
   const canonical = JSON.stringify({
     filters: [...filters]
       .sort((a, b) => a.filterId.localeCompare(b.filterId))
-      .map((f) => ({ filterId: f.filterId, in: [...f.in].map(String).sort() })),
+      .map((f) => ({ filterId: f.filterId, in: [...f.in].map(String).sort((a, b) => (a < b ? -1 : Number(a > b))) })),
     page: args.page,
     size: args.size,
   });

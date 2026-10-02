@@ -8,9 +8,10 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, inArray, isNull, like, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -35,31 +36,43 @@ const updateWhiteboardSchema = z.object({
   elements: z.array(z.any()).optional(),
 });
 
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+/** Project scoping conditions for the list endpoint; `null` when the caller may not access the requested project. */
+async function projectScopeConditions(c: AppContext, projectId: string | undefined): Promise<SQL[] | null> {
+  const conditions: SQL[] = [];
+  if (projectId !== undefined && projectId !== '') conditions.push(eq(t.projectId, projectId));
+  if (projectId) {
+    if (!(await canAccessProject(c, projectId))) return null;
+    return conditions;
+  }
+  const accessible = await accessibleProjectIds(c);
+  if (accessible !== null) conditions.push(inArray(t.projectId, accessible.length ? accessible : ['']));
+  return conditions;
+}
+
+async function cursorCondition(db: Variables['tenantDb'], cursor: string): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t)
+    .where(eq(t.id, cursor))
+    .limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} > ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} > ${cur.id}))`;
+}
+
 app.get('/', requirePermission('projects:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 100, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.projectId !== undefined && q.projectId !== '') conditions.push(eq(t.projectId, q.projectId));
-  if (q.projectId) {
-    if (!(await canAccessProject(c, q.projectId))) return error.forbidden(c, PROJECT_DENIED);
-  } else {
-    const accessible = await accessibleProjectIds(c);
-    if (accessible !== null) conditions.push(inArray(t.projectId, accessible.length ? accessible : ['']));
-  }
+  const scope = await projectScopeConditions(c, q.projectId);
+  if (!scope) return error.forbidden(c, PROJECT_DENIED);
+  const conditions: SQL[] = [isNull(t.deletedAt), ...scope];
   if (q.search) conditions.push(like(t.name, `%${q.search}%`));
   if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t)
-      .where(eq(t.id, q.cursor))
-      .limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} > ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} > ${cur.id}))`,
-      );
-    }
+    const cursorCond = await cursorCondition(db, q.cursor);
+    if (cursorCond) conditions.push(cursorCond);
   }
   const where = conditions.length ? and(...conditions) : undefined;
   const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;

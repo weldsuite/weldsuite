@@ -56,10 +56,21 @@ import { useI18n } from '@/lib/i18n/provider';
 
 type EmailMessage = MailTypes.Email;
 
+function scheduledPreview(scheduledFor: string | number | Date, scheduledLabel?: (date: string) => string): string {
+  const formatted = format(new Date(scheduledFor), 'PPp');
+  return scheduledLabel ? scheduledLabel(formatted) : `Scheduled for ${formatted}`;
+}
+
+function threadPreviewText(thread: ThreadSummary, isScheduled: boolean, isUnified?: boolean, scheduledLabel?: (date: string) => string): string {
+  if (isScheduled) return scheduledPreview(thread.scheduledFor!, scheduledLabel);
+  if (isUnified && thread.accountEmail) return `[${thread.accountEmail}] ${thread.preview}`;
+  return thread.preview;
+}
+
 function threadToConversationItem(thread: ThreadSummary, isUnified?: boolean, scheduledLabel?: (date: string) => string): ConversationItem {
   const name = thread.latestSender || 'Unknown';
 
-  const isScheduled = thread.sendStatus === 'scheduled' && thread.scheduledFor;
+  const isScheduled = Boolean(thread.sendStatus === 'scheduled' && thread.scheduledFor);
 
   return {
     id: thread.threadId,
@@ -67,11 +78,7 @@ function threadToConversationItem(thread: ThreadSummary, isUnified?: boolean, sc
     email: thread.latestSenderEmail,
     avatarUrl: thread.latestSenderAvatarUrl ?? undefined,
     subject: thread.subject,
-    preview: isScheduled
-      ? (scheduledLabel ? scheduledLabel(format(new Date(thread.scheduledFor!), 'PPp')) : `Scheduled for ${format(new Date(thread.scheduledFor!), 'PPp')}`)
-      : isUnified && thread.accountEmail
-        ? `[${thread.accountEmail}] ${thread.preview}`
-        : thread.preview,
+    preview: threadPreviewText(thread, isScheduled, isUnified, scheduledLabel),
     date: new Date(thread.latestDate),
     isRead: thread.unreadCount === 0,
     isStarred: thread.isStarred,
@@ -104,7 +111,7 @@ function emailToConversationItem(email: EmailMessage, scheduledLabel?: (date: st
     avatarUrl: fromAvatar,
     subject: email.subject || '',
     preview: isScheduled
-      ? (scheduledLabel ? scheduledLabel(format(new Date(email.scheduledFor ?? 0), 'PPp')) : `Scheduled for ${format(new Date(email.scheduledFor ?? 0), 'PPp')}`)
+      ? scheduledPreview(email.scheduledFor ?? 0, scheduledLabel)
       : email.preview || email.bodyText?.slice(0, 100) || '',
     date: new Date(email.date ?? 0),
     isRead: email.isRead,
@@ -205,35 +212,52 @@ function dateWithinMatches(date: Date | null | undefined, f: MailFilter): boolea
   return diff <= days * 24 * 60 * 60 * 1000;
 }
 
+interface FilterTexts {
+  fromText: string;
+  toText: string;
+  subject: string;
+  /** Lazily builds the "has the words" search blob (only needed for word filters). */
+  getBlob: () => string;
+}
+
+function wordFiltersMatch(f: MailFilter, getBlob: () => string): boolean {
+  if (!f.hasWords?.trim() && !f.doesntHave?.trim()) return true;
+  const blob = getBlob();
+  if (f.hasWords?.trim() && !includesAllTokens(blob, f.hasWords)) return false;
+  if (f.doesntHave?.trim() && includesAnyToken(blob, f.doesntHave)) return false;
+  return true;
+}
+
+// From / To / Subject / word filters shared by the thread and message matchers.
+function textFiltersMatch(f: MailFilter, texts: FilterTexts): boolean {
+  if (f.from?.trim() && !includesAllTokens(texts.fromText, f.from)) return false;
+  if (f.to?.trim() && !includesAllTokens(texts.toText, f.to)) return false;
+  if (f.subject?.trim() && !includesAllTokens(texts.subject, f.subject)) return false;
+  return wordFiltersMatch(f, texts.getBlob);
+}
+
+function threadSizeMatches(msgs: NonNullable<ThreadSummary['messages']>, f: MailFilter): boolean {
+  if (!mailFilterHasSize(f)) return true;
+  const maxSize = msgs.reduce((mx, m) => Math.max(mx, m.sizeBytes ?? 0), 0);
+  return sizeMatches(maxSize || null, f);
+}
+
 function threadMatchesFilter(thread: ThreadSummary, f: MailFilter): boolean {
   if (countActiveFilters(f) === 0) return true;
   if (f.hasAttachment && !thread.hasAttachments) return false;
 
   const msgs = thread.messages ?? [];
   const fromText = [thread.latestSender, thread.latestSenderEmail, ...(thread.participants ?? []), ...msgs.map((m) => addressToText(m.from))].join(' ');
-  if (f.from?.trim() && !includesAllTokens(fromText, f.from)) return false;
+  const texts: FilterTexts = {
+    fromText,
+    toText: f.to?.trim() ? msgs.map((m) => addressToText(m.to)).join(' ') : '',
+    subject: thread.subject ?? '',
+    getBlob: () => [thread.subject, thread.preview, fromText, ...msgs.map((m) => `${m.preview ?? ''} ${m.textBody ?? ''} ${m.subject ?? ''}`)].join(' '),
+  };
+  if (!textFiltersMatch(f, texts)) return false;
+  if (!threadSizeMatches(msgs, f)) return false;
 
-  if (f.to?.trim()) {
-    const toText = msgs.map((m) => addressToText(m.to)).join(' ');
-    if (!includesAllTokens(toText, f.to)) return false;
-  }
-
-  if (f.subject?.trim() && !includesAllTokens(thread.subject ?? '', f.subject)) return false;
-
-  if (f.hasWords?.trim() || f.doesntHave?.trim()) {
-    const blob = [thread.subject, thread.preview, fromText, ...msgs.map((m) => `${m.preview ?? ''} ${m.textBody ?? ''} ${m.subject ?? ''}`)].join(' ');
-    if (f.hasWords?.trim() && !includesAllTokens(blob, f.hasWords)) return false;
-    if (f.doesntHave?.trim() && includesAnyToken(blob, f.doesntHave)) return false;
-  }
-
-  if (mailFilterHasSize(f)) {
-    const maxSize = msgs.reduce((mx, m) => Math.max(mx, m.sizeBytes ?? 0), 0);
-    if (!sizeMatches(maxSize || null, f)) return false;
-  }
-
-  if (mailFilterHasDate(f) && !dateWithinMatches(thread.latestDate ? new Date(thread.latestDate) : null, f)) return false;
-
-  return true;
+  return !mailFilterHasDate(f) || dateWithinMatches(thread.latestDate ? new Date(thread.latestDate) : null, f);
 }
 
 function messageMatchesFilter(message: EmailMessage, f: MailFilter): boolean {
@@ -241,24 +265,18 @@ function messageMatchesFilter(message: EmailMessage, f: MailFilter): boolean {
   if (f.hasAttachment && !message.hasAttachments) return false;
 
   const fromText = [message.fromEmail, addressToText(message.from)].filter(Boolean).join(' ');
-  if (f.from?.trim() && !includesAllTokens(fromText, f.from)) return false;
-
   const toText = addressToText(message.to as unknown);
-  if (f.to?.trim() && !includesAllTokens(toText, f.to)) return false;
-
-  if (f.subject?.trim() && !includesAllTokens(message.subject ?? '', f.subject)) return false;
-
-  if (f.hasWords?.trim() || f.doesntHave?.trim()) {
-    const blob = [message.subject, message.preview, message.bodyText, fromText, toText].filter(Boolean).join(' ');
-    if (f.hasWords?.trim() && !includesAllTokens(blob, f.hasWords)) return false;
-    if (f.doesntHave?.trim() && includesAnyToken(blob, f.doesntHave)) return false;
-  }
+  const texts: FilterTexts = {
+    fromText,
+    toText,
+    subject: message.subject ?? '',
+    getBlob: () => [message.subject, message.preview, message.bodyText, fromText, toText].filter(Boolean).join(' '),
+  };
+  if (!textFiltersMatch(f, texts)) return false;
 
   if (mailFilterHasSize(f) && !sizeMatches((message.size as number | undefined) ?? null, f)) return false;
 
-  if (mailFilterHasDate(f) && !dateWithinMatches(message.date ? new Date(message.date) : null, f)) return false;
-
-  return true;
+  return !mailFilterHasDate(f) || dateWithinMatches(message.date ? new Date(message.date) : null, f);
 }
 
 interface MessageListProps {
@@ -927,6 +945,7 @@ export function MessageList({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[460px] p-4">
         <div
+          role="presentation"
           className="space-y-3"
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -1073,54 +1092,56 @@ export function MessageList({
     </Popover>
   );
 
-  // Handle label drag-and-drop from sidebar onto email rows
-  const handleLabelDrop = (item: ConversationItem, labelData: { name: string; accountIds?: string[] }) => {
-    if (displayMode === 'threads') {
-      const thread = threadMap.get(item.id);
-      if (!thread) return;
-      const threadAccountId = (isUnified && thread.accountId) ? thread.accountId : accountId;
+  // Handle label drag-and-drop from sidebar onto a thread row
+  const handleThreadLabelDrop = (item: ConversationItem, labelData: { name: string; accountIds?: string[] }) => {
+    const thread = threadMap.get(item.id);
+    if (!thread) return;
+    const threadAccountId = (isUnified && thread.accountId) ? thread.accountId : accountId;
 
-      // In unified mode, prevent cross-account labeling
-      if (isUnified && labelData.accountIds && labelData.accountIds.length > 0) {
-        if (!labelData.accountIds.includes(threadAccountId)) {
-          toast.error(t.mail.messageList.labelNotOnAccount);
-          return;
-        }
-      }
-
-      // Skip if label already applied
-      if (thread.labels?.includes(labelData.name)) {
-        toast.info(t.mail.messageList.labelAlreadyApplied.replace('{name}', labelData.name));
-        return;
-      }
-
-      onThreadLabelUpdate?.(thread.threadId, labelData.name, 'add');
-      updateThreadLabels.mutate(
-        { accountId: threadAccountId, threadId: thread.threadId, labelName: labelData.name, action: 'add' },
-        {
-          onSuccess: () => toast.success(t.mail.messageList.labelAddedToast.replace('{name}', labelData.name)),
-          onError: () => {
-            onThreadLabelUpdate?.(thread.threadId, labelData.name, 'remove');
-            toast.error(t.mail.messageList.failedToAddLabel);
-          },
-        }
-      );
-    } else {
-      // Individual message mode — not unified, so accountId is always the current one
-      if (item.labels?.includes(labelData.name)) {
-        toast.info(t.mail.messageList.labelAlreadyApplied.replace('{name}', labelData.name));
-        return;
-      }
-
-      mailApi.messages
-        .addLabel(accountId, item.id, labelData.name)
-        .then(() => {
-          toast.success(t.mail.messageList.labelAddedToast.replace('{name}', labelData.name));
-          queryClient.invalidateQueries({ queryKey: ['mail'] });
-        })
-        .catch(() => toast.error(t.mail.messageList.failedToAddLabel));
+    // In unified mode, prevent cross-account labeling
+    if (isUnified && labelData.accountIds?.length && !labelData.accountIds.includes(threadAccountId)) {
+      toast.error(t.mail.messageList.labelNotOnAccount);
+      return;
     }
+
+    // Skip if label already applied
+    if (thread.labels?.includes(labelData.name)) {
+      toast.info(t.mail.messageList.labelAlreadyApplied.replace('{name}', labelData.name));
+      return;
+    }
+
+    onThreadLabelUpdate?.(thread.threadId, labelData.name, 'add');
+    updateThreadLabels.mutate(
+      { accountId: threadAccountId, threadId: thread.threadId, labelName: labelData.name, action: 'add' },
+      {
+        onSuccess: () => toast.success(t.mail.messageList.labelAddedToast.replace('{name}', labelData.name)),
+        onError: () => {
+          onThreadLabelUpdate?.(thread.threadId, labelData.name, 'remove');
+          toast.error(t.mail.messageList.failedToAddLabel);
+        },
+      }
+    );
   };
+
+  // Handle label drag-and-drop from sidebar onto an individual message row
+  const handleMessageLabelDrop = (item: ConversationItem, labelData: { name: string }) => {
+    // Individual message mode — not unified, so accountId is always the current one
+    if (item.labels?.includes(labelData.name)) {
+      toast.info(t.mail.messageList.labelAlreadyApplied.replace('{name}', labelData.name));
+      return;
+    }
+
+    mailApi.messages
+      .addLabel(accountId, item.id, labelData.name)
+      .then(() => {
+        toast.success(t.mail.messageList.labelAddedToast.replace('{name}', labelData.name));
+        queryClient.invalidateQueries({ queryKey: ['mail'] });
+      })
+      .catch(() => toast.error(t.mail.messageList.failedToAddLabel));
+  };
+
+  // Handle label drag-and-drop from sidebar onto email rows
+  const handleLabelDrop = displayMode === 'threads' ? handleThreadLabelDrop : handleMessageLabelDrop;
 
   return (
     <ConversationList

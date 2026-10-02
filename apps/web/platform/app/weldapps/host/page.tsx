@@ -15,7 +15,8 @@ import { attachFrameSlot, detachFrameSlot, useWeldAppFrameStatus } from './frame
 import { useWeldAppSource } from './use-weld-app-source';
 
 function sectionLabel(appPath: string): string | null {
-  const segment = appPath.replace(/^\/+|\/+$/g, '').split('/')[0];
+  // First non-empty path segment (ignores leading/trailing slashes).
+  const segment = appPath.split('/').find(Boolean);
   if (!segment) return null;
   return segment
     .split(/[-_]/)
@@ -127,14 +128,13 @@ export default function WeldAppHostPage() {
         <AppHeader />
         <ModuleContent>
           {previewUrl ? (
-            <div
+            <output
               className="shrink-0 px-4 py-2 text-xs bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100 border-b border-amber-200 dark:border-amber-900 flex items-center gap-2"
-              role="status"
             >
               <span className="font-semibold uppercase tracking-wide">{wa.host.developmentBadge}</span>
               <span className="truncate">{wa.host.developmentDescription}</span>
               <span className="ml-auto font-mono truncate opacity-80">{previewUrl}</span>
-            </div>
+            </output>
           ) : null}
           {/* Slot the shell's WeldAppFrameLayer covers with the live iframe;
               its border-radius is copied onto the frame. */}

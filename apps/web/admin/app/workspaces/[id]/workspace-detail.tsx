@@ -83,7 +83,7 @@ export function WorkspaceDetail({
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-sm font-medium">
-              Members
+              {'Members'}
               <span className="ml-1.5 text-muted-foreground tabular-nums">({members.length})</span>
             </h2>
           </div>

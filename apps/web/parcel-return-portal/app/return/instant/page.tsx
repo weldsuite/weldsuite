@@ -251,9 +251,10 @@ export default function InstantReturnPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {NEARBY_STORES.map((store) => (
-                    <div
+                    <button
+                      type="button"
                       key={store.id}
-                      className={`p-4 border rounded-lg cursor-pointer transition-all ${
+                      className={`block w-full text-left p-4 border rounded-lg cursor-pointer transition-all ${
                         selectedStore?.id === store.id
                           ? "border-blue-600 bg-blue-50"
                           : "hover:border-gray-400"
@@ -285,7 +286,7 @@ export default function InstantReturnPage() {
                           <p className="text-sm text-gray-600">{store.phone}</p>
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
 
                   <Button

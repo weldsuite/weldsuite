@@ -6,7 +6,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
-import { generateId } from '../../../lib/id';
+import { generateId, randomBase36 } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
@@ -67,7 +67,7 @@ app.post('/', requireScope('conversations:write'), zValidator('json', createConv
   // (mirrors the ticketNumber handling in the tickets route).
   const conversationNumber =
     ((body as Record<string, unknown>).conversationNumber as string | undefined) ??
-    `CONV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    `CONV-${Date.now().toString(36).toUpperCase()}-${randomBase36(4).toUpperCase()}`;
   const [row] = await db
     .insert(table)
     .values({ id, createdAt: now, updatedAt: now, ...(body as Record<string, unknown>), conversationNumber } as typeof table.$inferInsert)

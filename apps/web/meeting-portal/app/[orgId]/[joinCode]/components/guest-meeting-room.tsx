@@ -6,7 +6,7 @@
  */
 
 import type RealtimeKitClient from '@cloudflare/realtimekit';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
 
 import {
   MeetingRoomView,
@@ -20,6 +20,7 @@ import { playHandRaiseSound, playHandLowerSound, playMuteSound, playUnmuteSound,
 
 import { GuestChatPanel } from '../guest-chat-panel';
 import { useGuestPiP, type PiPFocused } from './guest-pip';
+import { randomToken } from '@/lib/random-id';
 
 /** A transcript frame from RTK's AI channel. */
 interface RtkTranscript {
@@ -41,6 +42,41 @@ type RtkClientWithAi = RealtimeKitClient & {
   };
 };
 
+type GuestChatSlotArgs = Parameters<NonNullable<ComponentProps<typeof MeetingRoomView>['chatPanelSlot']>>[0];
+
+interface GuestChatSlotOptions {
+  meetingId: string;
+  orgId: string;
+  guestName: string;
+  guestEmail: string;
+  guestToken: string;
+  participants: ComponentProps<typeof GuestChatPanel>['participants'];
+}
+
+/**
+ * Builds the `chatPanelSlot` render prop. Lives at module level (not inside
+ * the room component) so the slot renderer is not a component defined during
+ * another component's render.
+ */
+function createGuestChatSlot({ meetingId, orgId, guestName, guestEmail, guestToken, participants }: GuestChatSlotOptions) {
+  return function renderGuestChat({ isOpen, onClose, onOpen, notificationHost }: GuestChatSlotArgs) {
+    return (
+      <GuestChatPanel
+        meetingId={meetingId}
+        orgId={orgId}
+        guestName={guestName}
+        guestToken={guestToken}
+        guestUserId={`guest:${guestEmail.toLowerCase()}`}
+        isOpen={isOpen}
+        onClose={onClose}
+        onOpen={onOpen}
+        notificationHost={notificationHost}
+        participants={participants}
+      />
+    );
+  };
+}
+
 interface GuestMeetingRoomProps {
   rtkClient: RealtimeKitClient | null;
   meetingTitle: string;
@@ -56,8 +92,71 @@ interface GuestMeetingRoomProps {
   orgId: string;
   guestName: string;
   guestEmail: string;
+  guestToken: string;
   hostControls: GuestHostControls;
   onHostControlsBroadcast: React.Dispatch<React.SetStateAction<GuestHostControls>>;
+}
+
+/** Returns the value when it is a non-empty string, otherwise null. */
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : null;
+}
+
+/** Parses the `call:host-controls-updated` payload; null when absent or malformed. */
+function parseHostControlsPayload(
+  payload: Record<string, unknown> | undefined,
+): Partial<GuestHostControls> | null {
+  const json = readNonEmptyString(payload?.controlsJson);
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as Partial<GuestHostControls>;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads a numeric `ideal` from a MediaTrackConstraints value (number or `{ ideal }`). */
+function pickIdeal(v: unknown): number | undefined {
+  if (typeof v === 'number') return v;
+  if (v && typeof v === 'object' && 'ideal' in v) {
+    const { ideal } = v as { ideal?: unknown };
+    if (typeof ideal === 'number') return ideal;
+  }
+  return undefined;
+}
+
+/** Applies the picked screen-share resolution / framerate once the track is live. */
+async function applyScreenshareConstraints(
+  client: RealtimeKitClient,
+  constraints?: DisplayMediaStreamOptions,
+): Promise<void> {
+  const videoConstraints = (constraints?.video && typeof constraints.video === 'object')
+    ? (constraints.video as MediaTrackConstraints)
+    : undefined;
+  const width = pickIdeal(videoConstraints?.width);
+  const height = pickIdeal(videoConstraints?.height);
+  const frameRate = pickIdeal(videoConstraints?.frameRate);
+  if (!width || !height) return;
+
+  try {
+    await client.self.updateScreenshareConstraints({
+      width: { ideal: width },
+      height: { ideal: height },
+      ...(frameRate ? { frameRate: { ideal: frameRate } } : {}),
+    });
+  } catch (err) {
+    console.warn('[GuestMeetingRoom] updateScreenshareConstraints failed:', err);
+  }
+}
+
+/** Hints the browser to favour spatial sharpness for the shared screen track. */
+function setScreenshareContentHint(client: RealtimeKitClient): void {
+  try {
+    const track = client.self.screenShareTracks?.video as MediaStreamTrack | undefined;
+    if (track && 'contentHint' in track) {
+      track.contentHint = 'detail';
+    }
+  } catch { /* ignore */ }
 }
 
 export function GuestMeetingRoom({
@@ -75,6 +174,7 @@ export function GuestMeetingRoom({
   orgId,
   guestName,
   guestEmail,
+  guestToken,
   hostControls,
   onHostControlsBroadcast,
 }: Readonly<GuestMeetingRoomProps>) {
@@ -143,7 +243,7 @@ export function GuestMeetingRoom({
           return next;
         }
         next.push({
-          id: t.id ?? `cap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: t.id ?? `cap-${Date.now()}-${randomToken(4)}`,
           peerId: t.peerId ?? '',
           speakerName: t.name ?? 'Speaker',
           text: t.transcript ?? '',
@@ -155,38 +255,34 @@ export function GuestMeetingRoom({
     };
     try { ai?.on?.('transcript', onTranscript); } catch { /* ignore */ }
 
+    const handleHandBroadcast = (raised: boolean, payload: Record<string, unknown> | undefined) => {
+      const peerId = readNonEmptyString(payload?.peerId);
+      if (!peerId) return;
+      // RTK echoes broadcastMessage back to the sender, so this handler also
+      // fires for our OWN hand-raise. toggleHandRaise already played the sound
+      // and updated state optimistically — re-handling the echo here is what
+      // produced the double chime. Ignore our own peerId.
+      if (peerId === client.self?.id) return;
+      // Audible cue for the guest when another participant raises/lowers a
+      // hand — parity with the platform app (weldmeet-call-context).
+      if (raised) playHandRaiseSound();
+      else playHandLowerSound();
+      setHandRaisedParticipants((prev) => {
+        const next = new Set(prev);
+        if (raised) next.add(peerId);
+        else next.delete(peerId);
+        return next;
+      });
+    };
+
     const onBroadcast = (msg: { type: string; payload: Record<string, unknown> }) => {
       if (msg.type === 'call:hand-raised' || msg.type === 'call:hand-lowered') {
-        const peerId = typeof msg.payload?.peerId === 'string' ? msg.payload.peerId : null;
-        if (!peerId) return;
-        // RTK echoes broadcastMessage back to the sender, so this handler also
-        // fires for our OWN hand-raise. toggleHandRaise already played the sound
-        // and updated state optimistically — re-handling the echo here is what
-        // produced the double chime. Ignore our own peerId.
-        if (peerId === client.self?.id) return;
-        // Audible cue for the guest when another participant raises/lowers a
-        // hand — parity with the platform app (weldmeet-call-context).
-        if (msg.type === 'call:hand-raised') playHandRaiseSound();
-        else playHandLowerSound();
-        setHandRaisedParticipants((prev) => {
-          const next = new Set(prev);
-          if (msg.type === 'call:hand-raised') next.add(peerId);
-          else next.delete(peerId);
-          return next;
-        });
+        handleHandBroadcast(msg.type === 'call:hand-raised', msg.payload);
         return;
       }
       if (msg.type === 'call:host-controls-updated') {
-        const json = typeof msg.payload?.controlsJson === 'string' ? msg.payload.controlsJson : null;
-        if (!json) return;
-        let controls: Partial<GuestHostControls>;
-        try {
-          controls = JSON.parse(json) as Partial<GuestHostControls>;
-        } catch {
-          return;
-        }
-        onHostControlsBroadcast((prev) => ({ ...prev, ...controls }));
-        return;
+        const controls = parseHostControlsPayload(msg.payload);
+        if (controls) onHostControlsBroadcast((prev) => ({ ...prev, ...controls }));
       }
     };
     try { client.participants?.on?.('broadcastedMessage', onBroadcast); } catch { /* ignore */ }
@@ -212,40 +308,8 @@ export function GuestMeetingRoom({
       // updateScreenshareConstraints (the SDK's supported way) after the track
       // is live, then set contentHint='detail' for spatial sharpness.
       await client.self.enableScreenShare();
-
-      const videoConstraints = (constraints?.video && typeof constraints.video === 'object')
-        ? (constraints.video as MediaTrackConstraints)
-        : undefined;
-      const pickIdeal = (v: unknown): number | undefined => {
-        if (typeof v === 'number') return v;
-        if (v && typeof v === 'object' && 'ideal' in v) {
-          const { ideal } = v as { ideal?: unknown };
-          if (typeof ideal === 'number') return ideal;
-        }
-        return undefined;
-      };
-      const width = pickIdeal(videoConstraints?.width);
-      const height = pickIdeal(videoConstraints?.height);
-      const frameRate = pickIdeal(videoConstraints?.frameRate);
-
-      if (width && height) {
-        try {
-          await client.self.updateScreenshareConstraints({
-            width: { ideal: width },
-            height: { ideal: height },
-            ...(frameRate ? { frameRate: { ideal: frameRate } } : {}),
-          });
-        } catch (err) {
-          console.warn('[GuestMeetingRoom] updateScreenshareConstraints failed:', err);
-        }
-      }
-
-      try {
-        const track = client.self.screenShareTracks?.video as MediaStreamTrack | undefined;
-        if (track && 'contentHint' in track) {
-          track.contentHint = 'detail';
-        }
-      } catch { /* ignore */ }
+      await applyScreenshareConstraints(client, constraints);
+      setScreenshareContentHint(client);
 
       // Mirror the user stopping via the browser's native "Stop sharing" bar
       // back into React state so the button label stays accurate.
@@ -400,20 +464,18 @@ export function GuestMeetingRoom({
             selfIsHost={false}
           />
         }
-        chatPanelSlot={meetingId && guestEmail ? ({ isOpen, onClose, onOpen, notificationHost }) => (
-          <GuestChatPanel
-            meetingId={meetingId}
-            orgId={orgId}
-            guestName={guestName}
-            guestEmail={guestEmail}
-            guestUserId={`guest:${guestEmail.toLowerCase()}`}
-            isOpen={isOpen}
-            onClose={onClose}
-            onOpen={onOpen}
-            notificationHost={notificationHost}
-            participants={mentionParticipants}
-          />
-        ) : undefined}
+        chatPanelSlot={
+          meetingId && guestEmail && guestToken
+            ? createGuestChatSlot({
+                meetingId,
+                orgId,
+                guestName,
+                guestEmail,
+                guestToken,
+                participants: mentionParticipants,
+              })
+            : undefined
+        }
       />
       {pipNode}
     </div>

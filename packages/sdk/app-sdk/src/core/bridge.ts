@@ -7,6 +7,7 @@ import {
   type WeldAppBridgeOptions,
 } from './local-dev';
 import { applyDesignTokens, applyTheme } from './appearance';
+import { randomIdSuffix } from './random-id';
 import type {
   AppMessage,
   BridgeEventName,
@@ -14,10 +15,13 @@ import type {
   BridgeFetchResponse,
   BridgeRequestMethod,
   ConfirmOptions,
+  EventMessage,
   HostMessage,
+  InitMessage,
   InitPayload,
   ModalResult,
   OpenModalOptions,
+  ResponseMessage,
   ShortcutPayload,
   ToastVariant,
   WeldBreadcrumb,
@@ -251,7 +255,7 @@ export class WeldAppBridge {
       return this.handleLocalRequest<TResult>(method, payload);
     }
 
-    const id = `req_${++this.requestCounter}_${Math.random().toString(36).slice(2, 10)}`;
+    const id = `req_${++this.requestCounter}_${randomIdSuffix(8)}`;
     const timeoutMs = options.timeoutMs === undefined ? REQUEST_TIMEOUT_MS : options.timeoutMs;
 
     return new Promise<TResult>((resolve, reject) => {
@@ -573,84 +577,102 @@ export class WeldAppBridge {
     }
 
     switch (message.type) {
-      case 'weldapp:init': {
-        this.initPayload = message.payload;
-        // Protocol 2 hosts send no token (requests are proxied); a legacy
-        // host's token is cached for the direct-fetch path.
-        this.tokenInfo =
-          typeof message.payload.token === 'string' && message.payload.tokenExpiresAt !== null
-            ? {
-                token: message.payload.token,
-                tokenExpiresAt: message.payload.tokenExpiresAt,
-                apiBaseUrl: message.payload.apiBaseUrl,
-              }
-            : null;
-        this.applyAppearance(message.payload);
-        // CLI local shell: keep memory store + real bridge for host methods.
-        if (isLocalPreviewInit(message.payload)) {
-          this.localDevActive = true;
-          this.hostBridgeActive = true;
-          if (!this.memoryStore) {
-            this.memoryStore = new LocalMemoryStore();
-          }
-        }
-        this.initResolve?.(message.payload);
+      case 'weldapp:init':
+        this.handleInitMessage(message);
         break;
-      }
-      case 'weldapp:response': {
-        const entry = this.pending.get(message.id);
-        if (!entry) {
-          return;
-        }
-        this.pending.delete(message.id);
-        clearTimeout(entry.timer);
-        if (message.ok) {
-          entry.resolve(message.payload);
-        } else {
-          entry.reject(new Error(message.error?.message ?? '@weldsuite/app-sdk: host reported an unknown error.'));
-        }
+      case 'weldapp:response':
+        this.handleResponseMessage(message);
         break;
-      }
-      case 'weldapp:event': {
-        if (message.event === 'designTokens') {
-          const tokens = message.payload?.value;
-          if (this.initPayload && tokens) {
-            this.initPayload = { ...this.initPayload, designTokens: tokens };
-          }
-          if (this.options.applyAppearance !== false) {
-            applyDesignTokens(tokens);
-          }
-          return;
-        }
-        const value = message.payload?.value;
-        if (typeof value !== 'string') {
-          return;
-        }
-        if (message.event === 'theme' && (value === 'light' || value === 'dark') && this.options.applyAppearance !== false) {
-          applyTheme(value);
-        }
-        // Keep the init snapshot current so late readers see fresh values.
-        if (this.initPayload) {
-          if (message.event === 'theme' && (value === 'light' || value === 'dark')) {
-            this.initPayload = { ...this.initPayload, theme: value };
-          } else if (message.event === 'locale') {
-            this.initPayload = { ...this.initPayload, locale: value };
-          } else if (message.event === 'route') {
-            this.initPayload = { ...this.initPayload, path: value };
-          }
-        }
-        const set = this.listeners.get(message.event);
-        if (set) {
-          for (const callback of set) {
-            callback(value);
-          }
-        }
+      case 'weldapp:event':
+        this.handleEventMessage(message);
         break;
-      }
       default:
         break;
     }
   };
+
+  private handleInitMessage(message: InitMessage): void {
+    this.initPayload = message.payload;
+    // Protocol 2 hosts send no token (requests are proxied); a legacy
+    // host's token is cached for the direct-fetch path.
+    this.tokenInfo =
+      typeof message.payload.token === 'string' && message.payload.tokenExpiresAt !== null
+        ? {
+            token: message.payload.token,
+            tokenExpiresAt: message.payload.tokenExpiresAt,
+            apiBaseUrl: message.payload.apiBaseUrl,
+          }
+        : null;
+    this.applyAppearance(message.payload);
+    // CLI local shell: keep memory store + real bridge for host methods.
+    if (isLocalPreviewInit(message.payload)) {
+      this.localDevActive = true;
+      this.hostBridgeActive = true;
+      if (!this.memoryStore) {
+        this.memoryStore = new LocalMemoryStore();
+      }
+    }
+    this.initResolve?.(message.payload);
+  }
+
+  private handleResponseMessage(message: ResponseMessage): void {
+    const entry = this.pending.get(message.id);
+    if (!entry) {
+      return;
+    }
+    this.pending.delete(message.id);
+    clearTimeout(entry.timer);
+    if (message.ok) {
+      entry.resolve(message.payload);
+    } else {
+      entry.reject(new Error(message.error?.message ?? '@weldsuite/app-sdk: host reported an unknown error.'));
+    }
+  }
+
+  private handleEventMessage(message: EventMessage): void {
+    if (message.event === 'designTokens') {
+      const tokens = message.payload?.value;
+      if (this.initPayload && tokens) {
+        this.initPayload = { ...this.initPayload, designTokens: tokens };
+      }
+      if (this.options.applyAppearance !== false) {
+        applyDesignTokens(tokens);
+      }
+      return;
+    }
+    const value = message.payload?.value;
+    if (typeof value !== 'string') {
+      return;
+    }
+    if (message.event === 'theme' && isThemeName(value) && this.options.applyAppearance !== false) {
+      applyTheme(value);
+    }
+    // Keep the init snapshot current so late readers see fresh values.
+    this.updateInitSnapshot(message.event, value);
+    const set = this.listeners.get(message.event);
+    if (set) {
+      for (const callback of set) {
+        callback(value);
+      }
+    }
+  }
+
+  private updateInitSnapshot(event: BridgeEventName, value: string): void {
+    if (!this.initPayload) {
+      return;
+    }
+    if (event === 'theme' && isThemeName(value)) {
+      this.initPayload = { ...this.initPayload, theme: value };
+    } else if (event === 'locale') {
+      this.initPayload = { ...this.initPayload, locale: value };
+    } else if (event === 'route') {
+      this.initPayload = { ...this.initPayload, path: value };
+    }
+  }
+}
+
+function isThemeName(value: string): value is 'light' | 'dark' {
+  return value === 'light' || value === 'dark';
 }
 
 /**

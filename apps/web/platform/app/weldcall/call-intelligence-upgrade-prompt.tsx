@@ -81,6 +81,11 @@ export const segments = [
   },
 ];
 
+// Stable per-word ids so word spans do not need an array index as their React key.
+const segmentWordItems = segments.map((seg, segIdx) =>
+  seg.words.map((text, pos) => ({ id: `seg${segIdx}-word${pos}`, text })),
+);
+
 // Pre-compute total words and segment start indices
 export const segmentStartIndices = segments.reduce<number[]>((acc, seg, i) => {
   acc.push(i === 0 ? 0 : acc[i - 1] + segments[i - 1].words.length);
@@ -94,52 +99,82 @@ export const START_SECONDS = Math.floor(0.35 * 754);
 // Common filler/short words spoken very quickly
 const fastWords = new Set(['I', 'a', 'an', 'the', 'to', 'in', 'is', 'it', 'of', 'we', 'do', 'or', 'on', 'at', 'be', 'so', 'up', 'if', 'my', 'no', 'us']);
 
+interface WordLocation {
+  word: string;
+  posInSegment: number;
+  segmentLength: number;
+  isFirstWord: boolean;
+}
+
+const UNKNOWN_WORD_LOCATION: WordLocation = { word: '', posInSegment: 0, segmentLength: 0, isFirstWord: false };
+
+// Finds the segment that contains the given (absolute) word index.
+function locateWord(wordIdx: number): WordLocation {
+  for (let s = 0; s < segments.length; s++) {
+    const start = segmentStartIndices[s];
+    const { words } = segments[s];
+    if (wordIdx >= start && wordIdx < start + words.length) {
+      return {
+        word: words[wordIdx - start],
+        posInSegment: wordIdx - start,
+        segmentLength: words.length,
+        isFirstWord: wordIdx === start,
+      };
+    }
+  }
+  return UNKNOWN_WORD_LOCATION;
+}
+
+// [max cleaned word length, base delay in ms], checked in order.
+const BASE_DELAY_BY_LENGTH: ReadonlyArray<readonly [number, number]> = [
+  [2, 130],
+  [4, 200],
+  [6, 280],
+  [8, 340],
+  [10, 400],
+];
+const LONG_WORD_BASE_DELAY = 460;
+
+function baseDelayForLength(len: number): number {
+  const match = BASE_DELAY_BY_LENGTH.find(([maxLen]) => len <= maxLen);
+  return match ? match[1] : LONG_WORD_BASE_DELAY;
+}
+
+// Cosmetic typing-cadence jitter; drawn from the Web Crypto API rather than Math.random.
+function randomUnit(): number {
+  return crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
+}
+
+// Words at the start/end of a segment are spoken a little slower.
+function positionMultiplier(posRatio: number): number {
+  if (posRatio < 0.15) return 1.2;
+  if (posRatio > 0.85) return 1.15;
+  return 1;
+}
+
+function punctuationPauseFor(word: string): number {
+  if (word.endsWith('...')) return 400 + randomUnit() * 200;
+  if (/[.?!]$/.test(word)) return 300 + randomUnit() * 150;
+  if (/[,;]$/.test(word)) return 150 + randomUnit() * 100;
+  return 0;
+}
+
 export function getWordDelay(wordIdx: number) {
   if (wordIdx >= totalWords) return 800;
 
-  let word = '';
-  let wordPosInSegment = 0;
-  let segmentLength = 0;
-  let isFirstWord = false;
+  const { word, posInSegment, segmentLength, isFirstWord } = locateWord(wordIdx);
 
-  for (let s = 0; s < segments.length; s++) {
-    const start = segmentStartIndices[s];
-    if (wordIdx >= start && wordIdx < start + segments[s].words.length) {
-      word = segments[s].words[wordIdx - start];
-      wordPosInSegment = wordIdx - start;
-      segmentLength = segments[s].words.length;
-      isFirstWord = wordIdx === start;
-      break;
-    }
-  }
-
-  if (isFirstWord) return 700 + Math.random() * 500;
+  if (isFirstWord) return 700 + randomUnit() * 500;
 
   const cleanWord = word.replace(/[.,!?;:'"]/g, '');
-  const len = cleanWord.length;
 
-  if (fastWords.has(cleanWord)) return 100 + Math.random() * 80;
+  if (fastWords.has(cleanWord)) return 100 + randomUnit() * 80;
 
-  let base: number;
-  if (len <= 2) base = 130;
-  else if (len <= 4) base = 200;
-  else if (len <= 6) base = 280;
-  else if (len <= 8) base = 340;
-  else if (len <= 10) base = 400;
-  else base = 460;
+  const base = baseDelayForLength(cleanWord.length) * positionMultiplier(posInSegment / segmentLength);
 
-  const posRatio = wordPosInSegment / segmentLength;
-  if (posRatio < 0.15) base *= 1.2;
-  else if (posRatio > 0.85) base *= 1.15;
-
-  const jitter = ((Math.random() + Math.random()) / 2 - 0.5) * 160;
-
-  let punctuationPause = 0;
-  if (word.endsWith('...')) punctuationPause = 400 + Math.random() * 200;
-  else if (word.endsWith('.') || word.endsWith('?') || word.endsWith('!')) punctuationPause = 300 + Math.random() * 150;
-  else if (word.endsWith(',') || word.endsWith(';')) punctuationPause = 150 + Math.random() * 100;
-
-  const thinkPause = Math.random() < 0.1 ? 200 + Math.random() * 200 : 0;
+  const jitter = ((randomUnit() + randomUnit()) / 2 - 0.5) * 160;
+  const punctuationPause = punctuationPauseFor(word);
+  const thinkPause = randomUnit() < 0.1 ? 200 + randomUnit() * 200 : 0;
 
   return Math.max(80, base + jitter + punctuationPause + thinkPause);
 }
@@ -190,18 +225,18 @@ const Segment = React.memo(
           </div>
           {isActive ? (
             <p className="text-[11px] text-gray-600 leading-relaxed">
-              {seg.words.map((word, wordIdx) => {
+              {segmentWordItems[segIdx].map((item, wordIdx) => {
                 const absIdx = segStart + wordIdx;
                 const isHighlighted = absIdx === wrappedWordIndex;
                 return (
                   <span
-                    key={wordIdx}
+                    key={item.id}
                     className="transition-colors duration-300 ease-in-out rounded-[3px] px-[1px] -mx-[1px]"
                     style={{
                       backgroundColor: isHighlighted ? 'rgb(254 240 138)' : 'transparent',
                     }}
                   >
-                    {word}
+                    {item.text}
                     {wordIdx < seg.words.length - 1 ? ' ' : ''}
                   </span>
                 );

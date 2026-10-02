@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createProjectSchema, updateProjectSchema } from '@weldsuite/app-api-client/schemas/projects';
@@ -20,6 +20,54 @@ import { canAccessProject, canManageProject } from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projects;
+
+/**
+ * Membership boundary for callers without `projects:scope:all`: projects the
+ * user manages (projectManagerId) or is an active member of.
+ */
+async function buildMembershipCondition(db: Variables['tenantDb'], userId: string): Promise<SQL> {
+  const memberships = await db
+    .select({ projectId: schema.projectMembers.projectId })
+    .from(schema.projectMembers)
+    .where(
+      and(
+        eq(schema.projectMembers.userId, userId),
+        eq(schema.projectMembers.isActive, true),
+        isNull(schema.projectMembers.deletedAt),
+      ),
+    );
+  const memberProjectIds = memberships.map((m) => m.projectId);
+  // Manager of the project OR an active member of it.
+  return memberProjectIds.length
+    ? or(eq(t.projectManagerId, userId), inArray(t.id, memberProjectIds))!
+    : eq(t.projectManagerId, userId);
+}
+
+/** Filters derived from the list query string. */
+function buildProjectFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [];
+  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
+  if (q.isActive !== undefined && q.isActive !== '') {
+    // Accept the truthy strings the WeldFlow UI sends (`?isActive=true`).
+    conditions.push(eq(t.isActive, q.isActive === 'true' || q.isActive === '1'));
+  }
+  if (q.search) {
+    conditions.push(like(t.name, `%${q.search}%`));
+  }
+  return conditions;
+}
+
+/** Keyset condition for the row after `cursor`, or undefined when the cursor row is unknown. */
+async function buildProjectCursorCondition(
+  db: Variables['tenantDb'],
+  cursor: string,
+): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
 
 // Project visibility is driven by membership, NOT only the workspace-level
 // `projects:read` object permission — so this route resolves access in-handler
@@ -37,43 +85,12 @@ app.get('/', async (c) => {
 
   const canSeeAll = await hasContextPermission(c, 'projects:scope:all');
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (!canSeeAll) {
-    const memberships = await db
-      .select({ projectId: schema.projectMembers.projectId })
-      .from(schema.projectMembers)
-      .where(
-        and(
-          eq(schema.projectMembers.userId, userId),
-          eq(schema.projectMembers.isActive, true),
-          isNull(schema.projectMembers.deletedAt),
-        ),
-      );
-    const memberProjectIds = memberships.map((m) => m.projectId);
-    // Manager of the project OR an active member of it.
-    conditions.push(
-      memberProjectIds.length
-        ? or(eq(t.projectManagerId, userId), inArray(t.id, memberProjectIds))!
-        : eq(t.projectManagerId, userId),
-    );
-  }
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.isActive !== undefined && q.isActive !== '') {
-    // Accept the truthy strings the WeldFlow UI sends (`?isActive=true`).
-    conditions.push(eq(t.isActive, q.isActive === 'true' || q.isActive === '1'));
-  }
-  if (q.search) {
-    conditions.push(like(t.name, `%${q.search}%`));
-  }
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (!canSeeAll) conditions.push(await buildMembershipCondition(db, userId));
+  conditions.push(...buildProjectFilters(q));
   if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
+    const cursorCondition = await buildProjectCursorCondition(db, q.cursor);
+    if (cursorCondition) conditions.push(cursorCondition);
   }
   const where = conditions.length ? and(...conditions) : undefined;
   const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
@@ -284,6 +301,9 @@ app.get('/search', requirePermission('projects:read'), async (c) => {
 // ============================================================================
 // GET /:id/permissions — derive current user's role + flags for one project.
 // Project manager (creator) is treated as owner even without a member row.
+// Workspace owners/admins (`projects:scope:all`) get full rights on every
+// project, matching the canAccessProject / canManageProject guards the write
+// routes enforce — otherwise the UI hides actions the API would allow.
 // ============================================================================
 
 app.get('/:id/permissions', requirePermission('projects:read'), async (c) => {
@@ -294,7 +314,7 @@ app.get('/:id/permissions', requirePermission('projects:read'), async (c) => {
 
   try {
     const { projects, projectMembers } = schema;
-    const [[member], [project]] = await Promise.all([
+    const [[member], [project], scopeAll] = await Promise.all([
       db
         .select({ role: projectMembers.role })
         .from(projectMembers)
@@ -312,12 +332,13 @@ app.get('/:id/permissions', requirePermission('projects:read'), async (c) => {
         .from(projects)
         .where(eq(projects.id, projectId))
         .limit(1),
+      hasContextPermission(c, 'projects:scope:all'),
     ]);
 
     const isProjectManager = !!project && project.projectManagerId === userId;
     const projectRole = (member?.role ?? '').toLowerCase() || null;
     const role = projectRole ?? (isProjectManager ? 'owner' : null);
-    const isAdmin = isProjectManager || role === 'owner' || role === 'admin';
+    const isAdmin = scopeAll || isProjectManager || role === 'owner' || role === 'admin';
     const canWrite = isAdmin || role === 'member';
     const canRead = canWrite || role === 'viewer';
 

@@ -104,6 +104,82 @@ const categories = [
   { value: 'api', label: 'API & Developers' },
 ];
 
+const FORMAT_COMMANDS: ReadonlyArray<readonly [command: string, format: string]> = [
+  ['bold', 'bold'],
+  ['italic', 'italic'],
+  ['underline', 'underline'],
+  ['strikeThrough', 'strikethrough'],
+  ['insertUnorderedList', 'bulletList'],
+  ['insertOrderedList', 'numberedList'],
+  ['justifyLeft', 'alignLeft'],
+  ['justifyCenter', 'alignCenter'],
+  ['justifyRight', 'alignRight'],
+  ['justifyFull', 'alignJustify'],
+];
+
+const RESIZE_HANDLES: ReadonlyArray<{ handle: string; className: string }> = [
+  { handle: 'nw', className: '-top-1.5 -left-1.5 cursor-nw-resize' },
+  { handle: 'ne', className: '-top-1.5 -right-1.5 cursor-ne-resize' },
+  { handle: 'sw', className: '-bottom-1.5 -left-1.5 cursor-sw-resize' },
+  { handle: 'se', className: '-bottom-1.5 -right-1.5 cursor-se-resize' },
+  { handle: 'n', className: '-top-1.5 left-1/2 -translate-x-1/2 cursor-n-resize' },
+  { handle: 's', className: '-bottom-1.5 left-1/2 -translate-x-1/2 cursor-s-resize' },
+  { handle: 'w', className: 'top-1/2 -left-1.5 -translate-y-1/2 cursor-w-resize' },
+  { handle: 'e', className: 'top-1/2 -right-1.5 -translate-y-1/2 cursor-e-resize' },
+];
+
+function getActiveFormats(): Set<string> {
+  const formats = new Set<string>();
+  for (const [command, format] of FORMAT_COMMANDS) {
+    if (document.queryCommandState(command)) formats.add(format);
+  }
+  return formats;
+}
+
+/** Element containing the start of the current selection (text nodes resolve to their parent). */
+function getSelectionStartElement(): HTMLElement | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const container = selection.getRangeAt(0).startContainer as HTMLElement;
+  return container.nodeType === Node.TEXT_NODE
+    ? (container.parentElement as HTMLElement)
+    : container;
+}
+
+/** Force left-to-right direction on the paragraph that holds the caret. */
+function forceParagraphLtr() {
+  const selection = window.getSelection();
+  if (!selection?.anchorNode) return;
+  let element = selection.anchorNode as HTMLElement;
+  if (element.nodeType === Node.TEXT_NODE) {
+    element = element.parentElement as HTMLElement;
+  }
+  if (element?.tagName === 'P') {
+    element.setAttribute('dir', 'ltr');
+    element.style.direction = 'ltr';
+  }
+}
+
+function resolveFontSize(currentFontSize: number): string {
+  const matchedSize = fontSizes.find((s) => Number.parseInt(s.value) === currentFontSize);
+  if (matchedSize) return matchedSize.value;
+  // Find closest size
+  const closestSize = fontSizes.reduce((prev, curr) => {
+    return Math.abs(Number.parseInt(curr.value) - currentFontSize) < Math.abs(Number.parseInt(prev.value) - currentFontSize)
+      ? curr
+      : prev;
+  }, fontSizes[0]);
+  return closestSize.value;
+}
+
+function getOptionLabel(
+  options: ReadonlyArray<{ value: string; label: string }>,
+  value: string,
+  fallback: string,
+) {
+  return value ? options.find((option) => option.value === value)?.label : fallback;
+}
+
 export default function NewHelpArticlePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -326,61 +402,25 @@ export default function NewHelpArticlePage() {
   };
 
   const checkActiveFormats = () => {
-    const formats = new Set<string>();
-
-    if (document.queryCommandState('bold')) formats.add('bold');
-    if (document.queryCommandState('italic')) formats.add('italic');
-    if (document.queryCommandState('underline')) formats.add('underline');
-    if (document.queryCommandState('strikeThrough')) formats.add('strikethrough');
-    if (document.queryCommandState('insertUnorderedList')) formats.add('bulletList');
-    if (document.queryCommandState('insertOrderedList')) formats.add('numberedList');
-    if (document.queryCommandState('justifyLeft')) formats.add('alignLeft');
-    if (document.queryCommandState('justifyCenter')) formats.add('alignCenter');
-    if (document.queryCommandState('justifyRight')) formats.add('alignRight');
-    if (document.queryCommandState('justifyFull')) formats.add('alignJustify');
-
-    setActiveFormats(formats);
+    setActiveFormats(getActiveFormats());
 
     // Check font family and font size from selection
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      let element = range.startContainer as HTMLElement;
+    const element = getSelectionStartElement();
+    if (!element) return;
 
-      // If text node, get parent element
-      if (element.nodeType === Node.TEXT_NODE) {
-        element = element.parentElement as HTMLElement;
-      }
+    const computedStyle = window.getComputedStyle(element);
 
-      if (element) {
-        // Get computed styles
-        const computedStyle = window.getComputedStyle(element);
-
-        // Check font family
-        const currentFontFamily = computedStyle.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
-        const matchedFont = fontFamilies.find(f =>
-          f.value.toLowerCase() === currentFontFamily.toLowerCase()
-        );
-        if (matchedFont) {
-          setFontFamily(matchedFont.value);
-        }
-
-        // Check font size
-        const currentFontSize = Math.round(Number.parseFloat(computedStyle.fontSize));
-        const matchedSize = fontSizes.find(s => Number.parseInt(s.value) === currentFontSize);
-        if (matchedSize) {
-          setFontSize(matchedSize.value);
-        } else {
-          // Find closest size
-          const closestSize = fontSizes.reduce((prev, curr) => {
-            return Math.abs(Number.parseInt(curr.value) - currentFontSize) < Math.abs(Number.parseInt(prev.value) - currentFontSize)
-              ? curr
-              : prev;
-          }, fontSizes[0]);
-          setFontSize(closestSize.value);
-        }
-      }
+    // Check font family
+    const currentFontFamily = computedStyle.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
+    const matchedFont = fontFamilies.find(f =>
+      f.value.toLowerCase() === currentFontFamily.toLowerCase()
+    );
+    if (matchedFont) {
+      setFontFamily(matchedFont.value);
     }
+
+    // Check font size
+    setFontSize(resolveFontSize(Math.round(Number.parseFloat(computedStyle.fontSize))));
   };
 
   const handleContentInput = (e: React.FormEvent<HTMLDivElement>) => {
@@ -421,17 +461,7 @@ export default function NewHelpArticlePage() {
   };
 
   const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const selection = window.getSelection();
-    if (selection && selection.anchorNode) {
-      let element = selection.anchorNode as HTMLElement;
-      if (element.nodeType === Node.TEXT_NODE) {
-        element = element.parentElement as HTMLElement;
-      }
-      if (element && element.tagName === 'P') {
-        element.setAttribute('dir', 'ltr');
-        element.style.direction = 'ltr';
-      }
-    }
+    forceParagraphLtr();
 
     if (showCommandMenu) {
       if (e.key === 'ArrowDown') {
@@ -535,7 +565,7 @@ export default function NewHelpArticlePage() {
     const imageWrapper = document.createElement('div');
     imageWrapper.className = 'my-4 image-wrapper';
     imageWrapper.setAttribute('contenteditable', 'false');
-    imageWrapper.setAttribute('data-image-wrapper', 'true');
+    imageWrapper.dataset.imageWrapper = 'true';
 
     const img = document.createElement('img');
     img.src = imageUrl;
@@ -684,10 +714,10 @@ export default function NewHelpArticlePage() {
     let wrapper = selectedImage.parentElement;
 
     // If the parent is not a wrapper, create one
-    if (!wrapper || !wrapper.hasAttribute('data-image-wrapper')) {
+    if (!wrapper || !('imageWrapper' in wrapper.dataset)) {
       // Check if parent has contenteditable="false"
       if (wrapper && wrapper.getAttribute('contenteditable') === 'false') {
-        wrapper.setAttribute('data-image-wrapper', 'true');
+        wrapper.dataset.imageWrapper = 'true';
         wrapper.classList.add('image-wrapper');
       } else {
         // Create a wrapper for the image
@@ -1134,9 +1164,7 @@ export default function NewHelpArticlePage() {
                 aria-expanded={fontFamilyOpen}
                 className="h-8 w-40 justify-between text-xs shadow-none"
               >
-                {fontFamily
-                  ? fontFamilies.find((font) => font.value === fontFamily)?.label
-                  : th.selectFont}
+                {getOptionLabel(fontFamilies, fontFamily, th.selectFont)}
                 <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
@@ -1179,9 +1207,7 @@ export default function NewHelpArticlePage() {
                 aria-expanded={fontSizeOpen}
                 className="h-8 w-20 justify-between text-xs shadow-none"
               >
-                {fontSize
-                  ? fontSizes.find((size) => size.value === fontSize)?.label
-                  : th.size}
+                {getOptionLabel(fontSizes, fontSize, th.size)}
                 <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
@@ -1590,6 +1616,8 @@ export default function NewHelpArticlePage() {
         {/* Title */}
         <div
           ref={titleRef}
+          role="textbox"
+          aria-label={th.untitled}
           contentEditable
           suppressContentEditableWarning
           onInput={handleTitleInput}
@@ -1613,6 +1641,9 @@ export default function NewHelpArticlePage() {
         <div className="relative">
           <div
             ref={contentRef}
+            role="textbox"
+            aria-multiline="true"
+            aria-label={th.pressForCommands}
             contentEditable
             suppressContentEditableWarning
             onInput={handleContentInput}
@@ -1668,49 +1699,21 @@ export default function NewHelpArticlePage() {
                 style={{ pointerEvents: 'none' }}
               />
 
-              {/* Corner handles */}
-              <div
-                className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-nw-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'nw')}
-              />
-              <div
-                className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-ne-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'ne')}
-              />
-              <div
-                className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-sw-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'sw')}
-              />
-              <div
-                className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-se-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'se')}
-              />
-
-              {/* Edge handles */}
-              <div
-                className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-n-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'n')}
-              />
-              <div
-                className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-s-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 's')}
-              />
-              <div
-                className="absolute top-1/2 -left-1.5 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-w-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'w')}
-              />
-              <div
-                className="absolute top-1/2 -right-1.5 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white rounded-sm cursor-e-resize shadow-sm"
-                style={{ pointerEvents: 'auto' }}
-                onMouseDown={(e) => startResize(e, 'e')}
-              />
+              {/* Corner and edge handles */}
+              {RESIZE_HANDLES.map(({ handle, className }) => (
+                <button
+                  key={handle}
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={st('sweep.welddesk.helpEditor.resizeImageHandle')}
+                  className={cn(
+                    "absolute w-3 h-3 p-0 bg-primary border-2 border-white rounded-sm shadow-sm",
+                    className
+                  )}
+                  style={{ pointerEvents: 'auto' }}
+                  onMouseDown={(e) => startResize(e, handle)}
+                />
+              ))}
 
               {/* Size indicator */}
               <div
@@ -1736,23 +1739,26 @@ export default function NewHelpArticlePage() {
               <div className="overflow-hidden p-1">
                 <div className="overflow-y-auto max-h-[300px] overflow-x-hidden">
                   {filteredCommands.map((command, index) => (
-                    <div
+                    <button
                       key={command.id}
+                      type="button"
+                      tabIndex={-1}
+                      // Keep the editor selection/focus so the command can act on it
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => command.action()}
                       className={cn(
-                        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+                        "relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors",
                         index === selectedCommandIndex
                           ? "bg-accent text-accent-foreground"
                           : "hover:bg-accent hover:text-accent-foreground"
                       )}
-                      role="option"
-                      aria-selected={index === selectedCommandIndex}
+                      aria-current={index === selectedCommandIndex}
                     >
-                      <div className="mr-0.5 h-4 w-4 shrink-0 opacity-70">
+                      <span className="mr-0.5 block h-4 w-4 shrink-0 opacity-70">
                         {command.icon}
-                      </div>
+                      </span>
                       <span className="flex-1 truncate">{command.label}</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>

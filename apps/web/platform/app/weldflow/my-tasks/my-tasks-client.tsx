@@ -144,6 +144,13 @@ type ApiTaskWithSchedule = Projects.ProjectTask & {
   repeat?: { frequency: string; interval?: number; unit?: string } | null;
 };
 
+// Prefer the multi-assignee array, fall back to the singular assignee id.
+function resolveApiAssigneeIds(apiTask: ApiTaskWithSchedule): string[] | undefined {
+  if (apiTask.assigneeIds && apiTask.assigneeIds.length > 0) return apiTask.assigneeIds;
+  if (apiTask.assigneeId) return [apiTask.assigneeId];
+  return undefined;
+}
+
 // Transform API task to local Task format
 function transformApiTask(apiTask: ApiTaskWithSchedule): Task {
   return {
@@ -155,11 +162,7 @@ function transformApiTask(apiTask: ApiTaskWithSchedule): Task {
     priority: (apiTask.priority as Task['priority']) || 'medium',
     assignee: apiTask.assignee?.name || undefined,
     assigneeId: apiTask.assigneeId || undefined,
-    assigneeIds: apiTask.assigneeIds && apiTask.assigneeIds.length > 0
-      ? apiTask.assigneeIds
-      : apiTask.assigneeId
-        ? [apiTask.assigneeId]
-        : undefined,
+    assigneeIds: resolveApiAssigneeIds(apiTask),
     assignees: apiTask.assignees
       ? apiTask.assignees.map((a) => ({ id: a.id, name: a.name, avatar: a.avatar }))
       : undefined,
@@ -198,15 +201,19 @@ const statusFromCrm: Record<string, Task['status']> = {
   'cancelled': 'cancelled',
 };
 
+function resolveCrmAssignees(task: Task): { id: string; name: string; avatar?: string }[] {
+  if (task.assignees && task.assignees.length > 0) {
+    return task.assignees.map((a) => ({ id: a.id, name: a.name, avatar: a.avatar }));
+  }
+  if (task.assigneeId && task.assignee) return [{ id: task.assigneeId, name: task.assignee }];
+  return [];
+}
+
 function toCrmTask(task: Task): CrmTask {
   // Build the multi-assignee array the panel actually renders. Without this,
   // the panel only ever sees the singular `assignee` and the picker can't
   // mark additional users as selected even though they're stored on the task.
-  const assigneesList = task.assignees && task.assignees.length > 0
-    ? task.assignees.map((a) => ({ id: a.id, name: a.name, avatar: a.avatar }))
-    : task.assigneeId && task.assignee
-      ? [{ id: task.assigneeId, name: task.assignee }]
-      : [];
+  const assigneesList = resolveCrmAssignees(task);
   const primary = assigneesList[0];
   return {
     id: task.id,
@@ -228,10 +235,187 @@ function toCrmTask(task: Task): CrmTask {
   };
 }
 
+// Merge optimistic-only fields from the previous copy of a task (`p`) into the
+// fresh server copy (`f`) when the server response is missing them.
+function mergeOptimisticTaskFields(f: Task, p: Task): Task {
+  const out: Task = { ...f };
+  if ((f.assigneeIds?.length ?? 0) < (p.assigneeIds?.length ?? 0)) {
+    out.assigneeIds = p.assigneeIds;
+  }
+  if ((f.assignees?.length ?? 0) < (p.assignees?.length ?? 0)) {
+    out.assignees = p.assignees;
+  }
+  fillMissingScalarFields(out, p);
+  if ((!out.labels || out.labels.length === 0) && p.labels?.length) out.labels = p.labels;
+  if (!out.description && p.description) out.description = p.description;
+  return out;
+}
+
+function fillMissingScalarFields(out: Task, p: Task): void {
+  if (out.duration == null && p.duration != null) out.duration = p.duration;
+  if (out.estimatedHours == null && p.estimatedHours != null) out.estimatedHours = p.estimatedHours;
+  if (out.startDate == null && p.startDate != null) out.startDate = p.startDate;
+  if (out.dueDate == null && p.dueDate != null) out.dueDate = p.dueDate;
+  if (out.priority == null && p.priority != null) out.priority = p.priority;
+}
+
+interface SaveTaskFormData {
+  title: string;
+  description?: string;
+  status: Task['status'];
+  priority?: 'low' | 'medium' | 'high';
+  assigneeId?: string;
+  assigneeIds?: string[];
+  dueDate?: Date;
+  duration?: number;
+  linkedCompanyId?: string;
+  labels?: string[];
+  repeat?: { frequency: string; interval?: number; unit?: string };
+}
+
+// The API response may not include all fields, so fill the gaps from the form
+// data the user just entered.
+function fillNewTaskFromForm(
+  newTask: Task,
+  data: SaveTaskFormData,
+  selectedProject: ProjectInfo | undefined,
+  availableAssignees: { id: string; name: string; avatar?: string }[],
+): void {
+  if (!newTask.assignee && data.assigneeId) {
+    const member = availableAssignees.find(a => a.id === data.assigneeId);
+    if (member) {
+      newTask.assignee = member.name;
+      newTask.assigneeId = data.assigneeId;
+    }
+  }
+  if (!newTask.project && selectedProject) {
+    newTask.project = selectedProject.name;
+    newTask.projectId = selectedProject.id;
+  }
+  fillNewTaskScalarsFromForm(newTask, data);
+}
+
+function fillNewTaskScalarsFromForm(newTask: Task, data: SaveTaskFormData): void {
+  if (!newTask.dueDate && data.dueDate) newTask.dueDate = data.dueDate;
+  if (!newTask.priority && data.priority) newTask.priority = data.priority;
+  if ((!newTask.labels || newTask.labels.length === 0) && data.labels?.length) {
+    newTask.labels = data.labels;
+  }
+  if (!newTask.description && data.description) newTask.description = data.description;
+  if (newTask.duration == null && data.duration != null) newTask.duration = data.duration;
+}
+
+// Applies the multi-assignee `assigneeIds` normalisation to an inline-edit
+// payload (multi-assignee fields win over the singular ones).
+function applyAssigneePayload(apiData: Record<string, unknown>, data: Partial<Task>): void {
+  if (data.assigneeIds !== undefined || data.assignees !== undefined) {
+    let ids: string[];
+    if (data.assigneeIds === undefined) {
+      ids = data.assignees?.map((a) => a.id) ?? [];
+    } else {
+      ids = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
+    }
+    apiData.assigneeIds = ids.length > 0 ? ids : null;
+    delete apiData.assigneeId;
+    delete apiData.assignee;
+    delete apiData.assignees;
+  } else if (data.assigneeId !== undefined && data.assignee !== undefined) {
+    apiData.assigneeId = data.assigneeId;
+    delete apiData.assignee;
+  }
+}
+
+// Build the API payload for an inline task edit: normalises dates and the
+// assignee fields.
+function buildTaskUpdatePayload(data: Partial<Task>): Record<string, unknown> {
+  const apiData: Record<string, unknown> = { ...data };
+  if (data.dueDate !== undefined) {
+    apiData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
+  }
+  applyAssigneePayload(apiData, data);
+  return apiData;
+}
+
+// Build the inline-update payload for toggling `memberId` in a task's assignee list.
+function buildAssigneeToggleUpdate(
+  resolvedIds: string[],
+  memberId: string,
+  isSelected: boolean,
+  availableAssignees: { id: string; name: string; avatar?: string }[],
+): Partial<Task> {
+  const nextIds = isSelected
+    ? resolvedIds.filter((id) => id !== memberId)
+    : [...resolvedIds, memberId];
+  const nextAssignees = nextIds.map((id) => {
+    const m = availableAssignees.find((x) => x.id === id);
+    return { id, name: m?.name || '', avatar: m?.avatar };
+  });
+  const primary = nextAssignees[0];
+  return {
+    assigneeId: primary?.id ?? null,
+    assignee: primary?.name,
+    assigneeIds: nextIds,
+    assignees: nextAssignees,
+  };
+}
+
+function formatRepeatBadge(repeat: { frequency: string; interval?: number; unit?: string }): string {
+  if (repeat.frequency === 'custom' && repeat.interval && repeat.unit) {
+    return `${repeat.interval}${repeat.unit.charAt(0)}`;
+  }
+  if (repeat.frequency === 'biweekly') return '2w';
+  return repeat.frequency.charAt(0).toUpperCase();
+}
+
 const restrictToVerticalAxis = ({ transform }: { transform: { x: number; y: number; scaleX: number; scaleY: number } }) => ({
   ...transform,
   x: 0,
 });
+
+// Dragged row snaps to the target slot. Non-dragged rows use dnd-kit's own shift
+// transform so they fill the gap the dragged row leaves behind. We override transition
+// for both so they share the exact same timing and never cross paths mid-animation.
+function computeDragSnapY(
+  isDragging: boolean,
+  rectHeight: number | undefined,
+  activeIndex: number,
+  overIndex: number,
+): number {
+  if (!isDragging || rectHeight === undefined || activeIndex === -1) return 0;
+  const targetIndex = overIndex === -1 ? activeIndex : overIndex;
+  return (targetIndex - activeIndex) * rectHeight;
+}
+
+// Only apply drag-related layout styles while a sort is in progress. When idle, leave
+// the row completely alone so there are no stray stacking contexts or transitions that
+// could flicker during normal hover.
+function buildSortableRowStyle({
+  isSorting,
+  isDragging,
+  isDragEnabled,
+  snapY,
+  transform,
+}: {
+  isSorting: boolean;
+  isDragging: boolean;
+  isDragEnabled: boolean;
+  snapY: number;
+  transform: Parameters<typeof CSS.Transform.toString>[0];
+}): React.CSSProperties {
+  if (!isSorting) {
+    return { cursor: isDragEnabled ? 'grab' : undefined };
+  }
+  return {
+    transform: isDragging
+      ? `translate3d(0, ${snapY}px, 0)`
+      : CSS.Transform.toString(transform),
+    transition: 'transform 150ms cubic-bezier(0.2, 0, 0, 1)',
+    position: 'relative',
+    zIndex: isDragging ? 50 : undefined,
+    backgroundColor: isDragging ? 'var(--background)' : undefined,
+    cursor: isDragEnabled ? 'grabbing' : undefined,
+  };
+}
 
 function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string; isDragEnabled: boolean; children: React.ReactNode }>) {
   const {
@@ -250,31 +434,8 @@ function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string;
     animateLayoutChanges: () => false,
   });
 
-  // Dragged row snaps to the target slot. Non-dragged rows use dnd-kit's own shift
-  // transform so they fill the gap the dragged row leaves behind. We override transition
-  // for both so they share the exact same timing and never cross paths mid-animation.
-  const snapY =
-    isDragging && rect.current && activeIndex !== -1
-      ? ((overIndex !== -1 ? overIndex : activeIndex) - activeIndex) * rect.current.height
-      : 0;
-
-  // Only apply drag-related layout styles while a sort is in progress. When idle, leave
-  // the row completely alone so there are no stray stacking contexts or transitions that
-  // could flicker during normal hover.
-  const style: React.CSSProperties = isSorting
-    ? {
-        transform: isDragging
-          ? `translate3d(0, ${snapY}px, 0)`
-          : CSS.Transform.toString(transform),
-        transition: 'transform 150ms cubic-bezier(0.2, 0, 0, 1)',
-        position: 'relative',
-        zIndex: isDragging ? 50 : undefined,
-        backgroundColor: isDragging ? 'var(--background)' : undefined,
-        cursor: isDragEnabled ? 'grabbing' : undefined,
-      }
-    : {
-        cursor: isDragEnabled ? 'grab' : undefined,
-      };
+  const snapY = computeDragSnapY(isDragging, rect.current?.height, activeIndex, overIndex);
+  const style = buildSortableRowStyle({ isSorting, isDragging, isDragEnabled, snapY, transform });
 
   return (
     <div ref={setNodeRef} style={style} {...(isDragEnabled ? { ...attributes, ...listeners } : {})}>
@@ -338,22 +499,7 @@ export function MyTasksClient({
         // server catches up.
         const merged: Task[] = fresh.map((f) => {
           const p = prevById.get(f.id);
-          if (!p) return f;
-          const out: Task = { ...f };
-          if ((f.assigneeIds?.length ?? 0) < (p.assigneeIds?.length ?? 0)) {
-            out.assigneeIds = p.assigneeIds;
-          }
-          if ((f.assignees?.length ?? 0) < (p.assignees?.length ?? 0)) {
-            out.assignees = p.assignees;
-          }
-          if (out.duration == null && p.duration != null) out.duration = p.duration;
-          if (out.estimatedHours == null && p.estimatedHours != null) out.estimatedHours = p.estimatedHours;
-          if (out.startDate == null && p.startDate != null) out.startDate = p.startDate;
-          if (out.dueDate == null && p.dueDate != null) out.dueDate = p.dueDate;
-          if (out.priority == null && p.priority != null) out.priority = p.priority;
-          if ((!out.labels || out.labels.length === 0) && p.labels?.length) out.labels = p.labels;
-          if (!out.description && p.description) out.description = p.description;
-          return out;
+          return p ? mergeOptimisticTaskFields(f, p) : f;
         });
 
         const optimisticOnly = prev.filter((p) => !freshById.has(p.id));
@@ -501,19 +647,7 @@ export function MyTasksClient({
   const projectOptions = projects.map(p => ({ id: p.id, name: p.name }));
   const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
 
-  const handleSaveTask = (data: {
-    title: string;
-    description?: string;
-    status: Task['status'];
-    priority?: 'low' | 'medium' | 'high';
-    assigneeId?: string;
-    assigneeIds?: string[];
-    dueDate?: Date;
-    duration?: number;
-    linkedCompanyId?: string;
-    labels?: string[];
-    repeat?: { frequency: string; interval?: number; unit?: string };
-  }) => {
+  const handleSaveTask = (data: SaveTaskFormData) => {
     const selectedProject = data.linkedCompanyId ? projectById[data.linkedCompanyId] : projects[0];
 
     startTransition(async () => {
@@ -532,25 +666,7 @@ export function MyTasksClient({
       });
       if (result.success && result.data) {
         const newTask = transformApiTask(result.data);
-        // API response may not include all fields, fill from the form data the user just entered
-        if (!newTask.assignee && data.assigneeId) {
-          const member = availableAssignees.find(a => a.id === data.assigneeId);
-          if (member) {
-            newTask.assignee = member.name;
-            newTask.assigneeId = data.assigneeId;
-          }
-        }
-        if (!newTask.project && selectedProject) {
-          newTask.project = selectedProject.name;
-          newTask.projectId = selectedProject.id;
-        }
-        if (!newTask.dueDate && data.dueDate) newTask.dueDate = data.dueDate;
-        if (!newTask.priority && data.priority) newTask.priority = data.priority;
-        if ((!newTask.labels || newTask.labels.length === 0) && data.labels?.length) {
-          newTask.labels = data.labels;
-        }
-        if (!newTask.description && data.description) newTask.description = data.description;
-        if (newTask.duration == null && data.duration != null) newTask.duration = data.duration;
+        fillNewTaskFromForm(newTask, data, selectedProject, availableAssignees);
         setTasks(prev => [newTask, ...prev]);
         setShowTaskDialog(false);
         toast.success(t.projects.myTasks.taskCreated);
@@ -760,26 +876,7 @@ export function MyTasksClient({
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...data } : t));
     setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...data } : prev);
 
-    const apiData: Record<string, unknown> = { ...data };
-    if (data.dueDate !== undefined) {
-      apiData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
-    }
-    if (data.assigneeIds !== undefined) {
-      const ids = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
-      apiData.assigneeIds = ids.length > 0 ? ids : null;
-      delete apiData.assigneeId;
-      delete apiData.assignee;
-      delete apiData.assignees;
-    } else if (data.assignees !== undefined) {
-      const ids = data.assignees?.map((a) => a.id) ?? [];
-      apiData.assigneeIds = ids.length > 0 ? ids : null;
-      delete apiData.assigneeId;
-      delete apiData.assignee;
-      delete apiData.assignees;
-    } else if (data.assigneeId !== undefined && data.assignee !== undefined) {
-      apiData.assigneeId = data.assigneeId;
-      delete apiData.assignee;
-    }
+    const apiData = buildTaskUpdatePayload(data);
 
     // Prefer the project-scoped task update endpoint (which already supports
     // multi-assignees) when the task has a projectId; fall back to the
@@ -995,14 +1092,23 @@ export function MyTasksClient({
     return (
       <div
         key={task.id}
+        role="button"
+        tabIndex={0}
         onClick={() => setSelectedTask(task)}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setSelectedTask(task);
+          }
+        }}
         className={cn(
           "flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group",
           task.status === 'done' && "opacity-50"
         )}
       >
         {/* Checkbox */}
-        <div className="w-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="w-4 flex-shrink-0" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Checkbox
             checked={task.status === 'done'}
             onCheckedChange={() => toggleTaskStatus(task.id)}
@@ -1043,9 +1149,7 @@ export function MyTasksClient({
           {task.repeat && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 flex-shrink-0">
               <Repeat className="h-2.5 w-2.5" />
-              {task.repeat.frequency === 'custom' && task.repeat.interval && task.repeat.unit
-                ? `${task.repeat.interval}${task.repeat.unit.charAt(0)}`
-                : task.repeat.frequency === 'biweekly' ? '2w' : task.repeat.frequency.charAt(0).toUpperCase()}
+              {formatRepeatBadge(task.repeat)}
             </span>
           )}
         </div>
@@ -1060,7 +1164,7 @@ export function MyTasksClient({
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", status.color, status.bg)}>
@@ -1084,7 +1188,7 @@ export function MyTasksClient({
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1108,7 +1212,7 @@ export function MyTasksClient({
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1143,7 +1247,7 @@ export function MyTasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           {(() => {
             // Derive full assignee list from assigneeIds + availableAssignees directory.
             // Falls back to enriched `assignees` or the single assignee when needed.
@@ -1230,22 +1334,12 @@ export function MyTasksClient({
                       <Button
                         key={member.id}
                         variant="ghost"
-                        onClick={() => {
-                          const nextIds = isSelected
-                            ? resolvedIds.filter((id) => id !== member.id)
-                            : [...resolvedIds, member.id];
-                          const nextAssignees = nextIds.map((id) => {
-                            const m = availableAssignees.find((x) => x.id === id);
-                            return { id, name: m?.name || '', avatar: m?.avatar };
-                          });
-                          const primary = nextAssignees[0];
-                          updateTaskInline(task.id, {
-                            assigneeId: primary?.id ?? null,
-                            assignee: primary?.name,
-                            assigneeIds: nextIds,
-                            assignees: nextAssignees,
-                          });
-                        }}
+                        onClick={() =>
+                          updateTaskInline(
+                            task.id,
+                            buildAssigneeToggleUpdate(resolvedIds, member.id, isSelected, availableAssignees),
+                          )
+                        }
                         className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
                       >
                         <span className="flex items-center gap-2">
@@ -1283,7 +1377,7 @@ export function MyTasksClient({
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

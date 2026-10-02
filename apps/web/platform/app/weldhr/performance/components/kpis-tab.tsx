@@ -26,6 +26,12 @@ import { KpiValueDialog } from './kpi-value-dialog';
 
 type DialogState = { kind: 'create' } | { kind: 'edit'; value: HrKpiValue } | null;
 
+function renderOnTarget(onTarget: boolean | null) {
+  if (onTarget === null) return <span className="text-muted-foreground">—</span>;
+  if (onTarget) return <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />;
+  return <X className="h-4 w-4 text-destructive" />;
+}
+
 export function KpisTab() {
   const t = useTranslations();
   const { can } = usePermissions();
@@ -124,14 +130,7 @@ export function KpisTab() {
       id: 'onTarget',
       header: t('weldhr.performance.kpis.table.onTarget'),
       width: 'w-[100px]',
-      render: (v) =>
-        v.onTarget === null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : v.onTarget ? (
-          <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-        ) : (
-          <X className="h-4 w-4 text-destructive" />
-        ),
+      render: (v) => renderOnTarget(v.onTarget),
     },
     {
       id: 'shared',

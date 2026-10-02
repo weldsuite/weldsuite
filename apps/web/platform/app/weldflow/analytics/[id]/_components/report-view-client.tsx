@@ -172,7 +172,7 @@ export function ReportViewClient({ report, charts }: Readonly<ReportViewClientPr
               nameKey="label"
             >
               {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.fill || CHART_COLORS[index % CHART_COLORS.length]} />
+                <Cell key={entry.label} fill={entry.fill || CHART_COLORS[index % CHART_COLORS.length]} />
               ))}
             </Pie>
             <Tooltip />

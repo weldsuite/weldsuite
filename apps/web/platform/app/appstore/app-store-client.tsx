@@ -68,6 +68,8 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
 
   const installApp = useInstallApp();
   const uninstallApp = useUninstallApp();
+  const appActionLabel = (isInstalled: boolean | undefined) =>
+    isInstalled ? t.appstore.uninstall : t.appstore.install;
 
   async function handleInstallApp(app: AvailableApp) {
     try {
@@ -177,7 +179,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                     variant="ghost"
                     onClick={() => scrollToCategory(category)}
                     className={cn(
-                      'py-2 px-3 text-left text-sm border-none rounded-lg cursor-pointer transition-all -ml-3 mr-3',
+                      'justify-start py-2 px-3 text-left text-sm border-none rounded-lg cursor-pointer transition-all -ml-3 mr-3',
                       'hover:bg-accent hover:text-foreground',
                       'text-muted-foreground font-normal'
                     )}
@@ -237,10 +239,8 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                         >
                           {loadingApp === app.code ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : app.isInstalled ? (
-                            t.appstore.uninstall
                           ) : (
-                            t.appstore.install
+                            appActionLabel(app.isInstalled)
                           )}
                         </Button>
                       )}

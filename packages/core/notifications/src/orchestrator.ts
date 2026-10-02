@@ -25,9 +25,14 @@ import type { CreateNotificationParams, NotificationEnv } from './types';
  */
 export const EMAIL_DEFER_MINUTES = 2;
 
+function randomBase36(length: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 function generateNotificationId(): string {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 10);
+  const random = randomBase36(8);
   return `notif_${timestamp}${random}`;
 }
 
@@ -94,6 +99,236 @@ function androidDelivery(
   return { priority: 'default' };
 }
 
+/** Deliver the notification to the user's live in-app topic. Never throws. */
+async function deliverInApp<Env extends NotificationEnv>(
+  params: CreateNotificationParams<Env>,
+  id: string,
+  now: Date,
+): Promise<void> {
+  const { env, workspaceId, userId } = params;
+  try {
+    await publishInAppNotification({
+      realtime: env.REALTIME,
+      workspaceId,
+      userId,
+      notification: {
+        id,
+        title: params.title,
+        body: params.body,
+        category: params.category,
+        notificationType: params.notificationType,
+        actionUrl: params.actionUrl,
+        entityType: params.entityType,
+        entityId: params.entityId,
+        // Platform realtime handler crashes without a parseable createdAt
+        // (`new Date(undefined).toISOString()` → RangeError), which silently
+        // dropped every live WeldChat (and other) in-app notification.
+        createdAt: now.toISOString(),
+        isRead: false,
+        severity: params.severity,
+        actorType: params.actorType ?? null,
+        actorId: params.actorId ?? null,
+      },
+    });
+  } catch (err) {
+    console.error('[Notifications] In-app publish failed:', err);
+  }
+}
+
+/**
+ * Hand the email to the deferred-email workflow when the host worker binds
+ * one: it waits out EMAIL_DEFER_MINUTES and re-checks that the recipient is
+ * still away and the notification still unread, so a user who comes back and
+ * reads it never gets the mail. Workers without the binding keep the original
+ * immediate send — the presence gate already spared them the worst of it
+ * (mailing someone who is online).
+ */
+async function sendOrDeferEmail<Env extends NotificationEnv>(
+  params: CreateNotificationParams<Env>,
+  id: string,
+  now: Date,
+  apiKey: string,
+  to: string,
+): Promise<void> {
+  const { env, workspaceId, userId, title, body, emailTemplate } = params;
+  if (env.DEFERRED_NOTIFICATION_EMAIL) {
+    await env.DEFERRED_NOTIFICATION_EMAIL.create({
+      // One instance per notification: idempotent under retries, and the
+      // id is enough to find the instance again.
+      id: `email-${id}`,
+      params: {
+        workspaceId,
+        userId,
+        notificationId: id,
+        to,
+        subject: title,
+        fallbackText: body,
+        sendAfter: new Date(now.getTime() + EMAIL_DEFER_MINUTES * 60_000).toISOString(),
+        template: emailTemplate,
+      },
+    });
+    return;
+  }
+  await sendNotificationEmail({
+    apiKey,
+    to,
+    subject: title,
+    fallbackText: body,
+    template: emailTemplate,
+  });
+}
+
+/** Email the recipient (immediately or deferred). Never throws. */
+async function deliverEmail<Env extends NotificationEnv>(
+  params: CreateNotificationParams<Env>,
+  id: string,
+  now: Date,
+  apiKey: string,
+): Promise<void> {
+  try {
+    const [member] = await params.db
+      .select({ email: schema.workspaceMembers.email })
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.userId, params.userId))
+      .limit(1);
+
+    if (member?.email) {
+      await sendOrDeferEmail(params, id, now, apiKey, member.email);
+    }
+  } catch (err) {
+    console.error('[Notifications] Email send failed:', err);
+  }
+}
+
+/**
+ * Group active device tokens by appCode before calling Expo. Tokens from
+ * different EAS projects (weldchat vs weldsuite vs weldmail …) in one request
+ * get the whole batch rejected with HTTP 400.
+ */
+function groupTokensByAppCode(
+  tokens: Array<{ token: string | null; appCode: string }>,
+): Map<string, string[]> {
+  const byAppCode = new Map<string, string[]>();
+  for (const row of tokens) {
+    if (!row.token) continue;
+    const list = byAppCode.get(row.appCode) ?? [];
+    list.push(row.token);
+    byAppCode.set(row.appCode, list);
+  }
+  return byAppCode;
+}
+
+/**
+ * Expo `data` must be string→string. Never put a conversation UUID in
+ * `data.channelId` — on Android that key is the notification-channel id
+ * and a UUID silently drops the banner (manual push with channelId
+ * "chat" still works). Strip/rename defensively so helpers can't regress.
+ */
+function buildPushData<Env extends NotificationEnv>(
+  params: CreateNotificationParams<Env>,
+): Record<string, string> {
+  const pushData: Record<string, string> = {
+    actionUrl: params.actionUrl ?? '',
+    entityType: params.entityType ?? '',
+    entityId: params.entityId ?? '',
+    notificationType: params.notificationType,
+    ...(params.clerkOrgId ? { clerkOrgId: params.clerkOrgId } : {}),
+  };
+  for (const [key, value] of Object.entries(params.data ?? {})) {
+    if (value == null) continue;
+    const str = typeof value === 'string' ? value : String(value);
+    if (key === 'channelId') {
+      if (!pushData.chatChannelId) pushData.chatChannelId = str;
+      continue;
+    }
+    pushData[key] = str;
+  }
+  return pushData;
+}
+
+/** Send one Expo batch per appCode; returns every token Expo rejected. */
+async function sendPushBatches<Env extends NotificationEnv>(
+  params: CreateNotificationParams<Env>,
+  byAppCode: Map<string, string[]>,
+): Promise<string[]> {
+  const { userId, title, body, category, notificationType } = params;
+  const { channelId, priority } = androidDelivery(category, notificationType);
+  const pushData = buildPushData(params);
+
+  const allInvalid: string[] = [];
+  for (const [appCode, appTokens] of byAppCode) {
+    const messages: ExpoPushMessage[] = appTokens.map((token) => ({
+      to: token,
+      title,
+      body,
+      sound: 'default',
+      // Ensure the app icon badge updates on arrival (orchestrator never
+      // sent a count before; clients reconcile the real unread total via
+      // realtime / API).
+      badge: 1,
+      ...(channelId ? { channelId } : {}),
+      priority,
+      data: pushData,
+    }));
+    console.log(
+      `[Notifications] Expo push attempt user=${userId} type=${notificationType} appCode=${appCode} tokens=${appTokens.length} androidChannel=${channelId ?? 'none'} dataKeys=${Object.keys(pushData).join(',')}`,
+    );
+    const { invalidTokens, tickets } = await sendExpoPush(messages);
+    const ticketErrors = tickets.filter((t) => t.status === 'error');
+    if (ticketErrors.length > 0) {
+      console.error(
+        '[Notifications] Expo push ticket errors:',
+        ticketErrors.map((t) => ({ message: t.message, error: t.details?.error })),
+      );
+    }
+    allInvalid.push(...invalidTokens.filter(Boolean));
+  }
+  return allInvalid;
+}
+
+/** Push to the user's active devices for this category's app(s). Never throws. */
+async function deliverPush<Env extends NotificationEnv>(
+  params: CreateNotificationParams<Env>,
+): Promise<void> {
+  const { db, userId, category } = params;
+  try {
+    // Scope to ACTIVE tokens (isActive IS NULL) for the app(s) this category
+    // targets — never fan a module notification to every app the user has
+    // installed (wrong EAS project + cross-app spam) or to deactivated tokens.
+    const appCodes = appCodesForCategory(category);
+    const tokens = await db
+      .select({ token: schema.deviceTokens.token, appCode: schema.deviceTokens.appCode })
+      .from(schema.deviceTokens)
+      .where(
+        and(
+          eq(schema.deviceTokens.userId, userId),
+          isNull(schema.deviceTokens.isActive),
+          inArray(schema.deviceTokens.appCode, appCodes),
+        ),
+      );
+
+    const byAppCode = groupTokensByAppCode(tokens);
+    if (byAppCode.size === 0) {
+      console.warn(
+        `[Notifications] No active push tokens for user=${userId} category=${category} appCodes=${appCodes.join(',')}`,
+      );
+      return;
+    }
+
+    const allInvalid = await sendPushBatches(params, byAppCode);
+
+    // Drop DeviceNotRegistered / non-Expo tokens so we stop retrying them.
+    if (allInvalid.length > 0) {
+      await db
+        .update(schema.deviceTokens)
+        .set({ isActive: new Date(), updatedAt: new Date() })
+        .where(inArray(schema.deviceTokens.token, allInvalid));
+    }
+  } catch (err) {
+    console.error('[Notifications] Push send failed:', err);
+  }
+}
+
 /**
  * Create a notification and deliver it via every enabled channel.
  * Returns the notification id, or `null` when all channels were skipped
@@ -105,7 +340,6 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
   const {
     db,
     env,
-    workspaceId,
     userId,
     title,
     body,
@@ -117,10 +351,7 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
     severity,
     actorType,
     actorId,
-    emailTemplate,
     excludeChannels,
-    data: extraData,
-    clerkOrgId,
   } = params;
 
   const channels = await getChannelPreferences(db, userId, category);
@@ -128,10 +359,8 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
   // Subtractive channel exclusions — a notification may opt OUT of a channel
   // (e.g. call rings never email) regardless of the user's preferences. This
   // can only turn a channel off, never on.
-  if (excludeChannels?.length) {
-    for (const channel of excludeChannels) {
-      channels[channel] = false;
-    }
+  for (const channel of excludeChannels ?? []) {
+    channels[channel] = false;
   }
 
   // Presence gate for email only. A connected recipient does not need mail
@@ -176,178 +405,9 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
     createdAt: now,
   });
 
-  if (channels.inApp) {
-    try {
-      await publishInAppNotification({
-        realtime: env.REALTIME,
-        workspaceId,
-        userId,
-        notification: {
-          id,
-          title,
-          body,
-          category,
-          notificationType,
-          actionUrl,
-          entityType,
-          entityId,
-          // Platform realtime handler crashes without a parseable createdAt
-          // (`new Date(undefined).toISOString()` → RangeError), which silently
-          // dropped every live WeldChat (and other) in-app notification.
-          createdAt: now.toISOString(),
-          isRead: false,
-          severity,
-          actorType: actorType ?? null,
-          actorId: actorId ?? null,
-        },
-      });
-    } catch (err) {
-      console.error('[Notifications] In-app publish failed:', err);
-    }
-  }
-
-  if (willEmail && env.RESEND_API_KEY) {
-    try {
-      const [member] = await db
-        .select({ email: schema.workspaceMembers.email })
-        .from(schema.workspaceMembers)
-        .where(eq(schema.workspaceMembers.userId, userId))
-        .limit(1);
-
-      if (member?.email) {
-        // Hand the send to the deferred-email workflow when the host worker
-        // binds one: it waits out EMAIL_DEFER_MINUTES and re-checks that the
-        // recipient is still away and the notification still unread, so a user
-        // who comes back and reads it never gets the mail. Workers without the
-        // binding keep the original immediate send — the presence gate above
-        // already spared them the worst of it (mailing someone who is online).
-        if (env.DEFERRED_NOTIFICATION_EMAIL) {
-          await env.DEFERRED_NOTIFICATION_EMAIL.create({
-            // One instance per notification: idempotent under retries, and the
-            // id is enough to find the instance again.
-            id: `email-${id}`,
-            params: {
-              workspaceId,
-              userId,
-              notificationId: id,
-              to: member.email,
-              subject: title,
-              fallbackText: body,
-              sendAfter: new Date(now.getTime() + EMAIL_DEFER_MINUTES * 60_000).toISOString(),
-              template: emailTemplate,
-            },
-          });
-        } else {
-          await sendNotificationEmail({
-            apiKey: env.RESEND_API_KEY,
-            to: member.email,
-            subject: title,
-            fallbackText: body,
-            template: emailTemplate,
-          });
-        }
-      }
-    } catch (err) {
-      console.error('[Notifications] Email send failed:', err);
-    }
-  }
-
-  if (channels.push) {
-    try {
-      // Scope to ACTIVE tokens (isActive IS NULL) for the app(s) this category
-      // targets — never fan a module notification to every app the user has
-      // installed (wrong EAS project + cross-app spam) or to deactivated tokens.
-      const appCodes = appCodesForCategory(category);
-      const tokens = await db
-        .select({ token: schema.deviceTokens.token, appCode: schema.deviceTokens.appCode })
-        .from(schema.deviceTokens)
-        .where(
-          and(
-            eq(schema.deviceTokens.userId, userId),
-            isNull(schema.deviceTokens.isActive),
-            inArray(schema.deviceTokens.appCode, appCodes),
-          ),
-        );
-
-      // Group by appCode before calling Expo. Tokens from different EAS
-      // projects (weldchat vs weldsuite vs weldmail …) in one request get the
-      // whole batch rejected with HTTP 400.
-      const byAppCode = new Map<string, string[]>();
-      for (const row of tokens) {
-        if (!row.token) continue;
-        const list = byAppCode.get(row.appCode) ?? [];
-        list.push(row.token);
-        byAppCode.set(row.appCode, list);
-      }
-
-      if (byAppCode.size === 0) {
-        console.warn(
-          `[Notifications] No active push tokens for user=${userId} category=${category} appCodes=${appCodes.join(',')}`,
-        );
-      } else {
-        const { channelId, priority } = androidDelivery(category, notificationType);
-        // Expo `data` must be string→string. Never put a conversation UUID in
-        // `data.channelId` — on Android that key is the notification-channel id
-        // and a UUID silently drops the banner (manual push with channelId
-        // "chat" still works). Strip/rename defensively so helpers can't regress.
-        const pushData: Record<string, string> = {
-          actionUrl: actionUrl ?? '',
-          entityType: entityType ?? '',
-          entityId: entityId ?? '',
-          notificationType,
-          ...(clerkOrgId ? { clerkOrgId } : {}),
-        };
-        for (const [key, value] of Object.entries(extraData ?? {})) {
-          if (value == null) continue;
-          const str = typeof value === 'string' ? value : String(value);
-          if (key === 'channelId') {
-            if (!pushData.chatChannelId) pushData.chatChannelId = str;
-            continue;
-          }
-          pushData[key] = str;
-        }
-
-        const allInvalid: string[] = [];
-        for (const [appCode, appTokens] of byAppCode) {
-          const messages: ExpoPushMessage[] = appTokens.map((token) => ({
-            to: token,
-            title,
-            body,
-            sound: 'default',
-            // Ensure the app icon badge updates on arrival (orchestrator never
-            // sent a count before; clients reconcile the real unread total via
-            // realtime / API).
-            badge: 1,
-            ...(channelId ? { channelId } : {}),
-            priority,
-            data: pushData,
-          }));
-          console.log(
-            `[Notifications] Expo push attempt user=${userId} type=${notificationType} appCode=${appCode} tokens=${appTokens.length} androidChannel=${channelId ?? 'none'} dataKeys=${Object.keys(pushData).join(',')}`,
-          );
-          const { invalidTokens, tickets } = await sendExpoPush(messages);
-          const ticketErrors = tickets.filter((t) => t.status === 'error');
-          if (ticketErrors.length > 0) {
-            console.error(
-              '[Notifications] Expo push ticket errors:',
-              ticketErrors.map((t) => ({ message: t.message, error: t.details?.error })),
-            );
-          }
-          allInvalid.push(...invalidTokens.filter(Boolean));
-        }
-
-        // Drop DeviceNotRegistered / non-Expo tokens so we stop retrying them.
-        if (allInvalid.length > 0) {
-          await db
-            .update(schema.deviceTokens)
-            .set({ isActive: new Date(), updatedAt: new Date() })
-            .where(inArray(schema.deviceTokens.token, allInvalid));
-        }
-      }
-    } catch (err) {
-      console.error('[Notifications] Push send failed:', err);
-    }
-  }
+  if (channels.inApp) await deliverInApp(params, id, now);
+  if (willEmail && env.RESEND_API_KEY) await deliverEmail(params, id, now, env.RESEND_API_KEY);
+  if (channels.push) await deliverPush(params);
 
   return id;
 }

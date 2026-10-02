@@ -116,7 +116,7 @@ export function Branding() {
       rel="noopener noreferrer"
       className="group flex items-center justify-center gap-1 py-2 text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
     >
-      Powered by
+      Powered by{' '}
       <img
         src="/welddesk-logo.svg"
         alt="WeldDesk"

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull, like, or, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -22,6 +22,50 @@ const NUMERIC_FIELDS = new Set(['amount', 'expectedRevenue', 'recurringRevenue']
 /** Timestamp columns that arrive as ISO strings. */
 const DATE_FIELDS = new Set(['closeDate', 'startDate', 'nextStepDate']);
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Coerce one PATCH field to the shape its column expects. */
+function coerceUpdateValue(key: string, value: unknown): unknown {
+  if (NUMERIC_FIELDS.has(key)) return value == null ? value : String(value);
+  if (DATE_FIELDS.has(key) && typeof value === 'string') return new Date(value);
+  return value;
+}
+
+/** Build the Drizzle `set` payload from a PATCH body, skipping undefined fields. */
+function buildUpdatePayload(body: Record<string, unknown>): Record<string, unknown> {
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [k, v] of Object.entries(body)) {
+    if (v === undefined) continue;
+    update[k] = coerceUpdateValue(k, v);
+  }
+  return update;
+}
+
+type OpportunityRow = typeof table.$inferSelect;
+
+/** Publish `updated` plus any `stage_changed` / `won` / `lost` transition events. */
+function publishUpdateEvents(c: Context<HonoEnv>, id: string, existing: OpportunityRow, row: OpportunityRow): void {
+  const eventData = {
+    id,
+    name: row.name,
+    amount: row.amount ?? '0',
+    currency: row.currency,
+    stage: row.stage,
+    status: row.status,
+    customerId: row.customerId,
+    ownerId: row.ownerId,
+  };
+  publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: 'updated', data: eventData });
+  if (row.stage !== existing.stage) {
+    publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: 'stage_changed', data: eventData });
+  }
+  if (row.status === existing.status) return;
+  if (row.status === 'won') {
+    publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: 'won', data: eventData });
+  }
+  if (row.status === 'lost') {
+    publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: 'lost', data: eventData });
+  }
+}
 
 app.get('/', requireScope('opportunities:read'), zValidator('query', listOpportunitiesQuery), async (c) => {
   const db = c.get('tenantDb');
@@ -102,39 +146,14 @@ app.patch('/:id', requireScope('opportunities:write'), zValidator('json', update
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .limit(1);
   if (!existing) return error.notFound(c, 'Opportunity', id);
-  const update: Record<string, unknown> = { updatedAt: new Date() };
-  for (const [k, v] of Object.entries(body)) {
-    if (v === undefined) continue;
-    if (NUMERIC_FIELDS.has(k)) update[k] = v == null ? v : String(v);
-    else if (DATE_FIELDS.has(k) && typeof v === 'string') update[k] = new Date(v);
-    else update[k] = v;
-  }
+  const update = buildUpdatePayload(body as Record<string, unknown>);
   const [row] = await db
     .update(table)
     .set(update)
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .returning();
   if (!row) return error.internal(c, 'Failed to update opportunity');
-  const eventData = {
-    id,
-    name: row.name,
-    amount: row.amount ?? '0',
-    currency: row.currency,
-    stage: row.stage,
-    status: row.status,
-    customerId: row.customerId,
-    ownerId: row.ownerId,
-  };
-  publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: 'updated', data: eventData });
-  if (row.stage !== existing.stage) {
-    publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: 'stage_changed', data: eventData });
-  }
-  if (row.status !== existing.status && row.status === 'won') {
-    publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: 'won', data: eventData });
-  }
-  if (row.status !== existing.status && row.status === 'lost') {
-    publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: 'lost', data: eventData });
-  }
+  publishUpdateEvents(c, id, existing, row);
   return success(c, row);
 });
 

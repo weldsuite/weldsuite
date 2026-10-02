@@ -146,9 +146,8 @@ export default function DashboardScreen() {
           </Banner>
         ) : null}
 
-        {loading && !data ? (
-          <KpiSkeletonGrid />
-        ) : data ? (
+        {loading && !data ? <KpiSkeletonGrid /> : null}
+        {data ? (
           <KpiGrid>
             <KpiCard
               label={t.dashboard.outstanding}

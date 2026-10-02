@@ -54,11 +54,14 @@ function mapPeriodToApi(period: string): string {
   }
 }
 
+function activityTypeForStatus(status: string): ActivityType {
+  if (status === 'completed') return 'workflow_executed';
+  if (status === 'failed') return 'execution_failed';
+  return 'automation_triggered';
+}
+
 function mapExecutionToActivity(execution: WorkflowExecution, t: Translations): ActivityItem {
-  const type: ActivityType =
-    execution.status === 'completed' ? 'workflow_executed'
-      : execution.status === 'failed' ? 'execution_failed'
-        : 'automation_triggered';
+  const type = activityTypeForStatus(execution.status);
 
   const workflowName = execution.workflowName || t.weldconnect.executionDetail.unknownWorkflow;
 

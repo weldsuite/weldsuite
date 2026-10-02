@@ -16,7 +16,7 @@
  * burying content behind card chrome.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -340,6 +340,103 @@ interface DomainDnsTabProps {
   initialShowAddRecord?: boolean;
 }
 
+/** Badge text for a system-managed lock (which module owns the record). */
+function getLockLabel(
+  systemLock: ReturnType<typeof getDnsRecordLocks>[number] | undefined,
+  td: DomainDetailTranslations,
+): string {
+  if (!systemLock) return td.filterLocked;
+  if (systemLock.source === 'weldmail') return td.usedByEmail;
+  return td.usedBy.replace('{source}', systemLock.source);
+}
+
+/** Hover title for the TTL cell (exact seconds, or the "auto" label). */
+function getTtlTitle(ttl: number | null | undefined, autoLabel: string): string {
+  if (ttl == null) return '—';
+  if (ttl === 1) return autoLabel;
+  return `${ttl}s`;
+}
+
+function buildTypeChips(typeCounts: Map<string, number>): string[] {
+  const present: string[] = DNS_RECORD_TYPES.filter((type) => typeCounts.has(type));
+  // Include any unexpected types returned by CF that aren't in the create list.
+  for (const type of typeCounts.keys()) {
+    if (!present.includes(type)) present.push(type);
+  }
+  return present;
+}
+
+function filterDnsRecords(
+  records: HostDnsRecord[],
+  search: string,
+  typeFilter: string | null,
+): HostDnsRecord[] {
+  const q = search.trim().toLowerCase();
+  return records.filter((r) => {
+    if (typeFilter && r.type !== typeFilter) return false;
+    if (!q) return true;
+    return (
+      r.name.toLowerCase().includes(q) ||
+      r.value.toLowerCase().includes(q) ||
+      r.type.toLowerCase().includes(q)
+    );
+  });
+}
+
+interface TypeFilterChipsProps {
+  typeChips: string[];
+  typeCounts: Map<string, number>;
+  typeFilter: string | null;
+  totalCount: number;
+  allLabel: string;
+  onChange: Dispatch<SetStateAction<string | null>>;
+}
+
+function TypeFilterChips({
+  typeChips,
+  typeCounts,
+  typeFilter,
+  totalCount,
+  allLabel,
+  onChange,
+}: TypeFilterChipsProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <button
+        type="button"
+        aria-pressed={typeFilter === null}
+        onClick={() => onChange(null)}
+        className={cn(
+          'inline-flex h-6 items-center rounded px-2 text-[11px] font-medium transition-colors',
+          typeFilter === null
+            ? 'bg-foreground text-background'
+            : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+        )}
+      >
+        {allLabel}
+        <span className="ml-1 tabular-nums opacity-70">{totalCount}</span>
+      </button>
+      {typeChips.map((type) => (
+        <button
+          key={type}
+          type="button"
+          aria-pressed={typeFilter === type}
+          onClick={() => onChange((prev) => (prev === type ? null : type))}
+          className={cn(
+            'inline-flex h-6 items-center rounded px-2 font-mono text-[11px] font-medium transition-colors',
+            typeFilter === type
+              ? 'bg-foreground text-background'
+              : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+          )}
+        >
+          {type}
+          <span className="ml-1 tabular-nums opacity-70">{typeCounts.get(type)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function DomainDnsTab({
   domainId,
   records,
@@ -374,27 +471,12 @@ export function DomainDnsTab({
     return counts;
   }, [records]);
 
-  const typeChips = useMemo<string[]>(() => {
-    const present: string[] = DNS_RECORD_TYPES.filter((type) => typeCounts.has(type));
-    // Include any unexpected types returned by CF that aren't in the create list.
-    for (const type of typeCounts.keys()) {
-      if (!present.includes(type)) present.push(type);
-    }
-    return present;
-  }, [typeCounts]);
+  const typeChips = useMemo<string[]>(() => buildTypeChips(typeCounts), [typeCounts]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return records.filter((r) => {
-      if (typeFilter && r.type !== typeFilter) return false;
-      if (!q) return true;
-      return (
-        r.name.toLowerCase().includes(q) ||
-        r.value.toLowerCase().includes(q) ||
-        r.type.toLowerCase().includes(q)
-      );
-    });
-  }, [records, search, typeFilter]);
+  const filtered = useMemo(
+    () => filterDnsRecords(records, search, typeFilter),
+    [records, search, typeFilter],
+  );
 
   const openAdd = useCallback(() => {
     setEditingId(null);
@@ -466,39 +548,14 @@ export function DomainDnsTab({
 
       {/* Type filter chips — only when there are records to narrow */}
       {records.length > 0 && typeChips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1">
-          <button
-            type="button"
-            aria-pressed={typeFilter === null}
-            onClick={() => setTypeFilter(null)}
-            className={cn(
-              'inline-flex h-6 items-center rounded px-2 text-[11px] font-medium transition-colors',
-              typeFilter === null
-                ? 'bg-foreground text-background'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground',
-            )}
-          >
-            {td.filterAllTypes}
-            <span className="ml-1 tabular-nums opacity-70">{records.length}</span>
-          </button>
-          {typeChips.map((type) => (
-            <button
-              key={type}
-              type="button"
-              aria-pressed={typeFilter === type}
-              onClick={() => setTypeFilter((prev) => (prev === type ? null : type))}
-              className={cn(
-                'inline-flex h-6 items-center rounded px-2 font-mono text-[11px] font-medium transition-colors',
-                typeFilter === type
-                  ? 'bg-foreground text-background'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground',
-              )}
-            >
-              {type}
-              <span className="ml-1 tabular-nums opacity-70">{typeCounts.get(type)}</span>
-            </button>
-          ))}
-        </div>
+        <TypeFilterChips
+          typeChips={typeChips}
+          typeCounts={typeCounts}
+          typeFilter={typeFilter}
+          totalCount={records.length}
+          allLabel={td.filterAllTypes}
+          onChange={setTypeFilter}
+        />
       )}
 
       {isReadOnly && readOnlyReason && (
@@ -578,12 +635,7 @@ export function DomainDnsTab({
               // Locks are system-managed — users never lock/unlock from the UI,
               // they only see the protection and which module owns the record.
               const systemLock = locks.find((l) => l.source !== 'user');
-              const lockLabel =
-                systemLock?.source === 'weldmail'
-                  ? td.usedByEmail
-                  : systemLock
-                    ? td.usedBy.replace('{source}', systemLock.source)
-                    : td.filterLocked;
+              const lockLabel = getLockLabel(systemLock, td);
               const lockTooltip = locks.map((l) => l.reason).join('\n\n') || td.recordLocked;
               const hasPriority =
                 record.priority !== null && record.priority !== undefined;
@@ -634,13 +686,7 @@ export function DomainDnsTab({
 
                   <span
                     className="text-right text-[11px] tabular-nums text-muted-foreground"
-                    title={
-                      record.ttl == null
-                        ? '—'
-                        : record.ttl === 1
-                          ? td.ttlAuto
-                          : `${record.ttl}s`
-                    }
+                    title={getTtlTitle(record.ttl, td.ttlAuto)}
                   >
                     {formatTtl(record.ttl, td.ttlAuto)}
                   </span>

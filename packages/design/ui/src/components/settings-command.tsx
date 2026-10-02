@@ -260,7 +260,7 @@ export function SettingsCommand({
 
   const handleSave = () => {
     // Apply theme changes
-    document.documentElement.setAttribute('data-theme', state.theme)
+    document.documentElement.dataset.theme = state.theme
     document.documentElement.style.fontSize = `${state.fontSize}%`
     
     setHasChanges(false)

@@ -78,6 +78,11 @@ const SAMPLE_RETURNS = {
   }
 };
 
+function getTimelineDotClass(event: { completed?: boolean; current?: boolean }): string {
+  if (!event.completed) return 'bg-gray-200 text-gray-400';
+  return event.current ? 'bg-blue-600 text-white' : 'bg-green-600 text-white';
+}
+
 export default function TrackingPage({ params }: Readonly<{ params: Promise<{ id: string }> }>) {
   const { id } = use(params);
   const [returnData, setReturnData] = useState<any>(null);
@@ -240,13 +245,9 @@ export default function TrackingPage({ params }: Readonly<{ params: Promise<{ id
                 <CardContent>
                   <div className="space-y-4">
                     {returnData.timeline.map((event: any, index: number) => (
-                      <div key={index} className="flex gap-4">
+                      <div key={`${event.status}-${event.date}`} className="flex gap-4">
                         <div className="flex flex-col items-center">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                            event.completed
-                              ? event.current ? 'bg-blue-600 text-white' : 'bg-green-600 text-white'
-                              : 'bg-gray-200 text-gray-400'
-                          }`}>
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${getTimelineDotClass(event)}`}>
                             {event.completed ? <CheckCircle className="h-5 w-5" /> : <Clock className="h-5 w-5" />}
                           </div>
                           {index < returnData.timeline.length - 1 && (
@@ -277,7 +278,7 @@ export default function TrackingPage({ params }: Readonly<{ params: Promise<{ id
                 </CardHeader>
                 <CardContent>
                   {returnData.items.map((item: any, index: number) => (
-                    <div key={index} className="space-y-2">
+                    <div key={`${item.name}-${item.reason}`} className="space-y-2">
                       <div className="flex justify-between">
                         <span className="font-medium">{item.name}</span>
                         <span className="text-sm text-gray-600">Qty: {item.quantity}</span>

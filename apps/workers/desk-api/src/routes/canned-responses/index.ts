@@ -5,9 +5,11 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createCannedResponseSchema, updateCannedResponseSchema } from '@weldsuite/core-api-client/schemas/canned-responses';
@@ -51,28 +53,36 @@ function interpolateVariables(text: string, context: Record<string, unknown>): s
   });
 }
 
+const isNonEmpty = (v: string | undefined): v is string => v !== undefined && v !== '';
+
+/** Keyset condition for the page after `cursorId` (createdAt DESC, id DESC). */
+async function keysetCondition(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  cursorId: string | undefined,
+): Promise<SQL | undefined> {
+  if (!cursorId) return undefined;
+  const db = c.get('tenantDb');
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('tickets:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.departmentId !== undefined && q.departmentId !== '') conditions.push(eq(t.departmentId, q.departmentId));
-  if (q.category !== undefined && q.category !== '') conditions.push(eq(t.category, q.category));
+  if (isNonEmpty(q.departmentId)) conditions.push(eq(t.departmentId, q.departmentId));
+  if (isNonEmpty(q.category)) conditions.push(eq(t.category, q.category));
   if (q.search) {
     const term = `%${q.search}%`;
     conditions.push(or(like(t.name, term), like(t.subject, term))!);
   }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
+  const cursorCondition = await keysetCondition(c, q.cursor);
+  if (cursorCondition) conditions.push(cursorCondition);
   const where = conditions.length ? and(...conditions) : undefined;
   const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
   const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
@@ -157,7 +167,7 @@ app.get('/categories', requirePermission('tickets:read'), async (c) => {
     const categories = rows
       .map((r) => r.category)
       .filter((cat): cat is string => cat !== null)
-      .sort();
+      .sort((a, b) => a.localeCompare(b));
 
     return success(c, categories);
   } catch (err) {

@@ -245,6 +245,20 @@ const FieldCombobox = ({
   );
 };
 
+/**
+ * Rows without a natural id get a stable key: the row's own content plus a
+ * running occurrence counter, so identical rows still receive unique keys.
+ */
+function keyRows<T>(rows: readonly T[], toKey: (row: T) => string): { key: string; row: T }[] {
+  const seen = new Map<string, number>();
+  return rows.map((row) => {
+    const base = toKey(row);
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return { key: `${base}#${occurrence}`, row };
+  });
+}
+
 interface DataPreviewListProps {
   currentFocusedField: string | null;
   data: Record<string, unknown>[];
@@ -262,17 +276,17 @@ const DataPreviewList = ({ currentFocusedField, data }: DataPreviewListProps) =>
         {t.projects.settings.sampleValuesFor.replace('{field}', currentFocusedField)}
       </p>
       <ul>
-        {previewData.map((item, index) => {
-          const value = safeString(item[currentFocusedField]);
-          return (
-            <li
-              key={index}
-              className="border-b py-3 text-sm first:border-t last:border-b-0 truncate"
-            >
-              {value || <span className="text-muted-foreground italic">{t.projects.settings.emptyValue}</span>}
-            </li>
-          );
-        })}
+        {keyRows(
+          previewData.map((item) => safeString(item[currentFocusedField])),
+          (value) => value,
+        ).map(({ key, row: value }) => (
+          <li
+            key={key}
+            className="border-b py-3 text-sm first:border-t last:border-b-0 truncate"
+          >
+            {value || <span className="text-muted-foreground italic">{t.projects.settings.emptyValue}</span>}
+          </li>
+        ))}
       </ul>
       {data.length > 5 && (
         <p className="text-xs text-muted-foreground">
@@ -301,6 +315,33 @@ interface JobStatus {
   failed: number;
   errors?: { row: number; title: string; error: string }[];
   errorMessage?: string | null;
+}
+
+type ImportTranslations = ReturnType<typeof useI18n>['t'];
+
+// Toast summarising a finished (completed or failed) import job.
+function notifyImportFinished(job: JobStatus, t: ImportTranslations): void {
+  if (job.status === "failed") {
+    toast.error(job.errorMessage || t.projects.settings.failedToStartImport);
+    return;
+  }
+
+  const successCount = job.imported + job.updated;
+  if (job.failed === 0) {
+    const parts: string[] = [];
+    if (job.imported > 0) parts.push(`${job.imported} ${t.projects.settings.importedLabel.toLowerCase()}`);
+    if (job.updated > 0) parts.push(`${job.updated} ${t.projects.settings.updatedLabel.toLowerCase()}`);
+    toast.success(t.projects.settings.importSuccessAll.replace('{parts}', parts.join(", ") || t.projects.settings.processedLabel.toLowerCase()));
+  } else if (successCount > 0) {
+    toast.warning(
+      t.projects.settings.importSuccessPartial
+        .replace('{success}', String(successCount))
+        .replace('{total}', String(job.total))
+        .replace('{failed}', String(job.failed)),
+    );
+  } else {
+    toast.error(t.projects.settings.importAllFailed.replace('{failed}', String(job.failed)));
+  }
 }
 
 interface ImportTasksDialogProps {
@@ -347,7 +388,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    a.remove();
     URL.revokeObjectURL(url);
   }, []);
 
@@ -619,26 +660,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
             setStep("result");
             setIsImporting(false);
 
-            if (job.status === "failed") {
-              toast.error(job.errorMessage || t.projects.settings.failedToStartImport);
-            } else {
-              const successCount = job.imported + job.updated;
-              if (job.failed === 0) {
-                const parts: string[] = [];
-                if (job.imported > 0) parts.push(`${job.imported} ${t.projects.settings.importedLabel.toLowerCase()}`);
-                if (job.updated > 0) parts.push(`${job.updated} ${t.projects.settings.updatedLabel.toLowerCase()}`);
-                toast.success(t.projects.settings.importSuccessAll.replace('{parts}', parts.join(", ") || t.projects.settings.processedLabel.toLowerCase()));
-              } else if (successCount > 0) {
-                toast.warning(
-                  t.projects.settings.importSuccessPartial
-                    .replace('{success}', String(successCount))
-                    .replace('{total}', String(job.total))
-                    .replace('{failed}', String(job.failed)),
-                );
-              } else {
-                toast.error(t.projects.settings.importAllFailed.replace('{failed}', String(job.failed)));
-              }
-            }
+            notifyImportFinished(job, t);
           }
         } catch (pollErr) {
           console.error("[Import] Poll error:", pollErr);
@@ -952,8 +974,8 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
                   </h4>
                   <ScrollArea className="h-[160px] border rounded-md p-3">
                     <ul className="space-y-1.5 text-xs">
-                      {jobStatus.errors.slice(0, 50).map((err, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
+                      {keyRows(jobStatus.errors.slice(0, 50), (err) => `${err.row}|${err.title}|${err.error}`).map(({ key, row: err }) => (
+                        <li key={key} className="flex items-start gap-2">
                           {err.row > 0 && (
                             <span className="text-muted-foreground">{t.projects.settings.rowPrefix.replace('{n}', String(err.row))}</span>
                           )}
@@ -1003,8 +1025,8 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
                   <h4 className="font-medium mb-2">{t.projects.settings.errorDetailsHeading}</h4>
                   <ScrollArea className="h-[200px] border rounded-md p-4">
                     <ul className="space-y-2 text-sm">
-                      {importResult.errors.map((err, index) => (
-                        <li key={index} className="flex items-start gap-2">
+                      {keyRows(importResult.errors, (err) => `${err.row}|${err.title}|${err.error}`).map(({ key, row: err }) => (
+                        <li key={key} className="flex items-start gap-2">
                           <span className="text-muted-foreground">{t.projects.settings.rowPrefix.replace('{n}', String(err.row))}</span>
                           <span className="text-red-600">{err.title} - {err.error}</span>
                         </li>

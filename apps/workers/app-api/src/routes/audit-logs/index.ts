@@ -6,14 +6,14 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createAuditLogSchema, updateAuditLogSchema } from '@weldsuite/core-api-client/schemas/audit-logs';
 import type { Env, Variables } from '../../types';
 import type { PaginationMeta } from '@weldsuite/worker-kit/response';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.auditLogs;
@@ -38,6 +38,103 @@ function parseDateParam(value: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** A query param counts as supplied only when present and non-empty. */
+function hasValue(value: string | undefined): value is string {
+  return value !== undefined && value !== '';
+}
+
+interface ListPaging {
+  limit: number;
+  page: number;
+  pageSize: number;
+  useCursor: boolean;
+}
+
+/** Resolve cursor-vs-offset mode plus the clamped limit / page / pageSize. */
+function parseListPaging(q: Record<string, string>): ListPaging {
+  // Clamp rather than reject, matching this route's existing behaviour — a
+  // stricter validator would start 400ing requests that succeed today.
+  const limit = Math.min(Math.max(q.limit ? Number.parseInt(q.limit, 10) : 25, 1), 100);
+  const rawPage = hasValue(q.page) ? Number.parseInt(q.page, 10) : Number.NaN;
+  const rawPageSize = hasValue(q.pageSize) ? Number.parseInt(q.pageSize, 10) : Number.NaN;
+  // A cursor always wins; offset mode engages only on an explicit, valid `page`.
+  const useCursor = q.cursor !== undefined || Number.isNaN(rawPage);
+  const page = Number.isNaN(rawPage) ? 1 : Math.max(rawPage, 1);
+  // Legacy api-worker paged by `limit`; `/api/tasks` uses `pageSize`. Accept both.
+  const pageSize = Number.isNaN(rawPageSize) ? limit : Math.min(Math.max(rawPageSize, 1), 100);
+  return { limit, page, pageSize, useCursor };
+}
+
+/** Query params that filter by exact column equality. */
+const EQUALITY_FILTERS = [
+  ['action', t.action],
+  ['entityType', t.entityType],
+  ['entityId', t.entityId],
+  // performedBy/startDate/endDate reach parity with the legacy api-worker route.
+  // settings/activity ships date filters, so without these they'd silently no-op.
+  ['performedBy', t.performedBy],
+] as const;
+
+/** Query params that bound `createdAt` by an ISO 8601 date. */
+const DATE_FILTERS = [
+  { param: 'startDate', apply: (d: Date) => gte(t.createdAt, d) },
+  { param: 'endDate', apply: (d: Date) => lte(t.createdAt, d) },
+] as const;
+
+/** Build the list filter conditions, or the 400 message for an invalid date. */
+function buildListFilters(q: Record<string, string>): { conditions: SQL[] } | { errorMessage: string } {
+  const conditions: SQL[] = [];
+  for (const [param, column] of EQUALITY_FILTERS) {
+    const value = q[param];
+    if (hasValue(value)) conditions.push(eq(column, value));
+  }
+  for (const { param, apply } of DATE_FILTERS) {
+    const value = q[param];
+    if (!hasValue(value)) continue;
+    const d = parseDateParam(value);
+    if (!d) return { errorMessage: `Invalid ${param} — expected an ISO 8601 date` };
+    conditions.push(apply(d));
+  }
+  return { conditions };
+}
+
+/** Keyset condition selecting rows strictly after the cursor row, if it exists. */
+async function cursorCondition(db: Database, cursor: string): Promise<SQL | null> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return null;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
+/** Shape the page of rows into the cursor or offset (numbered-page) response body. */
+function buildListPage<T extends { id: string }>(
+  rows: T[],
+  totalCount: number,
+  paging: ListPaging,
+  offset: number,
+): { data: T[]; pagination: PaginationMeta | OffsetPaginationMeta } {
+  const { limit, page, pageSize, useCursor } = paging;
+
+  if (useCursor) {
+    const hasMore = rows.length > limit;
+    const data = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    return { data, pagination: cursorPagination(totalCount, hasMore, nextCursor) };
+  }
+
+  const hasMore = offset + rows.length < totalCount;
+  const pagination: OffsetPaginationMeta = {
+    totalCount,
+    hasMore,
+    cursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : null,
+    page,
+    pageSize,
+    totalPages: Math.ceil(totalCount / pageSize),
+  };
+  return { data: rows, pagination };
+}
+
 /**
  * List audit logs, newest first.
  *
@@ -53,49 +150,22 @@ app.get('/', requirePermission('general:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
 
-  // Clamp rather than reject, matching this route's existing behaviour — a
-  // stricter validator would start 400ing requests that succeed today.
-  const limit = Math.min(Math.max(q.limit ? Number.parseInt(q.limit, 10) : 25, 1), 100);
-  const rawPage = q.page !== undefined && q.page !== '' ? Number.parseInt(q.page, 10) : Number.NaN;
-  const rawPageSize = q.pageSize !== undefined && q.pageSize !== '' ? Number.parseInt(q.pageSize, 10) : Number.NaN;
-  // A cursor always wins; offset mode engages only on an explicit, valid `page`.
-  const useCursor = q.cursor !== undefined || Number.isNaN(rawPage);
-  const page = Number.isNaN(rawPage) ? 1 : Math.max(rawPage, 1);
-  // Legacy api-worker paged by `limit`; `/api/tasks` uses `pageSize`. Accept both.
-  const pageSize = Number.isNaN(rawPageSize) ? limit : Math.min(Math.max(rawPageSize, 1), 100);
+  const paging = parseListPaging(q);
+  const { limit, page, pageSize, useCursor } = paging;
 
-  const conditions: any[] = [];
-  if (q.action !== undefined && q.action !== '') conditions.push(eq(t.action, q.action));
-  if (q.entityType !== undefined && q.entityType !== '') conditions.push(eq(t.entityType, q.entityType));
-  if (q.entityId !== undefined && q.entityId !== '') conditions.push(eq(t.entityId, q.entityId));
-  // performedBy/startDate/endDate reach parity with the legacy api-worker route.
-  // settings/activity ships date filters, so without these they'd silently no-op.
-  if (q.performedBy !== undefined && q.performedBy !== '') conditions.push(eq(t.performedBy, q.performedBy));
-  if (q.startDate !== undefined && q.startDate !== '') {
-    const d = parseDateParam(q.startDate);
-    if (!d) return error.badRequest(c, 'Invalid startDate — expected an ISO 8601 date');
-    conditions.push(gte(t.createdAt, d));
-  }
-  if (q.endDate !== undefined && q.endDate !== '') {
-    const d = parseDateParam(q.endDate);
-    if (!d) return error.badRequest(c, 'Invalid endDate — expected an ISO 8601 date');
-    conditions.push(lte(t.createdAt, d));
-  }
+  const filters = buildListFilters(q);
+  if ('errorMessage' in filters) return error.badRequest(c, filters.errorMessage);
 
-  const filterConditions = [...conditions];
+  const filterConditions = filters.conditions;
+  const conditions = [...filterConditions];
   if (useCursor && q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
+    const cursorCond = await cursorCondition(db, q.cursor);
+    if (cursorCond) conditions.push(cursorCond);
   }
-  const where = conditions.length ? and(...conditions) : undefined;
+  // `and()` of no conditions is `undefined` (no WHERE clause).
+  const where = and(...conditions);
   // Count reflects the filters only — never the cursor window.
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const countWhere = and(...filterConditions);
 
   // Cursor mode over-fetches by one to detect `hasMore`; offset mode reads the
   // exact page and derives `hasMore` from the total instead.
@@ -111,24 +181,8 @@ app.get('/', requirePermission('general:read'), async (c) => {
       db.select({ count: sql<number>`count(*)` }).from(t).where(countWhere),
     ]);
     const totalCount = Number(countRes[0]?.count ?? 0);
-
-    if (useCursor) {
-      const hasMore = rows.length > limit;
-      const data = hasMore ? rows.slice(0, limit) : rows;
-      const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
-      return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
-    }
-
-    const hasMore = offset + rows.length < totalCount;
-    const meta: OffsetPaginationMeta = {
-      totalCount,
-      hasMore,
-      cursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : null,
-      page,
-      pageSize,
-      totalPages: Math.ceil(totalCount / pageSize),
-    };
-    return list(c, rows, meta);
+    const { data, pagination } = buildListPage(rows, totalCount, paging, offset);
+    return list(c, data, pagination);
   } catch (err) {
     console.error('[app-api/audit-logs] list failed:', err);
     return error.internal(c, 'Failed to list audit logs');

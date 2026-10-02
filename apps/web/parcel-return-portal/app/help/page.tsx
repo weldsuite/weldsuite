@@ -274,7 +274,7 @@ export default function HelpPage() {
                   {filteredQuestions.length > 0 ? (
                     <Accordion type="single" collapsible className="w-full">
                       {filteredQuestions.map((item, index) => (
-                        <AccordionItem key={index} value={`item-${index}`}>
+                        <AccordionItem key={item.question} value={`item-${index}`}>
                           <AccordionTrigger className="text-left">
                             {item.question}
                           </AccordionTrigger>
@@ -298,8 +298,8 @@ export default function HelpPage() {
             <TabsContent value="contact" className="space-y-6">
               {/* Contact Options */}
               <div className="grid md:grid-cols-3 gap-4 mb-6">
-                {CONTACT_OPTIONS.map((option, index) => (
-                  <Card key={index} className="hover:shadow-md transition-shadow">
+                {CONTACT_OPTIONS.map((option) => (
+                  <Card key={option.title} className="hover:shadow-md transition-shadow">
                     <CardContent className="pt-6 text-center">
                       <option.icon className="h-10 w-10 mx-auto mb-3 text-blue-600" />
                       <h3 className="font-semibold mb-1">{option.title}</h3>
@@ -323,8 +323,9 @@ export default function HelpPage() {
                   <form onSubmit={handleContactSubmit} className="space-y-4">
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium mb-1 block">Name</label>
+                        <label htmlFor="contact-name" className="text-sm font-medium mb-1 block">Name</label>
                         <Input
+                          id="contact-name"
                           required
                           value={contactForm.name}
                           onChange={(e) => setContactForm({...contactForm, name: e.target.value})}
@@ -332,8 +333,9 @@ export default function HelpPage() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium mb-1 block">Email</label>
+                        <label htmlFor="contact-email" className="text-sm font-medium mb-1 block">Email</label>
                         <Input
+                          id="contact-email"
                           required
                           type="email"
                           value={contactForm.email}
@@ -344,16 +346,18 @@ export default function HelpPage() {
                     </div>
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm font-medium mb-1 block">Order Number (Optional)</label>
+                        <label htmlFor="contact-order-number" className="text-sm font-medium mb-1 block">Order Number (Optional)</label>
                         <Input
+                          id="contact-order-number"
                           value={contactForm.orderNumber}
                           onChange={(e) => setContactForm({...contactForm, orderNumber: e.target.value})}
                           placeholder="ORD-123456"
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium mb-1 block">Subject</label>
+                        <label htmlFor="contact-subject" className="text-sm font-medium mb-1 block">Subject</label>
                         <Input
+                          id="contact-subject"
                           required
                           value={contactForm.subject}
                           onChange={(e) => setContactForm({...contactForm, subject: e.target.value})}
@@ -362,8 +366,9 @@ export default function HelpPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium mb-1 block">Message</label>
+                      <label htmlFor="contact-message" className="text-sm font-medium mb-1 block">Message</label>
                       <Textarea
+                        id="contact-message"
                         required
                         value={contactForm.message}
                         onChange={(e) => setContactForm({...contactForm, message: e.target.value})}

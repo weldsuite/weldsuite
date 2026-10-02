@@ -280,11 +280,7 @@ export function CustomerDetailHeader({
     }
   }, [customer, isContact, customerId, updateCompanyMutation, updatePersonMutation]);
 
-  const customerName = isContact
-    ? `${customer?.firstName || ''} ${customer?.lastName || ''}`.trim() || customer?.fullName || ''
-    : isB2B
-      ? customer?.companyName || ''
-      : `${customer?.firstName || ''} ${customer?.lastName || ''}`.trim() || customer?.fullName || '';
+  const customerName = getHeaderCustomerName(customer, isContact, isB2B);
 
   const entityLabel = isContact ? t('sweep.weldcrm.customerDetailHeader.entityContact') : t('sweep.weldcrm.customerDetailHeader.entityCustomer');
 
@@ -512,186 +508,116 @@ export function CustomerDetailHeader({
     toast.info(t('sweep.weldcrm.customerDetailHeader.archive'));
   }, [customerId, entityType, t]);
 
+  const handleAddToListPick = async (pickedListId: string) => {
+    try {
+      if (isContact) {
+        await addContactsToListMutation.mutateAsync({ listId: pickedListId, contactIds: [customerId] });
+      } else {
+        await addCustomersToListMutation.mutateAsync({ listId: pickedListId, customerIds: [customerId] });
+      }
+      toast.success(t('sweep.weldcrm.customerDetailHeader.addedToList'));
+      setAddToListOpen(false);
+    } catch {
+      toast.error(t('sweep.weldcrm.customerDetailHeader.failedToAddToList'));
+    }
+  };
+
+  const shareRecordPath = recordPanelPath(customerId);
+  const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}${shareRecordPath}` : shareRecordPath;
+
+  const dialogs = (
+    <HeaderDialogs
+      variant={variant}
+      customer={customer}
+      customerName={customerName}
+      entityLabel={entityLabel}
+      isContact={isContact}
+      avatarUrl={avatarUrl}
+      shareUrl={shareUrl}
+      shareOpen={shareOpen}
+      onShareOpenChange={setShareOpen}
+      addToListOpen={addToListOpen}
+      onAddToListOpenChange={setAddToListOpen}
+      onPickList={handleAddToListPick}
+      newEventOpen={newEventOpen}
+      onNewEventOpenChange={setNewEventOpen}
+      newEventDefaults={newEventDefaults}
+      confirmDeleteOpen={confirmDeleteOpen}
+      onConfirmDeleteOpenChange={setConfirmDeleteOpen}
+      onDelete={onDelete}
+    />
+  );
+
+  const identity = (
+    <HeaderIdentity
+      variant={variant}
+      isDataReady={isDataReady}
+      avatarUrl={avatarUrl}
+      customerName={customerName}
+      isContact={isContact}
+      isB2B={isB2B}
+      isUploading={isUploading}
+      isFavorite={isFavorite}
+      onAvatarClick={handleAvatarClick}
+      onNameSave={handleNameSave}
+      onToggleFavorite={handleToggleFavorite}
+    />
+  );
+
+  const contactButtons = (
+    <HeaderContactButtons
+      email={customer?.email}
+      phone={customer?.phone || customer?.mobile}
+      onCompose={handleComposeEmail}
+      onCall={handleCall}
+    />
+  );
+
+  const moreMenu = (
+    <HeaderMoreMenu
+      isContact={isContact}
+      isFavorite={isFavorite}
+      entityLabel={entityLabel}
+      onEdit={handleEdit}
+      onToggleFavorite={handleToggleFavorite}
+      onDuplicate={handleDuplicate}
+      onOpenInNewTab={handleOpenInNewTab}
+      onCopyLink={handleCopyLink}
+      onScheduleEvent={handleScheduleEvent}
+      onAddToList={handleAddToList}
+      onExport={handleExport}
+      onArchive={handleArchive}
+      onRequestDelete={() => setConfirmDeleteOpen(true)}
+    />
+  );
+
+  const avatarFileInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+      className="hidden"
+      onChange={handleAvatarFileChange}
+    />
+  );
+
   // Panel variant header - matches the page header design
   if (variant === 'panel') {
     return (
       <div className="group/header flex items-center justify-between px-3 md:px-4 py-[12.5px] flex-shrink-0">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-          className="hidden"
-          onChange={handleAvatarFileChange}
-        />
+        {avatarFileInput}
         {/* Left Section */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {/* Avatar + Name */}
-          <div className="flex items-center gap-2 min-w-0">
-            {isDataReady ? (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleAvatarClick}
-                  disabled={isUploading}
-                  className="relative w-7 h-7 rounded-lg flex-shrink-0 group overflow-hidden"
-                  title={t('sweep.weldcrm.contactDetailView.uploadAvatar')}
-                >
-                  {avatarUrl ? (
-                    <img
-                      src={avatarUrl}
-                      alt={customerName}
-                      className="w-full h-full object-cover rounded-lg"
-                    />
-                  ) : (
-                    <div className={cn(
-                      "w-full h-full rounded-lg flex items-center justify-center",
-                      isContact ? "bg-emerald-100 dark:bg-emerald-900" : isB2B ? "bg-blue-100 dark:bg-blue-900" : "bg-purple-100 dark:bg-purple-900"
-                    )}>
-                      {isContact ? (
-                        <User className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                      ) : isB2B ? (
-                        <Building2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                      ) : (
-                        <User className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                      )}
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    {isUploading ? (
-                      <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
-                    ) : (
-                      <Camera className="h-3.5 w-3.5 text-white" />
-                    )}
-                  </div>
-                </Button>
-                <EditableHeaderName
-                  name={customerName}
-                  onSave={handleNameSave}
-                  className="text-[15px] font-medium text-foreground max-w-[200px] truncate translate-y-[0.5px]"
-                />
-                {isFavorite && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleToggleFavorite}
-                    title={t('sweep.weldcrm.customerDetailHeader.unfavorite')}
-                    className="flex-shrink-0 translate-y-[0.5px] rounded-md p-1.5 -m-1.5 hover:bg-muted transition-colors"
-                  >
-                    <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                  </Button>
-                )}
-              </>
-            ) : (
-              <>
-                <div className="w-7 h-7 rounded-lg bg-muted animate-pulse flex-shrink-0" />
-                <div className="h-4 w-32 rounded bg-muted animate-pulse" />
-              </>
-            )}
-          </div>
-
+          <div className="flex items-center gap-2 min-w-0">{identity}</div>
         </div>
 
         {/* Right Section */}
         <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
-          {/* Compose Email */}
-          {customer?.email && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                  onClick={handleComposeEmail}
-                  aria-label={t('sweep.weldcrm.contactDetailView.composeEmail')}
-                >
-                  <Mail className="h-4 w-4 text-gray-500" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('sweep.weldcrm.contactDetailView.composeEmail')}</TooltipContent>
-            </Tooltip>
-          )}
-
-          {/* Call */}
-          {(customer?.phone || customer?.mobile) && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                  onClick={handleCall}
-                  aria-label={t('sweep.weldcrm.contactDetailView.call')}
-                >
-                  <Phone className="h-4 w-4 text-gray-500" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('sweep.weldcrm.contactDetailView.call')}</TooltipContent>
-            </Tooltip>
-          )}
+          {contactButtons}
 
           {/* More menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none focus-visible:outline-none">
-                <EllipsisVertical className="h-4 w-4 text-gray-500" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              {isContact && (
-                <DropdownMenuItem onClick={handleEdit}>
-                  <Pencil className="h-4 w-4 mr-0.5" />
-                  {t('sweep.weldcrm.customerDetailHeader.editEntity', { entity: entityLabel })}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={handleToggleFavorite}>
-                <Star className={cn('h-4 w-4 mr-0.5', isFavorite && 'fill-yellow-400 text-yellow-400')} />
-                {isFavorite ? t('sweep.weldcrm.customerDetailHeader.unfavorite') : t('sweep.weldcrm.customerDetailHeader.favorite')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDuplicate}>
-                <Copy className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.duplicate')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleOpenInNewTab}>
-                <SquareArrowOutUpRight className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.openInNewTab')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleCopyLink}>
-                <LinkIcon className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.copyLink')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleScheduleEvent}>
-                <CalendarPlus className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.scheduleEvent')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleAddToList}>
-                <ListPlus className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.addToList')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleExport}>
-                <Download className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.export')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleArchive}>
-                <Archive className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.archive')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setConfirmDeleteOpen(true);
-                }}
-              >
-                <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
-                {t('sweep.weldcrm.customerDetailHeader.deleteEntity', { entity: entityLabel })}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {moreMenu}
 
           {/* Expand / Minimize */}
           <Button
@@ -709,72 +635,10 @@ export function CustomerDetailHeader({
           </Button>
 
           {/* Close panel - hidden in embedded mode without explicit onClose */}
-          {!(mode === 'embedded' && !onClose) && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="p-1.5 hover:bg-muted rounded-md transition-colors"
-              onClick={handleClose}
-              title={t('sweep.weldcrm.globalPinnedNote.close')}
-            >
-              <X className="h-4 w-4 text-gray-500" />
-            </Button>
-          )}
+          {!(mode === 'embedded' && !onClose) && <HeaderCloseButton onClick={handleClose} />}
         </div>
 
-        <ShareDialog
-          open={shareOpen}
-          onOpenChange={setShareOpen}
-          recordTitle={customer?.companyName || customer?.fullName || t('sweep.weldcrm.customerDetailHeader.recordFallback')}
-          recordSubtitle={customer?.email || customer?.website || customer?.industry || ''}
-          recordAvatar={avatarUrl || undefined}
-          url={(() => {
-            const path = recordPanelPath(customerId);
-            return typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
-          })()}
-        />
-
-        <AddToListPicker
-          open={addToListOpen}
-          onOpenChange={setAddToListOpen}
-          isContact={isContact}
-          onPick={async (listId) => {
-            try {
-              if (isContact) {
-                await addContactsToListMutation.mutateAsync({ listId, contactIds: [customerId] });
-              } else {
-                await addCustomersToListMutation.mutateAsync({ listId, customerIds: [customerId] });
-              }
-              toast.success(t('sweep.weldcrm.customerDetailHeader.addedToList'));
-              setAddToListOpen(false);
-            } catch {
-              toast.error(t('sweep.weldcrm.customerDetailHeader.failedToAddToList'));
-            }
-          }}
-        />
-
-        <NewEventDialog
-          open={newEventOpen}
-          onOpenChange={setNewEventOpen}
-          defaults={newEventDefaults}
-          hideTypeTabs
-        />
-
-        <ConfirmDialog
-          open={confirmDeleteOpen}
-          onOpenChange={setConfirmDeleteOpen}
-          title={t('sweep.weldcrm.customerDetailHeader.deleteEntityTitle', { entity: entityLabel })}
-          description={
-            customerName
-              ? t('sweep.weldcrm.customerDetailHeader.deleteNamedConfirmation', { name: customerName })
-              : t('sweep.weldcrm.customerDetailHeader.deleteEntityConfirmation', { entity: entityLabel })
-          }
-          variant="destructive"
-          confirmLabel={t('sweep.weldcrm.customerDetailHeader.delete')}
-          onConfirm={() => {
-            onDelete?.();
-          }}
-        />
+        {dialogs}
       </div>
     );
   }
@@ -796,118 +660,15 @@ export function CustomerDetailHeader({
             <X className="h-5 w-5 text-muted-foreground" />
           </Button>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-            className="hidden"
-            onChange={handleAvatarFileChange}
-          />
+          {avatarFileInput}
 
           {/* Avatar + Name */}
-          <div className="flex items-center gap-2 min-w-0">
-            {isDataReady ? (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleAvatarClick}
-                  disabled={isUploading}
-                  className="relative w-7 h-7 rounded-lg flex-shrink-0 group overflow-hidden"
-                  title={t('sweep.weldcrm.contactDetailView.uploadAvatar')}
-                >
-                  {avatarUrl ? (
-                    <img
-                      src={avatarUrl}
-                      alt={customerName}
-                      className="w-full h-full object-cover rounded-lg"
-                    />
-                  ) : (
-                    <div className={cn(
-                      "w-full h-full rounded-lg flex items-center justify-center",
-                      isContact ? "bg-emerald-100 dark:bg-emerald-900" : isB2B ? "bg-blue-100 dark:bg-blue-900" : "bg-purple-100 dark:bg-purple-900"
-                    )}>
-                      {isContact ? (
-                        <User className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                      ) : isB2B ? (
-                        <Building2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                      ) : (
-                        <User className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                      )}
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    {isUploading ? (
-                      <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
-                    ) : (
-                      <Camera className="h-3.5 w-3.5 text-white" />
-                    )}
-                  </div>
-                </Button>
-                <EditableHeaderName
-                  name={customerName}
-                  onSave={handleNameSave}
-                  className="text-sm md:text-lg font-medium text-foreground truncate"
-                />
-                {isFavorite && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleToggleFavorite}
-                    title={t('sweep.weldcrm.customerDetailHeader.unfavorite')}
-                    className="flex-shrink-0 rounded-md p-1.5 -m-1.5 hover:bg-muted transition-colors"
-                  >
-                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                  </Button>
-                )}
-              </>
-            ) : (
-              <>
-                <div className="w-7 h-7 rounded-lg bg-muted animate-pulse flex-shrink-0" />
-                <div className="h-5 w-36 rounded bg-muted animate-pulse" />
-              </>
-            )}
-          </div>
-
+          <div className="flex items-center gap-2 min-w-0">{identity}</div>
         </div>
 
         {/* Right Section */}
         <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
-          {/* Compose Email */}
-          {customer?.email && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                  onClick={handleComposeEmail}
-                  aria-label={t('sweep.weldcrm.contactDetailView.composeEmail')}
-                >
-                  <Mail className="h-4 w-4 text-gray-500" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('sweep.weldcrm.contactDetailView.composeEmail')}</TooltipContent>
-            </Tooltip>
-          )}
-
-          {/* Call */}
-          {(customer?.phone || customer?.mobile) && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                  onClick={handleCall}
-                  aria-label={t('sweep.weldcrm.contactDetailView.call')}
-                >
-                  <Phone className="h-4 w-4 text-gray-500" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('sweep.weldcrm.contactDetailView.call')}</TooltipContent>
-            </Tooltip>
-          )}
+          {contactButtons}
 
           {/* Note - hidden on mobile */}
           <Button
@@ -932,67 +693,7 @@ export function CustomerDetailHeader({
           </Button>
 
           {/* More menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none focus-visible:outline-none">
-                <EllipsisVertical className="h-4 w-4 text-gray-500" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              {isContact && (
-                <DropdownMenuItem onClick={handleEdit}>
-                  <Pencil className="h-4 w-4 mr-0.5" />
-                  {t('sweep.weldcrm.customerDetailHeader.editEntity', { entity: entityLabel })}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={handleToggleFavorite}>
-                <Star className={cn('h-4 w-4 mr-0.5', isFavorite && 'fill-yellow-400 text-yellow-400')} />
-                {isFavorite ? t('sweep.weldcrm.customerDetailHeader.unfavorite') : t('sweep.weldcrm.customerDetailHeader.favorite')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDuplicate}>
-                <Copy className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.duplicate')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleOpenInNewTab}>
-                <SquareArrowOutUpRight className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.openInNewTab')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleCopyLink}>
-                <LinkIcon className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.copyLink')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleScheduleEvent}>
-                <CalendarPlus className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.scheduleEvent')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleAddToList}>
-                <ListPlus className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.addToList')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleExport}>
-                <Download className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.export')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleArchive}>
-                <Archive className="h-4 w-4 mr-0.5" />
-                {t('sweep.weldcrm.customerDetailHeader.archive')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setConfirmDeleteOpen(true);
-                }}
-              >
-                <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
-                {t('sweep.weldcrm.customerDetailHeader.deleteEntity', { entity: entityLabel })}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {moreMenu}
 
           {/* Minimize + Close */}
           <Button
@@ -1005,74 +706,430 @@ export function CustomerDetailHeader({
             <Minimize className="h-4 w-4 text-gray-500" />
           </Button>
           {/* Hide close when used as expanded overlay without onClose (e.g. helpdesk) */}
-          {!(onToggleExpand && !onClose) && (
+          {!(onToggleExpand && !onClose) && <HeaderCloseButton onClick={handleClose} />}
+        </div>
+      </div>
+
+      {dialogs}
+    </div>
+  );
+}
+
+type HeaderCustomer = NonNullable<ReturnType<typeof useCustomerDetailContext>['data']>['customer'];
+
+function getHeaderCustomerName(customer: HeaderCustomer | undefined, isContact: boolean, isB2B: boolean): string {
+  if (!isContact && isB2B) return customer?.companyName || '';
+  return `${customer?.firstName || ''} ${customer?.lastName || ''}`.trim() || customer?.fullName || '';
+}
+
+function HeaderCloseButton({ onClick }: Readonly<{ onClick: () => void }>) {
+  const t = useTranslations();
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="p-1.5 hover:bg-muted rounded-md transition-colors"
+      onClick={onClick}
+      title={t('sweep.weldcrm.globalPinnedNote.close')}
+    >
+      <X className="h-4 w-4 text-gray-500" />
+    </Button>
+  );
+}
+
+function HeaderAvatarButton({
+  avatarUrl,
+  customerName,
+  isContact,
+  isB2B,
+  isUploading,
+  onClick,
+}: Readonly<{
+  avatarUrl: string | null;
+  customerName: string;
+  isContact: boolean;
+  isB2B: boolean;
+  isUploading: boolean;
+  onClick: () => void;
+}>) {
+  const t = useTranslations();
+  const tone = getAvatarTone(isContact, isB2B);
+  const FallbackIcon = tone.icon;
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={onClick}
+      disabled={isUploading}
+      className="relative w-7 h-7 rounded-lg flex-shrink-0 group overflow-hidden"
+      title={t('sweep.weldcrm.contactDetailView.uploadAvatar')}
+    >
+      {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt={customerName}
+          className="w-full h-full object-cover rounded-lg"
+        />
+      ) : (
+        <div className={cn("w-full h-full rounded-lg flex items-center justify-center", tone.background)}>
+          <FallbackIcon className={cn('h-3.5 w-3.5', tone.iconColor)} />
+        </div>
+      )}
+      <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+        {isUploading ? (
+          <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
+        ) : (
+          <Camera className="h-3.5 w-3.5 text-white" />
+        )}
+      </div>
+    </Button>
+  );
+}
+
+function getAvatarTone(isContact: boolean, isB2B: boolean) {
+  if (isContact) {
+    return {
+      background: 'bg-emerald-100 dark:bg-emerald-900',
+      icon: User,
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
+    };
+  }
+  if (isB2B) {
+    return {
+      background: 'bg-blue-100 dark:bg-blue-900',
+      icon: Building2,
+      iconColor: 'text-blue-600 dark:text-blue-400',
+    };
+  }
+  return {
+    background: 'bg-purple-100 dark:bg-purple-900',
+    icon: User,
+    iconColor: 'text-purple-600 dark:text-purple-400',
+  };
+}
+
+const HEADER_IDENTITY_STYLES = {
+  panel: {
+    name: 'text-[15px] font-medium text-foreground max-w-[200px] truncate translate-y-[0.5px]',
+    starButton: 'flex-shrink-0 translate-y-[0.5px] rounded-md p-1.5 -m-1.5 hover:bg-muted transition-colors',
+    star: 'h-3.5 w-3.5 fill-yellow-400 text-yellow-400',
+    skeletonName: 'h-4 w-32 rounded bg-muted animate-pulse',
+  },
+  page: {
+    name: 'text-sm md:text-lg font-medium text-foreground truncate',
+    starButton: 'flex-shrink-0 rounded-md p-1.5 -m-1.5 hover:bg-muted transition-colors',
+    star: 'h-4 w-4 fill-yellow-400 text-yellow-400',
+    skeletonName: 'h-5 w-36 rounded bg-muted animate-pulse',
+  },
+} as const;
+
+function HeaderIdentity({
+  variant,
+  isDataReady,
+  avatarUrl,
+  customerName,
+  isContact,
+  isB2B,
+  isUploading,
+  isFavorite,
+  onAvatarClick,
+  onNameSave,
+  onToggleFavorite,
+}: Readonly<{
+  variant: 'page' | 'panel';
+  isDataReady: boolean;
+  avatarUrl: string | null;
+  customerName: string;
+  isContact: boolean;
+  isB2B: boolean;
+  isUploading: boolean;
+  isFavorite: boolean;
+  onAvatarClick: () => void;
+  onNameSave: (newName: string) => void;
+  onToggleFavorite: () => void;
+}>) {
+  const t = useTranslations();
+  const styles = HEADER_IDENTITY_STYLES[variant];
+
+  if (!isDataReady) {
+    return (
+      <>
+        <div className="w-7 h-7 rounded-lg bg-muted animate-pulse flex-shrink-0" />
+        <div className={styles.skeletonName} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <HeaderAvatarButton
+        avatarUrl={avatarUrl}
+        customerName={customerName}
+        isContact={isContact}
+        isB2B={isB2B}
+        isUploading={isUploading}
+        onClick={onAvatarClick}
+      />
+      <EditableHeaderName name={customerName} onSave={onNameSave} className={styles.name} />
+      {isFavorite && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onToggleFavorite}
+          title={t('sweep.weldcrm.customerDetailHeader.unfavorite')}
+          className={styles.starButton}
+        >
+          <Star className={styles.star} />
+        </Button>
+      )}
+    </>
+  );
+}
+
+function HeaderContactButtons({
+  email,
+  phone,
+  onCompose,
+  onCall,
+}: Readonly<{
+  email: string | null | undefined;
+  phone: string | null | undefined;
+  onCompose: () => void;
+  onCall: () => void;
+}>) {
+  const t = useTranslations();
+  return (
+    <>
+      {/* Compose Email */}
+      {email && (
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
               className="p-1.5 hover:bg-muted rounded-md transition-colors"
-              onClick={handleClose}
-              title={t('sweep.weldcrm.globalPinnedNote.close')}
+              onClick={onCompose}
+              aria-label={t('sweep.weldcrm.contactDetailView.composeEmail')}
             >
-              <X className="h-4 w-4 text-gray-500" />
+              <Mail className="h-4 w-4 text-gray-500" />
             </Button>
-          )}
-        </div>
-      </div>
+          </TooltipTrigger>
+          <TooltipContent>{t('sweep.weldcrm.contactDetailView.composeEmail')}</TooltipContent>
+        </Tooltip>
+      )}
 
+      {/* Call */}
+      {phone && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="p-1.5 hover:bg-muted rounded-md transition-colors"
+              onClick={onCall}
+              aria-label={t('sweep.weldcrm.contactDetailView.call')}
+            >
+              <Phone className="h-4 w-4 text-gray-500" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t('sweep.weldcrm.contactDetailView.call')}</TooltipContent>
+        </Tooltip>
+      )}
+    </>
+  );
+}
+
+function HeaderMoreMenu({
+  isContact,
+  isFavorite,
+  entityLabel,
+  onEdit,
+  onToggleFavorite,
+  onDuplicate,
+  onOpenInNewTab,
+  onCopyLink,
+  onScheduleEvent,
+  onAddToList,
+  onExport,
+  onArchive,
+  onRequestDelete,
+}: Readonly<{
+  isContact: boolean;
+  isFavorite: boolean;
+  entityLabel: string;
+  onEdit: () => void;
+  onToggleFavorite: () => void;
+  onDuplicate: () => void;
+  onOpenInNewTab: () => void;
+  onCopyLink: () => void;
+  onScheduleEvent: () => void;
+  onAddToList: () => void;
+  onExport: () => void;
+  onArchive: () => void;
+  onRequestDelete: () => void;
+}>) {
+  const t = useTranslations();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none focus-visible:outline-none">
+          <EllipsisVertical className="h-4 w-4 text-gray-500" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        {isContact && (
+          <DropdownMenuItem onClick={onEdit}>
+            <Pencil className="h-4 w-4 mr-0.5" />
+            {t('sweep.weldcrm.customerDetailHeader.editEntity', { entity: entityLabel })}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={onToggleFavorite}>
+          <Star className={cn('h-4 w-4 mr-0.5', isFavorite && 'fill-yellow-400 text-yellow-400')} />
+          {isFavorite ? t('sweep.weldcrm.customerDetailHeader.unfavorite') : t('sweep.weldcrm.customerDetailHeader.favorite')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onDuplicate}>
+          <Copy className="h-4 w-4 mr-0.5" />
+          {t('sweep.weldcrm.customerDetailHeader.duplicate')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onOpenInNewTab}>
+          <SquareArrowOutUpRight className="h-4 w-4 mr-0.5" />
+          {t('sweep.weldcrm.customerDetailHeader.openInNewTab')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onCopyLink}>
+          <LinkIcon className="h-4 w-4 mr-0.5" />
+          {t('sweep.weldcrm.customerDetailHeader.copyLink')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onScheduleEvent}>
+          <CalendarPlus className="h-4 w-4 mr-0.5" />
+          {t('sweep.weldcrm.customerDetailHeader.scheduleEvent')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onAddToList}>
+          <ListPlus className="h-4 w-4 mr-0.5" />
+          {t('sweep.weldcrm.customerDetailHeader.addToList')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onExport}>
+          <Download className="h-4 w-4 mr-0.5" />
+          {t('sweep.weldcrm.customerDetailHeader.export')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onArchive}>
+          <Archive className="h-4 w-4 mr-0.5" />
+          {t('sweep.weldcrm.customerDetailHeader.archive')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
+          onClick={(e) => {
+            e.preventDefault();
+            onRequestDelete();
+          }}
+        >
+          <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+          {t('sweep.weldcrm.customerDetailHeader.deleteEntity', { entity: entityLabel })}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function HeaderDialogs({
+  variant,
+  customer,
+  customerName,
+  entityLabel,
+  isContact,
+  avatarUrl,
+  shareUrl,
+  shareOpen,
+  onShareOpenChange,
+  addToListOpen,
+  onAddToListOpenChange,
+  onPickList,
+  newEventOpen,
+  onNewEventOpenChange,
+  newEventDefaults,
+  confirmDeleteOpen,
+  onConfirmDeleteOpenChange,
+  onDelete,
+}: Readonly<{
+  variant: 'page' | 'panel';
+  customer: HeaderCustomer | undefined;
+  customerName: string;
+  entityLabel: string;
+  isContact: boolean;
+  avatarUrl: string | null;
+  shareUrl: string;
+  shareOpen: boolean;
+  onShareOpenChange: (open: boolean) => void;
+  addToListOpen: boolean;
+  onAddToListOpenChange: (open: boolean) => void;
+  onPickList: (listId: string) => void;
+  newEventOpen: boolean;
+  onNewEventOpenChange: (open: boolean) => void;
+  newEventDefaults: React.ComponentProps<typeof NewEventDialog>['defaults'];
+  confirmDeleteOpen: boolean;
+  onConfirmDeleteOpenChange: (open: boolean) => void;
+  onDelete?: () => void;
+}>) {
+  const t = useTranslations();
+  const isPanel = variant === 'panel';
+
+  return (
+    <>
       <ShareDialog
         open={shareOpen}
-        onOpenChange={setShareOpen}
+        onOpenChange={onShareOpenChange}
         recordTitle={customer?.companyName || customer?.fullName || t('sweep.weldcrm.customerDetailHeader.recordFallback')}
-        url={(() => {
-          const path = recordPanelPath(customerId);
-          return typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
-        })()}
+        recordSubtitle={isPanel ? customer?.email || customer?.website || customer?.industry || '' : undefined}
+        recordAvatar={isPanel ? avatarUrl || undefined : undefined}
+        url={shareUrl}
       />
 
       <AddToListPicker
         open={addToListOpen}
-        onOpenChange={setAddToListOpen}
+        onOpenChange={onAddToListOpenChange}
         isContact={isContact}
-        onPick={async (listId) => {
-          try {
-            if (isContact) {
-              await addContactsToListMutation.mutateAsync({ listId, contactIds: [customerId] });
-            } else {
-              await addCustomersToListMutation.mutateAsync({ listId, customerIds: [customerId] });
-            }
-            toast.success(t('sweep.weldcrm.customerDetailHeader.addedToList'));
-            setAddToListOpen(false);
-          } catch {
-            toast.error(t('sweep.weldcrm.customerDetailHeader.failedToAddToList'));
-          }
-        }}
+        onPick={onPickList}
       />
 
       <NewEventDialog
         open={newEventOpen}
-        onOpenChange={setNewEventOpen}
+        onOpenChange={onNewEventOpenChange}
         defaults={newEventDefaults}
         hideTypeTabs
       />
 
       <ConfirmDialog
         open={confirmDeleteOpen}
-        onOpenChange={setConfirmDeleteOpen}
-        title={`Delete this ${entityLabel}?`}
-        description={
-          customerName
-            ? `${customerName} will be permanently removed. This action cannot be undone.`
-            : `This ${entityLabel} will be permanently removed. This action cannot be undone.`
-        }
+        onOpenChange={onConfirmDeleteOpenChange}
+        title={isPanel ? t('sweep.weldcrm.customerDetailHeader.deleteEntityTitle', { entity: entityLabel }) : `Delete this ${entityLabel}?`}
+        description={getDeleteDescription(isPanel, customerName, entityLabel, t)}
         variant="destructive"
-        confirmLabel="Delete"
+        confirmLabel={isPanel ? t('sweep.weldcrm.customerDetailHeader.delete') : 'Delete'}
         onConfirm={() => {
           onDelete?.();
         }}
       />
-
-    </div>
+    </>
   );
+}
+
+function getDeleteDescription(
+  isPanel: boolean,
+  customerName: string,
+  entityLabel: string,
+  t: ReturnType<typeof useTranslations>,
+): string {
+  if (isPanel) {
+    return customerName
+      ? t('sweep.weldcrm.customerDetailHeader.deleteNamedConfirmation', { name: customerName })
+      : t('sweep.weldcrm.customerDetailHeader.deleteEntityConfirmation', { entity: entityLabel });
+  }
+  return customerName
+    ? `${customerName} will be permanently removed. This action cannot be undone.`
+    : `This ${entityLabel} will be permanently removed. This action cannot be undone.`;
 }
 
 // ────────────────────────────────────────────────────────────────────

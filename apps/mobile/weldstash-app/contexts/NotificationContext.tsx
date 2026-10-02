@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
@@ -55,7 +55,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  const requestPermissions = async (): Promise<boolean> => {
+  const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (!notifUtils || !EAS_PROJECT_ID) return false;
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
@@ -72,14 +72,14 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       console.error('[Notifications] Error:', error);
       return false;
     }
-  };
+  }, [getCredentials]);
 
-  const openNotificationSettings = async () => {
+  const openNotificationSettings = useCallback(async () => {
     if (Platform.OS === 'ios') await Linking.openURL('app-settings:');
     else await Linking.openSettings();
-  };
+  }, []);
 
-  const refreshBadgeCount = async () => {};
+  const refreshBadgeCount = useCallback(async () => {}, []);
 
   useEffect(() => {
     if (!user || !organizationId) {
@@ -158,8 +158,13 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     return () => { if (cleanupRef.current) cleanupRef.current(); };
   }, [user, organizationId, getCredentials]);
 
+  const value = useMemo(
+    () => ({ unreadCount, isConnected, isPermissionGranted, requestPermissions, openNotificationSettings, refreshBadgeCount }),
+    [unreadCount, isConnected, isPermissionGranted, requestPermissions, openNotificationSettings, refreshBadgeCount],
+  );
+
   return (
-    <NotificationContext.Provider value={{ unreadCount, isConnected, isPermissionGranted, requestPermissions, openNotificationSettings, refreshBadgeCount }}>
+    <NotificationContext.Provider value={value}>
       {children}
     </NotificationContext.Provider>
   );

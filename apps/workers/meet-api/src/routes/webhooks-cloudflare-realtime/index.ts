@@ -8,11 +8,10 @@
  * (legacy worker phase-out, W3). Mounted BEFORE clerkMiddleware — Cloudflare
  * RTK posts server-to-server without Clerk tokens.
  *
- * SECURITY: RTK's post-Dyte webhook signature scheme is undocumented, so the
- * receiver is guarded by a shared `?token=` (CF_REALTIME_WEBHOOK_TOKEN) that
- * POST /setup registers into the webhook URL. Enforced only when the secret is
- * set — set the secret AND re-run /setup together, or legitimate (tokenless)
- * calls will 401. See lib/webhook-token.ts.
+ * SECURITY: every delivery must carry a valid `rtk-signature` (RSA-SHA256 over
+ * the raw body, verified against RealtimeKit's published public key), else
+ * 401. Duplicate deliveries are dropped on their `rtk-uuid`. See
+ * @weldsuite/cloudflare-realtime/webhook-signature.
  *
  * Handles meeting.ended and meeting.participantLeft events from Cloudflare
  * RealtimeKit. When RTK detects all participants have left, it auto-ends the
@@ -22,12 +21,9 @@
  *   Key: rtk-meeting:{cfMeetingId}
  *   Value: { orgId, type: 'session'|'call', sessionId?, meetingId?, callId?, channelId? }
  *
- * Response shape is the LEGACY `{ ok: true }` RTK expects (always 200 to
- * avoid retries) — intentionally NOT the app-api `{ data }` envelope.
- *
- * Delta vs api-worker: the /setup baseUrlMap now points at app-api hostnames
- * (was api-worker hostnames). After deploy, POST /setup must be re-run per
- * environment so RTK delivers to app-api (W6 ops step).
+ * Response shape is the LEGACY `{ ok: true }` RTK expects (200 once the event
+ * is accepted, so it is not retried) — intentionally NOT the `{ data }`
+ * envelope.
  */
 
 import { Hono } from 'hono';
@@ -38,12 +34,23 @@ import {
   type RtkWebhookEvent,
   type RtkMeetingMapping,
 } from '../../services/rtk-webhook';
-import { verifyWebhookToken } from '@weldsuite/worker-kit/webhook-token';
+import { timingSafeEqualStr } from '@weldsuite/worker-kit/webhook-token';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 import { registerWebhook } from '@weldsuite/cloudflare-realtime';
+import {
+  RTK_DELIVERY_ID_HEADER,
+  RTK_SIGNATURE_HEADER,
+  RtkWebhookKeyUnavailableError,
+  verifyRtkWebhookSignature,
+} from '@weldsuite/cloudflare-realtime/webhook-signature';
 import { originForPathFrom } from '@weldsuite/api-modules';
 
 const WEBHOOK_PATH = '/api/webhooks/cloudflare-realtime';
+
+/** Processed deliveries are remembered this long (RTK retries well within it). */
+const DELIVERY_DEDUPE_TTL_SECONDS = 7 * 24 * 60 * 60;
+/** `rtk-uuid` values we accept as a KV key; anything else skips de-duplication. */
+const DELIVERY_ID_PATTERN = /^[A-Za-z0-9-]{1,128}$/;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -51,20 +58,39 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
  * POST / — Receive RTK webhook events
  */
 app.post('/', async (c) => {
+  // Verify the raw bytes: the signature covers the body exactly as sent.
+  const rawBody = await c.req.arrayBuffer();
+  let verified: boolean;
   try {
-    // Reject forged calls: RTK is registered with a `?token=` only we and
-    // Cloudflare know. No-op until CF_REALTIME_WEBHOOK_TOKEN is set.
-    if (!verifyWebhookToken(c, c.env.CF_REALTIME_WEBHOOK_TOKEN)) {
-      console.warn('[RTK Webhook] Rejected: missing/invalid token');
-      return c.json({ error: 'unauthorized' }, 401);
-    }
+    verified = await verifyRtkWebhookSignature(rawBody, c.req.header(RTK_SIGNATURE_HEADER));
+  } catch (err) {
+    if (!(err instanceof RtkWebhookKeyUnavailableError)) throw err;
+    // Our side could not load the key, not a forged call: 5xx so RTK retries.
+    console.error('[RTK Webhook] Signature key unavailable:', err.message);
+    return c.json({ error: 'signature key unavailable' }, 503);
+  }
+  if (!verified) {
+    console.warn('[RTK Webhook] Rejected: missing/invalid rtk-signature');
+    return c.json({ error: 'unauthorized' }, 401);
+  }
 
-    const event = await c.req.json<RtkWebhookEvent>();
+  try {
+    const event = JSON.parse(new TextDecoder().decode(rawBody)) as RtkWebhookEvent;
     const eventType = event.event;
-    const rtkMeetingId = event.meetingId;
+    // Documented payloads nest the id under `meeting`; older ones sent it flat.
+    const rtkMeetingId = event.meeting?.id ?? event.meetingId;
 
     if (!rtkMeetingId) {
-      console.warn('[RTK Webhook] No meetingId in payload');
+      console.warn('[RTK Webhook] No meeting id in payload');
+      return c.json({ ok: true });
+    }
+
+    const deliveryId = c.req.header(RTK_DELIVERY_ID_HEADER);
+    const dedupeKey = deliveryId && DELIVERY_ID_PATTERN.test(deliveryId)
+      ? `rtk-webhook-delivery:${deliveryId}`
+      : null;
+    if (dedupeKey && (await c.env.WORKSPACE_CACHE.get(dedupeKey))) {
+      console.log(`[RTK Webhook] Duplicate delivery ${logSafe(deliveryId)}, skipping`);
       return c.json({ ok: true });
     }
 
@@ -92,6 +118,10 @@ app.post('/', async (c) => {
         break;
     }
 
+    if (dedupeKey) {
+      await c.env.WORKSPACE_CACHE.put(dedupeKey, '1', { expirationTtl: DELIVERY_DEDUPE_TTL_SECONDS });
+    }
+
     return c.json({ ok: true });
   } catch (err) {
     console.error('[RTK Webhook] Error processing event:', err);
@@ -103,13 +133,24 @@ app.post('/', async (c) => {
 /**
  * POST /setup — Register the RTK webhook (one-time setup per env).
  *
- * NOTE (pre-existing from api-worker): this endpoint is itself
- * unauthenticated. It only registers the well-known receiver URL with
- * Cloudflare using server-side secrets, but re-running it creates duplicate
- * webhook registrations — flagged for hardening in the migration report.
+ * Operator-only: requires `Authorization: Bearer <CF_REALTIME_WEBHOOK_TOKEN>`
+ * and refuses when that secret is unset. Re-running it creates a duplicate
+ * webhook registration; that is harmless (meeting.ended and participantLeft
+ * handling are idempotent) but noisy, so run it once per environment.
  */
 app.post('/setup', async (c) => {
   const env = c.env;
+
+  if (!env.CF_REALTIME_WEBHOOK_TOKEN) {
+    console.error('[RTK Webhook Setup] Rejected: CF_REALTIME_WEBHOOK_TOKEN is not configured');
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const auth = c.req.header('Authorization') ?? '';
+  const provided = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';
+  if (!timingSafeEqualStr(provided, env.CF_REALTIME_WEBHOOK_TOKEN)) {
+    console.warn('[RTK Webhook Setup] Rejected: missing/invalid bearer token');
+    return c.json({ error: 'unauthorized' }, 401);
+  }
 
   if (!env.CF_ACCOUNT_ID || !env.CF_REALTIME_APP_ID || !env.CF_REALTIME_APP_SECRET) {
     return c.json({ error: 'Missing CF_ACCOUNT_ID, CF_REALTIME_APP_ID, or CF_REALTIME_APP_SECRET' }, 400);
@@ -125,10 +166,8 @@ app.post('/setup', async (c) => {
   };
   const coreUrl = coreUrlMap[environment];
   const baseUrl = coreUrl ? originForPathFrom(coreUrl, WEBHOOK_PATH) : new URL(c.req.url).origin;
-  // Register the receiver URL with the shared token when configured, so RTK
-  // echoes it back on every event and forged (tokenless) calls are rejected.
-  const token = env.CF_REALTIME_WEBHOOK_TOKEN;
-  const webhookUrl = `${baseUrl}${WEBHOOK_PATH}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  // No secret in the URL: deliveries are authenticated by their rtk-signature.
+  const webhookUrl = `${baseUrl}${WEBHOOK_PATH}`;
 
   let result: { id?: string };
   try {
@@ -139,8 +178,8 @@ app.post('/setup', async (c) => {
       enabled: true,
     });
   } catch (err) {
-    // This route is unauthenticated (see the note above), so the RealtimeKit
-    // status and error payload stay in the logs rather than the response.
+    // The RealtimeKit status and error payload stay in the logs rather than
+    // the response.
     console.error(
       '[RTK Webhook Setup] Failed:',
       err instanceof Error ? err.message : String(err),
@@ -149,7 +188,7 @@ app.post('/setup', async (c) => {
   }
 
   console.log(`[RTK Webhook Setup] Registered webhook for ${environment}: ${webhookUrl}`);
-  return c.json({ ok: true, url: webhookUrl, result });
+  return c.json({ ok: true, url: webhookUrl, id: result.id });
 });
 
 export const webhooksCloudflareRealtimeRoutes = app;

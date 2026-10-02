@@ -185,8 +185,100 @@ async function existingColumns(sql: postgres.Sql, table: string, cols: string[])
   return new Set(rows.map((r) => r.column_name));
 }
 
-async function sweepTable(sql: postgres.Sql, mapping: TableMapping, execute: boolean, verbose: boolean): Promise<Counts> {
-  const counts = newCounts();
+type ColumnWrite = { col: string; type: ColType; val: string | boolean };
+type ScanRow = Record<string, unknown> & { id: string; custom_fields: Record<string, unknown> };
+
+/** What one row's sweep decided: which blob keys to strip, which columns to fill. */
+interface RowPlan {
+  stripKeys: string[];
+  setCols: ColumnWrite[];
+}
+
+interface Samples {
+  invalid: string[];
+  conflicts: string[];
+}
+
+/**
+ * Decide what to do with one mapped key of one row, updating the counters and
+ * the row plan. Never touches the database.
+ */
+function planMappedKey(
+  table: string,
+  row: ScanRow,
+  blob: Record<string, unknown>,
+  m: KeyMap,
+  counts: Counts,
+  samples: Samples,
+  plan: RowPlan,
+): void {
+  if (!Object.prototype.hasOwnProperty.call(blob, m.key)) return;
+  counts.keysFound++;
+  const coerced = coerce(m.type, blob[m.key]);
+  if (coerced === INVALID) {
+    counts.invalid++;
+    if (samples.invalid.length < 10) samples.invalid.push(`${table}.${row.id}.${m.key}=${JSON.stringify(blob[m.key])}`);
+    return; // leave the key in the blob; do not lose an unconvertible value
+  }
+  if (coerced === null) {
+    // Empty blob value — nothing to preserve, safe to strip.
+    plan.stripKeys.push(m.key);
+    return;
+  }
+  const currentCol = row[m.col];
+  if (currentCol === null || currentCol === undefined) {
+    // Column never written. Only a no-default column can be NULL (a column
+    // with a non-null DEFAULT was backfilled on every row), so this is an
+    // unambiguous legacy fill: write the blob value in, then strip.
+    plan.setCols.push({ col: m.col, type: m.type, val: coerced });
+    counts.columnsSet++;
+    plan.stripKeys.push(m.key);
+    return;
+  }
+  if (colEquals(m.type, currentCol, coerced)) {
+    // Column already holds this exact value — a true stale dup, safe to
+    // strip whether the value is a genuine write or a migration default.
+    counts.alreadySet++;
+    plan.stripKeys.push(m.key);
+    return;
+  }
+  // Column holds a NON-NULL value that DISAGREES with the blob. This can
+  // never be auto-resolved: a non-null value may be a genuine post-cutover
+  // write OR a migration-time default, and the two are indistinguishable
+  // (auto_scheduled is DEFAULT false, yet pinRescheduledSource() also
+  // writes false on purpose — apps/workers/calendar-api/src/services/calendar-events.ts).
+  // Overwriting could clobber a real value; stripping could drop real
+  // legacy data. So touch nothing — leave the key and flag it for manual
+  // reconciliation.
+  counts.conflicts++;
+  if (samples.conflicts.length < 10) {
+    samples.conflicts.push(`${table}.${row.id}.${m.key}: blob=${JSON.stringify(blob[m.key])} col=${JSON.stringify(currentCol)}`);
+  }
+}
+
+const SQL_CASTS: Partial<Record<string, string>> = { bool: '::boolean', ts: '::timestamp' };
+
+/** Write one row's plan: fill the NULL columns and strip the moved keys. */
+async function applyRowPlan(sql: postgres.Sql, table: string, rowId: string, plan: RowPlan): Promise<void> {
+  const params: unknown[] = [];
+  const setClauses = plan.setCols.map((s) => {
+    params.push(s.val);
+    const cast = SQL_CASTS[s.type] ?? '::text';
+    return `"${s.col}" = $${params.length}${cast}`;
+  });
+  params.push(plan.stripKeys);
+  const stripParam = `$${params.length}::text[]`;
+  params.push(rowId);
+  const idParam = `$${params.length}`;
+  const setSql = [...setClauses, `custom_fields = custom_fields - ${stripParam}`].join(', ');
+  await sql.unsafe(`UPDATE ${table} SET ${setSql} WHERE id = ${idParam}`, params as never[]);
+}
+
+/**
+ * Which of the mapping's columns exist in this tenant. Returns null when the
+ * table itself is missing; reports partially-migrated tenants via the counters.
+ */
+async function resolveMappedColumns(sql: postgres.Sql, mapping: TableMapping, counts: Counts): Promise<KeyMap[] | null> {
   const { table } = mapping;
 
   // Table present at all? (calendar_events / mail_messages exist everywhere, but
@@ -195,7 +287,7 @@ async function sweepTable(sql: postgres.Sql, mapping: TableMapping, execute: boo
   if (!reg[0]?.reg) {
     counts.missingCols++;
     console.log(`    ${table}: table missing — skipped`);
-    return counts;
+    return null;
   }
 
   const have = await existingColumns(sql, table, mapping.maps.map((m) => m.col));
@@ -204,12 +296,28 @@ async function sweepTable(sql: postgres.Sql, mapping: TableMapping, execute: boo
     counts.missingCols++;
     console.log(`    ${table}: missing columns ${mapping.maps.filter((m) => !have.has(m.col)).map((m) => m.col).join(', ')} — those mappings skipped`);
   }
-  if (maps.length === 0) return counts;
+  return maps;
+}
+
+function logTableSummary(table: string, counts: Counts, samples: Samples) {
+  console.log(
+    `    ${table}: rows=${counts.rows} keysFound=${counts.keysFound} columnsSet=${counts.columnsSet} ` +
+      `alreadySet=${counts.alreadySet} stripped=${counts.keysStripped} conflicts=${counts.conflicts} invalid=${counts.invalid}`,
+  );
+  for (const s of samples.conflicts) console.log(`      conflict (left in blob): ${s}`);
+  for (const s of samples.invalid) console.log(`      invalid (left in blob): ${s}`);
+}
+
+async function sweepTable(sql: postgres.Sql, mapping: TableMapping, execute: boolean, verbose: boolean): Promise<Counts> {
+  const counts = newCounts();
+  const { table } = mapping;
+
+  const maps = await resolveMappedColumns(sql, mapping, counts);
+  if (!maps || maps.length === 0) return counts;
 
   const keys = maps.map((m) => m.key);
   const colList = maps.map((m) => `"${m.col}"`).join(', ');
-  const invalidSamples: string[] = [];
-  const conflictSamples: string[] = [];
+  const samples: Samples = { invalid: [], conflicts: [] };
 
   // ONE sequential scan. `?|` is not indexable, so an ORDER BY / keyset paginated
   // read makes Postgres walk the PK index doing a per-row heap lookup (random
@@ -225,85 +333,25 @@ async function sweepTable(sql: postgres.Sql, mapping: TableMapping, execute: boo
         AND jsonb_typeof(custom_fields) = 'object'
         AND custom_fields ?| $1::text[]`,
     [keys] as never[],
-  )) as unknown as Array<Record<string, unknown> & { id: string; custom_fields: Record<string, unknown> }>;
+  )) as unknown as ScanRow[];
 
-  {
-    for (const row of rows) {
-      const blob = row.custom_fields ?? {};
-      const stripKeys: string[] = [];
-      const setCols: { col: string; type: ColType; val: string | boolean }[] = [];
+  for (const row of rows) {
+    const blob = row.custom_fields ?? {};
+    const plan: RowPlan = { stripKeys: [], setCols: [] };
 
-      for (const m of maps) {
-        if (!Object.prototype.hasOwnProperty.call(blob, m.key)) continue;
-        counts.keysFound++;
-        const coerced = coerce(m.type, blob[m.key]);
-        if (coerced === INVALID) {
-          counts.invalid++;
-          if (invalidSamples.length < 10) invalidSamples.push(`${table}.${row.id}.${m.key}=${JSON.stringify(blob[m.key])}`);
-          continue; // leave the key in the blob; do not lose an unconvertible value
-        }
-        if (coerced === null) {
-          // Empty blob value — nothing to preserve, safe to strip.
-          stripKeys.push(m.key);
-          continue;
-        }
-        const currentCol = row[m.col];
-        if (currentCol === null || currentCol === undefined) {
-          // Column never written. Only a no-default column can be NULL (a column
-          // with a non-null DEFAULT was backfilled on every row), so this is an
-          // unambiguous legacy fill: write the blob value in, then strip.
-          setCols.push({ col: m.col, type: m.type, val: coerced });
-          counts.columnsSet++;
-          stripKeys.push(m.key);
-        } else if (colEquals(m.type, currentCol, coerced)) {
-          // Column already holds this exact value — a true stale dup, safe to
-          // strip whether the value is a genuine write or a migration default.
-          counts.alreadySet++;
-          stripKeys.push(m.key);
-        } else {
-          // Column holds a NON-NULL value that DISAGREES with the blob. This can
-          // never be auto-resolved: a non-null value may be a genuine post-cutover
-          // write OR a migration-time default, and the two are indistinguishable
-          // (auto_scheduled is DEFAULT false, yet pinRescheduledSource() also
-          // writes false on purpose — apps/workers/calendar-api/src/services/calendar-events.ts).
-          // Overwriting could clobber a real value; stripping could drop real
-          // legacy data. So touch nothing — leave the key and flag it for manual
-          // reconciliation.
-          counts.conflicts++;
-          if (conflictSamples.length < 10) {
-            conflictSamples.push(`${table}.${row.id}.${m.key}: blob=${JSON.stringify(blob[m.key])} col=${JSON.stringify(currentCol)}`);
-          }
-        }
-      }
-
-      if (stripKeys.length === 0) continue;
-      counts.rows++;
-      counts.keysStripped += stripKeys.length;
-
-      if (execute) {
-        const params: unknown[] = [];
-        const setClauses = setCols.map((s) => {
-          params.push(s.val);
-          const cast = s.type === 'bool' ? '::boolean' : s.type === 'ts' ? '::timestamp' : '::text';
-          return `"${s.col}" = $${params.length}${cast}`;
-        });
-        params.push(stripKeys);
-        const stripParam = `$${params.length}::text[]`;
-        params.push(row.id);
-        const idParam = `$${params.length}`;
-        const setSql = [...setClauses, `custom_fields = custom_fields - ${stripParam}`].join(', ');
-        await sql.unsafe(`UPDATE ${table} SET ${setSql} WHERE id = ${idParam}`, params as never[]);
-      }
+    for (const m of maps) {
+      planMappedKey(table, row, blob, m, counts, samples, plan);
     }
+
+    if (plan.stripKeys.length === 0) continue;
+    counts.rows++;
+    counts.keysStripped += plan.stripKeys.length;
+
+    if (execute) await applyRowPlan(sql, table, row.id, plan);
   }
 
   if (verbose && (counts.rows > 0 || counts.conflicts > 0 || counts.invalid > 0)) {
-    console.log(
-      `    ${table}: rows=${counts.rows} keysFound=${counts.keysFound} columnsSet=${counts.columnsSet} ` +
-        `alreadySet=${counts.alreadySet} stripped=${counts.keysStripped} conflicts=${counts.conflicts} invalid=${counts.invalid}`,
-    );
-    for (const s of conflictSamples) console.log(`      conflict (left in blob): ${s}`);
-    for (const s of invalidSamples) console.log(`      invalid (left in blob): ${s}`);
+    logTableSummary(table, counts, samples);
   }
   return counts;
 }
@@ -328,25 +376,11 @@ async function sweepTenant(label: string, databaseUrl: string, options: CliOptio
   return counts;
 }
 
-async function main() {
-  const options = parseArgs();
-  const masterUrl = process.env.MASTER_DATABASE_URL;
-  const neonApiKey = process.env.NEON_API_KEY || '';
-  const v1 = process.env.DATABASE_ENCRYPTION_KEY;
-  const v2 = process.env.DATABASE_ENCRYPTION_KEY_V2;
-
-  if (!masterUrl) throw new Error('MASTER_DATABASE_URL is required');
-  if (!v1 && !v2) console.log('No DATABASE_ENCRYPTION_KEY set — resolving tenant URLs via the Neon API.');
-
-  console.log(
-    `Custom fields Pile A column backfill — mode: ${options.execute ? 'EXECUTE' : 'dry-run'}` +
-      (options.table ? ` — table: ${options.table}` : ''),
-  );
-
+async function loadActiveTenants(masterUrl: string, only: string | null) {
   const masterClient = postgres(masterUrl, { max: 1, ssl: 'require', prepare: false });
   const db = drizzle(masterClient);
   const conditions = [eq(workspaces.isActive, true), isNotNull(workspaces.neonProjectId)];
-  if (options.only) conditions.push(eq(workspaces.id, options.only));
+  if (only) conditions.push(eq(workspaces.id, only));
   const rows = await db
     .select({
       id: workspaces.id, name: workspaces.name, neonProjectId: workspaces.neonProjectId,
@@ -356,20 +390,30 @@ async function main() {
     .from(workspaces)
     .where(and(...conditions));
   await masterClient.end({ timeout: 5 });
+  return rows;
+}
 
-  console.log(`\nTenant DBs (${rows.length}):`);
-  const total = newCounts();
+/** Sweeps every tenant in order, accumulating into `total`. */
+async function sweepAllTenants(
+  rows: Awaited<ReturnType<typeof loadActiveTenants>>,
+  neonApiKey: string,
+  keys: { v1: string | undefined; v2: string | undefined },
+  options: CliOptions,
+  total: Counts,
+): Promise<void> {
   for (const w of rows) {
     if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
     try {
-      const url = await resolveDatabaseUrl(neonApiKey, w as never, { v1, v2 });
+      const url = await resolveDatabaseUrl(neonApiKey, w as never, keys);
       addCounts(total, await sweepTenant(w.id, url, options));
     } catch (err) {
       console.error(`  ${w.id}: FAILED — ${(err as Error).message}`);
       total.failedTenants++;
     }
   }
+}
 
+function printTotals(total: Counts, options: CliOptions) {
   console.log(
     `\nTOTAL: rows=${total.rows} keysFound=${total.keysFound} columnsSet=${total.columnsSet} ` +
       `alreadySet=${total.alreadySet} stripped=${total.keysStripped} conflicts=${total.conflicts} invalid=${total.invalid} ` +
@@ -388,24 +432,51 @@ async function main() {
         '(--verbose lists samples). Resolve them before Phase 4 — they would still fail the audit.',
     );
   }
-  if (options.execute) {
-    console.log(
-      total.invalid === 0 && total.conflicts === 0 && total.failedTenants === 0
-        ? '\nDone — mapped keys moved to columns and stripped from the blobs. Re-run audit:blobs to confirm zero.'
-        : '\nDone with issues — see warnings above. The sweep is idempotent; re-run after resolving.',
-    );
-  } else {
+  if (!options.execute) {
+    const conflictNote = total.conflicts > 0 ? `, ${total.conflicts} conflict(s) left for review` : '';
     console.log(
       `\nDry-run only. ${total.keysStripped} key(s) across ${total.rows} row(s) would be stripped ` +
         `(${total.columnsSet} column(s) filled, ${total.alreadySet} already set` +
-        `${total.conflicts > 0 ? `, ${total.conflicts} conflict(s) left for review` : ''}). Re-run with --execute to write.`,
+        `${conflictNote}). Re-run with --execute to write.`,
     );
+    return;
   }
+  console.log(
+    total.invalid === 0 && total.conflicts === 0 && total.failedTenants === 0
+      ? '\nDone — mapped keys moved to columns and stripped from the blobs. Re-run audit:blobs to confirm zero.'
+      : '\nDone with issues — see warnings above. The sweep is idempotent; re-run after resolving.',
+  );
+}
+
+async function main() {
+  const options = parseArgs();
+  const masterUrl = process.env.MASTER_DATABASE_URL;
+  const neonApiKey = process.env.NEON_API_KEY || '';
+  const v1 = process.env.DATABASE_ENCRYPTION_KEY;
+  const v2 = process.env.DATABASE_ENCRYPTION_KEY_V2;
+
+  if (!masterUrl) throw new Error('MASTER_DATABASE_URL is required');
+  if (!v1 && !v2) console.log('No DATABASE_ENCRYPTION_KEY set — resolving tenant URLs via the Neon API.');
+
+  console.log(
+    `Custom fields Pile A column backfill — mode: ${options.execute ? 'EXECUTE' : 'dry-run'}` +
+      (options.table ? ` — table: ${options.table}` : ''),
+  );
+
+  const rows = await loadActiveTenants(masterUrl, options.only);
+
+  console.log(`\nTenant DBs (${rows.length}):`);
+  const total = newCounts();
+  await sweepAllTenants(rows, neonApiKey, { v1, v2 }, options, total);
+
+  printTotals(total, options);
 
   process.exit(total.failedTenants === 0 ? 0 : 1);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('Pile A column backfill failed:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}

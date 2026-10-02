@@ -46,6 +46,87 @@ function Badge({
   );
 }
 
+function AppsEmptyState() {
+  const { t } = useDeveloperI18n();
+  return (
+    <div className="mx-auto max-w-md rounded-lg border border-dashed border-border p-10 text-center">
+      <p className="text-sm font-medium">{t.apps.empty}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{t.apps.emptyDescription}</p>
+      <Link
+        to="/apps/new"
+        className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
+      >
+        <Plus className="h-4 w-4" />
+        {t.apps.createApp}
+      </Link>
+    </div>
+  );
+}
+
+function AppsTable({ apps }: Readonly<{ apps: UserApp[] }>) {
+  const { t } = useDeveloperI18n();
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-muted/50 text-xs text-muted-foreground">
+          <tr>
+            <th className="px-4 py-3 font-medium">{t.apps.columnName}</th>
+            <th className="px-4 py-3 font-medium">{t.apps.columnCode}</th>
+            <th className="px-4 py-3 font-medium">{t.apps.columnVisibility}</th>
+            <th className="px-4 py-3 font-medium">{t.apps.columnStatus}</th>
+            <th className="px-4 py-3 font-medium">{t.apps.columnInstalls}</th>
+            <th className="px-4 py-3 font-medium">{t.apps.columnVersion}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {apps.map((app) => (
+            <tr key={app.id} className="border-t border-border hover:bg-muted/30">
+              <td className="px-4 py-3 font-medium">
+                <Link to={`/apps/${app.id}`} className="hover:underline">
+                  {app.name}
+                </Link>
+              </td>
+              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{app.code}</td>
+              <td className="px-4 py-3">
+                <Badge>{visibilityLabel(app, t)}</Badge>
+              </td>
+              <td className="px-4 py-3">
+                <Badge tone={app.reviewStatus === 'rejected' ? 'danger' : 'default'}>
+                  {reviewStatusLabel(app, t)}
+                </Badge>
+              </td>
+              <td className="px-4 py-3">{app.installCount}</td>
+              <td className="px-4 py-3 text-xs text-muted-foreground">
+                {app.currentVersionId ?? t.apps.noVersion}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+interface AppsBodyProps {
+  apps: UserApp[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+}
+
+function AppsBody({ apps, isLoading, isError }: Readonly<AppsBodyProps>) {
+  const { t } = useDeveloperI18n();
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">{t.shell.loading}</p>;
+  }
+  if (isError) {
+    return <p className="text-sm text-destructive">{t.apps.loadError}</p>;
+  }
+  if (!apps || apps.length === 0) {
+    return <AppsEmptyState />;
+  }
+  return <AppsTable apps={apps} />;
+}
+
 export function AppsPage() {
   const { t } = useDeveloperI18n();
   const { orgId } = useAuth();
@@ -89,62 +170,7 @@ export function AppsPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">{t.shell.loading}</p>
-        ) : isError ? (
-          <p className="text-sm text-destructive">{t.apps.loadError}</p>
-        ) : !apps || apps.length === 0 ? (
-          <div className="mx-auto max-w-md rounded-lg border border-dashed border-border p-10 text-center">
-            <p className="text-sm font-medium">{t.apps.empty}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{t.apps.emptyDescription}</p>
-            <Link
-              to="/apps/new"
-              className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
-            >
-              <Plus className="h-4 w-4" />
-              {t.apps.createApp}
-            </Link>
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-lg border border-border">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-muted/50 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3 font-medium">{t.apps.columnName}</th>
-                  <th className="px-4 py-3 font-medium">{t.apps.columnCode}</th>
-                  <th className="px-4 py-3 font-medium">{t.apps.columnVisibility}</th>
-                  <th className="px-4 py-3 font-medium">{t.apps.columnStatus}</th>
-                  <th className="px-4 py-3 font-medium">{t.apps.columnInstalls}</th>
-                  <th className="px-4 py-3 font-medium">{t.apps.columnVersion}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {apps.map((app) => (
-                  <tr key={app.id} className="border-t border-border hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium">
-                      <Link to={`/apps/${app.id}`} className="hover:underline">
-                        {app.name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{app.code}</td>
-                    <td className="px-4 py-3">
-                      <Badge>{visibilityLabel(app, t)}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge tone={app.reviewStatus === 'rejected' ? 'danger' : 'default'}>
-                        {reviewStatusLabel(app, t)}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3">{app.installCount}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {app.currentVersionId ?? t.apps.noVersion}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <AppsBody apps={apps} isLoading={isLoading} isError={isError} />
       </div>
     </div>
   );

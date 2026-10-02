@@ -74,7 +74,7 @@ const META_VERSION = 1;
 const DEBOUNCE_MS = 1500;
 
 function uid(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function nowIso(): string {
@@ -215,6 +215,66 @@ function makeMutation<TArgs, TResult = void>(
     },
     mutateAsync: async (args) => fn(args),
   };
+}
+
+// Source row position a cell value is read from after an insert/delete of
+// `count` cells starting at `anchorPos`.
+function verticalShiftSource(pos: number, anchorPos: number, count: number, mode: 'insert' | 'delete'): number | null {
+  if (pos < anchorPos) return pos;
+  if (mode === 'delete') return pos + count;
+  return pos < anchorPos + count ? null : pos - count;
+}
+
+function snapshotColumnValues(rowsArr: SpreadsheetRow[], colIds: string[]): Map<string, CellDataValue> {
+  const snap = new Map<string, CellDataValue>();
+  for (const r of rowsArr) {
+    for (const cid of colIds) {
+      if (r.data && cid in r.data) snap.set(`${r.position}|${cid}`, r.data[cid]);
+    }
+  }
+  return snap;
+}
+
+function writeShiftedCell(
+  rowMap: Map<number, SpreadsheetRow>,
+  sid: string,
+  pos: number,
+  cid: string,
+  v: CellDataValue | undefined,
+): void {
+  let row = rowMap.get(pos);
+  if (v === undefined || v === null || v === '') {
+    if (row) delete row.data[cid];
+    return;
+  }
+  if (!row) {
+    const now = nowIso();
+    row = { id: uid('srow'), sheetId: sid, position: pos, data: {}, createdAt: now, updatedAt: now };
+    rowMap.set(pos, row);
+  }
+  row.data[cid] = v;
+}
+
+function shiftRowsVertical(
+  rowsArr: SpreadsheetRow[],
+  sid: string,
+  colIds: string[],
+  anchorPos: number,
+  count: number,
+  mode: 'insert' | 'delete',
+): SpreadsheetRow[] {
+  const maxPos = rowsArr.reduce((a, r) => Math.max(a, r.position), -1);
+  const snap = snapshotColumnValues(rowsArr, colIds);
+  const limit = mode === 'insert' ? maxPos + count : maxPos;
+  const rowMap = new Map(rowsArr.map((r) => [r.position, { ...r, data: { ...r.data } }]));
+  for (let pos = anchorPos; pos <= limit; pos++) {
+    const srcPos = verticalShiftSource(pos, anchorPos, count, mode);
+    for (const cid of colIds) {
+      const v = srcPos === null ? undefined : snap.get(`${srcPos}|${cid}`);
+      writeShiftedCell(rowMap, sid, pos, cid, v);
+    }
+  }
+  return Array.from(rowMap.values());
 }
 
 // ---------------------------------------------------------------------------
@@ -854,42 +914,8 @@ export function useSpreadsheet(projectId: string, fileId: string) {
           if (!effectiveSheetId || colIds.length === 0 || count <= 0) return;
           mutate((m) => {
             const sid = effectiveSheetId;
-            const rowsArr = m.rowsBySheet[sid] ?? [];
-            const maxPos = rowsArr.reduce((a, r) => Math.max(a, r.position), -1);
-            const snap = new Map<string, CellDataValue>();
-            for (const r of rowsArr) {
-              for (const cid of colIds) {
-                if (r.data && cid in r.data) snap.set(`${r.position}|${cid}`, r.data[cid]);
-              }
-            }
-            const srcVal = (pos: number, cid: string) => {
-              if (mode === 'insert') {
-                if (pos < anchorPos) return snap.get(`${pos}|${cid}`);
-                if (pos < anchorPos + count) return undefined;
-                return snap.get(`${pos - count}|${cid}`);
-              }
-              if (pos < anchorPos) return snap.get(`${pos}|${cid}`);
-              return snap.get(`${pos + count}|${cid}`);
-            };
-            const limit = mode === 'insert' ? maxPos + count : maxPos;
-            const rowMap = new Map(rowsArr.map((r) => [r.position, { ...r, data: { ...r.data } }]));
-            for (let pos = anchorPos; pos <= limit; pos++) {
-              for (const cid of colIds) {
-                const v = srcVal(pos, cid);
-                let row = rowMap.get(pos);
-                if (v === undefined || v === null || v === '') {
-                  if (row) delete row.data[cid];
-                  continue;
-                }
-                if (!row) {
-                  const now = nowIso();
-                  row = { id: uid('srow'), sheetId: sid, position: pos, data: {}, createdAt: now, updatedAt: now };
-                  rowMap.set(pos, row);
-                }
-                row.data[cid] = v;
-              }
-            }
-            return { ...m, rowsBySheet: { ...m.rowsBySheet, [sid]: Array.from(rowMap.values()) } };
+            const rows = shiftRowsVertical(m.rowsBySheet[sid] ?? [], sid, colIds, anchorPos, count, mode);
+            return { ...m, rowsBySheet: { ...m.rowsBySheet, [sid]: rows } };
           });
         },
       ),

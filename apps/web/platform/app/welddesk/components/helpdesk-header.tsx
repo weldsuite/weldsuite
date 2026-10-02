@@ -10,36 +10,41 @@ interface HelpdeskHeaderProps {
   onNotificationsToggle?: (isOpen: boolean) => void;
 }
 
+type HelpdeskTranslations = ReturnType<typeof useI18n>['t'];
+
+function getSegmentLabel(part: string, t: HelpdeskTranslations): string {
+  const labels: Record<string, string> = {
+    'chat-widget': t.helpdesk.chatWidget.title,
+    inbox: t.navigation.moduleSidebar.welddesk.inbox,
+    email: t.navigation.moduleSidebar.welddesk.email,
+    'help-center': t.navigation.moduleSidebar.welddesk.helpCenter,
+    articles: t.navigation.moduleSidebar.welddesk.articles,
+  };
+  return Object.hasOwn(labels, part)
+    ? labels[part]
+    : part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
+}
+
+function buildPathSegments(pathname: string, t: HelpdeskTranslations): BreadcrumbSegment[] {
+  const segments: BreadcrumbSegment[] = [{ label: t.helpdesk.title, href: '/welddesk/inbox' }];
+  const pathParts = pathname.split('/').filter(Boolean);
+  for (let i = 1; i < pathParts.length; i++) {
+    segments.push({
+      label: getSegmentLabel(pathParts[i], t),
+      href: '/' + pathParts.slice(0, i + 1).join('/'),
+    });
+  }
+  return segments;
+}
+
 export function HelpdeskHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: Readonly<HelpdeskHeaderProps>) {
   const pathname = usePathname();
   const contextBreadcrumbs = useCurrentBreadcrumbs();
   const { t } = useI18n();
 
   // Use context breadcrumbs if a page has set them, otherwise build from pathname
-  let segments: BreadcrumbSegment[];
-  if (contextBreadcrumbs.length > 0) {
-    segments = contextBreadcrumbs;
-  } else {
-    segments = [{ label: t.helpdesk.title, href: '/welddesk/inbox' }];
-
-    // Build breadcrumbs from pathname
-    const pathParts = pathname.split('/').filter(Boolean);
-    if (pathParts.length > 1) {
-      for (let i = 1; i < pathParts.length; i++) {
-        const part = pathParts[i];
-        let label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
-
-        if (part === 'chat-widget') label = t.helpdesk.chatWidget.title;
-        if (part === 'inbox') label = t.navigation.moduleSidebar.welddesk.inbox;
-        if (part === 'email') label = t.navigation.moduleSidebar.welddesk.email;
-        if (part === 'help-center') label = t.navigation.moduleSidebar.welddesk.helpCenter;
-        if (part === 'articles') label = t.navigation.moduleSidebar.welddesk.articles;
-
-        const href = '/' + pathParts.slice(0, i + 1).join('/');
-        segments.push({ label, href });
-      }
-    }
-  }
+  const segments =
+    contextBreadcrumbs.length > 0 ? contextBreadcrumbs : buildPathSegments(pathname, t);
 
   return (
     <BreadcrumbHeader

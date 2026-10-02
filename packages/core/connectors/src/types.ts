@@ -90,3 +90,54 @@ export function bindFetch(fetchImpl?: typeof fetch): typeof fetch {
   const impl = fetchImpl ?? globalThis.fetch.bind(globalThis);
   return ((input: RequestInfo | URL, init?: RequestInit) => impl(input, init)) as typeof fetch;
 }
+
+/** Result of one HTTP attempt: a value, or a classified error that may be retried. */
+export type ConnectorAttemptOutcome<T> = { ok: true; value: T } | { ok: false; error: ConnectorApiError };
+
+/** Delay before the next retry: honour `Retry-After`, else exponential backoff. */
+export function retryDelayMs(error: ConnectorApiError, attempt: number): number {
+  return error.retryAfterSeconds ? error.retryAfterSeconds * 1000 : 400 * 2 ** attempt;
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Runs `attemptOnce` with a per-attempt timeout, retrying retryable HTTP errors
+ * and network failures up to `maxRetries` times. `attemptOnce` resolves to a
+ * value, or to an error outcome that is retried when `error.retryable`.
+ */
+export async function runWithRetries<T>(args: {
+  maxRetries: number;
+  timeoutMs: number;
+  unreachableMessage: string;
+  failureMessage: string;
+  attemptOnce: (signal: AbortSignal) => Promise<ConnectorAttemptOutcome<T>>;
+}): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= args.maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), args.timeoutMs);
+    try {
+      const outcome = await args.attemptOnce(controller.signal);
+      if (outcome.ok) return outcome.value;
+      const { error } = outcome;
+      if (!error.retryable || attempt === args.maxRetries) throw error;
+      lastError = error;
+      await sleepMs(retryDelayMs(error, attempt));
+    } catch (err) {
+      if (err instanceof ConnectorApiError) throw err;
+      lastError = err;
+      if (attempt === args.maxRetries) {
+        throw new ConnectorApiError({ message: args.unreachableMessage, status: 503, kind: 'transient' });
+      }
+      await sleepMs(400 * 2 ** attempt);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new ConnectorApiError({ message: args.failureMessage, status: 503, kind: 'transient' });
+}

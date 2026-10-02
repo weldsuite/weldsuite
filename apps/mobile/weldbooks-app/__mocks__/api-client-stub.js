@@ -22,8 +22,8 @@ function resetClient() {
 }
 
 class NetworkError extends Error {
-  constructor(message = 'Network request failed', cause) {
-    super(message);
+  constructor(message, cause) {
+    super(message === undefined ? 'Network request failed' : message);
     this.name = 'NetworkError';
     this.isNetworkError = true;
     this.cause = cause;

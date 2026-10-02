@@ -74,6 +74,50 @@ function generateColor(str: string) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
+/**
+ * Pairs each attachment with a stable content-based React key. The same file can
+ * be attached twice, so an occurrence counter disambiguates identical keys.
+ */
+function keyAttachedFiles(files: File[]): Array<{ file: File; key: string }> {
+  const seen = new Map<string, number>();
+  return files.map((file) => {
+    const base = `${file.name}:${file.size}:${file.lastModified}`;
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return { file, key: `${base}:${occurrence}` };
+  });
+}
+
+function personDisplayName(p: {
+  displayName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+}): string {
+  return p.displayName || [p.firstName, p.lastName].filter(Boolean).join(' ') || p.email || '';
+}
+
+function getAgentRight(mobileNav: ReturnType<typeof useMobileNavOptional>): string {
+  return mobileNav?.showWeldAgent ? `${(mobileNav?.weldAgentWidth ?? 480) + 12}px` : '12px';
+}
+
+function hasComposeContent(
+  composeData: { to: string; subject: string; body: string },
+  editorHtml: string | undefined,
+) {
+  return composeData.to || composeData.subject || composeData.body || (editorHtml && editorHtml.trim());
+}
+
+function parseRecipients(str: string): string[] {
+  return str.split(/[,;]/).map(e => e.trim()).filter(e => e.length > 0);
+}
+
+function toHtmlBody(body: string): string {
+  return body.includes('<') ? body : body.replace(/\n/g, '<br>');
+}
+
+type UploadedMailAttachments = Awaited<ReturnType<typeof uploadMailAttachments>>;
+
 export function FloatingComposePanel() {
   const { t } = useI18n();
   const handleAiCreditsError = useAiCreditsToast();
@@ -89,7 +133,7 @@ export function FloatingComposePanel() {
   const createDraftMutation = useCreateMailDraft();
   const generateAIReplyMutation = useGenerateAIReply();
   const generateEmailDraftMutation = useGenerateEmailDraft();
-  const agentRight = mobileNav?.showWeldAgent ? `${(mobileNav?.weldAgentWidth ?? 480) + 12}px` : '12px';
+  const agentRight = getAgentRight(mobileNav);
 
   // Only one floating panel at a time: close the call dialer when compose opens
   useEffect(() => {
@@ -142,7 +186,7 @@ export function FloatingComposePanel() {
       : (recentPersonsResult.data?.data ?? []);
     return raw.map((p) => ({
       id: p.id,
-      name: ('displayName' in p ? p.displayName : null) || [p.firstName, p.lastName].filter(Boolean).join(' ') || p.email || '',
+      name: personDisplayName(p),
       email: p.email ?? '',
       avatarUrl: p.avatarUrl ?? null,
       color: generateColor(p.email ?? p.id),
@@ -245,7 +289,13 @@ export function FloatingComposePanel() {
   const handleUnderline = () => { executeCommand('underline'); checkFormatting(); };
   const handleBulletList = () => { executeCommand('insertUnorderedList'); checkFormatting(); };
   const handleNumberedList = () => { executeCommand('insertOrderedList'); checkFormatting(); };
-  const handleLink = () => { const url = prompt('Enter URL:'); if (url) executeCommand('createLink', url); checkFormatting(); };
+  const handleLink = () => {
+    const url = prompt('Enter URL:');
+    if (url) {
+      executeCommand('createLink', url);
+    }
+    checkFormatting();
+  };
   const insertEmoji = (emoji: string) => { executeCommand('insertText', emoji); checkFormatting(); };
 
   const handleOpenAiInput = () => {
@@ -258,42 +308,45 @@ export function FloatingComposePanel() {
     setAiPrompt('');
   };
 
+  const applyGeneratedBody = (body: string) => {
+    if (!textareaRef.current) return;
+    const html = formatAiBody(body);
+    textareaRef.current.innerHTML = html;
+    updateComposeData({ body: html });
+  };
+
+  // For replies, use the reply endpoint (body only)
+  const generateAiReply = async (): Promise<boolean> => {
+    const result = await generateAIReplyMutation.mutateAsync({ userPrompt: aiPrompt, messageId: composeData.inReplyTo, accountId: accountId || undefined });
+    if (!(result.success && result.body)) return false;
+    applyGeneratedBody(result.body);
+    return true;
+  };
+
+  // For new emails, use the draft endpoint (subject + body)
+  const generateAiDraft = async (): Promise<boolean> => {
+    const result = await generateEmailDraftMutation.mutateAsync({ prompt: aiPrompt });
+    if (!(result.success && result.data)) return false;
+    if (result.data.subject) {
+      updateComposeData({ subject: result.data.subject });
+    }
+    if (result.data.body) {
+      applyGeneratedBody(result.data.body);
+    }
+    return true;
+  };
+
   const handleAiGenerate = async () => {
     if (!aiPrompt.trim()) return;
 
     setIsAiGenerating(true);
     try {
-      if (composeData.inReplyTo) {
-        // For replies, use the reply endpoint (body only)
-        const result = await generateAIReplyMutation.mutateAsync({ userPrompt: aiPrompt, messageId: composeData.inReplyTo, accountId: accountId || undefined });
-        if (result.success && result.body) {
-          if (textareaRef.current) {
-            const html = formatAiBody(result.body);
-            textareaRef.current.innerHTML = html;
-            updateComposeData({ body: html });
-          }
-          toast.success(t.mail.floatingCompose.aiContentGenerated);
-          handleCloseAiInput();
-        } else {
-          toast.error(t.mail.floatingCompose.failedToGenerateContent);
-        }
+      const generated = composeData.inReplyTo ? await generateAiReply() : await generateAiDraft();
+      if (generated) {
+        toast.success(t.mail.floatingCompose.aiContentGenerated);
+        handleCloseAiInput();
       } else {
-        // For new emails, use the draft endpoint (subject + body)
-        const result = await generateEmailDraftMutation.mutateAsync({ prompt: aiPrompt });
-        if (result.success && result.data) {
-          if (result.data.subject) {
-            updateComposeData({ subject: result.data.subject });
-          }
-          if (result.data.body && textareaRef.current) {
-            const html = formatAiBody(result.data.body);
-            textareaRef.current.innerHTML = html;
-            updateComposeData({ body: html });
-          }
-          toast.success(t.mail.floatingCompose.aiContentGenerated);
-          handleCloseAiInput();
-        } else {
-          toast.error(t.mail.floatingCompose.failedToGenerateContent);
-        }
+        toast.error(t.mail.floatingCompose.failedToGenerateContent);
       }
     } catch (err) {
       if (!handleAiCreditsError(err)) {
@@ -354,105 +407,91 @@ export function FloatingComposePanel() {
     closeCompose();
   };
 
-  const handleSend = async () => {
-    if (isSending) return;
-    // Get body content directly from the ref (may not be synced to context yet)
-    const bodyContent = textareaRef.current?.innerHTML || composeData.body || '';
+  const showEmailSizeExceeded = () => {
+    toast.error(t.mail.floatingCompose.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
+  };
 
-    if (!composeData.to.trim()) {
-      toast.error(t.mail.composePage.atLeastOneRecipient);
-      return;
+  // Uploads the attachments; on failure shows the toast and resolves to null.
+  const uploadAttachmentsOrToast = async (
+    targetAccountId: string,
+    resolveClient: () => Awaited<ReturnType<typeof getClient>> | Promise<Awaited<ReturnType<typeof getClient>>>,
+  ): Promise<UploadedMailAttachments | null> => {
+    try {
+      const client = await resolveClient();
+      return await uploadMailAttachments(client, targetAccountId, attachedFiles);
+    } catch (err) {
+      const filename = err instanceof MailAttachmentUploadError ? err.filename : 'file';
+      toast.error(t.mail.floatingCompose.failedToUpload.replace('{filename}', filename));
+      return null;
     }
-    if (!accountId) {
-      toast.error(t.mail.composePage.noAccountSelected);
-      return;
-    }
-    if (!bodyContent.trim()) {
-      toast.error(t.mail.composePage.enterMessage);
-      return;
-    }
+  };
 
-    const parseRecipients = (str: string): string[] =>
-      str.split(/[,;]/).map(e => e.trim()).filter(e => e.length > 0);
-
-    const toAddresses = parseRecipients(composeData.to);
-
-    if (scheduledTime) {
-      setIsSending(true);
-      try {
-        const client = await getClient();
-        const ccAddresses = ccRecipients ? parseRecipients(ccRecipients) : undefined;
-        const bccAddresses = bccRecipients ? parseRecipients(bccRecipients) : undefined;
-
-        const trimmedBodyScheduled = bodyContent.trim();
-        const htmlBodyScheduled = bodyContent.includes('<') ? bodyContent : bodyContent.replace(/\n/g, '<br>');
-        if (emailSizeExceedsLimit(trimmedBodyScheduled, htmlBodyScheduled, attachedFiles)) {
-          toast.error(t.mail.floatingCompose.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
-          setIsSending(false);
-          return;
-        }
-
-        let uploadedAttachments: Awaited<ReturnType<typeof uploadMailAttachments>> = [];
-        try {
-          uploadedAttachments = await uploadMailAttachments(client, accountId, attachedFiles);
-        } catch (err) {
-          const filename = err instanceof MailAttachmentUploadError ? err.filename : 'file';
-          toast.error(t.mail.floatingCompose.failedToUpload.replace('{filename}', filename));
-          setIsSending(false);
-          return;
-        }
-
-        const result = await mailApi.scheduled.schedule({
-          accountId,
-          to: toAddresses,
-          cc: ccAddresses,
-          bcc: bccAddresses,
-          subject: composeData.subject.trim() || t.mail.composePage.noSubject,
-          body: trimmedBodyScheduled,
-          htmlBody: htmlBodyScheduled,
-          scheduledFor: scheduledTime,
-          inReplyTo: composeData.inReplyTo || undefined,
-          attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
-        });
-        if (result.success) {
-          toast.success(t.mail.floatingCompose.emailScheduledFor.replace('{date}', format(scheduledTime, 'PPp')));
-          window.dispatchEvent(new Event('mail:refresh'));
-          closeCompose();
-        } else {
-          toast.error(result.error || t.mail.floatingCompose.failedToScheduleEmail);
-        }
-      } catch {
-        toast.error(t.mail.floatingCompose.failedToScheduleEmail);
-      } finally {
-        setIsSending(false);
-      }
-      return;
-    }
-
+  const sendScheduledEmail = async (
+    targetAccountId: string,
+    bodyContent: string,
+    toAddresses: string[],
+    sendAt: Date,
+  ) => {
     setIsSending(true);
     try {
-      const trimmedBody = bodyContent.trim();
-      const htmlBody = bodyContent.includes('<') ? bodyContent : bodyContent.replace(/\n/g, '<br>');
-      if (emailSizeExceedsLimit(trimmedBody, htmlBody, attachedFiles)) {
-        toast.error(t.mail.floatingCompose.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
-        setIsSending(false);
+      const client = await getClient();
+      const ccAddresses = ccRecipients ? parseRecipients(ccRecipients) : undefined;
+      const bccAddresses = bccRecipients ? parseRecipients(bccRecipients) : undefined;
+
+      const trimmedBodyScheduled = bodyContent.trim();
+      const htmlBodyScheduled = toHtmlBody(bodyContent);
+      if (emailSizeExceedsLimit(trimmedBodyScheduled, htmlBodyScheduled, attachedFiles)) {
+        showEmailSizeExceeded();
         return;
       }
 
-      let uploadedAttachments: Awaited<ReturnType<typeof uploadMailAttachments>> = [];
-      if (attachedFiles.length > 0) {
-        try {
-          const client = await getClient();
-          uploadedAttachments = await uploadMailAttachments(client, accountId, attachedFiles);
-        } catch (err) {
-          const filename = err instanceof MailAttachmentUploadError ? err.filename : 'file';
-          toast.error(t.mail.floatingCompose.failedToUpload.replace('{filename}', filename));
-          setIsSending(false);
-          return;
-        }
+      const uploadedAttachments = await uploadAttachmentsOrToast(targetAccountId, () => client);
+      if (!uploadedAttachments) return;
+
+      const result = await mailApi.scheduled.schedule({
+        accountId: targetAccountId,
+        to: toAddresses,
+        cc: ccAddresses,
+        bcc: bccAddresses,
+        subject: composeData.subject.trim() || t.mail.composePage.noSubject,
+        body: trimmedBodyScheduled,
+        htmlBody: htmlBodyScheduled,
+        scheduledFor: sendAt,
+        inReplyTo: composeData.inReplyTo || undefined,
+        attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+      });
+      if (result.success) {
+        toast.success(t.mail.floatingCompose.emailScheduledFor.replace('{date}', format(sendAt, 'PPp')));
+        window.dispatchEvent(new Event('mail:refresh'));
+        closeCompose();
+      } else {
+        toast.error(result.error || t.mail.floatingCompose.failedToScheduleEmail);
+      }
+    } catch {
+      toast.error(t.mail.floatingCompose.failedToScheduleEmail);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const sendEmailNow = async (targetAccountId: string, bodyContent: string, toAddresses: string[]) => {
+    setIsSending(true);
+    try {
+      const trimmedBody = bodyContent.trim();
+      const htmlBody = toHtmlBody(bodyContent);
+      if (emailSizeExceedsLimit(trimmedBody, htmlBody, attachedFiles)) {
+        showEmailSizeExceeded();
+        return;
       }
 
-      const result = await mailApi.messages.send(accountId, {
+      let uploadedAttachments: UploadedMailAttachments = [];
+      if (attachedFiles.length > 0) {
+        const uploaded = await uploadAttachmentsOrToast(targetAccountId, getClient);
+        if (!uploaded) return;
+        uploadedAttachments = uploaded;
+      }
+
+      const result = await mailApi.messages.send(targetAccountId, {
         to: toAddresses,
         subject: composeData.subject.trim() || t.mail.composePage.noSubject,
         body: trimmedBody,
@@ -472,6 +511,33 @@ export function FloatingComposePanel() {
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleSend = async () => {
+    if (isSending) return;
+    // Get body content directly from the ref (may not be synced to context yet)
+    const bodyContent = textareaRef.current?.innerHTML || composeData.body || '';
+
+    if (!composeData.to.trim()) {
+      toast.error(t.mail.composePage.atLeastOneRecipient);
+      return;
+    }
+    if (!accountId) {
+      toast.error(t.mail.composePage.noAccountSelected);
+      return;
+    }
+    if (!bodyContent.trim()) {
+      toast.error(t.mail.composePage.enterMessage);
+      return;
+    }
+
+    const toAddresses = parseRecipients(composeData.to);
+
+    if (scheduledTime) {
+      await sendScheduledEmail(accountId, bodyContent, toAddresses, scheduledTime);
+      return;
+    }
+    await sendEmailNow(accountId, bodyContent, toAddresses);
   };
 
   const handleSaveDraft = async () => {
@@ -502,7 +568,38 @@ export function FloatingComposePanel() {
     handleClose();
   };
 
-  const hasContent = composeData.to || composeData.subject || composeData.body || (textareaRef.current?.innerHTML && textareaRef.current.innerHTML.trim());
+  const hasContent = hasComposeContent(composeData, textareaRef.current?.innerHTML);
+
+  const handleSendShortcut = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    void handleSend();
+  };
+
+  const handleScheduleDateSelect = (date: Date | undefined) => {
+    if (date) {
+      const hours = scheduledTime?.getHours() ?? 9;
+      const minutes = scheduledTime?.getMinutes() ?? 0;
+      date.setHours(hours, minutes, 0, 0);
+      setScheduledTime(date);
+    }
+  };
+
+  const handleScheduleHourChange = (value: string) => {
+    const hours = Number.parseInt(value);
+    const newDate = scheduledTime ? new Date(scheduledTime) : new Date();
+    if (!scheduledTime) newDate.setDate(newDate.getDate() + 1);
+    newDate.setHours(hours, scheduledTime?.getMinutes() ?? 0, 0, 0);
+    setScheduledTime(newDate);
+  };
+
+  const handleScheduleMinuteChange = (value: string) => {
+    const minutes = Number.parseInt(value);
+    const newDate = scheduledTime ? new Date(scheduledTime) : new Date();
+    if (!scheduledTime) newDate.setDate(newDate.getDate() + 1);
+    newDate.setHours(scheduledTime?.getHours() ?? 9, minutes, 0, 0);
+    setScheduledTime(newDate);
+  };
 
   if (isMinimized) {
     return (
@@ -560,11 +657,8 @@ export function FloatingComposePanel() {
     <div
       className="fixed bottom-3 z-50 w-[560px] min-h-[450px] max-h-[80vh] bg-background rounded-xl border border-border shadow-[0_0_20px_rgba(0,0,0,0.06)] dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] flex flex-col"
       style={{ right: agentRight }}
-      onKeyDown={(e) => {
-        if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
-        e.preventDefault();
-        void handleSend();
-      }}
+      role="presentation"
+      onKeyDown={handleSendShortcut}
     >
       {/* Header - Same as compose page */}
       <div className="px-4 py-3 border-b border-border flex-shrink-0">
@@ -651,14 +745,7 @@ export function FloatingComposePanel() {
                 <Calendar
                   mode="single"
                   selected={scheduledTime || undefined}
-                  onSelect={(date) => {
-                    if (date) {
-                      const hours = scheduledTime?.getHours() ?? 9;
-                      const minutes = scheduledTime?.getMinutes() ?? 0;
-                      date.setHours(hours, minutes, 0, 0);
-                      setScheduledTime(date);
-                    }
-                  }}
+                  onSelect={handleScheduleDateSelect}
                   disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0)) || date > addDays(new Date(), 7)}
                   initialFocus
                 />
@@ -667,13 +754,7 @@ export function FloatingComposePanel() {
                   <div className="flex items-center gap-2">
                     <Select
                       value={String(scheduledTime?.getHours() ?? 9)}
-                      onValueChange={(value) => {
-                        const hours = Number.parseInt(value);
-                        const newDate = scheduledTime ? new Date(scheduledTime) : new Date();
-                        if (!scheduledTime) newDate.setDate(newDate.getDate() + 1);
-                        newDate.setHours(hours, scheduledTime?.getMinutes() ?? 0, 0, 0);
-                        setScheduledTime(newDate);
-                      }}
+                      onValueChange={handleScheduleHourChange}
                     >
                       <SelectTrigger className="w-[70px] h-9">
                         <SelectValue />
@@ -689,13 +770,7 @@ export function FloatingComposePanel() {
                     <span className="text-muted-foreground">:</span>
                     <Select
                       value={String(scheduledTime?.getMinutes() ?? 0)}
-                      onValueChange={(value) => {
-                        const minutes = Number.parseInt(value);
-                        const newDate = scheduledTime ? new Date(scheduledTime) : new Date();
-                        if (!scheduledTime) newDate.setDate(newDate.getDate() + 1);
-                        newDate.setHours(scheduledTime?.getHours() ?? 9, minutes, 0, 0);
-                        setScheduledTime(newDate);
-                      }}
+                      onValueChange={handleScheduleMinuteChange}
                     >
                       <SelectTrigger className="w-[70px] h-9">
                         <SelectValue />
@@ -856,6 +931,8 @@ export function FloatingComposePanel() {
             <div
               ref={textareaRef}
               contentEditable={!isAiGenerating}
+              role="textbox"
+              aria-multiline="true"
               suppressContentEditableWarning
               data-placeholder={t.mail.floatingCompose.writePlaceholder}
               className={cn(
@@ -887,12 +964,12 @@ export function FloatingComposePanel() {
                   </span>
                 </div>
                 <div className="flex items-start gap-3 flex-wrap">
-                  {attachedFiles.map((file, index) => {
+                  {keyAttachedFiles(attachedFiles).map(({ file, key }, index) => {
                     const isImage = file.type.startsWith('image/');
                     const fileExtension = file.name.split('.').pop()?.toUpperCase() || 'FILE';
                     const fileName = file.name.split('.').slice(0, -1).join('.') || file.name;
                     return (
-                      <div key={index} className="relative group">
+                      <div key={key} className="relative group">
                         <div className="w-20 h-20 bg-muted rounded-lg overflow-hidden flex items-center justify-center border border-border">
                           {isImage ? (
                             <img src={URL.createObjectURL(file)} alt={file.name} className="w-full h-full object-cover" />

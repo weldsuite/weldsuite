@@ -78,6 +78,10 @@ export default function HomePage() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
@@ -142,6 +146,7 @@ export default function HomePage() {
       className="w-full"
     >
       <div
+        role="presentation"
         className="relative bg-white dark:bg-background border border-gray-200 dark:border-border rounded-[20px] px-[10px] pt-[10px] pb-[10px] w-full flex flex-col shadow-[0_1px_4px_-1px_rgba(0,0,0,0.03)] cursor-text"
         onClick={(e) => {
           const target = e.target as HTMLElement;
@@ -162,7 +167,6 @@ export default function HomePage() {
           }}
           placeholder="Ask anything…"
           rows={1}
-          autoFocus
           className="w-full bg-transparent text-[15px] text-gray-900 dark:text-foreground placeholder:text-gray-500 dark:placeholder:text-muted-foreground outline-none resize-none min-h-[40px] flex-1 pl-[10px] pt-[7px] pb-3 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words"
           style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(200,200,200,0.3) transparent' }}
         />
@@ -222,7 +226,7 @@ export default function HomePage() {
           type="button"
           variant="ghost"
           onClick={() => startNewChat(suggestion)}
-          className="flex items-center gap-3 w-full text-left px-2 py-2 text-sm text-gray-700 dark:text-muted-foreground hover:bg-gray-50 dark:hover:bg-background rounded-lg transition-colors"
+          className="flex items-center justify-start gap-3 w-full text-left px-2 py-2 text-sm text-gray-700 dark:text-muted-foreground hover:bg-gray-50 dark:hover:bg-background rounded-lg transition-colors"
         >
           <CornerDownRight className="h-4 w-4 text-gray-400 flex-shrink-0" />
           {suggestion}

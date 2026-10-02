@@ -4,6 +4,13 @@ description: Fetch the top 10 most important WeldSuite tasks right now, generate
 
 You are running the `/queue` slash command. Goal: surface the user's top 10 tasks live from WeldSuite and let them pick one to work on.
 
+## WeldSuite MCP tool names
+
+The WeldSuite MCP may be registered as `mcp__weldsuite__*` or under a connector
+id such as `mcp__2abe9674-…__*`. Match tools by their suffix: `search_tasks`. Load them
+with `ToolSearch` (`+search_tasks`, …) if deferred.
+Task ids are task numbers like `TASK-734` (the task's `Number` field), not internal `tsk_xxx` ids.
+
 ## Default user
 
 `user_3984pBydzNbnt1KVhOHY5fZYzqq` (Gert), unless the user explicitly passes a different `user_…` ID after `/queue`.
@@ -12,7 +19,7 @@ You are running the `/queue` slash command. Goal: surface the user's top 10 task
 
 ### 1. Fetch live tasks
 
-Call `mcp__weldsuite__search_tasks` **five times in parallel** to cover every open status (the MCP's 50-result limit means you must query each status separately):
+Call `search_tasks` **five times in parallel** to cover every open status (the MCP's 50-result limit means you must query each status separately):
 
 - `{ assigneeId, status: "todo", limit: 50 }`
 - `{ assigneeId, status: "in_progress", limit: 50 }`

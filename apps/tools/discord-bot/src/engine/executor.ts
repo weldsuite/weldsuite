@@ -57,6 +57,164 @@ interface ExecutionContext {
   stepResults: Record<string, unknown>;
 }
 
+interface WorkflowTrigger {
+  type: string;
+  isEnabled?: boolean;
+  config?: { entityType?: string; eventType?: string; channels?: string[] };
+}
+
+type WorkflowEventType =
+  | 'conversation_created'
+  | 'message_received'
+  | 'conversation_assigned'
+  | 'conversation_closed';
+
+/** Button colour for a CSAT rating: low is red, neutral is grey, high is green. */
+function csatButtonStyle(rating: number): ButtonStyle {
+  if (rating <= 2) return ButtonStyle.Danger;
+  if (rating === 3) return ButtonStyle.Secondary;
+  return ButtonStyle.Success;
+}
+
+/** Whether a workflow trigger config fires for the given conversation event. */
+function triggerMatchesEvent(t: WorkflowTrigger, eventType: WorkflowEventType): boolean {
+  if (t.isEnabled === false) return false;
+  if (t.type !== 'entity_event') return false;
+  const cfg = t.config;
+  if (!cfg) return false;
+
+  // Map our event types to trigger configs
+  switch (eventType) {
+    case 'conversation_created':
+      return cfg.entityType === 'helpdesk_conversation' &&
+        (!cfg.eventType || cfg.eventType === 'created');
+
+    case 'message_received':
+      return (
+        (cfg.entityType === 'helpdesk_conversation' && cfg.eventType === 'message_received') ||
+        (cfg.entityType === 'helpdesk_conversation_message' && (!cfg.eventType || cfg.eventType === 'created')) ||
+        (cfg.entityType === 'helpdesk_conversation' && cfg.eventType === 'first_message')
+      );
+
+    case 'conversation_assigned':
+      return cfg.entityType === 'helpdesk_conversation' && cfg.eventType === 'assigned';
+
+    case 'conversation_closed':
+      return cfg.entityType === 'helpdesk_conversation' &&
+        (cfg.eventType === 'closed' || cfg.eventType === 'status_changed');
+
+    default:
+      return false;
+  }
+}
+
+/**
+ * Create the execution row for one matched workflow and run its main steps in
+ * order, pausing when a step waits for input and otherwise marking it completed.
+ */
+async function runMatchedWorkflow(
+  wf: { id: string; name: string; steps: unknown },
+  params: {
+    db: Database;
+    conversationId: string;
+    workspaceId: string;
+    channelObj: TextChannel | ThreadChannel;
+    triggerData: Record<string, unknown>;
+  },
+): Promise<void> {
+  const { db, conversationId, workspaceId, channelObj, triggerData } = params;
+  const steps = ((wf.steps || []) as StepDef[])
+    .filter((s) => !s.parentBranchId)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  const executionId = generateId('wex');
+  const now = new Date();
+
+  await db.insert(schema.helpdeskWorkflowExecutions).values({
+    id: executionId,
+    helpdeskWorkflowId: wf.id,
+    workflowVersion: 1,
+    workflowName: wf.name,
+    status: 'running',
+    triggeredBy: 'system',
+    triggerType: 'entity_event',
+    triggerData,
+    startedAt: now,
+    totalSteps: steps.length,
+    currentStepIndex: 0,
+    conversationId,
+    channel: 'discord',
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const ctx: ExecutionContext = {
+    db,
+    conversationId,
+    workspaceId,
+    channel: channelObj,
+    triggerData,
+    stepResults: {},
+  };
+
+  const stopped = await runSteps(steps, ctx, executionId);
+
+  // Mark complete if not paused
+  if (!stopped) {
+    await db.update(schema.helpdeskWorkflowExecutions).set({
+      status: 'completed',
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(schema.helpdeskWorkflowExecutions.id, executionId));
+  }
+}
+
+/** Execute steps sequentially. Returns true when a step paused the execution for input. */
+async function runSteps(steps: StepDef[], ctx: ExecutionContext, executionId: string): Promise<boolean> {
+  const { db } = ctx;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+
+    try {
+      console.log(`[Workflow] Executing step ${i + 1}/${steps.length}: ${step.type} "${step.name}" (${step.id})`);
+      const result = await executeStep(step, ctx, executionId);
+      console.log(`[Workflow] Step ${step.type} result:`, JSON.stringify(result).substring(0, 200));
+      ctx.stepResults[step.id] = result;
+
+      // Update execution progress
+      await db.update(schema.helpdeskWorkflowExecutions).set({
+        currentStepIndex: i + 1,
+        updatedAt: new Date(),
+      }).where(eq(schema.helpdeskWorkflowExecutions.id, executionId));
+
+      // If step is waiting for input, pause execution and save state for resumption
+      if (result.__waitingForInput) {
+        await db.update(schema.helpdeskWorkflowExecutions).set({
+          status: 'waiting_for_input',
+          currentStepId: step.id,
+          executionContext: {
+            stepResults: ctx.stepResults,
+            waitingStepId: step.id,
+            pausedAtIndex: i,
+            workflowSteps: steps,
+            triggerData: ctx.triggerData,
+          },
+          updatedAt: new Date(),
+        }).where(eq(schema.helpdeskWorkflowExecutions.id, executionId));
+        return true;
+      }
+
+      // Handle delay
+      if (result.__delayMs) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(result.__delayMs as number, 30000)));
+      }
+    } catch (err) {
+      console.error(`[Workflow] Step ${step.type} failed:`, err);
+    }
+  }
+  return false;
+}
+
 // ============================================================================
 // Main Entry: trigger workflows for a conversation event
 // ============================================================================
@@ -110,42 +268,8 @@ export async function executeWorkflows(params: {
     console.log(`[Workflow] Evaluating ${workflows.length} workflow(s) for eventType=${eventType}`);
 
     const matched = workflows.filter((wf) => {
-      const triggers = (wf.triggers || []) as Array<{
-        type: string;
-        isEnabled?: boolean;
-        config?: { entityType?: string; eventType?: string; channels?: string[] };
-      }>;
-
-      return triggers.some((t) => {
-        if (t.isEnabled === false) return false;
-        if (t.type !== 'entity_event') return false;
-        const cfg = t.config;
-        if (!cfg) return false;
-
-        // Map our event types to trigger configs
-        switch (eventType) {
-          case 'conversation_created':
-            return cfg.entityType === 'helpdesk_conversation' &&
-              (!cfg.eventType || cfg.eventType === 'created');
-
-          case 'message_received':
-            return (
-              (cfg.entityType === 'helpdesk_conversation' && cfg.eventType === 'message_received') ||
-              (cfg.entityType === 'helpdesk_conversation_message' && (!cfg.eventType || cfg.eventType === 'created')) ||
-              (cfg.entityType === 'helpdesk_conversation' && cfg.eventType === 'first_message')
-            );
-
-          case 'conversation_assigned':
-            return cfg.entityType === 'helpdesk_conversation' && cfg.eventType === 'assigned';
-
-          case 'conversation_closed':
-            return cfg.entityType === 'helpdesk_conversation' &&
-              (cfg.eventType === 'closed' || cfg.eventType === 'status_changed');
-
-          default:
-            return false;
-        }
-      });
+      const triggers = (wf.triggers || []) as WorkflowTrigger[];
+      return triggers.some((t) => triggerMatchesEvent(t, eventType));
     });
 
     if (matched.length === 0) {
@@ -168,91 +292,7 @@ export async function executeWorkflows(params: {
 
     // Execute each matched workflow
     for (const wf of matched) {
-      const steps = ((wf.steps || []) as StepDef[])
-        .filter((s) => !s.parentBranchId)
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-      const executionId = generateId('wex');
-      const now = new Date();
-
-      await db.insert(schema.helpdeskWorkflowExecutions).values({
-        id: executionId,
-        helpdeskWorkflowId: wf.id,
-        workflowVersion: 1,
-        workflowName: wf.name,
-        status: 'running',
-        triggeredBy: 'system',
-        triggerType: 'entity_event',
-        triggerData,
-        startedAt: now,
-        totalSteps: steps.length,
-        currentStepIndex: 0,
-        conversationId,
-        channel: 'discord',
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      const ctx: ExecutionContext = {
-        db,
-        conversationId,
-        workspaceId,
-        channel: channelObj,
-        triggerData,
-        stepResults: {},
-      };
-
-      let stopped = false;
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i]!;
-
-        try {
-          console.log(`[Workflow] Executing step ${i + 1}/${steps.length}: ${step.type} "${step.name}" (${step.id})`);
-          const result = await executeStep(step, ctx, executionId);
-          console.log(`[Workflow] Step ${step.type} result:`, JSON.stringify(result).substring(0, 200));
-          ctx.stepResults[step.id] = result;
-
-          // Update execution progress
-          await db.update(schema.helpdeskWorkflowExecutions).set({
-            currentStepIndex: i + 1,
-            updatedAt: new Date(),
-          }).where(eq(schema.helpdeskWorkflowExecutions.id, executionId));
-
-          // If step is waiting for input, pause execution and save state for resumption
-          if (result.__waitingForInput) {
-            await db.update(schema.helpdeskWorkflowExecutions).set({
-              status: 'waiting_for_input',
-              currentStepId: step.id,
-              executionContext: {
-                stepResults: ctx.stepResults,
-                waitingStepId: step.id,
-                pausedAtIndex: i,
-                workflowSteps: steps,
-                triggerData: ctx.triggerData,
-              },
-              updatedAt: new Date(),
-            }).where(eq(schema.helpdeskWorkflowExecutions.id, executionId));
-            stopped = true;
-            break;
-          }
-
-          // Handle delay
-          if (result.__delayMs) {
-            await new Promise((resolve) => setTimeout(resolve, Math.min(result.__delayMs as number, 30000)));
-          }
-        } catch (err) {
-          console.error(`[Workflow] Step ${step.type} failed:`, err);
-        }
-      }
-
-      // Mark complete if not paused
-      if (!stopped) {
-        await db.update(schema.helpdeskWorkflowExecutions).set({
-          status: 'completed',
-          completedAt: new Date(),
-          updatedAt: new Date(),
-        }).where(eq(schema.helpdeskWorkflowExecutions.id, executionId));
-      }
+      await runMatchedWorkflow(wf, { db, conversationId, workspaceId, channelObj, triggerData });
     }
 
     // Clear hasActiveWorkflow
@@ -436,7 +476,7 @@ async function stepTriggerCsat(
       new ButtonBuilder()
         .setCustomId(`wf_csat:${ctx.conversationId}:${stepId}:${rating}`)
         .setLabel(`${rating}`)
-        .setStyle(rating <= 2 ? ButtonStyle.Danger : rating === 3 ? ButtonStyle.Secondary : ButtonStyle.Success),
+        .setStyle(csatButtonStyle(rating)),
     ),
   );
 

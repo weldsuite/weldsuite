@@ -81,6 +81,7 @@ function PreviewTooltip({ label, children, side = 'top' }: Readonly<{ label: str
   return (
     <div
       ref={triggerRef}
+      role="presentation"
       className="inline-flex"
       onMouseEnter={() => { hovering.current = true; startTimer(); }}
       onMouseLeave={() => { hovering.current = false; clearTimer(); setShow(false); }}
@@ -189,7 +190,7 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
   return (
     <div className="fixed inset-0 z-50 flex flex-col">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/80" onClick={onClose} />
+      <div role="presentation" className="absolute inset-0 bg-black/80" onClick={onClose} />
 
       {/* Top Bar */}
       <div className="relative z-10 flex items-center justify-between h-14 px-4">
@@ -378,6 +379,7 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
 
         {/* Preview Area */}
         <div
+          role="presentation"
           className="flex-1 flex items-center justify-center overflow-auto p-8"
           onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >

@@ -26,7 +26,10 @@ def main() -> None:
     p.add_argument("--out", required=True, type=Path)
     args = p.parse_args()
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
+    # Absolute path: ffmpeg can never read it as an option (no leading "-"),
+    # so a caller-supplied --out cannot inject extra ffmpeg arguments.
+    out_path = args.out.resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         still = Path(td) / "still.png"
         render(
@@ -57,7 +60,7 @@ def main() -> None:
             "-pix_fmt",
             "yuv420p",
             "-an",
-            str(args.out),
+            str(out_path),
         ]
         subprocess.run(cmd, check=True)
     print(args.out)

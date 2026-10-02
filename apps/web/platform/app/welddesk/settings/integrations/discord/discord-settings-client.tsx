@@ -343,6 +343,7 @@ export function DiscordSettingsClient({
   };
 
   const di = t.helpdesk.integrationSettings;
+  const sendPanelLabel = panelMessageId ? di.discordUpdatePanel : di.discordSendPanel;
   const tabs: PageTab[] = [
     { id: 'overview', label: di.discordTabOverview, icon: Settings },
     { id: 'bot', label: di.discordTabBot, icon: Bot },
@@ -582,7 +583,7 @@ export function DiscordSettingsClient({
                     {di.discordSending}
                   </>
                 ) : (
-                  panelMessageId ? di.discordUpdatePanel : di.discordSendPanel
+                  sendPanelLabel
                 )}
               </Button>
             </div>
@@ -654,17 +655,19 @@ export function DiscordSettingsClient({
                 </AlertDescription>
               </Alert>
             )}
-            {availableChannels.length === 0 ? (
+            {availableChannels.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <Hash className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>{di.discordNoTextChannels}</p>
                 <p className="text-sm">{di.discordNoTextChannelsHint}</p>
               </div>
-            ) : filteredAvailableChannels.length === 0 ? (
+            )}
+            {availableChannels.length > 0 && filteredAvailableChannels.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <p className="text-sm">{di.discordNoChannelsMatch} &ldquo;{channelSearchQuery}&rdquo;.</p>
               </div>
-            ) : (
+            )}
+            {availableChannels.length > 0 && filteredAvailableChannels.length > 0 && (
               <div className="grid grid-cols-2 gap-3">
                 {filteredAvailableChannels.map((channel) => (
                   <label

@@ -37,6 +37,10 @@ export default function CreditsScreen() {
     void load();
   }, [load]);
 
+  let leadText: string = t.credits.topUpHint;
+  if (credits?.isExhausted) leadText = t.credits.exhausted;
+  else if (credits?.isLow) leadText = t.credits.low;
+
   return (
     <Screen header={<ScreenHeader title={t.credits.title} showBack />}>
       {error && !credits ? (
@@ -65,11 +69,7 @@ export default function CreditsScreen() {
             <View style={styles.lead}>
               <IconTile icon={Coins} color={ACCENTS.credits} />
               <Text style={[styles.leadText, { color: colors.mutedForeground }]}>
-                {credits?.isExhausted
-                  ? t.credits.exhausted
-                  : credits?.isLow
-                    ? t.credits.low
-                    : t.credits.topUpHint}
+                {leadText}
               </Text>
             </View>
             {credits ? (

@@ -31,6 +31,22 @@ export interface SubAgentFormState {
   escalationRules: { escalateOnFailure: boolean; escalateOnMaxIterations: boolean };
 }
 
+function withIntegrationToolToggled(
+  form: SubAgentFormState,
+  connectionId: string,
+  toolName: string,
+  enabled: boolean,
+): SubAgentFormState {
+  const current = form.integrationToolPermissions[connectionId] || [];
+  const next = enabled
+    ? [...current, toolName]
+    : current.filter((name) => name !== toolName);
+  return {
+    ...form,
+    integrationToolPermissions: { ...form.integrationToolPermissions, [connectionId]: next },
+  };
+}
+
 interface SubAgentEditDialogProps {
   editSubAgentId: string | null;
   subAgentForm: SubAgentFormState | null;
@@ -274,17 +290,9 @@ export function SubAgentEditDialog({
                                   <Checkbox
                                     checked={allowedTools.includes(tool.name)}
                                     onCheckedChange={(checked) => {
-                                      setSubAgentForm((prev) => {
-                                        if (!prev) return prev;
-                                        const current = prev.integrationToolPermissions[conn.id] || [];
-                                        const next = checked
-                                          ? [...current, tool.name]
-                                          : current.filter((t) => t !== tool.name);
-                                        return {
-                                          ...prev,
-                                          integrationToolPermissions: { ...prev.integrationToolPermissions, [conn.id]: next },
-                                        };
-                                      });
+                                      setSubAgentForm((prev) =>
+                                        prev ? withIntegrationToolToggled(prev, conn.id, tool.name, !!checked) : prev
+                                      );
                                     }}
                                   />
                                   <span className="text-xs">{tool.name}</span>

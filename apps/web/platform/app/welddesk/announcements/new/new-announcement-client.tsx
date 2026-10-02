@@ -40,7 +40,7 @@ export default function NewAnnouncementClient() {
   const [isPinned, setIsPinned] = useState(false);
   const [expiresAt, setExpiresAt] = useState('');
 
-  /* eslint-disable */
+  /* eslint-disable @typescript-eslint/no-explicit-any */
   const handleSubmit = async () => {
     // Validate required fields
     if (!title || !content) {
@@ -182,7 +182,7 @@ export default function NewAnnouncementClient() {
     { label: ta.pinned, value: isPinned ? ta.yes : ta.no },
     { label: ta.expires, value: expiresAt ? new Date(expiresAt).toLocaleDateString() : ta.never },
   ];
-  /* eslint-enable */
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return (
     <EntityFormLayout

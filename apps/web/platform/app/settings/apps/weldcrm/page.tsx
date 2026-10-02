@@ -30,7 +30,8 @@ export default function WeldCrmSettingsPage() {
       params.set('tab', value);
     }
     const qs = params.toString();
-    router.push(`/settings/apps/weldcrm${qs ? `?${qs}` : ''}`);
+    const query = qs ? `?${qs}` : '';
+    router.push(`/settings/apps/weldcrm${query}`);
   };
 
   return (

@@ -138,6 +138,9 @@ export const weldchat = {
       cancel: 'Cancel',
       uploading: 'Uploading…',
       uploadFailed: 'Could not upload {fileName}',
+      threadSuggestion: 'Looks like a conversation. Continue it in a thread?',
+      createThread: 'Create thread',
+      dismissThreadSuggestion: 'Dismiss',
     },
     channelEmptyState: {
       channelCreated: 'created this channel',
@@ -146,7 +149,8 @@ export const weldchat = {
       veryBeginning: 'This is the very beginning of the',
       channel: 'channel.',
       groupConversationBeginning: 'This is the very beginning of your group conversation.',
-      privateConversation: 'Anything you share here stays private to the two of you.',
+      dmStarted: 'started this private conversation',
+      dmStartedNoAuthor: 'This private conversation was started',
     },
     pinnedMessages: {
       title: 'Pinned Messages',
@@ -281,6 +285,9 @@ export const weldchat = {
     dmCreate: {
       title: 'New message',
       searchPeople: 'Search people...',
+      noResults: 'No people found.',
+      people: 'People',
+      navigate: 'Navigate',
       cancel: 'Cancel',
       startConversation: 'Start Conversation',
       creating: 'Creating...',
@@ -765,6 +772,8 @@ export const weldchat = {
       generatingTranscriptBadge: 'Generating transcript...',
       viewFullscreen: 'View fullscreen',
       close: 'Close',
+      seek: 'Seek',
+      playPause: 'Play or pause',
     },
     typingIndicator: {
       someone: 'Someone',

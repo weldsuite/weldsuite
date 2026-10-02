@@ -105,6 +105,11 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   const vatHint = JURISDICTION_DEFAULTS[jurisdictionCode]?.vatHint ?? '';
   const isIndia = jurisdictionCode === 'IN';
   const jurisdictionOptions = jurisdictions.length > 0 ? jurisdictions : FALLBACK_JURISDICTIONS;
+  const jurisdictionLabel = (j: { code: string; name: string }): string => {
+    if (j.code === 'NL') return t('sweep.weldbooks.createEntity.netherlandsOption');
+    if (j.code === 'IN') return t('sweep.weldbooks.createEntity.indiaOption');
+    return `${j.name} (${j.code})`;
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -146,11 +151,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
                 <SelectContent>
                   {jurisdictionOptions.map((j) => (
                     <SelectItem key={j.code} value={j.code}>
-                      {j.code === 'NL'
-                        ? t('sweep.weldbooks.createEntity.netherlandsOption')
-                        : j.code === 'IN'
-                          ? t('sweep.weldbooks.createEntity.indiaOption')
-                          : `${j.name} (${j.code})`}
+                      {jurisdictionLabel(j)}
                     </SelectItem>
                   ))}
                 </SelectContent>

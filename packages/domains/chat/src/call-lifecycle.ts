@@ -75,7 +75,7 @@ export async function endChatCall(
   endedBy: string,
   options?: { sendMissedIfUnanswered?: boolean },
 ): Promise<void> {
-  const { chatCalls, chatMessages, chatChannels, chatChannelMembers } = schema;
+  const { chatCalls, chatMessages } = schema;
 
   const now = new Date();
   const duration = call.startedAt
@@ -135,39 +135,50 @@ export async function endChatCall(
   // Decline already sends its own missed notification — that path does not call endChatCall.
   const shouldMissed = options?.sendMissedIfUnanswered !== false && unanswered;
   if (shouldMissed) {
-    try {
-      const [channel] = await db
-        .select({ type: chatChannels.type })
-        .from(chatChannels)
-        .where(eq(chatChannels.id, call.channelId))
-        .limit(1);
-      if (channel?.type === 'dm') {
-        const members = await db
-          .select({ userId: chatChannelMembers.userId })
-          .from(chatChannelMembers)
-          .where(eq(chatChannelMembers.channelId, call.channelId));
-        const callType = call.callType ?? 'voice';
-        await Promise.all(
-          members
-            .filter((m) => m.userId !== call.initiatorId)
-            .map((m) =>
-              sendMissedCallNotification({
-                db,
-                env,
-                workspaceId: orgId,
-                recipientUserId: m.userId,
-                callerUserId: call.initiatorId,
-                callerName: call.initiatorName,
-                channelId: call.channelId,
-                callId,
-                callType,
-              }).catch((e) => console.error('[CallLifecycle] Missed-call notification failed:', e)),
-            ),
-        );
-      }
-    } catch (e) {
-      console.error('[CallLifecycle] Missed-call fan-out failed:', e);
-    }
+    await notifyMissedDmCall(db, env, orgId, callId, call);
+  }
+}
+
+/** Fan a missed-call notification out to the other members of a DM channel. */
+async function notifyMissedDmCall(
+  db: Database,
+  env: CallLifecycleEnv,
+  orgId: string,
+  callId: string,
+  call: { channelId: string; initiatorId: string; initiatorName: string; callType?: string },
+): Promise<void> {
+  const { chatChannels, chatChannelMembers } = schema;
+  try {
+    const [channel] = await db
+      .select({ type: chatChannels.type })
+      .from(chatChannels)
+      .where(eq(chatChannels.id, call.channelId))
+      .limit(1);
+    if (channel?.type !== 'dm') return;
+    const members = await db
+      .select({ userId: chatChannelMembers.userId })
+      .from(chatChannelMembers)
+      .where(eq(chatChannelMembers.channelId, call.channelId));
+    const callType = call.callType ?? 'voice';
+    await Promise.all(
+      members
+        .filter((m) => m.userId !== call.initiatorId)
+        .map((m) =>
+          sendMissedCallNotification({
+            db,
+            env,
+            workspaceId: orgId,
+            recipientUserId: m.userId,
+            callerUserId: call.initiatorId,
+            callerName: call.initiatorName,
+            channelId: call.channelId,
+            callId,
+            callType,
+          }).catch((e) => console.error('[CallLifecycle] Missed-call notification failed:', e)),
+        ),
+    );
+  } catch (e) {
+    console.error('[CallLifecycle] Missed-call fan-out failed:', e);
   }
 }
 

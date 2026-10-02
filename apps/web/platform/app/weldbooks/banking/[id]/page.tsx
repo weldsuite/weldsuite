@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import {
   Landmark,
@@ -125,6 +125,42 @@ export default function BankAccountDetailPage() {
   const transactions = (txnData?.data ?? []) as BankTransaction[];
   const unreconciledCount = unreconciledData?.data?.length ?? 0;
   const totalTransactions = txnData?.pagination?.totalCount ?? transactions.length;
+
+  let transactionsSection: ReactNode;
+  if (txnLoading) {
+    transactionsSection = <PageLoader fullScreen={false} />;
+  } else if (transactions.length === 0) {
+    transactionsSection = (
+      <Card>
+        <CardContent className="py-10 text-center space-y-3">
+          <Inbox className="h-10 w-10 mx-auto text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            {tbp.noTransactionsYet}
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <Button variant="outline" onClick={() => setAddOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              {tbp.addTransactionButton}
+            </Button>
+            <Link to="/weldbooks/banking/import" search={{ accountId: id }}>
+              <Button>
+                <Download className="h-4 w-4 mr-1" />
+                {tbp.importStatement}
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  } else {
+    transactionsSection = (
+      <BankTransactionsTable
+        transactions={transactions}
+        currency={account.currency ?? entityCurrency}
+        dense
+      />
+    );
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -261,36 +297,7 @@ export default function BankAccountDetailPage() {
         </div>
       </div>
 
-      {txnLoading ? (
-        <PageLoader fullScreen={false} />
-      ) : transactions.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center space-y-3">
-            <Inbox className="h-10 w-10 mx-auto text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              {tbp.noTransactionsYet}
-            </p>
-            <div className="flex items-center justify-center gap-2">
-              <Button variant="outline" onClick={() => setAddOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" />
-                {tbp.addTransactionButton}
-              </Button>
-              <Link to="/weldbooks/banking/import" search={{ accountId: id }}>
-                <Button>
-                  <Download className="h-4 w-4 mr-1" />
-                  {tbp.importStatement}
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <BankTransactionsTable
-          transactions={transactions}
-          currency={account.currency ?? entityCurrency}
-          dense
-        />
-      )}
+      {transactionsSection}
 
       <BankTransactionFormDialog
         open={addOpen}

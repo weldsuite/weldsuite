@@ -36,7 +36,8 @@ function formatChannelPrice(amount: string | null | undefined, currency?: string
   if (amount == null || amount === '') return '—';
   const n = Number(amount);
   if (!Number.isFinite(n)) return String(amount);
-  return `${n.toFixed(2)}${currency ? ` ${currency}` : ''}`;
+  const currencySuffix = currency ? ` ${currency}` : '';
+  return `${n.toFixed(2)}${currencySuffix}`;
 }
 
 function listingLabel(
@@ -297,6 +298,7 @@ export function ProductSalesChannelsEditor({
   if (compact) {
     return (
       <div
+        role="presentation"
         className="flex min-w-0 items-center gap-1"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}

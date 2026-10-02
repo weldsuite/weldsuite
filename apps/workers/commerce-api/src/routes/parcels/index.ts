@@ -6,7 +6,8 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createParcelSchema, updateParcelSchema } from '@weldsuite/core-api-client/schemas/parcels';
@@ -18,32 +19,45 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.parcels;
 
+/** WHERE conditions for the list endpoint's query-string filters (no cursor). */
+function buildListFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  const equalityFilters: Array<[string | undefined, AnyPgColumn]> = [
+    [q.carrierId, t.carrierId],
+    [q.shipmentId, t.shipmentId],
+    [q.status, t.status],
+  ];
+  for (const [value, column] of equalityFilters) {
+    if (value) conditions.push(eq(column, value));
+  }
+  if (q.search) {
+    const term = `%${q.search}%`;
+    conditions.push(or(like(t.trackingNumber, term), like(t.referenceNumber, term))!);
+  }
+  return conditions;
+}
+
+/** Keyset condition that resumes after the row identified by `cursorId`, if it exists. */
+async function buildCursorCondition(
+  db: Variables['tenantDb'],
+  cursorId: string,
+): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('parcels:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.carrierId !== undefined && q.carrierId !== '') conditions.push(eq(t.carrierId, q.carrierId));
-  if (q.shipmentId !== undefined && q.shipmentId !== '') conditions.push(eq(t.shipmentId, q.shipmentId));
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.search) {
-    const term = `%${q.search}%`;
-    conditions.push(or(like(t.trackingNumber, term), like(t.referenceNumber, term))!);
-  }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const filterConditions = buildListFilters(q);
+  const cursorCondition = q.cursor ? await buildCursorCondition(db, q.cursor) : undefined;
+  const where = and(...filterConditions, cursorCondition);
+  const countWhere = and(...filterConditions);
 
   try {
     const [rows, countRes] = await Promise.all([

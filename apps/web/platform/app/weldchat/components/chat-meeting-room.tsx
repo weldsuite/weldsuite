@@ -27,7 +27,7 @@ import {
   playScreenShareSound,
 } from '@/lib/utils/notification-sound';
 import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
-import { MeetingRoomView, type MeetingPeer } from '@weldsuite/weldmeet-ui';
+import { MeetingRoomView, type MeetingPeer, type MeetingRoomViewProps } from '@weldsuite/weldmeet-ui';
 import { useI18n } from '@/lib/i18n/provider';
 import { ChannelChatPanel } from './channel-chat-panel';
 
@@ -63,11 +63,28 @@ function useCallChannelInfo() {
 
   const dmOther = isDm ? otherMembers[0] ?? null : null;
 
+  const fallbackCallTitle = callType === 'video' ? t.weldchat.callRoom.videoCall : t.weldchat.callRoom.voiceCall;
   const title = isDm
     ? dmOther?.name || dmOther?.email || t.weldchat.callOverlay.directMessage
-    : channel?.name || (callType === 'video' ? t.weldchat.callRoom.videoCall : t.weldchat.callRoom.voiceCall);
+    : channel?.name || fallbackCallTitle;
 
   return { isDm, isGroup, isDmOrGroup: isDm || isGroup, dmOther, otherMembers, title };
+}
+
+type ChatPanelSlotProps = Parameters<NonNullable<MeetingRoomViewProps['chatPanelSlot']>>[0];
+
+// Render function (not a component) invoked by MeetingRoomView's `chatPanelSlot`.
+function renderChannelChatPanel(channelId: string, slotProps: ChatPanelSlotProps) {
+  return (
+    <ChannelChatPanel
+      channelId={channelId}
+      isOpen={slotProps.isOpen}
+      onClose={slotProps.onClose}
+      onOpen={slotProps.onOpen}
+      notificationHost={slotProps.notificationHost}
+      skipTransition={slotProps.skipTransition}
+    />
+  );
 }
 
 // ============================================================================
@@ -394,16 +411,7 @@ function ChatMeetingRoomAdapter() {
       // the WeldChat channel data layer in ChannelChatPanel.
       chatPanelSlot={
         channelId
-          ? ({ isOpen, onClose, onOpen, notificationHost, skipTransition }) => (
-              <ChannelChatPanel
-                channelId={channelId}
-                isOpen={isOpen}
-                onClose={onClose}
-                onOpen={onOpen}
-                notificationHost={notificationHost}
-                skipTransition={skipTransition}
-              />
-            )
+          ? (slotProps) => renderChannelChatPanel(channelId, slotProps)
           : undefined
       }
       // Lean chat-call chrome otherwise: people panel + channel chat only. No

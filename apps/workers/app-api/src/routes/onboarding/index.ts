@@ -702,6 +702,67 @@ app.post('/invitations', zValidator('json', invitationsInput), async (c) => {
   }
 });
 
+/** Org metadata keys `/complete` copies from the request body when present. */
+const COMPLETE_ORG_METADATA_KEYS = [
+  'country',
+  'referralSource',
+  'organizationType',
+  'organizationSize',
+  'region',
+  'selectedApps',
+] as const;
+
+/** PATCH the Clerk user's public metadata with the remaining role / productUpdates fields. */
+async function patchCompleteUserMetadata(
+  env: Env,
+  userId: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  if (!data.role && data.productUpdates === undefined) return;
+
+  await fetch(`https://api.clerk.com/v1/users/${userId}/metadata`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${env.CLERK_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      public_metadata: {
+        ...(data.productUpdates !== undefined ? { productUpdates: data.productUpdates } : {}),
+        ...(data.role ? { primaryRole: data.role } : {}),
+      },
+    }),
+  });
+}
+
+/** PATCH the Clerk org's public metadata with whichever onboarding fields were sent. */
+async function patchCompleteOrgMetadata(
+  env: Env,
+  orgId: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const metadata: Record<string, unknown> = {};
+  for (const key of COMPLETE_ORG_METADATA_KEYS) {
+    if (data[key]) metadata[key] = data[key];
+  }
+
+  if (Object.keys(metadata).length === 0) return;
+
+  const patchRes = await fetch(`https://api.clerk.com/v1/organizations/${orgId}/metadata`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${env.CLERK_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ public_metadata: metadata }),
+  });
+
+  if (!patchRes.ok) {
+    const errText = await patchRes.text();
+    console.error('[Onboarding] Failed to patch org metadata:', logSafe(errText));
+  }
+}
+
 // ============================================================================
 // POST /complete — patch remaining user/org metadata; falls back to workspace
 // creation when no org exists yet (backwards compat with clients that skip
@@ -725,48 +786,12 @@ app.post('/complete', async (c) => {
     }
 
     // Update user metadata with any remaining fields (role, productUpdates).
-    if (data.role || data.productUpdates !== undefined) {
-      await fetch(`https://api.clerk.com/v1/users/${userId}/metadata`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${c.env.CLERK_SECRET_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          public_metadata: {
-            ...(data.productUpdates !== undefined ? { productUpdates: data.productUpdates } : {}),
-            ...(data.role ? { primaryRole: data.role } : {}),
-          },
-        }),
-      });
-    }
+    await patchCompleteUserMetadata(c.env, userId, data);
 
     // Org already exists (workspace was created in the /workspace step) — just
     // patch org metadata with any data sent along.
     if (orgId) {
-      const metadata: Record<string, unknown> = {};
-      if (data.country) metadata.country = data.country;
-      if (data.referralSource) metadata.referralSource = data.referralSource;
-      if (data.organizationType) metadata.organizationType = data.organizationType;
-      if (data.organizationSize) metadata.organizationSize = data.organizationSize;
-      if (data.region) metadata.region = data.region;
-      if (data.selectedApps) metadata.selectedApps = data.selectedApps;
-
-      if (Object.keys(metadata).length > 0) {
-        const patchRes = await fetch(`https://api.clerk.com/v1/organizations/${orgId}/metadata`, {
-          method: 'PATCH',
-          headers: {
-            Authorization: `Bearer ${c.env.CLERK_SECRET_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ public_metadata: metadata }),
-        });
-
-        if (!patchRes.ok) {
-          const errText = await patchRes.text();
-          console.error('[Onboarding] Failed to patch org metadata:', logSafe(errText));
-        }
-      }
+      await patchCompleteOrgMetadata(c.env, orgId, data);
 
       return success(c, { success: true, clerkOrgId: orgId });
     }

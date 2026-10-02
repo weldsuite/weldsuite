@@ -12,7 +12,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useGridContext } from '../context';
 import { useIsCellEditing, setEditingCellValue } from '../editing-store';
-import { GridColumnDef } from '../types';
+import { GridColumnDef, EditorProps, OpenPopover } from '../types';
 import {
   TextEditor,
   EmailEditor,
@@ -78,30 +78,426 @@ const CellWrapper: React.FC<{
   </div>
 );
 
+interface FavoriteButtonProps<TEntity> {
+  entity: TEntity;
+  entityId: string;
+  field: string;
+}
+
+function FavoriteButton<TEntity>({ entity, entityId, field }: FavoriteButtonProps<TEntity>) {
+  const { state, setOptimisticUpdates, actions } = useGridContext<TEntity>();
+  const isFavorite = !!(entity as Record<string, unknown>)[field];
+
+  const setFavorite = (next: boolean) => {
+    const prev = state.optimisticUpdates;
+    setOptimisticUpdates({
+      ...prev,
+      [entityId]: { ...prev[entityId], [field]: next } as Partial<TEntity>,
+    });
+  };
+
+  const toggleFavorite = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newVal = !(entity as Record<string, unknown>)[field];
+    setFavorite(newVal);
+    const result = await actions.onUpdateEntity(entityId, { [field]: newVal });
+    if (!result.success) {
+      setFavorite(!newVal);
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      // Don't let the press bubble to the cell's onMouseDown — that
+      // starts a cell-range selection, which stamps
+      // `body[data-grid-dragging]` and the global CSS rule then hides
+      // this hover-only star between mousedown and mouseup. With the
+      // button gone, the click lands on the row instead and opens the
+      // object panel rather than toggling the favorite.
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={toggleFavorite}
+      // `data-grid-hover-only` flags this as a hover-revealed ornament,
+      // so the global cell-drag CSS rule can suppress it while a drag
+      // selection is in flight (it would otherwise blink in/out as
+      // the cursor crosses rows).
+      data-grid-hover-only={isFavorite ? undefined : 'true'}
+      data-testid="entity-grid-favorite"
+      aria-pressed={isFavorite}
+      className={cn(
+        "p-0.5 rounded-[5px] transition-colors hover:bg-muted flex-shrink-0",
+        isFavorite ? "inline-flex" : "hidden group-hover:inline-flex"
+      )}
+    >
+      <Star
+        className={cn(
+          "h-4 w-4",
+          isFavorite
+            ? "fill-yellow-400 text-yellow-400"
+            : "text-muted-foreground/30 hover:text-muted-foreground/60"
+        )}
+      />
+    </Button>
+  );
+}
+
+interface CompanyCellProps<TEntity> {
+  entity: TEntity;
+  column: GridColumnDef<TEntity>;
+  compact: boolean;
+}
+
+// Render company/name column (special case - first column with avatar)
+function CompanyCell<TEntity>({ entity, column, compact }: CompanyCellProps<TEntity>) {
+  const { config, state, setSelectedRows, actions } = useGridContext<TEntity>();
+  const { selectedRows } = state;
+  const entityId = config.getEntityId(entity);
+  const name = config.getEntityName(entity);
+  const initials = config.getEntityInitials?.(entity) || name.charAt(0).toUpperCase();
+  const avatar = config.getEntityAvatar?.(entity);
+  const subtitle = config.getEntitySubtitle?.(entity);
+  const contextMenuItems = config.renderRowContextMenu?.(entity);
+
+  const toggleRowSelected = (checked: boolean | 'indeterminate') => {
+    const newSelected = new Set(selectedRows);
+    if (checked) {
+      newSelected.add(entityId);
+    } else {
+      newSelected.delete(entityId);
+    }
+    setSelectedRows(newSelected);
+  };
+
+  const cell = (
+    <CellWrapper onClick={() => actions.onRowClick?.(entity)} isFirstColumn compact={compact}>
+      <div className="flex items-center gap-2.5 min-w-0 flex-1 group">
+        {config.enableRowSelection !== false && (
+          <Checkbox
+            checked={selectedRows.has(entityId)}
+            onCheckedChange={toggleRowSelected}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-shrink-0 rounded-[5px]"
+          />
+        )}
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <Avatar className="h-[22px] w-[22px] rounded-md border border-border flex-shrink-0">
+            <AvatarImage src={avatar} />
+            <AvatarFallback className="rounded-md bg-muted text-[10px] font-medium">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <span className="font-medium text-[14px] text-foreground group-hover:text-primary truncate block">
+              {name}
+            </span>
+            {subtitle && (
+              <span className="text-[12px] text-muted-foreground truncate block">
+                {subtitle}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+      {column.favoriteField && (
+        <FavoriteButton entity={entity} entityId={entityId} field={column.favoriteField} />
+      )}
+    </CellWrapper>
+  );
+
+  if (!contextMenuItems) return cell;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger className="block w-full h-full data-[state=open]:bg-muted/50">
+        {cell}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-52">{contextMenuItems}</ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+/** Everything a type-specific cell renderer needs, resolved once per cell. */
+interface CellRenderCtx {
+  columnId: string;
+  options: GridColumnDef<unknown>['options'];
+  selectConfig: GridColumnDef<unknown>['selectConfig'];
+  isFirstColumn: boolean;
+  compact: boolean;
+  isEditing: boolean;
+  isPopoverOpen: boolean;
+  value: unknown;
+  entityId: string;
+  /** Enter edit mode, honouring `config.enableInlineEditing`. */
+  startEditing: () => void;
+  /** Enter edit mode unconditionally (location cells). */
+  forceStartEditing: () => void;
+  persistValue: (newValue: unknown) => void;
+  persistDate: (newValue: Date | null | undefined) => void;
+  handleCommit: (finalValue?: unknown) => void;
+  handleCancel: () => void;
+  commitNumber: (finalValue: unknown) => void;
+  setOpenPopover: (popover: OpenPopover | null) => void;
+}
+
+interface EditableCellProps {
+  ctx: CellRenderCtx;
+  renderEditor: () => React.ReactNode;
+  children: React.ReactNode;
+}
+
+/** Shows the editor while the cell is in edit mode, otherwise the read-only display. */
+function EditableCell({ ctx, renderEditor, children }: EditableCellProps) {
+  if (ctx.isEditing) {
+    return (
+      <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact} isEditing>
+        {renderEditor()}
+      </CellWrapper>
+    );
+  }
+  return (
+    <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact} onClick={ctx.startEditing}>
+      {children}
+    </CellWrapper>
+  );
+}
+
+type TextCellType = 'email' | 'phone' | 'text' | 'url';
+
+const TEXT_EDITORS: Record<TextCellType, React.ComponentType<EditorProps<string>>> = {
+  email: EmailEditor,
+  phone: PhoneEditor,
+  text: TextEditor,
+  url: UrlEditor,
+};
+
+function renderTextCell(type: TextCellType, ctx: CellRenderCtx) {
+  const Editor = TEXT_EDITORS[type];
+  const text = (ctx.value as string | undefined) || '';
+  return (
+    <EditableCell
+      ctx={ctx}
+      renderEditor={() => (
+        <Editor value={text} onCommit={ctx.handleCommit} onCancel={ctx.handleCancel} />
+      )}
+    >
+      <span className="text-[14px] text-foreground/80 truncate">{text || null}</span>
+    </EditableCell>
+  );
+}
+
+type NumberCellType = 'number' | 'currency' | 'percent';
+
+interface NumberCellSpec {
+  Editor: React.ComponentType<EditorProps<number | string>>;
+  className: string;
+  display: (value: unknown) => string | null;
+}
+
+const NUMBER_CELLS: Record<NumberCellType, NumberCellSpec> = {
+  number: {
+    Editor: NumberEditor,
+    className: 'text-[14px] text-foreground/80',
+    display: (v) => (typeof v === 'number' ? v.toLocaleString() : null),
+  },
+  currency: {
+    Editor: CurrencyEditor,
+    className: 'text-[14px] font-medium text-foreground',
+    display: (v) => (typeof v === 'number' && v > 0 ? formatCurrency(v, { compact: true }) : null),
+  },
+  percent: {
+    Editor: NumberEditor,
+    className: 'text-[14px] text-foreground/80',
+    display: (v) => (typeof v === 'number' ? formatPercent(v) : null),
+  },
+};
+
+function renderNumberCell(type: NumberCellType, ctx: CellRenderCtx) {
+  const { Editor, className, display } = NUMBER_CELLS[type];
+  const { value } = ctx;
+  return (
+    <EditableCell
+      ctx={ctx}
+      renderEditor={() => (
+        <Editor
+          value={typeof value === 'number' && value > 0 ? value : ''}
+          onCommit={ctx.commitNumber}
+          onCancel={ctx.handleCancel}
+        />
+      )}
+    >
+      <span className={className}>{display(value)}</span>
+    </EditableCell>
+  );
+}
+
+function locationDisplayText(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value !== 'object') return '';
+  const v = value as { city?: string; state?: string; country?: string };
+  return [v.city, v.state, v.country].filter(Boolean).join(', ');
+}
+
+function renderLocationCell(ctx: CellRenderCtx) {
+  const displayText = locationDisplayText(ctx.value);
+  if (ctx.isEditing) {
+    return (
+      <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact} isEditing>
+        <LocationEditor
+          value={ctx.value as string | { city?: string; state?: string; country?: string } | null | undefined}
+          onChange={ctx.persistValue}
+          onCommit={() => setEditingCellValue(null)}
+          onCancel={() => setEditingCellValue(null)}
+        />
+      </CellWrapper>
+    );
+  }
+  return (
+    <CellWrapper
+      isFirstColumn={ctx.isFirstColumn}
+      compact={ctx.compact}
+      onClick={ctx.forceStartEditing}
+    >
+      {displayText ? (
+        <span className="text-[14px] text-foreground/80 truncate">{displayText}</span>
+      ) : null}
+    </CellWrapper>
+  );
+}
+
+function renderStarCell(ctx: CellRenderCtx) {
+  const { value } = ctx;
+  return (
+    <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.persistValue(!value);
+        }}
+        className="p-0.5 rounded transition-colors hover:bg-muted"
+      >
+        <Star
+          className={cn(
+            "h-4 w-4 transition-colors",
+            value
+              ? "fill-yellow-400 text-yellow-400"
+              : "text-muted-foreground/30 hover:text-muted-foreground/60"
+          )}
+        />
+      </Button>
+    </CellWrapper>
+  );
+}
+
+function renderSelectCell(multi: boolean, ctx: CellRenderCtx) {
+  const common = {
+    onChange: ctx.persistValue,
+    onCommit: () => {},
+    onCancel: () => {},
+    options: ctx.options || [],
+    optionConfig: ctx.selectConfig,
+    onOpenChange: (open: boolean) =>
+      ctx.setOpenPopover(open ? { rowId: ctx.entityId, fieldId: ctx.columnId } : null),
+  };
+  return (
+    <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact} isEditing={ctx.isPopoverOpen}>
+      {multi ? (
+        <MultiSelectEditor value={(ctx.value as string[] | undefined) || []} {...common} />
+      ) : (
+        <SelectEditor value={ctx.value as string | null} {...common} />
+      )}
+    </CellWrapper>
+  );
+}
+
+function renderCheckboxCell(ctx: CellRenderCtx) {
+  return (
+    <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
+      <CheckboxEditor
+        value={(ctx.value as boolean | undefined) || false}
+        onChange={ctx.persistValue}
+        onCommit={() => {}}
+        onCancel={() => {}}
+      />
+    </CellWrapper>
+  );
+}
+
+function renderDateCell(ctx: CellRenderCtx) {
+  return (
+    <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
+      <DateEditor
+        value={ctx.value as Date | null | undefined}
+        onChange={ctx.persistDate}
+        onCommit={() => {}}
+        onCancel={() => {}}
+      />
+    </CellWrapper>
+  );
+}
+
+function renderDefaultCell(ctx: CellRenderCtx) {
+  return (
+    <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
+      <span className="text-[14px] text-foreground/80">
+        {(ctx.value as { toString(): string } | null | undefined)?.toString() || null}
+      </span>
+    </CellWrapper>
+  );
+}
+
+// Render based on field type
+function renderCellByType(type: GridColumnDef<unknown>['type'], ctx: CellRenderCtx) {
+  switch (type) {
+    case 'checkbox':
+      return renderCheckboxCell(ctx);
+    case 'star':
+      return renderStarCell(ctx);
+    case 'email':
+    case 'phone':
+    case 'text':
+    case 'url':
+      return renderTextCell(type, ctx);
+    case 'number':
+    case 'currency':
+    case 'percent':
+      return renderNumberCell(type, ctx);
+    case 'date':
+      return renderDateCell(ctx);
+    case 'single-select':
+      return renderSelectCell(false, ctx);
+    case 'multi-select':
+      return renderSelectCell(true, ctx);
+    case 'location':
+      return renderLocationCell(ctx);
+    default:
+      return renderDefaultCell(ctx);
+  }
+}
+
 export function GridCell<TEntity>({
   entity,
   column,
   isFirstColumn,
 }: GridCellProps<TEntity>) {
   const {
-  config,
-  state,
-  setSelectedRows,
-  setOpenPopover,
-  setOptimisticUpdates,
-  updateEntityField,
-  updateCustomFieldValue,
-  actions,
-} = useGridContext<TEntity>();
+    config,
+    state,
+    setOpenPopover,
+    updateEntityField,
+    updateCustomFieldValue,
+  } = useGridContext<TEntity>();
 
-  const { selectedRows, editValue, openPopover } = state;
+  const { editValue, openPopover } = state;
   const compact = !!config.fillViewport;
   const entityId = config.getEntityId(entity);
   const value = column.getValue(entity);
   // Subscribe only to this cell's editing flag — other cells don't re-render when
   // another cell enters edit mode.
   const isEditing = useIsCellEditing(entityId, column.id);
-  const _isPopoverOpen =
+  const isPopoverOpen =
     openPopover?.rowId === entityId && openPopover?.fieldId === column.id;
 
   // Local-only custom columns (created via addColumn) store in customFieldData.
@@ -113,6 +509,14 @@ export function GridCell<TEntity>({
       updateCustomFieldValue(entityId, column.id, newValue);
     } else {
       updateEntityField(entityId, column.id, newValue);
+    }
+  };
+
+  const persistDate = (newValue: Date | null | undefined) => {
+    if (isLocalOnly) {
+      updateCustomFieldValue(entityId, column.id, newValue);
+    } else {
+      updateEntityField(entityId, column.id, newValue?.toISOString() || null);
     }
   };
 
@@ -130,6 +534,20 @@ export function GridCell<TEntity>({
     setEditingCellValue(null);
   };
 
+  const commitNumber = (finalValue: unknown) => {
+    const newValue = Number.parseFloat(String(finalValue ?? '')) || 0;
+    if (newValue !== value) persistValue(newValue);
+    setEditingCellValue(null);
+  };
+
+  const forceStartEditing = () => {
+    setEditingCellValue({ rowId: entityId, fieldId: column.id });
+  };
+
+  const startEditing = () => {
+    if (config.enableInlineEditing !== false) forceStartEditing();
+  };
+
   // Custom render function takes precedence over type-based rendering
   if (column.render) {
     return (
@@ -139,469 +557,27 @@ export function GridCell<TEntity>({
     );
   }
 
-  // Render company/name column (special case - first column with avatar)
   if (column.type === 'company' && isFirstColumn) {
-    const name = config.getEntityName(entity);
-    const initials = config.getEntityInitials?.(entity) || name.charAt(0).toUpperCase();
-    const avatar = config.getEntityAvatar?.(entity);
-    const subtitle = config.getEntitySubtitle?.(entity);
-    const contextMenuItems = config.renderRowContextMenu?.(entity);
-
-    const cell = (
-      <CellWrapper onClick={() => actions.onRowClick?.(entity)} isFirstColumn compact={compact}>
-        <div className="flex items-center gap-2.5 min-w-0 flex-1 group">
-          {config.enableRowSelection !== false && (
-            <Checkbox
-              checked={selectedRows.has(entityId)}
-              onCheckedChange={(checked) => {
-                const newSelected = new Set(selectedRows);
-                if (checked) {
-                  newSelected.add(entityId);
-                } else {
-                  newSelected.delete(entityId);
-                }
-                setSelectedRows(newSelected);
-              }}
-              onClick={(e) => e.stopPropagation()}
-              className="flex-shrink-0 rounded-[5px]"
-            />
-          )}
-          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-            <Avatar className="h-[22px] w-[22px] rounded-md border border-border flex-shrink-0">
-              <AvatarImage src={avatar} />
-              <AvatarFallback className="rounded-md bg-muted text-[10px] font-medium">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <span className="font-medium text-[14px] text-foreground group-hover:text-primary truncate block">
-                {name}
-              </span>
-              {subtitle && (
-                <span className="text-[12px] text-muted-foreground truncate block">
-                  {subtitle}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-        {column.favoriteField && (
-          <Button
-            variant="ghost"
-            size="icon"
-            // Don't let the press bubble to the cell's onMouseDown — that
-            // starts a cell-range selection, which stamps
-            // `body[data-grid-dragging]` and the global CSS rule then hides
-            // this hover-only star between mousedown and mouseup. With the
-            // button gone, the click lands on the row instead and opens the
-            // object panel rather than toggling the favorite.
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={async (e) => {
-              e.stopPropagation();
-              const field = column.favoriteField!;
-              const newVal = !(entity as Record<string, unknown>)[field];
-              const prev = state.optimisticUpdates;
-              setOptimisticUpdates({
-                ...prev,
-                [entityId]: { ...prev[entityId], [field]: newVal } as Partial<TEntity>,
-              });
-              const result = await actions.onUpdateEntity(entityId, { [field]: newVal });
-              if (!result.success) {
-                const cur = state.optimisticUpdates;
-                setOptimisticUpdates({
-                  ...cur,
-                  [entityId]: { ...cur[entityId], [field]: !newVal } as Partial<TEntity>,
-                });
-              }
-            }}
-            // `data-grid-hover-only` flags this as a hover-revealed ornament,
-            // so the global cell-drag CSS rule can suppress it while a drag
-            // selection is in flight (it would otherwise blink in/out as
-            // the cursor crosses rows).
-            data-grid-hover-only={(entity as Record<string, unknown>)[column.favoriteField!] ? undefined : 'true'}
-            data-testid="entity-grid-favorite"
-            aria-pressed={!!(entity as Record<string, unknown>)[column.favoriteField!]}
-            className={cn(
-              "p-0.5 rounded-[5px] transition-colors hover:bg-muted flex-shrink-0",
-              (entity as Record<string, unknown>)[column.favoriteField!]
-                ? "inline-flex"
-                : "hidden group-hover:inline-flex"
-            )}
-          >
-            <Star
-              className={cn(
-                "h-4 w-4",
-                (entity as Record<string, unknown>)[column.favoriteField!]
-                  ? "fill-yellow-400 text-yellow-400"
-                  : "text-muted-foreground/30 hover:text-muted-foreground/60"
-              )}
-            />
-          </Button>
-        )}
-      </CellWrapper>
-    );
-
-    if (contextMenuItems) {
-      return (
-        <ContextMenu>
-          <ContextMenuTrigger className="block w-full h-full data-[state=open]:bg-muted/50">
-            {cell}
-          </ContextMenuTrigger>
-          <ContextMenuContent className="w-52">{contextMenuItems}</ContextMenuContent>
-        </ContextMenu>
-      );
-    }
-    return cell;
+    return <CompanyCell entity={entity} column={column} compact={compact} />;
   }
 
-  // Render based on field type
-  switch (column.type) {
-    case 'checkbox':
-      return (
-        <CellWrapper isFirstColumn={isFirstColumn} compact={compact}>
-          <CheckboxEditor
-            value={(value as boolean | undefined) || false}
-            onChange={(newValue) => persistValue(newValue)}
-            onCommit={() => {}}
-            onCancel={() => {}}
-          />
-        </CellWrapper>
-      );
-
-    case 'star':
-      return (
-        <CellWrapper isFirstColumn={isFirstColumn} compact={compact}>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              persistValue(!value);
-            }}
-            className="p-0.5 rounded transition-colors hover:bg-muted"
-          >
-            <Star
-              className={cn(
-                "h-4 w-4 transition-colors",
-                value
-                  ? "fill-yellow-400 text-yellow-400"
-                  : "text-muted-foreground/30 hover:text-muted-foreground/60"
-              )}
-            />
-          </Button>
-        </CellWrapper>
-      );
-
-    case 'email':
-      if (isEditing) {
-        return (
-          <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
-            <EmailEditor
-              value={(value as string | undefined) || ''}
-              onCommit={handleCommit}
-              onCancel={handleCancel}
-            />
-          </CellWrapper>
-        );
-      }
-      return (
-        <CellWrapper
-          isFirstColumn={isFirstColumn}
-          compact={compact}
-          onClick={() => {
-            if (config.enableInlineEditing !== false) {
-              setEditingCellValue({ rowId: entityId, fieldId: column.id });
-            }
-          }}
-        >
-          <span className="text-[14px] text-foreground/80 truncate">
-            {(value as string | undefined) || null}
-          </span>
-        </CellWrapper>
-      );
-
-    case 'phone':
-      if (isEditing) {
-        return (
-          <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
-            <PhoneEditor
-              value={(value as string | undefined) || ''}
-              onCommit={handleCommit}
-              onCancel={handleCancel}
-            />
-          </CellWrapper>
-        );
-      }
-      return (
-        <CellWrapper
-          isFirstColumn={isFirstColumn}
-          compact={compact}
-          onClick={() => {
-            if (config.enableInlineEditing !== false) {
-              setEditingCellValue({ rowId: entityId, fieldId: column.id });
-            }
-          }}
-        >
-          <span className="text-[14px] text-foreground/80 truncate">
-            {(value as string | undefined) || null}
-          </span>
-        </CellWrapper>
-      );
-
-    case 'text':
-      if (isEditing) {
-        return (
-          <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
-            <TextEditor
-              value={(value as string | undefined) || ''}
-              onCommit={handleCommit}
-              onCancel={handleCancel}
-            />
-          </CellWrapper>
-        );
-      }
-      return (
-        <CellWrapper
-          isFirstColumn={isFirstColumn}
-          compact={compact}
-          onClick={() => {
-            if (config.enableInlineEditing !== false) {
-              setEditingCellValue({ rowId: entityId, fieldId: column.id });
-            }
-          }}
-        >
-          <span className="text-[14px] text-foreground/80 truncate">
-            {(value as string | undefined) || null}
-          </span>
-        </CellWrapper>
-      );
-
-    case 'url':
-      if (isEditing) {
-        return (
-          <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
-            <UrlEditor
-              value={(value as string | undefined) || ''}
-              onCommit={handleCommit}
-              onCancel={handleCancel}
-            />
-          </CellWrapper>
-        );
-      }
-      return (
-        <CellWrapper
-          isFirstColumn={isFirstColumn}
-          compact={compact}
-          onClick={() => {
-            if (config.enableInlineEditing !== false) {
-              setEditingCellValue({ rowId: entityId, fieldId: column.id });
-            }
-          }}
-        >
-          <span className="text-[14px] text-foreground/80 truncate">
-            {(value as string | undefined) || null}
-          </span>
-        </CellWrapper>
-      );
-
-    case 'number':
-      if (isEditing) {
-        return (
-          <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
-            <NumberEditor
-              value={typeof value === 'number' && value > 0 ? value : ''}
-              onCommit={(finalValue) => {
-                const newValue = Number.parseFloat(String(finalValue ?? '')) || 0;
-                if (newValue !== value) persistValue(newValue);
-                setEditingCellValue(null);
-              }}
-              onCancel={handleCancel}
-            />
-          </CellWrapper>
-        );
-      }
-      return (
-        <CellWrapper
-          isFirstColumn={isFirstColumn}
-          compact={compact}
-          onClick={() => {
-            if (config.enableInlineEditing !== false) {
-              setEditingCellValue({ rowId: entityId, fieldId: column.id });
-            }
-          }}
-        >
-          <span className="text-[14px] text-foreground/80">
-            {typeof value === 'number' ? value.toLocaleString() : null}
-          </span>
-        </CellWrapper>
-      );
-
-    case 'currency':
-      if (isEditing) {
-        return (
-          <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
-            <CurrencyEditor
-              value={typeof value === 'number' && value > 0 ? value : ''}
-              onCommit={(finalValue) => {
-                const newValue = Number.parseFloat(String(finalValue ?? '')) || 0;
-                if (newValue !== value) persistValue(newValue);
-                setEditingCellValue(null);
-              }}
-              onCancel={handleCancel}
-            />
-          </CellWrapper>
-        );
-      }
-      return (
-        <CellWrapper
-          isFirstColumn={isFirstColumn}
-          compact={compact}
-          onClick={() => {
-            if (config.enableInlineEditing !== false) {
-              setEditingCellValue({ rowId: entityId, fieldId: column.id });
-            }
-          }}
-        >
-          <span className="text-[14px] font-medium text-foreground">
-            {typeof value === 'number' && value > 0 ? formatCurrency(value, { compact: true }) : null}
-          </span>
-        </CellWrapper>
-      );
-
-    case 'percent':
-      if (isEditing) {
-        return (
-          <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
-            <NumberEditor
-              value={typeof value === 'number' && value > 0 ? value : ''}
-              onCommit={(finalValue) => {
-                const newValue = Number.parseFloat(String(finalValue ?? '')) || 0;
-                if (newValue !== value) persistValue(newValue);
-                setEditingCellValue(null);
-              }}
-              onCancel={handleCancel}
-            />
-          </CellWrapper>
-        );
-      }
-      return (
-        <CellWrapper
-          isFirstColumn={isFirstColumn}
-          compact={compact}
-          onClick={() => {
-            if (config.enableInlineEditing !== false) {
-              setEditingCellValue({ rowId: entityId, fieldId: column.id });
-            }
-          }}
-        >
-          <span className="text-[14px] text-foreground/80">
-            {typeof value === 'number' ? formatPercent(value) : null}
-          </span>
-        </CellWrapper>
-      );
-
-    case 'date':
-      return (
-        <CellWrapper isFirstColumn={isFirstColumn} compact={compact}>
-          <DateEditor
-            value={value as Date | null | undefined}
-            onChange={(newValue) => {
-              if (isLocalOnly) {
-                updateCustomFieldValue(entityId, column.id, newValue);
-              } else {
-                updateEntityField(entityId, column.id, newValue?.toISOString() || null);
-              }
-            }}
-            onCommit={() => {}}
-            onCancel={() => {}}
-          />
-        </CellWrapper>
-      );
-
-    case 'single-select': {
-      const isPopoverOpen =
-        openPopover?.rowId === entityId && openPopover?.fieldId === column.id;
-      return (
-        <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing={isPopoverOpen}>
-          <SelectEditor
-            value={value as string | null}
-            onChange={(newValue) => persistValue(newValue)}
-            onCommit={() => {}}
-            onCancel={() => {}}
-            options={column.options || []}
-            optionConfig={column.selectConfig}
-            onOpenChange={(open) =>
-              setOpenPopover(open ? { rowId: entityId, fieldId: column.id } : null)
-            }
-          />
-        </CellWrapper>
-      );
-    }
-
-    case 'multi-select': {
-      const isPopoverOpen =
-        openPopover?.rowId === entityId && openPopover?.fieldId === column.id;
-      return (
-        <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing={isPopoverOpen}>
-          <MultiSelectEditor
-            value={(value as string[] | undefined) || []}
-            onChange={(newValue) => persistValue(newValue)}
-            onCommit={() => {}}
-            onCancel={() => {}}
-            options={column.options || []}
-            optionConfig={column.selectConfig}
-            onOpenChange={(open) =>
-              setOpenPopover(open ? { rowId: entityId, fieldId: column.id } : null)
-            }
-          />
-        </CellWrapper>
-      );
-    }
-
-    case 'location': {
-      const displayText = (() => {
-        if (!value) return '';
-        if (typeof value === 'string') return value;
-        if (typeof value === 'object') {
-          const v = value as { city?: string; state?: string; country?: string };
-          return [v.city, v.state, v.country].filter(Boolean).join(', ');
-        }
-        return '';
-      })();
-      if (isEditing) {
-        return (
-          <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
-            <LocationEditor
-              value={value as string | { city?: string; state?: string; country?: string } | null | undefined}
-              onChange={(newValue) => persistValue(newValue)}
-              onCommit={() => setEditingCellValue(null)}
-              onCancel={() => setEditingCellValue(null)}
-            />
-          </CellWrapper>
-        );
-      }
-      return (
-        <CellWrapper
-          isFirstColumn={isFirstColumn}
-          compact={compact}
-          onClick={() => {
-            setEditingCellValue({ rowId: entityId, fieldId: column.id });
-          }}
-        >
-          {displayText ? (
-            <span className="text-[14px] text-foreground/80 truncate">{displayText}</span>
-          ) : null}
-        </CellWrapper>
-      );
-    }
-
-    default:
-      return (
-        <CellWrapper isFirstColumn={isFirstColumn} compact={compact}>
-          <span className="text-[14px] text-foreground/80">
-            {value?.toString() || null}
-          </span>
-        </CellWrapper>
-      );
-  }
+  return renderCellByType(column.type, {
+    columnId: column.id,
+    options: column.options,
+    selectConfig: column.selectConfig,
+    isFirstColumn,
+    compact,
+    isEditing,
+    isPopoverOpen,
+    value,
+    entityId,
+    startEditing,
+    forceStartEditing,
+    persistValue,
+    persistDate,
+    handleCommit,
+    handleCancel,
+    commitNumber,
+    setOpenPopover,
+  });
 }

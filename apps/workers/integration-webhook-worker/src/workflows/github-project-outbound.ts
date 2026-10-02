@@ -41,6 +41,178 @@ async function tokenFor(env: Env, installationId: number): Promise<string> {
   return getInstallationToken(appId, privateKey, installationId);
 }
 
+type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
+type OutboundKind = GithubProjectOutboundSyncParams['kind'];
+
+interface TaskSnapshot {
+  id: string;
+  title: string;
+  description: string | null;
+  stageId: string | null;
+  status: string;
+  labels: string[] | null;
+}
+
+interface LinkSnapshot {
+  id: string;
+  projectV2NodeId: string;
+  repoFullName: string | null;
+  statusFieldId: string | null;
+  statusOptionMap: StatusOptionMapping[] | null;
+}
+
+interface SyncMapSnapshot {
+  id: string;
+  issueNodeId: string | null;
+  issueNumber: number;
+  projectItemNodeId: string;
+}
+
+interface PushResult {
+  issueNumber?: number;
+  issueNodeId?: string;
+  projectItemNodeId?: string;
+  issueUpdatedAt?: string;
+}
+
+/**
+ * Pick the project link a task syncs through: the existing sync-map link, else
+ * (for `create` only) the explicit param link, else the task project's link.
+ */
+async function resolveLinkId(
+  db: TenantDb,
+  task: { projectId: string | null },
+  syncMapRow: { projectLinkId: string } | undefined,
+  kind: OutboundKind,
+  paramLinkId: string | undefined,
+): Promise<string | null> {
+  if (syncMapRow) return syncMapRow.projectLinkId;
+  if (kind !== 'create') return null;
+  if (paramLinkId) return paramLinkId;
+  if (!task.projectId) return null;
+
+  const [byProject] = await db
+    .select({ id: schema.githubProjectLinks.id })
+    .from(schema.githubProjectLinks)
+    .where(
+      and(
+        eq(schema.githubProjectLinks.projectId, task.projectId),
+        isNull(schema.githubProjectLinks.deletedAt),
+      ),
+    )
+    .limit(1);
+  return byProject?.id ?? null;
+}
+
+/**
+ * Status→stage fallback: tasks may have a null stageId and only carry
+ * `status`; map task.status → stageId via the project's pipeline stages.
+ */
+async function loadStatusToStageId(db: TenantDb, projectId: string): Promise<Record<string, string>> {
+  const stageRows = await db
+    .select({
+      id: schema.projectPipelineStages.id,
+      systemStatus: schema.projectPipelineStages.systemStatus,
+      position: schema.projectPipelineStages.position,
+    })
+    .from(schema.projectPipelineStages)
+    .where(eq(schema.projectPipelineStages.projectId, projectId));
+  const statusToStageId: Record<string, string> = {};
+  for (const s of [...stageRows].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))) {
+    if (s.systemStatus && !(s.systemStatus in statusToStageId)) {
+      statusToStageId[s.systemStatus] = s.id;
+    }
+  }
+  return statusToStageId;
+}
+
+/** Set the Project item's Status column when a mapping exists for the stage. */
+async function applyMappedStatus(
+  token: string,
+  link: LinkSnapshot,
+  projectItemNodeId: string,
+  effectiveStageId: string | null,
+): Promise<void> {
+  const optionId = statusOptionForStageId(link.statusOptionMap, effectiveStageId);
+  if (optionId && link.statusFieldId) {
+    await updateProjectItemStatus(token, link.projectV2NodeId, projectItemNodeId, link.statusFieldId, optionId);
+  }
+}
+
+async function pushCreate(
+  token: string,
+  task: TaskSnapshot,
+  link: LinkSnapshot,
+  effectiveStageId: string | null,
+): Promise<PushResult | null> {
+  if (!link.repoFullName) {
+    console.log(`[GithubProjectOutbound] Link ${link.id} has no repo — cannot create issue`);
+    return null;
+  }
+  const issue = await createIssue(token, link.repoFullName, {
+    title: task.title,
+    body: task.description,
+    labels: task.labels ?? undefined,
+  });
+  const itemNodeId = await addIssueToProject(token, link.projectV2NodeId, issue.node_id);
+  await applyMappedStatus(token, link, itemNodeId, effectiveStageId);
+
+  return {
+    issueNumber: issue.number,
+    issueNodeId: issue.node_id,
+    projectItemNodeId: itemNodeId,
+    issueUpdatedAt: issue.updated_at,
+  };
+}
+
+async function pushUpdate(token: string, task: TaskSnapshot, map: SyncMapSnapshot): Promise<PushResult | null> {
+  if (!map.issueNodeId) {
+    console.log(`[GithubProjectOutbound] No issueNodeId for task ${task.id} — skipping update`);
+    return null;
+  }
+  const updatedAt = await updateIssueFields(token, map.issueNodeId, {
+    title: task.title,
+    body: task.description,
+  });
+  return { issueUpdatedAt: updatedAt };
+}
+
+/** Mirror the task's open/closed state onto the issue. */
+async function mirrorIssueState(token: string, issueNodeId: string, taskStatus: string): Promise<string> {
+  if (taskStatus === 'done') return closeIssue(token, issueNodeId, 'COMPLETED');
+  if (taskStatus === 'cancelled') return closeIssue(token, issueNodeId, 'NOT_PLANNED');
+  return reopenIssue(token, issueNodeId);
+}
+
+async function pushStatus(
+  token: string,
+  task: TaskSnapshot,
+  link: LinkSnapshot,
+  map: SyncMapSnapshot,
+  effectiveStageId: string | null,
+): Promise<PushResult> {
+  // 1) Set the mapped Status column (if we have a mapping for this stage).
+  await applyMappedStatus(token, link, map.projectItemNodeId, effectiveStageId);
+  // 2) Mirror open/closed state onto the issue (best-effort; idempotent).
+  let issueUpdatedAt = new Date().toISOString();
+  if (map.issueNodeId) {
+    try {
+      issueUpdatedAt = await mirrorIssueState(token, map.issueNodeId, task.status);
+    } catch (e) {
+      console.log(
+        `[GithubProjectOutbound] issue state change skipped for task ${task.id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+  return { issueUpdatedAt };
+}
+
+async function pushDelete(token: string, map: SyncMapSnapshot): Promise<PushResult | null> {
+  if (!map.issueNodeId) return null;
+  const updatedAt = await closeIssue(token, map.issueNodeId, 'NOT_PLANNED');
+  return { issueUpdatedAt: updatedAt };
+}
+
 export class GithubProjectOutboundSyncWorkflow extends WorkflowEntrypoint<
   Env,
   GithubProjectOutboundSyncParams
@@ -68,26 +240,7 @@ export class GithubProjectOutboundSyncWorkflow extends WorkflowEntrypoint<
           .where(eq(schema.githubIssueSyncMap.taskId, taskId))
           .limit(1);
 
-        let linkId: string | null = null;
-        if (syncMapRow) {
-          linkId = syncMapRow.projectLinkId;
-        } else if (kind === 'create') {
-          if (paramLinkId) {
-            linkId = paramLinkId;
-          } else if (task.projectId) {
-            const [byProject] = await db
-              .select({ id: schema.githubProjectLinks.id })
-              .from(schema.githubProjectLinks)
-              .where(
-                and(
-                  eq(schema.githubProjectLinks.projectId, task.projectId),
-                  isNull(schema.githubProjectLinks.deletedAt),
-                ),
-              )
-              .limit(1);
-            linkId = byProject?.id ?? null;
-          }
-        }
+        const linkId = await resolveLinkId(db, task, syncMapRow, kind, paramLinkId);
 
         if (!linkId) return null;
 
@@ -124,22 +277,7 @@ export class GithubProjectOutboundSyncWorkflow extends WorkflowEntrypoint<
         if (!conn) throw new Error(`Connection for link ${link.id} not found`);
         if (conn.status !== 'active') throw new Error(`Connection ${conn.id} is not active`);
 
-        // Status→stage fallback: tasks may have a null stageId and only carry
-        // `status`; map task.status → stageId via the project's pipeline stages.
-        const stageRows = await db
-          .select({
-            id: schema.projectPipelineStages.id,
-            systemStatus: schema.projectPipelineStages.systemStatus,
-            position: schema.projectPipelineStages.position,
-          })
-          .from(schema.projectPipelineStages)
-          .where(eq(schema.projectPipelineStages.projectId, link.projectId));
-        const statusToStageId: Record<string, string> = {};
-        for (const s of [...stageRows].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))) {
-          if (s.systemStatus && !(s.systemStatus in statusToStageId)) {
-            statusToStageId[s.systemStatus] = s.id;
-          }
-        }
+        const statusToStageId = await loadStatusToStageId(db, link.projectId);
 
         return {
           task: {
@@ -191,82 +329,13 @@ export class GithubProjectOutboundSyncWorkflow extends WorkflowEntrypoint<
       async () => {
         const token = await tokenFor(this.env, installationId);
 
-        if (kind === 'create') {
-          if (!link.repoFullName) {
-            console.log(`[GithubProjectOutbound] Link ${link.id} has no repo — cannot create issue`);
-            return null;
-          }
-          const issue = await createIssue(token, link.repoFullName, {
-            title: task.title,
-            body: task.description,
-            labels: task.labels ?? undefined,
-          });
-          const itemNodeId = await addIssueToProject(token, link.projectV2NodeId, issue.node_id);
-
-          const optionId = statusOptionForStageId(link.statusOptionMap, effectiveStageId);
-          if (optionId && link.statusFieldId) {
-            await updateProjectItemStatus(token, link.projectV2NodeId, itemNodeId, link.statusFieldId, optionId);
-          }
-
-          return {
-            issueNumber: issue.number,
-            issueNodeId: issue.node_id,
-            projectItemNodeId: itemNodeId,
-            issueUpdatedAt: issue.updated_at,
-          };
-        }
+        if (kind === 'create') return pushCreate(token, task, link, effectiveStageId);
 
         const map = syncMap!;
 
-        if (kind === 'update') {
-          if (!map.issueNodeId) {
-            console.log(`[GithubProjectOutbound] No issueNodeId for task ${taskId} — skipping update`);
-            return null;
-          }
-          const updatedAt = await updateIssueFields(token, map.issueNodeId, {
-            title: task.title,
-            body: task.description,
-          });
-          return { issueUpdatedAt: updatedAt };
-        }
-
-        if (kind === 'status') {
-          // 1) Set the mapped Status column (if we have a mapping for this stage).
-          const optionId = statusOptionForStageId(link.statusOptionMap, effectiveStageId);
-          if (optionId && link.statusFieldId) {
-            await updateProjectItemStatus(
-              token,
-              link.projectV2NodeId,
-              map.projectItemNodeId,
-              link.statusFieldId,
-              optionId,
-            );
-          }
-          // 2) Mirror open/closed state onto the issue (best-effort; idempotent).
-          let issueUpdatedAt = new Date().toISOString();
-          if (map.issueNodeId) {
-            try {
-              if (task.status === 'done') {
-                issueUpdatedAt = await closeIssue(token, map.issueNodeId, 'COMPLETED');
-              } else if (task.status === 'cancelled') {
-                issueUpdatedAt = await closeIssue(token, map.issueNodeId, 'NOT_PLANNED');
-              } else {
-                issueUpdatedAt = await reopenIssue(token, map.issueNodeId);
-              }
-            } catch (e) {
-              console.log(
-                `[GithubProjectOutbound] issue state change skipped for task ${taskId}: ${e instanceof Error ? e.message : String(e)}`,
-              );
-            }
-          }
-          return { issueUpdatedAt };
-        }
-
-        if (kind === 'delete') {
-          if (!map.issueNodeId) return null;
-          const updatedAt = await closeIssue(token, map.issueNodeId, 'NOT_PLANNED');
-          return { issueUpdatedAt: updatedAt };
-        }
+        if (kind === 'update') return pushUpdate(token, task, map);
+        if (kind === 'status') return pushStatus(token, task, link, map, effectiveStageId);
+        if (kind === 'delete') return pushDelete(token, map);
 
         throw new Error(`Unknown kind: ${kind}`);
       },

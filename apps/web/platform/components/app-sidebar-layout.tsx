@@ -300,6 +300,790 @@ function SortableSidebarItem({ id, children }: Readonly<{ id: string; children: 
   );
 }
 
+function ActionDropdownItems({ actions }: Readonly<{ actions: ItemAction[] }>) {
+  return (
+    <>
+      {actions.map((action, idx) => {
+        const ActionIcon = action.icon;
+        const isDelete = action.label.toLowerCase() === 'delete';
+        return (
+          <React.Fragment key={idx}>
+            <DropdownMenuItem
+              onClick={action.onClick}
+              className={isDelete ? "text-red-600 focus:text-red-600 focus:bg-red-600/10 hover:bg-red-600/10" : ""}
+            >
+              {ActionIcon && <ActionIcon className={cn("mr-0.5 h-4 w-4", isDelete && "text-red-600")} />}
+              {action.label}
+            </DropdownMenuItem>
+            {idx < actions.length - 1 && action.label === 'Rename' && (
+              <DropdownMenuSeparator />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+interface SidebarBrandProps {
+  showBackButton?: boolean;
+  onBack?: () => void;
+  appLogo?: AppLogo;
+  AppIcon: AppSidebarLayoutProps['appIcon'];
+  appName: string;
+  state: ReturnType<typeof useSidebar>['state'];
+  isDark: boolean;
+}
+
+function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, state, isDark }: Readonly<SidebarBrandProps>) {
+  return (
+    <>
+      {showBackButton ? (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0 -ml-2"
+            onClick={onBack}
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </Button>
+          {state === "expanded" && (
+            <span className="text-lg font-semibold -ml-1">{appName}</span>
+          )}
+        </>
+      ) : appLogo ? (
+        // Icon + app name lockup — a consistent, lightweight treatment
+        // that suits the gray panel far better than the full-colour
+        // branded wordmarks. Collapsed state shows just the icon.
+        <>
+          {appLogo.iconLight?.includes('/weldcalendar/') ? (
+            <CalendarLogoIcon className={appLogo.iconClassName || "h-5 w-5 shrink-0"} />
+          ) : (
+            <img
+              src={isDark ? appLogo.iconDark : appLogo.iconLight}
+              alt={appName}
+              width={64}
+              height={64}
+              className={appLogo.iconClassName || "h-5 w-5 shrink-0"}
+            />
+          )}
+          {state === "expanded" && (
+            <span className="text-lg font-semibold">{appName}</span>
+          )}
+        </>
+      ) : (
+        <>
+          <AppIcon className="h-6 w-6 shrink-0" />
+          {state === "expanded" && (
+            <span className="text-lg font-semibold">{appName}</span>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+/** Content-based keys (label + occurrence counter) for menu entries that have no id. */
+function menuEntryKeys(menu: readonly { label: string }[]): string[] {
+  const seen = new Map<string, number>();
+  return menu.map((entry) => {
+    const occurrence = seen.get(entry.label) ?? 0;
+    seen.set(entry.label, occurrence + 1);
+    return `${entry.label}:${occurrence}`;
+  });
+}
+
+function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
+  const menu = group.groupContextMenu ?? [];
+  const menuKeys = menuEntryKeys(menu);
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="group/label relative flex items-center rounded-md px-1 py-0 -mx-1 transition-colors hover:bg-sidebar-accent">
+          <SidebarGroupLabel
+            className={cn('flex items-center gap-1 flex-1', group.onToggleCollapse && 'cursor-pointer select-none')}
+            onClick={group.onToggleCollapse}
+          >
+            <span>{group.group}</span>
+            {group.onToggleCollapse && (
+              <span
+                className="inline-flex items-center justify-center w-4 h-4 rounded text-muted-foreground"
+                aria-label={group.collapsed ? 'Expand group' : 'Collapse group'}
+              >
+                {group.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              </span>
+            )}
+          </SidebarGroupLabel>
+          <div className="flex items-center gap-0.5">
+            {group.customAddButton}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="opacity-0 group-hover/label:opacity-100 data-[state=open]:opacity-100 transition-opacity flex items-center justify-center w-5 h-5 rounded-[6px] hover:bg-black/[0.05] dark:hover:bg-black/20 data-[state=open]:bg-black/[0.05] dark:data-[state=open]:bg-black/20 text-muted-foreground outline-none ring-0 focus:ring-0 focus:outline-none focus-visible:outline-none focus-visible:ring-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                {menu.map((item, i) => {
+                  const Icon = item.icon;
+                  return (
+                    <DropdownMenuItem
+                      key={menuKeys[i]}
+                      onClick={item.onClick}
+                      className={item.destructive ? 'text-destructive focus:text-destructive focus:bg-destructive/10 hover:bg-destructive/10' : ''}
+                    >
+                      {Icon && <Icon className={`h-4 w-4 mr-0.5 ${item.destructive ? 'text-destructive' : ''}`} />}
+                      {item.label}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        {menu.map((item, i) => {
+          const Icon = item.icon;
+          return (
+            <ContextMenuItem
+              key={menuKeys[i]}
+              onClick={item.onClick}
+              className={item.destructive ? 'text-destructive focus:text-destructive focus:bg-destructive/10 hover:bg-destructive/10' : ''}
+            >
+              {Icon && <Icon className={`h-4 w-4 mr-0.5 ${item.destructive ? 'text-destructive' : ''}`} />}
+              {item.label}
+            </ContextMenuItem>
+          );
+        })}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
+  let addButton: React.ReactNode = null;
+  if (group.customAddButton) {
+    addButton = group.customAddButton;
+  } else if (group.onAdd) {
+    addButton = (
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={group.onAdd}
+        className="opacity-0 group-hover/label:opacity-100 transition-opacity flex items-center justify-center w-5 h-5 rounded-[6px] hover:bg-black/[0.05] dark:hover:bg-black/20"
+        style={{ marginLeft: '-12px' }}
+      >
+        <Plus className="w-4 h-4" />
+        <span className="sr-only">Add {group.group}</span>
+      </Button>
+    );
+  }
+  return (
+    <div className="group/label relative flex items-center rounded-md px-1 py-0 -mx-1 transition-colors hover:bg-sidebar-accent">
+      {group.onToggleCollapse && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={group.onToggleCollapse}
+          className="flex items-center justify-center w-4 h-4 rounded text-muted-foreground hover:text-foreground"
+          aria-label={group.collapsed ? 'Expand group' : 'Collapse group'}
+        >
+          {group.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </Button>
+      )}
+      <SidebarGroupLabel
+        className={cn('flex-1', group.onToggleCollapse && 'cursor-pointer select-none')}
+        onClick={group.onToggleCollapse}
+      >
+        {group.group}
+      </SidebarGroupLabel>
+      {addButton}
+    </div>
+  );
+}
+
+function SidebarGroupHeader({ group }: Readonly<{ group: MenuGroupProps }>) {
+  if (!group.group || group.hideLabel) return null;
+  if (group.groupContextMenu && group.groupContextMenu.length > 0) return <GroupLabelWithMenu group={group} />;
+  return <GroupLabelPlain group={group} />;
+}
+
+function SidebarSubItemRow({ subItem, pathname }: Readonly<{ subItem: MenuItemProps; pathname: string }>) {
+  const isSubActive = pathname === subItem.href;
+  return (
+    <SidebarMenuSubItem>
+      <div
+        className={cn(
+          "group/subitem flex items-center justify-between rounded-md transition-colors hover:bg-accent"
+        )}
+      >
+        <SidebarMenuSubButton asChild isActive={isSubActive} className="flex-1 hover:bg-transparent">
+          <Link href={subItem.href}>
+            <span>{subItem.title}</span>
+          </Link>
+        </SidebarMenuSubButton>
+        {subItem.actions && subItem.actions.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-6 w-6 mr-1 transition-opacity opacity-0 group-hover/subitem:opacity-100 hover:bg-muted-foreground/20 rounded-sm"
+                )}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreVertical className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <ActionDropdownItems actions={subItem.actions} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+    </SidebarMenuSubItem>
+  );
+}
+
+function SidebarItemWithSubItems({ item, pathname }: Readonly<{ item: MenuItemProps; pathname: string }>) {
+  const Icon = item.icon;
+  return (
+    <Collapsible defaultOpen className="group/collapsible">
+      <SidebarMenuItem>
+        <div className="group/item flex items-center justify-between rounded-md transition-colors hover:bg-accent py-1">
+          <div className="flex items-center flex-1 min-w-0">
+            <Icon className="h-4 w-4 ml-2 shrink-0" />
+            <span className={cn("ml-2 truncate", item.bold ? "font-semibold text-foreground" : "text-muted-foreground")}>{item.title}</span>
+            {item.badge && <span className={cn("ml-auto text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
+          </div>
+          <div className="flex items-center gap-0">
+            {item.actions && item.actions.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 hover:bg-muted-foreground/20 rounded-sm"
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <ActionDropdownItems actions={item.actions} />
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {item.onAddSubItem && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 hover:bg-muted-foreground/20 rounded-sm"
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  item.onAddSubItem?.();
+                }}
+              >
+                <Plus className="h-3 w-3" />
+              </Button>
+            )}
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 mr-1 hover:bg-muted-foreground/20 rounded-sm"
+              >
+                <ChevronDown className="h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+              </Button>
+            </CollapsibleTrigger>
+          </div>
+        </div>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {item.subItems?.map((subItem) => (
+              <SidebarSubItemRow key={subItem.href} subItem={subItem} pathname={pathname} />
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+
+function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            // Darker patch than the row's hover (`bg-accent`): a translucent
+            // black overlay reads as a slightly darker version of the same area
+            // in both light and dark themes (in dark, `bg-accent` alone matched
+            // the row exactly and showed no contrast).
+            "absolute right-1 h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 hover:bg-black/[0.05] dark:hover:bg-black/20 rounded-md"
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MoreVertical className="h-3 w-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {item.onRename && (
+          <DropdownMenuItem onClick={item.onRename} className="gap-2">
+            <SquarePen className="h-4 w-4" />
+            Rename
+          </DropdownMenuItem>
+        )}
+        {(item.onMoveUp || item.onMoveDown) && (
+          <>
+            <DropdownMenuSeparator />
+            {item.onMoveUp && (
+              <DropdownMenuItem onClick={item.onMoveUp} className="gap-2">
+                <ArrowUp className="h-4 w-4" />
+                Move Up
+              </DropdownMenuItem>
+            )}
+            {item.onMoveDown && (
+              <DropdownMenuItem onClick={item.onMoveDown} className="gap-2">
+                <ArrowDown className="h-4 w-4" />
+                Move Down
+              </DropdownMenuItem>
+            )}
+          </>
+        )}
+        {item.onRename && (item.onDuplicate || item.onExport || item.onImport) && (
+          <DropdownMenuSeparator />
+        )}
+        {item.onDuplicate && (
+          <DropdownMenuItem onClick={item.onDuplicate} className="gap-2">
+            <Copy className="h-4 w-4" />
+            Duplicate
+          </DropdownMenuItem>
+        )}
+        {item.onExport && (
+          <DropdownMenuItem onClick={item.onExport} className="gap-2">
+            <Download className="h-4 w-4" />
+            Export
+          </DropdownMenuItem>
+        )}
+        {item.onImport && (
+          <DropdownMenuItem onClick={item.onImport} className="gap-2">
+            <Upload className="h-4 w-4" />
+            Import
+          </DropdownMenuItem>
+        )}
+        {(item.onDuplicate || item.onExport || item.onImport || item.onRename) && item.onDelete && (
+          <DropdownMenuSeparator />
+        )}
+        {item.onDelete && (
+          <DropdownMenuItem variant="destructive" onClick={item.onDelete} className="gap-2">
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readonly<{ item: MenuItemProps; isActive: boolean; pathname: string; hasContextMenu: boolean }>) {
+  const Icon = item.icon;
+  return (
+    <div
+      className={cn(
+        "group/item relative flex items-center justify-between rounded-md transition-colors hover:bg-accent",
+        item.activeCall && "bg-[linear-gradient(155deg,transparent_30%,rgb(74_222_128/0.04)_55%,rgb(74_222_128/0.10)_80%,rgb(74_222_128/0.18)_100%)] hover:bg-[linear-gradient(155deg,transparent_25%,rgb(74_222_128/0.06)_55%,rgb(74_222_128/0.14)_80%,rgb(74_222_128/0.22)_100%)]"
+      )}
+    >
+      <SidebarMenuButton
+        asChild
+        isActive={isActive}
+        className={cn(
+          "flex-1 hover:bg-transparent",
+          // Discord-style: shrink the title's available width while
+          // the absolute-positioned dots button is on screen, so a
+          // long channel name gets truncated earlier instead of
+          // being covered. `pr-7` ≈ button (24px) + right offset.
+          // `:has` keeps the padding while the dropdown is open
+          // even after the cursor leaves the row.
+          // SidebarMenuButton's base style includes `padding` in its
+          // `transition-property` list — we override to exclude it so
+          // the truncate snap is instant, not animated.
+          item.actions && item.actions.length > 0 && !item.activeCall &&
+            "transition-[width,height] group-hover/item:pr-7 group-has-[[data-state=open]]/item:pr-7",
+        )}
+      >
+        <Link href={item.href} onClick={() => {
+          if (item.href.startsWith('/settings') && !pathname?.startsWith('/settings')) {
+            sessionStorage.setItem('settings-return-url', pathname || '/');
+          }
+        }}>
+          {item.iconStyle === 'colored-square' ? (
+            <ColoredSquareIcon icon={Icon} color={item.iconColor} />
+          ) : (
+            <Icon className="h-4 w-4" />
+          )}
+          <span className={cn("truncate min-w-0", item.bold ? "font-semibold text-foreground" : "text-muted-foreground")}>{item.title}</span>
+          {item.activeCall && (
+            <Tooltip delayDuration={1000}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); item.onJoinCall?.(); }}
+                  className="ml-auto -mr-[2px] text-green-500 hover:bg-green-500/15 p-[5px] rounded-md transition-colors h-auto w-auto"
+                >
+                  {item.activeCallType === 'video' ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" fill="currentColor" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={4}>Join call</TooltipContent>
+            </Tooltip>
+          )}
+          {item.badge && <span className={cn("text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", !item.activeCall && "ml-auto", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
+        </Link>
+      </SidebarMenuButton>
+      {item.actions && item.actions.length > 0 && !item.activeCall && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 data-[state=open]:opacity-100 hover:bg-muted-foreground/10 rounded-sm z-10"
+              )}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreVertical className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <ActionDropdownItems actions={item.actions} />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      {hasContextMenu && <ColoredItemDropdown item={item} />}
+    </div>
+  );
+}
+
+function ChangeColorEntries({ item }: Readonly<{ item: MenuItemProps }>) {
+  return (
+    <>
+      <ContextMenuSeparator />
+      <ContextMenuSub>
+        <ContextMenuSubTrigger className="gap-2">
+          <Palette className="h-4 w-4" />
+          Change color
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-48">
+          <div className="grid grid-cols-4 gap-1 p-2">
+            {coloredSquareColors.map((color) => (
+              <Button
+                key={color.value}
+                variant="ghost"
+                className={cn(
+                  "w-8 h-8 rounded-md transition-transform hover:scale-110 p-0",
+                  color.value,
+                  item.iconColor === color.value && "ring-2 ring-offset-2 ring-primary"
+                )}
+                onClick={() => item.onChangeColor?.(color.value)}
+                title={color.label}
+              />
+            ))}
+          </div>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+    </>
+  );
+}
+
+function ChangeIconEntries({ item }: Readonly<{ item: MenuItemProps }>) {
+  const Icon = item.icon;
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger className="gap-2">
+        <ImageIcon className="h-4 w-4" />
+        Change icon
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-56">
+        <div className="grid grid-cols-5 gap-1 p-2">
+          {coloredSquareIcons.map((iconOption) => {
+            const IconComponent = iconOption.value;
+            return (
+              <Button
+                key={iconOption.label}
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "w-8 h-8 rounded-md flex items-center justify-center transition-colors hover:bg-accent",
+                  Icon === iconOption.value && "bg-accent ring-2 ring-primary"
+                )}
+                onClick={() => item.onChangeIcon?.(iconOption.value)}
+                title={iconOption.label}
+              >
+                <IconComponent className="h-4 w-4" />
+              </Button>
+            );
+          })}
+        </div>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+}
+
+function ColoredItemContextContent({ item }: Readonly<{ item: MenuItemProps }>) {
+  return (
+    <ContextMenuContent className="w-56">
+      {item.onRename && (
+        <ContextMenuItem onClick={item.onRename} className="gap-2">
+          <SquarePen className="h-4 w-4" />
+          Rename
+        </ContextMenuItem>
+      )}
+      {(item.onMoveUp || item.onMoveDown) && (
+        <>
+          <ContextMenuSeparator />
+          {item.onMoveUp && (
+            <ContextMenuItem onClick={item.onMoveUp} className="gap-2">
+              <ArrowUp className="h-4 w-4" />
+              Move Up
+            </ContextMenuItem>
+          )}
+          {item.onMoveDown && (
+            <ContextMenuItem onClick={item.onMoveDown} className="gap-2">
+              <ArrowDown className="h-4 w-4" />
+              Move Down
+            </ContextMenuItem>
+          )}
+        </>
+      )}
+      {item.onRename && (item.onDuplicate || item.onImport || item.onExport) && (
+        <ContextMenuSeparator />
+      )}
+      {item.onDuplicate && (
+        <ContextMenuItem onClick={item.onDuplicate} className="gap-2">
+          <Copy className="h-4 w-4" />
+          Duplicate
+        </ContextMenuItem>
+      )}
+      {(item.onImport || item.onExport) && (
+        <>
+          {item.onDuplicate && <ContextMenuSeparator />}
+          {item.onImport && (
+            <ContextMenuItem onClick={item.onImport} className="gap-2">
+              <Upload className="h-4 w-4" />
+              Import
+            </ContextMenuItem>
+          )}
+          {item.onExport && (
+            <ContextMenuItem onClick={item.onExport} className="gap-2">
+              <Download className="h-4 w-4" />
+              Export
+            </ContextMenuItem>
+          )}
+        </>
+      )}
+      {item.onChangeColor && <ChangeColorEntries item={item} />}
+      {item.onChangeIcon && <ChangeIconEntries item={item} />}
+      {item.onDelete && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onClick={item.onDelete}
+            className="gap-2 text-red-600 focus:text-red-600"
+          >
+            <Trash2 className="h-4 w-4 text-red-600" />
+            Delete
+          </ContextMenuItem>
+        </>
+      )}
+    </ContextMenuContent>
+  );
+}
+
+function ActionsContextContent({ actions }: Readonly<{ actions: ItemAction[] }>) {
+  return (
+    <ContextMenuContent>
+      {actions.map((action, idx) => {
+        const ActionIcon = action.icon;
+        const isDelete = action.label.toLowerCase() === 'delete';
+        const isArchive = action.label.toLowerCase() === 'archive';
+        const needsSeparator = (isDelete || isArchive) && idx > 0;
+        return (
+          <React.Fragment key={idx}>
+            {needsSeparator && <ContextMenuSeparator />}
+            <ContextMenuItem
+              onClick={action.onClick}
+              className={isDelete ? "gap-2 text-red-600 focus:text-red-600 focus:bg-red-600/10" : "gap-2"}
+            >
+              {ActionIcon && <ActionIcon className={cn("h-4 w-4", isDelete && "text-red-600")} />}
+              {action.label}
+            </ContextMenuItem>
+          </React.Fragment>
+        );
+      })}
+    </ContextMenuContent>
+  );
+}
+
+function isItemActive(item: MenuItemProps, pathname: string, allMenuItems: MenuItemProps[]): boolean {
+  // Exact match: pathname exactly equals href
+  const isExactMatch = pathname === item.href;
+
+  // Child route match: pathname starts with href + '/'
+  // But only if no other menu item with a MORE SPECIFIC (longer) path matches
+  // This allows /commerce/products to match /commerce/products/add
+  // But prevents /commerce from matching /commerce/products
+  const isChildRoute = !!pathname?.startsWith(item.href + '/') &&
+    !allMenuItems.some(otherItem =>
+      otherItem.href !== item.href &&
+      otherItem.href.length > item.href.length && // Only consider more specific routes
+      (pathname === otherItem.href || pathname?.startsWith(otherItem.href + '/'))
+    );
+
+  return item.isActive ?? (isExactMatch || isChildRoute);
+}
+
+function hasColoredContextMenu(item: MenuItemProps): boolean {
+  return item.iconStyle === 'colored-square' &&
+    !!(item.onDelete || item.onDuplicate || item.onChangeColor || item.onChangeIcon || item.onImport || item.onExport || item.onRename);
+}
+
+function renderSidebarItem(
+  item: MenuItemProps,
+  isDraggable: boolean,
+  pathname: string,
+  allMenuItems: MenuItemProps[],
+): React.ReactNode {
+  const isActive = isItemActive(item, pathname, allMenuItems);
+
+  // Check if item has sub-items
+  const hasSubItems = item.subItems && item.subItems.length > 0;
+
+  // Wrapper for sortable drag-and-drop
+  const MaybeSortable = isDraggable
+    ? ({ children: c }: { children: React.ReactNode }) => <SortableSidebarItem id={item.href}>{c}</SortableSidebarItem>
+    : React.Fragment;
+
+  if (hasSubItems) {
+    return (
+      <MaybeSortable key={item.href}>
+      <SidebarItemWithSubItems item={item} pathname={pathname} />
+      </MaybeSortable>
+    );
+  }
+
+  // Regular item without sub-items
+  const hasContextMenu = hasColoredContextMenu(item);
+  const hasActionsContextMenu = !hasContextMenu && item.actions && item.actions.length > 0;
+
+  const itemContent = (
+    <SidebarItemContent item={item} isActive={isActive} pathname={pathname} hasContextMenu={hasContextMenu} />
+  );
+
+  if (hasContextMenu) {
+    return (
+      <MaybeSortable key={item.href}>
+      <SidebarMenuItem>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            {itemContent}
+          </ContextMenuTrigger>
+          <ColoredItemContextContent item={item} />
+        </ContextMenu>
+      </SidebarMenuItem>
+      </MaybeSortable>
+    );
+  }
+
+  if (hasActionsContextMenu) {
+    return (
+      <MaybeSortable key={item.href}>
+      <SidebarMenuItem>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            {itemContent}
+          </ContextMenuTrigger>
+          <ActionsContextContent actions={item.actions!} />
+        </ContextMenu>
+      </SidebarMenuItem>
+      </MaybeSortable>
+    );
+  }
+
+  return (
+    <MaybeSortable key={item.href}>
+    <SidebarMenuItem>
+      {itemContent}
+    </SidebarMenuItem>
+    </MaybeSortable>
+  );
+}
+
+function renderGroupItems(
+  group: MenuGroupProps,
+  pathname: string,
+  allMenuItems: MenuItemProps[],
+): React.ReactNode {
+  const isDraggable = !!(group.draggable && group.onReorder);
+  const itemsContent = group.items.map((item) => renderSidebarItem(item, isDraggable, pathname, allMenuItems));
+
+  return isDraggable ? (
+    <SortableContext items={group.items.map(i => i.href)} strategy={verticalListSortingStrategy}>
+      {itemsContent}
+    </SortableContext>
+  ) : itemsContent;
+}
+
+interface SidebarMenuGroupProps {
+  group: MenuGroupProps;
+  pathname: string;
+  allMenuItems: MenuItemProps[];
+}
+
+function SidebarMenuGroup({ group, pathname, allMenuItems }: Readonly<SidebarMenuGroupProps>) {
+  return (
+    <SidebarGroup>
+      <SidebarGroupHeader group={group} />
+      <SidebarGroupContent>
+        {group.customContent ? (
+          group.customContent
+        ) : (
+          <SidebarMenu>
+            {group.items.length === 0 && group.onAdd && !group.collapsed && (
+              <SidebarMenuItem>
+                <Button
+                  variant="ghost"
+                  onClick={group.onAdd}
+                  className="flex items-center justify-center gap-2 w-full px-3 py-2 text-xs text-muted-foreground hover:text-foreground border border-dashed border-gray-300 dark:border-border hover:border-gray-400 dark:hover:border-gray-500 rounded-md transition-colors h-auto"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>{group.addLabel ?? `Add ${group.group?.toLowerCase().replace(/s$/, '')}`}</span>
+                </Button>
+              </SidebarMenuItem>
+            )}
+            {renderGroupItems(group, pathname, allMenuItems)}
+          </SidebarMenu>
+        )}
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 export function AppSidebarLayout({
   appName,
   appIcon: AppIcon,
@@ -462,48 +1246,15 @@ export function AppSidebarLayout({
             "flex items-center gap-2",
             state === "collapsed" ? "justify-center px-0" : "px-2"
           )}>
-            {showBackButton ? (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 shrink-0 -ml-2"
-                  onClick={onBack}
-                >
-                  <ChevronLeft className="h-6 w-6" />
-                </Button>
-                {state === "expanded" && (
-                  <span className="text-lg font-semibold -ml-1">{appName}</span>
-                )}
-              </>
-            ) : appLogo ? (
-              // Icon + app name lockup — a consistent, lightweight treatment
-              // that suits the gray panel far better than the full-colour
-              // branded wordmarks. Collapsed state shows just the icon.
-              <>
-                {appLogo.iconLight?.includes('/weldcalendar/') ? (
-                  <CalendarLogoIcon className={appLogo.iconClassName || "h-5 w-5 shrink-0"} />
-                ) : (
-                  <img
-                    src={isDark ? appLogo.iconDark : appLogo.iconLight}
-                    alt={appName}
-                    width={64}
-                    height={64}
-                    className={appLogo.iconClassName || "h-5 w-5 shrink-0"}
-                  />
-                )}
-                {state === "expanded" && (
-                  <span className="text-lg font-semibold">{appName}</span>
-                )}
-              </>
-            ) : (
-              <>
-                <AppIcon className="h-6 w-6 shrink-0" />
-                {state === "expanded" && (
-                  <span className="text-lg font-semibold">{appName}</span>
-                )}
-              </>
-            )}
+            <SidebarBrand
+              showBackButton={showBackButton}
+              onBack={onBack}
+              appLogo={appLogo}
+              AppIcon={AppIcon}
+              appName={appName}
+              state={state}
+              isDark={isDark}
+            />
           </div>
           {workspaceSwitcher && state === "expanded" && (
             <div className="px-2">
@@ -531,655 +1282,12 @@ export function AppSidebarLayout({
           const allMenuItems = menuItems.flatMap(g => g.items);
 
           return (
-          <SidebarGroup key={group.groupKey ?? `${group.group}:${groupIndex}`}>
-            {group.group && !group.hideLabel && (
-              group.groupContextMenu && group.groupContextMenu.length > 0 ? (
-                <ContextMenu>
-                  <ContextMenuTrigger asChild>
-                    <div className="group/label relative flex items-center rounded-md px-1 py-0 -mx-1 transition-colors hover:bg-sidebar-accent">
-                      <SidebarGroupLabel
-                        className={cn('flex items-center gap-1 flex-1', group.onToggleCollapse && 'cursor-pointer select-none')}
-                        onClick={group.onToggleCollapse}
-                      >
-                        <span>{group.group}</span>
-                        {group.onToggleCollapse && (
-                          <span
-                            className="inline-flex items-center justify-center w-4 h-4 rounded text-muted-foreground"
-                            aria-label={group.collapsed ? 'Expand group' : 'Collapse group'}
-                          >
-                            {group.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                          </span>
-                        )}
-                      </SidebarGroupLabel>
-                      <div className="flex items-center gap-0.5">
-                        {group.customAddButton}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="opacity-0 group-hover/label:opacity-100 data-[state=open]:opacity-100 transition-opacity flex items-center justify-center w-5 h-5 rounded-[6px] hover:bg-black/[0.05] dark:hover:bg-black/20 data-[state=open]:bg-black/[0.05] dark:data-[state=open]:bg-black/20 text-muted-foreground outline-none ring-0 focus:ring-0 focus:outline-none focus-visible:outline-none focus-visible:ring-0"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MoreVertical className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            {group.groupContextMenu.map((item, i) => {
-                              const Icon = item.icon;
-                              return (
-                                <DropdownMenuItem
-                                  key={i}
-                                  onClick={item.onClick}
-                                  className={item.destructive ? 'text-destructive focus:text-destructive focus:bg-destructive/10 hover:bg-destructive/10' : ''}
-                                >
-                                  {Icon && <Icon className={`h-4 w-4 mr-0.5 ${item.destructive ? 'text-destructive' : ''}`} />}
-                                  {item.label}
-                                </DropdownMenuItem>
-                              );
-                            })}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                  </ContextMenuTrigger>
-                  <ContextMenuContent>
-                    {group.groupContextMenu.map((item, i) => {
-                      const Icon = item.icon;
-                      return (
-                        <ContextMenuItem
-                          key={i}
-                          onClick={item.onClick}
-                          className={item.destructive ? 'text-destructive focus:text-destructive focus:bg-destructive/10 hover:bg-destructive/10' : ''}
-                        >
-                          {Icon && <Icon className={`h-4 w-4 mr-0.5 ${item.destructive ? 'text-destructive' : ''}`} />}
-                          {item.label}
-                        </ContextMenuItem>
-                      );
-                    })}
-                  </ContextMenuContent>
-                </ContextMenu>
-              ) : (
-              <div className="group/label relative flex items-center rounded-md px-1 py-0 -mx-1 transition-colors hover:bg-sidebar-accent">
-                {group.onToggleCollapse && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={group.onToggleCollapse}
-                    className="flex items-center justify-center w-4 h-4 rounded text-muted-foreground hover:text-foreground"
-                    aria-label={group.collapsed ? 'Expand group' : 'Collapse group'}
-                  >
-                    {group.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                  </Button>
-                )}
-                <SidebarGroupLabel
-                  className={cn('flex-1', group.onToggleCollapse && 'cursor-pointer select-none')}
-                  onClick={group.onToggleCollapse}
-                >
-                  {group.group}
-                </SidebarGroupLabel>
-                {group.customAddButton ? (
-                  group.customAddButton
-                ) : group.onAdd ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={group.onAdd}
-                    className="opacity-0 group-hover/label:opacity-100 transition-opacity flex items-center justify-center w-5 h-5 rounded-[6px] hover:bg-black/[0.05] dark:hover:bg-black/20"
-                    style={{ marginLeft: '-12px' }}
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span className="sr-only">Add {group.group}</span>
-                  </Button>
-                ) : null}
-              </div>
-              )
-            )}
-            <SidebarGroupContent>
-              {group.customContent ? (
-                group.customContent
-              ) : (
-                <SidebarMenu>
-                  {group.items.length === 0 && group.onAdd && !group.collapsed && (
-                    <SidebarMenuItem>
-                      <Button
-                        variant="ghost"
-                        onClick={group.onAdd}
-                        className="flex items-center justify-center gap-2 w-full px-3 py-2 text-xs text-muted-foreground hover:text-foreground border border-dashed border-gray-300 dark:border-border hover:border-gray-400 dark:hover:border-gray-500 rounded-md transition-colors h-auto"
-                      >
-                        <Plus className="h-4 w-4" />
-                        <span>{group.addLabel ?? `Add ${group.group?.toLowerCase().replace(/s$/, '')}`}</span>
-                      </Button>
-                    </SidebarMenuItem>
-                  )}
-                  {(() => {
-                    const isDraggable = group.draggable && group.onReorder;
-                    const itemsContent = group.items.map((item) => {
-                    const Icon = item.icon;
-                    // Check if current path is active
-                    // Exact match: pathname exactly equals href
-                    const isExactMatch = pathname === item.href;
-
-                    // Child route match: pathname starts with href + '/'
-                    // But only if no other menu item with a MORE SPECIFIC (longer) path matches
-                    // This allows /commerce/products to match /commerce/products/add
-                    // But prevents /commerce from matching /commerce/products
-                    const isChildRoute = pathname?.startsWith(item.href + '/') &&
-                      !allMenuItems.some(otherItem =>
-                        otherItem.href !== item.href &&
-                        otherItem.href.length > item.href.length && // Only consider more specific routes
-                        (pathname === otherItem.href || pathname?.startsWith(otherItem.href + '/'))
-                      );
-
-                    const isActive = item.isActive ?? (isExactMatch || isChildRoute);
-
-                    // Check if item has sub-items
-                    const hasSubItems = item.subItems && item.subItems.length > 0;
-
-                    // Wrapper for sortable drag-and-drop
-                    const MaybeSortable = isDraggable
-                      ? ({ children: c }: { children: React.ReactNode }) => <SortableSidebarItem id={item.href}>{c}</SortableSidebarItem>
-                      : React.Fragment;
-
-                    if (hasSubItems) {
-                      return (
-                        <MaybeSortable key={item.href}>
-                        <Collapsible defaultOpen className="group/collapsible">
-                          <SidebarMenuItem>
-                            <div className="group/item flex items-center justify-between rounded-md transition-colors hover:bg-accent py-1">
-                              <div className="flex items-center flex-1 min-w-0">
-                                <Icon className="h-4 w-4 ml-2 shrink-0" />
-                                <span className={cn("ml-2 truncate", item.bold ? "font-semibold text-foreground" : "text-muted-foreground")}>{item.title}</span>
-                                {item.badge && <span className={cn("ml-auto text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
-                              </div>
-                              <div className="flex items-center gap-0">
-                                {item.actions && item.actions.length > 0 && (
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className={cn(
-                                          "h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 hover:bg-muted-foreground/20 rounded-sm"
-                                        )}
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        <MoreVertical className="h-3 w-3" />
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      {item.actions.map((action, idx) => {
-                                        const ActionIcon = action.icon;
-                                        const isDelete = action.label.toLowerCase() === 'delete';
-                                        return (
-                                          <React.Fragment key={idx}>
-                                            <DropdownMenuItem
-                                              onClick={action.onClick}
-                                              className={isDelete ? "text-red-600 focus:text-red-600 focus:bg-red-600/10 hover:bg-red-600/10" : ""}
-                                            >
-                                              {ActionIcon && <ActionIcon className={cn("mr-0.5 h-4 w-4", isDelete && "text-red-600")} />}
-                                              {action.label}
-                                            </DropdownMenuItem>
-                                            {idx < item.actions!.length - 1 && action.label === 'Rename' && (
-                                              <DropdownMenuSeparator />
-                                            )}
-                                          </React.Fragment>
-                                        );
-                                      })}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                )}
-                                {item.onAddSubItem && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className={cn(
-                                      "h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 hover:bg-muted-foreground/20 rounded-sm"
-                                    )}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      item.onAddSubItem?.();
-                                    }}
-                                  >
-                                    <Plus className="h-3 w-3" />
-                                  </Button>
-                                )}
-                                <CollapsibleTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 mr-1 hover:bg-muted-foreground/20 rounded-sm"
-                                  >
-                                    <ChevronDown className="h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
-                                  </Button>
-                                </CollapsibleTrigger>
-                              </div>
-                            </div>
-                            <CollapsibleContent>
-                              <SidebarMenuSub>
-                                {item.subItems?.map((subItem) => {
-                                  const isSubActive = pathname === subItem.href;
-                                  return (
-                                    <SidebarMenuSubItem key={subItem.href}>
-                                      <div
-                                        className={cn(
-                                          "group/subitem flex items-center justify-between rounded-md transition-colors hover:bg-accent"
-                                        )}
-                                      >
-                                        <SidebarMenuSubButton asChild isActive={isSubActive} className="flex-1 hover:bg-transparent">
-                                          <Link href={subItem.href}>
-                                            <span>{subItem.title}</span>
-                                          </Link>
-                                        </SidebarMenuSubButton>
-                                        {subItem.actions && subItem.actions.length > 0 && (
-                                          <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                              <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className={cn(
-                                                  "h-6 w-6 mr-1 transition-opacity opacity-0 group-hover/subitem:opacity-100 hover:bg-muted-foreground/20 rounded-sm"
-                                                )}
-                                                onClick={(e) => e.stopPropagation()}
-                                              >
-                                                <MoreVertical className="h-3 w-3" />
-                                              </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                              {subItem.actions.map((action, idx) => {
-                                                const ActionIcon = action.icon;
-                                                const isDelete = action.label.toLowerCase() === 'delete';
-                                                return (
-                                                  <React.Fragment key={idx}>
-                                                    <DropdownMenuItem
-                                                      onClick={action.onClick}
-                                                      className={isDelete ? "text-red-600 focus:text-red-600 focus:bg-red-600/10 hover:bg-red-600/10" : ""}
-                                                    >
-                                                      {ActionIcon && <ActionIcon className={cn("mr-0.5 h-4 w-4", isDelete && "text-red-600")} />}
-                                                      {action.label}
-                                                    </DropdownMenuItem>
-                                                    {idx < subItem.actions!.length - 1 && action.label === 'Rename' && (
-                                                      <DropdownMenuSeparator />
-                                                    )}
-                                                  </React.Fragment>
-                                                );
-                                              })}
-                                            </DropdownMenuContent>
-                                          </DropdownMenu>
-                                        )}
-                                      </div>
-                                    </SidebarMenuSubItem>
-                                  );
-                                })}
-                              </SidebarMenuSub>
-                            </CollapsibleContent>
-                          </SidebarMenuItem>
-                        </Collapsible>
-                        </MaybeSortable>
-                      );
-                    }
-
-                    // Regular item without sub-items
-                    const hasContextMenu = item.iconStyle === 'colored-square' && (item.onDelete || item.onDuplicate || item.onChangeColor || item.onChangeIcon || item.onImport || item.onExport || item.onRename);
-                    const hasActionsContextMenu = !hasContextMenu && item.actions && item.actions.length > 0;
-
-                    const itemContent = (
-                      <div
-                        className={cn(
-                          "group/item relative flex items-center justify-between rounded-md transition-colors hover:bg-accent",
-                          item.activeCall && "bg-[linear-gradient(155deg,transparent_30%,rgb(74_222_128/0.04)_55%,rgb(74_222_128/0.10)_80%,rgb(74_222_128/0.18)_100%)] hover:bg-[linear-gradient(155deg,transparent_25%,rgb(74_222_128/0.06)_55%,rgb(74_222_128/0.14)_80%,rgb(74_222_128/0.22)_100%)]"
-                        )}
-                      >
-                        <SidebarMenuButton
-                          asChild
-                          isActive={isActive}
-                          className={cn(
-                            "flex-1 hover:bg-transparent",
-                            // Discord-style: shrink the title's available width while
-                            // the absolute-positioned dots button is on screen, so a
-                            // long channel name gets truncated earlier instead of
-                            // being covered. `pr-7` ≈ button (24px) + right offset.
-                            // `:has` keeps the padding while the dropdown is open
-                            // even after the cursor leaves the row.
-                            // SidebarMenuButton's base style includes `padding` in its
-                            // `transition-property` list — we override to exclude it so
-                            // the truncate snap is instant, not animated.
-                            item.actions && item.actions.length > 0 && !item.activeCall &&
-                              "transition-[width,height] group-hover/item:pr-7 group-has-[[data-state=open]]/item:pr-7",
-                          )}
-                        >
-                          <Link href={item.href} onClick={() => {
-                            if (item.href.startsWith('/settings') && !pathname?.startsWith('/settings')) {
-                              sessionStorage.setItem('settings-return-url', pathname || '/');
-                            }
-                          }}>
-                            {item.iconStyle === 'colored-square' ? (
-                              <ColoredSquareIcon icon={Icon} color={item.iconColor} />
-                            ) : (
-                              <Icon className="h-4 w-4" />
-                            )}
-                            <span className={cn("truncate min-w-0", item.bold ? "font-semibold text-foreground" : "text-muted-foreground")}>{item.title}</span>
-                            {item.activeCall && (
-                              <Tooltip delayDuration={1000}>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); item.onJoinCall?.(); }}
-                                    className="ml-auto -mr-[2px] text-green-500 hover:bg-green-500/15 p-[5px] rounded-md transition-colors h-auto w-auto"
-                                  >
-                                    {item.activeCallType === 'video' ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" fill="currentColor" />}
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" sideOffset={4}>Join call</TooltipContent>
-                              </Tooltip>
-                            )}
-                            {item.badge && <span className={cn("text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", !item.activeCall && "ml-auto", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
-                          </Link>
-                        </SidebarMenuButton>
-                        {item.actions && item.actions.length > 0 && !item.activeCall && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className={cn(
-                                  "absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 data-[state=open]:opacity-100 hover:bg-muted-foreground/10 rounded-sm z-10"
-                                )}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <MoreVertical className="h-3 w-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {item.actions.map((action, idx) => {
-                                const ActionIcon = action.icon;
-                                const isDelete = action.label.toLowerCase() === 'delete';
-                                return (
-                                  <React.Fragment key={idx}>
-                                    <DropdownMenuItem
-                                      onClick={action.onClick}
-                                      className={isDelete ? "text-red-600 focus:text-red-600 focus:bg-red-600/10 hover:bg-red-600/10" : ""}
-                                    >
-                                      {ActionIcon && <ActionIcon className={cn("mr-0.5 h-4 w-4", isDelete && "text-red-600")} />}
-                                      {action.label}
-                                    </DropdownMenuItem>
-                                    {idx < item.actions!.length - 1 && action.label === 'Rename' && (
-                                      <DropdownMenuSeparator />
-                                    )}
-                                  </React.Fragment>
-                                );
-                              })}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                        {hasContextMenu && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className={cn(
-                                  // Darker patch than the row's hover (`bg-accent`): a translucent
-                                  // black overlay reads as a slightly darker version of the same area
-                                  // in both light and dark themes (in dark, `bg-accent` alone matched
-                                  // the row exactly and showed no contrast).
-                                  "absolute right-1 h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 hover:bg-black/[0.05] dark:hover:bg-black/20 rounded-md"
-                                )}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <MoreVertical className="h-3 w-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {item.onRename && (
-                                <DropdownMenuItem onClick={item.onRename} className="gap-2">
-                                  <SquarePen className="h-4 w-4" />
-                                  Rename
-                                </DropdownMenuItem>
-                              )}
-                              {(item.onMoveUp || item.onMoveDown) && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  {item.onMoveUp && (
-                                    <DropdownMenuItem onClick={item.onMoveUp} className="gap-2">
-                                      <ArrowUp className="h-4 w-4" />
-                                      Move Up
-                                    </DropdownMenuItem>
-                                  )}
-                                  {item.onMoveDown && (
-                                    <DropdownMenuItem onClick={item.onMoveDown} className="gap-2">
-                                      <ArrowDown className="h-4 w-4" />
-                                      Move Down
-                                    </DropdownMenuItem>
-                                  )}
-                                </>
-                              )}
-                              {item.onRename && (item.onDuplicate || item.onExport || item.onImport) && (
-                                <DropdownMenuSeparator />
-                              )}
-                              {item.onDuplicate && (
-                                <DropdownMenuItem onClick={item.onDuplicate} className="gap-2">
-                                  <Copy className="h-4 w-4" />
-                                  Duplicate
-                                </DropdownMenuItem>
-                              )}
-                              {item.onExport && (
-                                <DropdownMenuItem onClick={item.onExport} className="gap-2">
-                                  <Download className="h-4 w-4" />
-                                  Export
-                                </DropdownMenuItem>
-                              )}
-                              {item.onImport && (
-                                <DropdownMenuItem onClick={item.onImport} className="gap-2">
-                                  <Upload className="h-4 w-4" />
-                                  Import
-                                </DropdownMenuItem>
-                              )}
-                              {(item.onDuplicate || item.onExport || item.onImport || item.onRename) && item.onDelete && (
-                                <DropdownMenuSeparator />
-                              )}
-                              {item.onDelete && (
-                                <DropdownMenuItem variant="destructive" onClick={item.onDelete} className="gap-2">
-                                  <Trash2 className="h-4 w-4" />
-                                  Delete
-                                </DropdownMenuItem>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                      </div>
-                    );
-
-                    if (hasContextMenu) {
-                      return (
-                        <MaybeSortable key={item.href}>
-                        <SidebarMenuItem>
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              {itemContent}
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56">
-                              {item.onRename && (
-                                <ContextMenuItem onClick={item.onRename} className="gap-2">
-                                  <SquarePen className="h-4 w-4" />
-                                  Rename
-                                </ContextMenuItem>
-                              )}
-                              {(item.onMoveUp || item.onMoveDown) && (
-                                <>
-                                  <ContextMenuSeparator />
-                                  {item.onMoveUp && (
-                                    <ContextMenuItem onClick={item.onMoveUp} className="gap-2">
-                                      <ArrowUp className="h-4 w-4" />
-                                      Move Up
-                                    </ContextMenuItem>
-                                  )}
-                                  {item.onMoveDown && (
-                                    <ContextMenuItem onClick={item.onMoveDown} className="gap-2">
-                                      <ArrowDown className="h-4 w-4" />
-                                      Move Down
-                                    </ContextMenuItem>
-                                  )}
-                                </>
-                              )}
-                              {item.onRename && (item.onDuplicate || item.onImport || item.onExport) && (
-                                <ContextMenuSeparator />
-                              )}
-                              {item.onDuplicate && (
-                                <ContextMenuItem onClick={item.onDuplicate} className="gap-2">
-                                  <Copy className="h-4 w-4" />
-                                  Duplicate
-                                </ContextMenuItem>
-                              )}
-                              {(item.onImport || item.onExport) && (
-                                <>
-                                  {item.onDuplicate && <ContextMenuSeparator />}
-                                  {item.onImport && (
-                                    <ContextMenuItem onClick={item.onImport} className="gap-2">
-                                      <Upload className="h-4 w-4" />
-                                      Import
-                                    </ContextMenuItem>
-                                  )}
-                                  {item.onExport && (
-                                    <ContextMenuItem onClick={item.onExport} className="gap-2">
-                                      <Download className="h-4 w-4" />
-                                      Export
-                                    </ContextMenuItem>
-                                  )}
-                                </>
-                              )}
-                              {item.onChangeColor && (
-                                <>
-                                  <ContextMenuSeparator />
-                                  <ContextMenuSub>
-                                    <ContextMenuSubTrigger className="gap-2">
-                                      <Palette className="h-4 w-4" />
-                                      Change color
-                                    </ContextMenuSubTrigger>
-                                    <ContextMenuSubContent className="w-48">
-                                      <div className="grid grid-cols-4 gap-1 p-2">
-                                        {coloredSquareColors.map((color) => (
-                                          <Button
-                                            key={color.value}
-                                            variant="ghost"
-                                            className={cn(
-                                              "w-8 h-8 rounded-md transition-transform hover:scale-110 p-0",
-                                              color.value,
-                                              item.iconColor === color.value && "ring-2 ring-offset-2 ring-primary"
-                                            )}
-                                            onClick={() => item.onChangeColor?.(color.value)}
-                                            title={color.label}
-                                          />
-                                        ))}
-                                      </div>
-                                    </ContextMenuSubContent>
-                                  </ContextMenuSub>
-                                </>
-                              )}
-                              {item.onChangeIcon && (
-                                <ContextMenuSub>
-                                  <ContextMenuSubTrigger className="gap-2">
-                                    <ImageIcon className="h-4 w-4" />
-                                    Change icon
-                                  </ContextMenuSubTrigger>
-                                  <ContextMenuSubContent className="w-56">
-                                    <div className="grid grid-cols-5 gap-1 p-2">
-                                      {coloredSquareIcons.map((iconOption) => {
-                                        const IconComponent = iconOption.value;
-                                        return (
-                                          <Button
-                                            key={iconOption.label}
-                                            variant="ghost"
-                                            size="icon"
-                                            className={cn(
-                                              "w-8 h-8 rounded-md flex items-center justify-center transition-colors hover:bg-accent",
-                                              Icon === iconOption.value && "bg-accent ring-2 ring-primary"
-                                            )}
-                                            onClick={() => item.onChangeIcon?.(iconOption.value)}
-                                            title={iconOption.label}
-                                          >
-                                            <IconComponent className="h-4 w-4" />
-                                          </Button>
-                                        );
-                                      })}
-                                    </div>
-                                  </ContextMenuSubContent>
-                                </ContextMenuSub>
-                              )}
-                              {item.onDelete && (
-                                <>
-                                  <ContextMenuSeparator />
-                                  <ContextMenuItem
-                                    onClick={item.onDelete}
-                                    className="gap-2 text-red-600 focus:text-red-600"
-                                  >
-                                    <Trash2 className="h-4 w-4 text-red-600" />
-                                    Delete
-                                  </ContextMenuItem>
-                                </>
-                              )}
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        </SidebarMenuItem>
-                        </MaybeSortable>
-                      );
-                    }
-
-                    if (hasActionsContextMenu) {
-                      return (
-                        <MaybeSortable key={item.href}>
-                        <SidebarMenuItem>
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              {itemContent}
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              {item.actions!.map((action, idx) => {
-                                const ActionIcon = action.icon;
-                                const isDelete = action.label.toLowerCase() === 'delete';
-                                const isArchive = action.label.toLowerCase() === 'archive';
-                                const needsSeparator = (isDelete || isArchive) && idx > 0;
-                                return (
-                                  <React.Fragment key={idx}>
-                                    {needsSeparator && <ContextMenuSeparator />}
-                                    <ContextMenuItem
-                                      onClick={action.onClick}
-                                      className={isDelete ? "gap-2 text-red-600 focus:text-red-600 focus:bg-red-600/10" : "gap-2"}
-                                    >
-                                      {ActionIcon && <ActionIcon className={cn("h-4 w-4", isDelete && "text-red-600")} />}
-                                      {action.label}
-                                    </ContextMenuItem>
-                                  </React.Fragment>
-                                );
-                              })}
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        </SidebarMenuItem>
-                        </MaybeSortable>
-                      );
-                    }
-
-                    return (
-                      <MaybeSortable key={item.href}>
-                      <SidebarMenuItem>
-                        {itemContent}
-                      </SidebarMenuItem>
-                      </MaybeSortable>
-                    );
-                  });
-
-                    return isDraggable ? (
-                      <SortableContext items={group.items.map(i => i.href)} strategy={verticalListSortingStrategy}>
-                        {itemsContent}
-                      </SortableContext>
-                    ) : itemsContent;
-                  })()}
-                </SidebarMenu>
-              )}
-            </SidebarGroupContent>
-          </SidebarGroup>
+            <SidebarMenuGroup
+              key={group.groupKey ?? `${group.group}:${groupIndex}`}
+              group={group}
+              pathname={pathname}
+              allMenuItems={allMenuItems}
+            />
           );
         })}
         </DndContext>

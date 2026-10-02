@@ -218,8 +218,9 @@ function FilterControl({ def, inputId, current, onChange, t }: Readonly<FilterCo
         onChange([`${lo}|${hi}`]);
       };
       const minPlaceholder = def.range ? String(def.range.min) : t('welddata.filters.min');
+      const maxSuffix = def.range?.percentage ? '%' : '';
       const maxPlaceholder = def.range
-        ? `${def.range.max}${def.range.percentage ? '%' : ''}`
+        ? `${def.range.max}${maxSuffix}`
         : t('welddata.filters.max');
       return (
         <div className="flex items-center gap-2">

@@ -39,6 +39,142 @@ interface GridSelectionBarProps {
   customActions?: Array<{ id: string; label: string; icon?: LucideIcon; onClick: () => void }>;
 }
 
+type TranslateFn = ReturnType<typeof useTranslations>;
+
+function bulkDeleteLabel(
+  t: TranslateFn,
+  isDeleting: boolean,
+  listName: string | undefined,
+  idleKey: 'sweep.entities.removeFromList' | 'sweep.entities.remove' | 'sweep.entities.delete',
+): string {
+  if (isDeleting) {
+    return listName ? t('sweep.entities.removingEllipsis') : t('sweep.entities.deletingEllipsis');
+  }
+  return listName ? t(idleKey) : t('sweep.entities.delete');
+}
+
+interface AddToListPopoverProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onTriggerClick: () => void;
+  availableLists: NonNullable<GridSelectionBarProps['availableLists']>;
+  onSelectList: (listId: string) => void;
+}
+
+function AddToListPopover({
+  open,
+  onOpenChange,
+  onTriggerClick,
+  availableLists,
+  onSelectList,
+}: AddToListPopoverProps) {
+  const t = useTranslations();
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 px-3 text-sm gap-1.5"
+          onClick={onTriggerClick}
+        >
+          <ListPlus className="h-4 w-4" />
+          {t('sweep.entities.addToList')}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-0" align="start">
+        <Command>
+          <CommandInput placeholder={t('sweep.entities.searchListsPlaceholder')} />
+          <CommandList>
+            <CommandEmpty>{t('sweep.entities.noListsFoundDescription')}</CommandEmpty>
+            <CommandGroup>
+              {availableLists.map((list) => (
+                <CommandItem
+                  key={list.id}
+                  onSelect={() => onSelectList(list.id)}
+                  className="flex items-center gap-2"
+                >
+                  <div className={`w-3 h-3 rounded ${list.color}`} />
+                  {list.title}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+interface BulkDeleteDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  selectedCount: number;
+  listName?: string;
+  isDeleting: boolean;
+  onConfirm: () => void;
+}
+
+function BulkDeleteDialog({
+  open,
+  onOpenChange,
+  selectedCount,
+  listName,
+  isDeleting,
+  onConfirm,
+}: BulkDeleteDialogProps) {
+  const t = useTranslations();
+  const isSingular = selectedCount === 1;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {listName
+              ? t(
+                  isSingular
+                    ? 'sweep.entities.removeItemsFromListTitleSingular'
+                    : 'sweep.entities.removeItemsFromListTitlePlural',
+                  { count: selectedCount, listName },
+                )
+              : t(
+                  isSingular
+                    ? 'sweep.entities.deleteItemsTitleSingular'
+                    : 'sweep.entities.deleteItemsTitlePlural',
+                  { count: selectedCount },
+                )}
+          </DialogTitle>
+          <DialogDescription>
+            {listName
+              ? t(
+                  isSingular
+                    ? 'sweep.entities.removeItemsDescriptionSingular'
+                    : 'sweep.entities.removeItemsDescriptionPlural',
+                )
+              : t(
+                  isSingular
+                    ? 'sweep.entities.deleteItemsDescriptionSingular'
+                    : 'sweep.entities.deleteItemsDescriptionPlural',
+                )}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isDeleting}>
+            {t('sweep.entities.cancel')}
+          </Button>
+          <Button
+            variant={listName ? 'default' : 'destructive'}
+            onClick={onConfirm}
+            disabled={isDeleting}
+          >
+            {bulkDeleteLabel(t, isDeleting, listName, 'sweep.entities.remove')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function GridSelectionBar({
   availableLists = [],
   onAddToList,
@@ -94,39 +230,13 @@ export function GridSelectionBar({
 
         {/* Add to list */}
         {onAddToList && (
-          <Popover open={showAddToListPopover} onOpenChange={setShowAddToListPopover}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-3 text-sm gap-1.5"
-                onClick={handleAddToListClick}
-              >
-                <ListPlus className="h-4 w-4" />
-                {t('sweep.entities.addToList')}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 p-0" align="start">
-              <Command>
-                <CommandInput placeholder={t('sweep.entities.searchListsPlaceholder')} />
-                <CommandList>
-                  <CommandEmpty>{t('sweep.entities.noListsFoundDescription')}</CommandEmpty>
-                  <CommandGroup>
-                    {availableLists.map((list) => (
-                      <CommandItem
-                        key={list.id}
-                        onSelect={() => handleSelectList(list.id)}
-                        className="flex items-center gap-2"
-                      >
-                        <div className={`w-3 h-3 rounded ${list.color}`} />
-                        {list.title}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
+          <AddToListPopover
+            open={showAddToListPopover}
+            onOpenChange={setShowAddToListPopover}
+            onTriggerClick={handleAddToListClick}
+            availableLists={availableLists}
+            onSelectList={handleSelectList}
+          />
         )}
 
         {/* Module-specific bulk actions (e.g. Move to CRM) */}
@@ -183,9 +293,7 @@ export function GridSelectionBar({
             disabled={isDeleting}
           >
             <Trash2 className="h-4 w-4" />
-            {isDeleting
-              ? (listName ? t('sweep.entities.removingEllipsis') : t('sweep.entities.deletingEllipsis'))
-              : (listName ? t('sweep.entities.removeFromList') : t('sweep.entities.delete'))}
+            {bulkDeleteLabel(t, isDeleting, listName, 'sweep.entities.removeFromList')}
           </Button>
         )}
 
@@ -202,58 +310,14 @@ export function GridSelectionBar({
         </Button>
       </div>
 
-      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {listName
-                ? t(
-                    selectedRows.size === 1
-                      ? 'sweep.entities.removeItemsFromListTitleSingular'
-                      : 'sweep.entities.removeItemsFromListTitlePlural',
-                    { count: selectedRows.size, listName },
-                  )
-                : t(
-                    selectedRows.size === 1
-                      ? 'sweep.entities.deleteItemsTitleSingular'
-                      : 'sweep.entities.deleteItemsTitlePlural',
-                    { count: selectedRows.size },
-                  )}
-            </DialogTitle>
-            <DialogDescription>
-              {listName
-                ? t(
-                    selectedRows.size === 1
-                      ? 'sweep.entities.removeItemsDescriptionSingular'
-                      : 'sweep.entities.removeItemsDescriptionPlural',
-                  )
-                : t(
-                    selectedRows.size === 1
-                      ? 'sweep.entities.deleteItemsDescriptionSingular'
-                      : 'sweep.entities.deleteItemsDescriptionPlural',
-                  )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowDeleteConfirm(false)}
-              disabled={isDeleting}
-            >
-              {t('sweep.entities.cancel')}
-            </Button>
-            <Button
-              variant={listName ? 'default' : 'destructive'}
-              onClick={handleConfirmDelete}
-              disabled={isDeleting}
-            >
-              {isDeleting
-                ? (listName ? t('sweep.entities.removingEllipsis') : t('sweep.entities.deletingEllipsis'))
-                : (listName ? t('sweep.entities.remove') : t('sweep.entities.delete'))}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <BulkDeleteDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        selectedCount={selectedRows.size}
+        listName={listName}
+        isDeleting={isDeleting}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }

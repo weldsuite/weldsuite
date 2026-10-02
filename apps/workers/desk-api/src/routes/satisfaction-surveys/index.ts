@@ -6,7 +6,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createSatisfactionSurveySchema, updateSatisfactionSurveySchema } from '@weldsuite/core-api-client/schemas/satisfaction-surveys';
@@ -18,28 +18,39 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.helpdeskSatisfactionSurveys;
 
+type Db = Variables['tenantDb'];
+
+/** Keyset condition for "rows after the cursor row", or null when the cursor row is unknown. */
+async function cursorCondition(db: Db, cursor: string) {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return null;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
+function hasValue(v: string | undefined): v is string {
+  return v !== undefined && v !== '';
+}
+
+function filterConditions(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (hasValue(q.ticketId)) conditions.push(eq(t.ticketId, q.ticketId));
+  if (hasValue(q.customerId)) conditions.push(eq(t.customerId, q.customerId));
+  if (hasValue(q.status)) conditions.push(eq(t.status, q.status));
+  return conditions;
+}
+
 app.get('/', requirePermission('tickets:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.ticketId !== undefined && q.ticketId !== '') conditions.push(eq(t.ticketId, q.ticketId));
-  if (q.customerId !== undefined && q.customerId !== '') conditions.push(eq(t.customerId, q.customerId));
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
+  const filters = filterConditions(q);
+  const cursorCond = q.cursor ? await cursorCondition(db, q.cursor) : null;
+  const conditions = cursorCond ? [...filters, cursorCond] : filters;
   const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const countWhere = filters.length ? and(...filters) : undefined;
 
   try {
     const [rows, countRes] = await Promise.all([

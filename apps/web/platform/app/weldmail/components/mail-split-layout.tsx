@@ -63,7 +63,10 @@ export function EmptyDetailState() {
   // unread total (the only other reliably-populated stat).
   const statsQuery = useMailMessageStats(accountId, !!accountId);
   const stats = statsQuery.data?.data;
-  const newCount = stats ? (labelSlug === 'inbox' ? stats.inboxUnread : stats.unread) : 0;
+  let newCount = 0;
+  if (stats) {
+    newCount = labelSlug === 'inbox' ? stats.inboxUnread : stats.unread;
+  }
 
   return (
     <div className="h-full hidden md:flex flex-col items-center justify-center text-center px-6">

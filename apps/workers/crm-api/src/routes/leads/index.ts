@@ -8,7 +8,7 @@
 import { Hono } from 'hono';
 import { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import {
   hasContextPermission,
   requirePermission,
@@ -32,13 +32,8 @@ async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Pr
   return c.get('userId');
 }
 
-app.get('/', requirePermission('leads:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
-  const scope = await scopeFor(c);
-
-  const conditions: any[] = [isNull(t.deletedAt)];
+function buildListFilters(q: Record<string, string>, scope: string | undefined): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
   if (scope) conditions.push(eq(t.ownerId, scope));
   if (q.status) conditions.push(eq(t.status, q.status));
   if (q.source) conditions.push(eq(t.source, q.source));
@@ -57,6 +52,16 @@ app.get('/', requirePermission('leads:read'), async (c) => {
       )!,
     );
   }
+  return conditions;
+}
+
+app.get('/', requirePermission('leads:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const scope = await scopeFor(c);
+
+  const conditions = buildListFilters(q, scope);
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })

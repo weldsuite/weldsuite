@@ -207,7 +207,7 @@ function FirstMessageComposer({
         channelId=""
         placeholder={t('sweep.entities.typeMessagePlaceholder')}
         onSubmitOverride={async (payload) => {
-          const id = `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const id = `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
           const optimistic = {
             id,
             channelId: '',

@@ -99,46 +99,75 @@ const ACTION_COLORS: Record<string, string> = {
   set_variable: 'bg-indigo-500',
 };
 
-function getConfigSummary(actionType: string, config: Record<string, unknown>): string[] {
+type ActionConfig = Record<string, unknown>;
+
+function summarizeSendEmail(config: ActionConfig): string[] {
   const summary: string[] = [];
-  switch (actionType) {
-    case 'send_email':
-      if (config.to) summary.push(`To: ${config.to}`);
-      if (config.subject) summary.push(`Subject: ${config.subject}`);
-      break;
-    case 'http_request':
-      if (config.method && config.url) summary.push(`${config.method} ${config.url}`);
-      break;
-    case 'condition':
-      if (config.field && config.operator) {
-        const op = config.operator === 'eq' ? '==' : config.operator === 'ne' ? '!=' : config.operator;
-        summary.push(`${config.field} ${op} ${config.value || ''}`);
-      }
-      break;
-    case 'delay':
-      if (config.seconds) summary.push(`Wait ${config.seconds} seconds`);
-      else if (config.minutes) summary.push(`Wait ${config.minutes} minutes`);
-      else if (config.hours) summary.push(`Wait ${config.hours} hours`);
-      break;
-    case 'log_message':
-      if (config.level) summary.push(`Level: ${config.level}`);
-      if (typeof config.message === 'string') summary.push(config.message.substring(0, 50) + (config.message.length > 50 ? '...' : ''));
-      break;
-    case 'create_record':
-    case 'update_record':
-      if (config.entityType || config.entity) summary.push(`Entity: ${config.entityType || config.entity}`);
-      break;
-    case 'transform_data':
-      if (typeof config.transformation === 'string') summary.push(config.transformation.substring(0, 40) + '...');
-      break;
-    case 'loop':
-      if (config.items) summary.push(`Items: ${config.items}`);
-      break;
-    case 'set_variable':
-      if (config.name) summary.push(`${config.name} = ${JSON.stringify(config.value).substring(0, 30)}`);
-      break;
+  if (config.to) summary.push(`To: ${config.to}`);
+  if (config.subject) summary.push(`Subject: ${config.subject}`);
+  return summary;
+}
+
+function summarizeHttpRequest(config: ActionConfig): string[] {
+  return config.method && config.url ? [`${config.method} ${config.url}`] : [];
+}
+
+function summarizeCondition(config: ActionConfig): string[] {
+  if (!config.field || !config.operator) return [];
+  const op = config.operator === 'eq' ? '==' : config.operator === 'ne' ? '!=' : config.operator;
+  return [`${config.field} ${op} ${config.value || ''}`];
+}
+
+function summarizeDelay(config: ActionConfig): string[] {
+  if (config.seconds) return [`Wait ${config.seconds} seconds`];
+  if (config.minutes) return [`Wait ${config.minutes} minutes`];
+  if (config.hours) return [`Wait ${config.hours} hours`];
+  return [];
+}
+
+function summarizeLogMessage(config: ActionConfig): string[] {
+  const summary: string[] = [];
+  if (config.level) summary.push(`Level: ${config.level}`);
+  if (typeof config.message === 'string') {
+    summary.push(config.message.substring(0, 50) + (config.message.length > 50 ? '...' : ''));
   }
   return summary;
+}
+
+function summarizeRecord(config: ActionConfig): string[] {
+  return config.entityType || config.entity ? [`Entity: ${config.entityType || config.entity}`] : [];
+}
+
+function summarizeTransformData(config: ActionConfig): string[] {
+  return typeof config.transformation === 'string' ? [config.transformation.substring(0, 40) + '...'] : [];
+}
+
+function summarizeLoop(config: ActionConfig): string[] {
+  return config.items ? [`Items: ${config.items}`] : [];
+}
+
+function summarizeSetVariable(config: ActionConfig): string[] {
+  return config.name ? [`${config.name} = ${JSON.stringify(config.value).substring(0, 30)}`] : [];
+}
+
+const CONFIG_SUMMARIZERS: Record<string, (config: ActionConfig) => string[]> = {
+  send_email: summarizeSendEmail,
+  http_request: summarizeHttpRequest,
+  condition: summarizeCondition,
+  delay: summarizeDelay,
+  log_message: summarizeLogMessage,
+  create_record: summarizeRecord,
+  update_record: summarizeRecord,
+  transform_data: summarizeTransformData,
+  loop: summarizeLoop,
+  set_variable: summarizeSetVariable,
+};
+
+function getConfigSummary(actionType: string, config: ActionConfig): string[] {
+  const summarize = Object.prototype.hasOwnProperty.call(CONFIG_SUMMARIZERS, actionType)
+    ? CONFIG_SUMMARIZERS[actionType]
+    : undefined;
+  return summarize ? summarize(config) : [];
 }
 
 export function ActionStepCard({

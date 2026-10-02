@@ -58,6 +58,11 @@ async function applyLineBalances(
   }
 }
 
+function bankEntryDescription(description: string | null, moneyIn: boolean, counterparty: string): string {
+  if (description) return `Bank: ${description}${counterparty}`;
+  return moneyIn ? `Bank receipt${counterparty}` : `Bank payment${counterparty}`;
+}
+
 export async function categorizeBankTransaction(
   db: Database,
   args: CategorizeBankTransactionInput,
@@ -133,11 +138,7 @@ export async function categorizeBankTransaction(
   const now = new Date();
   const currency = bankAccount.currency || (await resolveEntityBaseCurrency(db, txn.entityId));
   const counterparty = txn.counterpartyName ? ` — ${txn.counterpartyName}` : '';
-  const description = txn.description
-    ? `Bank: ${txn.description}${counterparty}`
-    : moneyIn
-      ? `Bank receipt${counterparty}`
-      : `Bank payment${counterparty}`;
+  const description = bankEntryDescription(txn.description, moneyIn, counterparty);
 
   const bankDebit = moneyIn ? amount : '0.00';
   const bankCredit = moneyIn ? '0.00' : amount;

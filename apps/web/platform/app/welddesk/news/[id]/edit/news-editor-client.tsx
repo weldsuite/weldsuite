@@ -50,6 +50,89 @@ interface NewsEditorClientProps {
   newsId: string;
 }
 
+/** Element holding the selection anchor (text nodes resolve to their parent). */
+function getAnchorElement(selection: Selection): HTMLElement {
+  const node = selection.anchorNode as HTMLElement;
+  return node.nodeType === Node.TEXT_NODE ? (node.parentElement as HTMLElement) : node;
+}
+
+/** True when the collapsed caret sits at the very start of the list item. */
+function isCaretAtListItemStart(range: Range, listItem: HTMLElement): boolean {
+  if (!range.collapsed || range.startOffset !== 0) return false;
+  // At the start of the first text node or of the list item itself
+  return (
+    range.startContainer === listItem ||
+    (range.startContainer === listItem.firstChild &&
+      range.startContainer.nodeType === Node.TEXT_NODE)
+  );
+}
+
+/** Replace a list item with a paragraph holding its content; the list is removed once empty. */
+function convertListItemToParagraph(listItem: HTMLElement, list: HTMLElement): HTMLElement {
+  // Get the HTML content of the list item
+  const content = listItem.innerHTML.replace(/^\u200B/, '').trim() || '';
+
+  // Create a paragraph with the list item content
+  const paragraph = document.createElement('p');
+  paragraph.setAttribute('dir', 'ltr');
+
+  if (content) {
+    paragraph.innerHTML = content;
+  } else {
+    paragraph.appendChild(document.createTextNode('\u200B'));
+  }
+
+  // Get the position where we need to insert
+  const nextSibling = list.nextSibling;
+  const parentNode = list.parentNode;
+
+  // Remove the list item first
+  listItem.remove();
+
+  if (list.children.length === 0) {
+    // List is empty, replace it with the paragraph
+    parentNode?.replaceChild(paragraph, list);
+  } else if (nextSibling) {
+    // List still has items, insert paragraph after it
+    parentNode?.insertBefore(paragraph, nextSibling);
+  } else {
+    parentNode?.appendChild(paragraph);
+  }
+  return paragraph;
+}
+
+/**
+ * Backspace at the start of a list item turns the item into a paragraph.
+ * Returns true when the key press was handled.
+ */
+function handleListBackspace(
+  e: KeyboardEvent<HTMLDivElement>,
+  selection: Selection,
+  element: HTMLElement,
+  onContentChange: () => void,
+): boolean {
+  if (e.key !== 'Backspace' || element.tagName !== 'LI') return false;
+  if (!isCaretAtListItemStart(selection.getRangeAt(0), element)) return false;
+
+  const list = element.parentElement;
+  if (!list || (list.tagName !== 'UL' && list.tagName !== 'OL')) return false;
+
+  e.preventDefault();
+  const paragraph = convertListItemToParagraph(element, list);
+
+  // Set cursor at the start of the new paragraph
+  setTimeout(() => {
+    const newRange = document.createRange();
+    newRange.setStart(paragraph.firstChild ?? paragraph, 0);
+    newRange.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+
+    onContentChange();
+  }, 0);
+  return true;
+}
+
 // newsId is not yet used: the editor currently seeds itself with mock
 // data instead of fetching the news article by id.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -163,140 +246,74 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
     }
   };
 
+  const handleCommandMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedCommandIndex((prev) =>
+        prev < filteredCommands.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedCommandIndex((prev) =>
+        prev > 0 ? prev - 1 : filteredCommands.length - 1
+      );
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredCommands[selectedCommandIndex]) {
+        filteredCommands[selectedCommandIndex].action();
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowCommandMenu(false);
+      setCommandFilter('');
+    }
+  };
+
+  // Show command menu when / is typed
+  const scheduleCommandMenuOpen = () => {
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const editorRect = contentRef.current?.getBoundingClientRect();
+
+        if (editorRect) {
+          setCommandMenuPosition({
+            top: rect.bottom - editorRect.top + 5,
+            left: rect.left - editorRect.left,
+          });
+        }
+        setShowCommandMenu(true);
+        setCommandFilter('');
+        setSelectedCommandIndex(0);
+      }
+    }, 0);
+  };
+
   const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // Ensure the current element has proper direction
     const selection = window.getSelection();
-    if (selection && selection.anchorNode) {
-      let element = selection.anchorNode as HTMLElement;
-      if (element.nodeType === Node.TEXT_NODE) {
-        element = element.parentElement as HTMLElement;
-      }
-      if (element && element.tagName === 'P') {
+    if (selection?.anchorNode) {
+      const element = getAnchorElement(selection);
+      if (element?.tagName === 'P') {
         element.setAttribute('dir', 'ltr');
         element.style.direction = 'ltr';
       }
 
       // Handle backspace in list items
-      if (e.key === 'Backspace' && element.tagName === 'LI') {
-        const range = selection.getRangeAt(0);
-        const listItem = element;
-
-        // Check if cursor is at the very start of the list item
-        if (range.collapsed && range.startOffset === 0) {
-          // Check if we're at the start of the first text node or the list item itself
-          const isAtStart = range.startContainer === listItem ||
-                           (range.startContainer === listItem.firstChild &&
-                            range.startContainer.nodeType === Node.TEXT_NODE);
-
-          if (isAtStart) {
-            const list = listItem.parentElement;
-
-            if (list && (list.tagName === 'UL' || list.tagName === 'OL')) {
-              e.preventDefault();
-
-              // Get the HTML content of the list item
-              const content = listItem.innerHTML.replace(/^\u200B/, '').trim() || '';
-
-              // Create a paragraph with the list item content
-              const paragraph = document.createElement('p');
-              paragraph.setAttribute('dir', 'ltr');
-
-              if (content) {
-                paragraph.innerHTML = content;
-              } else {
-                paragraph.appendChild(document.createTextNode('\u200B'));
-              }
-
-              // Get the position where we need to insert
-              const nextSibling = list.nextSibling;
-              const parentNode = list.parentNode;
-
-              // Remove the list item first
-              listItem.remove();
-
-              // Check if list still has items
-              if (list.children.length === 0) {
-                // List is empty, replace it with the paragraph
-                parentNode?.replaceChild(paragraph, list);
-              } else {
-                // List still has items, insert paragraph after it
-                if (nextSibling) {
-                  parentNode?.insertBefore(paragraph, nextSibling);
-                } else {
-                  parentNode?.appendChild(paragraph);
-                }
-              }
-
-              // Set cursor at the start of the new paragraph
-              setTimeout(() => {
-                const newRange = document.createRange();
-                const firstNode = paragraph.childNodes[0];
-
-                if (firstNode && firstNode.nodeType === Node.TEXT_NODE) {
-                  newRange.setStart(firstNode, 0);
-                } else if (firstNode) {
-                  newRange.setStart(firstNode, 0);
-                } else {
-                  newRange.setStart(paragraph, 0);
-                }
-
-                newRange.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(newRange);
-
-                // Update content
-                if (contentRef.current) {
-                  setContent(contentRef.current.innerHTML);
-                }
-              }, 0);
-            }
-          }
+      handleListBackspace(e, selection, element, () => {
+        if (contentRef.current) {
+          setContent(contentRef.current.innerHTML);
         }
-      }
+      });
     }
 
     // Handle command menu navigation
     if (showCommandMenu) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev < filteredCommands.length - 1 ? prev + 1 : 0
-        );
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredCommands.length - 1
-        );
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (filteredCommands[selectedCommandIndex]) {
-          filteredCommands[selectedCommandIndex].action();
-        }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        setShowCommandMenu(false);
-        setCommandFilter('');
-      }
+      handleCommandMenuKeyDown(e);
     } else if (e.key === '/') {
-      // Show command menu when / is typed
-      setTimeout(() => {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-          const range = sel.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          const editorRect = contentRef.current?.getBoundingClientRect();
-
-          if (editorRect) {
-            setCommandMenuPosition({
-              top: rect.bottom - editorRect.top + 5,
-              left: rect.left - editorRect.left,
-            });
-          }
-          setShowCommandMenu(true);
-          setCommandFilter('');
-          setSelectedCommandIndex(0);
-        }
-      }, 0);
+      scheduleCommandMenuOpen();
     }
   };
 
@@ -614,6 +631,9 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
           ref={titleRef}
           contentEditable
           suppressContentEditableWarning
+          role="textbox"
+          tabIndex={0}
+          aria-label={st('sweep.welddesk.newsEditor.untitledPlaceholder')}
           onInput={handleTitleInput}
           onKeyDown={handleTitleKeyDown}
           dir="ltr"
@@ -637,6 +657,10 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
             ref={contentRef}
             contentEditable
             suppressContentEditableWarning
+            role="textbox"
+            tabIndex={0}
+            aria-multiline="true"
+            aria-label={st('sweep.welddesk.newsEditor.contentPlaceholder')}
             onInput={handleContentInput}
             onKeyDown={handleContentKeyDown}
             dir="ltr"
@@ -668,23 +692,23 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
               <div className="overflow-hidden p-1">
                 <div className="overflow-y-auto max-h-[300px] overflow-x-hidden">
                   {filteredCommands.map((command, index) => (
-                    <div
+                    <button
+                      type="button"
                       key={command.id}
                       onClick={() => command.action()}
                       className={cn(
-                        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+                        "relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors",
                         index === selectedCommandIndex
                           ? "bg-accent text-accent-foreground"
                           : "hover:bg-accent hover:text-accent-foreground"
                       )}
-                      role="option"
-                      aria-selected={index === selectedCommandIndex}
+                      aria-current={index === selectedCommandIndex}
                     >
-                      <div className="mr-0.5 h-4 w-4 shrink-0 opacity-70">
+                      <span className="mr-0.5 h-4 w-4 shrink-0 opacity-70">
                         {command.icon}
-                      </div>
+                      </span>
                       <span className="flex-1 truncate">{command.label}</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>

@@ -31,6 +31,145 @@ interface DynamicTicketFormProps {
   };
 }
 
+type CustomFieldValue = string | string[] | boolean;
+
+interface FieldControlProps {
+  field: TicketTypeField;
+  value: CustomFieldValue;
+  hasError: boolean;
+  onChange: (value: CustomFieldValue) => void;
+}
+
+function errorClassName(hasError: boolean): string {
+  return hasError ? 'border-destructive' : '';
+}
+
+function toggleOption(selected: string[], optionValue: string, checked: boolean): string[] {
+  return checked ? [...selected, optionValue] : selected.filter((v) => v !== optionValue);
+}
+
+interface ScalarInputControlProps {
+  inputType: string;
+  value: string;
+  placeholder?: string;
+  hasError: boolean;
+  onChange: (value: string) => void;
+}
+
+function ScalarInputControl({ inputType, value, placeholder, hasError, onChange }: ScalarInputControlProps) {
+  return (
+    <Input
+      type={inputType}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className={errorClassName(hasError)}
+    />
+  );
+}
+
+function SelectControl({ field, value, hasError, onChange }: Omit<FieldControlProps, 'value' | 'onChange'> & {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const t = useTranslations();
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className={errorClassName(hasError)}>
+        <SelectValue placeholder={field.placeholder || t('sweep.welddesk.dynamicTicketForm.selectPlaceholder')} />
+      </SelectTrigger>
+      <SelectContent>
+        {(field.options || []).map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function MultiselectControl({ field, value, onChange }: Pick<FieldControlProps, 'field' | 'value' | 'onChange'>) {
+  const selected: string[] = Array.isArray(value) ? value : [];
+  return (
+    <div className="space-y-1.5">
+      {(field.options || []).map((opt) => (
+        <label key={opt.value} className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={selected.includes(opt.value)}
+            onCheckedChange={(checked) => onChange(toggleOption(selected, opt.value, !!checked))}
+          />
+          {opt.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function CheckboxControl({ field, value, onChange }: Pick<FieldControlProps, 'field' | 'value' | 'onChange'>) {
+  return (
+    <div className="flex items-center gap-2">
+      <Checkbox
+        checked={!!value}
+        onCheckedChange={(checked) => onChange(!!checked)}
+      />
+      <span className="text-sm text-muted-foreground">
+        {field.placeholder || field.label}
+      </span>
+    </div>
+  );
+}
+
+function FieldControl({ field, value, hasError, onChange }: FieldControlProps) {
+  // Scalar field types (text/number/textarea/select/date) always store a
+  // string — only 'multiselect' (string[]) and 'checkbox' (boolean) don't.
+  // `field.type` is a runtime discriminant TS can't correlate with
+  // `customFields`'s value union, so coerce explicitly for those branches.
+  const stringValue = typeof value === 'string' ? value : '';
+
+  switch (field.type) {
+    case 'text':
+    case 'email':
+    case 'url':
+    case 'number':
+      return (
+        <ScalarInputControl
+          inputType={field.type}
+          value={stringValue}
+          placeholder={field.placeholder}
+          hasError={hasError}
+          onChange={onChange}
+        />
+      );
+
+    case 'textarea':
+      return (
+        <Textarea
+          value={stringValue}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.placeholder}
+          rows={3}
+          className={errorClassName(hasError)}
+        />
+      );
+
+    case 'select':
+      return <SelectControl field={field} value={stringValue} hasError={hasError} onChange={onChange} />;
+
+    case 'multiselect':
+      return <MultiselectControl field={field} value={value} onChange={onChange} />;
+
+    case 'date':
+      return <ScalarInputControl inputType="date" value={stringValue} hasError={hasError} onChange={onChange} />;
+
+    case 'checkbox':
+      return <CheckboxControl field={field} value={value} onChange={onChange} />;
+
+    default:
+      return null;
+  }
+}
+
 export function DynamicTicketForm({
   ticketType,
   onBack,
@@ -125,114 +264,14 @@ export function DynamicTicketForm({
 
   const renderField = (field: TicketTypeField) => {
     const value = customFields[field.key] ?? '';
-    // Scalar field types (text/number/textarea/select/date) always store a
-    // string — only 'multiselect' (string[]) and 'checkbox' (boolean) don't.
-    // `field.type` is a runtime discriminant TS can't correlate with
-    // `customFields`'s value union, so coerce explicitly for those branches.
-    const stringValue = typeof value === 'string' ? value : '';
-    const hasError = !!errors[field.key];
-
-    switch (field.type) {
-      case 'text':
-      case 'email':
-      case 'url':
-        return (
-          <Input
-            type={field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}
-            value={stringValue}
-            onChange={(e) => updateCustomField(field.key, e.target.value)}
-            placeholder={field.placeholder}
-            className={hasError ? 'border-destructive' : ''}
-          />
-        );
-
-      case 'number':
-        return (
-          <Input
-            type="number"
-            value={stringValue}
-            onChange={(e) => updateCustomField(field.key, e.target.value)}
-            placeholder={field.placeholder}
-            className={hasError ? 'border-destructive' : ''}
-          />
-        );
-
-      case 'textarea':
-        return (
-          <Textarea
-            value={stringValue}
-            onChange={(e) => updateCustomField(field.key, e.target.value)}
-            placeholder={field.placeholder}
-            rows={3}
-            className={hasError ? 'border-destructive' : ''}
-          />
-        );
-
-      case 'select':
-        return (
-          <Select value={stringValue} onValueChange={(v) => updateCustomField(field.key, v)}>
-            <SelectTrigger className={hasError ? 'border-destructive' : ''}>
-              <SelectValue placeholder={field.placeholder || t('sweep.welddesk.dynamicTicketForm.selectPlaceholder')} />
-            </SelectTrigger>
-            <SelectContent>
-              {(field.options || []).map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        );
-
-      case 'multiselect': {
-        const selected: string[] = Array.isArray(value) ? value : [];
-        return (
-          <div className="space-y-1.5">
-            {(field.options || []).map((opt) => (
-              <label key={opt.value} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={selected.includes(opt.value)}
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      updateCustomField(field.key, [...selected, opt.value]);
-                    } else {
-                      updateCustomField(field.key, selected.filter((v) => v !== opt.value));
-                    }
-                  }}
-                />
-                {opt.label}
-              </label>
-            ))}
-          </div>
-        );
-      }
-
-      case 'date':
-        return (
-          <Input
-            type="date"
-            value={stringValue}
-            onChange={(e) => updateCustomField(field.key, e.target.value)}
-            className={hasError ? 'border-destructive' : ''}
-          />
-        );
-
-      case 'checkbox':
-        return (
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={!!value}
-              onCheckedChange={(checked) => updateCustomField(field.key, !!checked)}
-            />
-            <span className="text-sm text-muted-foreground">
-              {field.placeholder || field.label}
-            </span>
-          </div>
-        );
-
-      default:
-        return null;
-    }
+    return (
+      <FieldControl
+        field={field}
+        value={value}
+        hasError={!!errors[field.key]}
+        onChange={(v) => updateCustomField(field.key, v)}
+      />
+    );
   };
 
   return (

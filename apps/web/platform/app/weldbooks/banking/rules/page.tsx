@@ -41,7 +41,8 @@ function summarizeActions(
   const parts: string[] = [];
   if (rule.actions?.categoryAccountId) {
     const a = accountLookup.get(rule.actions.categoryAccountId);
-    parts.push(`→ ${a ? `${a.code} ${a.name}` : 'account'}`);
+    const accountLabel = a ? `${a.code} ${a.name}` : 'account';
+    parts.push(`→ ${accountLabel}`);
   }
   if (rule.actions?.taxRateId) parts.push('tax');
   if (rule.actions?.contactId) parts.push('contact');

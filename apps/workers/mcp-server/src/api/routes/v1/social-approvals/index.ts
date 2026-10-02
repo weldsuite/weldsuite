@@ -8,7 +8,7 @@
  * human does not need a second "Schedule" click.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { requireScope } from '../../../lib/scopes';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
@@ -148,24 +148,87 @@ app.post('/', requireScope('social_posts:write'), zValidator('json', createSocia
   }
 });
 
+/** Optional `decisionNotes` from the approve body; an empty/invalid body is fine. */
+async function readDecisionNotes(c: Context<HonoEnv>): Promise<string | undefined> {
+  try {
+    const raw = await c.req.json().catch(() => ({}));
+    if (raw && typeof raw === 'object' && typeof (raw as { decisionNotes?: unknown }).decisionNotes === 'string') {
+      return (raw as { decisionNotes: string }).decisionNotes;
+    }
+  } catch {
+    // empty body is fine
+  }
+  return undefined;
+}
+
+/** Human-readable reason an auto-schedule after approval failed. */
+function describeScheduleError(err: unknown): string {
+  if (err instanceof PostPeerNotConfiguredError) return 'Social publishing is not configured';
+  if (err instanceof SocialPublishConflictError) return err.message;
+  if (err instanceof SocialInsufficientCreditsError) {
+    return `Insufficient credits (need ${err.required}, have ${err.currentBalance})`;
+  }
+  return err instanceof Error ? err.message : 'Failed to auto-schedule after approval';
+}
+
+/**
+ * Register delivery for an approved post that already has an intended
+ * `scheduledAt`. Approval still succeeds when scheduling fails, so errors are
+ * returned rather than thrown.
+ */
+async function autoSchedulePost(
+  c: Context<HonoEnv>,
+  post: typeof posts.$inferSelect,
+): Promise<{
+  scheduled: boolean;
+  scheduleError: string | null;
+  publishResult: Awaited<ReturnType<typeof publishPost>> | null;
+}> {
+  if (!post.scheduledAt) return { scheduled: false, scheduleError: null, publishResult: null };
+
+  try {
+    const scheduledAt =
+      post.scheduledAt instanceof Date
+        ? post.scheduledAt.toISOString()
+        : new Date(post.scheduledAt).toISOString();
+    const orgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
+    if (!orgId) {
+      throw new Error('Workspace is not linked to an organization');
+    }
+    const publishResult = await publishPost(c.get('tenantDb'), socialContext(c.env), orgId, post.id, {
+      now: false,
+      scheduledAt,
+      timezone: post.timezone ?? undefined,
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'social_post',
+      entityId: post.id,
+      action: 'scheduled',
+      data: {
+        id: post.id,
+        status: publishResult.status,
+        scheduledAt,
+        postpeerPostId: publishResult.postpeerPostId,
+      },
+    });
+    return { scheduled: true, scheduleError: null, publishResult };
+  } catch (err) {
+    // Approval still succeeds — scheduling can be retried from the queue/composer.
+    console.error('[mcp-server/social-approvals] auto-schedule after approve failed:', err);
+    return { scheduled: false, scheduleError: describeScheduleError(err), publishResult: null };
+  }
+}
+
 /**
  * POST /:id/approve — approve the pending request and auto-schedule when the
  * post already has an intended `scheduledAt`.
  */
 app.post('/:id/approve', requireScope('social_posts:write'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
   const userId = c.get('userId') ?? 'system';
   const id = c.req.param('id');
-  let decisionNotes: string | undefined;
-  try {
-    const raw = await c.req.json().catch(() => ({}));
-    if (raw && typeof raw === 'object' && typeof (raw as { decisionNotes?: unknown }).decisionNotes === 'string') {
-      decisionNotes = (raw as { decisionNotes: string }).decisionNotes;
-    }
-  } catch {
-    // empty body is fine
-  }
+  const decisionNotes = await readDecisionNotes(c);
 
   try {
     const [approval] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
@@ -203,52 +266,7 @@ app.post('/:id/approve', requireScope('social_posts:write'), async (c) => {
       })
       .where(eq(posts.id, post.id));
 
-    let scheduled = false;
-    let scheduleError: string | null = null;
-    let publishResult: Awaited<ReturnType<typeof publishPost>> | null = null;
-
-    if (post.scheduledAt) {
-      try {
-        const scheduledAt =
-          post.scheduledAt instanceof Date
-            ? post.scheduledAt.toISOString()
-            : new Date(post.scheduledAt).toISOString();
-        const orgId = await resolveClerkOrgId(c.env, workspaceId);
-        if (!orgId) {
-          throw new Error('Workspace is not linked to an organization');
-        }
-        publishResult = await publishPost(db, socialContext(c.env), orgId, post.id, {
-          now: false,
-          scheduledAt,
-          timezone: post.timezone ?? undefined,
-        });
-        scheduled = true;
-        publishEntityEvent({
-          c,
-          entityType: 'social_post',
-          entityId: post.id,
-          action: 'scheduled',
-          data: {
-            id: post.id,
-            status: publishResult.status,
-            scheduledAt,
-            postpeerPostId: publishResult.postpeerPostId,
-          },
-        });
-      } catch (err) {
-        // Approval still succeeds — scheduling can be retried from the queue/composer.
-        scheduleError =
-          err instanceof Error ? err.message : 'Failed to auto-schedule after approval';
-        console.error('[mcp-server/social-approvals] auto-schedule after approve failed:', err);
-        if (err instanceof PostPeerNotConfiguredError) {
-          scheduleError = 'Social publishing is not configured';
-        } else if (err instanceof SocialPublishConflictError) {
-          scheduleError = err.message;
-        } else if (err instanceof SocialInsufficientCreditsError) {
-          scheduleError = `Insufficient credits (need ${err.required}, have ${err.currentBalance})`;
-        }
-      }
-    }
+    const { scheduled, scheduleError, publishResult } = await autoSchedulePost(c, post);
 
     publishEntityEvent({
       c,

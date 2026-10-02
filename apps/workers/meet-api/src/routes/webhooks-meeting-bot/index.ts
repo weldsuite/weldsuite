@@ -33,8 +33,11 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
  */
 app.post('/', async (c) => {
   // Reject forged calls: the URL registered with MeetingBaas carries a shared
-  // `?token=`. No-op until MEETINGBAAS_WEBHOOK_TOKEN is set (and the token is
-  // appended to the URL configured in MeetingBaas).
+  // `?token=`. Fail-closed: with MEETINGBAAS_WEBHOOK_TOKEN unset nothing passes.
+  if (!c.env.MEETINGBAAS_WEBHOOK_TOKEN) {
+    console.error('[MeetingBaas Webhook] Rejected: MEETINGBAAS_WEBHOOK_TOKEN is not configured');
+    return c.json({ error: 'unauthorized' }, 401);
+  }
   if (!verifyWebhookToken(c, c.env.MEETINGBAAS_WEBHOOK_TOKEN)) {
     console.warn('[MeetingBaas Webhook] Rejected: missing/invalid token');
     return c.json({ error: 'unauthorized' }, 401);

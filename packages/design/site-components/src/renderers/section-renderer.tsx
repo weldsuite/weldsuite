@@ -26,6 +26,106 @@ interface SectionRendererProps {
   isHovered?: boolean;
 }
 
+interface BlockActionMenuProps {
+  sectionId: string;
+  blockId: string;
+  index: number;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveBlockUp?: SectionRendererProps['onMoveBlockUp'];
+  onMoveBlockDown?: SectionRendererProps['onMoveBlockDown'];
+  onDuplicateBlock?: SectionRendererProps['onDuplicateBlock'];
+  onDeleteBlock?: SectionRendererProps['onDeleteBlock'];
+}
+
+function BlockActionMenu({
+  sectionId,
+  blockId,
+  index,
+  canMoveUp,
+  canMoveDown,
+  onMoveBlockUp,
+  onMoveBlockDown,
+  onDuplicateBlock,
+  onDeleteBlock,
+}: BlockActionMenuProps) {
+  return (
+    <div
+      className="absolute -bottom-12 left-1/2 -translate-x-1/2 z-40 flex gap-1 bg-white shadow-lg rounded-md border border-gray-200 p-1"
+      data-block-action
+    >
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onMoveBlockUp?.(sectionId, blockId, index);
+        }}
+        disabled={!canMoveUp}
+        className={cn(
+          "p-1.5 rounded hover:bg-gray-100 transition-colors",
+          !canMoveUp && "opacity-40 cursor-not-allowed"
+        )}
+        title="Move up"
+      >
+        <ChevronUp className="w-4 h-4" />
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onMoveBlockDown?.(sectionId, blockId, index);
+        }}
+        disabled={!canMoveDown}
+        className={cn(
+          "p-1.5 rounded hover:bg-gray-100 transition-colors",
+          !canMoveDown && "opacity-40 cursor-not-allowed"
+        )}
+        title="Move down"
+      >
+        <ChevronDown className="w-4 h-4" />
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDuplicateBlock?.(sectionId, blockId);
+        }}
+        className="p-1.5 rounded hover:bg-gray-100 transition-colors"
+        title="Duplicate"
+      >
+        <Copy className="w-4 h-4" />
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDeleteBlock?.(sectionId, blockId);
+        }}
+        className="p-1.5 rounded hover:bg-red-50 text-red-600 transition-colors"
+        title="Delete"
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+/** True when the pointer left the block container entirely (not just moved to a child). */
+function hasLeftBlockContainer(e: React.MouseEvent<HTMLElement>): boolean {
+  const relatedTarget = e.relatedTarget as HTMLElement | null;
+  return !relatedTarget || !e.currentTarget.contains(relatedTarget);
+}
+
+const SPACING_MAP = {
+  none: '0',
+  xs: '0.5rem',
+  sm: '1rem',
+  md: '1.5rem',
+  lg: '2.5rem',
+  xl: '4rem',
+  '2xl': '6rem',
+};
+
+function toSpacing(size: keyof typeof SPACING_MAP | undefined): string {
+  return size ? SPACING_MAP[size] : '0';
+}
+
 export function SectionRenderer({
   section,
   mode = 'live',
@@ -226,15 +326,9 @@ export function SectionRenderer({
               }
             }}
             onMouseLeave={(e) => {
-              if (isEditing && !isSingleBlockSection) {
-                // Only clear hover if we're actually leaving the block container entirely
-                const relatedTarget = e.relatedTarget as HTMLElement;
-                const blockContainer = e.currentTarget;
-
-                // Check if the mouse is moving to a child element or outside completely
-                if (!relatedTarget || !blockContainer.contains(relatedTarget)) {
-                  setHoveredBlockId(null);
-                }
+              // Only clear hover if we're actually leaving the block container entirely
+              if (isEditing && !isSingleBlockSection && hasLeftBlockContainer(e)) {
+                setHoveredBlockId(null);
               }
             }}
             onClick={(e) => {
@@ -254,59 +348,17 @@ export function SectionRenderer({
 
             {/* Block Action Menu - Only show for multi-block sections */}
             {isEditing && !isSingleBlockSection && (isBlockHovered || isBlockSelected) && (
-              <div
-                className="absolute -bottom-12 left-1/2 -translate-x-1/2 z-40 flex gap-1 bg-white shadow-lg rounded-md border border-gray-200 p-1"
-                data-block-action
-              >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onMoveBlockUp?.(section.id, block.id, index);
-                  }}
-                  disabled={!canMoveUp}
-                  className={cn(
-                    "p-1.5 rounded hover:bg-gray-100 transition-colors",
-                    !canMoveUp && "opacity-40 cursor-not-allowed"
-                  )}
-                  title="Move up"
-                >
-                  <ChevronUp className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onMoveBlockDown?.(section.id, block.id, index);
-                  }}
-                  disabled={!canMoveDown}
-                  className={cn(
-                    "p-1.5 rounded hover:bg-gray-100 transition-colors",
-                    !canMoveDown && "opacity-40 cursor-not-allowed"
-                  )}
-                  title="Move down"
-                >
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDuplicateBlock?.(section.id, block.id);
-                  }}
-                  className="p-1.5 rounded hover:bg-gray-100 transition-colors"
-                  title="Duplicate"
-                >
-                  <Copy className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteBlock?.(section.id, block.id);
-                  }}
-                  className="p-1.5 rounded hover:bg-red-50 text-red-600 transition-colors"
-                  title="Delete"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+              <BlockActionMenu
+                sectionId={section.id}
+                blockId={block.id}
+                index={index}
+                canMoveUp={canMoveUp}
+                canMoveDown={canMoveDown}
+                onMoveBlockUp={onMoveBlockUp}
+                onMoveBlockDown={onMoveBlockDown}
+                onDuplicateBlock={onDuplicateBlock}
+                onDeleteBlock={onDeleteBlock}
+              />
             )}
             <BlockRenderer
               block={block}
@@ -331,18 +383,8 @@ export function SectionRenderer({
   // In edit mode, apply minimal padding for visual consistency
   if (isEditing) {
     // Extract padding values from section settings
-    const spacingMap = {
-      none: '0',
-      xs: '0.5rem',
-      sm: '1rem',
-      md: '1.5rem',
-      lg: '2.5rem',
-      xl: '4rem',
-      '2xl': '6rem',
-    };
-
-    const paddingTop = sectionSettings.paddingTop ? spacingMap[sectionSettings.paddingTop] : '0';
-    const paddingBottom = sectionSettings.paddingBottom ? spacingMap[sectionSettings.paddingBottom] : '0';
+    const paddingTop = toSpacing(sectionSettings.paddingTop);
+    const paddingBottom = toSpacing(sectionSettings.paddingBottom);
 
     return (
       <div

@@ -188,6 +188,157 @@ async function runPooled<T, R>(items: T[], concurrency: number, fn: (item: T, in
 // Main
 // ----------------------------------------------------------------------------
 
+type PoolRow = Pick<
+  typeof databasePool.$inferSelect,
+  'id' | 'kind' | 'neonProjectId' | 'status' | 'region' | 'assignedWorkspaceId' | 'createdAt'
+>;
+
+/** Protected: anything backing a live workspace, plus any assigned pool row. */
+function collectProtectedProjectIds(
+  wsRows: { neonProjectId: string | null }[],
+  poolRows: PoolRow[],
+): Set<string> {
+  const protectedProjectIds = new Set<string>();
+  for (const w of wsRows) if (w.neonProjectId) protectedProjectIds.add(w.neonProjectId);
+  for (const r of poolRows) {
+    if (r.status === 'assigned' || r.assignedWorkspaceId) protectedProjectIds.add(r.neonProjectId);
+  }
+  return protectedProjectIds;
+}
+
+/** Optionally keep the N newest 'available' rows per region. */
+function excludeNewestPerRegion(deletableRows: PoolRow[], keepPerRegion: number): PoolRow[] {
+  const keepIds = new Set<string>();
+  const byRegion = new Map<string, PoolRow[]>();
+  for (const r of deletableRows) {
+    if (r.status !== 'available') continue;
+    const list = byRegion.get(r.region) ?? [];
+    list.push(r);
+    byRegion.set(r.region, list);
+  }
+  for (const [, list] of byRegion) {
+    list.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+    list.slice(0, keepPerRegion).forEach((r) => keepIds.add(r.id));
+  }
+  return deletableRows.filter((r) => !keepIds.has(r.id));
+}
+
+/**
+ * Tracked, deletable pool rows (available/error, not protected).
+ * NEVER include kind='shared' rows: their neonProjectId is a shared SHARD
+ * hosting up to ~100 live free tenants — deleting the project would take
+ * them all down. Shared warm slots are databases inside that shard and are
+ * managed by the refill workflow, not this script.
+ */
+function selectDeletableRows(
+  poolRows: PoolRow[],
+  protectedProjectIds: Set<string>,
+  inRegion: (region: string) => boolean,
+  keepPerRegion: number,
+): PoolRow[] {
+  const deletableRows = poolRows.filter(
+    (r) =>
+      r.kind !== 'shared' &&
+      (r.status === 'available' || r.status === 'error') &&
+      !protectedProjectIds.has(r.neonProjectId) &&
+      inRegion(r.region),
+  );
+  return keepPerRegion > 0 ? excludeNewestPerRegion(deletableRows, keepPerRegion) : deletableRows;
+}
+
+interface DeletionStats {
+  neonDeleted: number;
+  neonAlreadyGone: number;
+  rowsRemoved: number;
+  failures: number;
+}
+
+/** Delete one Neon project, counting the outcome. Returns null (and counts a failure) on error. */
+async function deleteAndCount(
+  neonApiKey: string,
+  projectId: string,
+  stats: DeletionStats,
+): Promise<'deleted' | 'already-gone' | null> {
+  try {
+    const outcome = await deleteNeonProject(neonApiKey, projectId);
+    if (outcome === 'deleted') stats.neonDeleted++;
+    else stats.neonAlreadyGone++;
+    return outcome;
+  } catch (e) {
+    stats.failures++;
+    console.error(`  ✗ ${projectId}: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+/** Execute deletions (Neon project first, then DB row for tracked entries). */
+async function executeDeletions(
+  db: ReturnType<typeof drizzle>,
+  neonApiKey: string,
+  deletableRows: PoolRow[],
+  orphanProjects: NeonProject[],
+  verbose: boolean,
+): Promise<DeletionStats> {
+  const stats: DeletionStats = { neonDeleted: 0, neonAlreadyGone: 0, rowsRemoved: 0, failures: 0 };
+  const removedRowIds: string[] = [];
+
+  console.log('\nDeleting tracked pool entries…');
+  await runPooled(deletableRows, 4, async (r) => {
+    const outcome = await deleteAndCount(neonApiKey, r.neonProjectId, stats);
+    if (!outcome) return;
+    removedRowIds.push(r.id);
+    if (verbose) console.log(`  ✓ ${r.neonProjectId} (${outcome}) — row ${r.id}`);
+  });
+
+  // Remove DB rows for everything whose Neon project is gone (batched).
+  for (let i = 0; i < removedRowIds.length; i += 100) {
+    const batch = removedRowIds.slice(i, i + 100);
+    await db.delete(databasePool).where(inArray(databasePool.id, batch));
+    stats.rowsRemoved += batch.length;
+  }
+
+  if (orphanProjects.length > 0) {
+    console.log('\nDeleting orphan Neon projects…');
+    await runPooled(orphanProjects, 4, async (p) => {
+      const outcome = await deleteAndCount(neonApiKey, p.id, stats);
+      if (outcome && verbose) console.log(`  ✓ ${p.id} (${outcome}) — ${p.name}`);
+    });
+  }
+
+  return stats;
+}
+
+function printDeletionSummary(stats: DeletionStats) {
+  console.log('\n' + '='.repeat(70));
+  console.log('Done.');
+  console.log(`  Neon projects deleted:      ${stats.neonDeleted}`);
+  console.log(`  Neon already gone (404):    ${stats.neonAlreadyGone}`);
+  console.log(`  database_pool rows removed: ${stats.rowsRemoved}`);
+  if (stats.failures > 0) console.log(`  ⚠️  Failures:                ${stats.failures} (see errors above)`);
+  console.log('='.repeat(70));
+}
+
+function printPlan(
+  poolRows: PoolRow[],
+  sharedRows: PoolRow[],
+  deletableRows: PoolRow[],
+  orphanProjects: NeonProject[],
+  verbose: boolean,
+) {
+  const assignedCount = poolRows.filter((r) => r.status === 'assigned' || r.assignedWorkspaceId).length;
+  console.log('');
+  console.log('Plan:');
+  console.log(`  • Protected (assigned / live workspace): ${assignedCount} pool row(s) — KEPT`);
+  console.log(`  • Shared-shard slots (kind=shared):      ${sharedRows.length} pool row(s) — KEPT (live shard projects)`);
+  console.log(`  • Tracked available/error to delete:     ${deletableRows.length}`);
+  console.log(`  • Orphan Neon projects to delete:        ${orphanProjects.length}`);
+
+  if (verbose) {
+    for (const r of deletableRows) console.log(`    [row]    ${r.neonProjectId}  status=${r.status}  region=${r.region}  id=${r.id}`);
+    for (const p of orphanProjects) console.log(`    [orphan] ${p.id}  name=${p.name}  region=${p.region_id}`);
+  }
+}
+
 async function main(): Promise<void> {
   const opts = parseArgs();
 
@@ -225,12 +376,7 @@ async function main(): Promise<void> {
       .select({ neonProjectId: workspaces.neonProjectId })
       .from(workspaces);
 
-    // Protected: anything backing a live workspace, plus any assigned pool row.
-    const protectedProjectIds = new Set<string>();
-    for (const w of wsRows) if (w.neonProjectId) protectedProjectIds.add(w.neonProjectId);
-    for (const r of poolRows) {
-      if (r.status === 'assigned' || r.assignedWorkspaceId) protectedProjectIds.add(r.neonProjectId);
-    }
+    const protectedProjectIds = collectProtectedProjectIds(wsRows, poolRows);
 
     const trackedProjectIds = new Set(poolRows.map((r) => r.neonProjectId));
 
@@ -242,38 +388,9 @@ async function main(): Promise<void> {
 
     const inRegion = (region: string) => !opts.region || region === opts.region;
 
-    // 3a. Tracked, deletable pool rows (available/error, not protected).
-    // NEVER include kind='shared' rows: their neonProjectId is a shared SHARD
-    // hosting up to ~100 live free tenants — deleting the project would take
-    // them all down. Shared warm slots are databases inside that shard and are
-    // managed by the refill workflow, not this script.
+    // 3a. Tracked, deletable pool rows.
     const sharedRows = poolRows.filter((r) => r.kind === 'shared');
-    let deletableRows = poolRows.filter(
-      (r) =>
-        r.kind !== 'shared' &&
-        (r.status === 'available' || r.status === 'error') &&
-        !protectedProjectIds.has(r.neonProjectId) &&
-        inRegion(r.region),
-    );
-
-    // Optionally keep the N newest 'available' rows per region.
-    if (opts.keepPerRegion > 0) {
-      const keepIds = new Set<string>();
-      const byRegion = new Map<string, typeof deletableRows>();
-      for (const r of deletableRows) {
-        if (r.status !== 'available') continue;
-        const list = byRegion.get(r.region) ?? [];
-        list.push(r);
-        byRegion.set(r.region, list);
-      }
-      for (const [, list] of byRegion) {
-        list
-          .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
-          .slice(0, opts.keepPerRegion)
-          .forEach((r) => keepIds.add(r.id));
-      }
-      deletableRows = deletableRows.filter((r) => !keepIds.has(r.id));
-    }
+    const deletableRows = selectDeletableRows(poolRows, protectedProjectIds, inRegion, opts.keepPerRegion);
 
     // 3b. Orphan Neon projects: weldsuite-pool-* with no DB row, not protected.
     const orphanProjects = opts.includeOrphans
@@ -283,18 +400,7 @@ async function main(): Promise<void> {
       : [];
 
     // Status summary.
-    const assignedCount = poolRows.filter((r) => r.status === 'assigned' || r.assignedWorkspaceId).length;
-    console.log('');
-    console.log('Plan:');
-    console.log(`  • Protected (assigned / live workspace): ${assignedCount} pool row(s) — KEPT`);
-    console.log(`  • Shared-shard slots (kind=shared):      ${sharedRows.length} pool row(s) — KEPT (live shard projects)`);
-    console.log(`  • Tracked available/error to delete:     ${deletableRows.length}`);
-    console.log(`  • Orphan Neon projects to delete:        ${orphanProjects.length}`);
-
-    if (opts.verbose) {
-      for (const r of deletableRows) console.log(`    [row]    ${r.neonProjectId}  status=${r.status}  region=${r.region}  id=${r.id}`);
-      for (const p of orphanProjects) console.log(`    [orphan] ${p.id}  name=${p.name}  region=${p.region_id}`);
-    }
+    printPlan(poolRows, sharedRows, deletableRows, orphanProjects, opts.verbose);
 
     const totalToDelete = deletableRows.length + orphanProjects.length;
     if (totalToDelete === 0) {
@@ -307,66 +413,19 @@ async function main(): Promise<void> {
       return;
     }
 
-    // 4. Execute deletions (Neon project first, then DB row for tracked entries).
-    let neonDeleted = 0;
-    let neonAlreadyGone = 0;
-    let rowsRemoved = 0;
-    let failures = 0;
-    const removedRowIds: string[] = [];
+    // 4. Execute deletions.
+    const stats = await executeDeletions(db, neonApiKey, deletableRows, orphanProjects, opts.verbose);
+    printDeletionSummary(stats);
 
-    console.log('\nDeleting tracked pool entries…');
-    await runPooled(deletableRows, 4, async (r) => {
-      try {
-        const outcome = await deleteNeonProject(neonApiKey, r.neonProjectId);
-        if (outcome === 'deleted') neonDeleted++;
-        else neonAlreadyGone++;
-        removedRowIds.push(r.id);
-        if (opts.verbose) console.log(`  ✓ ${r.neonProjectId} (${outcome}) — row ${r.id}`);
-      } catch (e) {
-        failures++;
-        console.error(`  ✗ ${r.neonProjectId}: ${(e as Error).message}`);
-      }
-    });
-
-    // Remove DB rows for everything whose Neon project is gone (batched).
-    if (removedRowIds.length > 0) {
-      for (let i = 0; i < removedRowIds.length; i += 100) {
-        const batch = removedRowIds.slice(i, i + 100);
-        await db.delete(databasePool).where(inArray(databasePool.id, batch));
-        rowsRemoved += batch.length;
-      }
-    }
-
-    if (orphanProjects.length > 0) {
-      console.log('\nDeleting orphan Neon projects…');
-      await runPooled(orphanProjects, 4, async (p) => {
-        try {
-          const outcome = await deleteNeonProject(neonApiKey, p.id);
-          if (outcome === 'deleted') neonDeleted++;
-          else neonAlreadyGone++;
-          if (opts.verbose) console.log(`  ✓ ${p.id} (${outcome}) — ${p.name}`);
-        } catch (e) {
-          failures++;
-          console.error(`  ✗ ${p.id}: ${(e as Error).message}`);
-        }
-      });
-    }
-
-    console.log('\n' + '='.repeat(70));
-    console.log('Done.');
-    console.log(`  Neon projects deleted:      ${neonDeleted}`);
-    console.log(`  Neon already gone (404):    ${neonAlreadyGone}`);
-    console.log(`  database_pool rows removed: ${rowsRemoved}`);
-    if (failures > 0) console.log(`  ⚠️  Failures:                ${failures} (see errors above)`);
-    console.log('='.repeat(70));
-
-    if (failures > 0) process.exitCode = 1;
+    if (stats.failures > 0) process.exitCode = 1;
   } finally {
     await masterClient.end({ timeout: 5 });
   }
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('\nFatal:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}

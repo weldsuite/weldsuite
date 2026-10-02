@@ -33,6 +33,13 @@ function formatMeetingId(code: string): string {
 
 export type RightPanelKind = 'info' | 'people' | 'settings' | 'tools' | null;
 
+const RIGHT_PANEL_TITLES: Record<NonNullable<RightPanelKind>, string> = {
+  info: 'Meeting details',
+  people: 'People',
+  settings: 'Host controls',
+  tools: 'Meeting tools',
+};
+
 export interface MeetingRightPanelProps {
   panel: RightPanelKind;
   onClose: () => void;
@@ -82,13 +89,9 @@ export function MeetingRightPanel({
   const isOpen = panel !== null;
   const isMobile = useIsMobile();
 
-  const title = panel === 'info' ? 'Meeting details'
-    : panel === 'people' ? 'People'
-    : panel === 'settings' ? 'Host controls'
-    : panel === 'tools' ? 'Meeting tools'
-    : '';
-
   if (!isOpen) return null;
+
+  const title = RIGHT_PANEL_TITLES[panel];
 
   return (
     <div

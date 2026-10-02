@@ -263,6 +263,36 @@ export default function AddAccountScreen() {
   }, [screen, router]);
 
   // ---------- Selection ----------
+  const renderCustomDomainOption = () => {
+    if (loadingDomains) {
+      return (
+        <View style={[styles.optionCard, styles.optionCardLoading, { backgroundColor: colors.card, borderColor: colors.divider }]}>
+          <MaterialSpinner size={20} strokeWidth={2.4} color={colors.muted} spinning />
+          <Text style={[styles.optionSub, { color: colors.muted }]}>Checking your domains…</Text>
+        </View>
+      );
+    }
+    if (availableDomains.length === 0) {
+      return null;
+    }
+    return (
+      <TouchableOpacity
+        style={[styles.optionCard, { backgroundColor: colors.card, borderColor: colors.divider }]}
+        onPress={() => setScreen('custom-domain')}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.optionIcon, { backgroundColor: '#3B82F6' + '15' }]}>
+          <Globe size={22} color="#3B82F6" strokeWidth={2} />
+        </View>
+        <View style={styles.optionInfo}>
+          <Text style={[styles.optionTitle, { color: colors.text }]}>Custom Domain Email</Text>
+          <Text style={[styles.optionSub, { color: colors.muted }]}>Use your own domain · {availableDomains[0]}</Text>
+        </View>
+        <ChevronRight size={20} color={colors.muted} />
+      </TouchableOpacity>
+    );
+  };
+
   const renderProviderSelection = () => (
     <View style={styles.content}>
       <View style={styles.hero}>
@@ -312,27 +342,7 @@ export default function AddAccountScreen() {
           <ChevronRight size={20} color={colors.muted} />
         </TouchableOpacity>
 
-        {loadingDomains ? (
-          <View style={[styles.optionCard, styles.optionCardLoading, { backgroundColor: colors.card, borderColor: colors.divider }]}>
-            <MaterialSpinner size={20} strokeWidth={2.4} color={colors.muted} spinning />
-            <Text style={[styles.optionSub, { color: colors.muted }]}>Checking your domains…</Text>
-          </View>
-        ) : availableDomains.length > 0 ? (
-          <TouchableOpacity
-            style={[styles.optionCard, { backgroundColor: colors.card, borderColor: colors.divider }]}
-            onPress={() => setScreen('custom-domain')}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.optionIcon, { backgroundColor: '#3B82F6' + '15' }]}>
-              <Globe size={22} color="#3B82F6" strokeWidth={2} />
-            </View>
-            <View style={styles.optionInfo}>
-              <Text style={[styles.optionTitle, { color: colors.text }]}>Custom Domain Email</Text>
-              <Text style={[styles.optionSub, { color: colors.muted }]}>Use your own domain · {availableDomains[0]}</Text>
-            </View>
-            <ChevronRight size={20} color={colors.muted} />
-          </TouchableOpacity>
-        ) : null}
+        {renderCustomDomainOption()}
           </>
         ) : null}
       </View>
@@ -353,6 +363,34 @@ export default function AddAccountScreen() {
       </Text>
     </View>
   );
+
+  const renderAvailabilityStatus = () => {
+    if (checking) {
+      return (
+        <View style={[styles.statusPill, { backgroundColor: colors.divider + '55' }]}>
+          <MaterialSpinner size={13} strokeWidth={2.2} color={colors.muted} spinning />
+          <Text style={[styles.statusText, { color: colors.muted }]}>Checking availability…</Text>
+        </View>
+      );
+    }
+    if (!availability) {
+      return null;
+    }
+    if (availability.available) {
+      return (
+        <View style={[styles.statusPill, { backgroundColor: '#22C55E18' }]}>
+          <CheckCircle2 size={14} color="#16A34A" />
+          <Text style={[styles.statusText, { color: '#16A34A' }]}>Available</Text>
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.statusPill, { backgroundColor: '#EF444418' }]}>
+        <AlertCircle size={14} color="#DC2626" />
+        <Text style={[styles.statusText, { color: '#DC2626' }]}>{availability.message || 'Not available'}</Text>
+      </View>
+    );
+  };
 
   // ---------- WeldMail form ----------
   const renderWeldMailForm = () => (
@@ -390,24 +428,7 @@ export default function AddAccountScreen() {
 
         {address.length >= 3 && (
           <View style={styles.availabilityRow}>
-            {checking ? (
-              <View style={[styles.statusPill, { backgroundColor: colors.divider + '55' }]}>
-                <MaterialSpinner size={13} strokeWidth={2.2} color={colors.muted} spinning />
-                <Text style={[styles.statusText, { color: colors.muted }]}>Checking availability…</Text>
-              </View>
-            ) : availability ? (
-              availability.available ? (
-                <View style={[styles.statusPill, { backgroundColor: '#22C55E18' }]}>
-                  <CheckCircle2 size={14} color="#16A34A" />
-                  <Text style={[styles.statusText, { color: '#16A34A' }]}>Available</Text>
-                </View>
-              ) : (
-                <View style={[styles.statusPill, { backgroundColor: '#EF444418' }]}>
-                  <AlertCircle size={14} color="#DC2626" />
-                  <Text style={[styles.statusText, { color: '#DC2626' }]}>{availability.message || 'Not available'}</Text>
-                </View>
-              )
-            ) : null}
+            {renderAvailabilityStatus()}
           </View>
         )}
       </View>
@@ -525,19 +546,20 @@ export default function AddAccountScreen() {
     </View>
   );
 
-  const headerTitle = screen === 'select'
-    ? 'Add account'
-    : screen === 'weldmail'
-    ? 'Workspace address'
-    : screen === 'personal'
-    ? 'Personal address'
-    : 'Custom domain';
+  const HEADER_TITLES: Record<ScreenState, string> = {
+    select: 'Add account',
+    weldmail: 'Workspace address',
+    personal: 'Personal address',
+    'custom-domain': 'Custom domain',
+  };
+  const headerTitle = HEADER_TITLES[screen];
 
-  const cta = (screen === 'weldmail' || screen === 'personal')
-    ? { label: 'Create address', onPress: handleWeldMailSubmit, disabled: !availability?.available || submitting }
-    : screen === 'custom-domain'
-    ? { label: 'Create email', onPress: handleCustomDomainSubmit, disabled: !emailPrefix || !selectedDomain || submitting }
-    : null;
+  let cta: { label: string; onPress: () => void; disabled: boolean } | null = null;
+  if (screen === 'weldmail' || screen === 'personal') {
+    cta = { label: 'Create address', onPress: handleWeldMailSubmit, disabled: !availability?.available || submitting };
+  } else if (screen === 'custom-domain') {
+    cta = { label: 'Create email', onPress: handleCustomDomainSubmit, disabled: !emailPrefix || !selectedDomain || submitting };
+  }
 
   if (permissionsLoading || !canStay) {
     return <View style={[styles.container, { backgroundColor: colors.background }]} />;

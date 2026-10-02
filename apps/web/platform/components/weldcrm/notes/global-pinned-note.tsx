@@ -48,6 +48,105 @@ function getCompanyIcon(name?: string) {
   return <Building className="h-3 w-3 text-muted-foreground" />;
 }
 
+interface ActiveFormats {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  unorderedList: boolean;
+  orderedList: boolean;
+}
+
+interface FormattingToolbarProps {
+  activeFormats: ActiveFormats;
+  onBold: (e: React.MouseEvent) => void;
+  onItalic: (e: React.MouseEvent) => void;
+  onUnderline: (e: React.MouseEvent) => void;
+  onUnorderedList: (e: React.MouseEvent) => void;
+  onOrderedList: (e: React.MouseEvent) => void;
+  onLink: (e: React.MouseEvent) => void;
+}
+
+function FormattingToolbar({
+  activeFormats,
+  onBold,
+  onItalic,
+  onUnderline,
+  onUnorderedList,
+  onOrderedList,
+  onLink,
+}: FormattingToolbarProps) {
+  const t = useTranslations();
+
+  return (
+    <div className="px-4 py-2 border-t flex items-center gap-1">
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.bold && "bg-muted")} onMouseDown={onBold} title={t('sweep.weldcrm.globalPinnedNote.boldTooltip')}>
+        <Bold className="h-3.5 w-3.5" />
+      </Button>
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.italic && "bg-muted")} onMouseDown={onItalic} title={t('sweep.weldcrm.globalPinnedNote.italicTooltip')}>
+        <Italic className="h-3.5 w-3.5" />
+      </Button>
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.underline && "bg-muted")} onMouseDown={onUnderline} title={t('sweep.weldcrm.globalPinnedNote.underlineTooltip')}>
+        <Underline className="h-3.5 w-3.5" />
+      </Button>
+      <div className="w-px h-4 bg-border mx-1" />
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.unorderedList && "bg-muted")} onMouseDown={onUnorderedList} title={t('sweep.weldcrm.globalPinnedNote.bulletListTooltip')}>
+        <ListIcon className="h-3.5 w-3.5" />
+      </Button>
+      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.orderedList && "bg-muted")} onMouseDown={onOrderedList} title={t('sweep.weldcrm.globalPinnedNote.numberedListTooltip')}>
+        <ListOrdered className="h-3.5 w-3.5" />
+      </Button>
+      <div className="w-px h-4 bg-border mx-1" />
+      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onMouseDown={onLink} title={t('sweep.weldcrm.globalPinnedNote.insertLinkTooltip')}>
+        <LinkIcon className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+interface WindowControlsProps {
+  isMinimized: boolean;
+  onMinimize: () => void;
+  onRestore: () => void;
+  onUnpin: () => void;
+  onClose: () => void;
+}
+
+function WindowControls({ isMinimized, onMinimize, onRestore, onUnpin, onClose }: WindowControlsProps) {
+  const t = useTranslations();
+
+  return (
+    <div className={cn("absolute right-3 flex items-center gap-1", isMinimized ? "top-1/2 -translate-y-1/2" : "top-[9px]")}>
+      <Button
+        variant="ghost"
+        onClick={isMinimized ? onUnpin : onMinimize}
+        className="rounded-md p-1.5 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
+        title={isMinimized ? t('sweep.weldcrm.globalPinnedNote.expand') : t('sweep.weldcrm.globalPinnedNote.minimize')}
+      >
+        {isMinimized ? <Maximize className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={isMinimized ? onRestore : onUnpin}
+        className={cn(
+          "rounded-md p-1.5 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary",
+          isMinimized ? "text-gray-500" : "text-blue-500"
+        )}
+        title={isMinimized ? t('sweep.weldcrm.globalPinnedNote.expand') : t('sweep.weldcrm.globalPinnedNote.unpin')}
+      >
+        <PinIcon className={cn("h-4 w-4", !isMinimized && "fill-current")} />
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={onClose}
+        className="rounded-md p-1.5 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
+        title={t('sweep.weldcrm.globalPinnedNote.close')}
+      >
+        <X className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
 export function GlobalPinnedNote() {
   const t = useTranslations();
   const { pinnedNote, isOpen, onSave, closePinnedNote, unpinToDialog, unpinnedNote, unpinnedNoteSave, unpinnedNoteDelete, clearUnpinnedNote, startMinimized, setStartMinimized } = usePinnedNote();
@@ -293,73 +392,26 @@ export function GlobalPinnedNote() {
           </div>
 
           {/* Toolbar - at bottom */}
-          <div className="px-4 py-2 border-t flex items-center gap-1">
-            <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.bold && "bg-muted")} onMouseDown={handleBold} title={t('sweep.weldcrm.globalPinnedNote.boldTooltip')}>
-              <Bold className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.italic && "bg-muted")} onMouseDown={handleItalic} title={t('sweep.weldcrm.globalPinnedNote.italicTooltip')}>
-              <Italic className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.underline && "bg-muted")} onMouseDown={handleUnderline} title={t('sweep.weldcrm.globalPinnedNote.underlineTooltip')}>
-              <Underline className="h-3.5 w-3.5" />
-            </Button>
-            <div className="w-px h-4 bg-border mx-1" />
-            <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.unorderedList && "bg-muted")} onMouseDown={handleUnorderedList} title={t('sweep.weldcrm.globalPinnedNote.bulletListTooltip')}>
-              <ListIcon className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.orderedList && "bg-muted")} onMouseDown={handleOrderedList} title={t('sweep.weldcrm.globalPinnedNote.numberedListTooltip')}>
-              <ListOrdered className="h-3.5 w-3.5" />
-            </Button>
-            <div className="w-px h-4 bg-border mx-1" />
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onMouseDown={handleLink} title={t('sweep.weldcrm.globalPinnedNote.insertLinkTooltip')}>
-              <LinkIcon className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+          <FormattingToolbar
+            activeFormats={activeFormats}
+            onBold={handleBold}
+            onItalic={handleItalic}
+            onUnderline={handleUnderline}
+            onUnorderedList={handleUnorderedList}
+            onOrderedList={handleOrderedList}
+            onLink={handleLink}
+          />
         </>
       )}
 
       {/* Window controls */}
-      <div className={cn("absolute right-3 flex items-center gap-1", isMinimized ? "top-1/2 -translate-y-1/2" : "top-[9px]")}>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            if (isMinimized) {
-              unpinToDialog();
-            } else {
-              setIsMinimized(true);
-            }
-          }}
-          className="rounded-md p-1.5 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
-          title={isMinimized ? t('sweep.weldcrm.globalPinnedNote.expand') : t('sweep.weldcrm.globalPinnedNote.minimize')}
-        >
-          {isMinimized ? <Maximize className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            if (isMinimized) {
-              setIsMinimized(false);
-            } else {
-              unpinToDialog();
-            }
-          }}
-          className={cn(
-            "rounded-md p-1.5 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary",
-            isMinimized ? "text-gray-500" : "text-blue-500"
-          )}
-          title={isMinimized ? t('sweep.weldcrm.globalPinnedNote.expand') : t('sweep.weldcrm.globalPinnedNote.unpin')}
-        >
-          <PinIcon className={cn("h-4 w-4", !isMinimized && "fill-current")} />
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={closePinnedNote}
-          className="rounded-md p-1.5 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
-          title={t('sweep.weldcrm.globalPinnedNote.close')}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+      <WindowControls
+        isMinimized={isMinimized}
+        onMinimize={() => setIsMinimized(true)}
+        onRestore={() => setIsMinimized(false)}
+        onUnpin={unpinToDialog}
+        onClose={closePinnedNote}
+      />
     </div>
   );
 

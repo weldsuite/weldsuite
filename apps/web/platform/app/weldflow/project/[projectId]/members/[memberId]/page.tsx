@@ -75,6 +75,63 @@ interface MemberStats {
   recentTasks: { id: string; title: string; status: string; updatedAt?: string }[];
 }
 
+function getStatusIcon(status: string) {
+  switch (status) {
+    case 'done':
+      return <CheckSquare className="h-4 w-4 text-green-600 dark:text-green-400" />;
+    case 'in_progress':
+      return <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400" />;
+    default:
+      return <CheckSquare className="h-4 w-4 text-purple-600 dark:text-purple-400" />;
+  }
+}
+
+function getStatusBgColor(status: string) {
+  switch (status) {
+    case 'done':
+      return 'bg-green-100 dark:bg-green-900/30';
+    case 'in_progress':
+      return 'bg-blue-100 dark:bg-blue-900/30';
+    default:
+      return 'bg-purple-100 dark:bg-purple-900/30';
+  }
+}
+
+function ActivityLog({ recentTasks }: Readonly<{ recentTasks: MemberStats['recentTasks'] }>) {
+  const { t } = useI18n();
+  const getActionLabel = (status: string) => {
+    if (status === 'done') return t.projects.members.completedTask;
+    if (status === 'in_progress') return t.projects.members.workingOnTask;
+    return t.projects.members.assignedToTask;
+  };
+  return (
+    <div className="rounded-lg border border-border/60 bg-card divide-y divide-border/60">
+      {recentTasks.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground">
+          <CheckSquare className="h-12 w-12 mx-auto mb-4 text-muted-foreground/30" />
+          <p>{t.projects.members.noRecentActivity}</p>
+        </div>
+      ) : (
+        recentTasks.map((task) => (
+          <div key={task.id} className="flex items-start gap-3 p-4">
+            <div className={`h-8 w-8 rounded-full ${getStatusBgColor(task.status)} flex items-center justify-center flex-shrink-0`}>
+              {getStatusIcon(task.status)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-foreground">
+                {getActionLabel(task.status)} task &quot;{task.title}&quot;
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {task.updatedAt ? formatDistanceToNow(new Date(task.updatedAt), { addSuffix: true }) : t.projects.members.recently}
+              </p>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 export default function MemberDetailPage() {
   const { t } = useI18n();
   const params = useParams();
@@ -197,28 +254,6 @@ export default function MemberDetailPage() {
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'done':
-        return <CheckSquare className="h-4 w-4 text-green-600 dark:text-green-400" />;
-      case 'in_progress':
-        return <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400" />;
-      default:
-        return <CheckSquare className="h-4 w-4 text-purple-600 dark:text-purple-400" />;
-    }
-  };
-
-  const getStatusBgColor = (status: string) => {
-    switch (status) {
-      case 'done':
-        return 'bg-green-100 dark:bg-green-900/30';
-      case 'in_progress':
-        return 'bg-blue-100 dark:bg-blue-900/30';
-      default:
-        return 'bg-purple-100 dark:bg-purple-900/30';
-    }
-  };
-
   // Loading state
   if (isLoading) {
     return <PageLoader fullScreen={false} />;
@@ -238,34 +273,6 @@ export default function MemberDetailPage() {
       </div>
     );
   }
-
-  // Activity log component
-  const ActivityLog = () => (
-    <div className="rounded-lg border border-border/60 bg-card divide-y divide-border/60">
-      {stats.recentTasks.length === 0 ? (
-        <div className="p-8 text-center text-muted-foreground">
-          <CheckSquare className="h-12 w-12 mx-auto mb-4 text-muted-foreground/30" />
-          <p>{t.projects.members.noRecentActivity}</p>
-        </div>
-      ) : (
-        stats.recentTasks.map((task) => (
-          <div key={task.id} className="flex items-start gap-3 p-4">
-            <div className={`h-8 w-8 rounded-full ${getStatusBgColor(task.status)} flex items-center justify-center flex-shrink-0`}>
-              {getStatusIcon(task.status)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-foreground">
-                {task.status === 'done' ? t.projects.members.completedTask : task.status === 'in_progress' ? t.projects.members.workingOnTask : t.projects.members.assignedToTask} task &quot;{task.title}&quot;
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {task.updatedAt ? formatDistanceToNow(new Date(task.updatedAt), { addSuffix: true }) : t.projects.members.recently}
-              </p>
-            </div>
-          </div>
-        ))
-      )}
-    </div>
-  );
 
   // Build dropdown items based on permissions
   const buildDropdownItems = () => {
@@ -345,7 +352,7 @@ export default function MemberDetailPage() {
             { label: t.projects.members.estHours, value: stats.hoursLogged },
           ],
           tabs: [
-            { id: 'activity', label: t.projects.members.recentActivity, content: <ActivityLog /> },
+            { id: 'activity', label: t.projects.members.recentActivity, content: <ActivityLog recentTasks={stats.recentTasks} /> },
           ],
           defaultTab: 'activity',
         }}

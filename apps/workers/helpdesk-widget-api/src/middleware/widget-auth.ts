@@ -9,6 +9,32 @@ import { eq } from 'drizzle-orm';
 import type { Env, Variables } from '../index';
 import { getMasterDb, getTenantDbForWorkspace, schema, masterSchema } from '../db';
 
+/** True when the request Origin's host equals, or is a subdomain of, an allowed domain. */
+function isOriginAllowed(origin: string, allowedDomains: string[]): boolean {
+  let host: string;
+  try {
+    host = new URL(origin).hostname;
+  } catch {
+    host = origin;
+  }
+  return allowedDomains.some((d) => host === d || host.endsWith(`.${d}`));
+}
+
+/** Whether the workspace's plan removes widget branding (false when no plan is set). */
+async function loadRemoveBranding(
+  masterDb: ReturnType<typeof getMasterDb>,
+  planId: string | null,
+): Promise<boolean> {
+  if (!planId) return false;
+  const { plans } = masterSchema;
+  const planResults = await masterDb
+    .select({ removeBranding: plans.removeBranding })
+    .from(plans)
+    .where(eq(plans.id, planId))
+    .limit(1);
+  return planResults.length > 0 ? planResults[0].removeBranding : false;
+}
+
 export function widgetAuthMiddleware() {
   return createMiddleware<{ Bindings: Env; Variables: Variables }>(
     async (c, next) => {
@@ -23,7 +49,7 @@ export function widgetAuthMiddleware() {
 
       try {
         const masterDb = getMasterDb(c.env);
-        const { widgetRegistry, workspaces, plans } = masterSchema;
+        const { widgetRegistry, workspaces } = masterSchema;
 
         const registryResults = await masterDb
           .select({
@@ -69,18 +95,7 @@ export function widgetAuthMiddleware() {
 
         const clerkOrgId = workspaceResults[0].clerkOrgId;
 
-        let removeBranding = false;
-        const { planId } = workspaceResults[0];
-        if (planId) {
-          const planResults = await masterDb
-            .select({ removeBranding: plans.removeBranding })
-            .from(plans)
-            .where(eq(plans.id, planId))
-            .limit(1);
-          if (planResults.length > 0) {
-            removeBranding = planResults[0].removeBranding;
-          }
-        }
+        const removeBranding = await loadRemoveBranding(masterDb, workspaceResults[0].planId);
 
         const tenantDb = await getTenantDbForWorkspace(c.env, clerkOrgId);
         const { deskWidgetSettings } = schema;
@@ -108,20 +123,11 @@ export function widgetAuthMiddleware() {
 
         const origin = c.req.header('Origin');
         const allowed = widgetConfig.allowedDomains ?? [];
-        if (origin && allowed.length > 0) {
-          let host = '';
-          try {
-            host = new URL(origin).hostname;
-          } catch {
-            host = origin;
-          }
-          const ok = allowed.some((d) => host === d || host.endsWith(`.${d}`));
-          if (!ok) {
-            return c.json(
-              { success: false, error: { code: 'FORBIDDEN', message: 'Origin not allowed' } },
-              403,
-            );
-          }
+        if (origin && allowed.length > 0 && !isOriginAllowed(origin, allowed)) {
+          return c.json(
+            { success: false, error: { code: 'FORBIDDEN', message: 'Origin not allowed' } },
+            403,
+          );
         }
 
         c.set('widgetId', widgetId);

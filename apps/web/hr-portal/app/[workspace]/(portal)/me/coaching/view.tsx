@@ -34,6 +34,37 @@ export default function CoachingView() {
   if (loading) return <LoadingState />;
   if (error || !data) return <ErrorState onRetry={refetch} />;
 
+  const renderAcknowledge = (log: CoachingLog) => {
+    if (log.acknowledgedAt) {
+      return <p className="text-xs text-gray-400 mt-3">{format(dict.coaching.acknowledgedOn, { date: formatDate(log.acknowledgedAt, locale, timeZone) })}</p>;
+    }
+    if (openComment !== log.id) {
+      return (
+        <Button type="button" variant="secondary" className="mt-3" onClick={() => setOpenComment(log.id)}>
+          {dict.coaching.acknowledge}
+        </Button>
+      );
+    }
+    return (
+      <div className="mt-3 space-y-2">
+        <Textarea
+          rows={2}
+          placeholder={dict.coaching.commentPlaceholder}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+        />
+        <div className="flex gap-2">
+          <Button type="button" disabled={busyId === log.id} onClick={() => void acknowledge(log.id)}>
+            {dict.coaching.acknowledge}
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setOpenComment(null)}>
+            {dict.common.cancel}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader title={dict.coaching.title} />
@@ -79,30 +110,7 @@ export default function CoachingView() {
                 </p>
               )}
 
-              {log.acknowledgedAt ? (
-                <p className="text-xs text-gray-400 mt-3">{format(dict.coaching.acknowledgedOn, { date: formatDate(log.acknowledgedAt, locale, timeZone) })}</p>
-              ) : openComment === log.id ? (
-                <div className="mt-3 space-y-2">
-                  <Textarea
-                    rows={2}
-                    placeholder={dict.coaching.commentPlaceholder}
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                  />
-                  <div className="flex gap-2">
-                    <Button type="button" disabled={busyId === log.id} onClick={() => void acknowledge(log.id)}>
-                      {dict.coaching.acknowledge}
-                    </Button>
-                    <Button type="button" variant="ghost" onClick={() => setOpenComment(null)}>
-                      {dict.common.cancel}
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <Button type="button" variant="secondary" className="mt-3" onClick={() => setOpenComment(log.id)}>
-                  {dict.coaching.acknowledge}
-                </Button>
-              )}
+              {renderAcknowledge(log)}
             </Card>
           ))}
         </div>

@@ -28,6 +28,7 @@ import type {
 } from '@weldsuite/app-api-client/schemas/wms-suppliers';
 import type { DataResponse, ListResponse } from '@weldsuite/core-api-client/types';
 import { buildQueryString } from '@weldsuite/core-api-client/types';
+import { randomSuffix } from '@/lib/random';
 
 // ============================================================================
 // Supplier response type matching what app-api /wms-suppliers returns.
@@ -180,7 +181,7 @@ export function useCreateWeldstashProduct() {
     mutationFn: async (data: CreateProductInput) => {
       const client = await getClient();
       // app-api /products requires a slug; core-api generated it server-side.
-      const slug = `${slugify(data.name)}-${Math.random().toString(36).slice(2, 8)}`;
+      const slug = `${slugify(data.name)}-${randomSuffix(6)}`;
       return client.post<DataResponse<{ id: string }>>('/products', {
         ...data,
         slug,

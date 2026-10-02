@@ -181,6 +181,12 @@ interface BookingClientProps {
   bookingPage: BookingPageProps;
 }
 
+function getLocationLabel(locationType: BookingPageProps['locationType']): string {
+  if (locationType === 'video') return 'WeldMeet';
+  if (locationType === 'phone') return 'Phone call';
+  return 'In person';
+}
+
 export function BookingClient({
   kind = 'workspace',
   workspaceSlug = '',
@@ -196,12 +202,7 @@ export function BookingClient({
 
   const accentColor = bookingPage.color || '#111827';
   const maxDate = addDays(today, bookingPage.maxAdvance ?? 60);
-  const locationLabel =
-    bookingPage.locationType === 'video'
-      ? 'WeldMeet'
-      : bookingPage.locationType === 'phone'
-        ? 'Phone call'
-        : 'In person';
+  const locationLabel = getLocationLabel(bookingPage.locationType);
 
   // Sync timezone to browser on mount.
   useEffect(() => {

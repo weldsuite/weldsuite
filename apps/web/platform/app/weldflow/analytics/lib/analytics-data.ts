@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, sql, desc, asc } from 'drizzle-orm';
+import { and, eq, gte, lte, sql, desc, asc, type SQL, type SQLWrapper } from 'drizzle-orm';
 import { getScopedDb } from '@/lib/db';
 import {
   mvProjectsSummaryDaily,
@@ -104,11 +104,28 @@ function getDateRangeFromTimeRange(timeRange: string): { start: Date; end: Date 
   return { start, end };
 }
 
+function orderBySortOrder(sortOrder: string | undefined, expr: SQL) {
+  return sortOrder === 'desc' ? desc(expr) : asc(expr);
+}
+
+function resolveLimit(limit: number | undefined, fallback: number): number {
+  return limit || fallback;
+}
+
 function getDateTruncUnit(groupBy: string): TruncUnit {
   if (VALID_TRUNC_UNITS.includes(groupBy as TruncUnit)) {
     return groupBy as TruncUnit;
   }
   return 'day';
+}
+
+/**
+ * `date_trunc('<unit>', column)`. The unit is embedded as a literal (not a parameter) so PostgreSQL can
+ * match the SELECT and GROUP BY expressions; it is safe because TruncUnit is a whitelisted union.
+ */
+function dateTrunc(unit: TruncUnit, column: SQLWrapper): SQL {
+  const quotedUnit = `'${unit}'`;
+  return sql`date_trunc(${sql.raw(quotedUnit)}, ${column})`;
 }
 
 function formatDateLabel(date: Date | string, truncUnit: TruncUnit): string {
@@ -118,8 +135,6 @@ function formatDateLabel(date: Date | string, truncUnit: TruncUnit): string {
   switch (truncUnit) {
     case 'hour':
       return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' });
-    case 'day':
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     case 'week':
       return `Week ${Math.ceil(d.getDate() / 7)}, ${d.toLocaleDateString('en-US', { month: 'short' })}`;
     case 'month':
@@ -128,6 +143,7 @@ function formatDateLabel(date: Date | string, truncUnit: TruncUnit): string {
       return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
     case 'year':
       return d.getFullYear().toString();
+    case 'day':
     default:
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
@@ -219,7 +235,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
     switch (metric) {
       case 'total_projects':
       case 'projects_by_day': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -228,8 +244,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -239,7 +255,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'active_projects': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -248,8 +264,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -267,8 +283,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(mvProjectsSummaryDaily.status)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvProjectsSummaryDaily.projectCount})`) : asc(sql`SUM(${mvProjectsSummaryDaily.projectCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvProjectsSummaryDaily.projectCount})`))
+          .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
           label: formatStatusLabel(row.status),
@@ -286,8 +302,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(and(mvBaseConditions, sql`${mvProjectsSummaryDaily.health} IS NOT NULL`))
           .groupBy(mvProjectsSummaryDaily.health)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvProjectsSummaryDaily.projectCount})`) : asc(sql`SUM(${mvProjectsSummaryDaily.projectCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvProjectsSummaryDaily.projectCount})`))
+          .limit(resolveLimit(limit, 10));
 
         const healthColorMap: Record<string, string> = {
           on_track: 'hsl(var(--chart-2))',
@@ -304,7 +320,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'completion_rate': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -314,8 +330,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const total = Number(row.total);
@@ -329,7 +345,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'budget_utilization': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -339,8 +355,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const budgeted = Number(row.budgeted);
@@ -354,7 +370,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'hours_utilization': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -364,8 +380,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const budgeted = Number(row.budgeted);
@@ -379,7 +395,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
       }
 
       case 'avg_progress': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvProjectsSummaryDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvProjectsSummaryDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -388,8 +404,8 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
           .from(mvProjectsSummaryDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -428,7 +444,7 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
     switch (metric) {
       case 'total_tasks':
       case 'tasks_by_day': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -437,8 +453,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -447,8 +463,9 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
         }));
       }
 
-      case 'completed_tasks': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
+      case 'completed_tasks':
+      case 'throughput': {
+        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -457,8 +474,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -468,7 +485,7 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
       }
 
       case 'overdue_tasks': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -477,8 +494,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -496,8 +513,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(mvTasksDaily.status)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvTasksDaily.taskCount})`) : asc(sql`SUM(${mvTasksDaily.taskCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvTasksDaily.taskCount})`))
+          .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
           label: formatStatusLabel(row.status),
@@ -515,8 +532,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(mvTasksDaily.priority)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvTasksDaily.taskCount})`) : asc(sql`SUM(${mvTasksDaily.taskCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvTasksDaily.taskCount})`))
+          .limit(resolveLimit(limit, 10));
 
         const priorityColorMap: Record<string, string> = {
           critical: 'hsl(var(--destructive))',
@@ -542,8 +559,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(and(mvBaseConditions, sql`${mvTasksDaily.type} IS NOT NULL`))
           .groupBy(mvTasksDaily.type)
-          .orderBy(sortOrder === 'desc' ? desc(sql`SUM(${mvTasksDaily.taskCount})`) : asc(sql`SUM(${mvTasksDaily.taskCount})`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`SUM(${mvTasksDaily.taskCount})`))
+          .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
           label: formatTypeLabel(row.type || 'Unknown'),
@@ -552,28 +569,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
         }));
       }
 
-      case 'throughput': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
-        const results = await db
-          .select({
-            period: periodExpr,
-            count: sql<number>`SUM(${mvTasksDaily.completedCount})`,
-          })
-          .from(mvTasksDaily)
-          .where(mvBaseConditions)
-          .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
-
-        return results.map((row, i) => ({
-          label: formatDateLabel(row.period as Date, truncUnit),
-          value: Number(row.count) || 0,
-          fill: CHART_COLORS[i % CHART_COLORS.length],
-        }));
-      }
-
       case 'estimation_accuracy': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTasksDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTasksDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -583,8 +580,8 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .from(mvTasksDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const estimated = Number(row.estimated);
@@ -627,7 +624,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
     switch (metric) {
       case 'total_hours':
       case 'hours_by_day': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -636,8 +633,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -647,7 +644,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
       }
 
       case 'billable_hours': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -656,8 +653,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -667,7 +664,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
       }
 
       case 'non_billable_hours': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -676,8 +673,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -687,7 +684,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
       }
 
       case 'utilization_rate': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -697,8 +694,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => {
           const total = Number(row.total);
@@ -712,7 +709,7 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
       }
 
       case 'total_cost': {
-        const periodExpr = sql`date_trunc(${sql.raw(`'${truncUnit}'`)}, ${mvTimeEntriesDaily.period})`;
+        const periodExpr = dateTrunc(truncUnit, mvTimeEntriesDaily.period);
         const results = await db
           .select({
             period: periodExpr,
@@ -721,8 +718,8 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvTimeEntriesDaily)
           .where(mvBaseConditions)
           .groupBy(periodExpr)
-          .orderBy(sortOrder === 'desc' ? desc(periodExpr) : asc(periodExpr))
-          .limit(limit || 100);
+          .orderBy(orderBySortOrder(sortOrder, periodExpr))
+          .limit(resolveLimit(limit, 100));
 
         return results.map((row, i) => ({
           label: formatDateLabel(row.period as Date, truncUnit),
@@ -751,25 +748,7 @@ async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataP
     const mvBaseConditions = projectId ? eq(mvMilestoneStats.projectId, projectId) : undefined;
 
     switch (metric) {
-      case 'total_milestones': {
-        const results = await db
-          .select({
-            status: mvMilestoneStats.status,
-            count: sql<number>`COUNT(*)`,
-          })
-          .from(mvMilestoneStats)
-          .where(mvBaseConditions)
-          .groupBy(mvMilestoneStats.status)
-          .orderBy(sortOrder === 'desc' ? desc(sql`COUNT(*)`) : asc(sql`COUNT(*)`))
-          .limit(limit || 10);
-
-        return results.map((row, i) => ({
-          label: formatStatusLabel(row.status),
-          value: Number(row.count) || 0,
-          fill: CHART_COLORS[i % CHART_COLORS.length],
-        }));
-      }
-
+      case 'total_milestones':
       case 'milestones_by_status': {
         const results = await db
           .select({
@@ -779,8 +758,8 @@ async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvMilestoneStats)
           .where(mvBaseConditions)
           .groupBy(mvMilestoneStats.status)
-          .orderBy(sortOrder === 'desc' ? desc(sql`COUNT(*)`) : asc(sql`COUNT(*)`))
-          .limit(limit || 10);
+          .orderBy(orderBySortOrder(sortOrder, sql`COUNT(*)`))
+          .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
           label: formatStatusLabel(row.status),

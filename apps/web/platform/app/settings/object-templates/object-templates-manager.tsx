@@ -227,13 +227,14 @@ export function ObjectTemplatesManager() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
+              {isLoading && (
                 <TableRow>
                   <TableCell colSpan={4} className="h-24 text-center">
                     <span className="text-sm text-muted-foreground">{tot.loading}</span>
                   </TableCell>
                 </TableRow>
-              ) : rows.length ? (
+              )}
+              {!isLoading && rows.length > 0 &&
                 rows.map((tpl) => (
                   <TableRow key={tpl.id} className="group h-[50px]">
                     <TableCell>
@@ -301,8 +302,8 @@ export function ObjectTemplatesManager() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))
-              ) : (
+                ))}
+              {!isLoading && rows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={4} className="h-24 text-center">
                     <p className="text-sm text-muted-foreground">

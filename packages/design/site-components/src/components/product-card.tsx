@@ -25,6 +25,147 @@ interface ProductCardProps {
   priceColor?: string;
 }
 
+const IMAGE_RATIO_CLASSES: Record<string, string> = {
+  '1/1': 'aspect-square',
+  '4/5': 'aspect-[4/5]',
+  '3/4': 'aspect-[3/4]',
+  '16/9': 'aspect-video',
+  auto: '',
+};
+
+const IMAGE_SHAPE_CLASSES: Record<string, string> = {
+  square: '',
+  rounded: 'rounded-lg',
+  circle: 'rounded-full',
+};
+
+const CARD_STYLE_CLASSES: Record<string, string> = {
+  default: '',
+  bordered: 'border border-gray-200',
+  shadow: 'shadow-md',
+  elevated: 'shadow-lg hover:shadow-xl',
+};
+
+const TITLE_SIZE_CLASSES: Record<string, string> = {
+  xs: 'text-xs',
+  sm: 'text-sm',
+  base: 'text-base',
+  lg: 'text-lg',
+  xl: 'text-xl',
+};
+
+const PRICE_SIZE_CLASSES: Record<string, string> = {
+  sm: 'text-sm',
+  base: 'text-base',
+  lg: 'text-lg',
+  xl: 'text-xl',
+};
+
+const TEXT_ALIGNMENT_CLASSES: Record<string, string> = {
+  left: 'text-left',
+  center: 'text-center',
+  right: 'text-right',
+};
+
+const PRICE_JUSTIFY_CLASSES: Record<string, string> = {
+  center: 'justify-center',
+  right: 'justify-end',
+};
+
+const IMAGE_HOVER_EFFECT_CLASSES: Record<string, string> = {
+  none: '',
+  zoom: 'group-hover:scale-110 transition-transform duration-500',
+  fade: 'group-hover:opacity-80 transition-opacity duration-500',
+  lift: 'group-hover:-translate-y-2 transition-transform duration-500',
+};
+
+const CARD_HOVER_EFFECT_CLASSES: Record<string, string> = {
+  none: '',
+  shadow: 'hover:shadow-lg transition-shadow duration-300',
+  border: 'hover:border-gray-400 transition-colors duration-300',
+  scale: 'hover:scale-105 transition-transform duration-300',
+};
+
+interface ProductRatingProps {
+  rating?: number;
+  reviewCount?: number;
+}
+
+function ProductRating({ rating, reviewCount }: ProductRatingProps) {
+  if (!rating) return null;
+  return (
+    <div className="flex items-center gap-1">
+      <div className="flex">
+        {[...Array(5)].map((_, i) => (
+          <svg
+            key={i}
+            className={`w-3 h-3 ${i < Math.floor(rating) ? 'text-black' : 'text-gray-300'}`}
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
+          </svg>
+        ))}
+      </div>
+      {reviewCount && (
+        <span className="text-xs text-gray-500">({reviewCount})</span>
+      )}
+    </div>
+  );
+}
+
+function getPricing(product: Product) {
+  const price = toPriceNumber(product.price);
+  const compareAtPrice = product.compareAtPrice ? toPriceNumber(product.compareAtPrice) : null;
+  return {
+    price,
+    formattedPrice: `$${price.toFixed(2)}`,
+    // Compare at price (sale price)
+    formattedComparePrice: compareAtPrice ? `$${compareAtPrice.toFixed(2)}` : null,
+    onSale: !!compareAtPrice && compareAtPrice > price,
+    isOutOfStock: product.stock !== undefined && product.stock <= 0,
+  };
+}
+
+interface ProductCardImagesProps {
+  name?: string;
+  imageUrl?: string;
+  secondImage?: string;
+  isHovered: boolean;
+  imageHoverEffectClass: string;
+}
+
+function ProductCardImages({ name, imageUrl, secondImage, isHovered, imageHoverEffectClass }: ProductCardImagesProps) {
+  // Gray placeholder when no image
+  if (!imageUrl) return <div className="absolute inset-0 w-full h-full bg-gray-200" />;
+
+  return (
+    <>
+      {/* Main Image */}
+      <img
+        src={imageUrl}
+        alt={name}
+        loading="lazy"
+        className={`absolute inset-0 w-full h-full object-cover ${imageHoverEffectClass} ${
+          isHovered && secondImage ? 'opacity-0' : 'opacity-100'
+        } transition-opacity duration-300`}
+      />
+
+      {/* Secondary Image on Hover (Shopify pattern) */}
+      {secondImage && (
+        <img
+          src={secondImage}
+          alt={`${name} alternate view`}
+          loading="lazy"
+          className={`absolute inset-0 w-full h-full object-cover ${imageHoverEffectClass} ${
+            isHovered ? 'opacity-100' : 'opacity-0'
+          } transition-opacity duration-300`}
+        />
+      )}
+    </>
+  );
+}
+
 export function ProductCard({
   product,
   onAddToCart,
@@ -50,141 +191,34 @@ export function ProductCard({
   const imageUrl = product.imageUrl || productImages[0];
   const secondImage = productImages[1];
 
-  const price = toPriceNumber(product.price);
-  const formattedPrice = `$${price.toFixed(2)}`;
-  const isOutOfStock = product.stock !== undefined && product.stock <= 0;
+  const { formattedPrice, formattedComparePrice, onSale, isOutOfStock } = getPricing(product);
 
-  // Compare at price (sale price)
-  const compareAtPrice = product.compareAtPrice ? toPriceNumber(product.compareAtPrice) : null;
-  const formattedComparePrice = compareAtPrice ? `$${compareAtPrice.toFixed(2)}` : null;
-  const onSale = compareAtPrice && compareAtPrice > price;
-
-  // Image ratio classes
-  const getImageRatioClass = () => {
-    switch (imageRatio) {
-      case '1/1': return 'aspect-square';
-      case '4/5': return 'aspect-[4/5]';
-      case '3/4': return 'aspect-[3/4]';
-      case '16/9': return 'aspect-video';
-      case 'auto': return '';
-      default: return 'aspect-[4/5]';
-    }
-  };
-
-  // Image shape classes
-  const getImageShapeClass = () => {
-    switch (imageShape) {
-      case 'square': return '';
-      case 'rounded': return 'rounded-lg';
-      case 'circle': return 'rounded-full';
-      default: return '';
-    }
-  };
-
-  // Card style classes
-  const getCardStyleClass = () => {
-    switch (cardStyle) {
-      case 'default': return '';
-      case 'bordered': return 'border border-gray-200';
-      case 'shadow': return 'shadow-md';
-      case 'elevated': return 'shadow-lg hover:shadow-xl';
-      default: return '';
-    }
-  };
-
-  // Title size classes
-  const getTitleSizeClass = () => {
-    switch (titleSize) {
-      case 'xs': return 'text-xs';
-      case 'sm': return 'text-sm';
-      case 'base': return 'text-base';
-      case 'lg': return 'text-lg';
-      case 'xl': return 'text-xl';
-      default: return 'text-sm';
-    }
-  };
-
-  // Price size classes
-  const getPriceSizeClass = () => {
-    switch (priceSize) {
-      case 'sm': return 'text-sm';
-      case 'base': return 'text-base';
-      case 'lg': return 'text-lg';
-      case 'xl': return 'text-xl';
-      default: return 'text-sm';
-    }
-  };
-
-  // Text alignment classes
-  const getTextAlignmentClass = () => {
-    switch (textAlignment) {
-      case 'left': return 'text-left';
-      case 'center': return 'text-center';
-      case 'right': return 'text-right';
-      default: return 'text-left';
-    }
-  };
-
-  // Image hover effect classes
-  const getImageHoverEffectClass = () => {
-    switch (imageHoverEffect) {
-      case 'none': return '';
-      case 'zoom': return 'group-hover:scale-110 transition-transform duration-500';
-      case 'fade': return 'group-hover:opacity-80 transition-opacity duration-500';
-      case 'lift': return 'group-hover:-translate-y-2 transition-transform duration-500';
-      default: return '';
-    }
-  };
-
-  // Card hover effect classes
-  const getCardHoverEffectClass = () => {
-    switch (cardHoverEffect) {
-      case 'none': return '';
-      case 'shadow': return 'hover:shadow-lg transition-shadow duration-300';
-      case 'border': return 'hover:border-gray-400 transition-colors duration-300';
-      case 'scale': return 'hover:scale-105 transition-transform duration-300';
-      default: return '';
-    }
-  };
+  const imageRatioClass = IMAGE_RATIO_CLASSES[imageRatio] ?? 'aspect-[4/5]';
+  const imageShapeClass = IMAGE_SHAPE_CLASSES[imageShape] ?? '';
+  const cardStyleClass = CARD_STYLE_CLASSES[cardStyle] ?? '';
+  const titleSizeClass = TITLE_SIZE_CLASSES[titleSize] ?? 'text-sm';
+  const priceSizeClass = PRICE_SIZE_CLASSES[priceSize] ?? 'text-sm';
+  const textAlignmentClass = TEXT_ALIGNMENT_CLASSES[textAlignment] ?? 'text-left';
+  const priceJustifyClass = PRICE_JUSTIFY_CLASSES[textAlignment] ?? 'justify-start';
+  const imageHoverEffectClass = IMAGE_HOVER_EFFECT_CLASSES[imageHoverEffect] ?? '';
+  const cardHoverEffectClass = CARD_HOVER_EFFECT_CLASSES[cardHoverEffect] ?? '';
 
   return (
     <div
-      className={`group relative flex flex-col h-full ${getCardStyleClass()} ${getCardHoverEffectClass()}`}
+      className={`group relative flex flex-col h-full ${cardStyleClass} ${cardHoverEffectClass}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Image Container */}
-      <div className={`relative ${getImageRatioClass()} overflow-hidden bg-gray-200 mb-4 ${getImageShapeClass()}`}>
+      <div className={`relative ${imageRatioClass} overflow-hidden bg-gray-200 mb-4 ${imageShapeClass}`}>
         <a href="#" className="block w-full h-full">
-          {/* Only render images if they exist */}
-          {imageUrl ? (
-            <>
-              {/* Main Image */}
-              <img
-                src={imageUrl}
-                alt={product.name}
-                loading="lazy"
-                className={`absolute inset-0 w-full h-full object-cover ${getImageHoverEffectClass()} ${
-                  isHovered && secondImage ? 'opacity-0' : 'opacity-100'
-                } transition-opacity duration-300`}
-              />
-
-              {/* Secondary Image on Hover (Shopify pattern) */}
-              {secondImage && (
-                <img
-                  src={secondImage}
-                  alt={`${product.name} alternate view`}
-                  loading="lazy"
-                  className={`absolute inset-0 w-full h-full object-cover ${getImageHoverEffectClass()} ${
-                    isHovered ? 'opacity-100' : 'opacity-0'
-                  } transition-opacity duration-300`}
-                />
-              )}
-            </>
-          ) : (
-            /* Gray placeholder when no image */
-            <div className="absolute inset-0 w-full h-full bg-gray-200" />
-          )}
+          <ProductCardImages
+            name={product.name}
+            imageUrl={imageUrl}
+            secondImage={secondImage}
+            isHovered={isHovered}
+            imageHoverEffectClass={imageHoverEffectClass}
+          />
         </a>
 
         {/* Badge - Top Left (Sale, New, etc.) */}
@@ -239,7 +273,7 @@ export function ProductCard({
       </div>
 
       {/* Product Info */}
-      <div className={`flex flex-col gap-1 ${getTextAlignmentClass()}`}>
+      <div className={`flex flex-col gap-1 ${textAlignmentClass}`}>
         {/* Vendor/Category */}
         {showVendor && product.category && (
           <p className="text-xs text-gray-500 uppercase tracking-wide" style={{ color: textColor }}>
@@ -249,39 +283,21 @@ export function ProductCard({
 
         {/* Product Name */}
         <a href="#" className="group-hover:underline">
-          <h3 className={`${getTitleSizeClass()} font-normal line-clamp-2`} style={{ color: textColor || '#111827' }}>
+          <h3 className={`${titleSizeClass} font-normal line-clamp-2`} style={{ color: textColor || '#111827' }}>
             {product.name}
           </h3>
         </a>
 
         {/* Rating (if available) */}
-        {showRatings && product.rating && (
-          <div className="flex items-center gap-1">
-            <div className="flex">
-              {[...Array(5)].map((_, i) => (
-                <svg
-                  key={i}
-                  className={`w-3 h-3 ${i < Math.floor(product.rating!) ? 'text-black' : 'text-gray-300'}`}
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
-                </svg>
-              ))}
-            </div>
-            {product.reviewCount && (
-              <span className="text-xs text-gray-500">({product.reviewCount})</span>
-            )}
-          </div>
-        )}
+        {showRatings && <ProductRating rating={product.rating} reviewCount={product.reviewCount} />}
 
         {/* Price */}
-        <div className={`flex items-center gap-2 mt-1 ${textAlignment === 'center' ? 'justify-center' : textAlignment === 'right' ? 'justify-end' : 'justify-start'}`}>
-          <span className={`${getPriceSizeClass()} font-medium`} style={{ color: priceColor || '#111827' }}>
+        <div className={`flex items-center gap-2 mt-1 ${priceJustifyClass}`}>
+          <span className={`${priceSizeClass} font-medium`} style={{ color: priceColor || '#111827' }}>
             {formattedPrice}
           </span>
           {onSale && formattedComparePrice && (
-            <span className={`${getPriceSizeClass()} text-gray-500 line-through`}>
+            <span className={`${priceSizeClass} text-gray-500 line-through`}>
               {formattedComparePrice}
             </span>
           )}

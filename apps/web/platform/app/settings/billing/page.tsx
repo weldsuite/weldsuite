@@ -75,19 +75,11 @@ interface WorkspaceSettingsData extends WorkspaceBusinessSettings {
   };
 }
 
-function PhoneNumbersTable({
-  phoneNumbers,
-  phoneSubscription,
-  formatCurrency,
-}: Readonly<{
-  phoneNumbers: VoipPhoneNumber[];
-  phoneSubscription: PhoneSubscriptionResponse | null;
-  formatCurrency: (amount: number, currency?: string) => string;
-}>) {
-  const { t } = useI18n();
-  const st = useTranslations();
-  const ts = t.settings.billing;
-  const columns: ColumnDef<VoipPhoneNumber>[] = useMemo(() => [
+type BillingStrings = ReturnType<typeof useI18n>['t']['settings']['billing'];
+type Translate = ReturnType<typeof useTranslations>;
+
+function buildPhoneColumns(ts: BillingStrings, st: Translate): ColumnDef<VoipPhoneNumber>[] {
+  return [
     {
       accessorKey: 'phoneNumber',
       header: ts.number,
@@ -142,7 +134,22 @@ function PhoneNumbersTable({
         </Badge>
       ),
     },
-  ], [ts, st]);
+  ];
+}
+
+function PhoneNumbersTable({
+  phoneNumbers,
+  phoneSubscription,
+  formatCurrency,
+}: Readonly<{
+  phoneNumbers: VoipPhoneNumber[];
+  phoneSubscription: PhoneSubscriptionResponse | null;
+  formatCurrency: (amount: number, currency?: string) => string;
+}>) {
+  const { t } = useI18n();
+  const st = useTranslations();
+  const ts = t.settings.billing;
+  const columns = useMemo(() => buildPhoneColumns(ts, st), [ts, st]);
 
   const table = useReactTable({
     data: phoneNumbers,
@@ -205,10 +212,17 @@ function PhoneNumbersTable({
   );
 }
 
-function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
-  const { t } = useI18n();
-  const ts = t.settings.billing;
-  const columns: ColumnDef<HostDomain>[] = useMemo(() => [
+const DOMAIN_STATUS_CLASSES: Record<string, string> = {
+  active: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800',
+  expired: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800',
+};
+
+function domainStatusClass(status: string | null | undefined): string {
+  return (status && DOMAIN_STATUS_CLASSES[status]) || '';
+}
+
+function buildDomainColumns(ts: BillingStrings, statusLabel: string): ColumnDef<HostDomain>[] {
+  return [
     {
       accessorKey: 'fullDomain',
       header: ts.domain,
@@ -242,7 +256,7 @@ function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
     },
     {
       id: 'status',
-      header: t.common.labels.status,
+      header: statusLabel,
       cell: ({ row }) => {
         const domain = row.original;
         const isExpiringSoon = domain.expiresAt && new Date(domain.expiresAt) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -255,13 +269,7 @@ function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
             )}
             <Badge
               variant="outline"
-              className={`rounded-sm text-xs capitalize ${
-                domain.status === 'active'
-                  ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800'
-                  : domain.status === 'expired'
-                  ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
-                  : ''
-              }`}
+              className={`rounded-sm text-xs capitalize ${domainStatusClass(domain.status)}`}
             >
               {domain.status}
             </Badge>
@@ -269,7 +277,13 @@ function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
         );
       },
     },
-  ], [ts, t]);
+  ];
+}
+
+function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
+  const { t } = useI18n();
+  const ts = t.settings.billing;
+  const columns = useMemo(() => buildDomainColumns(ts, t.common.labels.status), [ts, t.common.labels.status]);
 
   const table = useReactTable({
     data: domains,
@@ -318,6 +332,49 @@ function DomainsTable({ domains }: Readonly<{ domains: HostDomain[] }>) {
       </Table>
     </div>
   );
+}
+
+// Seat and credit usage figures derived from the subscription and plan limits.
+function computeBillingUsage(
+  subscription: BillingSubscriptionResponse | null,
+  planLimits: Billing.PlanLimits | null,
+) {
+  const membersUsed = subscription?.usedSeats || planLimits?.currentUsage?.memberCount || 1;
+  const membersTotal = subscription?.purchasedSeats || planLimits?.maxMembers || planLimits?.purchasedSeats;
+  const membersPercentage = membersTotal ? (membersUsed / membersTotal) * 100 : 0;
+
+  const creditsUsed = planLimits?.currentUsage?.aiCreditsUsedThisMonth || 0;
+  const creditsTotal = planLimits?.currentUsage?.creditsMonthlyAllocation || planLimits?.aiCreditsPerMonth || 250;
+  const creditsBalance = planLimits?.currentUsage?.creditsBalance ?? (creditsTotal - creditsUsed);
+
+  return { membersUsed, membersTotal, membersPercentage, creditsBalance };
+}
+
+// Subtitle under "Current plan": renewal / cancellation date, or the raw status.
+function describePlanStatus(
+  subscription: BillingSubscriptionResponse | null,
+  renewalDate: string,
+  ts: BillingStrings,
+): string {
+  if (subscription?.status === 'active' && !subscription?.cancelAtPeriodEnd) {
+    return ts.renews.replace('{date}', renewalDate);
+  }
+  if (subscription?.cancelAtPeriodEnd) {
+    return ts.cancels.replace('{date}', renewalDate);
+  }
+  return subscription?.status || ts.accessDeniedPlans;
+}
+
+function formatBillingAddress(details: {
+  addressLine1: string;
+  city: string;
+  country: string;
+}): string {
+  if (!details.addressLine1) return '';
+  const parts = [details.addressLine1];
+  if (details.city) parts.push(details.city);
+  if (details.country) parts.push(details.country);
+  return parts.join(', ');
 }
 
 export default function BillingSettingsPage() {
@@ -428,7 +485,8 @@ export default function BillingSettingsPage() {
     if (credits) {
       params.delete('credits');
       const qs = params.toString();
-      window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+      const search = qs ? `?${qs}` : '';
+      window.history.replaceState({}, '', `${window.location.pathname}${search}`);
     }
   }, [ts]);
 
@@ -525,13 +583,7 @@ export default function BillingSettingsPage() {
     ? format(new Date(subscription.currentPeriodEnd), 'MMMM do, yyyy')
     : st('sweep.settings.billingPage.notAvailable');
 
-  const membersUsed = subscription?.usedSeats || planLimits?.currentUsage?.memberCount || 1;
-  const membersTotal = subscription?.purchasedSeats || planLimits?.maxMembers || planLimits?.purchasedSeats;
-  const membersPercentage = membersTotal ? (membersUsed / membersTotal) * 100 : 0;
-
-  const creditsUsed = planLimits?.currentUsage?.aiCreditsUsedThisMonth || 0;
-  const creditsTotal = planLimits?.currentUsage?.creditsMonthlyAllocation || planLimits?.aiCreditsPerMonth || 250;
-  const creditsBalance = planLimits?.currentUsage?.creditsBalance ?? (creditsTotal - creditsUsed);
+  const { membersUsed, membersTotal, membersPercentage, creditsBalance } = computeBillingUsage(subscription, planLimits);
 
   return (
     <div className="space-y-10 max-w-4xl">
@@ -545,11 +597,7 @@ export default function BillingSettingsPage() {
       <div>
         <h2 className="text-base font-semibold mb-1">{ts.currentPlan}</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          {subscription?.status === 'active' && !subscription?.cancelAtPeriodEnd
-            ? ts.renews.replace('{date}', renewalDate)
-            : subscription?.cancelAtPeriodEnd
-            ? ts.cancels.replace('{date}', renewalDate)
-            : subscription?.status || ts.accessDeniedPlans}
+          {describePlanStatus(subscription, renewalDate, ts)}
         </p>
 
         <div className="border rounded-xl p-4 flex items-center justify-between">
@@ -706,9 +754,7 @@ export default function BillingSettingsPage() {
                 </TableCell>
                 <TableCell className="h-[42px] py-0 px-3 text-right">
                   <span className="text-sm">
-                    {billingDetails.addressLine1
-                      ? `${billingDetails.addressLine1}${billingDetails.city ? `, ${billingDetails.city}` : ''}${billingDetails.country ? `, ${billingDetails.country}` : ''}`
-                      : '\u2014'}
+                    {formatBillingAddress(billingDetails) || '\u2014'}
                   </span>
                 </TableCell>
               </TableRow>

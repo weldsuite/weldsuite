@@ -24,6 +24,87 @@ interface ComposeData {
   post: SocialPost | null;
 }
 
+interface AccountPickerProps {
+  accounts: SocialAccount[];
+  selectedIds: string[];
+  onToggle: (accountId: string) => void;
+}
+
+function AccountPicker({ accounts, selectedIds, onToggle }: AccountPickerProps) {
+  const { colors } = useTheme();
+  if (!accounts.length) {
+    return (
+      <Banner variant="info" title="No connected accounts">
+        Connect social accounts from the Accounts screen first.
+      </Banner>
+    );
+  }
+  return (
+    <View style={styles.chipWrap}>
+      {accounts.map((account) => {
+        const meta = PLATFORM_META[account.platform];
+        return (
+          <Chip
+            key={account.id}
+            label={`${meta?.label ?? account.platform} · ${account.name}`}
+            selected={selectedIds.includes(account.id)}
+            onPress={() => onToggle(account.id)}
+            leftIcon={<View style={[styles.platformDot, { backgroundColor: meta?.color ?? colors.muted }]} />}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+interface MediaPickerProps {
+  media: SocialMedia[];
+  selectedIds: string[];
+  onToggle: (mediaId: string) => void;
+}
+
+function MediaPicker({ media, selectedIds, onToggle }: MediaPickerProps) {
+  const { colors } = useTheme();
+  if (!media.length) {
+    return (
+      <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+        No media in the library yet — add an image by URL.
+      </Text>
+    );
+  }
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+      {media.map((item) => {
+        const selected = selectedIds.includes(item.id);
+        return (
+          <TouchableOpacity
+            key={item.id}
+            onPress={() => onToggle(item.id)}
+            style={[
+              styles.mediaTile,
+              { borderColor: selected ? colors.info : colors.border, backgroundColor: colors.card },
+            ]}
+          >
+            {item.thumbnailUrl || item.url ? (
+              <Image source={{ uri: item.thumbnailUrl || item.url || undefined }} style={styles.mediaImage} />
+            ) : (
+              <View style={[styles.mediaImage, { backgroundColor: colors.skeleton }]} />
+            )}
+            {selected && (
+              <View style={[styles.mediaCheck, { backgroundColor: colors.info }]}>
+                <Check size={12} color="#fff" />
+              </View>
+            )}
+            <Text style={[styles.mediaName, { color: colors.mutedForeground }]} numberOfLines={1}>
+              {item.fileName}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 /**
  * Composer — create a new post or edit an existing one (`?id=`).
  *
@@ -241,29 +322,7 @@ export default function ComposeScreen() {
 
             <View>
               <Text style={[styles.label, { color: colors.text }]}>Accounts</Text>
-              {accounts.length ? (
-                <View style={styles.chipWrap}>
-                  {accounts.map((account) => {
-                    const selected = selectedAccountIds.includes(account.id);
-                    const meta = PLATFORM_META[account.platform];
-                    return (
-                      <Chip
-                        key={account.id}
-                        label={`${meta?.label ?? account.platform} · ${account.name}`}
-                        selected={selected}
-                        onPress={() => toggleAccount(account.id)}
-                        leftIcon={
-                          <View style={[styles.platformDot, { backgroundColor: meta?.color ?? colors.muted }]} />
-                        }
-                      />
-                    );
-                  })}
-                </View>
-              ) : (
-                <Banner variant="info" title="No connected accounts">
-                  Connect social accounts from the Accounts screen first.
-                </Banner>
-              )}
+              <AccountPicker accounts={accounts} selectedIds={selectedAccountIds} onToggle={toggleAccount} />
             </View>
 
             <View>
@@ -274,41 +333,7 @@ export default function ComposeScreen() {
                   <Text style={[styles.addMediaText, { color: colors.info }]}>Add by URL</Text>
                 </TouchableOpacity>
               </View>
-              {media.length ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {media.map((item) => {
-                    const selected = selectedMediaIds.includes(item.id);
-                    return (
-                      <TouchableOpacity
-                        key={item.id}
-                        onPress={() => toggleMedia(item.id)}
-                        style={[
-                          styles.mediaTile,
-                          { borderColor: selected ? colors.info : colors.border, backgroundColor: colors.card },
-                        ]}
-                      >
-                        {item.thumbnailUrl || item.url ? (
-                          <Image source={{ uri: item.thumbnailUrl || item.url || undefined }} style={styles.mediaImage} />
-                        ) : (
-                          <View style={[styles.mediaImage, { backgroundColor: colors.skeleton }]} />
-                        )}
-                        {selected && (
-                          <View style={[styles.mediaCheck, { backgroundColor: colors.info }]}>
-                            <Check size={12} color="#fff" />
-                          </View>
-                        )}
-                        <Text style={[styles.mediaName, { color: colors.mutedForeground }]} numberOfLines={1}>
-                          {item.fileName}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              ) : (
-                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-                  No media in the library yet — add an image by URL.
-                </Text>
-              )}
+              <MediaPicker media={media} selectedIds={selectedMediaIds} onToggle={toggleMedia} />
             </View>
 
             <View>

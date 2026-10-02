@@ -59,6 +59,37 @@ export function PiPCallWidget() {
   return <PiPCallWidgetInner />;
 }
 
+/**
+ * Whether the user is currently viewing the call's own conversation.
+ * The URL param differs by route shape, so we can't just compare it to channelId:
+ *   • 1:1 DM    → /weldchat/dm/$userId          (param is the OTHER user's id)
+ *   • group DM  → /weldchat/dm/group/$channelId (param is the channel id)
+ *   • channel   → /weldchat/$channelId          (param is the channel id)
+ */
+function isOnCallConversation(
+  pathname: string | null | undefined,
+  channelId: string | null | undefined,
+  otherMemberUserId: string | null | undefined,
+): boolean {
+  const groupMatch = pathname?.match(/\/weldchat\/dm\/group\/([^/]+)/);
+  if (groupMatch) return groupMatch[1] === channelId;
+  const dmMatch = pathname?.match(/\/weldchat\/dm\/([^/]+)/);
+  if (dmMatch) return !!otherMemberUserId && dmMatch[1] === otherMemberUserId;
+  const channelMatch = pathname?.match(/\/weldchat\/([^/]+)/);
+  return !!channelMatch && channelMatch[1] === channelId;
+}
+
+/** Video source for the widget — prefer the first remote participant, fall back to self. */
+function pickVideoSource(remote: RTKParticipant | undefined, self: RTKSelf | undefined) {
+  if (remote?.videoEnabled && remote.videoTrack) {
+    return { videoTrack: remote.videoTrack, hasRemoteVideo: true };
+  }
+  if (self?.videoEnabled && self.videoTrack) {
+    return { videoTrack: self.videoTrack, hasRemoteVideo: false };
+  }
+  return { videoTrack: null, hasRemoteVideo: false };
+}
+
 function PiPCallWidgetInner() {
   const { t } = useI18n();
   const {
@@ -92,18 +123,7 @@ function PiPCallWidgetInner() {
     : channel?.name || t.weldchat.pipCallWidget.call;
 
   // Determine whether the user is currently viewing the call's own conversation.
-  // The URL param differs by route shape, so we can't just compare it to channelId:
-  //   • 1:1 DM    → /weldchat/dm/$userId          (param is the OTHER user's id)
-  //   • group DM  → /weldchat/dm/group/$channelId (param is the channel id)
-  //   • channel   → /weldchat/$channelId          (param is the channel id)
-  const groupMatch = pathname?.match(/\/weldchat\/dm\/group\/([^/]+)/);
-  const dmMatch = pathname?.match(/\/weldchat\/dm\/([^/]+)/);
-  const channelMatch = pathname?.match(/\/weldchat\/([^/]+)/);
-  const isOnCallPage = groupMatch
-    ? groupMatch[1] === channelId
-    : dmMatch
-      ? !!otherMember?.userId && dmMatch[1] === otherMember.userId
-      : !!channelMatch && channelMatch[1] === channelId;
+  const isOnCallPage = isOnCallConversation(pathname, channelId, otherMember?.userId);
 
   const pipVideoRef = useRef<HTMLVideoElement | null>(null);
   const pipActiveRef = useRef(false);
@@ -130,9 +150,7 @@ function PiPCallWidgetInner() {
   // Get video source — prefer remote participant, fall back to self
   const remoteParticipants = meeting?.participants?.joined?.toArray() || [];
   const firstRemote = remoteParticipants[0];
-  const hasRemoteVideo = firstRemote?.videoEnabled && firstRemote?.videoTrack;
-  const hasSelfVideo = meeting?.self?.videoEnabled && meeting?.self?.videoTrack;
-  const videoTrack = hasRemoteVideo ? firstRemote.videoTrack : hasSelfVideo ? meeting.self.videoTrack : null;
+  const { videoTrack, hasRemoteVideo } = pickVideoSource(firstRemote, meeting?.self);
 
   const enterNativePiP = useCallback(async () => {
     const video = pipVideoRef.current;
@@ -291,13 +309,18 @@ function PiPCallWidgetInner() {
       !hasAnimatedRef.current && shouldShow && "animate-in slide-in-from-bottom-4 fade-in duration-300",
     )}>
       {/* Video / Avatar area */}
-      <div
-        className="relative mx-2 mt-2 aspect-video rounded-xl overflow-hidden bg-muted flex items-center justify-center cursor-pointer"
-        onClick={() => {
-          expandFromPiP();
-          toggleFullscreen();
-        }}
-      >
+      <div className="relative mx-2 mt-2 aspect-video rounded-xl overflow-hidden bg-muted flex items-center justify-center">
+        {/* Whole-area click target: a native button overlay (a wrapper can't be a
+            button because it also hosts the expand button below). */}
+        <button
+          type="button"
+          className="absolute inset-0 z-10 cursor-pointer rounded-xl focus-visible:outline-2 focus-visible:outline-ring"
+          aria-label={t.weldchat.pipCallWidget.expand}
+          onClick={() => {
+            expandFromPiP();
+            toggleFullscreen();
+          }}
+        />
         {videoTrack ? (
           <video
             ref={videoRef}
@@ -316,9 +339,8 @@ function PiPCallWidgetInner() {
         {/* Expand button */}
         <Button
           variant="ghost"
-          className="absolute top-2 right-2 p-1.5 rounded-lg bg-background/70 hover:bg-muted/70 transition-colors"
-          onClick={(e) => {
-            e.stopPropagation();
+          className="absolute top-2 right-2 z-20 p-1.5 rounded-lg bg-background/70 hover:bg-muted/70 transition-colors"
+          onClick={() => {
             expandFromPiP();
             toggleFullscreen();
           }}
@@ -328,7 +350,7 @@ function PiPCallWidgetInner() {
         </Button>
 
         {/* Name tag */}
-        <span className="absolute top-2 left-2 text-foreground/80 text-xs font-medium bg-background/60 rounded-md px-1.5 py-0.5">
+        <span className="absolute top-2 left-2 pointer-events-none text-foreground/80 text-xs font-medium bg-background/60 rounded-md px-1.5 py-0.5">
           {callLabel}
         </span>
       </div>

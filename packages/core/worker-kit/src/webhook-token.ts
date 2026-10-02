@@ -1,16 +1,14 @@
 /**
  * Shared-token webhook authentication.
  *
- * For providers whose own signature scheme is unavailable or undocumented —
- * currently Cloudflare RealtimeKit (post-Dyte migration, HMAC scheme
- * undocumented) and MeetingBaas — we secure the receiver by registering the
- * webhook URL with a `?token=<secret>` value that only we and the provider
- * know, then requiring an exact, constant-time match on every inbound request.
+ * For providers without a usable signature scheme (currently MeetingBaas and
+ * Realtime Register) we secure the receiver by registering the webhook URL
+ * with a `?token=<secret>` value that only we and the provider know, then
+ * requiring an exact, constant-time match on every inbound request.
  *
- * Optional-enforcement: when the secret env var is unset the check is skipped
- * (legacy behaviour). This mirrors the Telnyx receiver's pattern so nothing
- * breaks before the secret is set AND the webhook URL is re-registered — do
- * those two together (see each receiver's /setup or provider dashboard).
+ * Fail-closed: when the secret env var is unset every request is rejected.
+ * Callers should log the missing secret distinctly so a misconfiguration is
+ * not mistaken for forged traffic.
  */
 
 import type { Context } from 'hono';
@@ -32,12 +30,12 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
 }
 
 /**
- * Returns true when the request is authorized. When `expected` is unset/empty
- * the check is disabled (returns true — legacy behaviour). Otherwise the
- * request's `?token=` query parameter must exactly match `expected`.
+ * Returns true when the request is authorized: the request's `?token=` query
+ * parameter must exactly match `expected`. Returns false when `expected` is
+ * unset/empty — an unconfigured secret never authorizes anything.
  */
 export function verifyWebhookToken(c: Context, expected: string | undefined | null): boolean {
-  if (!expected) return true;
+  if (!expected) return false;
   const provided = c.req.query('token') ?? '';
   return timingSafeEqualStr(provided, expected);
 }

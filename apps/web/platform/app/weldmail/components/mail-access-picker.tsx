@@ -128,6 +128,15 @@ export function MailAccessPicker({
   const { isShared, setIsShared, selectedUserIds, toggleUser, members, membersLoading } =
     selection;
 
+  let selectedUsersLabel: string;
+  if (selectedUserIds.length === 0) {
+    selectedUsersLabel = tma.selectUsers;
+  } else if (selectedUserIds.length === 1) {
+    selectedUsersLabel = tma.usersSelected.replace('{count}', String(selectedUserIds.length));
+  } else {
+    selectedUsersLabel = tma.usersSelectedPlural.replace('{count}', String(selectedUserIds.length));
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -157,11 +166,7 @@ export function MailAccessPicker({
                 className="w-full justify-between font-normal"
               >
                 <span className="text-muted-foreground">
-                  {selectedUserIds.length === 0
-                    ? tma.selectUsers
-                    : selectedUserIds.length === 1
-                      ? tma.usersSelected.replace('{count}', String(selectedUserIds.length))
-                      : tma.usersSelectedPlural.replace('{count}', String(selectedUserIds.length))}
+                  {selectedUsersLabel}
                 </span>
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>

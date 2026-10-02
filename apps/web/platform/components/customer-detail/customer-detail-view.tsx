@@ -317,66 +317,49 @@ function CustomerDetailPageLayout({
   );
 }
 
+const CHAT_HEIGHT_KEY = 'customer-panel-chat-height';
+const CHAT_COLLAPSED_KEY = 'customer-panel-chat-collapsed';
+const DEFAULT_CHAT_HEIGHT = 320;
+const MIN_CHAT_HEIGHT = 120;
+
+function readStoredChatHeight(): number {
+  if (typeof window === 'undefined') return DEFAULT_CHAT_HEIGHT;
+  const raw = window.localStorage.getItem(CHAT_HEIGHT_KEY);
+  const parsed = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(parsed) && parsed >= MIN_CHAT_HEIGHT ? parsed : DEFAULT_CHAT_HEIGHT;
+}
+
+function readStoredChatCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(CHAT_COLLAPSED_KEY) === '1';
+}
+
 /**
- * Panel layout - Sliding panel from right side
+ * Chat height + collapsed flag, persisted across mounts so the user's choice
+ * sticks. "Collapsed" leaves only the drag line visible at the bottom and is
+ * toggled by double-clicking the drag line.
  */
-function CustomerDetailPanelLayout({
-  isOpen,
-  onClose,
-  onDelete,
-  width,
-  isExpanded,
-  onBack,
-}: Readonly<{
-  isOpen: boolean;
-  onClose?: () => void;
-  onDelete?: () => void;
-  width: string;
-  topOffset: string;
-  isExpanded?: boolean;
-  onBack?: () => void;
-}>) {
-  const t = useTranslations();
-  const { isLoading, data, customerId, entityType } = useCustomerDetailContext();
-
-  // Parse width to number for events
-  const widthNum = Number.parseInt(width, 10) || 500;
-
-  // Bottom-pinned, resizable chat — mirrors the task detail panel pattern
-  // in apps/web/platform/components/task-detail/task-detail-panel.tsx.
-  const CHAT_HEIGHT_KEY = 'customer-panel-chat-height';
-  const DEFAULT_CHAT_HEIGHT = 320;
-  const MIN_CHAT_HEIGHT = 120;
-  const [chatHeight, setChatHeight] = React.useState<number>(() => {
-    if (typeof window === 'undefined') return DEFAULT_CHAT_HEIGHT;
-    const raw = window.localStorage.getItem(CHAT_HEIGHT_KEY);
-    const parsed = raw ? Number(raw) : Number.NaN;
-    return Number.isFinite(parsed) && parsed >= MIN_CHAT_HEIGHT ? parsed : DEFAULT_CHAT_HEIGHT;
-  });
-  // Whether the chat is collapsed (only the drag line stays visible at the
-  // bottom). Toggled by double-clicking the drag line. Persisted across
-  // mounts so the user's choice sticks.
-  const CHAT_COLLAPSED_KEY = 'customer-panel-chat-collapsed';
-  const [chatCollapsed, setChatCollapsed] = React.useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(CHAT_COLLAPSED_KEY) === '1';
-  });
+function usePersistedChatState() {
+  const [chatHeight, setChatHeight] = React.useState<number>(readStoredChatHeight);
+  const [chatCollapsed, setChatCollapsed] = React.useState<boolean>(readStoredChatCollapsed);
   React.useEffect(() => {
     window.localStorage.setItem(CHAT_COLLAPSED_KEY, chatCollapsed ? '1' : '0');
   }, [chatCollapsed]);
   React.useEffect(() => {
     window.localStorage.setItem(CHAT_HEIGHT_KEY, String(chatHeight));
   }, [chatHeight]);
+  return { chatHeight, setChatHeight, chatCollapsed, setChatCollapsed };
+}
 
-  const isDraggingRef = React.useRef(false);
-  const startYRef = React.useRef(0);
-  const startHeightRef = React.useRef(0);
-  const panelElRef = React.useRef<HTMLDivElement>(null);
-  const tabsRowRef = React.useRef<HTMLDivElement>(null);
+/**
+ * Track the live max chat height (panel height − tabs-bottom offset) so we
+ * can hide the drag line until the user has expanded the chat past 70%.
+ */
+function useMaxChatHeight(
+  panelElRef: React.RefObject<HTMLDivElement | null>,
+  tabsRowRef: React.RefObject<HTMLDivElement | null>,
+): number {
   const [maxChatHeight, setMaxChatHeight] = React.useState<number>(Infinity);
-
-  // Track the live max chat height (panel height − tabs-bottom offset) so we
-  // can hide the drag line until the user has expanded the chat past 70%.
   React.useLayoutEffect(() => {
     const update = () => {
       const panelEl = panelElRef.current;
@@ -396,9 +379,19 @@ function CustomerDetailPanelLayout({
       ro.disconnect();
       window.removeEventListener('resize', update);
     };
-  }, []);
+  }, [panelElRef, tabsRowRef]);
+  return maxChatHeight;
+}
 
-  const showResizeLine = chatHeight >= maxChatHeight * 0.7;
+function useChatResize(
+  chatHeight: number,
+  setChatHeight: (height: number) => void,
+  panelElRef: React.RefObject<HTMLDivElement | null>,
+  tabsRowRef: React.RefObject<HTMLDivElement | null>,
+) {
+  const isDraggingRef = React.useRef(false);
+  const startYRef = React.useRef(0);
+  const startHeightRef = React.useRef(0);
 
   const handleResizePointerDown = React.useCallback(
     (e: React.PointerEvent) => {
@@ -426,20 +419,278 @@ function CustomerDetailPanelLayout({
     }
     const newHeight = Math.max(MIN_CHAT_HEIGHT, Math.min(startHeightRef.current + delta, maxHeight));
     setChatHeight(newHeight);
-  }, []);
+  }, [panelElRef, tabsRowRef, setChatHeight]);
   const handleResizePointerUp = React.useCallback(() => {
     isDraggingRef.current = false;
   }, []);
 
+  return { handleResizePointerDown, handleResizePointerMove, handleResizePointerUp };
+}
+
+type PanelCustomer = NonNullable<ReturnType<typeof useCustomerDetailContext>['data']>['customer'];
+
+function getCustomerDisplayName(customer: PanelCustomer, fallback: string): string {
+  if ((customer.type ?? '').toLowerCase() === 'b2b') {
+    return customer.companyName || customer.tradingName || fallback;
+  }
+  return (
+    customer.fullName ||
+    `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim() ||
+    customer.companyName ||
+    fallback
+  );
+}
+
+/**
+ * When this is the root (non-stacked) panel and a child panel stacks on top
+ * (Task / Contact opened from a tab), returns the stacked panel's width so the
+ * expanded width can shrink to fit next to it. Only triggers the width
+ * animation when expanded — in the collapsed state the stacked panel covers
+ * the customer panel as a back-stack (existing UX), so no animation.
+ */
+function useStackedPanelWidth(
+  onBack: (() => void) | undefined,
+  isExpanded: boolean | undefined,
+  setAnimatingWidth: (animating: boolean) => void,
+): number {
+  const [stackedPanelWidth, setStackedPanelWidth] = React.useState(0);
+  React.useEffect(() => {
+    if (onBack) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { isOpen: boolean; width: number };
+      const next = detail.isOpen ? detail.width : 0;
+      setStackedPanelWidth(next);
+      if (isExpanded) setAnimatingWidth(true);
+    };
+    window.addEventListener('stacked-detail-panel', handler);
+    return () => window.removeEventListener('stacked-detail-panel', handler);
+  }, [onBack, isExpanded, setAnimatingWidth]);
+  return stackedPanelWidth;
+}
+
+function PanelChatSection({
+  showChat,
+  chatCollapsed,
+  chatHeight,
+  hasMessages,
+  showResizeLine,
+  entityType,
+  customerId,
+  customerName,
+  onCollapse,
+  onExpand,
+  onResizePointerDown,
+  onResizePointerMove,
+  onResizePointerUp,
+}: Readonly<{
+  showChat: boolean;
+  chatCollapsed: boolean;
+  chatHeight: number;
+  hasMessages: boolean;
+  showResizeLine: boolean;
+  entityType: ReturnType<typeof useCustomerDetailContext>['entityType'];
+  customerId: string;
+  customerName: string | undefined;
+  onCollapse: () => void;
+  onExpand: () => void;
+  onResizePointerDown: (e: React.PointerEvent) => void;
+  onResizePointerMove: (e: React.PointerEvent) => void;
+  onResizePointerUp: () => void;
+}>) {
+  const t = useTranslations();
+  if (!showChat) return null;
+
+  if (chatCollapsed) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={onExpand}
+        title={t('sweep.weldcrm.customerDetailView.openChat')}
+        className="w-full flex flex-col items-center justify-center gap-0.5 pt-[9px] pb-[15px] text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer border-t border-border hover:border-gray-300 dark:hover:border-border h-auto rounded-none"
+      >
+        <ChevronUp className="h-4 w-4" />
+        <span className="text-[11px] font-medium leading-none">{t('sweep.weldcrm.customerDetailView.openChat')}</span>
+      </Button>
+    );
+  }
+
+  let gripClassName = 'bg-transparent';
+  if (hasMessages) {
+    gripClassName = showResizeLine
+      ? 'bg-gray-300 dark:bg-border group-hover:bg-gray-400 dark:group-hover:bg-muted-foreground'
+      : 'bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-border';
+  }
+
+  return (
+    <div
+      className="flex-shrink-0 flex flex-col"
+      style={{ height: chatHeight }}
+    >
+      <div
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onDoubleClick={onCollapse}
+        title={t('sweep.weldcrm.customerDetailView.doubleClickToCloseChat')}
+        className={cn(
+          "relative w-full h-[9px] flex-shrink-0 flex items-center justify-center group touch-none transition-colors cursor-row-resize",
+          hasMessages
+            ? "border-t border-border hover:border-gray-300 dark:hover:border-border"
+            : "border-t border-transparent",
+        )}
+      >
+        <div className={cn("w-8 h-[3px] rounded-full transition-colors", gripClassName)} />
+      </div>
+      <div className="flex-1 min-h-0 flex flex-col">
+        <EntityChat
+          entityType={entityType}
+          entityId={customerId}
+          fallbackName={customerName}
+          hideHeader
+        />
+      </div>
+    </div>
+  );
+}
+
+const PANEL_TRANSITION_MS = 300;
+const PANEL_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
+
+function usePanelExpandAnimation(isExpanded: boolean | undefined) {
+  /*
+   * Smooth panel expand/collapse — copied verbatim from the team-member
+   * detail panel so both panels share the exact same maximize/minimize
+   * motion.
+   *
+   * Two pieces of state are involved:
+   *   • `isExpanded` (the user's intent — flips immediately on click)
+   *   • `renderExpanded` (which inner layout we render — page vs. compact)
+   *   • `animatingWidth` (gates the CSS width transition for ONE animation)
+   *
+   * Both directions swap `renderExpanded` immediately when `isExpanded`
+   * flips: maximize swaps to the wide layout so it has time to settle while
+   * the width grows around it, and minimize swaps to the compact layout
+   * up-front so the *narrower* tabs row is what animates as the width
+   * shrinks (otherwise the wider expanded tabs row visibly overflowed at
+   * the end of the resize and snapped to the collapsed row).
+   */
+  const [renderExpanded, setRenderExpanded] = React.useState(isExpanded);
+  const [animatingWidth, setAnimatingWidth] = React.useState(false);
+  const prevIsExpandedRef = React.useRef(isExpanded);
+
+  // Detect the `isExpanded` prop change DURING render and flip the local
+  // animation state in the same render pass. This is React's documented
+  // pattern for "adjust state when a prop changes" without using an effect:
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  //
+  // Why it matters here: the team-member panel batches `setAnimatingWidth`
+  // / `setRenderExpanded` / `setIsExpanded` inside a single click handler so
+  // they all commit together — the browser sees the width change AND the
+  // active CSS transition in the same paint, which is the condition that
+  // triggers the resize animation. Customer/contact panels receive
+  // `isExpanded` as a prop from a parent, so the click happens elsewhere.
+  // Using `useEffect` (or even `useLayoutEffect`) here was painting the new
+  // width with `transition: undefined` first and then adding the transition
+  // a render later, so the resize SNAPPED instead of animating. Doing the
+  // flip during render guarantees `width` and `transition` ship in the same
+  // commit, exactly mirroring the team-member panel's batching.
+  if (prevIsExpandedRef.current !== isExpanded) {
+    prevIsExpandedRef.current = isExpanded;
+    setAnimatingWidth(true);
+    setRenderExpanded(isExpanded);
+  }
+
+  // Timer to flip `animatingWidth` back to false after the transition
+  // finishes. Lives in its own effect because timers can't be scheduled
+  // during render.
+  React.useEffect(() => {
+    if (!animatingWidth) return;
+    const timer = setTimeout(() => setAnimatingWidth(false), PANEL_TRANSITION_MS);
+    return () => clearTimeout(timer);
+  }, [animatingWidth]);
+
+  return { renderExpanded, animatingWidth, setAnimatingWidth };
+}
+
+function getPanelStyle({
+  isExpanded,
+  stackedPanelWidth,
+  width,
+  animatingWidth,
+}: {
+  isExpanded: boolean | undefined;
+  stackedPanelWidth: number;
+  width: string;
+  animatingWidth: boolean;
+}): React.CSSProperties {
+  const stackedOffset = stackedPanelWidth > 0 ? ` - ${stackedPanelWidth}px` : '';
+  return {
+    width: isExpanded ? `calc(100% - 64px - 16rem${stackedOffset})` : width,
+    transition: animatingWidth ? `width ${PANEL_TRANSITION_MS}ms ${PANEL_EASING}` : undefined,
+    willChange: animatingWidth ? 'width' : undefined,
+  };
+}
+
+function PanelBackButton({ onBack }: Readonly<{ onBack: () => void }>) {
+  const t = useTranslations();
+  return (
+    <div className="px-4 pt-3 -mb-1">
+      <Button
+        variant="ghost"
+        className="group/back inline-flex items-center gap-1 -ml-1 px-1 py-0.5 text-sm text-muted-foreground hover:text-foreground transition-colors h-auto"
+        onClick={onBack}
+        title={t('sweep.weldcrm.customerDetailView.back')}
+      >
+        <ChevronLeft className="h-4 w-4" />
+        <span className="group-hover/back:underline">{t('sweep.weldcrm.customerDetailView.back')}</span>
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Panel layout - Sliding panel from right side
+ */
+function CustomerDetailPanelLayout({
+  isOpen,
+  onClose,
+  onDelete,
+  width,
+  isExpanded,
+  onBack,
+}: Readonly<{
+  isOpen: boolean;
+  onClose?: () => void;
+  onDelete?: () => void;
+  width: string;
+  topOffset: string;
+  isExpanded?: boolean;
+  onBack?: () => void;
+}>) {
+  const t = useTranslations();
+  const { isLoading, data, customerId, entityType } = useCustomerDetailContext();
+
+  // Parse width to number for events
+  const widthNum = Number.parseInt(width, 10) || 500;
+
+  // Bottom-pinned, resizable chat — mirrors the task detail panel pattern
+  // in apps/web/platform/components/task-detail/task-detail-panel.tsx.
+  const { chatHeight, setChatHeight, chatCollapsed, setChatCollapsed } = usePersistedChatState();
+  const panelElRef = React.useRef<HTMLDivElement>(null);
+  const tabsRowRef = React.useRef<HTMLDivElement>(null);
+  const maxChatHeight = useMaxChatHeight(panelElRef, tabsRowRef);
+  const showResizeLine = chatHeight >= maxChatHeight * 0.7;
+  const { handleResizePointerDown, handleResizePointerMove, handleResizePointerUp } = useChatResize(
+    chatHeight,
+    setChatHeight,
+    panelElRef,
+    tabsRowRef,
+  );
+
   const customer = data?.customer;
-  const isB2B = (customer?.type ?? '').toLowerCase() === 'b2b';
   const customerName = customer
-    ? isB2B
-      ? customer.companyName || customer.tradingName || t('sweep.weldcrm.customerDetailContent.customer')
-      : customer.fullName ||
-        `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim() ||
-        customer.companyName ||
-        t('sweep.weldcrm.customerDetailContent.customer')
+    ? getCustomerDisplayName(customer, t('sweep.weldcrm.customerDetailContent.customer'))
     : undefined;
   // Both customers and contacts have entity-channel providers on the backend.
   const showChat = (entityType === 'customer' || entityType === 'contact') && !!customer;
@@ -499,77 +750,14 @@ function CustomerDetailPanelLayout({
   const shouldAnimate = !hasAnimatedRef.current;
   if (isOpen) hasAnimatedRef.current = true;
 
-  /*
-   * Smooth panel expand/collapse — copied verbatim from the team-member
-   * detail panel so both panels share the exact same maximize/minimize
-   * motion.
-   *
-   * Two pieces of state are involved:
-   *   • `isExpanded` (the user's intent — flips immediately on click)
-   *   • `renderExpanded` (which inner layout we render — page vs. compact)
-   *   • `animatingWidth` (gates the CSS width transition for ONE animation)
-   *
-   * Both directions swap `renderExpanded` immediately when `isExpanded`
-   * flips: maximize swaps to the wide layout so it has time to settle while
-   * the width grows around it, and minimize swaps to the compact layout
-   * up-front so the *narrower* tabs row is what animates as the width
-   * shrinks (otherwise the wider expanded tabs row visibly overflowed at
-   * the end of the resize and snapped to the collapsed row).
-   */
-  const PANEL_TRANSITION_MS = 300;
-  const PANEL_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
-  const [renderExpanded, setRenderExpanded] = React.useState(isExpanded);
-  const [animatingWidth, setAnimatingWidth] = React.useState(false);
-  const prevIsExpandedRef = React.useRef(isExpanded);
-
-  // Detect the `isExpanded` prop change DURING render and flip the local
-  // animation state in the same render pass. This is React's documented
-  // pattern for "adjust state when a prop changes" without using an effect:
-  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
-  //
-  // Why it matters here: the team-member panel batches `setAnimatingWidth`
-  // / `setRenderExpanded` / `setIsExpanded` inside a single click handler so
-  // they all commit together — the browser sees the width change AND the
-  // active CSS transition in the same paint, which is the condition that
-  // triggers the resize animation. Customer/contact panels receive
-  // `isExpanded` as a prop from a parent, so the click happens elsewhere.
-  // Using `useEffect` (or even `useLayoutEffect`) here was painting the new
-  // width with `transition: undefined` first and then adding the transition
-  // a render later, so the resize SNAPPED instead of animating. Doing the
-  // flip during render guarantees `width` and `transition` ship in the same
-  // commit, exactly mirroring the team-member panel's batching.
-  if (prevIsExpandedRef.current !== isExpanded) {
-    prevIsExpandedRef.current = isExpanded;
-    setAnimatingWidth(true);
-    setRenderExpanded(isExpanded);
-  }
-
-  // Timer to flip `animatingWidth` back to false after the transition
-  // finishes. Lives in its own effect because timers can't be scheduled
-  // during render.
-  React.useEffect(() => {
-    if (!animatingWidth) return;
-    const timer = setTimeout(() => setAnimatingWidth(false), PANEL_TRANSITION_MS);
-    return () => clearTimeout(timer);
-  }, [animatingWidth]);
+  const { renderExpanded, animatingWidth, setAnimatingWidth } = usePanelExpandAnimation(isExpanded);
 
   // When this is the root (non-stacked) panel and a child panel stacks on top
   // (Task / Contact opened from a tab), shrink the expanded width so the
   // stacked panel fits next to it instead of overlapping. Only triggers the
   // width animation when expanded — in the collapsed state the stacked panel
   // covers the customer panel as a back-stack (existing UX), so no animation.
-  const [stackedPanelWidth, setStackedPanelWidth] = React.useState(0);
-  React.useEffect(() => {
-    if (onBack) return;
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { isOpen: boolean; width: number };
-      const next = detail.isOpen ? detail.width : 0;
-      setStackedPanelWidth(next);
-      if (isExpanded) setAnimatingWidth(true);
-    };
-    window.addEventListener('stacked-detail-panel', handler);
-    return () => window.removeEventListener('stacked-detail-panel', handler);
-  }, [onBack, isExpanded]);
+  const stackedPanelWidth = useStackedPanelWidth(onBack, isExpanded, setAnimatingWidth);
 
   if (!isOpen) return null;
 
@@ -596,13 +784,7 @@ function CustomerDetailPanelLayout({
           // class is never re-added.
           shouldAnimate && 'animate-in slide-in-from-right fade-in-50 duration-300',
         )}
-        style={{
-          width: isExpanded
-            ? `calc(100% - 64px - 16rem${stackedPanelWidth > 0 ? ` - ${stackedPanelWidth}px` : ''})`
-            : width,
-          transition: animatingWidth ? `width ${PANEL_TRANSITION_MS}ms ${PANEL_EASING}` : undefined,
-          willChange: animatingWidth ? 'width' : undefined,
-        }}
+        style={getPanelStyle({ isExpanded, stackedPanelWidth, width, animatingWidth })}
       >
         {renderExpanded ? (
           <CustomerDetailPageLayout onDelete={onDelete} />
@@ -610,19 +792,7 @@ function CustomerDetailPanelLayout({
           <>
             {/* Back chevron — only when stacked on a parent panel. Sits
                 above the header so the user can return to the parent panel. */}
-            {onBack && (
-              <div className="px-4 pt-3 -mb-1">
-                <Button
-                  variant="ghost"
-                  className="group/back inline-flex items-center gap-1 -ml-1 px-1 py-0.5 text-sm text-muted-foreground hover:text-foreground transition-colors h-auto"
-                  onClick={onBack}
-                  title={t('sweep.weldcrm.customerDetailView.back')}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  <span className="group-hover/back:underline">{t('sweep.weldcrm.customerDetailView.back')}</span>
-                </Button>
-              </div>
-            )}
+            {onBack && <PanelBackButton onBack={onBack} />}
             {/* Header */}
             <CustomerDetailHeader variant="panel" onDelete={onDelete} />
 
@@ -646,55 +816,21 @@ function CustomerDetailPanelLayout({
              * the task detail panel). Customers only for now; contacts get a
              * provider in a follow-up. Double-click the drag line to collapse
              * / re-open the whole chat section. */}
-            {showChat && !chatCollapsed && (
-              <div
-                className="flex-shrink-0 flex flex-col"
-                style={{ height: chatHeight }}
-              >
-                <div
-                  onPointerDown={handleResizePointerDown}
-                  onPointerMove={handleResizePointerMove}
-                  onPointerUp={handleResizePointerUp}
-                  onDoubleClick={() => setChatCollapsed(true)}
-                  title={t('sweep.weldcrm.customerDetailView.doubleClickToCloseChat')}
-                  className={cn(
-                    "relative w-full h-[9px] flex-shrink-0 flex items-center justify-center group touch-none transition-colors cursor-row-resize",
-                    hasMessages
-                      ? "border-t border-border hover:border-gray-300 dark:hover:border-border"
-                      : "border-t border-transparent",
-                  )}
-                >
-                  <div className={cn(
-                    "w-8 h-[3px] rounded-full transition-colors",
-                    hasMessages && showResizeLine
-                      ? "bg-gray-300 dark:bg-border group-hover:bg-gray-400 dark:group-hover:bg-muted-foreground"
-                      : hasMessages
-                        ? "bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-border"
-                        : "bg-transparent",
-                  )} />
-                </div>
-                <div className="flex-1 min-h-0 flex flex-col">
-                  <EntityChat
-                    entityType={entityType}
-                    entityId={customerId}
-                    fallbackName={customerName}
-                    hideHeader
-                  />
-                </div>
-              </div>
-            )}
-            {showChat && chatCollapsed && (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setChatCollapsed(false)}
-                title={t('sweep.weldcrm.customerDetailView.openChat')}
-                className="w-full flex flex-col items-center justify-center gap-0.5 pt-[9px] pb-[15px] text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer border-t border-border hover:border-gray-300 dark:hover:border-border h-auto rounded-none"
-              >
-                <ChevronUp className="h-4 w-4" />
-                <span className="text-[11px] font-medium leading-none">{t('sweep.weldcrm.customerDetailView.openChat')}</span>
-              </Button>
-            )}
+            <PanelChatSection
+              showChat={showChat}
+              chatCollapsed={chatCollapsed}
+              chatHeight={chatHeight}
+              hasMessages={hasMessages}
+              showResizeLine={showResizeLine}
+              entityType={entityType}
+              customerId={customerId}
+              customerName={customerName}
+              onCollapse={() => setChatCollapsed(true)}
+              onExpand={() => setChatCollapsed(false)}
+              onResizePointerDown={handleResizePointerDown}
+              onResizePointerMove={handleResizePointerMove}
+              onResizePointerUp={handleResizePointerUp}
+            />
           </>
         )}
       </div>

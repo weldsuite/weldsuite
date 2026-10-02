@@ -6,7 +6,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createHelpdeskAgentSchema, updateHelpdeskAgentSchema } from '@weldsuite/core-api-client/schemas/helpdesk-agents';
@@ -18,22 +18,29 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.helpdeskAgents;
 
+/** Filter conditions for the agent list (everything except the pagination cursor). */
+function buildAgentFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (q.departmentId) conditions.push(eq(t.departmentId, q.departmentId));
+  if (q.userId) conditions.push(eq(t.userId, q.userId));
+  // Parity with api-worker's `/helpdesk/agents`, which filtered on this.
+  // Without it a `status: 'active'` caller (e.g. a transfer picker) is also
+  // offered offline/inactive agents.
+  if (q.status) conditions.push(eq(t.status, q.status));
+  if (q.search) {
+    const term = `%${q.search}%`;
+    conditions.push(or(like(t.name, term), like(t.email, term))!);
+  }
+  return conditions;
+}
+
 app.get('/', requirePermission('agents:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.departmentId !== undefined && q.departmentId !== '') conditions.push(eq(t.departmentId, q.departmentId));
-  if (q.userId !== undefined && q.userId !== '') conditions.push(eq(t.userId, q.userId));
-  // Parity with api-worker's `/helpdesk/agents`, which filtered on this.
-  // Without it a `status: 'active'` caller (e.g. a transfer picker) is also
-  // offered offline/inactive agents.
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.search) {
-    const term = `%${q.search}%`;
-    conditions.push(or(like(t.name, term), like(t.email, term))!);
-  }
+  const conditions = buildAgentFilters(q);
+  const filterConditions = [...conditions];
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })
@@ -45,7 +52,6 @@ app.get('/', requirePermission('agents:read'), async (c) => {
     }
   }
   const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
   const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
 
   try {

@@ -26,6 +26,60 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type WorkflowWebhookRow = typeof schema.workflowWebhooks.$inferSelect;
+
+/** A request the webhook's security config refuses, with the legacy error body + status. */
+type WebhookRejection = { error: string; status: 401 | 403 | 405 };
+
+/** Parse request body (JSON preferred, raw text fallback). */
+async function parseWebhookBody(req: { json: () => Promise<unknown>; text: () => Promise<string> }): Promise<unknown> {
+  try {
+    return await req.json();
+  } catch {
+    return await req.text();
+  }
+}
+
+/** Validate the HMAC signature when the webhook is configured to require one. */
+async function checkWebhookSignature(
+  webhook: WorkflowWebhookRow,
+  headers: Record<string, string>,
+  body: unknown,
+): Promise<WebhookRejection | null> {
+  if (!webhook.validateSignature || !webhook.secret) return null;
+
+  const signatureHeader = (webhook.signatureHeader || 'x-webhook-signature').toLowerCase();
+  const providedSignature = headers[signatureHeader];
+  if (!providedSignature) return { error: 'Missing signature', status: 401 };
+
+  const expectedSignature = await computeWebhookHmacHex(
+    webhook.secret,
+    typeof body === 'string' ? body : JSON.stringify(body),
+  );
+
+  const isValid =
+    providedSignature === expectedSignature ||
+    providedSignature === `sha256=${expectedSignature}`;
+  return isValid ? null : { error: 'Invalid signature', status: 401 };
+}
+
+/** Enforce the HTTP method allowlist and the IP whitelist. */
+function checkWebhookMethodAndIp(
+  webhook: WorkflowWebhookRow,
+  sourceIp: string,
+): WebhookRejection | null {
+  const allowedMethods = webhook.allowedMethods as string[] | null;
+  if (allowedMethods && allowedMethods.length > 0 && !allowedMethods.includes('POST')) {
+    return { error: 'Method not allowed', status: 405 };
+  }
+
+  const ipWhitelist = webhook.ipWhitelist as string[] | null;
+  if (ipWhitelist && ipWhitelist.length > 0 && sourceIp && !ipWhitelist.includes(sourceIp)) {
+    return { error: 'IP not allowed', status: 403 };
+  }
+  return null;
+}
+
 /**
  * POST /:webhookId — Receive an external webhook call and dispatch the
  * associated WeldConnect workflow via the EXECUTE_WORKFLOW CF Workflow binding.
@@ -35,13 +89,7 @@ app.post('/:webhookId', async (c) => {
   const sourceIp =
     c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
 
-  // Parse request body (JSON preferred, raw text fallback)
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    body = await c.req.text();
-  }
+  const body = await parseWebhookBody(c.req);
 
   const headers: Record<string, string> = {};
   c.req.raw.headers.forEach((value, key) => {
@@ -78,47 +126,13 @@ app.post('/:webhookId', async (c) => {
     return c.json({ error: 'Webhook not found or disabled' }, 404);
   }
 
-  // Validate signature if configured
-  if (webhook.validateSignature && webhook.secret) {
-    const signatureHeader = (webhook.signatureHeader || 'x-webhook-signature').toLowerCase();
-    const providedSignature = headers[signatureHeader];
-
-    if (!providedSignature) {
-      await updateWebhookStats(db, webhookId, false, sourceIp);
-      return c.json({ error: 'Missing signature' }, 401);
-    }
-
-    const expectedSignature = await computeWebhookHmacHex(
-      webhook.secret,
-      typeof body === 'string' ? body : JSON.stringify(body),
-    );
-
-    const isValid =
-      providedSignature === expectedSignature ||
-      providedSignature === `sha256=${expectedSignature}`;
-
-    if (!isValid) {
-      await updateWebhookStats(db, webhookId, false, sourceIp);
-      return c.json({ error: 'Invalid signature' }, 401);
-    }
-  }
-
-  // Check allowed methods
-  const allowedMethods = webhook.allowedMethods as string[] | null;
-  if (allowedMethods && allowedMethods.length > 0) {
-    if (!allowedMethods.includes('POST')) {
-      await updateWebhookStats(db, webhookId, false, sourceIp);
-      return c.json({ error: 'Method not allowed' }, 405);
-    }
-  }
-
-  // Check IP whitelist
-  const ipWhitelist = webhook.ipWhitelist as string[] | null;
-  if (ipWhitelist && ipWhitelist.length > 0 && sourceIp) {
-    if (!ipWhitelist.includes(sourceIp)) {
-      await updateWebhookStats(db, webhookId, false, sourceIp);
-      return c.json({ error: 'IP not allowed' }, 403);
-    }
+  // Validate signature (if configured), allowed methods and IP whitelist
+  const rejection =
+    (await checkWebhookSignature(webhook, headers, body)) ??
+    checkWebhookMethodAndIp(webhook, sourceIp);
+  if (rejection) {
+    await updateWebhookStats(db, webhookId, false, sourceIp);
+    return c.json({ error: rejection.error }, rejection.status);
   }
 
   // Verify workflow exists and is active

@@ -24,7 +24,7 @@ export function parseMT940(content: string): BankFileParseResult {
 
     // Compute date range
     if (result.transactions.length > 0) {
-      const dates = result.transactions.map((t) => t.date).sort();
+      const dates = result.transactions.map((t) => t.date).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
       result.dateRange = { from: dates[0], to: dates[dates.length - 1] };
     }
   } catch (err) {
@@ -43,12 +43,12 @@ function splitStatements(content: string): string[] {
   return parts.filter((p) => p.trim().length > 0);
 }
 
-function parseStatement(statement: string, result: BankFileParseResult): void {
-  const lines = statement.split('\n');
-  const tags: Array<{ tag: string; value: string; lineNum: number }> = [];
+type Mt940Tag = { tag: string; value: string; lineNum: number };
 
-  // Parse tags - MT940 tags start with : at beginning of line
-  let currentTag: { tag: string; value: string; lineNum: number } | null = null;
+/** Split a statement into tags - MT940 tags start with : at beginning of line. */
+function collectTags(lines: string[]): Mt940Tag[] {
+  const tags: Mt940Tag[] = [];
+  let currentTag: Mt940Tag | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -67,33 +67,34 @@ function parseStatement(statement: string, result: BankFileParseResult): void {
   if (currentTag) {
     tags.push(currentTag);
   }
+  return tags;
+}
 
-  // Extract account IBAN from :25:
+/** Account IBAN (:25:) and opening (:60F:/:60M:) / closing (:62F:/:62M:) balances. */
+function applyHeaderTags(tags: Mt940Tag[], result: BankFileParseResult): void {
   const tag25 = tags.find((t) => t.tag === '25');
-  if (tag25) {
-    const iban = extractIban(tag25.value);
-    if (iban) {
-      result.accountIban = iban;
-    }
+  const iban = tag25 ? extractIban(tag25.value) : null;
+  if (iban) {
+    result.accountIban = iban;
   }
 
-  // Extract opening balance from :60F: or :60M:
   const tag60 = tags.find((t) => t.tag === '60F' || t.tag === '60M');
-  if (tag60) {
-    const balance = parseBalanceTag(tag60.value);
-    if (balance !== null) {
-      result.openingBalance = balance;
-    }
+  const opening = tag60 ? parseBalanceTag(tag60.value) : null;
+  if (opening !== null) {
+    result.openingBalance = opening;
   }
 
-  // Extract closing balance from :62F: or :62M:
   const tag62 = tags.find((t) => t.tag === '62F' || t.tag === '62M');
-  if (tag62) {
-    const balance = parseBalanceTag(tag62.value);
-    if (balance !== null) {
-      result.closingBalance = balance;
-    }
+  const closing = tag62 ? parseBalanceTag(tag62.value) : null;
+  if (closing !== null) {
+    result.closingBalance = closing;
   }
+}
+
+function parseStatement(statement: string, result: BankFileParseResult): void {
+  const tags = collectTags(statement.split('\n'));
+
+  applyHeaderTags(tags, result);
 
   // Parse :61: and :86: pairs
   for (let i = 0; i < tags.length; i++) {

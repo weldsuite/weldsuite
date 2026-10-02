@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen, Brain, Clock, Monitor, Share2, ShieldCheck, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -475,6 +475,19 @@ function ComputerSection({ agentId }: { agentId: string }) {
     }
   };
 
+  let filesContent: ReactNode;
+  if (files.isError) {
+    filesContent = <p className="text-xs text-muted-foreground">{t.loadFailed}</p>;
+  } else if (files.data) {
+    filesContent = (
+      <pre className="max-h-40 overflow-auto rounded-lg bg-muted/40 p-2 text-[11px]">
+        {JSON.stringify(files.data, null, 2)}
+      </pre>
+    );
+  } else {
+    filesContent = <p className="text-xs text-muted-foreground">{t.computer.noFiles}</p>;
+  }
+
   return (
     <Section icon={Monitor} title={t.computer.title}>
       <div className="flex flex-wrap gap-2">
@@ -488,15 +501,7 @@ function ComputerSection({ agentId }: { agentId: string }) {
       {liveViewUrl ? (
         <iframe title={t.computer.liveView} src={liveViewUrl} className="h-64 w-full rounded-lg border bg-black" />
       ) : null}
-      {files.isError ? (
-        <p className="text-xs text-muted-foreground">{t.loadFailed}</p>
-      ) : files.data ? (
-        <pre className="max-h-40 overflow-auto rounded-lg bg-muted/40 p-2 text-[11px]">
-          {JSON.stringify(files.data, null, 2)}
-        </pre>
-      ) : (
-        <p className="text-xs text-muted-foreground">{t.computer.noFiles}</p>
-      )}
+      {filesContent}
     </Section>
   );
 }

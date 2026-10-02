@@ -90,6 +90,8 @@ export default function WeldHrEvaluationDetailPage() {
 
   const scoreByCriterion = new Map(evaluation.scores.map((s) => [s.criterionId, s]));
   const canEditNow = evaluation.status !== 'acknowledged';
+  const jobTitleSuffix = employee?.jobTitle ? ` · ${employee.jobTitle}` : '';
+  const subtitle = `${evaluation.formName ?? ''}${jobTitleSuffix}`;
 
   return (
     <DetailPage>
@@ -102,7 +104,7 @@ export default function WeldHrEvaluationDetailPage() {
             {evaluation.employeeName}
           </Link>
         }
-        subtitle={`${evaluation.formName ?? ''}${employee?.jobTitle ? ` · ${employee.jobTitle}` : ''}`}
+        subtitle={subtitle}
         badges={<StatusBadge group="evaluation" status={evaluation.status} />}
         actions={
           <>

@@ -56,6 +56,24 @@ interface CompaniesGridProps {
   toolbarActions?: React.ReactNode;
 }
 
+/** Runs `task` for each id one after another, counting successes and failures. */
+async function runSequentially(
+  ids: string[],
+  task: (id: string) => Promise<unknown>,
+): Promise<{ ok: number; fail: number }> {
+  let ok = 0;
+  let fail = 0;
+  for (const id of ids) {
+    try {
+      await task(id);
+      ok++;
+    } catch {
+      fail++;
+    }
+  }
+  return { ok, fail };
+}
+
 export function CompaniesGrid({
   companies,
   totalCount,
@@ -169,30 +187,12 @@ export function CompaniesGrid({
     },
     onBulkDelete: async (ids) => {
       if (listContext) {
-        let ok = 0;
-        let fail = 0;
-        for (const id of ids) {
-          try {
-            await listContext.removeMember(id);
-            ok++;
-          } catch {
-            fail++;
-          }
-        }
+        const { ok, fail } = await runSequentially(ids, (id) => listContext.removeMember(id));
         if (fail === 0) toast.success(t('crm.companiesGrid.removeFromListSuccess', { count: ok }));
         else toast.error(t('crm.companiesGrid.removeFromListPartial', { succeeded: ok, failed: fail }));
         return;
       }
-      let ok = 0;
-      let fail = 0;
-      for (const id of ids) {
-        try {
-          await deleteMut.mutateAsync(id);
-          ok++;
-        } catch {
-          fail++;
-        }
-      }
+      const { ok, fail } = await runSequentially(ids, (id) => deleteMut.mutateAsync(id));
       if (fail === 0) toast.success(ok === 1 ? t('crm.companiesGrid.bulkDeleteSuccess', { count: ok }) : t('crm.companiesGrid.bulkDeleteSuccessPlural', { count: ok }));
       else toast.error(t('crm.companiesGrid.bulkDeletePartial', { succeeded: ok, failed: fail }));
     },

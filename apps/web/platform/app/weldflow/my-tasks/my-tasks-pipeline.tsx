@@ -109,6 +109,35 @@ const priorityConfigBase: Record<string, { color: string; bg: string }> = {
 
 const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
+// ---------- Filtering ----------
+
+function searchTasks(tasks: Task[], searchQuery: string): Task[] {
+  if (!searchQuery.trim()) return tasks;
+  const query = searchQuery.toLowerCase();
+  return tasks.filter(t =>
+    t.title.toLowerCase().includes(query) ||
+    t.description?.toLowerCase().includes(query) ||
+    t.assignee?.toLowerCase().includes(query) ||
+    t.project?.toLowerCase().includes(query)
+  );
+}
+
+function applyActiveFilter(tasks: Task[], filter: ActiveFilter): Task[] {
+  if (!filter.operator || !filter.value) return tasks;
+  const { field } = filter;
+  if (field !== 'status' && field !== 'priority' && field !== 'project') return tasks;
+  const wantMatch = filter.operator === 'is';
+  return tasks.filter(t => (t[field] === filter.value) === wantMatch);
+}
+
+function applyActiveFilters(tasks: Task[], activeFilters: ActiveFilter[]): Task[] {
+  let result = tasks;
+  for (const filter of activeFilters) {
+    result = applyActiveFilter(result, filter);
+  }
+  return result;
+}
+
 // ---------- DroppableColumn ----------
 
 function DroppableColumn({ id, children, containerRef }: Readonly<{ id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }>) {
@@ -295,6 +324,8 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
       style={style}
       {...attributes}
       {...listeners}
+      role="button"
+      tabIndex={0}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
@@ -405,42 +436,10 @@ export function MyTasksPipeline({
   }, []);
 
   // Filter + search
-  const filteredTasks = useMemo(() => {
-    let result = tasks;
-
-    // Search
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(t =>
-        t.title.toLowerCase().includes(query) ||
-        t.description?.toLowerCase().includes(query) ||
-        t.assignee?.toLowerCase().includes(query) ||
-        t.project?.toLowerCase().includes(query)
-      );
-    }
-
-    // Apply filters
-    if (activeFilters.length > 0) {
-      for (const filter of activeFilters) {
-        if (!filter.operator || !filter.value) continue;
-        if (filter.field === 'status') {
-          result = filter.operator === 'is'
-            ? result.filter(t => t.status === filter.value)
-            : result.filter(t => t.status !== filter.value);
-        } else if (filter.field === 'priority') {
-          result = filter.operator === 'is'
-            ? result.filter(t => t.priority === filter.value)
-            : result.filter(t => t.priority !== filter.value);
-        } else if (filter.field === 'project') {
-          result = filter.operator === 'is'
-            ? result.filter(t => t.project === filter.value)
-            : result.filter(t => t.project !== filter.value);
-        }
-      }
-    }
-
-    return result;
-  }, [tasks, searchQuery, activeFilters]);
+  const filteredTasks = useMemo(
+    () => applyActiveFilters(searchTasks(tasks, searchQuery), activeFilters),
+    [tasks, searchQuery, activeFilters],
+  );
 
   // Drag handlers
   const handleDragStart = (event: DragStartEvent) => {

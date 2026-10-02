@@ -13,6 +13,7 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import {
   hasContextPermission,
   requirePermission,
@@ -60,44 +61,68 @@ async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Pr
   return c.get('userId');
 }
 
+/** Query-string filters that map 1:1 onto an equality condition. */
+const EQUALITY_FILTERS = [
+  ['status', t.status],
+  ['direction', t.direction],
+  ['customerId', t.customerId],
+  ['contactId', t.contactId],
+  ['userId', t.userId],
+  ['provider', t.provider],
+] as const;
+
+function searchCondition(search: string) {
+  const term = `%${search}%`;
+  return or(
+    like(t.fromNumber, term),
+    like(t.toNumber, term),
+    like(t.fromNumberFormatted, term),
+    like(t.toNumberFormatted, term),
+    like(t.notes, term),
+  )!;
+}
+
+/** Keyset condition for the page after `cursorId` (initiatedAt DESC, id DESC). */
+async function keysetCondition(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  cursorId: string | undefined,
+): Promise<SQL | undefined> {
+  if (!cursorId) return undefined;
+  const db = c.get('tenantDb');
+  const [cur] = await db
+    .select({ initiatedAt: t.initiatedAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.initiatedAt) return undefined;
+  return sql`(${t.initiatedAt} < ${cur.initiatedAt} OR (${t.initiatedAt} = ${cur.initiatedAt} AND ${t.id} < ${cur.id}))`;
+}
+
+/** WHERE conditions for the list; the keyset (cursor) condition, when present, is last. */
+async function buildListConditions(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  q: Record<string, string>,
+  scope: string | undefined,
+): Promise<any[]> {
+  const conditions: any[] = [];
+  if (scope) conditions.push(eq(t.userId, scope));
+  for (const [key, column] of EQUALITY_FILTERS) {
+    const value = q[key];
+    if (value !== undefined && value !== '') conditions.push(eq(column, value));
+  }
+  if (q.search) conditions.push(searchCondition(q.search));
+  if (q.from) conditions.push(gte(t.initiatedAt, new Date(q.from)));
+  if (q.to) conditions.push(lte(t.initiatedAt, new Date(q.to)));
+  const cursorCondition = await keysetCondition(c, q.cursor);
+  if (cursorCondition) conditions.push(cursorCondition);
+  return conditions;
+}
+
 app.get('/', requirePermission('activities:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const scope = await scopeFor(c);
 
-  const conditions: any[] = [];
-  if (scope) conditions.push(eq(t.userId, scope));
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.direction !== undefined && q.direction !== '') conditions.push(eq(t.direction, q.direction));
-  if (q.customerId !== undefined && q.customerId !== '') conditions.push(eq(t.customerId, q.customerId));
-  if (q.contactId !== undefined && q.contactId !== '') conditions.push(eq(t.contactId, q.contactId));
-  if (q.userId !== undefined && q.userId !== '') conditions.push(eq(t.userId, q.userId));
-  if (q.provider !== undefined && q.provider !== '') conditions.push(eq(t.provider, q.provider));
-  if (q.search) {
-    const term = `%${q.search}%`;
-    conditions.push(
-      or(
-        like(t.fromNumber, term),
-        like(t.toNumber, term),
-        like(t.fromNumberFormatted, term),
-        like(t.toNumberFormatted, term),
-        like(t.notes, term),
-      )!,
-    );
-  }
-  if (q.from) conditions.push(gte(t.initiatedAt, new Date(q.from)));
-  if (q.to) conditions.push(lte(t.initiatedAt, new Date(q.to)));
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ initiatedAt: t.initiatedAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.initiatedAt) {
-      conditions.push(
-        sql`(${t.initiatedAt} < ${cur.initiatedAt} OR (${t.initiatedAt} = ${cur.initiatedAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
+  const conditions = await buildListConditions(c, q, scope);
 
   const where = conditions.length ? and(...conditions) : undefined;
   const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
@@ -227,6 +252,67 @@ const updateCallSchema = z.object({
   notes: z.string().optional(),
 });
 
+type UpdateCallData = z.infer<typeof updateCallSchema>;
+
+const CALL_DATE_FIELDS = new Set(['answeredAt', 'endedAt']);
+
+/** Column values for a PUT: skips undefined keys and parses the date fields. */
+function buildCallUpdateFields(data: UpdateCallData): Record<string, any> {
+  const update: Record<string, any> = { updatedAt: new Date() };
+  for (const [k, v] of Object.entries(data)) {
+    if (v === undefined) continue;
+    update[k] = CALL_DATE_FIELDS.has(k) ? (v ? new Date(v as string) : null) : v;
+  }
+  return update;
+}
+
+/**
+ * Settle the prepaid wallet for a finished call. Returns the credit columns to
+ * store on the call row, or null when metering is unavailable or settlement
+ * failed (logged; the call update itself must still go through).
+ */
+async function settleCallCredits(
+  env: Env,
+  orgId: string,
+  call: { callId: string; userId: string; durationSecs: number; direction: string },
+): Promise<{ creditsConsumed: number; creditTransactionId: string | undefined } | null> {
+  const metering = await resolveMetering(env, orgId);
+  if (!metering) return null;
+  const { callId, userId, durationSecs, direction } = call;
+  const cost = Math.ceil(durationSecs / 60) * SERVICE_CREDIT_RATES.voipCallPerMinute;
+  try {
+    const settle = await consumeCredits(metering.masterDb, {
+      workspaceId: metering.internalWsId,
+      amount: cost,
+      serviceType: 'voip_call',
+      idempotencyKey: `voip:${callId}`,
+      referenceId: callId,
+      referenceType: 'voip_call',
+      description: `VoIP call (${Math.ceil(durationSecs / 60)} min)`,
+      metadata: { callId, durationSecs, direction },
+      userId,
+    });
+    if (settle.ok) return { creditsConsumed: cost, creditTransactionId: settle.transactionId };
+    // Minutes were already spent — record the debt.
+    const debit = await grantCredits(metering.masterDb, {
+      workspaceId: metering.internalWsId,
+      amount: -cost,
+      type: 'adjustment',
+      serviceType: 'voip_call',
+      idempotencyKey: `voip:${callId}`,
+      referenceId: callId,
+      referenceType: 'voip_call',
+      description: `VoIP call (${Math.ceil(durationSecs / 60)} min) — settled into negative balance`,
+      metadata: { callId, durationSecs, forcedSettlement: true },
+      userId,
+    });
+    return { creditsConsumed: cost, creditTransactionId: debit.transactionId };
+  } catch (settleErr) {
+    console.error('[app-api/calls] credit settlement FAILED (untracked call!):', settleErr);
+    return null;
+  }
+}
+
 /**
  * PUT /:id — update a call. When the call ends (duration known), the prepaid
  * wallet is settled per started minute, idempotent on the call id so repeated
@@ -243,56 +329,19 @@ app.put('/:id', requirePermission('activities:update'), zValidator('json', updat
     const [existing] = await db.select().from(t).where(eq(t.id, id)).limit(1);
     if (!existing) return error.notFound(c, 'Call', id);
 
-    const update: Record<string, any> = { updatedAt: new Date() };
-    const dateFields = new Set(['answeredAt', 'endedAt']);
-    for (const [k, v] of Object.entries(data)) {
-      if (v === undefined) continue;
-      update[k] = dateFields.has(k) ? (v ? new Date(v as string) : null) : v;
-    }
+    const update = buildCallUpdateFields(data);
 
     // Settle credits once, when the call is finished and its duration is known.
     const durationSecs = (data.duration ?? existing.duration ?? 0) as number;
     const callEnded = Boolean(data.endedAt) || data.status === 'completed' || existing.endedAt !== null;
     if (callEnded && durationSecs > 0 && !existing.creditTransactionId) {
-      const metering = await resolveMetering(c.env, c.get('workspaceId'));
-      if (metering) {
-        const cost = Math.ceil(durationSecs / 60) * SERVICE_CREDIT_RATES.voipCallPerMinute;
-        try {
-          const settle = await consumeCredits(metering.masterDb, {
-            workspaceId: metering.internalWsId,
-            amount: cost,
-            serviceType: 'voip_call',
-            idempotencyKey: `voip:${id}`,
-            referenceId: id,
-            referenceType: 'voip_call',
-            description: `VoIP call (${Math.ceil(durationSecs / 60)} min)`,
-            metadata: { callId: id, durationSecs, direction: existing.direction },
-            userId,
-          });
-          if (settle.ok) {
-            update.creditsConsumed = cost;
-            update.creditTransactionId = settle.transactionId;
-          } else {
-            // Minutes were already spent — record the debt.
-            const debit = await grantCredits(metering.masterDb, {
-              workspaceId: metering.internalWsId,
-              amount: -cost,
-              type: 'adjustment',
-              serviceType: 'voip_call',
-              idempotencyKey: `voip:${id}`,
-              referenceId: id,
-              referenceType: 'voip_call',
-              description: `VoIP call (${Math.ceil(durationSecs / 60)} min) — settled into negative balance`,
-              metadata: { callId: id, durationSecs, forcedSettlement: true },
-              userId,
-            });
-            update.creditsConsumed = cost;
-            update.creditTransactionId = debit.transactionId;
-          }
-        } catch (settleErr) {
-          console.error('[app-api/calls] credit settlement FAILED (untracked call!):', settleErr);
-        }
-      }
+      const settlement = await settleCallCredits(c.env, c.get('workspaceId'), {
+        callId: id,
+        userId,
+        durationSecs,
+        direction: existing.direction,
+      });
+      if (settlement) Object.assign(update, settlement);
     }
 
     await db.update(t).set(update).where(eq(t.id, id));

@@ -411,6 +411,48 @@ export function domainContactToCreateInput(
   };
 }
 
+function buildRequestHeaders(rest: RequestInit, apiKey: string): Headers {
+  const headers = new Headers(rest.headers);
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `ApiKey ${apiKey}`);
+  }
+  if (rest.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  return headers;
+}
+
+function requestTransportError(err: unknown, endpoint: string): RealtimeRegistrarError {
+  const aborted =
+    (err instanceof Error && err.name === 'AbortError') ||
+    (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'TimeoutError');
+  return new RealtimeRegistrarError(
+    0,
+    aborted ? 'TIMEOUT' : 'NETWORK_ERROR',
+    `Realtime Register ${aborted ? 'timeout' : 'network error'} on ${endpoint}: ${err instanceof Error ? err.message : String(err)}`,
+    endpoint,
+  );
+}
+
+function parseResponseBody(text: string): unknown {
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+function requestHttpError(status: number, endpoint: string, body: unknown): RealtimeRegistrarError {
+  const errBody = body as { type?: string; message?: string; title?: string } | undefined;
+  const code = errBody?.type ?? `HTTP_${status}`;
+  const message =
+    errBody?.message ??
+    errBody?.title ??
+    (typeof body === 'string' && body ? body : `Realtime Register ${status} on ${endpoint}`);
+  return new RealtimeRegistrarError(status, code, message, endpoint, body);
+}
+
 // ============================================================================
 // Client
 // ============================================================================
@@ -498,13 +540,7 @@ export class RealtimeRegistrar {
     init: RequestInit & { query?: Record<string, string | boolean | number | undefined> } = {},
   ): Promise<{ data: T; status: number; processId?: number }> {
     const { query, ...rest } = init;
-    const headers = new Headers(rest.headers);
-    if (!headers.has('Authorization')) {
-      headers.set('Authorization', `ApiKey ${this.apiKey}`);
-    }
-    if (rest.body && !headers.has('Content-Type')) {
-      headers.set('Content-Type', 'application/json');
-    }
+    const headers = buildRequestHeaders(rest, this.apiKey);
     let res: Response;
     try {
       const signal =
@@ -514,39 +550,16 @@ export class RealtimeRegistrar {
           : undefined);
       res = await this.fetchImpl(this.url(path, query), { ...rest, headers, signal });
     } catch (err) {
-      const aborted =
-        (err instanceof Error && err.name === 'AbortError') ||
-        (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'TimeoutError');
-      throw new RealtimeRegistrarError(
-        0,
-        aborted ? 'TIMEOUT' : 'NETWORK_ERROR',
-        `Realtime Register ${aborted ? 'timeout' : 'network error'} on ${endpoint}: ${err instanceof Error ? err.message : String(err)}`,
-        endpoint,
-      );
+      throw requestTransportError(err, endpoint);
     }
 
     const processHeader = res.headers.get('X-Process-Id') ?? res.headers.get('x-process-id');
     const processId = processHeader ? Number.parseInt(processHeader, 10) : undefined;
 
     const text = await res.text();
-    let body: unknown = undefined;
-    if (text) {
-      try {
-        body = JSON.parse(text) as unknown;
-      } catch {
-        body = text;
-      }
-    }
+    const body = parseResponseBody(text);
 
-    if (!res.ok) {
-      const errBody = body as { type?: string; message?: string; title?: string } | undefined;
-      const code = errBody?.type ?? `HTTP_${res.status}`;
-      const message =
-        errBody?.message ??
-        errBody?.title ??
-        (typeof body === 'string' && body ? body : `Realtime Register ${res.status} on ${endpoint}`);
-      throw new RealtimeRegistrarError(res.status, code, message, endpoint, body);
-    }
+    if (!res.ok) throw requestHttpError(res.status, endpoint, body);
 
     return {
       data: body as T,

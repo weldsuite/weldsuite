@@ -185,6 +185,15 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
 
   const isLoading = createEvent.isPending || updateEvent.isPending || deleteEvent.isPending || isCreatingMeeting;
 
+  let submitLabel: string;
+  if (isLoading) {
+    submitLabel = t.eventDialog.saving;
+  } else if (isEdit) {
+    submitLabel = t.eventDialog.update;
+  } else {
+    submitLabel = t.eventDialog.create;
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[540px] max-h-[85vh] overflow-y-auto">
@@ -398,7 +407,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
                 {t.eventDialog.cancel}
               </Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading ? t.eventDialog.saving : isEdit ? t.eventDialog.update : t.eventDialog.create}
+                {submitLabel}
               </Button>
             </div>
           </DialogFooter>

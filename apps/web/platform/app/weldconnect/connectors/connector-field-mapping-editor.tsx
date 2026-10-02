@@ -183,6 +183,147 @@ interface EditableMapping {
   isRequired?: boolean;
 }
 
+type EntityLabelKey =
+  | 'products'
+  | 'orders'
+  | 'customers'
+  | 'contacts'
+  | 'invoices'
+  | 'bills'
+  | 'bankAccounts'
+  | 'bankTransactions';
+
+const ENTITY_LABEL_KEYS = new Map<string, EntityLabelKey>([
+  ['product', 'products'],
+  ['order', 'orders'],
+  ['person', 'customers'],
+  ['party', 'contacts'],
+  ['invoice', 'invoices'],
+  ['bill', 'bills'],
+  ['bank_account', 'bankAccounts'],
+  ['bank_transaction', 'bankTransactions'],
+]);
+
+// Rows have no natural id (the same field pair may appear twice), so each
+// mapping object gets a stable React key that survives edits to that row.
+const rowKeys = new WeakMap<EditableMapping, string>();
+let rowKeyCounter = 0;
+
+function rowKey(mapping: EditableMapping): string {
+  let key = rowKeys.get(mapping);
+  if (!key) {
+    rowKeyCounter += 1;
+    key = `mapping-${rowKeyCounter}`;
+    rowKeys.set(mapping, key);
+  }
+  return key;
+}
+
+function editedRow(prev: EditableMapping, next: EditableMapping): EditableMapping {
+  rowKeys.set(next, rowKey(prev));
+  return next;
+}
+
+type MappingDirection = EditableMapping['direction'];
+
+const DIRECTION_ORDER: MappingDirection[] = ['bidirectional', 'inbound', 'outbound'];
+
+function nextDirection(current: MappingDirection): MappingDirection {
+  return DIRECTION_ORDER[(DIRECTION_ORDER.indexOf(current) + 1) % DIRECTION_ORDER.length]!;
+}
+
+interface FieldOption {
+  value: string;
+  label: string;
+}
+
+interface MappingRowProps {
+  mapping: EditableMapping;
+  externalFields: FieldOption[];
+  internalFields: FieldOption[];
+  canManage: boolean;
+  directionLabel: string;
+  onExternalChange: (value: string) => void;
+  onCycleDirection: () => void;
+  onInternalChange: (value: string) => void;
+  onRemove: () => void;
+}
+
+function FieldSelect({
+  value,
+  options,
+  disabled,
+  onChange,
+}: Readonly<{
+  value: string;
+  options: FieldOption[];
+  disabled: boolean;
+  onChange: (value: string) => void;
+}>) {
+  return (
+    <Select value={value} disabled={disabled} onValueChange={onChange}>
+      <SelectTrigger className="h-7 border-0 bg-transparent px-1 text-xs shadow-none">
+        <SelectValue placeholder="…" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((f) => (
+          <SelectItem key={f.value} value={f.value}>
+            {f.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function MappingRow({
+  mapping,
+  externalFields,
+  internalFields,
+  canManage,
+  directionLabel,
+  onExternalChange,
+  onCycleDirection,
+  onInternalChange,
+  onRemove,
+}: Readonly<MappingRowProps>) {
+  return (
+    <div className="grid grid-cols-[1fr_28px_1fr_28px] items-center gap-1.5 px-2 py-1.5">
+      <FieldSelect
+        value={mapping.externalFieldPath}
+        options={externalFields}
+        disabled={!canManage}
+        onChange={onExternalChange}
+      />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 text-muted-foreground"
+        disabled={!canManage}
+        title={directionLabel}
+        onClick={onCycleDirection}
+      >
+        {DIRECTION_ICONS[mapping.direction]}
+      </Button>
+      <FieldSelect
+        value={mapping.internalFieldPath}
+        options={internalFields}
+        disabled={!canManage}
+        onChange={onInternalChange}
+      />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="text-muted-foreground h-7 w-7 hover:text-red-500"
+        disabled={!canManage}
+        onClick={onRemove}
+      >
+        <Trash2 className="h-3 w-3" />
+      </Button>
+    </div>
+  );
+}
+
 export function ConnectorFieldMappingEditor({
   connectionId,
   syncs,
@@ -204,24 +345,7 @@ export function ConnectorFieldMappingEditor({
         return true;
       })
       .map((value) => {
-        const labelKey =
-          value === 'product'
-            ? 'products'
-            : value === 'order'
-              ? 'orders'
-              : value === 'person'
-                ? 'customers'
-                : value === 'party'
-                  ? 'contacts'
-                  : value === 'invoice'
-                    ? 'invoices'
-                    : value === 'bill'
-                      ? 'bills'
-                      : value === 'bank_account'
-                        ? 'bankAccounts'
-                        : value === 'bank_transaction'
-                          ? 'bankTransactions'
-                          : null;
+        const labelKey = ENTITY_LABEL_KEYS.get(value) ?? null;
         return {
           value,
           label: (labelKey ? tc.types[labelKey] : null) ?? value,
@@ -257,6 +381,13 @@ export function ConnectorFieldMappingEditor({
       setIsDirty(false);
     }
   }, [mappingsRes]);
+
+  const editMappings = (updater: (prev: EditableMapping[]) => EditableMapping[]) => {
+    setLocalMappings(updater);
+    setIsDirty(true);
+  };
+  const patchMapping = (index: number, patch: (m: EditableMapping) => EditableMapping) =>
+    editMappings((prev) => prev.map((m, i) => (i === index ? editedRow(m, patch(m)) : m)));
 
   const directionLabels = {
     inbound: tc.settings.directionInbound,
@@ -339,86 +470,20 @@ export function ConnectorFieldMappingEditor({
       ) : (
         <div className="divide-y rounded-lg border">
           {localMappings.map((mapping, index) => (
-            <div key={index} className="grid grid-cols-[1fr_28px_1fr_28px] items-center gap-1.5 px-2 py-1.5">
-              <Select
-                value={mapping.externalFieldPath}
-                disabled={!canManage}
-                onValueChange={(v) => {
-                  setLocalMappings((prev) =>
-                    prev.map((m, i) => (i === index ? { ...m, externalFieldPath: v } : m)),
-                  );
-                  setIsDirty(true);
-                }}
-              >
-                <SelectTrigger className="h-7 border-0 bg-transparent px-1 text-xs shadow-none">
-                  <SelectValue placeholder="…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(EXTERNAL_FIELDS[activeEntityType] ?? []).map((f) => (
-                    <SelectItem key={f.value} value={f.value}>
-                      {f.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground"
-                disabled={!canManage}
-                title={directionLabels[mapping.direction]}
-                onClick={() => {
-                  const order: Array<'inbound' | 'outbound' | 'bidirectional'> = [
-                    'bidirectional',
-                    'inbound',
-                    'outbound',
-                  ];
-                  setLocalMappings((prev) =>
-                    prev.map((m, i) => {
-                      if (i !== index) return m;
-                      const next = order[(order.indexOf(m.direction) + 1) % order.length]!;
-                      return { ...m, direction: next };
-                    }),
-                  );
-                  setIsDirty(true);
-                }}
-              >
-                {DIRECTION_ICONS[mapping.direction]}
-              </Button>
-              <Select
-                value={mapping.internalFieldPath}
-                disabled={!canManage}
-                onValueChange={(v) => {
-                  setLocalMappings((prev) =>
-                    prev.map((m, i) => (i === index ? { ...m, internalFieldPath: v } : m)),
-                  );
-                  setIsDirty(true);
-                }}
-              >
-                <SelectTrigger className="h-7 border-0 bg-transparent px-1 text-xs shadow-none">
-                  <SelectValue placeholder="…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(INTERNAL_FIELDS[activeEntityType] ?? []).map((f) => (
-                    <SelectItem key={f.value} value={f.value}>
-                      {f.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground h-7 w-7 hover:text-red-500"
-                disabled={!canManage}
-                onClick={() => {
-                  setLocalMappings((prev) => prev.filter((_, i) => i !== index));
-                  setIsDirty(true);
-                }}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
+            <MappingRow
+              key={rowKey(mapping)}
+              mapping={mapping}
+              externalFields={EXTERNAL_FIELDS[activeEntityType] ?? []}
+              internalFields={INTERNAL_FIELDS[activeEntityType] ?? []}
+              canManage={canManage}
+              directionLabel={directionLabels[mapping.direction]}
+              onExternalChange={(v) => patchMapping(index, (m) => ({ ...m, externalFieldPath: v }))}
+              onCycleDirection={() =>
+                patchMapping(index, (m) => ({ ...m, direction: nextDirection(m.direction) }))
+              }
+              onInternalChange={(v) => patchMapping(index, (m) => ({ ...m, internalFieldPath: v }))}
+              onRemove={() => editMappings((prev) => prev.filter((_, i) => i !== index))}
+            />
           ))}
         </div>
       )}
@@ -429,7 +494,7 @@ export function ConnectorFieldMappingEditor({
           size="sm"
           className="h-7 text-xs"
           onClick={() => {
-            setLocalMappings((prev) => [
+            editMappings((prev) => [
               ...prev,
               {
                 externalFieldPath: '',
@@ -438,7 +503,6 @@ export function ConnectorFieldMappingEditor({
                 transformType: 'direct',
               },
             ]);
-            setIsDirty(true);
           }}
         >
           <Plus className="mr-1.5 h-3.5 w-3.5" />

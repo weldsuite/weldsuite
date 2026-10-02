@@ -24,7 +24,8 @@ function StockPageContent() {
       if (value) params.set('search', value);
       else params.delete('search');
       const qs = params.toString();
-      router.replace(`/weldstash/stock${qs ? `?${qs}` : ''}`);
+      const query = qs ? `?${qs}` : '';
+      router.replace(`/weldstash/stock${query}`);
     },
     [router, searchParams],
   );

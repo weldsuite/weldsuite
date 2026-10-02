@@ -10,7 +10,8 @@ export function ProgressBar({ value, max, label }: Readonly<{ value: number; max
           </span>
         </div>
       )}
-      <div className="h-2 w-full rounded-full bg-gray-100" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={max}>
+      <progress className="sr-only" value={value} max={max > 0 ? max : 1} aria-label={label} />
+      <div className="h-2 w-full rounded-full bg-gray-100" aria-hidden="true">
         <div className="h-2 rounded-full portal-btn-primary" style={{ width: `${pct}%` }} />
       </div>
     </div>

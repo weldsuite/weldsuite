@@ -22,7 +22,7 @@ interface ConversationPaneProps {
 }
 
 function newClientId(): string {
-  return `tmp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return `tmp_${Date.now().toString(36)}${crypto.randomUUID().slice(0, 8)}`;
 }
 
 export function ConversationPane({ conversationId }: Readonly<ConversationPaneProps>) {

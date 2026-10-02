@@ -2,28 +2,23 @@
 import { useParams } from '@/lib/router';
 import { MembersClient } from './members-client';
 import { useProjectMembers, useProjectAvailableUsers } from '@/hooks/queries/use-projects-queries';
-import { useSession } from '@clerk/clerk-react';
+import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { PageLoader } from '@/components/page-loader';
 
 export default function MembersPage() {
   const params = useParams();
   const projectId = params.projectId as string;
-  const { session } = useSession();
-  const userId = session?.user?.id;
+  // Server-derived: covers project role, the project manager, and workspace
+  // admins (projects:scope:all) who may not have a member row at all.
+  const { isAdmin, canWrite, isViewer, isLoading: permissionsLoading } = useProjectPermissions();
 
   const { data: membersData, isLoading: membersLoading } = useProjectMembers(projectId);
   const { data: availableData, isLoading: availableLoading } = useProjectAvailableUsers(projectId);
 
-  if (membersLoading || availableLoading) return <PageLoader fullScreen={false} />;
+  if (membersLoading || availableLoading || permissionsLoading) return <PageLoader fullScreen={false} />;
 
   const members = membersData?.data || [];
   const availableUsers = availableData?.data || [];
-
-  // Determine user permissions based on their membership
-  const currentUserMember = members.find((m) => m.userId === userId);
-  const isAdmin = currentUserMember?.role === 'owner' || currentUserMember?.role === 'admin';
-  const canWrite = isAdmin || currentUserMember?.role === 'member';
-  const isViewer = currentUserMember?.role === 'viewer';
 
   return (
     <MembersClient

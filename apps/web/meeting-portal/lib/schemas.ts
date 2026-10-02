@@ -103,6 +103,12 @@ export const guestJoinResultSchema = z.object({
   waitlistId: z.string().optional(),
   /** Optional context for status === 'waiting' (e.g. 'host_must_join_first'). */
   reason: z.string().optional(),
+  /**
+   * Set when status === 'joined'. Signed guest session token; sent as
+   * `Authorization: Bearer <token>` to the chat, upload and leave routes,
+   * which identify the guest by it instead of by email.
+   */
+  guestToken: z.string().optional(),
 });
 
 export type GuestJoinResult = z.infer<typeof guestJoinResultSchema>;
@@ -141,11 +147,10 @@ export const guestJoinFormSchema = guestJoinInputSchema.pick({
 
 export type GuestJoinFormInput = z.infer<typeof guestJoinFormSchema>;
 
+/** The guest is identified by the bearer guest session token, not the body. */
 export const guestLeaveInputSchema = z.object({
   orgId: z.string().min(1),
   meetingId: z.string().min(1),
-  sessionId: z.string().min(1),
-  email: z.string().trim().email().max(255),
 });
 
 export const waitlistStatusQuerySchema = z.object({
@@ -155,7 +160,6 @@ export const waitlistStatusQuerySchema = z.object({
 
 export const messagesListQuerySchema = z.object({
   orgId: z.string().min(1),
-  email: z.string().trim().email().max(255),
   before: z.string().optional(),
   limit: z
     .union([z.string(), z.number()])
@@ -183,8 +187,6 @@ export type MessageAttachmentInput = z.infer<typeof messageAttachmentSchema>;
 export const messagesPostInputSchema = z
   .object({
     orgId: z.string().min(1),
-    email: z.string().trim().email().max(255),
-    name: z.string().trim().min(1).max(255),
     // Allow empty content for attachment-only messages — the refine below
     // guarantees there is either text or at least one attachment.
     content: z.string().trim().max(4000).default(''),

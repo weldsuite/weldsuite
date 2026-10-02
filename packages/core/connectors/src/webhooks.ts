@@ -111,38 +111,31 @@ export function webhookTopicsFor(provider: string): ConnectorWebhookTopic[] {
   return TOPICS_BY_PROVIDER[provider] ?? [];
 }
 
+/** Moneybird topic prefixes (checked in order) for events not in the static topic list. */
+const MONEYBIRD_TOPIC_PREFIXES: ReadonlyArray<{
+  prefix: string;
+  settingKey: ConnectorWebhookTopic['settingKey'];
+  syncName: string;
+}> = [
+  { prefix: 'contact_', settingKey: 'contacts', syncName: 'moneybird-contacts' },
+  { prefix: 'sales_invoice_', settingKey: 'invoices', syncName: 'moneybird-sales-invoices' },
+  { prefix: 'product_', settingKey: 'products', syncName: 'moneybird-products' },
+  { prefix: 'purchase_invoice_', settingKey: 'bills', syncName: 'moneybird-purchase-invoices' },
+  { prefix: 'receipt_', settingKey: 'bills', syncName: 'moneybird-receipts' },
+  { prefix: 'financial_account_', settingKey: 'bankAccounts', syncName: 'moneybird-financial-accounts' },
+];
+
 export function matchWebhookTopic(provider: string, topic: string): ConnectorWebhookTopic | undefined {
   const normalised = topic.trim().toLowerCase();
   const exact = webhookTopicsFor(provider).find((entry) => entry.topic === normalised);
   if (exact) return exact;
   if (provider !== 'moneybird') return undefined;
+  const kind = normalised.includes('destroy') ? 'delete' : 'update';
   const prefix = webhookTopicsFor(provider).find((entry) => normalised.startsWith(`${entry.topic.split('_').slice(0, -1).join('_')}_`));
-  if (prefix) return { ...prefix, topic: normalised, kind: normalised.includes('destroy') ? 'delete' : 'update' };
-  if (normalised.startsWith('contact_')) {
-    return { provider, topic: normalised, settingKey: 'contacts', kind: normalised.includes('destroy') ? 'delete' : 'update', syncName: 'moneybird-contacts' };
-  }
-  if (normalised.startsWith('sales_invoice_')) {
-    return { provider, topic: normalised, settingKey: 'invoices', kind: normalised.includes('destroy') ? 'delete' : 'update', syncName: 'moneybird-sales-invoices' };
-  }
-  if (normalised.startsWith('product_')) {
-    return { provider, topic: normalised, settingKey: 'products', kind: normalised.includes('destroy') ? 'delete' : 'update', syncName: 'moneybird-products' };
-  }
-  if (normalised.startsWith('purchase_invoice_')) {
-    return { provider, topic: normalised, settingKey: 'bills', kind: normalised.includes('destroy') ? 'delete' : 'update', syncName: 'moneybird-purchase-invoices' };
-  }
-  if (normalised.startsWith('receipt_')) {
-    return { provider, topic: normalised, settingKey: 'bills', kind: normalised.includes('destroy') ? 'delete' : 'update', syncName: 'moneybird-receipts' };
-  }
-  if (normalised.startsWith('financial_account_')) {
-    return {
-      provider,
-      topic: normalised,
-      settingKey: 'bankAccounts',
-      kind: normalised.includes('destroy') ? 'delete' : 'update',
-      syncName: 'moneybird-financial-accounts',
-    };
-  }
-  return undefined;
+  if (prefix) return { ...prefix, topic: normalised, kind };
+  const fallback = MONEYBIRD_TOPIC_PREFIXES.find((entry) => normalised.startsWith(entry.prefix));
+  if (!fallback) return undefined;
+  return { provider, topic: normalised, settingKey: fallback.settingKey, kind, syncName: fallback.syncName };
 }
 
 export function connectorWebhookDeliveryUrl(baseUrl: string, connectionId: string): string {

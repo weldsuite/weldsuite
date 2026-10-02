@@ -103,6 +103,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const { formatMoney } = useCurrentEntityCurrency();
   const displayCurrency = bill?.currency;
   const tb = t.accounting.billForm;
+  const submitLabel = mode === 'add' ? tb.createBill : tb.updateBill;
   const billFormSchema = useMemo(() => createBillFormSchema(st), [st]);
   const { data: contactsData } = useAccountingCustomers({ role: 'supplier' });
   const { data: taxRatesData } = useAccountingTaxRates();
@@ -420,11 +421,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
 
       <div className="flex justify-end gap-2">
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting
-            ? tb.saving
-            : mode === 'add'
-              ? tb.createBill
-              : tb.updateBill}
+          {isSubmitting ? tb.saving : submitLabel}
         </Button>
       </div>
     </form>

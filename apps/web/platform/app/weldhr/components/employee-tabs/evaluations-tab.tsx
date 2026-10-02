@@ -1,6 +1,6 @@
 /** Evaluation history and score trend for a single employee's profile. */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -27,6 +27,54 @@ export function EmployeeEvaluationsTab({ employeeId }: Readonly<{ employeeId: st
     return scored;
   }, [evaluations]);
 
+  let evaluationsContent: ReactNode;
+  if (isLoading) {
+    evaluationsContent = (
+      <div className="flex justify-center py-6">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (!evaluations || evaluations.length === 0) {
+    evaluationsContent = <EmptyText>{t('weldhr.evaluations.tab.empty')}</EmptyText>;
+  } else {
+    evaluationsContent = (
+      <div className="space-y-4">
+        {trend.length >= 2 && (
+          <div className="rounded-md border p-3">
+            <p className="mb-2 text-xs text-muted-foreground">{t('weldhr.evaluations.tab.trend')}</p>
+            <ScoreTrendChart points={trend.map((e) => e.overallScore as number)} />
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {evaluations.map((evaluation) => (
+            <Link
+              key={evaluation.id}
+              to="/weldhr/evaluations/$evaluationId"
+              params={{ evaluationId: evaluation.id }}
+              className="block"
+            >
+              <Card className="flex flex-wrap items-center justify-between gap-2 p-3 hover:bg-muted/40">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{evaluation.formName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {evaluation.periodStart || evaluation.periodEnd
+                      ? `${formatDate(evaluation.periodStart)} – ${formatDate(evaluation.periodEnd)}`
+                      : t('weldhr.evaluations.table.noPeriod')}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <StatusBadge group="evaluation" status={evaluation.status} />
+                  <ScoreBadge score={evaluation.overallScore} />
+                </div>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <SectionCard
       title={t('weldhr.evaluations.tab.title')}
@@ -41,48 +89,7 @@ export function EmployeeEvaluationsTab({ employeeId }: Readonly<{ employeeId: st
     >
       <ErrorBanner error={error ? errorMessage(error, t('weldhr.common.loadFailed')) : null} />
 
-      {isLoading ? (
-        <div className="flex justify-center py-6">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        </div>
-      ) : !evaluations || evaluations.length === 0 ? (
-        <EmptyText>{t('weldhr.evaluations.tab.empty')}</EmptyText>
-      ) : (
-        <div className="space-y-4">
-          {trend.length >= 2 && (
-            <div className="rounded-md border p-3">
-              <p className="mb-2 text-xs text-muted-foreground">{t('weldhr.evaluations.tab.trend')}</p>
-              <ScoreTrendChart points={trend.map((e) => e.overallScore as number)} />
-            </div>
-          )}
-
-          <div className="space-y-2">
-            {evaluations.map((evaluation) => (
-              <Link
-                key={evaluation.id}
-                to="/weldhr/evaluations/$evaluationId"
-                params={{ evaluationId: evaluation.id }}
-                className="block"
-              >
-                <Card className="flex flex-wrap items-center justify-between gap-2 p-3 hover:bg-muted/40">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{evaluation.formName}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {evaluation.periodStart || evaluation.periodEnd
-                        ? `${formatDate(evaluation.periodStart)} – ${formatDate(evaluation.periodEnd)}`
-                        : t('weldhr.evaluations.table.noPeriod')}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge group="evaluation" status={evaluation.status} />
-                    <ScoreBadge score={evaluation.overallScore} />
-                  </div>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
+      {evaluationsContent}
 
       {creating && <EvaluationDialog employeeId={employeeId} onClose={() => setCreating(false)} />}
     </SectionCard>
@@ -113,9 +120,9 @@ function ScoreTrendChart({ points }: Readonly<{ points: number[] }>) {
         className="text-primary"
         vectorEffect="non-scaling-stroke"
       />
-      {coords.map((c, i) => {
+      {coords.map((c) => {
         const [x, y] = c.split(',');
-        return <circle key={i} cx={x} cy={y} r={3} className="fill-primary" />;
+        return <circle key={c} cx={x} cy={y} r={3} className="fill-primary" />;
       })}
     </svg>
   );

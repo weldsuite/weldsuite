@@ -21,6 +21,7 @@ import {
   type NoiseSuppressor,
 } from '@weldsuite/df3-noise-suppression';
 import { useVirtualBackground, type ViewMode } from '@weldsuite/weldmeet-ui';
+import { randomToken } from '@/lib/random-id';
 
 /**
  * RNNoise gate for the guest portal. meeting-portal has no FeatureFlagProvider
@@ -74,6 +75,7 @@ import {
   DEFAULT_GUEST_HOST_CONTROLS,
   type GuestHostControls,
   type GuestJoinFormInput,
+  type GuestJoinResult,
   type MeetingInfo,
 } from '@/lib/schemas';
 
@@ -83,6 +85,8 @@ import { LandingScreen } from './components/landing-screen';
 import type { PermState } from './components/prejoin-media-controls';
 import { ConnectingScreen, LoadingScreen, WaitingScreen } from './components/waiting-screen';
 import { WaitlistedScreen } from './components/waitlisted-screen';
+
+type GuestJoinBody = Parameters<typeof guestJoinMeeting>[1];
 
 type PageState =
   | 'loading'
@@ -115,7 +119,8 @@ export default function GuestJoinClient() {
 
   // Session
   const [meetingId, setMeetingId] = useState('');
-  const [sessionId, setSessionId] = useState('');
+  // Signed guest session token from /join; authenticates chat, upload, leave.
+  const [guestToken, setGuestToken] = useState('');
   const [meetingTitle, setMeetingTitle] = useState('');
 
   // RTK
@@ -141,7 +146,7 @@ export default function GuestJoinClient() {
   // tile/avatar color does not flicker as the guest types their name/email.
   const [colorSeed] = useState(() => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
-    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `${Date.now()}-${randomToken(11)}`;
   });
   const personTheme = useMemo(() => getPersonTheme(colorSeed), [colorSeed]);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -250,20 +255,15 @@ export default function GuestJoinClient() {
 
   useEffect(() => {
     const handler = () => {
-      if (meetingId && sessionId && guestEmail) {
+      if (meetingId && guestToken) {
         try {
-          fetch('/api/meeting/leave', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orgId, meetingId, sessionId, email: guestEmail }),
-            keepalive: true,
-          }).catch(() => {});
+          guestLeaveMeeting(orgId, { meetingId, guestToken }, { keepalive: true }).catch(() => {});
         } catch { /* best effort */ }
       }
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  }, [orgId, meetingId, sessionId, guestEmail]);
+  }, [orgId, meetingId, guestToken]);
 
   // ── Camera preview ──
 
@@ -600,6 +600,84 @@ export default function GuestJoinClient() {
 
   // ── Join handler ──
 
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  // Applies the outcome of a (re-)join attempt made while polling: ended stops
+  // the poll with an error screen, joined stops it and connects to RTK.
+  const applyPolledJoinResult = useCallback(async (retry: GuestJoinResult) => {
+    if (retry.status === 'ended') {
+      stopPolling();
+      setState('error');
+      setErrorMsg('This meeting has already ended.');
+      return;
+    }
+    if (retry.status === 'joined' && retry.authToken && retry.sessionId) {
+      stopPolling();
+      setGuestToken(retry.guestToken ?? '');
+      await connectToRtk(retry.authToken);
+    }
+  }, [stopPolling, connectToRtk]);
+
+  const retryJoin = useCallback(async (body: GuestJoinBody) => {
+    try {
+      const retry = await guestJoinMeeting(orgId, body);
+      await applyPolledJoinResult(retry);
+    } catch { /* keep polling */ }
+  }, [orgId, applyPolledJoinResult]);
+
+  const pollWaitlist = useCallback(async (
+    joinedMeetingId: string,
+    waitlistId: string,
+    body: GuestJoinBody,
+  ) => {
+    try {
+      const status = await getGuestWaitlistStatus(orgId, joinedMeetingId, waitlistId);
+      if (status === 'denied') {
+        stopPolling();
+        setState('rejected');
+        return;
+      }
+      if (status === 'admitted') {
+        const retry = await guestJoinMeeting(orgId, body);
+        await applyPolledJoinResult(retry);
+      }
+    } catch { /* keep polling */ }
+  }, [orgId, stopPolling, applyPolledJoinResult]);
+
+  const applyJoinResult = useCallback(async (result: GuestJoinResult, body: GuestJoinBody) => {
+    if (result.status === 'ended') {
+      setState('error');
+      setErrorMsg('This meeting has already ended.');
+      return;
+    }
+    if (result.status === 'waiting') {
+      setState('waiting');
+      pollRef.current = setInterval(() => { void retryJoin(body); }, POLLING_INTERVAL_MS.waitingForSession);
+      return;
+    }
+    if (result.status === 'waitlisted' && result.waitlistId) {
+      // WeldSuite-side waiting room (meeting.waitingRoom === true). The host
+      // approves via the in-meeting Host Controls. We poll the dedicated
+      // status endpoint; once admitted, re-call /api/meeting/join to mint
+      // the actual RTK token.
+      setState('waitlisted');
+      const { meetingId: joinedMeetingId, waitlistId } = result;
+      pollRef.current = setInterval(() => {
+        void pollWaitlist(joinedMeetingId, waitlistId, body);
+      }, POLLING_INTERVAL_MS.waitlist);
+      return;
+    }
+    if (result.status === 'joined' && result.authToken && result.sessionId) {
+      setGuestToken(result.guestToken ?? '');
+      await connectToRtk(result.authToken);
+    }
+  }, [retryJoin, pollWaitlist, connectToRtk]);
+
   const handleJoin = useCallback(async ({ name, email }: GuestJoinFormInput) => {
     setSubmitError(null);
     setGuestName(name);
@@ -607,72 +685,18 @@ export default function GuestJoinClient() {
     setJoining(true);
 
     try {
-      const result = await guestJoinMeeting(orgId, { joinCode, name, email, colorSeed });
+      const body: GuestJoinBody = { joinCode, name, email, colorSeed };
+      const result = await guestJoinMeeting(orgId, body);
 
       setMeetingId(result.meetingId);
       setMeetingTitle(result.meetingTitle);
 
-      if (result.status === 'ended') {
-        setState('error');
-        setErrorMsg('This meeting has already ended.');
-      } else if (result.status === 'waiting') {
-        setState('waiting');
-        pollRef.current = setInterval(async () => {
-          try {
-            const retry = await guestJoinMeeting(orgId, { joinCode, name, email, colorSeed });
-            if (retry.status === 'ended') {
-              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-              setState('error');
-              setErrorMsg('This meeting has already ended.');
-              return;
-            }
-            if (retry.status === 'joined' && retry.authToken && retry.sessionId) {
-              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-              setSessionId(retry.sessionId);
-              await connectToRtk(retry.authToken);
-            }
-          } catch { /* keep polling */ }
-        }, POLLING_INTERVAL_MS.waitingForSession);
-      } else if (result.status === 'waitlisted' && result.waitlistId) {
-        // WeldSuite-side waiting room (meeting.waitingRoom === true). The host
-        // approves via the in-meeting Host Controls. We poll the dedicated
-        // status endpoint; once admitted, re-call /api/meeting/join to mint
-        // the actual RTK token.
-        setState('waitlisted');
-        const waitlistId = result.waitlistId;
-        pollRef.current = setInterval(async () => {
-          try {
-            const status = await getGuestWaitlistStatus(orgId, result.meetingId, waitlistId);
-            if (status === 'denied') {
-              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-              setState('rejected');
-              return;
-            }
-            if (status === 'admitted') {
-              const retry = await guestJoinMeeting(orgId, { joinCode, name, email, colorSeed });
-              if (retry.status === 'ended') {
-                if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-                setState('error');
-                setErrorMsg('This meeting has already ended.');
-                return;
-              }
-              if (retry.status === 'joined' && retry.authToken && retry.sessionId) {
-                if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-                setSessionId(retry.sessionId);
-                await connectToRtk(retry.authToken);
-              }
-            }
-          } catch { /* keep polling */ }
-        }, POLLING_INTERVAL_MS.waitlist);
-      } else if (result.status === 'joined' && result.authToken && result.sessionId) {
-        setSessionId(result.sessionId);
-        await connectToRtk(result.authToken);
-      }
+      await applyJoinResult(result, body);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Failed to join meeting.');
       setJoining(false);
     }
-  }, [orgId, joinCode, colorSeed, connectToRtk]);
+  }, [orgId, joinCode, colorSeed, applyJoinResult]);
 
   // ── Leave handler ──
 
@@ -692,14 +716,14 @@ export default function GuestJoinClient() {
     suppressorRef.current = null;
     sup?.dispose().catch((err) => console.warn('[noise] dispose error:', err));
 
-    if (meetingId && sessionId && guestEmail) {
+    if (meetingId && guestToken) {
       try {
-        await guestLeaveMeeting(orgId, { meetingId, sessionId, email: guestEmail });
+        await guestLeaveMeeting(orgId, { meetingId, guestToken });
       } catch { /* best effort */ }
     }
 
     setState('ended');
-  }, [rtkClient, orgId, meetingId, sessionId, guestEmail]);
+  }, [rtkClient, orgId, meetingId, guestToken]);
 
   // ── Media controls (connected room) ──
 
@@ -888,6 +912,7 @@ export default function GuestJoinClient() {
       orgId={orgId}
       guestName={guestName}
       guestEmail={guestEmail}
+      guestToken={guestToken}
       hostControls={hostControls}
       onHostControlsBroadcast={setHostControls}
     />

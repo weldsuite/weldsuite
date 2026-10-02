@@ -52,6 +52,71 @@ interface MigrationResult {
   errors: string[];
 }
 
+type OrganizationMembership = Awaited<
+  ReturnType<typeof clerkClient.organizations.getOrganizationMembershipList>
+>['data'][number];
+
+async function migrateMembership(
+  orgId: string,
+  membership: OrganizationMembership,
+  result: MigrationResult,
+): Promise<void> {
+  result.membersProcessed++;
+
+  const userId = membership.publicUserData?.userId;
+  const currentRole = membership.role;
+  const email = membership.publicUserData?.identifier || 'unknown';
+
+  if (!userId) {
+    result.errors.push(`Member without userId: ${email}`);
+    result.membersSkipped++;
+    return;
+  }
+
+  // Determine the target Clerk role
+  // The current membership.role will be 'org:admin' or 'org:member' (Clerk defaults)
+  // We need to map based on what's in the tenant DB
+  // For now, keep existing org:admin as OWNER, map org:member to org:member_role
+  let targetRole = currentRole;
+
+  if (currentRole === 'org:admin') {
+    // Keep as org:admin (OWNER) - this is already correct
+    console.log(`    ${email}: org:admin (OWNER) - no change needed`);
+    result.membersSkipped++;
+    return;
+  }
+
+  if (currentRole === 'org:member') {
+    // Default Clerk member - map to our custom member_role
+    targetRole = 'org:member_role';
+  }
+
+  if (targetRole === currentRole) {
+    result.membersSkipped++;
+    return;
+  }
+
+  console.log(`    ${email}: ${currentRole} -> ${targetRole}`);
+
+  if (DRY_RUN) {
+    result.membersUpdated++;
+    return;
+  }
+
+  try {
+    await clerkClient.organizations.updateOrganizationMembership({
+      organizationId: orgId,
+      userId,
+      role: targetRole,
+    });
+    result.membersUpdated++;
+  } catch (error: any) {
+    const errorMsg = `Failed to update ${email}: ${error?.message || error}`;
+    result.errors.push(errorMsg);
+    console.error(`    ERROR: ${errorMsg}`);
+  }
+}
+
 async function migrateOrganization(orgId: string): Promise<MigrationResult> {
   const result: MigrationResult = {
     orgId,
@@ -78,58 +143,7 @@ async function migrateOrganization(orgId: string): Promise<MigrationResult> {
     console.log(`  Members: ${memberships.data.length}`);
 
     for (const membership of memberships.data) {
-      result.membersProcessed++;
-
-      const userId = membership.publicUserData?.userId;
-      const currentRole = membership.role;
-      const email = membership.publicUserData?.identifier || 'unknown';
-
-      if (!userId) {
-        result.errors.push(`Member without userId: ${email}`);
-        result.membersSkipped++;
-        continue;
-      }
-
-      // Determine the target Clerk role
-      // The current membership.role will be 'org:admin' or 'org:member' (Clerk defaults)
-      // We need to map based on what's in the tenant DB
-      // For now, keep existing org:admin as OWNER, map org:member to org:member_role
-      let targetRole = currentRole;
-
-      if (currentRole === 'org:admin') {
-        // Keep as org:admin (OWNER) - this is already correct
-        console.log(`    ${email}: org:admin (OWNER) - no change needed`);
-        result.membersSkipped++;
-        continue;
-      }
-
-      if (currentRole === 'org:member') {
-        // Default Clerk member - map to our custom member_role
-        targetRole = 'org:member_role';
-      }
-
-      if (targetRole !== currentRole) {
-        console.log(`    ${email}: ${currentRole} -> ${targetRole}`);
-
-        if (!DRY_RUN) {
-          try {
-            await clerkClient.organizations.updateOrganizationMembership({
-              organizationId: orgId,
-              userId,
-              role: targetRole,
-            });
-            result.membersUpdated++;
-          } catch (error: any) {
-            const errorMsg = `Failed to update ${email}: ${error?.message || error}`;
-            result.errors.push(errorMsg);
-            console.error(`    ERROR: ${errorMsg}`);
-          }
-        } else {
-          result.membersUpdated++;
-        }
-      } else {
-        result.membersSkipped++;
-      }
+      await migrateMembership(orgId, membership, result);
     }
   } catch (error: any) {
     result.errors.push(`Organization error: ${error?.message || error}`);

@@ -72,6 +72,12 @@ const ICON_MAP: Record<string, React.ElementType> = {
   plug: Plug,
 };
 
+function fieldInputType(fieldType: string): 'password' | 'url' | 'text' {
+  if (fieldType === 'secret') return 'password';
+  if (fieldType === 'url') return 'url';
+  return 'text';
+}
+
 function getIcon(key: string): React.ElementType {
   return ICON_MAP[key] ?? Plug;
 }
@@ -224,6 +230,9 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
   const isOAuth2 = connector?.auth.kind === 'oauth2';
   const needsEntity = connector?.provider === 'moneybird';
   const busy = connect.isPending || authorize.isPending;
+  let connectDescription = tc.settings.connectDescription;
+  if (isOAuth2) connectDescription = tc.settings.connectDescriptionOAuth;
+  else if (isAppAuth) connectDescription = tc.settings.connectDescriptionAppAuth;
 
   useEffect(() => {
     if (connector) setEnabledSyncs(defaultSyncKeys(connector));
@@ -335,11 +344,7 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
         <DialogHeader>
           <DialogTitle>{connector ? `${tc.connect} ${connector.label}` : tc.connect}</DialogTitle>
           <DialogDescription>
-            {isOAuth2
-              ? tc.settings.connectDescriptionOAuth
-              : isAppAuth
-                ? tc.settings.connectDescriptionAppAuth
-                : tc.settings.connectDescription}
+            {connectDescription}
           </DialogDescription>
         </DialogHeader>
 
@@ -349,7 +354,7 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
               <Label htmlFor={`connect-${field.key}`}>{field.label}</Label>
               <Input
                 id={`connect-${field.key}`}
-                type={field.type === 'secret' ? 'password' : field.type === 'url' ? 'url' : 'text'}
+                type={fieldInputType(field.type)}
                 placeholder={field.placeholder}
                 autoComplete="off"
                 value={credentials[field.key] ?? ''}
@@ -405,6 +410,12 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
   );
 }
 
+function StatusIcon({ status }: Readonly<{ status: string }>) {
+  if (status === 'active') return <CheckCircle2 className="mr-1 h-3 w-3" />;
+  if (status === 'auth_error' || status === 'sync_error') return <AlertCircle className="mr-1 h-3 w-3" />;
+  return null;
+}
+
 interface ConnectorCardProps {
   connector: ConnectorCatalogEntry;
   onConnect: (connector: ConnectorCatalogEntry) => void;
@@ -434,11 +445,7 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: Read
               <CardTitle className="text-base leading-snug">{connector.label}</CardTitle>
               {status ? (
                 <Badge variant="outline" className={`shrink-0 text-xs ${STATUS_CLASSES[status] ?? ''}`}>
-                  {status === 'active' ? (
-                    <CheckCircle2 className="mr-1 h-3 w-3" />
-                  ) : status === 'auth_error' || status === 'sync_error' ? (
-                    <AlertCircle className="mr-1 h-3 w-3" />
-                  ) : null}
+                  <StatusIcon status={status} />
                   {live.length > 1
                     ? tc.storeCount.replace('{count}', String(live.length))
                     : tc.status[status]}
@@ -487,6 +494,71 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: Read
         </Button>
       </CardFooter>
     </Card>
+  );
+}
+
+interface CatalogBodyProps {
+  isLoading: boolean;
+  isCatalogEmpty: boolean;
+  isSearchEmpty: boolean;
+  connectors: ConnectorCatalogEntry[];
+  canConnect: boolean;
+  onConnect: (connector: ConnectorCatalogEntry) => void;
+  onOpenDetails: (connection: ConnectorConnection) => void;
+}
+
+function CatalogBody({
+  isLoading,
+  isCatalogEmpty,
+  isSearchEmpty,
+  connectors,
+  canConnect,
+  onConnect,
+  onOpenDetails,
+}: Readonly<CatalogBodyProps>) {
+  const { t } = useI18n();
+  const tc = t.weldconnect.connectors;
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+      </div>
+    );
+  }
+
+  if (isCatalogEmpty) {
+    return (
+      <div className="flex flex-col items-center rounded-lg border border-dashed py-16 text-center">
+        <ShoppingBag className="text-muted-foreground/40 mb-4 h-12 w-12" />
+        <p className="max-w-md text-sm font-medium">{tc.emptyCatalog}</p>
+        <p className="text-muted-foreground mt-2 max-w-md text-xs">{tc.emptyCatalogHint}</p>
+        <Button variant="outline" size="sm" className="mt-4" asChild>
+          <Link href="/weldconnect/integrations">
+            <LinkIcon className="mr-1.5 h-3.5 w-3.5" />
+            {t.weldconnect.breadcrumbs.integrations}
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+
+  if (isSearchEmpty) {
+    return <p className="text-muted-foreground py-16 text-center text-sm">{tc.empty}</p>;
+  }
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {connectors.map((connector) => (
+        <ConnectorCard
+          key={connector.provider}
+          connector={connector}
+          onConnect={onConnect}
+          onOpenDetails={onOpenDetails}
+          canConnect={canConnect}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -574,37 +646,15 @@ export function ConnectorsClient() {
               />
             </div>
 
-            {isLoading ? (
-              <div className="flex justify-center py-16">
-                <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
-              </div>
-            ) : isCatalogEmpty ? (
-              <div className="flex flex-col items-center rounded-lg border border-dashed py-16 text-center">
-                <ShoppingBag className="text-muted-foreground/40 mb-4 h-12 w-12" />
-                <p className="max-w-md text-sm font-medium">{tc.emptyCatalog}</p>
-                <p className="text-muted-foreground mt-2 max-w-md text-xs">{tc.emptyCatalogHint}</p>
-                <Button variant="outline" size="sm" className="mt-4" asChild>
-                  <Link href="/weldconnect/integrations">
-                    <LinkIcon className="mr-1.5 h-3.5 w-3.5" />
-                    {t.weldconnect.breadcrumbs.integrations}
-                  </Link>
-                </Button>
-              </div>
-            ) : isSearchEmpty ? (
-              <p className="text-muted-foreground py-16 text-center text-sm">{tc.empty}</p>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((connector) => (
-                  <ConnectorCard
-                    key={connector.provider}
-                    connector={connector}
-                    onConnect={setPendingConnect}
-                    onOpenDetails={(connection) => setDetailId(connection.id)}
-                    canConnect={canConnect}
-                  />
-                ))}
-              </div>
-            )}
+            <CatalogBody
+              isLoading={isLoading}
+              isCatalogEmpty={isCatalogEmpty}
+              isSearchEmpty={isSearchEmpty}
+              connectors={filtered}
+              canConnect={canConnect}
+              onConnect={setPendingConnect}
+              onOpenDetails={(connection) => setDetailId(connection.id)}
+            />
           </>
         )}
 

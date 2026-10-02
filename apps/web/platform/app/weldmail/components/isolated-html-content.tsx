@@ -118,7 +118,8 @@ let colorProbe: CanvasRenderingContext2D | null = null;
 function parseColor(value: string): Rgba | null {
   const m = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/);
   if (m) {
-    const alpha = m[4] === undefined ? 1 : Number(m[4]) / (m[5] ? 100 : 1);
+    const alphaDivisor = m[5] ? 100 : 1;
+    const alpha = m[4] === undefined ? 1 : Number(m[4]) / alphaDivisor;
     return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]), a: alpha };
   }
   try {
@@ -158,6 +159,86 @@ const LIGHT_BACKGROUND = 0.75;
 /** Text below this lightness would be unreadable on a dark canvas. */
 const DARK_TEXT = 0.6;
 
+type StyleWrite = [ElementCSSInlineStyle, string, string];
+
+const BORDER_SIDES = ['top', 'right', 'bottom', 'left'] as const;
+
+const isNeutral = (hsla: Hsla) => hsla.s < 0.15;
+
+function darkBackground(bg: Hsla, surface: Hsla): Hsla {
+  // Keep the distance from white: white → the app surface, a light grey
+  // wrapper → a step above it, so nested "cards" stay distinguishable.
+  const l = Math.min(surface.l + (1 - bg.l) * 0.9, 0.35);
+  return isNeutral(bg)
+    ? { h: surface.h, s: surface.s, l, a: bg.a }
+    : { h: bg.h, s: bg.s * 0.5, l, a: bg.a };
+}
+
+function lightText(fg: Hsla): Hsla {
+  return {
+    h: fg.h,
+    s: fg.s,
+    l: Math.min(Math.max(1 - fg.l, 0.7), 0.9),
+    a: fg.a,
+  };
+}
+
+function dimBorder(border: Hsla, surface: Hsla): Hsla {
+  return isNeutral(border)
+    ? { h: surface.h, s: surface.s, l: surface.l + 0.14, a: border.a }
+    : { h: border.h, s: border.s * 0.6, l: border.l >= LIGHT_BACKGROUND ? surface.l + 0.2 : 0.45, a: border.a };
+}
+
+/**
+ * Whether `el` sits on the light canvas the email was written against
+ * (`inherited` is the parent's answer). Queues the dark background rewrite for
+ * a light opaque background; a background image or a dark/saturated block opts
+ * the element (and its descendants) out.
+ */
+function resolveCanvasDarkness(
+  el: Element,
+  cs: CSSStyleDeclaration,
+  inherited: boolean,
+  surface: Hsla,
+  writes: StyleWrite[],
+): boolean {
+  if (cs.backgroundImage && cs.backgroundImage !== 'none') return false;
+
+  const bg = parseColor(cs.backgroundColor);
+  if (bg && bg.a > 0.5) {
+    const hsla = toHsla(bg);
+    const dark = hsla.l >= LIGHT_BACKGROUND;
+    if (dark) writes.push([el as unknown as ElementCSSInlineStyle, 'background-color', hslaString(darkBackground(hsla, surface))]);
+    return dark;
+  }
+  return inherited;
+}
+
+function collectTextColorWrite(target: ElementCSSInlineStyle, cs: CSSStyleDeclaration, writes: StyleWrite[]) {
+  const fg = parseColor(cs.color);
+  if (!fg) return;
+  const hsla = toHsla(fg);
+  if (hsla.l < DARK_TEXT) writes.push([target, 'color', hslaString(lightText(hsla))]);
+}
+
+function collectBorderColorWrites(
+  target: ElementCSSInlineStyle,
+  cs: CSSStyleDeclaration,
+  surface: Hsla,
+  writes: StyleWrite[],
+) {
+  for (const side of BORDER_SIDES) {
+    if (cs.getPropertyValue(`border-${side}-style`) === 'none') continue;
+    if (Number.parseFloat(cs.getPropertyValue(`border-${side}-width`)) <= 0) continue;
+    const border = parseColor(cs.getPropertyValue(`border-${side}-color`));
+    if (!border || border.a === 0) continue;
+    const hsla = toHsla(border);
+    if (hsla.l >= LIGHT_BACKGROUND || hsla.l < 0.3) {
+      writes.push([target, `border-${side}-color`, hslaString(dimBorder(hsla, surface))]);
+    }
+  }
+}
+
 /**
  * Adapts an already-rendered email to dark mode, the way Outlook and Apple Mail
  * do: light backgrounds become dark (white maps exactly onto the app's own
@@ -174,65 +255,20 @@ function adaptEmailToDarkMode(doc: Document, surface: Hsla) {
   const view = doc.defaultView;
   if (!view || !doc.body) return;
 
-  const neutral = (hsla: Hsla) => hsla.s < 0.15;
-  const darkBackground = (bg: Hsla): Hsla => {
-    // Keep the distance from white: white → the app surface, a light grey
-    // wrapper → a step above it, so nested "cards" stay distinguishable.
-    const l = Math.min(surface.l + (1 - bg.l) * 0.9, 0.35);
-    return neutral(bg)
-      ? { h: surface.h, s: surface.s, l, a: bg.a }
-      : { h: bg.h, s: bg.s * 0.5, l, a: bg.a };
-  };
-  const lightText = (fg: Hsla): Hsla => ({
-    h: fg.h,
-    s: fg.s,
-    l: Math.min(Math.max(1 - fg.l, 0.7), 0.9),
-    a: fg.a,
-  });
-  const dimBorder = (border: Hsla): Hsla =>
-    neutral(border)
-      ? { h: surface.h, s: surface.s, l: surface.l + 0.14, a: border.a }
-      : { h: border.h, s: border.s * 0.6, l: border.l >= LIGHT_BACKGROUND ? surface.l + 0.2 : 0.45, a: border.a };
-
   const elements: Element[] = [doc.documentElement, doc.body, ...Array.from(doc.body.querySelectorAll('*'))];
   const onDarkCanvas = new Map<Element, boolean>();
-  const writes: Array<[ElementCSSInlineStyle, string, string]> = [];
-  const sides = ['top', 'right', 'bottom', 'left'] as const;
+  const writes: StyleWrite[] = [];
 
   for (const el of elements) {
     const cs = view.getComputedStyle(el);
-    let dark = el.parentElement ? onDarkCanvas.get(el.parentElement) ?? true : true;
-
-    if (cs.backgroundImage && cs.backgroundImage !== 'none') {
-      dark = false;
-    } else {
-      const bg = parseColor(cs.backgroundColor);
-      if (bg && bg.a > 0.5) {
-        const hsla = toHsla(bg);
-        dark = hsla.l >= LIGHT_BACKGROUND;
-        if (dark) writes.push([el as unknown as ElementCSSInlineStyle, 'background-color', hslaString(darkBackground(hsla))]);
-      }
-    }
+    const inherited = el.parentElement ? onDarkCanvas.get(el.parentElement) ?? true : true;
+    const dark = resolveCanvasDarkness(el, cs, inherited, surface, writes);
     onDarkCanvas.set(el, dark);
     if (!dark || !('style' in el)) continue;
 
     const target = el as unknown as ElementCSSInlineStyle;
-    const fg = parseColor(cs.color);
-    if (fg) {
-      const hsla = toHsla(fg);
-      if (hsla.l < DARK_TEXT) writes.push([target, 'color', hslaString(lightText(hsla))]);
-    }
-
-    for (const side of sides) {
-      if (cs.getPropertyValue(`border-${side}-style`) === 'none') continue;
-      if (Number.parseFloat(cs.getPropertyValue(`border-${side}-width`)) <= 0) continue;
-      const border = parseColor(cs.getPropertyValue(`border-${side}-color`));
-      if (!border || border.a === 0) continue;
-      const hsla = toHsla(border);
-      if (hsla.l >= LIGHT_BACKGROUND || hsla.l < 0.3) {
-        writes.push([target, `border-${side}-color`, hslaString(dimBorder(hsla))]);
-      }
-    }
+    collectTextColorWrite(target, cs, writes);
+    collectBorderColorWrites(target, cs, surface, writes);
   }
 
   // Inline !important beats the email's own stylesheet rules, even !important ones.

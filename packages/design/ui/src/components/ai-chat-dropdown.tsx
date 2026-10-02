@@ -90,6 +90,135 @@ const defaultSuggestions: Suggestion[] = [
   },
 ]
 
+type SetMessages = React.Dispatch<React.SetStateAction<Message[]>>
+
+/** Strip action markers and the assistant's generic filler sentences. */
+function stripAssistantBoilerplate(text: string): string {
+  return text
+    .replace(/\[ACTION:[^\]]+\]/g, "") // Remove action markers
+    .replace(/I'll get that information for you\./g, "") // Remove generic text
+    .replace(/Let me retrieve those details\./g, "")
+}
+
+function cleanMessageContent(text: string): string {
+  return stripAssistantBoilerplate(text).replace(/\s+/g, " ").trim()
+}
+
+/** Apply `patch` to the message with `id`, leaving every other message untouched. */
+function patchMessage(
+  setMessages: SetMessages,
+  id: string,
+  patch: (msg: Message) => Message
+) {
+  setMessages((prev) => prev.map((msg) => (msg.id === id ? patch(msg) : msg)))
+}
+
+function describeListResult(data: AiActionRecord[], label: string): string {
+  const count = data.length
+  if (count === 0) {
+    return `I couldn't find any ${label}s in your workspace.`
+  }
+  const name = data[0]?.name
+  if (count === 1) {
+    const found = `I found 1 ${label}.`
+    return name ? `${found} It's "${name}".` : found
+  }
+  const found = `I found ${count} ${label}s.`
+  return name ? `${found} Including "${name}".` : found
+}
+
+function describeFoundResult(data: AiActionResult["data"], label: string): string {
+  if (!data) {
+    return `I couldn't find that ${label}.`
+  }
+  const record: AiActionRecord | null =
+    typeof data === "object" && !Array.isArray(data) ? data : null
+  const found = `I found the ${label}.`
+  return record?.name ? `${found} It's "${record.name}".` : found
+}
+
+/** Append `text` to the cleaned-up message content. */
+function appendCleaned(text: string): (content: string) => string {
+  return (content) => `${cleanMessageContent(content)} ${text}`.trim()
+}
+
+/**
+ * Turn an action result into a function that rewrites the assistant message
+ * content, or `null` when the result adds nothing to the message.
+ */
+function buildActionResultUpdate(
+  result: AiActionResult,
+  action: AiAction
+): ((content: string) => string) | null {
+  if (!result.success) {
+    // Show error inline
+    return (content) =>
+      content + ` I encountered an issue: ${result.error || "Unable to fetch data."}`
+  }
+
+  const label = action.params?.model?.toLowerCase() || "item"
+  const type = result.type
+
+  if (type?.includes("count")) {
+    return appendCleaned(`You have ${result.data} ${label}s in your workspace.`)
+  }
+  if (type?.includes("list") && Array.isArray(result.data)) {
+    return appendCleaned(describeListResult(result.data, label))
+  }
+  if (type?.includes("found")) {
+    return appendCleaned(describeFoundResult(result.data, label))
+  }
+
+  // For other types, just append the message
+  const message = result.message
+  return message ? (content) => content + " " + message : null
+}
+
+/** Run a host action right away and fold its result into the assistant message. */
+function runAction(
+  onAction: (action: AiAction) => void,
+  action: AiAction,
+  setMessages: SetMessages,
+  assistantMessageId: string
+) {
+  Promise.resolve(onAction(action) as AiActionResult | void)
+    .then((result) => {
+      if (!result) return
+      const update = buildActionResultUpdate(result, action)
+      if (!update) return
+      patchMessage(setMessages, assistantMessageId, (msg) => ({
+        ...msg,
+        content: update(msg.content),
+      }))
+    })
+    .catch((error: unknown) => {
+      console.error("Action error:", error)
+      patchMessage(setMessages, assistantMessageId, (msg) => ({
+        ...msg,
+        content: msg.content + " I encountered an error while fetching the data.",
+      }))
+    })
+}
+
+/** Split a batch of stream chunks into appended text and host actions. */
+function collectChunks(
+  chunks: AiStreamChunk[],
+  acceptActions: boolean
+): { text: string; hasNewContent: boolean; actions: AiAction[] } {
+  let text = ""
+  let hasNewContent = false
+  const actions: AiAction[] = []
+  for (const chunk of chunks) {
+    if (chunk.type === "chunk") {
+      text += chunk.content
+      hasNewContent = true
+    } else if (chunk.type === "action" && acceptActions && chunk.action) {
+      actions.push(chunk.action)
+    }
+  }
+  return { text, hasNewContent, actions }
+}
+
 export function AiChatDropdown({
   onSendMessage,
   onStartStream,
@@ -133,294 +262,155 @@ export function AiChatDropdown({
 
     // Use streaming if available, otherwise fall back to regular message
     if (onStartStream && onGetChunks) {
-      const assistantMessageId = (Date.now() + 1).toString()
-      const assistantMessage: Message = {
-        id: assistantMessageId,
-        role: "assistant",
-        content: "",
-        timestamp: new Date(),
-        isStreaming: true,
+      await streamReply(content, onStartStream, onGetChunks)
+    } else {
+      await replyWithoutStreaming(content)
+    }
+  }
+
+  const streamReply = async (
+    content: string,
+    startStream: NonNullable<AiChatDropdownProps["onStartStream"]>,
+    getChunks: NonNullable<AiChatDropdownProps["onGetChunks"]>
+  ) => {
+    const assistantMessageId = (Date.now() + 1).toString()
+    const assistantMessage: Message = {
+      id: assistantMessageId,
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+      isStreaming: true,
+    }
+
+    setMessages((prev) => [...prev, assistantMessage])
+    setStreamingMessageId(assistantMessageId)
+
+    try {
+      // Start the stream
+      const { streamId } = await startStream(content)
+
+      let lastIndex = 0
+      let pollCount = 0
+      const maxPolls = 300 // 30 seconds max
+
+      // Wait a moment for the stream to initialize
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      // Poll for chunks with batching to reduce re-renders
+      let accumulatedContent = ""
+      let updateTimer: NodeJS.Timeout | null = null
+
+      const updateMessage = () => {
+        if (!accumulatedContent) return
+        const pending = accumulatedContent
+        patchMessage(setMessages, assistantMessageId, (msg) => ({
+          ...msg,
+          content: msg.content + pending,
+        }))
+        accumulatedContent = ""
       }
-      
-      setMessages((prev) => [...prev, assistantMessage])
-      setStreamingMessageId(assistantMessageId)
-      
-      try {
-        // Start the stream
-        const { streamId } = await onStartStream(content)
-        
-        let lastIndex = 0
-        let pollCount = 0
-        const maxPolls = 300 // 30 seconds max
-        
-        // Wait a moment for the stream to initialize
-        await new Promise(resolve => setTimeout(resolve, 100))
-        
-        // Poll for chunks with batching to reduce re-renders
-        let accumulatedContent = ""
-        let updateTimer: NodeJS.Timeout | null = null
-        const pendingActions: AiAction[] = []
-        
-        const updateMessage = () => {
-          if (accumulatedContent) {
-            setMessages((prev) => 
-              prev.map(msg => 
-                msg.id === assistantMessageId 
-                  ? { ...msg, content: msg.content + accumulatedContent }
-                  : msg
-              )
-            )
-            accumulatedContent = ""
-          }
-        }
-        
-        const pollInterval = setInterval(async () => {
-          pollCount++
-          
-          try {
-            const { chunks, isComplete, error } = await onGetChunks(streamId, lastIndex)
-            
-            if (error) {
-              // Clear any pending updates
-              if (updateTimer) clearTimeout(updateTimer)
-              updateMessage()
-              
-              setMessages((prev) => 
-                prev.map(msg => 
-                  msg.id === assistantMessageId 
-                    ? { ...msg, content: error, isStreaming: false }
-                    : msg
-                )
-              )
-              clearInterval(pollInterval)
-              setStreamingMessageId(null)
-              setIsLoading(false)
-              return
-            }
-            
-            // Process chunks
-            let hasNewContent = false
-            for (const chunk of chunks) {
-              if (chunk.type === "chunk") {
-                accumulatedContent += chunk.content
-                hasNewContent = true
-              } else if (chunk.type === "action" && onAction) {
-                if (chunk.action) pendingActions.push(chunk.action)
-              }
-            }
-            
-            // Batch updates to reduce re-renders
-            if (hasNewContent) {
-              if (updateTimer) clearTimeout(updateTimer)
-              // Clean content before updating
-              accumulatedContent = accumulatedContent
-                .replace(/\[ACTION:[^\]]+\]/g, '') // Remove action markers
-                .replace(/I'll get that information for you\./g, '') // Remove generic text
-                .replace(/Let me retrieve those details\./g, '')
-              updateTimer = setTimeout(updateMessage, 100) // Update every 100ms max
-            }
-            
-            // Process actions and append results to the message
-            for (const action of pendingActions) {
-              // Execute action immediately without waiting
-              if (onAction) {
-                const actionHandler = onAction;
-                Promise.resolve(actionHandler(action) as AiActionResult | void).then((result) => {
-                  if (result) {
-                    
-                    if (result.success) {
-                      // Format the result based on the action type
-                      if (result.type?.includes('count')) {
-                        // Append count result to message
-                        setMessages((prev) => 
-                          prev.map(msg => {
-                            if (msg.id === assistantMessageId) {
-                              // Clean up the message first
-                              const cleanContent = msg.content
-                                .replace(/\[ACTION:[^\]]+\]/g, '') // Remove action markers
-                                .replace(/I'll get that information for you\./g, '') // Remove generic text
-                                .replace(/Let me retrieve those details\./g, '')
-                                .replace(/\s+/g, ' ')
-                                .trim()
-                              
-                              // Add the result
-                              const resultText = `You have ${result.data} ${action.params?.model?.toLowerCase() || 'item'}s in your workspace.`
-                              return { ...msg, content: `${cleanContent} ${resultText}`.trim() }
-                            }
-                            return msg
-                          })
-                        )
-                        return
-                      } else if (result.type?.includes('list') && Array.isArray(result.data)) {
-                        const count = result.data.length
-                        let resultText = ""
-                        
-                        if (count === 0) {
-                          resultText = `I couldn't find any ${action.params?.model?.toLowerCase() || 'item'}s in your workspace.`
-                        } else if (count === 1) {
-                          resultText = `I found 1 ${action.params?.model?.toLowerCase() || 'item'}.`
-                          if (result.data[0]?.name) {
-                            resultText += ` It's "${result.data[0].name}".`
-                          }
-                        } else {
-                          resultText = `I found ${count} ${action.params?.model?.toLowerCase() || 'item'}s.`
-                          if (result.data[0]?.name) {
-                            resultText += ` Including "${result.data[0].name}".`
-                          }
-                        }
-                        
-                        setMessages((prev) => 
-                          prev.map(msg => {
-                            if (msg.id === assistantMessageId) {
-                              // Clean up the message first
-                              const cleanContent = msg.content
-                                .replace(/\[ACTION:[^\]]+\]/g, '') // Remove action markers
-                                .replace(/I'll get that information for you\./g, '') // Remove generic text
-                                .replace(/Let me retrieve those details\./g, '')
-                                .replace(/\s+/g, ' ')
-                                .trim()
-                              
-                              return { ...msg, content: `${cleanContent} ${resultText}`.trim() }
-                            }
-                            return msg
-                          })
-                        )
-                        return
-                      } else if (result.type?.includes('found')) {
-                        let resultText = ""
-                        
-                        const record: AiActionRecord | null =
-                          result.data && typeof result.data === 'object' && !Array.isArray(result.data)
-                            ? result.data
-                            : null
-                        if (result.data) {
-                          resultText = `I found the ${action.params?.model?.toLowerCase() || 'item'}.`
-                          if (record?.name) {
-                            resultText += ` It's "${record.name}".`
-                          }
-                        } else {
-                          resultText = `I couldn't find that ${action.params?.model?.toLowerCase() || 'item'}.`
-                        }
-                        
-                        setMessages((prev) => 
-                          prev.map(msg => {
-                            if (msg.id === assistantMessageId) {
-                              // Clean up the message first
-                              const cleanContent = msg.content
-                                .replace(/\[ACTION:[^\]]+\]/g, '') // Remove action markers
-                                .replace(/I'll get that information for you\./g, '') // Remove generic text
-                                .replace(/Let me retrieve those details\./g, '')
-                                .replace(/\s+/g, ' ')
-                                .trim()
-                              
-                              return { ...msg, content: `${cleanContent} ${resultText}`.trim() }
-                            }
-                            return msg
-                          })
-                        )
-                        return
-                      }
-                      
-                      // For other types, just append the message
-                      if (result.message) {
-                        setMessages((prev) => 
-                          prev.map(msg => 
-                            msg.id === assistantMessageId 
-                              ? { ...msg, content: msg.content + " " + result.message }
-                              : msg
-                          )
-                        )
-                      }
-                    } else {
-                      // Show error inline
-                      setMessages((prev) => 
-                        prev.map(msg => 
-                          msg.id === assistantMessageId 
-                            ? { ...msg, content: msg.content + ` I encountered an issue: ${result.error || 'Unable to fetch data.'}` }
-                            : msg
-                        )
-                      )
-                    }
-                  }
-                }).catch((error: unknown) => {
-                  console.error("Action error:", error)
-                  setMessages((prev) => 
-                    prev.map(msg => 
-                      msg.id === assistantMessageId 
-                        ? { ...msg, content: msg.content + " I encountered an error while fetching the data." }
-                        : msg
-                    )
-                  )
-                })
-              }
-            }
-            pendingActions.length = 0
-            
-            lastIndex += chunks.length
-            
-            if (isComplete || pollCount >= maxPolls) {
-              // Final update
-              if (updateTimer) clearTimeout(updateTimer)
-              updateMessage()
-              
-              setMessages((prev) => 
-                prev.map(msg => 
-                  msg.id === assistantMessageId 
-                    ? { ...msg, isStreaming: false }
-                    : msg
-                )
-              )
-              clearInterval(pollInterval)
-              setStreamingMessageId(null)
-              setIsLoading(false)
-            }
-          } catch (error) {
-            console.error("Polling error:", error)
-            clearInterval(pollInterval)
-            setStreamingMessageId(null)
-            setIsLoading(false)
-          }
-        }, 100) // Poll every 100ms
-        
-      } catch {
-        setMessages((prev) => 
-          prev.map(msg => 
-            msg.id === assistantMessageId 
-              ? { ...msg, content: "Sorry, I encountered an error. Please try again.", isStreaming: false }
-              : msg
-          )
-        )
+
+      const flushPending = () => {
+        if (updateTimer) clearTimeout(updateTimer)
+        updateMessage()
+      }
+
+      const finishStream = () => {
+        clearInterval(pollInterval)
         setStreamingMessageId(null)
         setIsLoading(false)
       }
-    } else {
-      // Fallback to non-streaming
-      try {
-        if (!onSendMessage) {
-          throw new Error("No AI service configured. Please configure streaming or message handlers.")
-        }
-        
-        const response = await onSendMessage(content)
 
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: response,
-          timestamp: new Date(),
-        }
+      const pollInterval = setInterval(async () => {
+        pollCount++
 
-        setMessages((prev) => [...prev, assistantMessage])
-      } catch (error) {
-        const errorMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: error instanceof Error ? error.message : "Sorry, I encountered an error. Please try again.",
-          timestamp: new Date(),
+        try {
+          const { chunks, isComplete, error } = await getChunks(streamId, lastIndex)
+
+          if (error) {
+            // Clear any pending updates
+            flushPending()
+            patchMessage(setMessages, assistantMessageId, (msg) => ({
+              ...msg,
+              content: error,
+              isStreaming: false,
+            }))
+            finishStream()
+            return
+          }
+
+          // Process chunks
+          const collected = collectChunks(chunks, !!onAction)
+          accumulatedContent += collected.text
+
+          // Batch updates to reduce re-renders
+          if (collected.hasNewContent) {
+            if (updateTimer) clearTimeout(updateTimer)
+            // Clean content before updating
+            accumulatedContent = stripAssistantBoilerplate(accumulatedContent)
+            updateTimer = setTimeout(updateMessage, 100) // Update every 100ms max
+          }
+
+          // Execute actions immediately without waiting and append results to the message
+          if (onAction) {
+            for (const action of collected.actions) {
+              runAction(onAction, action, setMessages, assistantMessageId)
+            }
+          }
+
+          lastIndex += chunks.length
+
+          if (isComplete || pollCount >= maxPolls) {
+            // Final update
+            flushPending()
+            patchMessage(setMessages, assistantMessageId, (msg) => ({
+              ...msg,
+              isStreaming: false,
+            }))
+            finishStream()
+          }
+        } catch (error) {
+          console.error("Polling error:", error)
+          finishStream()
         }
-        setMessages((prev) => [...prev, errorMessage])
-      } finally {
-        setIsLoading(false)
+      }, 100) // Poll every 100ms
+    } catch {
+      patchMessage(setMessages, assistantMessageId, (msg) => ({
+        ...msg,
+        content: "Sorry, I encountered an error. Please try again.",
+        isStreaming: false,
+      }))
+      setStreamingMessageId(null)
+      setIsLoading(false)
+    }
+  }
+
+  const replyWithoutStreaming = async (content: string) => {
+    try {
+      if (!onSendMessage) {
+        throw new Error("No AI service configured. Please configure streaming or message handlers.")
       }
+
+      const response = await onSendMessage(content)
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: response,
+        timestamp: new Date(),
+      }
+
+      setMessages((prev) => [...prev, assistantMessage])
+    } catch (error) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: error instanceof Error ? error.message : "Sorry, I encountered an error. Please try again.",
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
     }
   }
 

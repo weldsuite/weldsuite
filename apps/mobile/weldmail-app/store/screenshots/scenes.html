@@ -9,7 +9,7 @@
       --bg: #fff;
       --text: #000;
       --muted: #6b7280;
-      --subtle: #8e8e93;
+      --subtle: #636366;
       --secondary: #f2f2f7;
       --border: #e5e5ea;
       --brand: #f06543;
@@ -76,7 +76,7 @@
     }
     .search {
       margin: 4px 16px 0; background: var(--secondary); border-radius: 14px;
-      padding: 10px 16px; color: #9ca3af; font-size: 16px; font-weight: 500;
+      padding: 10px 16px; color: #4b5563; font-size: 16px; font-weight: 500;
       display: flex; align-items: center; gap: 10px;
     }
     .search svg { width: 20px; height: 20px; color: var(--muted); flex-shrink: 0; }
@@ -141,7 +141,7 @@
     .welcome p { font-size: 15px; color: var(--subtle); line-height: 22px; }
     .field {
       width: 100%; height: 44px; border: 1px solid #e5e7eb; border-radius: 8px;
-      padding: 0 16px; color: #9ca3af; font-size: 16px;
+      padding: 0 16px; color: #4b5563; font-size: 16px;
       display: flex; align-items: center; margin-bottom: 14px; background: #fff;
     }
     .field.pw { justify-content: space-between; }
@@ -335,11 +335,11 @@
 
     const status = () => `<div class="status"><span>9:41</span><span class="status-right">●●●● ▲ 100%</span></div>`;
 
-    function mail(initial, cls, from, when, whenCls, subj, prev, opts = {}) {
+    function mail(initial, cls, from, when, subj, prev, opts = {}) {
       return `<div class="mail${opts.unread ? ' unread' : ''}">
         <div class="av ${cls}">${initial}</div>
         <div class="mail-main">
-          <div class="mail-top"><span class="from">${from}</span><span class="when ${whenCls||''}">${when}</span></div>
+          <div class="mail-top"><span class="from">${from}</span><span class="when ${opts.whenCls||''}">${when}</span></div>
           <div class="subj">${subj}</div>
           <div class="prev">${prev}</div>
           <div class="mail-meta">
@@ -353,13 +353,13 @@
 
     const inboxList = `
       <div class="sec">Today</div>
-      ${mail('A','c1','Anna Vermeer','9:18','un','Q4 launch checklist','Can you confirm the App Store assets are ready…',{unread:true,star:true})}
-      ${mail('N','c2','Nordhaven BV','8:42','un','Invoice INV-1042','Please find attached our purchase order for…',{unread:true,attach:true})}
+      ${mail('A','c1','Anna Vermeer','9:18','Q4 launch checklist','Can you confirm the App Store assets are ready…',{whenCls:'un',unread:true,star:true})}
+      ${mail('N','c2','Nordhaven BV','8:42','Invoice INV-1042','Please find attached our purchase order for…',{whenCls:'un',unread:true,attach:true})}
       <div class="sec">Yesterday</div>
-      ${mail('J','c3','Jules Hart','Yesterday','','Standup notes','Android listing screenshots still outstanding…',{star:true})}
-      ${mail('S','c4','Sofia Lind','Yesterday','','Design review','Hero layout looks good — one note on CTA…',{})}
-      ${mail('M','c5','Maya Chen','Yesterday','','Patch shipped','Tokens are live on preview; please smoke-test…',{attach:true})}
-      ${mail('T','c1','Tom Bakker','Mon','','Customer update draft','First pass attached — tone check welcome.',{attach:true})}`;
+      ${mail('J','c3','Jules Hart','Yesterday','Standup notes','Android listing screenshots still outstanding…',{star:true})}
+      ${mail('S','c4','Sofia Lind','Yesterday','Design review','Hero layout looks good — one note on CTA…',{})}
+      ${mail('M','c5','Maya Chen','Yesterday','Patch shipped','Tokens are live on preview; please smoke-test…',{attach:true})}
+      ${mail('T','c1','Tom Bakker','Mon','Customer update draft','First pass attached — tone check welcome.',{attach:true})}`;
 
     const inboxChrome = (title = 'Inbox') => `
       ${status()}
@@ -470,7 +470,7 @@
             <div class="send-btn">${I.send}</div>
           </div>
           <div class="compose-row"><span class="lbl">To</span><span class="pill">anna@acme.studio</span></div>
-          <div class="compose-row"><span class="lbl">Cc</span><span style="color:#9ca3af">Add</span></div>
+          <div class="compose-row"><span class="lbl">Cc</span><span style="color:#4b5563">Add</span></div>
           <div class="compose-row"><span class="lbl">Subj</span><span style="font-weight:600">Re: Q4 launch checklist</span></div>
           <div class="compose-body">
             Assets are ready — uploading the 6.7" and feature graphic now. Listing copy matches store-listing-en.md.
@@ -499,9 +499,9 @@
         </div>
         <div class="scroll">
           <div class="sec">Recent</div>
-          ${mail('A','c1','Anna Vermeer','9:18','','Q4 launch checklist','Can you confirm the App Store assets…',{unread:true})}
-          ${mail('N','c2','Nordhaven BV','8:42','','Invoice INV-1042','Please find attached our purchase order…',{attach:true})}
-          ${mail('J','c3','Jules Hart','Yesterday','','Standup notes','Android listing screenshots still…',{})}
+          ${mail('A','c1','Anna Vermeer','9:18','Q4 launch checklist','Can you confirm the App Store assets…',{unread:true})}
+          ${mail('N','c2','Nordhaven BV','8:42','Invoice INV-1042','Please find attached our purchase order…',{attach:true})}
+          ${mail('J','c3','Jules Hart','Yesterday','Standup notes','Android listing screenshots still…',{})}
         </div>
         <div class="home-bar"></div>`,
       feature: () => `

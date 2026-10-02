@@ -5,11 +5,48 @@
  * conversation can be resolved.
  */
 
-import { eq, and, isNull, asc, sql } from 'drizzle-orm';
+import { eq, and, isNull, asc, sql, type SQL } from 'drizzle-orm';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
-import type { ActionHandler } from '../types';
+import type { ActionContext, ActionHandler } from '../types';
 import { resolveConversationId, publishRealtime } from './helpers';
+
+/**
+ * Pick the least-loaded active agent (optionally within a department) for
+ * `round_robin` / `least_busy` and bump their load counters. Returns null
+ * when no agent is available.
+ */
+async function pickAgentByLoad(
+  ctx: ActionContext,
+  strategy: 'round_robin' | 'least_busy',
+  departmentId: string | undefined,
+): Promise<{ userId: string | null; name: string | null } | null> {
+  const conditions: SQL[] = [
+    eq(schema.helpdeskAgents.status, 'active'),
+    isNull(schema.helpdeskAgents.deletedAt),
+  ];
+  if (departmentId) conditions.push(eq(schema.helpdeskAgents.departmentId, departmentId));
+  const orderCol =
+    strategy === 'round_robin'
+      ? schema.helpdeskAgents.ticketsAssigned
+      : schema.helpdeskAgents.currentActiveTickets;
+  const agents = await ctx.db
+    .select({ id: schema.helpdeskAgents.id, userId: schema.helpdeskAgents.userId, name: schema.helpdeskAgents.name })
+    .from(schema.helpdeskAgents)
+    .where(and(...conditions))
+    .orderBy(asc(orderCol))
+    .limit(1);
+  if (!agents[0]) return null;
+  await ctx.db
+    .update(schema.helpdeskAgents)
+    .set({
+      ticketsAssigned: sql`COALESCE(${schema.helpdeskAgents.ticketsAssigned}, 0) + 1`,
+      currentActiveTickets: sql`COALESCE(${schema.helpdeskAgents.currentActiveTickets}, 0) + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.helpdeskAgents.id, agents[0].id));
+  return { userId: agents[0].userId, name: agents[0].name };
+}
 
 export const handleAssignConversation: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
@@ -25,32 +62,10 @@ export const handleAssignConversation: ActionHandler = async (inputs, ctx) => {
   } else if (strategy === 'department' && departmentId) {
     updateData.departmentId = departmentId;
   } else if (strategy === 'round_robin' || strategy === 'least_busy') {
-    const conditions: any[] = [
-      eq(schema.helpdeskAgents.status, 'active'),
-      isNull(schema.helpdeskAgents.deletedAt),
-    ];
-    if (departmentId) conditions.push(eq(schema.helpdeskAgents.departmentId, departmentId));
-    const orderCol =
-      strategy === 'round_robin'
-        ? schema.helpdeskAgents.ticketsAssigned
-        : schema.helpdeskAgents.currentActiveTickets;
-    const agents = await ctx.db
-      .select({ id: schema.helpdeskAgents.id, userId: schema.helpdeskAgents.userId, name: schema.helpdeskAgents.name })
-      .from(schema.helpdeskAgents)
-      .where(and(...conditions))
-      .orderBy(asc(orderCol))
-      .limit(1);
-    if (!agents[0]) return { success: false, error: 'No available agents' };
-    updateData.assigneeId = agents[0].userId;
-    updateData.assigneeName = agents[0].name;
-    await ctx.db
-      .update(schema.helpdeskAgents)
-      .set({
-        ticketsAssigned: sql`COALESCE(${schema.helpdeskAgents.ticketsAssigned}, 0) + 1`,
-        currentActiveTickets: sql`COALESCE(${schema.helpdeskAgents.currentActiveTickets}, 0) + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.helpdeskAgents.id, agents[0].id));
+    const agent = await pickAgentByLoad(ctx, strategy, departmentId);
+    if (!agent) return { success: false, error: 'No available agents' };
+    updateData.assigneeId = agent.userId;
+    updateData.assigneeName = agent.name;
   }
 
   await ctx.db

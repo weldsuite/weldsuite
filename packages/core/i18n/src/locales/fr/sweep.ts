@@ -404,7 +404,6 @@ export const sweep = {
     },
     "channelEmptyState": {
       "directMessageFallback": "Direct message",
-      "dmConversationPrefix": "This conversation is just between you and",
       "groupFallback": "Group",
       "memberFallback": "Member"
     },
@@ -600,6 +599,7 @@ export const sweep = {
       "articleTitlePlaceholder": "e.g., How to get started"
     },
     "helpEditor": {
+      "resizeImageHandle": "Redimensionner l'image",
       "boldTooltip": "Bold (Ctrl+B)",
       "italicTooltip": "Italic (Ctrl+I)",
       "underlineTooltip": "Underline (Ctrl+U)",

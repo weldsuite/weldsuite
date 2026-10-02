@@ -39,7 +39,10 @@ interface Options {
 }
 
 function newClientId(): string {
-  return `c_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  const suffix = Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+  return `c_${Date.now().toString(36)}${suffix}`;
 }
 
 function time(value: string | null | undefined): number {
@@ -264,7 +267,8 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
       .slice(0, WATCHED_ROOMS)
       .map((c) => c.id);
     if (activeId && activeId !== DRAFT_ID && !ids.includes(activeId)) ids.push(activeId);
-    return ids.sort((a, b) => a.localeCompare(b)).join(',');
+    ids.sort((a, b) => a.localeCompare(b));
+    return ids.join(',');
   }, [conversations, activeId]);
 
   useEffect(() => {

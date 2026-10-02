@@ -51,6 +51,76 @@ export type WeldAgentJob =
       messageContent: string;
     };
 
+type ChatTurnJob = Extract<WeldAgentJob, { kind: 'chat-turn' }>;
+type AgentRunJob = Extract<WeldAgentJob, { kind: 'agent-run' }>;
+type ChatRoomJob = Extract<WeldAgentJob, { kind: 'chat-room' }>;
+
+async function runChatTurnJob(env: Env, tenantDb: AgentDb, job: ChatTurnJob): Promise<void> {
+  const accepted = await loadAcceptedTurn(tenantDb, job);
+  if (!accepted) return;
+  await finishAcceptedTurn({
+    db: tenantDb,
+    env,
+    accepted,
+    timeoutMs: BACKGROUND_RUN_TIMEOUT_MS,
+  });
+}
+
+async function runAgentRunJob(env: Env, tenantDb: AgentDb, job: AgentRunJob): Promise<void> {
+  const { completeRoutineRun } = await import('./parity');
+  try {
+    const result = await executeAgentRun({
+      db: tenantDb,
+      env,
+      workspaceId: job.workspaceId,
+      actorUserId: job.actorUserId,
+      agentId: job.agentId,
+      triggerType: job.triggerType,
+      triggerData: job.triggerData,
+      userMessage: job.userMessage,
+      extraSystem: job.extraSystem,
+      runId: job.runId,
+      timeoutMs: BACKGROUND_RUN_TIMEOUT_MS,
+      skipApprovals: job.skipApprovals,
+    });
+    if (job.routineRunId) {
+      await completeRoutineRun(tenantDb, job.routineRunId, {
+        status: result.success ? 'succeeded' : 'failed',
+        summary: result.text,
+        error: result.error,
+        agentRunId: result.runId,
+      });
+    }
+  } catch (err) {
+    if (job.routineRunId) {
+      await completeRoutineRun(tenantDb, job.routineRunId, {
+        status: 'failed',
+        error: err instanceof Error ? err.message : 'Agent run failed',
+      });
+    }
+    throw err;
+  }
+}
+
+async function runChatRoomJob(env: Env, tenantDb: AgentDb, job: ChatRoomJob): Promise<void> {
+  const { dispatchAgentMentions } = await import('./agent-mention-dispatch');
+  await dispatchAgentMentions(
+    {
+      db: tenantDb as never,
+      env,
+      orgId: job.workspaceId,
+      invokerUserId: job.invokerUserId,
+      timeoutMs: BACKGROUND_RUN_TIMEOUT_MS,
+    },
+    {
+      agentMentionIds: job.agentMentionIds,
+      channelId: job.channelId,
+      messageId: job.messageId,
+      messageContent: job.messageContent,
+    },
+  );
+}
+
 /**
  * Run a job to completion in the current invocation. Throws on failure so the
  * workflow step is marked errored (visible in the dashboard); user-facing
@@ -60,72 +130,15 @@ export async function runWeldAgentJob(env: Env, job: WeldAgentJob, db?: AgentDb)
   try {
     const tenantDb = db ?? ((await getTenantDbForWorkspace(env, job.workspaceId)) as AgentDb);
     switch (job.kind) {
-      case 'chat-turn': {
-        const accepted = await loadAcceptedTurn(tenantDb, job);
-        if (!accepted) return;
-        await finishAcceptedTurn({
-          db: tenantDb,
-          env,
-          accepted,
-          timeoutMs: BACKGROUND_RUN_TIMEOUT_MS,
-        });
+      case 'chat-turn':
+        await runChatTurnJob(env, tenantDb, job);
         return;
-      }
-      case 'agent-run': {
-        const { completeRoutineRun } = await import('./parity');
-        try {
-          const result = await executeAgentRun({
-            db: tenantDb,
-            env,
-            workspaceId: job.workspaceId,
-            actorUserId: job.actorUserId,
-            agentId: job.agentId,
-            triggerType: job.triggerType,
-            triggerData: job.triggerData,
-            userMessage: job.userMessage,
-            extraSystem: job.extraSystem,
-            runId: job.runId,
-            timeoutMs: BACKGROUND_RUN_TIMEOUT_MS,
-            skipApprovals: job.skipApprovals,
-          });
-          if (job.routineRunId) {
-            await completeRoutineRun(tenantDb, job.routineRunId, {
-              status: result.success ? 'succeeded' : 'failed',
-              summary: result.text,
-              error: result.error,
-              agentRunId: result.runId,
-            });
-          }
-        } catch (err) {
-          if (job.routineRunId) {
-            await completeRoutineRun(tenantDb, job.routineRunId, {
-              status: 'failed',
-              error: err instanceof Error ? err.message : 'Agent run failed',
-            });
-          }
-          throw err;
-        }
+      case 'agent-run':
+        await runAgentRunJob(env, tenantDb, job);
         return;
-      }
-      case 'chat-room': {
-        const { dispatchAgentMentions } = await import('./agent-mention-dispatch');
-        await dispatchAgentMentions(
-          {
-            db: tenantDb as never,
-            env,
-            orgId: job.workspaceId,
-            invokerUserId: job.invokerUserId,
-            timeoutMs: BACKGROUND_RUN_TIMEOUT_MS,
-          },
-          {
-            agentMentionIds: job.agentMentionIds,
-            channelId: job.channelId,
-            messageId: job.messageId,
-            messageContent: job.messageContent,
-          },
-        );
+      case 'chat-room':
+        await runChatRoomJob(env, tenantDb, job);
         return;
-      }
     }
   } catch (err) {
     console.error(`[weldagent/jobs] ${job.kind} job failed:`, err);

@@ -54,6 +54,152 @@ export interface PeopleEntityListPanelProps {
   onClickPerson?: (participant: MeetingPeer) => void;
 }
 
+/** Keeps the context menu (220x340) inside the viewport when opened at the pointer. */
+function getContextMenuPosition(clientX: number, clientY: number) {
+  const menuW = 220;
+  const menuH = 340;
+  return {
+    x: Math.min(clientX, window.innerWidth - menuW),
+    y: clientY + menuH > window.innerHeight ? Math.max(0, clientY - menuH) : clientY,
+  };
+}
+
+/** Mic / camera state badge on the right of an in-call row. */
+function MediaStateBadge({
+  enabled,
+  onIcon,
+  offIcon,
+}: {
+  enabled: boolean;
+  onIcon: ReactNode;
+  offIcon: ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex h-7 w-7 items-center justify-center rounded-[8px]',
+        enabled ? 'bg-muted text-muted-foreground' : 'bg-red-500/10 text-red-400',
+      )}
+    >
+      {enabled ? onIcon : offIcon}
+    </div>
+  );
+}
+
+/**
+ * Everyone in the call has a real presence status. Fully-active (mic + camera
+ * on) reads as "active" (green); otherwise they're "busy — in a call" (solid
+ * amber) rather than a faint/transparent dot that looks like a missing status.
+ */
+function PresenceDot({ row }: { row: PersonRow }) {
+  const active = row.audioEnabled && row.videoEnabled;
+  return (
+    <div
+      className={cn(
+        'absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background',
+        active ? 'bg-emerald-500' : 'bg-amber-500',
+      )}
+      title={active ? 'Active' : 'Busy — in a call'}
+    />
+  );
+}
+
+interface PersonListRowProps {
+  row: PersonRow;
+  onClickPerson?: (participant: MeetingPeer) => void;
+  onOpenMenu: (row: PersonRow, clientX: number, clientY: number) => void;
+  onAdmit: (id: string) => void;
+  onReject: (id: string) => void;
+}
+
+function PersonListRow({ row, onClickPerson, onOpenMenu, onAdmit, onReject }: PersonListRowProps) {
+  const initials = (row.name || '?').charAt(0).toUpperCase();
+  const isWaiting = row.status === 'waiting';
+  const clickable = !!onClickPerson && !isWaiting && !row.isSelf;
+  // The context menu is enabled for any in-call row (incl. self) on platform.
+  const menuEnabled = !!onClickPerson && !isWaiting;
+  return (
+    <div
+      className={cn(
+        'group flex items-center gap-3 px-4 py-3 border-b border-border/70',
+        'hover:bg-gray-50 dark:hover:bg-secondary/40 transition-colors',
+        clickable && 'cursor-pointer',
+      )}
+      onClick={clickable ? () => onClickPerson(row.raw) : undefined}
+      onContextMenu={
+        menuEnabled
+          ? (e) => {
+              e.preventDefault();
+              onOpenMenu(row, e.clientX, e.clientY);
+            }
+          : undefined
+      }
+      title={clickable ? `View ${row.name}` : undefined}
+    >
+      <div className="relative flex-shrink-0">
+        <Avatar className="h-7 w-7 !rounded-[8px]">
+          {row.picture && <AvatarImage src={row.picture} className="!rounded-[8px]" />}
+          <AvatarFallback className="text-[10px] font-medium !rounded-[8px]">
+            {initials}
+          </AvatarFallback>
+        </Avatar>
+        {!isWaiting && <PresenceDot row={row} />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate text-gray-900 dark:text-foreground">
+          {row.name}
+        </p>
+      </div>
+      <RowTrailing row={row} isWaiting={isWaiting} onAdmit={onAdmit} onReject={onReject} />
+    </div>
+  );
+}
+
+/** Admit / Deny buttons for waiting guests, mic + camera badges for in-call rows. */
+function RowTrailing({
+  row,
+  isWaiting,
+  onAdmit,
+  onReject,
+}: {
+  row: PersonRow;
+  isWaiting: boolean;
+  onAdmit: (id: string) => void;
+  onReject: (id: string) => void;
+}) {
+  if (isWaiting) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-muted-foreground"
+          onClick={() => onReject(row.id)}
+        >
+          Deny
+        </Button>
+        <Button size="sm" onClick={() => onAdmit(row.id)}>
+          Admit
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <MediaStateBadge
+        enabled={row.audioEnabled}
+        onIcon={<Mic className="h-3.5 w-3.5" />}
+        offIcon={<MicOff className="h-3.5 w-3.5" />}
+      />
+      <MediaStateBadge
+        enabled={row.videoEnabled}
+        onIcon={<VideoIcon className="h-3.5 w-3.5" />}
+        offIcon={<VideoOff className="h-3.5 w-3.5" />}
+      />
+    </div>
+  );
+}
+
 export function PeopleEntityListPanel({
   meeting,
   participants,
@@ -242,115 +388,21 @@ export function PeopleEntityListPanel({
     </Popover>
   );
 
-  const renderRow = useCallback((row: PersonRow, _handlers: RowHandlers<PersonRow>) => {
-    const initials = (row.name || '?').charAt(0).toUpperCase();
-    const isWaiting = row.status === 'waiting';
-    const clickable = !!onClickPerson && !isWaiting && !row.isSelf;
-    // The context menu is enabled for any in-call row (incl. self) on platform.
-    const menuEnabled = !!onClickPerson && !isWaiting;
-    return (
-      <div
-        key={row.id}
-        className={cn(
-          'group flex items-center gap-3 px-4 py-3 border-b border-border/70',
-          'hover:bg-gray-50 dark:hover:bg-secondary/40 transition-colors',
-          clickable && 'cursor-pointer',
-        )}
-        onClick={clickable ? () => onClickPerson!(row.raw) : undefined}
-        onContextMenu={
-          menuEnabled
-            ? (e) => {
-                e.preventDefault();
-                const menuW = 220;
-                const menuH = 340;
-                setMenuPos({
-                  x: Math.min(e.clientX, window.innerWidth - menuW),
-                  y:
-                    e.clientY + menuH > window.innerHeight
-                      ? Math.max(0, e.clientY - menuH)
-                      : e.clientY,
-                });
-                setMenuRow(row);
-              }
-            : undefined
-        }
-        title={clickable ? `View ${row.name}` : undefined}
-      >
-        <div className="relative flex-shrink-0">
-          <Avatar className="h-7 w-7 !rounded-[8px]">
-            {row.picture && <AvatarImage src={row.picture} className="!rounded-[8px]" />}
-            <AvatarFallback className="text-[10px] font-medium !rounded-[8px]">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          {!isWaiting && (
-            <div
-              className={cn(
-                'absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background',
-                // Everyone in the call has a real presence status. Fully-active
-                // (mic + camera on) reads as "active" (green); otherwise they're
-                // "busy — in a call" (solid amber) rather than a faint/transparent
-                // dot that looks like a missing status.
-                row.audioEnabled && row.videoEnabled ? 'bg-emerald-500' : 'bg-amber-500',
-              )}
-              title={row.audioEnabled && row.videoEnabled ? 'Active' : 'Busy — in a call'}
-            />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate text-gray-900 dark:text-foreground">
-            {row.name}
-          </p>
-        </div>
-        {isWaiting ? (
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-muted-foreground"
-              onClick={() => handleReject(row.id)}
-            >
-              Deny
-            </Button>
-            <Button size="sm" onClick={() => handleAdmit(row.id)}>
-              Admit
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1">
-            <div
-              className={cn(
-                'flex h-7 w-7 items-center justify-center rounded-[8px]',
-                row.audioEnabled
-                  ? 'bg-muted text-muted-foreground'
-                  : 'bg-red-500/10 text-red-400',
-              )}
-            >
-              {row.audioEnabled ? (
-                <Mic className="h-3.5 w-3.5" />
-              ) : (
-                <MicOff className="h-3.5 w-3.5" />
-              )}
-            </div>
-            <div
-              className={cn(
-                'flex h-7 w-7 items-center justify-center rounded-[8px]',
-                row.videoEnabled
-                  ? 'bg-muted text-muted-foreground'
-                  : 'bg-red-500/10 text-red-400',
-              )}
-            >
-              {row.videoEnabled ? (
-                <VideoIcon className="h-3.5 w-3.5" />
-              ) : (
-                <VideoOff className="h-3.5 w-3.5" />
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }, [handleAdmit, handleReject, onClickPerson]);
+  const openRowMenu = useCallback((row: PersonRow, clientX: number, clientY: number) => {
+    setMenuPos(getContextMenuPosition(clientX, clientY));
+    setMenuRow(row);
+  }, []);
+
+  const renderRow = useCallback((row: PersonRow, _handlers: RowHandlers<PersonRow>) => (
+    <PersonListRow
+      key={row.id}
+      row={row}
+      onClickPerson={onClickPerson}
+      onOpenMenu={openRowMenu}
+      onAdmit={handleAdmit}
+      onReject={handleReject}
+    />
+  ), [handleAdmit, handleReject, onClickPerson, openRowMenu]);
 
   return (
     <div className="flex flex-col min-w-0 w-full overflow-x-hidden">

@@ -676,6 +676,23 @@ const seatsSchema = z.object({
   seatCount: z.number().int().min(1, 'Seat count must be at least 1'),
 });
 
+/** Error message when `seatCount` exceeds the plan's max users, else null. */
+async function getPlanSeatCapViolation(
+  masterDb: ReturnType<typeof getMasterDb>,
+  planId: string,
+  seatCount: number,
+): Promise<string | null> {
+  const [currentPlan] = await masterDb
+    .select({ maxUsers: plans.maxUsers, name: plans.name })
+    .from(plans)
+    .where(eq(plans.id, planId));
+
+  if (currentPlan && currentPlan.maxUsers !== null && seatCount > currentPlan.maxUsers) {
+    return `The ${currentPlan.name} plan allows a maximum of ${currentPlan.maxUsers} seats. Please upgrade your plan for more seats.`;
+  }
+  return null;
+}
+
 app.post('/seats', canManageBilling, zValidator('json', seatsSchema), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
@@ -707,19 +724,10 @@ app.post('/seats', canManageBilling, zValidator('json', seatsSchema), async (c) 
   }
 
   // Validate seat count against plan's max users
-  if (workspace.planId) {
-    const [currentPlan] = await masterDb
-      .select({ maxUsers: plans.maxUsers, name: plans.name })
-      .from(plans)
-      .where(eq(plans.id, workspace.planId));
-
-    if (currentPlan && currentPlan.maxUsers !== null && body.seatCount > currentPlan.maxUsers) {
-      return error.badRequest(
-        c,
-        `The ${currentPlan.name} plan allows a maximum of ${currentPlan.maxUsers} seats. Please upgrade your plan for more seats.`,
-      );
-    }
-  }
+  const planCapViolation = workspace.planId
+    ? await getPlanSeatCapViolation(masterDb, workspace.planId, body.seatCount)
+    : null;
+  if (planCapViolation) return error.badRequest(c, planCapViolation);
 
   // Get subscription to find the item ID and current quantity
   const subscription = await retrieveSubscription(stripeKey, workspace.stripeSubscriptionId);
@@ -781,12 +789,8 @@ app.post('/seats', canManageBilling, zValidator('json', seatsSchema), async (c) 
   }
 
   // For upgrades, check if the proration invoice was auto-paid
-  if (updatedSubscription.latest_invoice) {
-    const invoiceId =
-      typeof updatedSubscription.latest_invoice === 'string'
-        ? updatedSubscription.latest_invoice
-        : updatedSubscription.latest_invoice.id;
-
+  const invoiceId = toId(updatedSubscription.latest_invoice);
+  if (invoiceId) {
     const invoice = await retrieveInvoice(stripeKey, invoiceId);
 
     if (invoice.status === 'paid') {

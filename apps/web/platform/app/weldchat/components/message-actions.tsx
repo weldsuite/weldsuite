@@ -47,6 +47,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { useChatContext } from './chat-context';
+import { replyToFromMessage } from './reply-chain';
 import { ForwardMessageDialog } from './forward-message-dialog';
 import { ReplacePinDialog } from './replace-pin-dialog';
 import { PinDurationDialog } from './pin-duration-dialog';
@@ -215,12 +216,7 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
           className="h-7 w-7"
           title={t.weldchat.messageActionsBar.reply}
           onClick={() =>
-            setReplyTo({
-              messageId: message.id,
-              authorName: message.authorName ?? '',
-              content: message.content ?? '',
-              parentId: message.parentId,
-            })
+            setReplyTo(replyToFromMessage(message))
           }
         >
           <Reply className="h-3.5 w-3.5" />
@@ -308,12 +304,7 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
             <DropdownMenuItem
               onClick={() => {
                 focusComposerOnCloseRef.current = true;
-                setReplyTo({
-                  messageId: message.id,
-                  authorName: message.authorName ?? '',
-                  content: message.content ?? '',
-                  parentId: message.parentId,
-                });
+                setReplyTo(replyToFromMessage(message));
               }}
             >
               <Reply className="h-4 w-4 mr-0.5" />

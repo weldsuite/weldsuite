@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
-import { Plus, Smile, AtSign, X, CornerDownRight, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2, Pencil } from 'lucide-react';
+import { Plus, Smile, AtSign, X, CornerDownRight, MessageSquare, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2, Pencil } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
@@ -9,7 +9,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { EmojiPicker } from './emoji-picker';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useSendMessage, useEditMessage, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
+import { useSendMessage, useEditMessage, useWorkspaceMembers, useChannel } from '@/hooks/queries/use-weldchat-queries';
 import { useCreateTask } from '@/hooks/queries/use-task-queries';
 import { useTypingPublisher } from '@/hooks/weldchat/use-weldchat-typing';
 import type { RoomClient } from '@weldsuite/realtime/client';
@@ -17,6 +17,7 @@ import { MentionAutocomplete, type MentionSelection } from './mention-autocomple
 import { SlashCommandPalette } from './slash-command-palette';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useChatContext, type ReplyTo } from './chat-context';
+import { THREAD_SUGGESTION_DEPTH, stashThreadDraft, takeThreadDraft } from './reply-chain';
 import { ClipRecorder } from './clip-recorder';
 import { TypingIndicator } from './typing-indicator';
 import { useClipRecorder } from '@/hooks/weldchat/use-clip-recorder';
@@ -149,8 +150,8 @@ function htmlToContent(html: string): string {
   // Replace entity-mention badges with `<@type:id|Label>` tokens FIRST so
   // they are not picked up by the user-mention selector below.
   div.querySelectorAll('.entity-mention-badge').forEach((badge) => {
-    const entity = badge.getAttribute('data-entity'); // "type:id"
-    const label = badge.getAttribute('data-label') || badge.textContent || '';
+    const entity = (badge as HTMLElement).dataset.entity; // "type:id"
+    const label = (badge as HTMLElement).dataset.label || badge.textContent || '';
     if (entity) {
       const colonIdx = entity.indexOf(':');
       if (colonIdx > 0) {
@@ -166,7 +167,7 @@ function htmlToContent(html: string): string {
 
   // Replace user-mention badges with `<@userId>` tokens
   div.querySelectorAll('.mention-badge').forEach((badge) => {
-    const userId = badge.getAttribute('data-userid');
+    const userId = (badge as HTMLElement).dataset.userid;
     if (userId) badge.replaceWith(`<@${userId}>`);
   });
 
@@ -241,6 +242,7 @@ export function MessageInput({
     setReplyTo,
     editingMessage: contextEditingMessage,
     setEditingMessage,
+    openThread,
   } = useChatContext();
   // The channel composer and the thread pane composer are mounted together and
   // share this context. Only the composer that owns the message's thread reacts
@@ -311,6 +313,16 @@ export function MessageInput({
     editorRef.current?.focus();
   }, [channelId, parentId]);
 
+  // A reply chain just moved into this thread: pick up what was being typed.
+  useEffect(() => {
+    if (!parentId) return;
+    const draft = takeThreadDraft(parentId);
+    if (!draft || !editorRef.current || editorRef.current.innerText.trim().length > 0) return;
+    editorRef.current.innerText = draft;
+    setContent(draft);
+    editorRef.current.focus();
+  }, [parentId]);
+
   // Auto-focus the input when the user clicks "Reply" on a message — they
   // shouldn't have to click the input separately to start typing.
   useEffect(() => {
@@ -350,11 +362,41 @@ export function MessageInput({
     }
   }, [editingMessage?.messageId, setReplyTo]);
 
+  // Discord-style nudge: replying deep into a reply chain in the channel
+  // suggests continuing the conversation in a thread on the chain's root.
+  const { data: channelData } = useChannel(parentId ? '' : channelId);
+  const [dismissedThreadSuggestions, setDismissedThreadSuggestions] = useState<Set<string>>(new Set());
+  const threadRootId = replyTo?.rootId ?? null;
+  const showThreadSuggestion =
+    !parentId &&
+    !editingMessage &&
+    !!threadRootId &&
+    (replyTo?.depth ?? 0) >= THREAD_SUGGESTION_DEPTH &&
+    channelData?.data?.threadsEnabled !== false &&
+    !dismissedThreadSuggestions.has(threadRootId);
+
+  const continueInThread = useCallback(() => {
+    if (!threadRootId) return;
+    stashThreadDraft(threadRootId, content);
+    setContent('');
+    setMentions([]);
+    setMentionQuery(null);
+    setReplyTo(null);
+    if (editorRef.current) editorRef.current.innerHTML = '';
+    deleteSavedDraft();
+    openThread(threadRootId);
+  }, [threadRootId, content, setReplyTo, deleteSavedDraft, openThread]);
+
+  const dismissThreadSuggestion = useCallback(() => {
+    if (!threadRootId) return;
+    setDismissedThreadSuggestions((prev) => new Set(prev).add(threadRootId));
+  }, [threadRootId]);
+
   // "/createtask" is always swallowed (never posted), even without a title,
   // so the palette can guide the user.
   const handleCreateTaskCommand = useCallback(
     (text: string): void => {
-      const match = text.match(/^\/createtask\s+([\s\S]+)$/i);
+      const match = text.match(/^\/createtask\s+(\S[\s\S]*)$/i);
       if (!match) return;
       const title = match[1].trim();
       if (!title) return;
@@ -422,7 +464,7 @@ export function MessageInput({
       ...replyFields(replyTo),
       mentions: mentions.length > 0 ? mentions : undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
-      _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     });
     clearInput();
   }, [content, channelId, parentId, mentions, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t]);
@@ -434,7 +476,7 @@ export function MessageInput({
       parentId,
       ...replyFields(replyTo),
       attachments: [clipAttachment],
-      _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     });
     setReplyTo(null);
   }, [channelId, parentId, sendMessage, replyTo, setReplyTo]);
@@ -496,11 +538,9 @@ export function MessageInput({
         waveformHistory.current = [...waveformHistory.current.slice(1), Math.max(0.08, Math.min(1, audioLevelRef.current * 2))];
         setWaveformBars([...waveformHistory.current]);
       }, 80);
-    } else {
-      if (waveformInterval.current) {
-        clearInterval(waveformInterval.current);
-        waveformInterval.current = null;
-      }
+    } else if (waveformInterval.current) {
+      clearInterval(waveformInterval.current);
+      waveformInterval.current = null;
     }
     return () => {
       if (waveformInterval.current) {
@@ -924,6 +964,9 @@ export function MessageInput({
   const hasContent = content.trim() || attachments.length > 0;
   const isUploading = uploadingCount > 0;
 
+  let containerTopPadding = 'pt-[10px]';
+  if (replyTo || attachments.length > 0 || isUploading) containerTopPadding = 'pt-[20px]';
+
   return (
     <div className="px-2 pb-2 md:px-4 md:pb-4 flex-shrink-0 relative">
       {/* Badge styles */}
@@ -991,8 +1034,9 @@ export function MessageInput({
       <div
         className={cn(
           "relative bg-white dark:bg-background border border-gray-200 dark:border-border rounded-[20px] px-[10px] pb-[10px] w-full flex flex-col shadow-[0_1px_4px_-1px_rgba(0,0,0,0.03)] cursor-text",
-          replyTo ? "pt-[20px]" : attachments.length > 0 || isUploading ? "pt-[20px]" : "pt-[10px]"
+          containerTopPadding
         )}
+        role="presentation"
         onClick={(e) => {
           // Focus editor when clicking anywhere in the container (but not on buttons/popovers)
           const target = e.target as HTMLElement;
@@ -1014,6 +1058,36 @@ export function MessageInput({
                     type="button"
                     variant="ghost"
                     onClick={() => setEditingMessage(null)}
+                    className="shrink-0 p-1.5 -m-1 -mr-[6px] rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5 text-gray-900 dark:text-foreground" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Long reply chain → suggest continuing in a thread */}
+            {showThreadSuggestion && (
+              <div className="mx-1.5 -mt-1 mb-1 rounded-lg bg-gray-100 dark:bg-secondary/60">
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <MessageSquare className="h-3.5 w-3.5 text-gray-900 dark:text-foreground shrink-0" />
+                  <p className="flex-1 min-w-0 text-[13px] text-gray-900 dark:text-foreground leading-snug">
+                    {t.weldchat.messageInput.threadSuggestion}
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={continueInThread}
+                    className="h-7 shrink-0 rounded-lg px-2.5 text-[12px]"
+                  >
+                    {t.weldchat.messageInput.createThread}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={dismissThreadSuggestion}
+                    aria-label={t.weldchat.messageInput.dismissThreadSuggestion}
+                    title={t.weldchat.messageInput.dismissThreadSuggestion}
                     className="shrink-0 p-1.5 -m-1 -mr-[6px] rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors"
                   >
                     <X className="h-3.5 w-3.5 text-gray-900 dark:text-foreground" />
@@ -1046,7 +1120,7 @@ export function MessageInput({
             {(attachments.length > 0 || isUploading) && (
               <div className="flex flex-wrap gap-2 mb-3 px-[10px]">
                 {attachments.map((att, i) => (
-                  <div key={i} className="relative group">
+                  <div key={att.id} className="relative group">
                     {isImageFile(att.fileName) && att.url ? (
                       <div className="relative">
                         <img
@@ -1081,13 +1155,10 @@ export function MessageInput({
                   </div>
                 ))}
                 {isUploading && (
-                  <div
-                    className="flex items-center gap-2 bg-gray-100 dark:bg-secondary rounded-lg px-3 py-2 text-sm text-gray-500 dark:text-muted-foreground"
-                    role="status"
-                  >
+                  <output className="flex items-center gap-2 bg-gray-100 dark:bg-secondary rounded-lg px-3 py-2 text-sm text-gray-500 dark:text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
                     {t.weldchat.messageInput.uploading}
-                  </div>
+                  </output>
                 )}
               </div>
             )}
@@ -1176,6 +1247,7 @@ export function MessageInput({
                 )}
                 style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(200,200,200,0.3) transparent' }}
                 role="textbox"
+                tabIndex={isVoiceRecording ? -1 : 0}
               />
             </div>
 

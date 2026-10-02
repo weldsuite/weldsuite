@@ -71,6 +71,123 @@ import type { ListMeetingsParams, MeetingAttendee } from '@/lib/api/domains/weld
 
 type MeetingWithRecording = Meeting & { recording?: MeetingRecordingEntry };
 
+type HistoryPageStrings = { dateToday: string; dateYesterday: string };
+
+/** "Today, 3:05 PM" / "Yesterday, ..." / "Sep 30, 3:05 PM". */
+function formatMeetingDate(dateStr: string, strings: HistoryPageStrings): string {
+  const date = new Date(dateStr);
+  if (isToday(date)) return strings.dateToday.replace('{time}', format(date, 'h:mm a'));
+  if (isYesterday(date)) return strings.dateYesterday.replace('{time}', format(date, 'h:mm a'));
+  return format(date, 'MMM d, h:mm a');
+}
+
+/** "1h 2m 3s" style label from a duration in seconds (hours omitted when 0). */
+function formatDurationSeconds(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const hours = h > 0 ? `${h}h ` : '';
+  return `${hours}${m}m ${s}s`;
+}
+
+/** Recording duration label, or null when the recording has no usable duration. */
+function formatRecordingDuration(rec: MeetingRecordingEntry | undefined): string | null {
+  if (rec?.duration) return formatDurationSeconds(rec.duration);
+  if (rec?.startedAt && rec?.endedAt) {
+    const secs = Math.floor((new Date(rec.endedAt).getTime() - new Date(rec.startedAt).getTime()) / 1000);
+    return formatDurationSeconds(secs);
+  }
+  return null;
+}
+
+const DAY_MS = 86400000;
+
+interface DateBoundaries {
+  todayStart: number;
+  yesterdayStart: number;
+  thisWeekStart: number;
+  lastWeekStart: number;
+  thisMonthStart: number;
+}
+
+function getDateBoundaries(): DateBoundaries {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart.getTime() - DAY_MS);
+  const thisWeekStart = new Date(todayStart.getTime() - todayStart.getDay() * DAY_MS);
+  const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * DAY_MS);
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  return {
+    todayStart: todayStart.getTime(),
+    yesterdayStart: yesterdayStart.getTime(),
+    thisWeekStart: thisWeekStart.getTime(),
+    lastWeekStart: lastWeekStart.getTime(),
+    thisMonthStart: thisMonthStart.getTime(),
+  };
+}
+
+type FilterMatcher = (m: MeetingWithRecording, value: string, bounds: DateBoundaries) => boolean;
+
+function matchesParticipantCount(count: number, value: string): boolean {
+  switch (value) {
+    case '1': return count === 1;
+    case '2-5': return count >= 2 && count <= 5;
+    case '6-10': return count >= 6 && count <= 10;
+    case '10+': return count > 10;
+    default: return true;
+  }
+}
+
+function matchesDurationBucket(dur: number, value: string): boolean {
+  switch (value) {
+    case 'short': return dur > 0 && dur < 900;
+    case 'medium': return dur >= 900 && dur < 1800;
+    case 'long': return dur >= 1800 && dur < 3600;
+    case 'extended': return dur >= 3600;
+    default: return true;
+  }
+}
+
+function matchesDateBucket(time: number, value: string, b: DateBoundaries): boolean {
+  switch (value) {
+    case 'today': return time >= b.todayStart;
+    case 'yesterday': return time >= b.yesterdayStart && time < b.todayStart;
+    case 'this-week': return time >= b.thisWeekStart && time < b.yesterdayStart;
+    case 'last-week': return time >= b.lastWeekStart && time < b.thisWeekStart;
+    case 'this-month': return time >= b.thisMonthStart && time < b.lastWeekStart;
+    case 'older': return time < b.thisMonthStart;
+    default: return true;
+  }
+}
+
+/** One predicate per filter field; the `is` / `is not` operator is applied by the caller. */
+const FILTER_MATCHERS = new Map<string, FilterMatcher>([
+  ['organizer', (m, value) => {
+    const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
+    return org?.userId === value;
+  }],
+  ['meetingType', (m, value) => m.meetingType === value],
+  ['recorded', (m, value) => !!m.recording === (value === 'yes')],
+  ['participants', (m, value) => matchesParticipantCount(m.attendees?.length ?? 0, value)],
+  ['duration', (m, value) => matchesDurationBucket(m.recording?.duration ?? 0, value)],
+  ['date', (m, value, bounds) =>
+    matchesDateBucket(new Date(m.scheduledStart ?? m.createdAt).getTime(), value, bounds)],
+  ['accessType', (m, value) => m.accessType === value],
+]);
+
+function applyMeetingFilters(items: MeetingWithRecording[], filters: ActiveFilter[]): MeetingWithRecording[] {
+  const bounds = getDateBoundaries();
+  let result = items;
+  for (const filter of filters) {
+    if (!filter.operator || !filter.value) continue;
+    const matcher = FILTER_MATCHERS.get(filter.field);
+    if (!matcher) continue;
+    const isOp = filter.operator === 'is';
+    result = result.filter(m => matcher(m, filter.value, bounds) === isOp);
+  }
+  return result;
+}
+
 export interface MeetingHistoryListProps {
   /** Server-side scope for the meetings query. Page lists workspace-wide
       completed/failed/cancelled; the tab scopes to an entity. */
@@ -213,81 +330,6 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
     ];
   }, [t]);
 
-  const applyFilters = useCallback((items: MeetingWithRecording[], filters: ActiveFilter[]) => {
-    let result = items;
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterdayStart = new Date(todayStart.getTime() - 86400000);
-    const thisWeekStart = new Date(todayStart.getTime() - todayStart.getDay() * 86400000);
-    const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 86400000);
-    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    filters.forEach(filter => {
-      if (!filter.operator || !filter.value) return;
-      const isOp = filter.operator === 'is';
-
-      if (filter.field === 'organizer') {
-        const match = (m: MeetingWithRecording) => {
-          const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
-          return org?.userId === filter.value;
-        };
-        result = isOp ? result.filter(match) : result.filter(m => !match(m));
-      } else if (filter.field === 'meetingType') {
-        result = isOp
-          ? result.filter(m => m.meetingType === filter.value)
-          : result.filter(m => m.meetingType !== filter.value);
-      } else if (filter.field === 'recorded') {
-        const hasRec = filter.value === 'yes';
-        result = isOp
-          ? result.filter(m => !!m.recording === hasRec)
-          : result.filter(m => !!m.recording !== hasRec);
-      } else if (filter.field === 'participants') {
-        const match = (m: MeetingWithRecording) => {
-          const count = m.attendees?.length ?? 0;
-          switch (filter.value) {
-            case '1': return count === 1;
-            case '2-5': return count >= 2 && count <= 5;
-            case '6-10': return count >= 6 && count <= 10;
-            case '10+': return count > 10;
-            default: return true;
-          }
-        };
-        result = isOp ? result.filter(match) : result.filter(m => !match(m));
-      } else if (filter.field === 'duration') {
-        const match = (m: MeetingWithRecording) => {
-          const dur = m.recording?.duration ?? 0;
-          switch (filter.value) {
-            case 'short': return dur > 0 && dur < 900;
-            case 'medium': return dur >= 900 && dur < 1800;
-            case 'long': return dur >= 1800 && dur < 3600;
-            case 'extended': return dur >= 3600;
-            default: return true;
-          }
-        };
-        result = isOp ? result.filter(match) : result.filter(m => !match(m));
-      } else if (filter.field === 'date') {
-        const match = (m: MeetingWithRecording) => {
-          const t = new Date(m.scheduledStart ?? m.createdAt).getTime();
-          switch (filter.value) {
-            case 'today': return t >= todayStart.getTime();
-            case 'yesterday': return t >= yesterdayStart.getTime() && t < todayStart.getTime();
-            case 'this-week': return t >= thisWeekStart.getTime() && t < yesterdayStart.getTime();
-            case 'last-week': return t >= lastWeekStart.getTime() && t < thisWeekStart.getTime();
-            case 'this-month': return t >= thisMonthStart.getTime() && t < lastWeekStart.getTime();
-            case 'older': return t < thisMonthStart.getTime();
-            default: return true;
-          }
-        };
-        result = isOp ? result.filter(match) : result.filter(m => !match(m));
-      } else if (filter.field === 'accessType') {
-        result = isOp
-          ? result.filter(m => m.accessType === filter.value)
-          : result.filter(m => m.accessType !== filter.value);
-      }
-    });
-    return result;
-  }, []);
-
   const handleSort = useCallback((columnId: string) => {
     setSortState(prev => {
       if (prev?.columnId === columnId) {
@@ -346,11 +388,22 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
     const TypeIcon = type.icon;
     const dateStr = meeting.scheduledStart ?? meeting.createdAt;
     const rec = meeting.recording;
+    const durationLabel = formatRecordingDuration(rec);
+    const openMeeting = () => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } });
 
     return (
       <div
         key={meeting.id}
-        onClick={() => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } })}
+        role="button"
+        tabIndex={0}
+        onClick={openMeeting}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openMeeting();
+          }
+        }}
         className={cn(
           'flex items-center gap-6 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
           meeting.status === 'cancelled' && '[&>*]:opacity-50',
@@ -378,11 +431,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
         {/* Date */}
         <div className="w-[180px]">
           <span className="text-sm font-mono text-gray-600 dark:text-muted-foreground">
-            {isToday(new Date(dateStr))
-              ? t.historyPage.dateToday.replace('{time}', format(new Date(dateStr), 'h:mm a'))
-              : isYesterday(new Date(dateStr))
-                ? t.historyPage.dateYesterday.replace('{time}', format(new Date(dateStr), 'h:mm a'))
-                : format(new Date(dateStr), 'MMM d, h:mm a')}
+            {formatMeetingDate(dateStr, t.historyPage)}
           </span>
         </div>
 
@@ -444,28 +493,15 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
 
         {/* Duration */}
         <div className="w-[120px]">
-          {rec?.duration ? (
-            <span className="text-sm font-mono text-muted-foreground">
-              {Math.floor(rec.duration / 3600) > 0 && `${Math.floor(rec.duration / 3600)}h `}
-              {Math.floor((rec.duration % 3600) / 60)}m {rec.duration % 60}s
-            </span>
-          ) : rec?.startedAt && rec?.endedAt ? (
-            <span className="text-sm font-mono text-muted-foreground">
-              {(() => {
-                const secs = Math.floor((new Date(rec.endedAt).getTime() - new Date(rec.startedAt).getTime()) / 1000);
-                const h = Math.floor(secs / 3600);
-                const m = Math.floor((secs % 3600) / 60);
-                const s = secs % 60;
-                return `${h > 0 ? `${h}h ` : ''}${m}m ${s}s`;
-              })()}
-            </span>
+          {durationLabel ? (
+            <span className="text-sm font-mono text-muted-foreground">{durationLabel}</span>
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
           )}
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -537,7 +573,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
           filters={filterConfigs}
           groups={groupConfigs}
           maxFilters={7}
-          applyFilters={applyFilters}
+          applyFilters={applyMeetingFilters}
           renderRow={renderRow}
           searchPlaceholder={t.historyPage.searchPlaceholder}
           searchFields={['title']}

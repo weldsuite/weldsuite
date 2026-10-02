@@ -22,6 +22,7 @@ import {
   classifyStatus,
   ConnectorApiError,
   parseRetryAfter,
+  retryDelayMs,
   type ExternalProductRef,
   type OutboundCatalogProduct,
 } from '../types';
@@ -89,6 +90,28 @@ function basicAuth(key: string, secret: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function wooHttpError(response: Response, text: string): ConnectorApiError {
+  return new ConnectorApiError({
+    message:
+      response.status === 401 || response.status === 403
+        ? 'WooCommerce rejected the consumer key or secret'
+        : `WooCommerce request failed (${response.status})`,
+    status: response.status,
+    kind: classifyStatus(response.status),
+    body: text.slice(0, 500),
+    retryAfterSeconds: parseRetryAfter(response.headers.get('retry-after')),
+  });
+}
+
+/** Delay before the next attempt, or throws the final error when retrying must stop. */
+function nextRetryDelayMs(err: unknown, attempt: number): number {
+  const apiError = err instanceof ConnectorApiError ? err : undefined;
+  if (attempt === MAX_RETRIES || (apiError && !apiError.retryable)) {
+    throw apiError ?? unreachableError(err);
+  }
+  return apiError ? retryDelayMs(apiError, attempt) : 400 * 2 ** attempt;
 }
 
 function looksLikeHtml(body: string): boolean {
@@ -274,63 +297,46 @@ export class WooCommerceClient implements ConnectorProviderClient {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
-        const response = await this.fetchFollow(url, {
+        return await this.attemptRequest<T>(url, {
           method: opts.method,
           headers,
           body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
           signal: controller.signal,
         });
-        const text = await response.text();
-        if (!response.ok) {
-          const error = new ConnectorApiError({
-            message:
-              response.status === 401 || response.status === 403
-                ? 'WooCommerce rejected the consumer key or secret'
-                : `WooCommerce request failed (${response.status})`,
-            status: response.status,
-            kind: classifyStatus(response.status),
-            body: text.slice(0, 500),
-            retryAfterSeconds: parseRetryAfter(response.headers.get('retry-after')),
-          });
-          if (!error.retryable || attempt === MAX_RETRIES) throw error;
-          lastError = error;
-          await sleep(error.retryAfterSeconds ? error.retryAfterSeconds * 1000 : 400 * 2 ** attempt);
-          continue;
-        }
-        if (looksLikeHtml(text)) {
-          throw new ConnectorApiError({
-            message:
-              'WooCommerce REST API returned a web page instead of JSON. Pretty permalinks may be disabled, or a firewall is blocking /wp-json/.',
-            status: 502,
-            kind: 'permanent',
-            body: text.slice(0, 500),
-          });
-        }
-        try {
-          return { data: parseWooJson<T>(text), headers: response.headers };
-        } catch {
-          throw new ConnectorApiError({
-            message: 'WooCommerce REST API returned a response that was not JSON',
-            status: 502,
-            kind: 'permanent',
-            body: text.slice(0, 500),
-          });
-        }
       } catch (err) {
-        if (err instanceof ConnectorApiError) {
-          if (!err.retryable || attempt === MAX_RETRIES) throw err;
-          lastError = err;
-          await sleep(err.retryAfterSeconds ? err.retryAfterSeconds * 1000 : 400 * 2 ** attempt);
-          continue;
-        }
         lastError = err;
-        if (attempt === MAX_RETRIES) throw unreachableError(err);
-        await sleep(400 * 2 ** attempt);
+        await sleep(nextRetryDelayMs(err, attempt));
       } finally {
         clearTimeout(timer);
       }
     }
     throw lastError instanceof ConnectorApiError ? lastError : unreachableError(lastError);
+  }
+
+  /** One HTTP attempt; throws a `ConnectorApiError` for HTTP and payload failures. */
+  private async attemptRequest<T>(url: string, init: RequestInit): Promise<{ data: T; headers: Headers }> {
+    const response = await this.fetchFollow(url, init);
+    const text = await response.text();
+    if (!response.ok) throw wooHttpError(response, text);
+    if (looksLikeHtml(text)) {
+      throw new ConnectorApiError({
+        message:
+          'WooCommerce REST API returned a web page instead of JSON. Pretty permalinks may be disabled, or a firewall is blocking /wp-json/.',
+        status: 502,
+        kind: 'permanent',
+        body: text.slice(0, 500),
+      });
+    }
+    try {
+      return { data: parseWooJson<T>(text), headers: response.headers };
+    } catch {
+      throw new ConnectorApiError({
+        message: 'WooCommerce REST API returned a response that was not JSON',
+        status: 502,
+        kind: 'permanent',
+        body: text.slice(0, 500),
+      });
+    }
   }
 
   private async request<T>(

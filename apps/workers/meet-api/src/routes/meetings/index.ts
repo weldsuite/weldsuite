@@ -20,22 +20,36 @@ import { Hono } from 'hono';
 import { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import {
   hasContextPermission,
   requirePermission,
 } from '@weldsuite/permissions/server';
-import { createMeetingSchema, updateMeetingSchema } from '@weldsuite/core-api-client/schemas/meetings';
+import {
+  createMeetingSchema,
+  inviteMeetingAttendeesSchema,
+  updateMeetingSchema,
+} from '@weldsuite/core-api-client/schemas/meetings';
 import { hostControlsSchema, DEFAULT_HOST_CONTROLS } from '@weldsuite/core-api-client/schemas/weldmeet';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { getRecordings } from '@weldsuite/cloudflare-realtime';
 import { startInstantMeeting } from '../../services/weldmeet/start-instant';
 import { generateJoinCode } from '../../services/weldmeet/join-code';
 import { publishMeetingUpdated } from '../../services/realtime/weldmeet-publisher';
+import { resolveParticipantLink } from '../../lib/participant-resolver';
+import {
+  buildMeetingJoinUrl,
+  getMeetingPortalUrl,
+  mergeInvitees,
+  normalizeInvitees,
+  sendInvitationEmail,
+  type ResolvedInvitee,
+} from '../../services/weldmeet/invitations';
+import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.meetings;
@@ -100,13 +114,8 @@ async function canAccessMeetingById(
   return 'ok';
 }
 
-app.get('/', requirePermission('meetings:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
-  const scope = await scopeFor(c);
-
-  const conditions: any[] = [isNull(t.deletedAt)];
+function buildListFilters(q: Record<string, string>, scope: string | undefined): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
   if (scope) conditions.push(eq(t.organizerId, scope));
   if (q.search) {
     conditions.push(like(t.title, `%${q.search}%`));
@@ -135,6 +144,16 @@ app.get('/', requirePermission('meetings:read'), async (c) => {
       sql`(${t.attendees} @> ${byPerson}::jsonb OR ${t.attendees} @> ${byContact}::jsonb)`,
     );
   }
+  return conditions;
+}
+
+app.get('/', requirePermission('meetings:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const scope = await scopeFor(c);
+
+  const conditions = buildListFilters(q, scope);
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })
@@ -442,6 +461,146 @@ app.patch('/:id/cancel', requirePermission('meetings:update'), async (c) => {
 });
 
 /**
+ * POST /:id/invitations - Invite people to a meeting (TASK-717).
+ *
+ * Invitees are workspace members, CRM people or any email address. Each new
+ * invitee is added to `attendees` (role attendee, status pending) and, unless
+ * `sendEmail: false`, emailed the public join link (+ .ics when scheduled).
+ * Re-inviting an existing attendee leaves them untouched.
+ *
+ * Allowed for the organizer, `meetings:scope:all` holders, and members who
+ * are already an invited attendee (the in-room "Add people").
+ */
+app.post(
+  '/:id/invitations',
+  requirePermission('meetings:update'),
+  zValidator('json', inviteMeetingAttendeesSchema),
+  async (c) => {
+    const orgId = c.get('orgId');
+    if (!orgId) return error.orgRequired(c);
+    const db = c.get('tenantDb');
+    const userId = c.get('userId');
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+
+    try {
+      const [existing] = await db
+        .select()
+        .from(t)
+        .where(and(eq(t.id, id), isNull(t.deletedAt)))
+        .limit(1);
+      if (!existing) return error.notFound(c, 'Meeting', id);
+
+      const currentAttendees = (existing.attendees ?? []) as MeetingAttendee[];
+      const isInvitedMember = currentAttendees.some(
+        (a) => a.userId === userId && a.source !== 'walk_in',
+      );
+      if (existing.organizerId !== userId && !isInvitedMember) {
+        const scope = await scopeFor(c);
+        if (scope) return error.forbidden(c, MEETING_DENIED);
+      }
+      if (existing.status === 'cancelled' || existing.status === 'completed') {
+        return error.badRequest(c, 'Cannot invite people to a meeting that has ended or was cancelled');
+      }
+      if (!existing.joinCode) {
+        return error.badRequest(c, 'Meeting has no join link');
+      }
+
+      const env = c.env;
+      const invitees: ResolvedInvitee[] = [];
+      for (const invitee of normalizeInvitees(body.invitees)) {
+        const link = await resolveParticipantLink(db, env, orgId, {
+          email: invitee.email,
+          name: invitee.name,
+        });
+        let memberUserId = '';
+        if (link.workspaceMemberId) {
+          const [member] = await db
+            .select({ userId: schema.workspaceMembers.userId })
+            .from(schema.workspaceMembers)
+            .where(eq(schema.workspaceMembers.id, link.workspaceMemberId))
+            .limit(1);
+          memberUserId = member?.userId ?? '';
+        }
+        invitees.push({
+          email: invitee.email,
+          name: link.displayName || invitee.name || invitee.email,
+          userId: memberUserId,
+          avatar: link.avatarUrl,
+          workspaceMemberId: link.workspaceMemberId,
+          personId: link.personId,
+        });
+      }
+
+      const { attendees, added, alreadyInvited } = mergeInvitees(currentAttendees, invitees);
+
+      if (added.length > 0) {
+        await db
+          .update(t)
+          .set({ attendees, updatedAt: new Date() })
+          .where(and(eq(t.id, id), isNull(t.deletedAt)));
+
+        publishEntityEvent({
+          c,
+          entityType: 'meeting',
+          entityId: id,
+          action: 'updated',
+          data: { id, title: existing.title, status: existing.status, hostId: existing.organizerId },
+        });
+        try {
+          await publishMeetingUpdated(env, orgId, { meetingId: id, title: existing.title });
+        } catch (e) {
+          console.error('[meet-api/meetings] invitations realtime publish failed:', e);
+        }
+      }
+
+      // Inviter (for the email copy) and organizer (for the .ics ORGANIZER).
+      const people = await db
+        .select({
+          userId: schema.workspaceMembers.userId,
+          name: schema.workspaceMembers.name,
+          email: schema.workspaceMembers.email,
+        })
+        .from(schema.workspaceMembers)
+        .where(inArray(schema.workspaceMembers.userId, [userId, existing.organizerId]));
+      const inviter = people.find((p) => p.userId === userId);
+      const organizer = people.find((p) => p.userId === existing.organizerId) ?? inviter;
+
+      const joinUrl = buildMeetingJoinUrl(
+        getMeetingPortalUrl(env.MEETING_PORTAL_URL),
+        orgId,
+        existing.joinCode,
+      );
+      const sendEmail = body.sendEmail !== false;
+      const sent = await Promise.all(
+        added.map((attendee) =>
+          sendEmail
+            ? sendInvitationEmail(env.RESEND_API_KEY, {
+                meeting: existing,
+                organizer: {
+                  name: inviter?.name || organizer?.name || 'Someone',
+                  email: organizer?.email ?? '',
+                },
+                joinUrl,
+                attendee: { email: attendee.email, name: attendee.name },
+              })
+            : Promise.resolve(false),
+        ),
+      );
+
+      return success(c, {
+        attendees,
+        invited: added.map((a, i) => ({ email: a.email, name: a.name, emailSent: sent[i] })),
+        alreadyInvited,
+      });
+    } catch (err) {
+      console.error('[meet-api/meetings] invitations failed:', err);
+      return error.internal(c, 'Failed to invite people');
+    }
+  },
+);
+
+/**
  * GET /:id/recording - Recording URL for a meeting.
  * Returns 202 with processing indicator when the URL is not yet ready.
  */
@@ -521,6 +680,41 @@ app.get('/:id/recording', requirePermission('meetings:read'), async (c) => {
   }
 });
 
+/** Remove a transcription and its segments (used to retry a failed attempt). */
+async function deleteTranscription(db: Database, transcriptionId: string): Promise<void> {
+  const { crmTranscriptions, crmTranscriptSegments } = schema;
+  await db
+    .delete(crmTranscriptSegments)
+    .where(eq(crmTranscriptSegments.transcriptionId, transcriptionId));
+  await db
+    .delete(crmTranscriptions)
+    .where(eq(crmTranscriptions.id, transcriptionId));
+}
+
+interface TranscribeWorkflowParams {
+  transcriptionId: string;
+  fileKey: string | undefined;
+  fileUrl: string | undefined;
+  language: string | undefined;
+  estimatedMinutes: number;
+  creditRate: number;
+  entityId: string;
+  workspaceId: string;
+}
+
+/**
+ * Dispatch the TRANSCRIBE_RECORDING Cloudflare Workflow. The binding is
+ * guarded — if not present in this worker, log a warning.
+ */
+async function dispatchTranscribeWorkflow(env: Env, params: TranscribeWorkflowParams): Promise<void> {
+  const transcribeWorkflow = (env as any).TRANSCRIBE_RECORDING as Workflow | undefined;
+  if (!transcribeWorkflow) {
+    console.warn('[app-api/meetings] TRANSCRIBE_RECORDING binding not configured — skipping workflow dispatch');
+    return;
+  }
+  await transcribeWorkflow.create({ id: params.transcriptionId, params });
+}
+
 /**
  * POST /:id/recording/transcribe - Trigger transcription for a meeting recording
  */
@@ -539,7 +733,7 @@ app.post('/:id/recording/transcribe', requirePermission('meetings:read'), async 
     const access = await canAccessMeetingById(c, meetingId);
     if (access === 'not-found') return error.notFound(c, 'Meeting', meetingId);
     if (access === 'denied') return error.forbidden(c, MEETING_DENIED);
-    const { meetingSessions, crmTranscriptions, crmTranscriptSegments } = schema;
+    const { meetingSessions, crmTranscriptions } = schema;
 
     // Find the latest ended session with a recording URL
     const [session] = await db
@@ -583,14 +777,7 @@ app.post('/:id/recording/transcribe', requirePermission('meetings:read'), async 
     }
 
     // Delete a previous failed attempt and retry
-    if (existing && existing.status === 'failed') {
-      await db
-        .delete(crmTranscriptSegments)
-        .where(eq(crmTranscriptSegments.transcriptionId, existing.id));
-      await db
-        .delete(crmTranscriptions)
-        .where(eq(crmTranscriptions.id, existing.id));
-    }
+    if (existing?.status === 'failed') await deleteTranscription(db, existing.id);
 
     const transcriptionId = generateId('trans');
     const now = new Date();
@@ -615,24 +802,16 @@ app.post('/:id/recording/transcribe', requirePermission('meetings:read'), async 
     // Dispatch the TRANSCRIBE_RECORDING Cloudflare Workflow (hosted in this
     // worker under the transcribe-recording-v2* names since W4).
     // The binding is guarded — if not present in this worker, log a warning.
-    const transcribeWorkflow = (c.env as any).TRANSCRIBE_RECORDING as Workflow | undefined;
-    if (!transcribeWorkflow) {
-      console.warn('[app-api/meetings] TRANSCRIBE_RECORDING binding not configured — skipping workflow dispatch');
-    } else {
-      await transcribeWorkflow.create({
-        id: transcriptionId,
-        params: {
-          transcriptionId,
-          fileKey,
-          fileUrl: fileKey ? undefined : session.recordingUrl,
-          language: body.language,
-          estimatedMinutes,
-          creditRate: DEFAULT_TRANSCRIPTION_CREDIT_RATE,
-          entityId: meetingId,
-          workspaceId: orgId,
-        },
-      });
-    }
+    await dispatchTranscribeWorkflow(c.env, {
+      transcriptionId,
+      fileKey,
+      fileUrl: fileKey ? undefined : session.recordingUrl,
+      language: body.language,
+      estimatedMinutes,
+      creditRate: DEFAULT_TRANSCRIPTION_CREDIT_RATE,
+      entityId: meetingId,
+      workspaceId: orgId,
+    });
 
     return success(c, { id: transcriptionId, status: 'pending' }, 201);
   } catch (err) {

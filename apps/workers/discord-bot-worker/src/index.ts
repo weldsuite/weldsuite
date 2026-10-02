@@ -9,7 +9,7 @@
  * Workflow resumes go through widget-api /webhook/discord/workflow-respond.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   createPrivateThread,
   addThreadMember,
@@ -76,86 +76,76 @@ app.post('/interactions', async (c) => {
 
   const interaction = JSON.parse(body);
 
-  // PING
-  if (interaction.type === 1) {
-    return c.json({ type: 1 });
+  switch (interaction.type) {
+    case 1: // PING
+      return c.json({ type: 1 });
+    case 2: // APPLICATION_COMMAND (slash)
+      return handleApplicationCommand(c, interaction);
+    case 3: // MESSAGE_COMPONENT (buttons)
+      return handleMessageComponent(c, interaction);
+    case 5: // MODAL_SUBMIT
+      return handleModalSubmit(c, interaction);
+    default:
+      return c.json({ type: 4, data: { content: '', flags: 64 } });
   }
-
-  // APPLICATION_COMMAND (slash)
-  if (interaction.type === 2) {
-    const commandName = interaction.data?.name as string | undefined;
-    if (commandName === 'setup-support') {
-      const promise = handleSetupSupport(c.env, interaction);
-      try {
-        c.executionCtx.waitUntil(promise);
-      } catch {
-        /* still runs */
-      }
-      return c.json({ type: 5, data: { flags: 64 } });
-    }
-    return c.json({ type: 4, data: { content: 'Unknown command.', flags: 64 } });
-  }
-
-  // MESSAGE_COMPONENT (buttons)
-  if (interaction.type === 3) {
-    const customId = interaction.data?.custom_id as string | undefined;
-
-    if (customId === 'open_ticket') {
-      const promise = handleOpenTicket(c.env, interaction);
-      try {
-        c.executionCtx.waitUntil(promise);
-      } catch {
-        /* still runs */
-      }
-      return c.json({ type: 5, data: { flags: 64 } });
-    }
-
-    if (customId === 'close_ticket') {
-      const promise = handleCloseTicket(c.env, interaction);
-      try {
-        c.executionCtx.waitUntil(promise);
-      } catch {
-        /* still runs */
-      }
-      return c.json({ type: 5, data: { flags: 64 } });
-    }
-
-    if (customId?.startsWith('wf_form:')) {
-      // Must respond synchronously with a modal (type 9)
-      return handleFormButton(c.env, interaction);
-    }
-
-    if (customId?.startsWith('wf_')) {
-      const promise = handleWorkflowButton(c.env, interaction, customId);
-      try {
-        c.executionCtx.waitUntil(promise);
-      } catch {
-        /* still runs */
-      }
-      // type 6 = DEFERRED_UPDATE_MESSAGE
-      return c.json({ type: 6 });
-    }
-
-    return c.json({ type: 6 });
-  }
-
-  // MODAL_SUBMIT
-  if (interaction.type === 5) {
-    const customId = interaction.data?.custom_id as string | undefined;
-    if (customId?.startsWith('wf_form_submit:')) {
-      const promise = handleFormSubmit(c.env, interaction, customId);
-      try {
-        c.executionCtx.waitUntil(promise);
-      } catch {
-        /* still runs */
-      }
-      return c.json({ type: 6 });
-    }
-    return c.json({ type: 6 });
-  }
-
-  return c.json({ type: 4, data: { content: '', flags: 64 } });
 });
+
+// ============================================================================
+// Interaction dispatch helpers
+// ============================================================================
+
+type InteractionContext = Context<{ Bindings: Env }>;
+
+/** Run `promise` after the response is sent; if there is no execution context it still runs. */
+function runInBackground(c: InteractionContext, promise: Promise<void>): void {
+  try {
+    c.executionCtx.waitUntil(promise);
+  } catch {
+    /* still runs */
+  }
+}
+
+function handleApplicationCommand(c: InteractionContext, interaction: any): Response {
+  const commandName = interaction.data?.name as string | undefined;
+  if (commandName === 'setup-support') {
+    runInBackground(c, handleSetupSupport(c.env, interaction));
+    return c.json({ type: 5, data: { flags: 64 } });
+  }
+  return c.json({ type: 4, data: { content: 'Unknown command.', flags: 64 } });
+}
+
+function handleMessageComponent(c: InteractionContext, interaction: any): Response | Promise<Response> {
+  const customId = interaction.data?.custom_id as string | undefined;
+
+  if (customId === 'open_ticket') {
+    runInBackground(c, handleOpenTicket(c.env, interaction));
+    return c.json({ type: 5, data: { flags: 64 } });
+  }
+
+  if (customId === 'close_ticket') {
+    runInBackground(c, handleCloseTicket(c.env, interaction));
+    return c.json({ type: 5, data: { flags: 64 } });
+  }
+
+  if (customId?.startsWith('wf_form:')) {
+    // Must respond synchronously with a modal (type 9)
+    return handleFormButton(c.env, interaction);
+  }
+
+  if (customId?.startsWith('wf_')) {
+    runInBackground(c, handleWorkflowButton(c.env, interaction, customId));
+  }
+  // type 6 = DEFERRED_UPDATE_MESSAGE
+  return c.json({ type: 6 });
+}
+
+function handleModalSubmit(c: InteractionContext, interaction: any): Response {
+  const customId = interaction.data?.custom_id as string | undefined;
+  if (customId?.startsWith('wf_form_submit:')) {
+    runInBackground(c, handleFormSubmit(c.env, interaction, customId));
+  }
+  return c.json({ type: 6 });
+}
 
 // ============================================================================
 // Management endpoints — protected by MANAGEMENT_SECRET

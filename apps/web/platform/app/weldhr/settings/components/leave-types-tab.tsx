@@ -72,6 +72,13 @@ export function LeaveTypesTab() {
     { id: 'inactive', label: t('weldhr.settings.leaveTypes.inactive'), sortOrder: 2, filter: (i) => !i.isActive },
   ];
 
+  const formatAllowance = (days: number | null) => {
+    if (days === null) return t('weldhr.settings.leaveTypes.unlimited');
+    const key =
+      days === 1 ? 'weldhr.settings.leaveTypes.daysPerYear' : 'weldhr.settings.leaveTypes.daysPerYearPlural';
+    return t(key, { count: days });
+  };
+
   const columns: ColumnDef<HrLeaveType>[] = [
     {
       id: 'name',
@@ -111,14 +118,7 @@ export function LeaveTypesTab() {
       width: 'w-[140px]',
       render: (leaveType) => (
         <span className="tabular-nums">
-          {leaveType.defaultAllowanceDays === null
-            ? t('weldhr.settings.leaveTypes.unlimited')
-            : t(
-                leaveType.defaultAllowanceDays === 1
-                  ? 'weldhr.settings.leaveTypes.daysPerYear'
-                  : 'weldhr.settings.leaveTypes.daysPerYearPlural',
-                { count: leaveType.defaultAllowanceDays },
-              )}
+          {formatAllowance(leaveType.defaultAllowanceDays)}
         </span>
       ),
     },

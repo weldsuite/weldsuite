@@ -271,47 +271,17 @@ export function migratePermissionKey(oldKey: string): string[] {
   const parts = oldKey.split(':');
   const [app, second, ...rest] = parts;
 
-  if (!app || !second) {
-    // Malformed / unrecognised — return as-is, best-effort
-    return [oldKey];
-  }
+  // Malformed / unrecognised — return as-is, best-effort
+  if (!app || !second) return [oldKey];
 
-  // 2-segment key. If the first segment is an old app key, this is the
-  // legacy `weldcrm:*` wildcard form — fall through to wildcard expansion.
-  // Otherwise it's already in the new `object:action` format (idempotent).
-  if (parts.length === 2 && !OLD_APP_KEYS.includes(app)) {
-    return [oldKey];
-  }
+  // App not in old map → can't migrate; return as-is. This also covers a
+  // 2-segment key whose first segment isn't an old app key: it's already in
+  // the new `object:action` format (idempotent). An old-app 2-segment key is
+  // the legacy `weldcrm:*` wildcard form and falls through to expansion.
+  if (!OLD_APP_KEYS.includes(app)) return [oldKey];
 
-  // App not in old map → can't migrate; return as-is
-  if (!OLD_APP_KEYS.includes(app)) {
-    return [oldKey];
-  }
-
-  // weldcrm:* — every action on every object that came from this app
-  if (second === '*' && rest.length === 0) {
-    const objectActions = APP_OBJECT_ACTIONS[app] ?? {};
-    const out: string[] = [];
-    for (const [obj, actions] of Object.entries(objectActions)) {
-      for (const action of actions) {
-        out.push(`${obj}:${action}`);
-      }
-    }
-    return out;
-  }
-
-  // weldcrm:*:read — given action on every object from this app that supports it
-  if (second === '*' && rest.length === 1) {
-    const action = rest[0];
-    if (!action) return [oldKey];
-    const objectActions = APP_OBJECT_ACTIONS[app] ?? {};
-    const out: string[] = [];
-    for (const [obj, actions] of Object.entries(objectActions)) {
-      if (actions.includes(action)) {
-        out.push(`${obj}:${action}`);
-      }
-    }
-    return out;
+  if (second === '*' && rest.length <= 1) {
+    return expandAppWildcard(app, rest[0], oldKey);
   }
 
   // weldcrm:leads:* — every action on a single object (within this app)
@@ -328,6 +298,23 @@ export function migratePermissionKey(oldKey: string): string[] {
   if (!newObject) return [oldKey];
   const trailing = rest.join(':');
   return [trailing ? `${newObject}:${trailing}` : newObject];
+}
+
+/**
+ * Expand `app:*` (every action, `action` undefined) or `app:*:action` (given
+ * action on every object from this app that supports it).
+ */
+function expandAppWildcard(app: string, action: string | undefined, oldKey: string): string[] {
+  const hasAction = action !== undefined;
+  if (hasAction && !action) return [oldKey];
+  const objectActions = APP_OBJECT_ACTIONS[app] ?? {};
+  const out: string[] = [];
+  for (const [obj, actions] of Object.entries(objectActions)) {
+    for (const a of actions) {
+      if (!hasAction || a === action) out.push(`${obj}:${a}`);
+    }
+  }
+  return out;
 }
 
 /**

@@ -38,6 +38,98 @@ const emptyResult = {
   skipped: 0,
 };
 
+type Db = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
+type MasterDb = ReturnType<typeof getMasterDb>;
+type Registrar = NonNullable<ReturnType<typeof getRealtimeRegistrar>>;
+type DueDomain = Awaited<ReturnType<typeof listDomainsDueForAutoRenew>>[number];
+
+interface SweepContext {
+  rtr: Registrar;
+  masterDb: MasterDb;
+  stripeSecretKey: string;
+  now: Date;
+}
+
+interface SweepStats {
+  domainsScanned: number;
+  invoiced: number;
+  renewed: number;
+  pending: number;
+  failed: number;
+  processed: number;
+}
+
+interface SweepWorkspace {
+  id: string;
+  clerkOrgId: string;
+}
+
+/** Poll/charge/renew a single due domain, recording the outcome in `stats`. */
+async function renewDueDomain(
+  ctx: SweepContext,
+  db: Db,
+  ws: SweepWorkspace,
+  domain: DueDomain,
+  stats: SweepStats,
+): Promise<void> {
+  try {
+    if (domain.registrationStatus === 'pending_renewal') {
+      const polled = await pollRenewalProcess(db, ctx.rtr, domain.id);
+      if (polled?.registrationStatus === 'renewed') {
+        stats.renewed += 1;
+        return;
+      }
+      if (polled?.registrationStatus === 'pending_renewal') {
+        stats.pending += 1;
+        return;
+      }
+    }
+
+    const result = await chargeAndRenewDomain(db, ctx.rtr, ctx.masterDb, {
+      domainId: domain.id,
+      workspaceId: ws.clerkOrgId,
+      stripeSecretKey: ctx.stripeSecretKey,
+    });
+
+    if (!result.ok) {
+      if (result.reason === 'already_renewed') return;
+      console.warn(
+        `[DomainAutoRenew] ws=${ws.id} domain=${domain.fullDomain} failed: ${result.reason}`,
+      );
+      stats.failed += 1;
+      return;
+    }
+
+    stats.invoiced += 1;
+    if (result.renewed) stats.renewed += 1;
+    else if (result.pending) stats.pending += 1;
+  } catch (err) {
+    stats.failed += 1;
+    console.error(`[DomainAutoRenew] ws=${ws.id} domain=${domain.fullDomain} error:`, err);
+  }
+}
+
+/**
+ * Process every due domain of one workspace.
+ * Returns true when the per-invocation cap was hit and the sweep must stop.
+ */
+async function sweepWorkspaceDomains(
+  ctx: SweepContext,
+  db: Db,
+  ws: SweepWorkspace,
+  stats: SweepStats,
+): Promise<boolean> {
+  const due = await listDomainsDueForAutoRenew(db, ctx.now);
+  stats.domainsScanned += due.length;
+
+  for (const domain of due) {
+    if (stats.processed >= DOMAIN_AUTO_RENEW_MAX_PER_SWEEP) return true;
+    stats.processed += 1;
+    await renewDueDomain(ctx, db, ws, domain, stats);
+  }
+  return false;
+}
+
 export async function runDomainAutoRenewSweep(env: Env): Promise<{
   workspacesScanned: number;
   workspacesFailed: number;
@@ -70,75 +162,39 @@ export async function runDomainAutoRenewSweep(env: Env): Promise<{
     .from(masterSchema.workspaces)
     .where(eq(masterSchema.workspaces.isActive, true));
 
-  let domainsScanned = 0;
-  let invoiced = 0;
-  let renewed = 0;
-  let pending = 0;
-  let failed = 0;
-  let skipped = 0;
+  const stats: SweepStats = {
+    domainsScanned: 0,
+    invoiced: 0,
+    renewed: 0,
+    pending: 0,
+    failed: 0,
+    processed: 0,
+  };
   let workspacesFailed = 0;
-  let processed = 0;
-  const now = new Date();
+  const ctx: SweepContext = {
+    rtr,
+    masterDb,
+    stripeSecretKey: env.STRIPE_SECRET_KEY,
+    now: new Date(),
+  };
   let hitCap = false;
 
-  workspaceLoop: for (const ws of workspaces) {
+  for (const ws of workspaces) {
     if (!ws.clerkOrgId) continue;
     if (!ws.stripeCustomerId) continue;
 
     try {
       const db = await getTenantDbForWorkspace(env, ws.clerkOrgId);
-      const due = await listDomainsDueForAutoRenew(db, now);
-      domainsScanned += due.length;
-
-      for (const domain of due) {
-        if (processed >= DOMAIN_AUTO_RENEW_MAX_PER_SWEEP) {
-          hitCap = true;
-          break workspaceLoop;
-        }
-        processed += 1;
-
-        try {
-          if (domain.registrationStatus === 'pending_renewal') {
-            const polled = await pollRenewalProcess(db, rtr, domain.id);
-            if (polled?.registrationStatus === 'renewed') {
-              renewed += 1;
-              continue;
-            }
-            if (polled?.registrationStatus === 'pending_renewal') {
-              pending += 1;
-              continue;
-            }
-          }
-
-          const result = await chargeAndRenewDomain(db, rtr, masterDb, {
-            domainId: domain.id,
-            workspaceId: ws.clerkOrgId,
-            stripeSecretKey: env.STRIPE_SECRET_KEY,
-          });
-
-          if (!result.ok) {
-            if (result.reason === 'already_renewed') continue;
-            console.warn(
-              `[DomainAutoRenew] ws=${ws.id} domain=${domain.fullDomain} failed: ${result.reason}`,
-            );
-            failed += 1;
-            continue;
-          }
-
-          invoiced += 1;
-          if (result.renewed) renewed += 1;
-          else if (result.pending) pending += 1;
-        } catch (err) {
-          failed += 1;
-          console.error(`[DomainAutoRenew] ws=${ws.id} domain=${domain.fullDomain} error:`, err);
-        }
-      }
+      hitCap = await sweepWorkspaceDomains(ctx, db, { id: ws.id, clerkOrgId: ws.clerkOrgId }, stats);
+      if (hitCap) break;
     } catch (err) {
       console.error(`[DomainAutoRenew] Workspace ${ws.id} failed:`, err);
       workspacesFailed += 1;
     }
   }
 
+  const { domainsScanned, invoiced, renewed, pending, failed, processed } = stats;
+  let skipped = 0;
   if (hitCap) {
     skipped = Math.max(0, domainsScanned - processed);
     console.warn(

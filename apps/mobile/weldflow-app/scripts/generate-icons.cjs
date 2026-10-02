@@ -5,21 +5,26 @@ const fs = require('fs');
 const SRC = 'C:/Users/gertv/Downloads/logos/flow/PNG';
 const OUT = path.resolve(__dirname, '..', 'assets', 'images');
 
-async function trim(input, alphaThresh = 200) {
-  const { data, info } = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const { width, height, channels } = info;
+// Bounding box of all pixels whose alpha is above the threshold (maxX < 0 when none).
+function findOpaqueBounds(data, width, height, channels, alphaThresh) {
   let minX = width, maxX = -1, minY = height, maxY = -1;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const a = data[(y * width + x) * channels + 3];
-      if (a > alphaThresh) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
+      if (a <= alphaThresh) continue;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
     }
   }
+  return { minX, maxX, minY, maxY };
+}
+
+async function trim(input, alphaThresh = 200) {
+  const { data, info } = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const { minX, maxX, minY, maxY } = findOpaqueBounds(data, width, height, channels, alphaThresh);
   if (maxX < 0) throw new Error('Empty image: ' + input);
   return sharp(input).extract({ left: minX, top: minY, width: maxX - minX + 1, height: maxY - minY + 1 });
 }

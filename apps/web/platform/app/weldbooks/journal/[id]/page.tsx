@@ -19,6 +19,12 @@ import {
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
+function journalStatusBadgeVariant(status: string): 'default' | 'destructive' | 'outline' {
+  if (status === 'posted') return 'default';
+  if (status === 'reversed') return 'destructive';
+  return 'outline';
+}
+
 export default function JournalEntryDetailPage() {
   const { id } = useParams({ strict: false });
   const navigate = useNavigate();
@@ -60,13 +66,7 @@ export default function JournalEntryDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <Badge
-            variant={
-              entry.status === 'posted'
-                ? 'default'
-                : entry.status === 'reversed'
-                  ? 'destructive'
-                  : 'outline'
-            }
+            variant={journalStatusBadgeVariant(entry.status)}
           >
             {tsl[entry.status as keyof typeof tsl] ?? entry.status}
           </Badge>

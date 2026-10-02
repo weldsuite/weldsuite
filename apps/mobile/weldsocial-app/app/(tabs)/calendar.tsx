@@ -150,6 +150,9 @@ export default function CalendarScreen() {
               const isSelected = key === selectedDay;
               const isToday = key === todayKey;
               const count = postsByDay.get(key)?.length ?? 0;
+              let cellColor = colors.muted;
+              if (isSelected) cellColor = colors.primaryForeground;
+              else if (inMonth) cellColor = colors.text;
               return (
                 <TouchableOpacity
                   key={key}
@@ -163,11 +166,7 @@ export default function CalendarScreen() {
                     style={[
                       styles.cellText,
                       {
-                        color: isSelected
-                          ? colors.primaryForeground
-                          : inMonth
-                            ? colors.text
-                            : colors.muted,
+                        color: cellColor,
                         fontWeight: isToday || isSelected ? '700' : '400',
                       },
                     ]}

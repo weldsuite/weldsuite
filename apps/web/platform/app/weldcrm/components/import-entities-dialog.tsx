@@ -131,6 +131,43 @@ function buildTemplateRows(
   return { headers, row };
 }
 
+/** Resolve a raw cell string to the value stored for a field, or undefined to skip it. */
+function resolveFieldValue(raw: string, field: ImportFieldDef): unknown {
+  if (field.multiValue) {
+    const arr = raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+    return arr.length ? arr : undefined;
+  }
+  return coerceScalar(raw, field.valueType);
+}
+
+/** Build one import record from a source row using the column -> field mappings. */
+function buildRecord(
+  row: Record<string, unknown>,
+  mappings: Mappings,
+  fieldByKey: Map<string, ImportFieldDef>,
+): Record<string, unknown> {
+  const record: Record<string, unknown> = {};
+  for (const [sourceCol, key] of Object.entries(mappings)) {
+    if (!key) continue;
+    const field = fieldByKey.get(key);
+    if (!field) continue;
+    const raw = safeString(row[sourceCol]);
+    if (!raw) continue;
+
+    const value = resolveFieldValue(raw, field);
+    if (value === undefined) continue;
+
+    if (field.customFieldSlug) {
+      const bag = (record.customFields as Record<string, unknown> | undefined) ?? {};
+      bag[field.customFieldSlug] = value;
+      record.customFields = bag;
+    } else {
+      record[key] = value;
+    }
+  }
+  return record;
+}
+
 // ── Field picker (one per file column) ───────────────────────────────────────
 
 function FieldCombobox({
@@ -226,21 +263,21 @@ function DataPreviewList({
   data: Record<string, unknown>[];
 }>) {
   if (!focusedColumn || data.length === 0) return null;
-  const preview = data.slice(0, 5);
+  const preview = data.slice(0, 5).map((item, index) => ({
+    rowId: `sample-row-${index}`,
+    value: safeString(item[focusedColumn]),
+  }));
   return (
     <div className="space-y-2 border bg-background p-4 pb-1 rounded-md">
       <p className="text-sm font-semibold">
         {t('crm.importExport.sampleValuesFor', { field: focusedColumn })}
       </p>
       <ul>
-        {preview.map((item, i) => {
-          const value = safeString(item[focusedColumn]);
-          return (
-            <li key={i} className="border-b py-3 text-sm first:border-t last:border-b-0 truncate">
-              {value || <span className="text-muted-foreground italic">{t('crm.importExport.emptyValue')}</span>}
-            </li>
-          );
-        })}
+        {preview.map(({ rowId, value }) => (
+          <li key={rowId} className="border-b py-3 text-sm first:border-t last:border-b-0 truncate">
+            {value || <span className="text-muted-foreground italic">{t('crm.importExport.emptyValue')}</span>}
+          </li>
+        ))}
       </ul>
       {data.length > 5 && (
         <p className="text-xs text-muted-foreground">
@@ -310,7 +347,7 @@ export function ImportEntitiesDialog({
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    a.remove();
     URL.revokeObjectURL(url);
   }, []);
 
@@ -436,39 +473,10 @@ export function ImportEntitiesDialog({
 
   const mappedCount = useMemo(() => Object.values(mappings).filter(Boolean).length, [mappings]);
 
-  const buildRecords = useCallback((): Record<string, unknown>[] => {
-    const records: Record<string, unknown>[] = [];
-    for (const row of validRows) {
-      const record: Record<string, unknown> = {};
-      for (const [sourceCol, key] of Object.entries(mappings)) {
-        if (!key) continue;
-        const field = fieldByKey.get(key);
-        if (!field) continue;
-        const raw = safeString(row[sourceCol]);
-        if (!raw) continue;
-
-        let value: unknown;
-        if (field.multiValue) {
-          const arr = raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
-          if (!arr.length) continue;
-          value = arr;
-        } else {
-          value = coerceScalar(raw, field.valueType);
-          if (value === undefined) continue;
-        }
-
-        if (field.customFieldSlug) {
-          const bag = (record.customFields as Record<string, unknown> | undefined) ?? {};
-          bag[field.customFieldSlug] = value;
-          record.customFields = bag;
-        } else {
-          record[key] = value;
-        }
-      }
-      records.push(record);
-    }
-    return records;
-  }, [validRows, mappings, fieldByKey]);
+  const buildRecords = useCallback(
+    (): Record<string, unknown>[] => validRows.map((row) => buildRecord(row, mappings, fieldByKey)),
+    [validRows, mappings, fieldByKey],
+  );
 
   const handleImport = useCallback(async () => {
     const records = buildRecords();
@@ -804,8 +812,8 @@ export function ImportEntitiesDialog({
                   <h4 className="font-medium mb-2">{t('crm.importExport.errorDetailsHeading')}</h4>
                   <ScrollArea className="h-[180px] border rounded-md p-3">
                     <ul className="space-y-1.5 text-sm">
-                      {result.errors.slice(0, 100).map((e, i) => (
-                        <li key={i} className="flex items-start gap-2">
+                      {result.errors.slice(0, 100).map((e, index) => ({ e, errorId: `import-error-${index}` })).map(({ e, errorId }) => (
+                        <li key={errorId} className="flex items-start gap-2">
                           <span className="text-muted-foreground whitespace-nowrap">
                             {t('crm.importExport.rowPrefix', { n: e.row })}
                           </span>
@@ -826,8 +834,8 @@ export function ImportEntitiesDialog({
                   { value: result.updated, label: t('crm.importExport.updatedLabel') },
                   { value: result.failed, label: t('crm.importExport.failedLabel') },
                   { value: result.total, label: t('crm.importExport.totalLabel') },
-                ].map((cell, i) => (
-                  <div key={i} className="rounded-lg border bg-card p-4 text-center">
+                ].map((cell) => (
+                  <div key={cell.label} className="rounded-lg border bg-card p-4 text-center">
                     <p className="font-mono text-xl font-bold text-foreground">{cell.value}</p>
                     <p className="text-sm text-muted-foreground">{cell.label}</p>
                   </div>

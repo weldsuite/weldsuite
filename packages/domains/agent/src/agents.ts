@@ -127,31 +127,46 @@ export async function createAgent(db: AgentDb, input: CreateAgentInput) {
   return (await getAgent(db, id))!;
 }
 
-export async function updateAgent(db: AgentDb, id: string, input: UpdateAgentInput) {
-  const { weldagentAgents: a } = schema;
-  const existing = await getAgent(db, id);
-  if (!existing) return null;
+/** Update fields that are copied to the row verbatim when present. */
+const DIRECT_UPDATE_KEYS = [
+  'name',
+  'description',
+  'icon',
+  'systemPrompt',
+  'modelId',
+  'temperature',
+  'maxTokens',
+  'permissions',
+  'enabledTools',
+  'eventSubscriptions',
+  'maxIterations',
+  'maxTotalTokens',
+] as const satisfies readonly (keyof UpdateAgentInput)[];
 
+function buildAgentPatch(
+  input: UpdateAgentInput,
+  existingEnabledTools: string[] | null | undefined,
+): Record<string, unknown> {
   const patch: Record<string, unknown> = { updatedAt: new Date() };
-  if (input.name !== undefined) patch.name = input.name;
-  if (input.description !== undefined) patch.description = input.description;
-  if (input.icon !== undefined) patch.icon = input.icon;
-  if (input.systemPrompt !== undefined) patch.systemPrompt = input.systemPrompt;
-  if (input.modelId !== undefined) patch.modelId = input.modelId;
-  if (input.temperature !== undefined) patch.temperature = input.temperature;
-  if (input.maxTokens !== undefined) patch.maxTokens = input.maxTokens;
-  if (input.permissions !== undefined) patch.permissions = input.permissions;
-  if (input.enabledTools !== undefined) patch.enabledTools = input.enabledTools;
-  if (input.eventSubscriptions !== undefined) patch.eventSubscriptions = input.eventSubscriptions;
-  if (input.maxIterations !== undefined) patch.maxIterations = input.maxIterations;
-  if (input.maxTotalTokens !== undefined) patch.maxTotalTokens = input.maxTotalTokens;
+  for (const key of DIRECT_UPDATE_KEYS) {
+    if (input[key] !== undefined) patch[key] = input[key];
+  }
   if (input.autoReviewEnabled !== undefined) {
-    const current = new Set(existing.enabledTools ?? []);
+    const current = new Set(existingEnabledTools ?? []);
     if (input.autoReviewEnabled) current.add('agent.auto_review');
     else current.delete('agent.auto_review');
     patch.enabledTools = [...current];
   }
   if (input.status !== undefined) patch.status = input.status;
+  return patch;
+}
+
+export async function updateAgent(db: AgentDb, id: string, input: UpdateAgentInput) {
+  const { weldagentAgents: a } = schema;
+  const existing = await getAgent(db, id);
+  if (!existing) return null;
+
+  const patch = buildAgentPatch(input, existing.enabledTools);
 
   await db.update(a).set(patch).where(eq(a.id, id));
   return getAgent(db, id);

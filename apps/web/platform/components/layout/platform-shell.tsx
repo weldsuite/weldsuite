@@ -9,6 +9,7 @@ import { MainContentArea } from './main-content-area';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useUser, useOrganization, useOrganizationList } from '@clerk/clerk-react';
 import { AppAccessGuard } from '@/components/app-access-guard';
+import { cn } from '@/lib/utils';
 
 interface PlatformShellProps {
   children: React.ReactNode;
@@ -49,21 +50,17 @@ export function PlatformShell({ children, embedded }: PlatformShellProps) {
           the far-left rail is transparent (chrome shows through), the module
           sidebar becomes a floating rounded panel, and the page content sits
           on top as a rounded card. The two color-mix tones derive from the
-          theme tokens so this tracks light/dark automatically. */}
+          theme tokens so this tracks light/dark automatically. The panel tone
+          is the plain theme background (header, module sidebar, page content
+          and object panels share the original surface colour — white in light
+          mode, #1c1d1f in dark) and the chrome is only a slight tint of it. */}
       <div
-        className={
-          embedded
-            ? 'relative h-full overflow-hidden bg-[var(--shell-chrome)]'
-            : 'relative h-screen overflow-hidden bg-[var(--shell-chrome)]'
-        }
-        style={
-          {
-            '--shell-panel':
-              'color-mix(in oklch, var(--background) 94%, var(--foreground))',
-            '--shell-chrome':
-              'color-mix(in oklch, var(--background) 88%, var(--foreground))',
-          } as React.CSSProperties
-        }
+        className={cn(
+          embedded ? 'relative h-full' : 'relative h-screen',
+          'overflow-hidden bg-[var(--shell-chrome)]',
+          '[--shell-panel:var(--background)]',
+          '[--shell-chrome:color-mix(in_oklch,var(--background)_96%,var(--foreground))]',
+        )}
       >
         {/* Global AppSidebar on the far left - fixed, hidden on mobile */}
         <div
@@ -95,11 +92,14 @@ export function PlatformShell({ children, embedded }: PlatformShellProps) {
                   panel(s) and drawers out as a flex row (rounded white cards
                   separated by the row's gap). On mobile it stays full-bleed. */}
               <div className="relative flex flex-1 min-w-0 h-full md:py-2 md:pr-2">
-                {/* Round only the right side: the card sits flush against the
-                    module sidebar on its left, so rounding the left corners
-                    would carve a weird notch at the sidebar seam (the header's
-                    top-left). The right side faces the chrome gap, so it rounds. */}
-                <div className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] md:rounded-r-xl">
+                {/* Round all corners, except the left ones while an expanded
+                    module sidebar (the `peer` sibling) sits flush against the
+                    card — rounding there would carve a weird notch at the
+                    sidebar seam. Pages without a module sidebar (App Store) or
+                    with it collapsed (offcanvas) face the chrome on the left
+                    too, so they round. A left border draws the vertical
+                    divider along that edge. */}
+                <div className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] md:rounded-xl md:[.peer[data-state=expanded]~*_&]:rounded-l-none md:border-l md:border-border">
                   <AppAccessGuard>
                     {children}
                   </AppAccessGuard>

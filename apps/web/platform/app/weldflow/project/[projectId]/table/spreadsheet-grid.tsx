@@ -27,6 +27,23 @@ const BUFFER_ROWS = 4;
 const BUFFER_COLS = 2;
 const MIN_COL_WIDTH = 40;
 
+/**
+ * Pair each rich-text run with a stable key derived from its character offset
+ * in the cell text (runs have no id of their own). Empty runs share an offset
+ * with their neighbour, so a per-offset counter keeps the keys unique.
+ */
+function keyRuns(runs: RichTextRun[]): Array<{ run: RichTextRun; key: string }> {
+  const seen = new Map<number, number>();
+  let offset = 0;
+  return runs.map((run) => {
+    const dupes = seen.get(offset) ?? 0;
+    seen.set(offset, dupes + 1);
+    const key = dupes === 0 ? `off-${offset}` : `off-${offset}-${dupes}`;
+    offset += run.text.length;
+    return { run, key };
+  });
+}
+
 // --- Cell component (memoized) ---
 const Cell = memo(function Cell({
   displayValue,
@@ -141,9 +158,9 @@ const Cell = memo(function Cell({
   const renderContent = () => {
     let inner: React.ReactNode;
     if (richTextRuns && richTextRuns.length > 0 && !isPlainRuns(richTextRuns)) {
-      inner = richTextRuns.map((run, i) => (
+      inner = keyRuns(richTextRuns).map(({ run, key }) => (
         <span
-          key={i}
+          key={key}
           style={{
             fontWeight: run.bold ? 'bold' : undefined,
             fontStyle: run.italic ? 'italic' : undefined,
@@ -342,6 +359,155 @@ interface SpreadsheetGridProps {
   onFilterClick?: (colIndex: number, rect: DOMRect) => void;
   /** Merged cell ranges — the anchor (top-left) cell spans them; others hide. */
   merges?: MergeRange[];
+}
+
+// --- Pure helpers (kept outside the component to keep it small) ---
+type CellRow = SpreadsheetRow | undefined;
+type CellCol = SpreadsheetColumn | undefined;
+
+function sameCoord(a: CellCoord, b: CellCoord | null | undefined): boolean {
+  return a.col === b?.col && a.row === b?.row;
+}
+
+function isInsideRange(range: NormalizedRange, col: number, row: number): boolean {
+  return col >= range.minCol && col <= range.maxCol && row >= range.minRow && row <= range.maxRow;
+}
+
+/** Fill-drag handle: constrain the cursor to extend the selection along one axis only. */
+function constrainFillCoord(coords: CellCoord, sel: NormalizedRange): CellCoord {
+  const dCol = Math.abs(coords.col - (coords.col > sel.maxCol ? sel.maxCol : sel.minCol));
+  const dRow = Math.abs(coords.row - (coords.row > sel.maxRow ? sel.maxRow : sel.minRow));
+  if (dCol >= dRow) {
+    return { col: coords.col, row: coords.row < sel.minRow ? sel.minRow : Math.min(coords.row, sel.maxRow) };
+  }
+  return { col: coords.col < sel.minCol ? sel.minCol : Math.min(coords.col, sel.maxCol), row: coords.row };
+}
+
+/** Detects a constant, non-zero numeric step across the seed values ("1, 2, 3" -> 1). */
+function detectFillSequence(seedValues: string[]): { last: number; diff: number } | null {
+  if (seedValues.length < 2) return null;
+  const nums = seedValues.map(Number);
+  if (!nums.every((n) => !Number.isNaN(n))) return null;
+  const diff = nums[1] - nums[0];
+  if (diff === 0) return null;
+  if (!nums.every((n, i) => i === 0 || n - nums[i - 1] === diff)) return null;
+  return { last: nums[nums.length - 1], diff };
+}
+
+function collectFillSeedValues(
+  sel: NormalizedRange,
+  isVertical: boolean,
+  getRaw: (col: number, row: number) => string,
+): string[] {
+  const seeds: string[] = [];
+  if (isVertical) {
+    for (let r = sel.minRow; r <= sel.maxRow; r++) seeds.push(getRaw(sel.minCol, r));
+  } else {
+    for (let c = sel.minCol; c <= sel.maxCol; c++) seeds.push(getRaw(c, sel.minRow));
+  }
+  return seeds;
+}
+
+/** Cyclic repeat of the source block; formulas get their references shifted. */
+function cyclicFillValue(
+  sel: NormalizedRange,
+  c: number,
+  r: number,
+  getRaw: (col: number, row: number) => string,
+): string {
+  const selWidth = sel.maxCol - sel.minCol + 1;
+  const selHeight = sel.maxRow - sel.minRow + 1;
+  const srcCol = sel.minCol + ((c - sel.minCol + selWidth) % selWidth);
+  const srcRow = sel.minRow + ((r - sel.minRow + selHeight) % selHeight);
+  const clampedSrcCol = Math.max(sel.minCol, Math.min(sel.maxCol, srcCol));
+  const clampedSrcRow = Math.max(sel.minRow, Math.min(sel.maxRow, srcRow));
+  const srcValue = getRaw(clampedSrcCol, clampedSrcRow);
+  return isFormula(srcValue) ? adjustFormula(srcValue, r - clampedSrcRow, c - clampedSrcCol) : srcValue;
+}
+
+/** Value for a cell outside the source block: number-sequence step, else formula-aware cyclic repeat. */
+function fillCellValue(
+  sel: NormalizedRange,
+  sequence: { last: number; diff: number } | null,
+  isVertical: boolean,
+  c: number,
+  r: number,
+  getRaw: (col: number, row: number) => string,
+): string {
+  if (!sequence) return cyclicFillValue(sel, c, r, getRaw);
+  const stepsFromEnd = isVertical ? r - sel.maxRow : c - sel.maxCol;
+  return String(sequence.last + sequence.diff * stepsFromEnd);
+}
+
+/** Appends blank text columns until column index `col` exists. */
+function createColumnsUpTo(
+  existingCount: number,
+  col: number,
+  onCreateColumn: (data: { name: string; fieldType: string }) => void,
+): void {
+  for (let i = existingCount; i <= col; i++) {
+    onCreateColumn({ name: colLabel(i), fieldType: 'text' });
+  }
+}
+
+function buildNewRowData(colId: string, value: string, runs: RichTextRun[] | null): Record<string, CellDataValue> {
+  const data: Record<string, CellDataValue> = { [colId]: value };
+  if (runs) data[richTextKey(colId)] = runs;
+  return data;
+}
+
+function collectSelectionCells(
+  sel: NormalizedRange,
+  rowByPosition: Map<number, SpreadsheetRow>,
+  sortedCols: SpreadsheetColumn[],
+): Array<{ rowId: string; colId: string }> {
+  const cells: Array<{ rowId: string; colId: string }> = [];
+  for (let r = sel.minRow; r <= sel.maxRow; r++) {
+    for (let c = sel.minCol; c <= sel.maxCol; c++) {
+      const br = rowByPosition.get(r);
+      const bc = sortedCols[c];
+      if (br && bc) cells.push({ rowId: br.id, colId: bc.id });
+    }
+  }
+  return cells;
+}
+
+/** Cell one step away in the direction of an arrow key, clamped to the grid; null for other keys. */
+function arrowStep(key: string, from: CellCoord, maxCol: number, maxRow: number): CellCoord | null {
+  switch (key) {
+    case 'ArrowUp':
+      return { col: from.col, row: Math.max(0, from.row - 1) };
+    case 'ArrowDown':
+      return { col: from.col, row: Math.min(maxRow, from.row + 1) };
+    case 'ArrowLeft':
+      return { col: Math.max(0, from.col - 1), row: from.row };
+    case 'ArrowRight':
+      return { col: Math.min(maxCol, from.col + 1), row: from.row };
+    default:
+      return null;
+  }
+}
+
+function isErrorDisplayValue(value: string): boolean {
+  return value.startsWith('#') && (value.endsWith('!') || value === '#N/A' || value === '#NAME?');
+}
+
+/** Per-cell metadata stored next to the value in the row data. */
+function getCellExtras(br: CellRow, bc: CellCol) {
+  if (!br || !bc) {
+    return { fmt: undefined, rt: undefined, note: undefined, link: undefined };
+  }
+  return {
+    fmt: getCellFormat(br.data, bc.id),
+    rt: getRichText(br.data, bc.id),
+    note: getCellNote(br.data, bc.id),
+    link: getCellLink(br.data, bc.id),
+  };
+}
+
+// A merge hides every covered cell except its top-left anchor.
+function isCoveredByMerge(merge: MergeRange | undefined, col: number, row: number): boolean {
+  return !!merge && !(merge.minCol === col && merge.minRow === row);
 }
 
 export function SpreadsheetGrid({
@@ -603,33 +769,28 @@ export function SpreadsheetGrid({
       const runs = editingRunsRef.current;
       const hasRichText = runs.length > 0 && !isPlainRuns(runs);
 
-      if (!value && !bc && !br) return;
-      if (!bc && value) {
-        optimisticCellsRef.current.set(`${col},${row}`, value);
-        setPendingWrite({ col, row, value });
-        for (let i = sortedCols.length; i <= col; i++) {
-          onCreateColumn({ name: colLabel(i), fieldType: 'text' });
+      if (!bc) {
+        if (value) {
+          optimisticCellsRef.current.set(`${col},${row}`, value);
+          setPendingWrite({ col, row, value });
+          createColumnsUpTo(sortedCols.length, col, onCreateColumn);
         }
         return;
       }
-      if (!bc) return;
-      if (!br && value) {
-        optimisticCellsRef.current.set(`${col},${row}`, value);
-        const data: Record<string, CellDataValue> = { [bc.id]: value };
-        if (hasRichText) data[richTextKey(bc.id)] = runs;
-        onCreateRow({ data, position: row });
+      if (!br) {
+        if (value) {
+          optimisticCellsRef.current.set(`${col},${row}`, value);
+          onCreateRow({ data: buildNewRowData(bc.id, value, hasRichText ? runs : null), position: row });
+        }
         return;
       }
-      if (!br) return;
       const old = br.data?.[bc.id]?.toString() ?? '';
       if (value === old && !hasRichText) return;
       optimisticCellsRef.current.set(`${col},${row}`, value);
-      const updateData: Record<string, CellDataValue> = { [bc.id]: value || null };
-      if (hasRichText) {
-        updateData[richTextKey(bc.id)] = runs;
-      } else {
-        updateData[richTextKey(bc.id)] = null;
-      }
+      const updateData: Record<string, CellDataValue> = {
+        [bc.id]: value || null,
+        [richTextKey(bc.id)]: hasRichText ? runs : null,
+      };
       await onUpdateRow(br.id, updateData);
     },
     [sortedCols, rowByPosition, onUpdateRow, onCreateRow, onCreateColumn, editingRunsRef]
@@ -742,15 +903,8 @@ export function SpreadsheetGrid({
     if (isFillDraggingRef.current) {
       const sel = selBoundsRef.current;
       if (!sel) return;
-      const dCol = Math.abs(coords.col - (coords.col > sel.maxCol ? sel.maxCol : sel.minCol));
-      const dRow = Math.abs(coords.row - (coords.row > sel.maxRow ? sel.maxRow : sel.minRow));
-      let constrained: CellCoord;
-      if (dCol >= dRow) {
-        constrained = { col: coords.col, row: coords.row < sel.minRow ? sel.minRow : Math.min(coords.row, sel.maxRow) };
-      } else {
-        constrained = { col: coords.col < sel.minCol ? sel.minCol : Math.min(coords.col, sel.maxCol), row: coords.row };
-      }
-      if (constrained.col !== fillDragEndRef.current?.col || constrained.row !== fillDragEndRef.current?.row) {
+      const constrained = constrainFillCoord(coords, sel);
+      if (!sameCoord(constrained, fillDragEndRef.current)) {
         setFillDragEnd(constrained);
       }
       return;
@@ -759,9 +913,9 @@ export function SpreadsheetGrid({
     if (!isDraggingRef.current) return;
     const anchor = selectedCellRef.current;
     if (!anchor) return;
-    if (coords.col !== selectionEndRef.current?.col || coords.row !== selectionEndRef.current?.row) {
+    if (!sameCoord(coords, selectionEndRef.current)) {
       onSelectionEndChange(coords);
-      if (coords.col !== anchor.col || coords.row !== anchor.row) {
+      if (!sameCoord(coords, anchor)) {
         onIsEditingChange(false);
       }
     }
@@ -785,49 +939,14 @@ export function SpreadsheetGrid({
     const fillMinRow = Math.min(sel.minRow, fillEnd.row);
     const fillMaxRow = Math.max(sel.maxRow, fillEnd.row);
 
-    // Collect source values for pattern detection
-    const srcValues: string[] = [];
-    const selWidth = sel.maxCol - sel.minCol + 1;
-    const selHeight = sel.maxRow - sel.minRow + 1;
-    for (let r = sel.minRow; r <= sel.maxRow; r++) {
-      for (let c = sel.minCol; c <= sel.maxCol; c++) {
-        srcValues.push(getRawCellValue(c, r));
-      }
-    }
-
-    // Detect number sequence pattern
+    // Detect number sequence pattern along the fill axis
     const isVertical = fillMaxRow > sel.maxRow || fillMinRow < sel.minRow;
-    const seqValues = isVertical
-      ? srcValues.filter((_, i) => i % selWidth === 0) // First column values
-      : srcValues.slice(0, selWidth); // First row values
-    const nums = seqValues.map(Number);
-    const isSequence = seqValues.length >= 2 && nums.every(n => !Number.isNaN(n));
-    const seqDiff = isSequence && seqValues.length >= 2 ? nums[1] - nums[0] : 0;
-    const hasConstantDiff = isSequence && nums.every((n, i) => i === 0 || n - nums[i - 1] === seqDiff);
+    const sequence = detectFillSequence(collectFillSeedValues(sel, isVertical, getRawCellValue));
 
     for (let r = fillMinRow; r <= fillMaxRow; r++) {
       for (let c = fillMinCol; c <= fillMaxCol; c++) {
-        if (c >= sel.minCol && c <= sel.maxCol && r >= sel.minRow && r <= sel.maxRow) continue;
-
-        if (hasConstantDiff && seqDiff !== 0) {
-          // Number sequence fill
-          const stepsFromEnd = isVertical
-            ? r - sel.maxRow
-            : c - sel.maxCol;
-          const fillValue = String(nums[nums.length - 1] + seqDiff * stepsFromEnd);
-          commitValue(c, r, fillValue);
-        } else {
-          // Formula-aware fill or cyclic repeat
-          const srcCol = sel.minCol + ((c - sel.minCol + selWidth) % selWidth);
-          const srcRow = sel.minRow + ((r - sel.minRow + selHeight) % selHeight);
-          const clampedSrcCol = Math.max(sel.minCol, Math.min(sel.maxCol, srcCol));
-          const clampedSrcRow = Math.max(sel.minRow, Math.min(sel.maxRow, srcRow));
-          let srcValue = getRawCellValue(clampedSrcCol, clampedSrcRow);
-          if (isFormula(srcValue)) {
-            srcValue = adjustFormula(srcValue, r - clampedSrcRow, c - clampedSrcCol);
-          }
-          commitValue(c, r, srcValue);
-        }
+        if (isInsideRange(sel, c, r)) continue;
+        commitValue(c, r, fillCellValue(sel, sequence, isVertical, c, r, getRawCellValue));
       }
     }
 
@@ -971,8 +1090,8 @@ export function SpreadsheetGrid({
     }
   }, [commitValue]);
 
-  const handleCut = useCallback(async () => {
-    await handleCopy();
+  // Blank every cell in the current selection.
+  const clearSelectedCells = useCallback(() => {
     const sel = selBoundsRef.current;
     if (!sel) return;
     for (let r = sel.minRow; r <= sel.maxRow; r++) {
@@ -980,7 +1099,12 @@ export function SpreadsheetGrid({
         commitValue(c, r, '');
       }
     }
-  }, [handleCopy, commitValue]);
+  }, [commitValue]);
+
+  const handleCut = useCallback(async () => {
+    await handleCopy();
+    clearSelectedCells();
+  }, [handleCopy, clearSelectedCells]);
 
   // Paste special → Values only: pastes evaluated values, never formulas.
   const handlePasteValuesOnly = useCallback(async () => {
@@ -1107,8 +1231,7 @@ export function SpreadsheetGrid({
       // (insert note/link/dropdown, convert to table, filter, …) target the
       // cell the user actually clicked rather than a stale selection.
       const sel = selBoundsRef.current;
-      const insideSelection =
-        sel && coord.col >= sel.minCol && coord.col <= sel.maxCol && coord.row >= sel.minRow && coord.row <= sel.maxRow;
+      const insideSelection = sel && isInsideRange(sel, coord.col, coord.row);
       if (!insideSelection) {
         onSelectedCellChange(coord);
         onSelectionEndChange(coord);
@@ -1118,125 +1241,152 @@ export function SpreadsheetGrid({
     }
   }, [onContextMenu, onSelectedCellChange, onSelectionEndChange]);
 
+  // Callbacks handed to the cell that is being edited.
+  const handleRunsChange = useCallback(
+    (runs: RichTextRun[]) => {
+      editingRunsRef.current = runs;
+    },
+    [editingRunsRef]
+  );
+
+  const handleSelectionInfo = useCallback(
+    (info: { start: number; end: number }) => {
+      setInlineSelection(info);
+      onInlineSelectionChange?.(info);
+    },
+    [onInlineSelectionChange]
+  );
+
   // --- Keyboard ---
+  // Ctrl/Cmd+B / +I: format the selection (while editing, contentEditable handles it natively
+  // and onInput parses the result).
+  const formatSelection = useCallback(
+    (e: React.KeyboardEvent, format: Partial<CellFormat>) => {
+      if (isEditingRef.current) return;
+      e.preventDefault();
+      const sel = selBoundsRef.current;
+      if (onFormatCells && sel) {
+        onFormatCells(collectSelectionCells(sel, rowByPosition, sortedCols), format);
+      }
+    },
+    [onFormatCells, rowByPosition, sortedCols]
+  );
+
+  const handleCtrlShortcut = useCallback(
+    (e: React.KeyboardEvent) => {
+      switch (e.key.toLowerCase()) {
+        case 'c':
+          e.preventDefault();
+          handleCopy();
+          break;
+        case 'v':
+          e.preventDefault();
+          handlePaste();
+          break;
+        case 'x':
+          e.preventDefault();
+          handleCut();
+          break;
+        case 'b':
+          formatSelection(e, { bold: true });
+          break;
+        case 'i':
+          formatSelection(e, { italic: true });
+          break;
+        case 'home':
+          // Ctrl+Home -> go to A1
+          e.preventDefault();
+          selectCell(0, 0);
+          break;
+        default:
+          break;
+      }
+    },
+    [handleCopy, handlePaste, handleCut, formatSelection, selectCell]
+  );
+
+  // Tab / Enter / Escape, active both while editing and while browsing. Returns true when handled.
+  const handleCommitKey = useCallback(
+    (e: React.KeyboardEvent, cell: CellCoord): boolean => {
+      const { col, row } = cell;
+      switch (e.key) {
+        case 'Tab':
+          e.preventDefault();
+          if (isEditingRef.current) commitValue(col, row, editValueRef.current);
+          selectCell(e.shiftKey ? Math.max(0, col - 1) : Math.min(totalCols - 1, col + 1), row);
+          return true;
+        case 'Enter':
+          e.preventDefault();
+          if (isEditingRef.current) {
+            commitValue(col, row, editValueRef.current);
+            selectCell(col, Math.min(totalRows - 1, row + 1));
+          } else {
+            startEditing();
+          }
+          return true;
+        case 'Escape':
+          e.preventDefault();
+          onEditValueChange(getRawCellValue(col, row));
+          onIsEditingChange(false);
+          containerRef.current?.focus();
+          return true;
+        default:
+          return false;
+      }
+    },
+    [totalCols, totalRows, commitValue, selectCell, getRawCellValue, startEditing, onEditValueChange, onIsEditingChange]
+  );
+
+  // Navigation and typing keys, only used while not editing a cell.
+  const handleBrowseKey = useCallback(
+    (e: React.KeyboardEvent, cell: CellCoord) => {
+      const isArrow = e.key.startsWith('Arrow');
+      if (e.shiftKey && isArrow) {
+        e.preventDefault();
+        const end = selectionEndRef.current || cell;
+        onSelectionEndChange(arrowStep(e.key, end, totalCols - 1, totalRows - 1) ?? { ...end });
+        return;
+      }
+
+      const target = arrowStep(e.key, cell, totalCols - 1, totalRows - 1);
+      if (target) {
+        e.preventDefault();
+        selectCell(target.col, target.row);
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        clearSelectedCells();
+        onEditValueChange('');
+        return;
+      }
+      if (e.key === 'F2') {
+        e.preventDefault();
+        startEditing();
+        return;
+      }
+      if (e.key.length === 1 && !e.altKey) {
+        e.preventDefault();
+        onSelectionEndChange(cell);
+        startEditing(e.key);
+      }
+    },
+    [totalCols, totalRows, selectCell, clearSelectedCells, startEditing, onEditValueChange, onSelectionEndChange]
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Ctrl shortcuts
       if (e.ctrlKey || e.metaKey) {
-        if (e.key === 'c' || e.key === 'C') { e.preventDefault(); handleCopy(); return; }
-        if (e.key === 'v' || e.key === 'V') { e.preventDefault(); handlePaste(); return; }
-        if (e.key === 'x' || e.key === 'X') { e.preventDefault(); handleCut(); return; }
-        if (e.key === 'b' || e.key === 'B') {
-          if (isEditingRef.current) {
-            // Let contentEditable handle it natively — onInput will parse the result
-            return;
-          }
-          e.preventDefault();
-          if (onFormatCells && selBoundsRef.current) {
-            const sel = selBoundsRef.current;
-            const cells: Array<{ rowId: string; colId: string }> = [];
-            for (let r = sel.minRow; r <= sel.maxRow; r++) {
-              for (let c = sel.minCol; c <= sel.maxCol; c++) {
-                const br = rowByPosition.get(r); const bc = sortedCols[c];
-                if (br && bc) cells.push({ rowId: br.id, colId: bc.id });
-              }
-            }
-            onFormatCells(cells, { bold: true });
-          }
-          return;
-        }
-        if (e.key === 'i' || e.key === 'I') {
-          if (isEditingRef.current) {
-            return;
-          }
-          e.preventDefault();
-          if (onFormatCells && selBoundsRef.current) {
-            const sel = selBoundsRef.current;
-            const cells: Array<{ rowId: string; colId: string }> = [];
-            for (let r = sel.minRow; r <= sel.maxRow; r++) {
-              for (let c = sel.minCol; c <= sel.maxCol; c++) {
-                const br = rowByPosition.get(r); const bc = sortedCols[c];
-                if (br && bc) cells.push({ rowId: br.id, colId: bc.id });
-              }
-            }
-            onFormatCells(cells, { italic: true });
-          }
-          return;
-        }
-        // Ctrl+Home -> go to A1
-        if (e.key === 'Home') { e.preventDefault(); selectCell(0, 0); return; }
+        handleCtrlShortcut(e);
         return;
       }
 
       const cell = selectedCellRef.current;
       if (!cell) return;
-      const { col, row } = cell;
-
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        if (isEditingRef.current) commitValue(col, row, editValueRef.current);
-        selectCell(e.shiftKey ? Math.max(0, col - 1) : Math.min(totalCols - 1, col + 1), row);
-        return;
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (isEditingRef.current) {
-          commitValue(col, row, editValueRef.current);
-          selectCell(col, Math.min(totalRows - 1, row + 1));
-        } else {
-          startEditing();
-        }
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onEditValueChange(getRawCellValue(col, row));
-        onIsEditingChange(false);
-        containerRef.current?.focus();
-        return;
-      }
-
-      if (!isEditingRef.current) {
-        if (e.shiftKey && e.key.startsWith('Arrow')) {
-          e.preventDefault();
-          const end = selectionEndRef.current || cell;
-          const next = { ...end };
-          if (e.key === 'ArrowUp') next.row = Math.max(0, next.row - 1);
-          if (e.key === 'ArrowDown') next.row = Math.min(totalRows - 1, next.row + 1);
-          if (e.key === 'ArrowLeft') next.col = Math.max(0, next.col - 1);
-          if (e.key === 'ArrowRight') next.col = Math.min(totalCols - 1, next.col + 1);
-          onSelectionEndChange(next);
-          return;
-        }
-
-        if (e.key === 'ArrowUp') { e.preventDefault(); selectCell(col, Math.max(0, row - 1)); return; }
-        if (e.key === 'ArrowDown') { e.preventDefault(); selectCell(col, Math.min(totalRows - 1, row + 1)); return; }
-        if (e.key === 'ArrowLeft') { e.preventDefault(); selectCell(Math.max(0, col - 1), row); return; }
-        if (e.key === 'ArrowRight') { e.preventDefault(); selectCell(Math.min(totalCols - 1, col + 1), row); return; }
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-          e.preventDefault();
-          // Delete entire selection
-          const sel = selBoundsRef.current;
-          if (sel) {
-            for (let r = sel.minRow; r <= sel.maxRow; r++) {
-              for (let c = sel.minCol; c <= sel.maxCol; c++) {
-                commitValue(c, r, '');
-              }
-            }
-          }
-          onEditValueChange('');
-          return;
-        }
-        if (e.key === 'F2') { e.preventDefault(); startEditing(); return; }
-        if (e.key.length === 1 && !e.altKey) {
-          e.preventDefault();
-          onSelectionEndChange(cell);
-          startEditing(e.key);
-          return;
-        }
-      }
+      if (handleCommitKey(e, cell)) return;
+      if (!isEditingRef.current) handleBrowseKey(e, cell);
     },
-    [totalCols, totalRows, commitValue, selectCell, getRawCellValue, startEditing, handleCopy, handlePaste, handleCut, onFormatCells, rowByPosition, sortedCols, onEditValueChange, onIsEditingChange, onSelectionEndChange]
+    [handleCtrlShortcut, handleCommitKey, handleBrowseKey]
   );
 
 
@@ -1274,6 +1424,7 @@ export function SpreadsheetGrid({
     <div
       ref={containerRef}
       className="h-full w-full overflow-auto bg-background outline-none select-none"
+      role="grid"
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onScroll={handleScroll}
@@ -1300,6 +1451,7 @@ export function SpreadsheetGrid({
               return (
                 <div
                   key={ci}
+                  role="presentation"
                   data-col-header={ci}
                   className={`border-r border-b border-border flex items-center justify-center text-[11px] font-medium select-none ${
                     isSelected ? 'bg-[#d3e3fd] dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'bg-[#f8f9fa] dark:bg-muted/50 text-muted-foreground'
@@ -1348,6 +1500,7 @@ export function SpreadsheetGrid({
                     )}
                   {/* Resize handle */}
                   <div
+                    role="presentation"
                     className="absolute top-0 right-0 w-[4px] h-full cursor-col-resize hover:bg-blue-400/50"
                     onMouseDown={(e) => handleResizeMouseDown(e, ci)}
                   />
@@ -1359,6 +1512,7 @@ export function SpreadsheetGrid({
 
         {/* Grid body */}
         <div
+          role="presentation"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onDoubleClick={handleCellDoubleClick}
@@ -1388,6 +1542,7 @@ export function SpreadsheetGrid({
                   {ri + 1}
                   {/* Row resize handle */}
                   <div
+                    role="presentation"
                     className="absolute left-0 right-0 bottom-0 h-[3px] cursor-row-resize hover:bg-blue-400/50 z-20"
                     onMouseDown={(e) => {
                       e.preventDefault();
@@ -1410,24 +1565,21 @@ export function SpreadsheetGrid({
               // Merge handling: skip cells covered by (but not anchoring) a merge;
               // the anchor cell is widened/heightened to span the whole range.
               const merge = findMerge(ci, ri);
-              if (merge && !(merge.minCol === ci && merge.minRow === ri)) return null;
-              const isAnchor = selectedCell?.col === ci && selectedCell?.row === ri;
+              if (isCoveredByMerge(merge, ci, ri)) return null;
+              const isAnchor = sameCoord({ col: ci, row: ri }, selectedCell);
               const isEditingThis = isAnchor && isEditing && !isMulti;
               const rawValue = getRawCellValue(ci, ri);
               const displayValue = isFormula(rawValue) ? getEvaluatedValue(ci, ri) : rawValue;
-              const isErr = typeof displayValue === 'string' && (displayValue.startsWith('#') && (displayValue.endsWith('!') || displayValue === '#N/A' || displayValue === '#NAME?'));
 
               // Get formatting
-              const br = rowByPosition.get(ri);
               const bc = sortedCols[ci];
-              const fmt = br && bc ? getCellFormat(br.data, bc.id) : undefined;
+              const { fmt, rt, note: cellNote, link: cellLink } = getCellExtras(rowByPosition.get(ri), bc);
               const cellStyle = getCellStyle(fmt);
               const formattedValue = fmt?.numberFormat ? formatCellDisplay(displayValue, fmt) : displayValue;
-              const align = getDefaultAlign(displayValue, fmt);
-              const rt = br && bc ? getRichText(br.data, bc.id) : undefined;
-              const cellNote = br && bc ? getCellNote(br.data, bc.id) : undefined;
-              const cellLink = br && bc ? getCellLink(br.data, bc.id) : undefined;
               const dropdownOptions = getDropdownOptions(bc);
+              const modeProps = isEditingThis
+                ? { onRichTextChange: handleRunsChange, onSelectionInfo: handleSelectionInfo }
+                : { link: cellLink };
 
               const w = merge ? colOffsets[merge.maxCol + 1] - colOffsets[merge.minCol] : getColWidth(ci);
               const cellH = merge ? rowOffsets[merge.maxRow + 1] - rowOffsets[merge.minRow] : getRowHeight(ri);
@@ -1463,13 +1615,11 @@ export function SpreadsheetGrid({
                       onEditChange={onEditValueChange}
                       inputRef={inputRef}
                       cellStyle={cellStyle}
-                      align={align}
-                      isError={isErr}
+                      align={getDefaultAlign(displayValue, fmt)}
+                      isError={isErrorDisplayValue(displayValue)}
                       cellHeight={cellH}
                       richTextRuns={rt}
-                      onRichTextChange={isEditingThis ? (runs) => { editingRunsRef.current = runs; } : undefined}
-                      onSelectionInfo={isEditingThis ? (info) => { setInlineSelection(info); onInlineSelectionChange?.(info); } : undefined}
-                      link={!isEditingThis ? cellLink : undefined}
+                      {...modeProps}
                       note={cellNote}
                     />
                   )}
@@ -1505,6 +1655,7 @@ export function SpreadsheetGrid({
                 }}
               >
                 <div
+                  role="presentation"
                   className="absolute bg-[#1a73e8]"
                   style={{ width: 6, height: 6, right: -4, bottom: -4, cursor: 'crosshair', pointerEvents: 'auto' }}
                   onMouseDown={handleFillHandleMouseDown}
@@ -1563,8 +1714,9 @@ export function SpreadsheetGrid({
       {/* Dropdown (data-validation list) picker */}
       {openDropdown && (
         <>
-          <div className="fixed inset-0 z-40" onMouseDown={() => setOpenDropdown(null)} />
+          <div role="presentation" className="fixed inset-0 z-40" onMouseDown={() => setOpenDropdown(null)} />
           <div
+            role="presentation"
             className="fixed z-50 max-h-60 w-44 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
             style={{ left: Math.min(openDropdown.x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 190), top: openDropdown.y }}
             onMouseDown={(e) => e.stopPropagation()}

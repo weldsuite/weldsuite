@@ -237,6 +237,80 @@ function ChatView({ orgId, workspaceName }: Readonly<{ orgId: string; workspaceN
     }
   };
 
+  const renderMessages = () => {
+    if (isLoading) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+        </div>
+      );
+    }
+    if (messages.length === 0) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+          No messages in this channel yet.
+        </div>
+      );
+    }
+    return (
+      <div className="flex-1 overflow-y-auto py-4" onScroll={handleScroll}>
+        {isFetchingMore && (
+          <div className="flex justify-center py-2">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+          </div>
+        )}
+        {messages.map((msg) => {
+          const isSupport = msg.authorType === 'support';
+          const initials = (msg.authorName || '?')
+            .split(' ')
+            .map((n) => n[0])
+            .join('')
+            .substring(0, 2)
+            .toUpperCase();
+
+          return (
+            <div
+              key={msg.id}
+              className={cn('flex gap-3 px-4 py-1.5', isSupport && 'flex-row-reverse')}
+            >
+              <Avatar className="mt-0.5 h-8 w-8 shrink-0">
+                <AvatarImage src={msg.authorAvatar ?? undefined} alt="" />
+                <AvatarFallback className="text-xs font-medium">{initials}</AvatarFallback>
+              </Avatar>
+              <div className={cn('flex flex-col max-w-[70%]', isSupport && 'items-end')}>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs font-medium">{msg.authorName}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(msg.createdAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                  {isSupport && (
+                    <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                      Support
+                    </Badge>
+                  )}
+                </div>
+                <div
+                  className={cn(
+                    'rounded-xl px-3 py-2 text-sm leading-relaxed',
+                    isSupport
+                      ? 'rounded-tr-sm bg-primary text-primary-foreground'
+                      : 'rounded-tl-sm bg-muted text-foreground',
+                  )}
+                >
+                  {msg.content}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+    );
+  };
+
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-3 border-b px-6 py-3">
@@ -249,71 +323,7 @@ function ChatView({ orgId, workspaceName }: Readonly<{ orgId: string; workspaceN
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-        </div>
-      ) : messages.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-          No messages in this channel yet.
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto py-4" onScroll={handleScroll}>
-          {isFetchingMore && (
-            <div className="flex justify-center py-2">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-            </div>
-          )}
-          {messages.map((msg) => {
-            const isSupport = msg.authorType === 'support';
-            const initials = (msg.authorName || '?')
-              .split(' ')
-              .map((n) => n[0])
-              .join('')
-              .substring(0, 2)
-              .toUpperCase();
-
-            return (
-              <div
-                key={msg.id}
-                className={cn('flex gap-3 px-4 py-1.5', isSupport && 'flex-row-reverse')}
-              >
-                <Avatar className="mt-0.5 h-8 w-8 shrink-0">
-                  <AvatarImage src={msg.authorAvatar ?? undefined} alt="" />
-                  <AvatarFallback className="text-xs font-medium">{initials}</AvatarFallback>
-                </Avatar>
-                <div className={cn('flex flex-col max-w-[70%]', isSupport && 'items-end')}>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-xs font-medium">{msg.authorName}</span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {new Date(msg.createdAt).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                    {isSupport && (
-                      <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                        Support
-                      </Badge>
-                    )}
-                  </div>
-                  <div
-                    className={cn(
-                      'rounded-xl px-3 py-2 text-sm leading-relaxed',
-                      isSupport
-                        ? 'rounded-tr-sm bg-primary text-primary-foreground'
-                        : 'rounded-tl-sm bg-muted text-foreground',
-                    )}
-                  >
-                    {msg.content}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          <div ref={bottomRef} />
-        </div>
-      )}
+      {renderMessages()}
 
       {typingUsers.length > 0 && (
         <div className="px-4 pb-1">

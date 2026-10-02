@@ -121,6 +121,7 @@ export default function EntitiesPage() {
       render: (e) =>
         e.jurisdictionCode === 'NL' ? (
           <div
+            role="presentation"
             title={e.jurisdictionSettings?.kor?.enabled ? te.korEnabled : te.korDisabled}
             onClick={(ev) => ev.stopPropagation()}
           >

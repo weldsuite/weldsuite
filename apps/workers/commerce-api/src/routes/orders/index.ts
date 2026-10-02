@@ -12,45 +12,58 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createOrderSchema, updateOrderSchema } from '@weldsuite/core-api-client/schemas/orders';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { BASE36_UPPER, randomString } from '@weldsuite/worker-kit/random';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.orders;
 
+/** WHERE conditions for the list endpoint's query-string filters (no cursor). */
+function buildListFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  const equalityFilters: Array<[string | undefined, AnyPgColumn]> = [
+    [q.customerId, t.customerId],
+    [q.status, t.status],
+    [q.fulfillmentStatus, t.fulfillmentStatus],
+  ];
+  for (const [value, column] of equalityFilters) {
+    if (value) conditions.push(eq(column, value));
+  }
+  if (q.search) {
+    conditions.push(like(t.orderNumber, `%${q.search}%`));
+  }
+  return conditions;
+}
+
+/** Keyset condition that resumes after the row identified by `cursorId`, if it exists. */
+async function buildCursorCondition(
+  db: Variables['tenantDb'],
+  cursorId: string,
+): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('orders:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.customerId !== undefined && q.customerId !== '') conditions.push(eq(t.customerId, q.customerId));
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
-  if (q.fulfillmentStatus !== undefined && q.fulfillmentStatus !== '') {
-    conditions.push(eq(t.fulfillmentStatus, q.fulfillmentStatus));
-  }
-  if (q.search) {
-    conditions.push(like(t.orderNumber, `%${q.search}%`));
-  }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const filterConditions = buildListFilters(q);
+  const cursorCondition = q.cursor ? await buildCursorCondition(db, q.cursor) : undefined;
+  const where = and(...filterConditions, cursorCondition);
+  const countWhere = and(...filterConditions);
 
   try {
     const [rows, countRes] = await Promise.all([
@@ -120,7 +133,7 @@ app.post('/', requirePermission('orders:create'), zValidator('json', createOrder
   const orderNumber =
     typeof data.orderNumber === 'string' && data.orderNumber.length > 0
       ? data.orderNumber
-      : `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      : `ORD-${Date.now().toString(36).toUpperCase()}-${randomString(4, BASE36_UPPER)}`;
   try {
     await db
       .insert(t)

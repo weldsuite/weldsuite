@@ -57,6 +57,12 @@ function stopLocalMediaTracks(meeting: ReturnType<typeof useRealtimeKitClient>[0
   stop(() => self?.screenShareTracks?.audio);
 }
 
+function getConnectingLabel(session: CallSession): string {
+  if (!session.isDirect) return 'Connecting…';
+  const peerSuffix = session.peerName ? ` ${session.peerName}` : '';
+  return `Calling${peerSuffix}…`;
+}
+
 function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
@@ -281,9 +287,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
           <View style={[styles.connecting, { backgroundColor: colors.background }]}>
             <ActivityIndicator size="large" color={BRAND} />
             <Text style={[styles.connectingText, { color: colors.text }]}>
-              {session.isDirect
-                ? `Calling${session.peerName ? ` ${session.peerName}` : ''}…`
-                : 'Connecting…'}
+              {getConnectingLabel(session)}
             </Text>
           </View>
         )}

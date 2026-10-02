@@ -60,6 +60,123 @@ interface SetupAddAccountProps {
   disabled?: boolean;
 }
 
+type MailTranslations = ReturnType<typeof useI18n>['t'];
+
+function LoadingRow() {
+  return (
+    <div className="flex items-center justify-center gap-2 py-8">
+      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      <span className="text-sm text-muted-foreground">Loading...</span>
+    </div>
+  );
+}
+
+function NoActiveDomains({
+  loading,
+  installed,
+  t,
+}: Readonly<{ loading: boolean; installed: boolean; t: MailTranslations }>) {
+  if (loading) return <LoadingRow />;
+  if (!installed) {
+    return (
+      <div className="space-y-3">
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            <div className="space-y-1">
+              <p className="font-medium text-foreground">
+                {t.mail.addAccount.weldHostRequired}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {t.mail.addAccount.weldHostRequiredDescription}
+              </p>
+            </div>
+          </AlertDescription>
+        </Alert>
+        <Button
+          type="button"
+          className="w-full"
+          onClick={() => window.location.href = '/appstore/weldhost'}
+        >
+          {t.mail.addAccount.installWeldHost}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        {t.mail.addAccount.noActiveDomainsYet}
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
+        onClick={() => window.location.href = '/weldhost/domains/external'}
+      >
+        <Bolt className="size-7 text-gray-500" />
+        <div className="flex flex-col items-start">
+          <span className="font-medium">{t.mail.addAccount.addExistingDomain}</span>
+          <span className="text-xs text-muted-foreground">{t.mail.addAccount.addExistingDomainDescription}</span>
+        </div>
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
+        onClick={() => window.location.href = '/weldhost/domains/register'}
+      >
+        <img src="/assets/images/weldhost/logo-light.png" alt="WeldHost" className="size-7 dark:hidden" />
+        <img src="/assets/images/weldhost/logo-dark.png" alt="WeldHost" className="size-7 hidden dark:block" />
+        <div className="flex flex-col items-start">
+          <span className="font-medium">{t.mail.addAccount.buyNewDomain}</span>
+          <span className="text-xs text-muted-foreground">{t.mail.addAccount.buyNewDomainDescription}</span>
+        </div>
+      </Button>
+    </div>
+  );
+}
+
+function AvailabilityIndicator({
+  checking,
+  result,
+  t,
+}: Readonly<{
+  checking: boolean;
+  result: { available: boolean; message?: string } | null;
+  t: MailTranslations;
+}>) {
+  if (checking) {
+    return (
+      <>
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+        <span className="text-muted-foreground">{t.mail.addAccount.checkingAvailability}</span>
+      </>
+    );
+  }
+  if (!result) return null;
+  if (result.available) {
+    return (
+      <>
+        <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+        <span className="text-green-600">{t.mail.addAccount.addressAvailable}</span>
+      </>
+    );
+  }
+  return (
+    <>
+      <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+      <span className="text-red-600">{result.message || t.mail.addAccount.addressNotAvailable}</span>
+    </>
+  );
+}
+
+function getDialogTitle(accountType: AccountType, t: MailTranslations): string {
+  if (accountType === 'select') return t.mail.addAccount.addEmailAccount;
+  if (accountType === 'resend') return t.mail.addAccount.createNewEmail;
+  return t.mail.addAccount.createWeldMailAddress;
+}
+
 export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly<SetupAddAccountProps>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -257,11 +374,7 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
                 <ChevronLeft className="h-4 w-4" />
               </Button>
             )}
-            {accountType === 'select'
-              ? t.mail.addAccount.addEmailAccount
-              : accountType === 'resend'
-                ? t.mail.addAccount.createNewEmail
-                : t.mail.addAccount.createWeldMailAddress}
+            {getDialogTitle(accountType, t)}
           </DialogTitle>
         </DialogHeader>
 
@@ -338,31 +451,11 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
 
               {weldmailAddress.length >= 3 && (
                 <div className="flex items-center gap-2 text-sm">
-                  {checkingAvailability ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                      <span className="text-muted-foreground">
-                        {t.mail.addAccount.checkingAvailability}
-                      </span>
-                    </>
-                  ) : availabilityResult ? (
-                    availabilityResult.available ? (
-                      <>
-                        <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                        <span className="text-green-600">
-                          {t.mail.addAccount.addressAvailable}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="h-3.5 w-3.5 text-red-500" />
-                        <span className="text-red-600">
-                          {availabilityResult.message ||
-                            t.mail.addAccount.addressNotAvailable}
-                        </span>
-                      </>
-                    )
-                  ) : null}
+                  <AvailabilityIndicator
+                    checking={checkingAvailability}
+                    result={availabilityResult}
+                    t={t}
+                  />
                 </div>
               )}
 
@@ -430,73 +523,11 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
         {/* Custom Domain Form */}
         {accountType === 'resend' && (
           <form onSubmit={handleCustomDomainSubmit} className="space-y-4">
-            {loadingDomains ? (
-              <div className="flex items-center justify-center gap-2 py-8">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Loading...</span>
-              </div>
-            ) : availableDomains.length === 0 ? (
-              weldhostLoading ? (
-                <div className="flex items-center justify-center gap-2 py-8">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Loading...</span>
-                </div>
-              ) : !weldhostInstalled ? (
-                <div className="space-y-3">
-                  <Alert>
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      <div className="space-y-1">
-                        <p className="font-medium text-foreground">
-                          {t.mail.addAccount.weldHostRequired}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {t.mail.addAccount.weldHostRequiredDescription}
-                        </p>
-                      </div>
-                    </AlertDescription>
-                  </Alert>
-                  <Button
-                    type="button"
-                    className="w-full"
-                    onClick={() => window.location.href = '/appstore/weldhost'}
-                  >
-                    {t.mail.addAccount.installWeldHost}
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    {t.mail.addAccount.noActiveDomainsYet}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-                    onClick={() => window.location.href = '/weldhost/domains/external'}
-                  >
-                    <Bolt className="size-7 text-gray-500" />
-                    <div className="flex flex-col items-start">
-                      <span className="font-medium">{t.mail.addAccount.addExistingDomain}</span>
-                      <span className="text-xs text-muted-foreground">{t.mail.addAccount.addExistingDomainDescription}</span>
-                    </div>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-                    onClick={() => window.location.href = '/weldhost/domains/register'}
-                  >
-                    <img src="/assets/images/weldhost/logo-light.png" alt="WeldHost" className="size-7 dark:hidden" />
-                    <img src="/assets/images/weldhost/logo-dark.png" alt="WeldHost" className="size-7 hidden dark:block" />
-                    <div className="flex flex-col items-start">
-                      <span className="font-medium">{t.mail.addAccount.buyNewDomain}</span>
-                      <span className="text-xs text-muted-foreground">{t.mail.addAccount.buyNewDomainDescription}</span>
-                    </div>
-                  </Button>
-                </div>
-              )
-            ) : (
+            {loadingDomains && <LoadingRow />}
+            {!loadingDomains && availableDomains.length === 0 && (
+              <NoActiveDomains loading={weldhostLoading} installed={weldhostInstalled} t={t} />
+            )}
+            {!loadingDomains && availableDomains.length > 0 && (
               <>
                 <div className="space-y-2">
                   <Label htmlFor="domain">{t.mail.addAccount.selectDomain}</Label>

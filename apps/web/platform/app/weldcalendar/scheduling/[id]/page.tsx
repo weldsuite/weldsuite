@@ -29,6 +29,95 @@ import { LOCATION_TYPE_OPTIONS } from '../../types';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 
+type BookingFormError = 'errorAddressRequired' | 'errorSlugEmpty';
+
+interface CustomField {
+  id: string;
+  label: string;
+  required: boolean;
+}
+
+const createCustomField = (label: string, required: boolean): CustomField => ({
+  id: crypto.randomUUID(),
+  label,
+  required,
+});
+
+const sanitizeSlug = (raw: string) =>
+  raw
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 100);
+
+const isSameValue = (current: string, stored: string | undefined, fallback = '') =>
+  current === (stored || fallback);
+
+/** Returns the i18n key of the first validation error, or null when the form can be saved. */
+function getBookingFormError(locationType: string, locationValue: string, slug: string): BookingFormError | null {
+  if (locationType === 'in-person' && !locationValue.trim()) return 'errorAddressRequired';
+  if (!sanitizeSlug(slug)) return 'errorSlugEmpty';
+  return null;
+}
+
+function readSessionJson<T>(key: string, fallback: T): T {
+  const raw = sessionStorage.getItem(key);
+  return raw ? JSON.parse(raw) : fallback;
+}
+
+function loadDraftStub(): Partial<BookingPage> {
+  try {
+    return JSON.parse(sessionStorage.getItem('booking-new-draft') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+// Treat a stored 'UTC' as "never explicitly set" — old records were created
+// before the editor sent a timezone and defaulted to UTC server-side, which
+// makes the booking-portal mis-interpret wall-clock hours.
+const resolveTimezone = (stored: string | undefined, browserTz: string) =>
+  stored && stored !== 'UTC' ? stored : browserTz;
+
+function listTimezones(browserTz: string): string[] {
+  try {
+    return (Intl as unknown as { supportedValuesOf: (key: string) => string[] }).supportedValuesOf('timeZone');
+  } catch {
+    return ['UTC', browserTz];
+  }
+}
+
+const LOCATION_LABEL_KEYS = {
+  video: 'locationWeldMeet',
+  phone: 'locationPhoneCall',
+  'in-person': 'locationInPerson',
+} as const;
+
+const canSaveBookingForm = (locationType: string, locationValue: string, slug: string) =>
+  !(locationType === 'in-person' && !locationValue.trim()) && slug.trim().length > 0;
+
+const getBrowserTimezone = () =>
+  typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
+
+interface SubmitLabelState {
+  isDraft: boolean;
+  isCreating: boolean;
+  isSaving: boolean;
+}
+
+function getSubmitLabelKey({ isDraft, isCreating, isSaving }: SubmitLabelState) {
+  if (isDraft) return isCreating ? 'creating' : 'create';
+  return isSaving ? 'saving' : 'save';
+}
+
+function formatDuration(m: number) {
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r > 0 ? `${h}h ${r}m` : `${h}h`;
+}
+
 export default function BookingPageDetailPage() {
   const { id } = useParams<{ id: string }>();
   const isDraft = id === '__draft__';
@@ -43,11 +132,7 @@ export default function BookingPageDetailPage() {
   // In draft mode the booking page doesn't exist yet — synthesise a stub from
   // the sessionStorage payload the editor's Continue button wrote so the
   // preview / hasUnsavedChanges / etc. don't crash on `bookingPage.X`.
-  const [draftStub] = useState<Partial<BookingPage> | null>(() => {
-    if (id !== '__draft__') return null;
-    try { return JSON.parse(sessionStorage.getItem('booking-new-draft') || '{}'); }
-    catch { return {}; }
-  });
+  const [draftStub] = useState<Partial<BookingPage> | null>(() => (id === '__draft__' ? loadDraftStub() : null));
   const bookingPage = data?.data ?? draftStub;
   const orgSlug = organization?.slug || organization?.id || '';
   const bookingPortalUrl = import.meta.env.VITE_BOOKING_PORTAL_URL || window.location.origin;
@@ -58,22 +143,16 @@ export default function BookingPageDetailPage() {
 
   const hasUnsavedChanges = () => {
     if (!bookingPage) return false;
-    return name !== (bookingPage.name || '') ||
-      slug !== (bookingPage.slug || '') ||
-      description !== (bookingPage.description || '') ||
-      locationType !== (bookingPage.locationType || '') ||
-      locationValue !== (bookingPage.locationValue || '') ||
-      confirmationMessage !== (bookingPage.confirmationMessage || '') ||
-      timezone !== (bookingPage.timezone || browserTz);
+    return !(
+      isSameValue(name, bookingPage.name) &&
+      isSameValue(slug, bookingPage.slug) &&
+      isSameValue(description, bookingPage.description) &&
+      isSameValue(locationType, bookingPage.locationType) &&
+      isSameValue(locationValue, bookingPage.locationValue) &&
+      isSameValue(confirmationMessage, bookingPage.confirmationMessage) &&
+      isSameValue(timezone, bookingPage.timezone, browserTz)
+    );
   };
-
-  const sanitizeSlug = (raw: string) =>
-    raw
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 100);
 
   const handleNavigateBack = () => {
     if (isDraft) {
@@ -99,25 +178,20 @@ export default function BookingPageDetailPage() {
   const [locationValue, setLocationValue] = useState('');
   const [confirmationMessage, setConfirmationMessage] = useState('');
   const [calendarInvite, setCalendarInvite] = useState(true);
-  const [customFields, setCustomFields] = useState<{ label: string; required: boolean }[]>([]);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [allowGuests, setAllowGuests] = useState(true);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [addItemType, setAddItemType] = useState<'select' | 'phone' | 'custom'>('select');
   const [newItemLabel, setNewItemLabel] = useState('');
   const [newItemRequired, setNewItemRequired] = useState(false);
   const hasPhoneField = customFields.some((f) => f.label === 'Phone number');
-  const browserTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
+  const browserTz = getBrowserTimezone();
   const [timezone, setTimezone] = useState(browserTz);
   const [tzOpen, setTzOpen] = useState(false);
   const [tzSearch, setTzSearch] = useState('');
+  const tzSearchInputRef = useRef<HTMLInputElement>(null);
 
-  const allTimezones: string[] = (() => {
-    try {
-      return (Intl as unknown as { supportedValuesOf: (key: string) => string[] }).supportedValuesOf('timeZone');
-    } catch {
-      return ['UTC', browserTz];
-    }
-  })();
+  const allTimezones = listTimezones(browserTz);
 
   const setDraftTitle = useSetAtom(draftBookingPageTitleAtom);
 
@@ -144,7 +218,7 @@ export default function BookingPageDetailPage() {
         setName(draft.name || '');
         setSlug(draft.slug || '');
         setSlugTouched(false);
-        setTimezone(draft.timezone && draft.timezone !== 'UTC' ? draft.timezone : browserTz);
+        setTimezone(resolveTimezone(draft.timezone, browserTz));
       } catch {
         // corrupt draft — ignore, fall back to empty form
       }
@@ -152,8 +226,7 @@ export default function BookingPageDetailPage() {
     }
     if (bookingPage) {
       // Check for pending changes from the first page
-      const pendingRaw = sessionStorage.getItem(`booking-edit-${id}`);
-      const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+      const pending = readSessionJson<{ name?: string } | null>(`booking-edit-${id}`, null);
 
       setName(pending?.name || bookingPage.name || '');
       setSlug(bookingPage.slug || '');
@@ -162,25 +235,18 @@ export default function BookingPageDetailPage() {
       setLocationType(bookingPage.locationType || '');
       setLocationValue(bookingPage.locationValue || '');
       setConfirmationMessage(bookingPage.confirmationMessage || '');
-      // Treat a stored 'UTC' as "never explicitly set" — old records were
-      // created before the editor sent a timezone and defaulted to UTC server-
-      // side, which makes the booking-portal mis-interpret wall-clock hours.
-      const storedTz = bookingPage.timezone;
-      setTimezone(storedTz && storedTz !== 'UTC' ? storedTz : browserTz);
+      setTimezone(resolveTimezone(bookingPage.timezone, browserTz));
     }
   }, [bookingPage, id, isDraft, browserTz]);
 
-  const canSave =
-    !(locationType === 'in-person' && !locationValue.trim()) &&
-    slug.trim().length > 0;
+  const canSave = canSaveBookingForm(locationType, locationValue, slug);
 
   // Create the draft booking page via API without navigating. Used by both
   // the explicit "Create" button (then navigates to /view) and the blocker's
   // "Save and leave" (then proceeds with the blocked navigation).
   const persistDraftCreate = async (): Promise<{ newId: string | null }> => {
     const cleanSlug = sanitizeSlug(slug);
-    const draftRaw = sessionStorage.getItem('booking-new-draft');
-    const draft = draftRaw ? JSON.parse(draftRaw) : {};
+    const draft = readSessionJson<Partial<BookingPage>>('booking-new-draft', {});
     const result = await createBookingPage.mutateAsync({
       ...draft,
       name,
@@ -198,15 +264,12 @@ export default function BookingPageDetailPage() {
 
   const handleSave = async () => {
     if (!id) return;
-    if (locationType === 'in-person' && !locationValue.trim()) {
-      toast.error(tc.bookingDetail.errorAddressRequired);
+    const formError = getBookingFormError(locationType, locationValue, slug);
+    if (formError) {
+      toast.error(tc.bookingDetail[formError]);
       return;
     }
     const cleanSlug = sanitizeSlug(slug);
-    if (!cleanSlug) {
-      toast.error(tc.bookingDetail.errorSlugEmpty);
-      return;
-    }
 
     if (isDraft) {
       const { newId } = await persistDraftCreate();
@@ -221,8 +284,7 @@ export default function BookingPageDetailPage() {
     }
 
     // Merge any pending changes from the first page (availability, duration, etc.)
-    const pendingRaw = sessionStorage.getItem(`booking-edit-${id}`);
-    const pending = pendingRaw ? JSON.parse(pendingRaw) : {};
+    const pending = readSessionJson<Partial<BookingPage>>(`booking-edit-${id}`, {});
 
     await updateBookingPage.mutateAsync({
       id,
@@ -255,13 +317,9 @@ export default function BookingPageDetailPage() {
 
   const handleSaveAndProceed = async () => {
     if (!isDraft) return;
-    if (locationType === 'in-person' && !locationValue.trim()) {
-      toast.error(tc.bookingDetail.errorAddressRequired);
-      return;
-    }
-    const cleanSlug = sanitizeSlug(slug);
-    if (!cleanSlug) {
-      toast.error(tc.bookingDetail.errorSlugEmpty);
+    const formError = getBookingFormError(locationType, locationValue, slug);
+    if (formError) {
+      toast.error(tc.bookingDetail[formError]);
       return;
     }
     try {
@@ -279,12 +337,8 @@ export default function BookingPageDetailPage() {
     proceed?.();
   };
 
-  const formatDuration = (m: number) => { if (m < 60) return `${m}m`; const h = Math.floor(m / 60); const r = m % 60; return r > 0 ? `${h}h ${r}m` : `${h}h`; };
-
-  const locationLabel = locationType === 'video' ? tc.bookingDetail.locationWeldMeet
-    : locationType === 'phone' ? tc.bookingDetail.locationPhoneCall
-    : locationType === 'in-person' ? tc.bookingDetail.locationInPerson
-    : '';
+  const locationLabelKey = LOCATION_LABEL_KEYS[locationType as keyof typeof LOCATION_LABEL_KEYS];
+  const locationLabel = locationLabelKey ? tc.bookingDetail[locationLabelKey] : '';
 
   if (!isDraft && isLoading) return <div className="flex items-center justify-center py-12 text-muted-foreground">{tc.bookingDetail.loadingBookingPage}</div>;
   // In draft mode `bookingPage` is always the (possibly empty) draftStub object, never null.
@@ -380,15 +434,23 @@ export default function BookingPageDetailPage() {
                       <span>{timezone}</span>
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-64 p-0" align="start" side="bottom">
+                  <PopoverContent
+                    className="w-64 p-0"
+                    align="start"
+                    side="bottom"
+                    onOpenAutoFocus={(e) => {
+                      e.preventDefault();
+                      tzSearchInputRef.current?.focus();
+                    }}
+                  >
                     <div className="border-b border-gray-200 dark:border-border">
                       <input
+                        ref={tzSearchInputRef}
                         type="text"
                         placeholder={tc.bookingDetail.searchTimezonePlaceholder}
                         value={tzSearch}
                         onChange={(e) => setTzSearch(e.target.value)}
                         className="w-full px-3 py-2 text-sm outline-none bg-transparent"
-                        autoFocus
                       />
                     </div>
                     <div className="max-h-60 overflow-y-auto p-1">
@@ -432,8 +494,8 @@ export default function BookingPageDetailPage() {
               </div>
 
               {/* Custom fields */}
-              {customFields.map((field, i) => (
-                <div key={i} className="space-y-2">
+              {customFields.map((field) => (
+                <div key={field.id} className="space-y-2">
                   <Label className="text-sm font-semibold">
                     {field.label} {field.required && <span className="text-destructive">*</span>}
                   </Label>
@@ -631,12 +693,12 @@ export default function BookingPageDetailPage() {
                 <span className="inline-flex items-center px-3 py-1.5 text-sm border rounded-md bg-muted/30">
                   {tc.bookingDetail.fieldEmail}<span className="text-destructive ml-0.5">*</span>
                 </span>
-                {customFields.map((field, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md bg-muted/30">
+                {customFields.map((field) => (
+                  <span key={field.id} className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md bg-muted/30">
                     {field.label}{field.required && <span className="text-destructive">*</span>}
                     <Button
                       variant="ghost"
-                      onClick={() => setCustomFields((prev) => prev.filter((_, idx) => idx !== i))}
+                      onClick={() => setCustomFields((prev) => prev.filter((f) => f.id !== field.id))}
                       className="ml-1 text-muted-foreground hover:text-destructive transition-colors h-auto p-0"
                     >
                       <X className="h-3 w-3" />
@@ -694,7 +756,7 @@ export default function BookingPageDetailPage() {
                           autoFocus
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && newItemLabel.trim()) {
-                              setCustomFields((prev) => [...prev, { label: newItemLabel.trim(), required: newItemRequired }]);
+                              setCustomFields((prev) => [...prev, createCustomField(newItemLabel.trim(), newItemRequired)]);
                               setNewItemLabel('');
                               setNewItemRequired(false);
                               setAddItemOpen(false);
@@ -721,9 +783,9 @@ export default function BookingPageDetailPage() {
                       disabled={addItemType === 'custom' && !newItemLabel.trim()}
                       onClick={() => {
                         if (addItemType === 'custom') {
-                          setCustomFields((prev) => [...prev, { label: newItemLabel.trim(), required: newItemRequired }]);
+                          setCustomFields((prev) => [...prev, createCustomField(newItemLabel.trim(), newItemRequired)]);
                         } else {
-                          setCustomFields((prev) => [...prev, { label: 'Phone number', required: true }]);
+                          setCustomFields((prev) => [...prev, createCustomField('Phone number', true)]);
                         }
                         setNewItemLabel('');
                         setNewItemRequired(false);
@@ -769,9 +831,11 @@ export default function BookingPageDetailPage() {
         <div className="border-t px-5 py-3 flex items-center justify-between shrink-0">
           <Button variant="outline" onClick={handleNavigateBack}>{tc.bookingDetail.back}</Button>
           <Button onClick={handleSave} disabled={updateBookingPage.isPending || createBookingPage.isPending || !canSave}>
-            {isDraft
-              ? (createBookingPage.isPending ? tc.bookingDetail.creating : tc.bookingDetail.create)
-              : (updateBookingPage.isPending ? tc.bookingDetail.saving : tc.bookingDetail.save)}
+            {tc.bookingDetail[getSubmitLabelKey({
+              isDraft,
+              isCreating: createBookingPage.isPending,
+              isSaving: updateBookingPage.isPending,
+            })]}
           </Button>
         </div>
       </div>

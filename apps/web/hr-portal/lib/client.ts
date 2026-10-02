@@ -12,8 +12,9 @@ import { clearPortalCache, invalidatePortal } from './query-client';
 export { PortalApiError, type ApiErrorBody };
 
 function buildUrl(slug: string, path: string, query?: Record<string, string | undefined>): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const url = new URL(
-    `/api/portal${path.startsWith('/') ? path : `/${path}`}`,
+    `/api/portal${normalizedPath}`,
     typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
   );
   url.searchParams.set('slug', slug);

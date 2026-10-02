@@ -436,6 +436,97 @@ export interface LoginScreenProps {
 
 type AuthMode = 'signin' | 'forgot' | 'reset';
 
+type MfaStrategy = 'totp' | 'phone_code' | 'backup_code';
+interface MfaState {
+  strategy: MfaStrategy;
+  phoneNumberId?: string;
+  safeIdentifier?: string;
+  supported: MfaStrategy[];
+}
+
+function resolvePageTitle(mfa: MfaState | null, mode: AuthMode, labels: LoginScreenCopy): string {
+  if (mfa) return labels.twoStepTitle;
+  if (mode === 'forgot') return labels.forgotTitle;
+  if (mode === 'reset') return labels.resetTitle;
+  return labels.signInTitle;
+}
+
+function resolveMfaSubtitle(mfa: MfaState, labels: LoginScreenCopy): string {
+  if (mfa.strategy === 'totp') return labels.totpHint;
+  if (mfa.strategy === 'phone_code') {
+    return labels.phoneHint.replace('{phone}', mfa.safeIdentifier || labels.phoneFallback);
+  }
+  return labels.backupHint;
+}
+
+function resolvePageSubtitle(mfa: MfaState | null, mode: AuthMode, labels: LoginScreenCopy): string {
+  if (mfa) return resolveMfaSubtitle(mfa, labels);
+  if (mode === 'forgot') return labels.forgotSubtitle;
+  if (mode === 'reset') return labels.resetSubtitle;
+  return labels.subtitle;
+}
+
+function mfaSwitchLabel(strategy: MfaStrategy, labels: LoginScreenCopy): string {
+  if (strategy === 'totp') return labels.useAuthenticator;
+  if (strategy === 'phone_code') return labels.sendSms;
+  return labels.useBackup;
+}
+
+interface LoginLogoProps {
+  logoElement?: ReactNode;
+  logo?: ImageSourcePropType;
+  appName: string;
+  iconW: number;
+  iconH: number;
+  accentColor: string;
+  colors: ThemeColors;
+}
+
+function LoginLogo({ logoElement, logo, appName, iconW, iconH, accentColor, colors }: LoginLogoProps) {
+  if (logoElement) return <View style={styles.logoElement}>{logoElement}</View>;
+  if (logo) {
+    return (
+      <View style={[styles.brandTile, { backgroundColor: tint(accentColor, colors.secondary) }]}>
+        <Image source={logo} style={{ width: iconW, height: iconH }} resizeMode="contain" />
+      </View>
+    );
+  }
+  return <Text style={[styles.appNameTitle, { color: colors.text }]}>{appName}</Text>;
+}
+
+function FormErrorBox({ message, colors }: { message: string | null; colors: ThemeColors }) {
+  if (!message) return null;
+  return (
+    <View style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
+      <Text style={[styles.formErrorText, { color: colors.destructive }]}>{message}</Text>
+    </View>
+  );
+}
+
+interface SubmitButtonProps {
+  accentColor: string;
+  loading: boolean;
+  onPress: () => void;
+  label: string;
+}
+
+function SubmitButton({ accentColor, loading, onPress, label }: SubmitButtonProps) {
+  return (
+    <TouchableOpacity
+      style={[styles.signInButton, { backgroundColor: accentColor }, loading && styles.buttonDisabled]}
+      onPress={onPress}
+      activeOpacity={0.8}
+      disabled={loading}
+    >
+      {loading ? (
+        <ActivityIndicator color={ACCENT_FOREGROUND} />
+      ) : (
+        <Text style={[styles.signInButtonText, { color: ACCENT_FOREGROUND }]}>{label}</Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
 function validateNewPassword(pwd: string): boolean {
   return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /[0-9]/.test(pwd);
 }
@@ -486,13 +577,6 @@ export function LoginScreen({
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
-  type MfaStrategy = 'totp' | 'phone_code' | 'backup_code';
-  interface MfaState {
-    strategy: MfaStrategy;
-    phoneNumberId?: string;
-    safeIdentifier?: string;
-    supported: MfaStrategy[];
-  }
   const [mfa, setMfa] = useState<MfaState | null>(null);
   const [mfaCode, setMfaCode] = useState('');
   const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
@@ -749,25 +833,8 @@ export function LoginScreen({
   const iconW = logoSize?.width ?? 40;
   const iconH = logoSize?.height ?? 40;
 
-  const pageTitle = mfa
-    ? labels.twoStepTitle
-    : mode === 'forgot'
-      ? labels.forgotTitle
-      : mode === 'reset'
-        ? labels.resetTitle
-        : labels.signInTitle;
-
-  const pageSubtitle = mfa
-    ? mfa.strategy === 'totp'
-      ? labels.totpHint
-      : mfa.strategy === 'phone_code'
-        ? labels.phoneHint.replace('{phone}', mfa.safeIdentifier || labels.phoneFallback)
-        : labels.backupHint
-    : mode === 'forgot'
-      ? labels.forgotSubtitle
-      : mode === 'reset'
-        ? labels.resetSubtitle
-        : labels.subtitle;
+  const pageTitle = resolvePageTitle(mfa, mode, labels);
+  const pageSubtitle = resolvePageSubtitle(mfa, mode, labels);
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: colors.background }]}>
@@ -781,21 +848,15 @@ export function LoginScreen({
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.content}>
-            {logoElement ? (
-              <View style={styles.logoElement}>{logoElement}</View>
-            ) : logo ? (
-              <View style={[styles.brandTile, { backgroundColor: tint(accentColor, colors.secondary) }]}>
-                <Image
-                  source={logo}
-                  style={{ width: iconW, height: iconH }}
-                  resizeMode="contain"
-                />
-              </View>
-            ) : (
-              <Text style={[styles.appNameTitle, { color: colors.text }]}>
-                {appName}
-              </Text>
-            )}
+            <LoginLogo
+              logoElement={logoElement}
+              logo={logo}
+              appName={appName}
+              iconW={iconW}
+              iconH={iconH}
+              accentColor={accentColor}
+              colors={colors}
+            />
 
             <View style={styles.welcomeSection}>
               <Text style={[styles.pageTitle, { color: colors.text }]}>{pageTitle}</Text>
@@ -825,30 +886,9 @@ export function LoginScreen({
                   />
                 </View>
 
-                {formError && (
-                  <View style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
-                    <Text style={[styles.formErrorText, { color: colors.destructive }]}>{formError}</Text>
-                  </View>
-                )}
+                <FormErrorBox message={formError} colors={colors} />
 
-                <TouchableOpacity
-                  style={[
-                    styles.signInButton,
-                    { backgroundColor: accentColor },
-                    isVerifyingMfa && styles.buttonDisabled,
-                  ]}
-                  onPress={onVerifyMfa}
-                  activeOpacity={0.8}
-                  disabled={isVerifyingMfa}
-                >
-                  {isVerifyingMfa ? (
-                    <ActivityIndicator color={ACCENT_FOREGROUND} />
-                  ) : (
-                    <Text style={[styles.signInButtonText, { color: ACCENT_FOREGROUND }]}>
-                      {labels.verify}
-                    </Text>
-                  )}
-                </TouchableOpacity>
+                <SubmitButton accentColor={accentColor} loading={isVerifyingMfa} onPress={onVerifyMfa} label={labels.verify} />
 
                 <View style={styles.mfaSwitcher}>
                   {mfa.supported.filter((s) => s !== mfa.strategy).map((s) => (
@@ -859,9 +899,7 @@ export function LoginScreen({
                       activeOpacity={0.7}
                     >
                       <Text style={[styles.mfaSwitchText, { color: accentColor }]}>
-                        {s === 'totp' && labels.useAuthenticator}
-                        {s === 'phone_code' && labels.sendSms}
-                        {s === 'backup_code' && labels.useBackup}
+                        {mfaSwitchLabel(s, labels)}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -896,30 +934,9 @@ export function LoginScreen({
                   />
                 </View>
 
-                {formError && (
-                  <View style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
-                    <Text style={[styles.formErrorText, { color: colors.destructive }]}>{formError}</Text>
-                  </View>
-                )}
+                <FormErrorBox message={formError} colors={colors} />
 
-                <TouchableOpacity
-                  style={[
-                    styles.signInButton,
-                    { backgroundColor: accentColor },
-                    isSendingReset && styles.buttonDisabled,
-                  ]}
-                  onPress={onSendResetCode}
-                  activeOpacity={0.8}
-                  disabled={isSendingReset}
-                >
-                  {isSendingReset ? (
-                    <ActivityIndicator color={ACCENT_FOREGROUND} />
-                  ) : (
-                    <Text style={[styles.signInButtonText, { color: ACCENT_FOREGROUND }]}>
-                      {labels.sendResetCode}
-                    </Text>
-                  )}
-                </TouchableOpacity>
+                <SubmitButton accentColor={accentColor} loading={isSendingReset} onPress={onSendResetCode} label={labels.sendResetCode} />
 
                 <View style={styles.mfaSwitcher}>
                   <TouchableOpacity onPress={backToSignIn} disabled={isSendingReset} activeOpacity={0.7}>
@@ -1000,30 +1017,9 @@ export function LoginScreen({
                   />
                 </View>
 
-                {formError && (
-                  <View style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
-                    <Text style={[styles.formErrorText, { color: colors.destructive }]}>{formError}</Text>
-                  </View>
-                )}
+                <FormErrorBox message={formError} colors={colors} />
 
-                <TouchableOpacity
-                  style={[
-                    styles.signInButton,
-                    { backgroundColor: accentColor },
-                    isResetting && styles.buttonDisabled,
-                  ]}
-                  onPress={onResetPassword}
-                  activeOpacity={0.8}
-                  disabled={isResetting}
-                >
-                  {isResetting ? (
-                    <ActivityIndicator color={ACCENT_FOREGROUND} />
-                  ) : (
-                    <Text style={[styles.signInButtonText, { color: ACCENT_FOREGROUND }]}>
-                      {labels.resetPassword}
-                    </Text>
-                  )}
-                </TouchableOpacity>
+                <SubmitButton accentColor={accentColor} loading={isResetting} onPress={onResetPassword} label={labels.resetPassword} />
 
                 <View style={styles.mfaSwitcher}>
                   <TouchableOpacity
@@ -1105,33 +1101,10 @@ export function LoginScreen({
                 </>
               )}
 
-              {formError && (
-                <View style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
-                  <Text style={[styles.formErrorText, { color: colors.destructive }]}>
-                    {formError}
-                  </Text>
-                </View>
-              )}
+              <FormErrorBox message={formError} colors={colors} />
 
               {showEmailLogin && (
-                <TouchableOpacity
-                  style={[
-                    styles.signInButton,
-                    { backgroundColor: accentColor },
-                    isValidating && styles.buttonDisabled,
-                  ]}
-                  onPress={onSignIn}
-                  activeOpacity={0.8}
-                  disabled={isValidating}
-                >
-                  {isValidating ? (
-                    <ActivityIndicator color={ACCENT_FOREGROUND} />
-                  ) : (
-                    <Text style={[styles.signInButtonText, { color: ACCENT_FOREGROUND }]}>
-                      {labels.signIn}
-                    </Text>
-                  )}
-                </TouchableOpacity>
+                <SubmitButton accentColor={accentColor} loading={isValidating} onPress={onSignIn} label={labels.signIn} />
               )}
 
               {showEmailLogin && ((showGoogleLogin && isNativePlatform) || (showAppleLogin && isAppleDevice)) && (

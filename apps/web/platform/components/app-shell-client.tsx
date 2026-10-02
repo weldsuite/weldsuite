@@ -80,6 +80,37 @@ function reloadIntoNewOrg() {
   window.location.href = '/';
 }
 
+/**
+ * `?embedded=1` (or the persisted `window.name` flag) marks a page iframed
+ * inside another panel. Persist the flag in `window.name` (scoped per browsing
+ * context — survives in-iframe navigation but doesn't leak to the parent tab)
+ * so clicking project tabs inside the iframe (which loses the query string)
+ * keeps the embedded mode active.
+ */
+function detectEmbeddedRoute(): boolean {
+  if (typeof window === 'undefined') return false;
+  const hasEmbeddedParam = new URLSearchParams(window.location.search).get('embedded') === '1';
+  const isEmbedded = hasEmbeddedParam || window.name === 'weldsuite-embedded';
+  if (hasEmbeddedParam && window.name !== 'weldsuite-embedded') {
+    window.name = 'weldsuite-embedded';
+  }
+  return isEmbedded;
+}
+
+/** Routes rendered without PlatformShell (no sidebar). */
+function isMinimalPath(pathname: string): boolean {
+  return (
+    pathname.startsWith('/preview') ||
+    /^\/builder\/[^/]+$/.test(pathname) ||
+    pathname === '/welcome' ||
+    pathname.startsWith('/auth/') ||
+    pathname === '/onboarding' ||
+    pathname === '/invite' ||
+    pathname.startsWith('/invite/') ||
+    pathname === '/call-room'
+  );
+}
+
 interface AppShellClientProps {
   children: React.ReactNode;
 }
@@ -145,29 +176,10 @@ export function AppShellClient({ children }: AppShellClientProps) {
   // survives in-iframe navigation but doesn't leak to the parent tab) so
   // clicking project tabs inside the iframe (which loses the query string)
   // keeps the embedded mode active.
-  const isEmbeddedRoute =
-    typeof window !== 'undefined' &&
-    (new URLSearchParams(window.location.search).get('embedded') === '1' ||
-      window.name === 'weldsuite-embedded');
-  if (
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('embedded') === '1' &&
-    window.name !== 'weldsuite-embedded'
-  ) {
-    window.name = 'weldsuite-embedded';
-  }
+  const isEmbeddedRoute = detectEmbeddedRoute();
 
   // Determine if this is a minimal route (no PlatformShell with sidebar)
-  const isMinimalRoute =
-    isEmbeddedRoute ||
-    pathname.startsWith('/preview') ||
-    /^\/builder\/[^/]+$/.test(pathname) ||
-    pathname === '/welcome' ||
-    pathname.startsWith('/auth/') ||
-    pathname === '/onboarding' ||
-    pathname === '/invite' ||
-    pathname.startsWith('/invite/') ||
-    pathname === '/call-room';
+  const isMinimalRoute = isEmbeddedRoute || isMinimalPath(pathname);
 
   if (isMinimalRoute) {
     // Embedded routes need an h-screen / flex wrapper so the weldflow

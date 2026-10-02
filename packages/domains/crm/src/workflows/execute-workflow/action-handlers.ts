@@ -442,48 +442,50 @@ async function handleTransform(inputs: Record<string, unknown>, ctx: ActionConte
   }
 }
 
-async function handleCondition(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const field = inputs.field as string;
-  const operator = String(inputs.operator || 'eq');
-  const value = inputs.value;
-
-  let fieldValue: unknown;
-  if (field && typeof field === 'string') {
-    if (field.startsWith('steps.')) {
-      const [, stepId, ...rest] = field.split('.');
-      const stepOutput = ctx.previousResults[stepId] as Record<string, unknown>;
-      fieldValue = rest.reduce((obj: any, prop) => obj?.[prop], stepOutput);
-    } else if (field.startsWith('trigger.')) {
-      const props = field.slice(8).split('.');
-      fieldValue = props.reduce((obj: any, prop) => obj?.[prop], ctx.triggerData);
-    } else if (field.startsWith('variables.')) {
-      fieldValue = ctx.variables[field.slice(10)];
-    } else if (field.startsWith('loop.')) {
-      const prop = field.slice(5);
-      fieldValue = prop === 'item' ? ctx.loopItem : prop === 'index' ? ctx.loopIndex : undefined;
-    } else {
-      fieldValue = inputs[field];
-    }
+function resolveConditionField(field: unknown, inputs: Record<string, unknown>, ctx: ActionContext): unknown {
+  if (!field || typeof field !== 'string') return undefined;
+  if (field.startsWith('steps.')) {
+    const [, stepId, ...rest] = field.split('.');
+    const stepOutput = ctx.previousResults[stepId] as Record<string, unknown>;
+    return rest.reduce((obj: any, prop) => obj?.[prop], stepOutput);
   }
+  if (field.startsWith('trigger.')) {
+    const props = field.slice(8).split('.');
+    return props.reduce((obj: any, prop) => obj?.[prop], ctx.triggerData);
+  }
+  if (field.startsWith('variables.')) return ctx.variables[field.slice(10)];
+  if (field.startsWith('loop.')) {
+    const prop = field.slice(5);
+    if (prop === 'item') return ctx.loopItem;
+    return prop === 'index' ? ctx.loopIndex : undefined;
+  }
+  return inputs[field];
+}
 
-  let passed = false;
+function applyConditionOperator(operator: string, fieldValue: unknown, value: unknown): boolean {
   switch (operator) {
-    case 'eq': case 'equals': passed = fieldValue === value; break;
-    case 'neq': case 'not_equals': passed = fieldValue !== value; break;
-    case 'gt': case 'greater_than': passed = Number(fieldValue) > Number(value); break;
-    case 'gte': case 'greater_than_or_equals': passed = Number(fieldValue) >= Number(value); break;
-    case 'lt': case 'less_than': passed = Number(fieldValue) < Number(value); break;
-    case 'lte': case 'less_than_or_equals': passed = Number(fieldValue) <= Number(value); break;
-    case 'contains': passed = String(fieldValue).includes(String(value)); break;
-    case 'starts_with': passed = String(fieldValue).startsWith(String(value)); break;
-    case 'ends_with': passed = String(fieldValue).endsWith(String(value)); break;
-    case 'exists': passed = fieldValue !== undefined && fieldValue !== null; break;
-    case 'not_exists': passed = fieldValue === undefined || fieldValue === null; break;
-    case 'in': passed = Array.isArray(value) && value.includes(fieldValue); break;
-    case 'not_in': passed = !Array.isArray(value) || !value.includes(fieldValue); break;
-    case 'matches': passed = new RegExp(String(value)).test(String(fieldValue)); break;
-    default: passed = true;
+    case 'eq': case 'equals': return fieldValue === value;
+    case 'neq': case 'not_equals': return fieldValue !== value;
+    case 'gt': case 'greater_than': return Number(fieldValue) > Number(value);
+    case 'gte': case 'greater_than_or_equals': return Number(fieldValue) >= Number(value);
+    case 'lt': case 'less_than': return Number(fieldValue) < Number(value);
+    case 'lte': case 'less_than_or_equals': return Number(fieldValue) <= Number(value);
+    case 'contains': return String(fieldValue).includes(String(value));
+    case 'starts_with': return String(fieldValue).startsWith(String(value));
+    case 'ends_with': return String(fieldValue).endsWith(String(value));
+    case 'exists': return fieldValue !== undefined && fieldValue !== null;
+    case 'not_exists': return fieldValue === undefined || fieldValue === null;
+    case 'in': return Array.isArray(value) && value.includes(fieldValue);
+    case 'not_in': return !Array.isArray(value) || !value.includes(fieldValue);
+    case 'matches': return new RegExp(String(value)).test(String(fieldValue));
+    default: return true;
   }
+}
+
+async function handleCondition(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
+  const operator = String(inputs.operator || 'eq');
+  const fieldValue = resolveConditionField(inputs.field, inputs, ctx);
+  const passed = applyConditionOperator(operator, fieldValue, inputs.value);
   return { passed, result: fieldValue };
 }
 
@@ -593,6 +595,35 @@ function resolveConversationId(inputs: Record<string, unknown>, context: ActionC
   return null;
 }
 
+/**
+ * Picks the least-loaded active agent (optionally within a department), records the
+ * assignee on `updateData` and bumps the agent's counters. False when no agent is available.
+ */
+async function assignFromAgentPool(
+  ctx: ActionContext,
+  strategy: 'round_robin' | 'least_busy',
+  departmentId: string | undefined,
+  updateData: Record<string, unknown>,
+): Promise<boolean> {
+  const conditions: any[] = [eq(schema.helpdeskAgents.status, 'active'), isNull(schema.helpdeskAgents.deletedAt)];
+  if (departmentId) conditions.push(eq(schema.helpdeskAgents.departmentId, departmentId));
+
+  const orderCol = strategy === 'round_robin' ? schema.helpdeskAgents.ticketsAssigned : schema.helpdeskAgents.currentActiveTickets;
+  const agents = await ctx.db.select({ id: schema.helpdeskAgents.id, userId: schema.helpdeskAgents.userId, name: schema.helpdeskAgents.name })
+    .from(schema.helpdeskAgents).where(and(...conditions)).orderBy(asc(orderCol)).limit(1);
+
+  if (!agents[0]) return false;
+  updateData.assigneeId = agents[0].userId;
+  updateData.assigneeName = agents[0].name;
+
+  await ctx.db.update(schema.helpdeskAgents).set({
+    ticketsAssigned: sql`COALESCE(${schema.helpdeskAgents.ticketsAssigned}, 0) + 1`,
+    currentActiveTickets: sql`COALESCE(${schema.helpdeskAgents.currentActiveTickets}, 0) + 1`,
+    updatedAt: new Date(),
+  }).where(eq(schema.helpdeskAgents.id, agents[0].id));
+  return true;
+}
+
 async function handleAssignConversation(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
@@ -607,22 +638,8 @@ async function handleAssignConversation(inputs: Record<string, unknown>, ctx: Ac
   } else if (strategy === 'department' && departmentId) {
     updateData.departmentId = departmentId;
   } else if (strategy === 'round_robin' || strategy === 'least_busy') {
-    const conditions: any[] = [eq(schema.helpdeskAgents.status, 'active'), isNull(schema.helpdeskAgents.deletedAt)];
-    if (departmentId) conditions.push(eq(schema.helpdeskAgents.departmentId, departmentId));
-
-    const orderCol = strategy === 'round_robin' ? schema.helpdeskAgents.ticketsAssigned : schema.helpdeskAgents.currentActiveTickets;
-    const agents = await ctx.db.select({ id: schema.helpdeskAgents.id, userId: schema.helpdeskAgents.userId, name: schema.helpdeskAgents.name })
-      .from(schema.helpdeskAgents).where(and(...conditions)).orderBy(asc(orderCol)).limit(1);
-
-    if (!agents[0]) return { success: false, error: 'No available agents' };
-    updateData.assigneeId = agents[0].userId;
-    updateData.assigneeName = agents[0].name;
-
-    await ctx.db.update(schema.helpdeskAgents).set({
-      ticketsAssigned: sql`COALESCE(${schema.helpdeskAgents.ticketsAssigned}, 0) + 1`,
-      currentActiveTickets: sql`COALESCE(${schema.helpdeskAgents.currentActiveTickets}, 0) + 1`,
-      updatedAt: new Date(),
-    }).where(eq(schema.helpdeskAgents.id, agents[0].id));
+    const assigned = await assignFromAgentPool(ctx, strategy, departmentId, updateData);
+    if (!assigned) return { success: false, error: 'No available agents' };
   }
 
   await ctx.db.update(schema.helpdeskConversations).set(updateData).where(eq(schema.helpdeskConversations.id, conversationId));

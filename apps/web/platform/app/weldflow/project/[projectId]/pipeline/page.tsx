@@ -327,6 +327,14 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readon
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if ((e.key === 'Enter' || e.key === ' ') && onClick && !isSortableDragging) {
+      e.preventDefault();
+      onClick();
+    }
+  };
+
   const priorityConfig: Record<string, { label: string; color: string; bg: string }> = {
     low: { label: t.projects.pipeline.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     medium: { label: t.projects.pipeline.priorityMedium, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
@@ -436,8 +444,8 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readon
         <div className="flex items-center gap-2 mt-3">
           <Hash className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
           <div className="flex flex-wrap gap-1 min-w-0">
-            {feature.tags.slice(0, 3).map((tag, index) => (
-              <Badge key={index} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
+            {feature.tags.slice(0, 3).map((tag) => (
+              <Badge key={`${tag.name}-${tag.color}`} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
                 {tag.name}
               </Badge>
             ))}
@@ -474,9 +482,12 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readon
       style={style}
       {...attributes}
       {...listeners}
+      role="button"
+      tabIndex={0}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
       className={cn(
         "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
         "hover:bg-gray-50 dark:hover:bg-secondary/70 cursor-grab active:cursor-grabbing w-full",
@@ -575,6 +586,73 @@ function PipelineStageHeader({ stage, taskCount, onAddTask, onEditStage, onDelet
       </div>
     </div>
   );
+}
+
+// ---------- Pipeline helpers ----------
+
+const STAGE_SORTABLE_PREFIX = 'sortable-stage-';
+const STAGE_DROP_PREFIX = 'stage-';
+
+function matchesEqualityFilter(operator: string, actual: string, expected: string): boolean {
+  return operator === 'is' ? actual === expected : actual !== expected;
+}
+
+function matchesAssigneeFilter(feature: TaskFeature, filter: ActiveFilter): boolean {
+  if (filter.value === '__unassigned__') {
+    return filter.operator === 'is' ? !feature.owner : !!feature.owner;
+  }
+  const name = (feature.owner?.name || '').toLowerCase();
+  return matchesEqualityFilter(filter.operator, name, filter.value.toLowerCase());
+}
+
+function matchesDueFilter(feature: TaskFeature, filter: ActiveFilter): boolean {
+  const dueDate = feature.endAt.toISOString().split('T')[0];
+  if (filter.operator === 'is') return dueDate === filter.value;
+  if (filter.operator === 'before') return dueDate < filter.value;
+  if (filter.operator === 'after') return dueDate > filter.value;
+  return true;
+}
+
+function featureMatchesFilter(feature: TaskFeature, filter: ActiveFilter): boolean {
+  if (!filter.operator || !filter.value) return true;
+
+  switch (filter.field) {
+    case 'stage':
+      return matchesEqualityFilter(filter.operator, feature.column, filter.value);
+    case 'priority':
+      return matchesEqualityFilter(filter.operator, (feature.priority || '').toLowerCase(), filter.value.toLowerCase());
+    case 'assignee':
+      return matchesAssigneeFilter(feature, filter);
+    case 'due':
+      return matchesDueFilter(feature, filter);
+    default:
+      return true;
+  }
+}
+
+/** Stage id a stage-reorder drag was dropped on. */
+function resolveStageDropId(overId: string): string {
+  if (overId.startsWith(STAGE_SORTABLE_PREFIX)) return overId.replace(STAGE_SORTABLE_PREFIX, '');
+  if (overId.startsWith(STAGE_DROP_PREFIX)) return overId.replace(STAGE_DROP_PREFIX, '');
+  return overId;
+}
+
+/** Stage id a task drag was dropped on (a stage itself, or the stage of the task dropped on). */
+function resolveTaskDropStageId(overId: string, features: TaskFeature[]): string | undefined {
+  if (overId.startsWith(STAGE_DROP_PREFIX)) return overId.replace(STAGE_DROP_PREFIX, '');
+  if (overId.startsWith(STAGE_SORTABLE_PREFIX)) return overId.replace(STAGE_SORTABLE_PREFIX, '');
+  return features.find(f => f.id === overId)?.column;
+}
+
+/** Move stage `fromId` to the position of `toId`; null when either is missing. */
+function reorderStages(stages: StageColumn[], fromId: string, toId: string): StageColumn[] | null {
+  const oldIdx = stages.findIndex(s => s.id === fromId);
+  const newIdx = stages.findIndex(s => s.id === toId);
+  if (oldIdx === -1 || newIdx === -1) return null;
+  const next = [...stages];
+  const [moved] = next.splice(oldIdx, 1);
+  next.splice(newIdx, 0, moved);
+  return next;
 }
 
 // ---------- Main Pipeline Component ----------
@@ -733,34 +811,6 @@ const PipelinePage = () => {
     return m;
   }, [columns]);
 
-  // Filter matching helper
-  const matchesFilter = useCallback((feature: TaskFeature, filter: ActiveFilter): boolean => {
-    if (!filter.operator || !filter.value) return true;
-    const val = filter.value.toLowerCase();
-
-    if (filter.field === 'stage') {
-      return filter.operator === 'is' ? feature.column === filter.value : feature.column !== filter.value;
-    }
-    if (filter.field === 'priority') {
-      const p = (feature.priority || '').toLowerCase();
-      return filter.operator === 'is' ? p === val : p !== val;
-    }
-    if (filter.field === 'assignee') {
-      if (filter.value === '__unassigned__') {
-        return filter.operator === 'is' ? !feature.owner : !!feature.owner;
-      }
-      const name = (feature.owner?.name || '').toLowerCase();
-      return filter.operator === 'is' ? name === val : name !== val;
-    }
-    if (filter.field === 'due') {
-      const dueDate = feature.endAt.toISOString().split('T')[0];
-      if (filter.operator === 'is') return dueDate === filter.value;
-      if (filter.operator === 'before') return dueDate < filter.value;
-      if (filter.operator === 'after') return dueDate > filter.value;
-    }
-    return true;
-  }, []);
-
   // Filtered features
   const filteredFeatures = useMemo(() => {
     let result = features;
@@ -779,12 +829,12 @@ const PipelinePage = () => {
 
     if (activeFilters.length > 0) {
       for (const filter of activeFilters) {
-        result = result.filter(f => matchesFilter(f, filter));
+        result = result.filter(f => featureMatchesFilter(f, filter));
       }
     }
 
     return result;
-  }, [features, searchQuery, activeFilters, matchesFilter]);
+  }, [features, searchQuery, activeFilters]);
 
   // Drag handlers
   const handleDragStart = (event: DragStartEvent) => {
@@ -813,24 +863,16 @@ const PipelinePage = () => {
     const overId = over.id as string;
 
     // Stage reordering
-    if (activeId.startsWith('sortable-stage-')) {
-      const fromId = activeId.replace('sortable-stage-', '');
-      let toId = overId;
-      if (overId.startsWith('sortable-stage-')) toId = overId.replace('sortable-stage-', '');
-      else if (overId.startsWith('stage-')) toId = overId.replace('stage-', '');
+    if (activeId.startsWith(STAGE_SORTABLE_PREFIX)) {
+      const fromId = activeId.replace(STAGE_SORTABLE_PREFIX, '');
+      const toId = resolveStageDropId(overId);
 
       if (fromId !== toId) {
         setColumns(prev => {
-          const oldIdx = prev.findIndex(s => s.id === fromId);
-          const newIdx = prev.findIndex(s => s.id === toId);
-          if (oldIdx !== -1 && newIdx !== -1) {
-            const next = [...prev];
-            const [moved] = next.splice(oldIdx, 1);
-            next.splice(newIdx, 0, moved);
-            persistStageOrder(next);
-            return next;
-          }
-          return prev;
+          const next = reorderStages(prev, fromId, toId);
+          if (!next) return prev;
+          persistStageOrder(next);
+          return next;
         });
       }
       setDraggedFeatureOriginalColumn(null);
@@ -842,13 +884,7 @@ const PipelinePage = () => {
     const movedFeature = features.find(f => f.id === draggedFeatureOriginalColumn.id);
     if (!movedFeature) { setDraggedFeatureOriginalColumn(null); return; }
 
-    let targetStageId: string | undefined;
-    if (overId.startsWith('stage-')) targetStageId = overId.replace('stage-', '');
-    else if (overId.startsWith('sortable-stage-')) targetStageId = overId.replace('sortable-stage-', '');
-    else {
-      const overFeature = features.find(f => f.id === overId);
-      if (overFeature) targetStageId = overFeature.column;
-    }
+    const targetStageId = resolveTaskDropStageId(overId, features);
 
     if (targetStageId && targetStageId !== draggedFeatureOriginalColumn.column) {
       // Optimistic update
@@ -1173,8 +1209,8 @@ const PipelinePage = () => {
                   )}
                   {activeDeal.tags && activeDeal.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
-                      {activeDeal.tags.slice(0, 3).map((tag, index) => (
-                        <Badge key={index} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
+                      {activeDeal.tags.slice(0, 3).map((tag) => (
+                        <Badge key={`${tag.name}-${tag.color}`} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
                           {tag.name}
                         </Badge>
                       ))}

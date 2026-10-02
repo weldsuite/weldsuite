@@ -44,6 +44,16 @@ import {
   useRefreshChannelToken,
 } from '@/hooks/queries/use-helpdesk-integration-queries';
 
+/** Stable keys for a string list: text plus its occurrence count (no array-index keys). */
+function keyByOccurrence(items: readonly string[]): { item: string; key: string }[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const n = (seen.get(item) ?? 0) + 1;
+    seen.set(item, n);
+    return { item, key: `${item}#${n}` };
+  });
+}
+
 interface ChannelConnectButtonProps {
   provider: HelpdeskProviderId;
   integration?: Helpdesk.Api.ChannelIntegration | null;
@@ -347,8 +357,8 @@ export function ChannelConnectButton({
             <div className="bg-muted/50 rounded-lg p-3">
               <p className="text-sm font-medium mb-2">{ti.setupSteps}</p>
               <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-                {providerConfig.setupSteps.map((step, i) => (
-                  <li key={i}>{step}</li>
+                {keyByOccurrence(providerConfig.setupSteps).map(({ item, key }) => (
+                  <li key={key}>{item}</li>
                 ))}
               </ol>
             </div>

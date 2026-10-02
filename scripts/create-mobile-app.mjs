@@ -189,6 +189,11 @@ async function runEasInit(destDir, placeholderUuid) {
   return true;
 }
 
+// A CLI option counts as "set" only when present and not the bare-flag value 'true'.
+function optionOr(value, fallback) {
+  return value && value !== 'true' ? value : fallback;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -197,11 +202,11 @@ async function main() {
 
   const name = args.name;
   const code = normalizeCode(args.code);
-  const slug = (args.slug && args.slug !== 'true') ? args.slug : `${code}-app`;
-  const bundle = (args.bundle && args.bundle !== 'true') ? args.bundle : `com.weldsuite.${code}`;
-  const subtitle = (args.subtitle && args.subtitle !== 'true') ? args.subtitle : '';
-  const color = (args.color && args.color !== 'true') ? args.color : '#3B82F6';
-  const easId = (args['eas-id'] && args['eas-id'] !== 'true') ? args['eas-id'] : '00000000-0000-0000-0000-000000000000';
+  const slug = optionOr(args.slug, `${code}-app`);
+  const bundle = optionOr(args.bundle, `com.weldsuite.${code}`);
+  const subtitle = optionOr(args.subtitle, '');
+  const color = optionOr(args.color, '#3B82F6');
+  const easId = optionOr(args['eas-id'], '00000000-0000-0000-0000-000000000000');
 
   const destDir = path.join(repoRoot, 'apps', 'mobile', slug);
 

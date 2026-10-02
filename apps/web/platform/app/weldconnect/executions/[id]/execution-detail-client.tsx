@@ -108,6 +108,25 @@ const formatDate = (date: string | Date, naLabel: string) => {
   return new Date(date).toLocaleString();
 };
 
+const hasEntries = (obj: Record<string, unknown> | null | undefined) =>
+  !!obj && Object.keys(obj).length > 0;
+
+const isWarningLevel = (level: string) => level === 'warning' || level === 'warn';
+
+const logLevelClasses = (level: string) => {
+  if (level === 'error') return 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800';
+  if (isWarningLevel(level)) {
+    return 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-800';
+  }
+  return 'bg-gray-50 border-gray-200 dark:bg-secondary dark:border-border';
+};
+
+const logLevelBadgeVariant = (level: string) => {
+  if (level === 'error') return 'destructive' as const;
+  if (isWarningLevel(level)) return 'default' as const;
+  return 'secondary' as const;
+};
+
 const getStepStatusIcon = (status: string) => {
   switch (status) {
     case 'success':
@@ -321,6 +340,9 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
 
   const isCurrentlyRunning = liveStatus === 'running' || liveStatus === 'pending' || liveStatus === 'queued';
   const isFailed = liveStatus === 'failed';
+  const emptyOutputMessage = isCurrentlyRunning
+    ? t.weldconnect.executionDetail.executionInProgress
+    : t.weldconnect.executionDetail.noOutputData;
 
   // Status badge configuration
   const statusConfig: Record<string, StatusBadgeConfig> = {
@@ -548,40 +570,41 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                   <div className="space-y-3">
                     {execution.steps && execution.steps.length > 0 ? (
                       execution.steps.map((step, index: number) => (
-                        <div
+                        <button
+                          type="button"
                           key={step.id}
-                          className="bg-white dark:bg-background rounded-md border border-gray-200 dark:border-border p-4 cursor-pointer transition-all hover:bg-gray-50 hover:border-gray-300 dark:hover:bg-secondary dark:hover:border-border"
+                          className="block w-full text-left bg-white dark:bg-background rounded-md border border-gray-200 dark:border-border p-4 cursor-pointer transition-all hover:bg-gray-50 hover:border-gray-300 dark:hover:bg-secondary dark:hover:border-border"
                           onClick={() => setSelectedStep(step)}
                         >
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-3">
-                              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-secondary text-sm font-medium">
+                          <span className="flex items-start justify-between">
+                            <span className="flex items-start gap-3">
+                              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-secondary text-sm font-medium">
                                 {index + 1}
-                              </div>
-                              <div>
-                                <div className="flex items-center gap-2">
+                              </span>
+                              <span className="block">
+                                <span className="flex items-center gap-2">
                                   {getStepStatusIcon(step.status)}
                                   <span className="font-medium">{step.name}</span>
                                   {getStepStatusBadge(step.status, t.weldconnect.executionDetail.stepStatuses)}
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-1">
+                                </span>
+                                <span className="block text-xs text-muted-foreground mt-1">
                                   {t.weldconnect.executionDetail.stepType} <Badge variant="outline" className="text-xs ml-1 rounded-sm">{step.type}</Badge>
-                                </p>
-                              </div>
-                            </div>
-                            <div className="text-right text-sm text-muted-foreground">
-                              <div className="font-medium">{formatDuration(step.duration)}</div>
+                                </span>
+                              </span>
+                            </span>
+                            <span className="block text-right text-sm text-muted-foreground">
+                              <span className="block font-medium">{formatDuration(step.duration)}</span>
                               {step.startedAt && (
-                                <div className="text-xs">{formatDate(step.startedAt, naLabel)}</div>
+                                <span className="block text-xs">{formatDate(step.startedAt, naLabel)}</span>
                               )}
-                            </div>
-                          </div>
+                            </span>
+                          </span>
                           {step.error && (
-                            <div className="mt-3 bg-red-50 dark:bg-red-950/30 rounded-md p-3 border border-red-200 dark:border-red-800">
-                              <p className="text-sm text-red-700 dark:text-red-300">{step.error}</p>
-                            </div>
+                            <span className="mt-3 block bg-red-50 dark:bg-red-950/30 rounded-md p-3 border border-red-200 dark:border-red-800">
+                              <span className="block text-sm text-red-700 dark:text-red-300">{step.error}</span>
+                            </span>
                           )}
-                        </div>
+                        </button>
                       ))
                     ) : (
                       <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-12 text-center">
@@ -649,8 +672,8 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                             <p className="text-sm text-red-700 dark:text-red-300">{selectedStep.error}</p>
                           </div>
                         )}
-                        {(!selectedStep?.input || Object.keys(selectedStep.input).length === 0) &&
-                         (!selectedStep?.output || Object.keys(selectedStep.output).length === 0) &&
+                        {!hasEntries(selectedStep?.input) &&
+                         !hasEntries(selectedStep?.output) &&
                          !selectedStep?.error && (
                           <p className="text-sm text-muted-foreground">{t.weldconnect.executionDetail.noInputOutputData}</p>
                         )}
@@ -664,7 +687,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                 <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-4">
                   <h3 className="font-semibold text-base mb-4">{t.weldconnect.executionDetail.inputDataTitle}</h3>
                   <p className="text-sm text-muted-foreground mb-4">{t.weldconnect.executionDetail.inputDataDescription}</p>
-                  {execution.input && Object.keys(execution.input).length > 0 ? (
+                  {hasEntries(execution.input) ? (
                     <pre className="bg-gray-50 dark:bg-secondary p-4 rounded-lg text-xs overflow-auto max-h-[600px]">
                       {JSON.stringify(execution.input, null, 2)}
                     </pre>
@@ -678,13 +701,13 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                 <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-4">
                   <h3 className="font-semibold text-base mb-4">{t.weldconnect.executionDetail.outputDataTitle}</h3>
                   <p className="text-sm text-muted-foreground mb-4">{t.weldconnect.executionDetail.outputDataDescription}</p>
-                  {execution.output && Object.keys(execution.output).length > 0 ? (
+                  {hasEntries(execution.output) ? (
                     <pre className="bg-gray-50 dark:bg-secondary p-4 rounded-lg text-xs overflow-auto max-h-[600px]">
                       {JSON.stringify(execution.output, null, 2)}
                     </pre>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      {isCurrentlyRunning ? t.weldconnect.executionDetail.executionInProgress : t.weldconnect.executionDetail.noOutputData}
+                      {emptyOutputMessage}
                     </p>
                   )}
                 </div>
@@ -699,17 +722,11 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                       {initialLogs.map((log, index: number) => (
                         <div
                           key={log.id || index}
-                          className={`p-3 rounded-lg border ${
-                            log.level === 'error'
-                              ? 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800'
-                              : log.level === 'warning' || log.level === 'warn'
-                              ? 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-800'
-                              : 'bg-gray-50 border-gray-200 dark:bg-secondary dark:border-border'
-                          }`}
+                          className={`p-3 rounded-lg border ${logLevelClasses(log.level)}`}
                         >
                           <div className="flex items-start gap-3">
                             <Badge
-                              variant={log.level === 'error' ? 'destructive' : log.level === 'warning' || log.level === 'warn' ? 'default' : 'secondary'}
+                              variant={logLevelBadgeVariant(log.level)}
                               className="text-xs"
                             >
                               {log.level}

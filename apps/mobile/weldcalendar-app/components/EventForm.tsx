@@ -112,6 +112,82 @@ function withTime(base: Date, time: Date): Date {
   return next;
 }
 
+interface DateRange {
+  start: Date;
+  end: Date;
+}
+
+interface FieldStyle {
+  color: string;
+  backgroundColor: string;
+  borderColor: string;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * All-day snaps the pair to the day's bounds. Turning it back off restores a
+ * sane 09:00–10:00 rather than leaving 00:00–23:59 behind, which is never
+ * what someone wants from a timed event.
+ */
+function allDayRange(nextAllDay: boolean, start: Date, end: Date): DateRange {
+  if (nextAllDay) {
+    return {
+      start: startOfDay(start),
+      end: endOfDay(end.getTime() < start.getTime() ? start : end),
+    };
+  }
+  const nextStart = withTime(start, new Date(2000, 0, 1, 9, 0));
+  return { start: nextStart, end: new Date(nextStart.getTime() + HOUR_MS) };
+}
+
+/** Dragging the start forward carries the end with it, preserving duration. */
+function shiftStart(nextStart: Date, start: Date, end: Date): DateRange {
+  const duration = Math.max(end.getTime() - start.getTime(), 0);
+  return { start: nextStart, end: new Date(nextStart.getTime() + duration) };
+}
+
+/** The new range after the user picks a date/time, or null when nothing changes. */
+function rangeAfterPick(kind: PickerType, selected: Date, start: Date, end: Date): DateRange | null {
+  switch (kind) {
+    case 'startDate':
+      return shiftStart(withDate(start, selected), start, end);
+    case 'startTime':
+      return shiftStart(withTime(start, selected), start, end);
+    case 'endDate':
+      return { start, end: withDate(end, selected) };
+    case 'endTime':
+      return { start, end: withTime(end, selected) };
+    default:
+      return null;
+  }
+}
+
+/** Seed values for the timing fields; edit mode passes the stored event. */
+function initialTiming(initialValues?: Partial<EventFormValues>): DateRange & { allDay: boolean } {
+  const start = initialValues?.start ?? defaultStart();
+  const end = initialValues?.end ?? new Date(start.getTime() + HOUR_MS);
+  return { start, end, allDay: initialValues?.allDay ?? false };
+}
+
+/** Seed values for the text and enum fields. */
+function initialFields(
+  initialValues: Partial<EventFormValues> | undefined,
+  calendars: Calendar[],
+): Omit<EventFormValues, 'start' | 'end' | 'allDay'> {
+  return {
+    calendarId: initialValues?.calendarId ?? calendars[0]?.id ?? '',
+    title: initialValues?.title ?? '',
+    description: initialValues?.description ?? '',
+    type: initialValues?.type ?? 'meeting',
+    location: initialValues?.location ?? '',
+    meetingUrl: initialValues?.meetingUrl ?? '',
+    status: initialValues?.status ?? 'confirmed',
+    priority: initialValues?.priority ?? 'normal',
+    notifyAttendees: initialValues?.notifyAttendees ?? false,
+  };
+}
+
 export function EventForm({
   mode,
   calendars,
@@ -121,29 +197,23 @@ export function EventForm({
   hasAttendees = false,
 }: Readonly<Props>) {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const { t, intlLocale } = useI18n();
 
-  const initialStart = initialValues?.start ?? defaultStart();
-  const initialEnd =
-    initialValues?.end ?? new Date(initialStart.getTime() + 60 * 60 * 1000);
+  const [timing] = useState(() => initialTiming(initialValues));
+  const [fields] = useState(() => initialFields(initialValues, calendars));
 
-  const [calendarId, setCalendarId] = useState(
-    initialValues?.calendarId ?? calendars[0]?.id ?? '',
-  );
-  const [title, setTitle] = useState(initialValues?.title ?? '');
-  const [description, setDescription] = useState(initialValues?.description ?? '');
-  const [type, setType] = useState<EventType>(initialValues?.type ?? 'meeting');
-  const [start, setStart] = useState<Date>(initialStart);
-  const [end, setEnd] = useState<Date>(initialEnd);
-  const [allDay, setAllDay] = useState(initialValues?.allDay ?? false);
-  const [location, setLocation] = useState(initialValues?.location ?? '');
-  const [meetingUrl, setMeetingUrl] = useState(initialValues?.meetingUrl ?? '');
-  const [status, setStatus] = useState<EventStatus>(initialValues?.status ?? 'confirmed');
-  const [priority, setPriority] = useState<EventPriority>(initialValues?.priority ?? 'normal');
-  const [notifyAttendees, setNotifyAttendees] = useState(
-    initialValues?.notifyAttendees ?? false,
-  );
+  const [calendarId, setCalendarId] = useState(fields.calendarId);
+  const [title, setTitle] = useState(fields.title);
+  const [description, setDescription] = useState(fields.description);
+  const [type, setType] = useState<EventType>(fields.type);
+  const [start, setStart] = useState<Date>(timing.start);
+  const [end, setEnd] = useState<Date>(timing.end);
+  const [allDay, setAllDay] = useState(timing.allDay);
+  const [location, setLocation] = useState(fields.location);
+  const [meetingUrl, setMeetingUrl] = useState(fields.meetingUrl);
+  const [status, setStatus] = useState<EventStatus>(fields.status);
+  const [priority, setPriority] = useState<EventPriority>(fields.priority);
+  const [notifyAttendees, setNotifyAttendees] = useState(fields.notifyAttendees);
 
   const [titleError, setTitleError] = useState<string | null>(null);
   const [rangeError, setRangeError] = useState<string | null>(null);
@@ -154,65 +224,27 @@ export function EventForm({
     [calendars, calendarId],
   );
 
-  const formatDay = (date: Date) =>
-    date.toLocaleDateString(intlLocale, { weekday: 'short', day: 'numeric', month: 'short' });
-
-  /**
-   * All-day snaps the pair to the day's bounds. Turning it back off restores a
-   * sane 09:00–10:00 rather than leaving 00:00–23:59 behind, which is never
-   * what someone wants from a timed event.
-   */
   const handleAllDayChange = (next: boolean) => {
+    const range = allDayRange(next, start, end);
     setAllDay(next);
     setRangeError(null);
-    if (next) {
-      setStart(startOfDay(start));
-      setEnd(endOfDay(end.getTime() < start.getTime() ? start : end));
-    } else {
-      const nextStart = withTime(start, new Date(2000, 0, 1, 9, 0));
-      setStart(nextStart);
-      setEnd(new Date(nextStart.getTime() + 60 * 60 * 1000));
-    }
+    setStart(range.start);
+    setEnd(range.end);
   };
 
-  /** Dragging the start forward carries the end with it, preserving duration. */
-  const applyStart = (nextStart: Date) => {
-    const duration = Math.max(end.getTime() - start.getTime(), 0);
-    setStart(nextStart);
-    setEnd(new Date(nextStart.getTime() + duration));
-    setRangeError(null);
+  const handleTitleChange = (value: string) => {
+    setTitle(value);
+    setTitleError(null);
   };
 
   const handlePickerChange = (kind: PickerType) => (_event: unknown, selected?: Date) => {
     if (Platform.OS === 'android') setPicker(null);
-    if (!selected) return;
-    switch (kind) {
-      case 'startDate':
-        applyStart(withDate(start, selected));
-        break;
-      case 'startTime':
-        applyStart(withTime(start, selected));
-        break;
-      case 'endDate':
-        setEnd(withDate(end, selected));
-        setRangeError(null);
-        break;
-      case 'endTime':
-        setEnd(withTime(end, selected));
-        setRangeError(null);
-        break;
-      default:
-        break;
-    }
+    const next = selected ? rangeAfterPick(kind, selected, start, end) : null;
+    if (!next) return;
+    setStart(next.start);
+    setEnd(next.end);
+    setRangeError(null);
   };
-
-  const pickerValue = (): Date => {
-    if (picker === 'startDate' || picker === 'startTime') return start;
-    return end;
-  };
-
-  const pickerMode = (): 'date' | 'time' =>
-    picker === 'startTime' || picker === 'endTime' ? 'time' : 'date';
 
   const handleSubmit = async () => {
     const trimmed = title.trim();
@@ -252,63 +284,29 @@ export function EventForm({
     );
   }
 
-  const fieldStyle = {
+  const fieldStyle: FieldStyle = {
     color: colors.text,
     backgroundColor: colors.cardBackground,
     borderColor: colors.divider,
   };
+  const showNotify = mode === 'edit' && hasAttendees;
 
   return (
     <View style={styles.container}>
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.titleLabel}</Text>
-        <TextInput
-          style={[
-            styles.input,
-            fieldStyle,
-            titleError ? { borderColor: colors.destructive } : null,
-          ]}
-          placeholder={t.eventForm.titlePlaceholder}
-          placeholderTextColor={colors.muted}
-          value={title}
-          onChangeText={(value) => {
-            setTitle(value);
-            if (titleError) setTitleError(null);
-          }}
-          returnKeyType="next"
-          autoFocus={mode === 'create'}
-        />
-        {titleError ? (
-          <Text style={[styles.errorText, { color: colors.destructive }]}>{titleError}</Text>
-        ) : null}
-      </View>
+      <TitleField
+        value={title}
+        error={titleError}
+        onChange={handleTitleChange}
+        autoFocus={mode === 'create'}
+        fieldStyle={fieldStyle}
+      />
 
       <View style={styles.row}>
-        <View style={[styles.field, styles.rowCol]}>
-          <Text style={[styles.label, { color: colors.muted }]}>
-            {t.eventForm.calendarLabel}
-          </Text>
-          <TouchableOpacity
-            style={[styles.pickerButton, fieldStyle]}
-            onPress={() => setPicker('calendar')}
-            accessibilityRole="button"
-          >
-            <View style={styles.iconLeft}>
-              <View
-                style={[
-                  styles.swatch,
-                  { backgroundColor: selectedCalendar?.color || BRAND },
-                ]}
-              />
-              <Text style={[styles.pickerText, { color: colors.text }]} numberOfLines={1}>
-                {selectedCalendar
-                  ? calendarPickerLabel(selectedCalendar, t.calendars.personal)
-                  : t.common.notSet}
-              </Text>
-            </View>
-            <ChevronDown size={18} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
+        <CalendarField
+          calendar={selectedCalendar}
+          onPress={() => setPicker('calendar')}
+          fieldStyle={fieldStyle}
+        />
 
         <View style={[styles.field, styles.rowCol]}>
           <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.typeLabel}</Text>
@@ -337,74 +335,26 @@ export function EventForm({
         />
       </View>
 
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.startsLabel}</Text>
-        <View style={styles.row}>
-          <TouchableOpacity
-            style={[styles.pickerButton, styles.rowCol, fieldStyle]}
-            onPress={() => setPicker('startDate')}
-            accessibilityRole="button"
-            accessibilityLabel={t.eventForm.pickDate}
-          >
-            <Text style={[styles.pickerText, { color: colors.text }]}>{formatDay(start)}</Text>
-            <ChevronDown size={18} color={colors.muted} />
-          </TouchableOpacity>
-          {!allDay ? (
-            <TouchableOpacity
-              style={[styles.pickerButton, styles.timeCol, fieldStyle]}
-              onPress={() => setPicker('startTime')}
-              accessibilityRole="button"
-              accessibilityLabel={t.eventForm.pickTime}
-            >
-              <Clock size={16} color={colors.muted} />
-              <Text style={[styles.pickerText, { color: colors.text }]}>
-                {formatTime(start, intlLocale)}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </View>
+      <DateTimeField
+        label={t.eventForm.startsLabel}
+        value={start}
+        allDay={allDay}
+        intlLocale={intlLocale}
+        onPressDate={() => setPicker('startDate')}
+        onPressTime={() => setPicker('startTime')}
+        fieldStyle={fieldStyle}
+      />
 
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.endsLabel}</Text>
-        <View style={styles.row}>
-          <TouchableOpacity
-            style={[
-              styles.pickerButton,
-              styles.rowCol,
-              fieldStyle,
-              rangeError ? { borderColor: colors.destructive } : null,
-            ]}
-            onPress={() => setPicker('endDate')}
-            accessibilityRole="button"
-            accessibilityLabel={t.eventForm.pickDate}
-          >
-            <Text style={[styles.pickerText, { color: colors.text }]}>{formatDay(end)}</Text>
-            <ChevronDown size={18} color={colors.muted} />
-          </TouchableOpacity>
-          {!allDay ? (
-            <TouchableOpacity
-              style={[
-                styles.pickerButton,
-                styles.timeCol,
-                fieldStyle,
-                rangeError ? { borderColor: colors.destructive } : null,
-              ]}
-              onPress={() => setPicker('endTime')}
-              accessibilityRole="button"
-              accessibilityLabel={t.eventForm.pickTime}
-            >
-              <Clock size={16} color={colors.muted} />
-              <Text style={[styles.pickerText, { color: colors.text }]}>
-                {formatTime(end, intlLocale)}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-        {rangeError ? (
-          <Text style={[styles.errorText, { color: colors.destructive }]}>{rangeError}</Text>
-        ) : null}
-      </View>
+      <DateTimeField
+        label={t.eventForm.endsLabel}
+        value={end}
+        allDay={allDay}
+        intlLocale={intlLocale}
+        error={rangeError}
+        onPressDate={() => setPicker('endDate')}
+        onPressTime={() => setPicker('endTime')}
+        fieldStyle={fieldStyle}
+      />
 
       <View style={styles.field}>
         <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.locationLabel}</Text>
@@ -484,182 +434,414 @@ export function EventForm({
         />
       </View>
 
-      {mode === 'edit' && hasAttendees ? (
-        <View
-          style={[
-            styles.switchRow,
-            { backgroundColor: colors.cardBackground, borderColor: colors.divider },
-          ]}
-        >
-          <Text style={[styles.switchLabel, { color: colors.text, flex: 1 }]}>
-            {t.eventForm.notifyLabel}
-          </Text>
-          <Switch
-            value={notifyAttendees}
-            onValueChange={setNotifyAttendees}
-            trackColor={{ true: BRAND, false: colors.border }}
-          />
-        </View>
+      {showNotify ? (
+        <NotifyAttendeesRow value={notifyAttendees} onChange={setNotifyAttendees} />
       ) : null}
 
+      <SubmitButton mode={mode} isSubmitting={isSubmitting} onPress={handleSubmit} />
+
+      <EventOptionSheets
+        picker={picker}
+        onClose={() => setPicker(null)}
+        calendars={calendars}
+        selected={{ calendarId, type, status, priority }}
+        onSelectCalendar={setCalendarId}
+        onSelectType={setType}
+        onSelectStatus={setStatus}
+        onSelectPriority={setPriority}
+      />
+
+      <DateTimePickerHost
+        picker={picker}
+        start={start}
+        end={end}
+        onChange={handlePickerChange}
+        onClose={() => setPicker(null)}
+      />
+    </View>
+  );
+}
+
+function TitleField({
+  value,
+  error,
+  onChange,
+  autoFocus,
+  fieldStyle,
+}: Readonly<{
+  value: string;
+  error: string | null;
+  onChange: (value: string) => void;
+  autoFocus: boolean;
+  fieldStyle: FieldStyle;
+}>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.titleLabel}</Text>
+      <TextInput
+        style={[styles.input, fieldStyle, error ? { borderColor: colors.destructive } : null]}
+        placeholder={t.eventForm.titlePlaceholder}
+        placeholderTextColor={colors.muted}
+        value={value}
+        onChangeText={onChange}
+        returnKeyType="next"
+        autoFocus={autoFocus}
+      />
+      {error ? <Text style={[styles.errorText, { color: colors.destructive }]}>{error}</Text> : null}
+    </View>
+  );
+}
+
+function CalendarField({
+  calendar,
+  onPress,
+  fieldStyle,
+}: Readonly<{
+  calendar: Calendar | undefined;
+  onPress: () => void;
+  fieldStyle: FieldStyle;
+}>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  return (
+    <View style={[styles.field, styles.rowCol]}>
+      <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.calendarLabel}</Text>
       <TouchableOpacity
-        style={[styles.submitBtn, isSubmitting && styles.disabled]}
-        onPress={handleSubmit}
-        disabled={isSubmitting}
+        style={[styles.pickerButton, fieldStyle]}
+        onPress={onPress}
         accessibilityRole="button"
       >
-        {isSubmitting ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Text style={styles.submitText}>
-            {mode === 'create' ? t.eventForm.submitCreate : t.eventForm.submitSave}
+        <View style={styles.iconLeft}>
+          <View style={[styles.swatch, { backgroundColor: calendar?.color || BRAND }]} />
+          <Text style={[styles.pickerText, { color: colors.text }]} numberOfLines={1}>
+            {calendar ? calendarPickerLabel(calendar, t.calendars.personal) : t.common.notSet}
           </Text>
-        )}
+        </View>
+        <ChevronDown size={18} color={colors.muted} />
       </TouchableOpacity>
+    </View>
+  );
+}
 
-      {/* Option sheets — calendar / type / status / priority */}
+/** A labelled date button plus (unless all-day) a time button. */
+function DateTimeField({
+  label,
+  value,
+  allDay,
+  intlLocale,
+  error,
+  onPressDate,
+  onPressTime,
+  fieldStyle,
+}: Readonly<{
+  label: string;
+  value: Date;
+  allDay: boolean;
+  intlLocale: string;
+  error?: string | null;
+  onPressDate: () => void;
+  onPressTime: () => void;
+  fieldStyle: FieldStyle;
+}>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  const errorBorder = error ? { borderColor: colors.destructive } : null;
+  const day = value.toLocaleDateString(intlLocale, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.label, { color: colors.muted }]}>{label}</Text>
+      <View style={styles.row}>
+        <TouchableOpacity
+          style={[styles.pickerButton, styles.rowCol, fieldStyle, errorBorder]}
+          onPress={onPressDate}
+          accessibilityRole="button"
+          accessibilityLabel={t.eventForm.pickDate}
+        >
+          <Text style={[styles.pickerText, { color: colors.text }]}>{day}</Text>
+          <ChevronDown size={18} color={colors.muted} />
+        </TouchableOpacity>
+        {allDay ? null : (
+          <TouchableOpacity
+            style={[styles.pickerButton, styles.timeCol, fieldStyle, errorBorder]}
+            onPress={onPressTime}
+            accessibilityRole="button"
+            accessibilityLabel={t.eventForm.pickTime}
+          >
+            <Clock size={16} color={colors.muted} />
+            <Text style={[styles.pickerText, { color: colors.text }]}>
+              {formatTime(value, intlLocale)}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      {error ? <Text style={[styles.errorText, { color: colors.destructive }]}>{error}</Text> : null}
+    </View>
+  );
+}
+
+function NotifyAttendeesRow({
+  value,
+  onChange,
+}: Readonly<{ value: boolean; onChange: (next: boolean) => void }>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  return (
+    <View
+      style={[
+        styles.switchRow,
+        { backgroundColor: colors.cardBackground, borderColor: colors.divider },
+      ]}
+    >
+      <Text style={[styles.switchLabel, { color: colors.text, flex: 1 }]}>
+        {t.eventForm.notifyLabel}
+      </Text>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ true: BRAND, false: colors.border }}
+      />
+    </View>
+  );
+}
+
+function SubmitButton({
+  mode,
+  isSubmitting,
+  onPress,
+}: Readonly<{ mode: 'create' | 'edit'; isSubmitting: boolean; onPress: () => void }>) {
+  const { t } = useI18n();
+  const label = mode === 'create' ? t.eventForm.submitCreate : t.eventForm.submitSave;
+  return (
+    <TouchableOpacity
+      style={[styles.submitBtn, isSubmitting && styles.disabled]}
+      onPress={onPress}
+      disabled={isSubmitting}
+      accessibilityRole="button"
+    >
+      {isSubmitting ? (
+        <ActivityIndicator size="small" color="#fff" />
+      ) : (
+        <Text style={styles.submitText}>{label}</Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+/** One selectable row inside an option sheet. */
+function SheetOption({
+  onPress,
+  isSelected,
+  children,
+}: Readonly<{ onPress: () => void; isSelected: boolean; children: React.ReactNode }>) {
+  const { colors } = useTheme();
+  return (
+    <TouchableOpacity
+      style={[styles.sheetOption, { borderBottomColor: colors.divider }]}
+      onPress={onPress}
+    >
+      {children}
+      {isSelected ? <Check size={18} color={BRAND} /> : null}
+    </TouchableOpacity>
+  );
+}
+
+/** Option sheets — calendar / type / status / priority. */
+function EventOptionSheets({
+  picker,
+  onClose,
+  calendars,
+  selected,
+  onSelectCalendar,
+  onSelectType,
+  onSelectStatus,
+  onSelectPriority,
+}: Readonly<{
+  picker: PickerType;
+  onClose: () => void;
+  calendars: Calendar[];
+  selected: {
+    calendarId: string;
+    type: EventType;
+    status: EventStatus;
+    priority: EventPriority;
+  };
+  onSelectCalendar: (id: string) => void;
+  onSelectType: (type: EventType) => void;
+  onSelectStatus: (status: EventStatus) => void;
+  onSelectPriority: (priority: EventPriority) => void;
+}>) {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { t } = useI18n();
+
+  const optionText = [styles.sheetOptionText, { color: colors.text }];
+
+  return (
+    <>
       <OptionSheet
         visible={picker === 'calendar'}
         title={t.eventForm.calendarLabel}
-        onClose={() => setPicker(null)}
+        onClose={onClose}
         bottomInset={insets.bottom}
       >
         {calendars.map((calendar) => (
-          <TouchableOpacity
+          <SheetOption
             key={calendar.id}
-            style={[styles.sheetOption, { borderBottomColor: colors.divider }]}
+            isSelected={calendar.id === selected.calendarId}
             onPress={() => {
-              setCalendarId(calendar.id);
-              setPicker(null);
+              onSelectCalendar(calendar.id);
+              onClose();
             }}
           >
             <View style={styles.iconLeft}>
               <View style={[styles.swatch, { backgroundColor: calendar.color || BRAND }]} />
-              <Text style={[styles.sheetOptionText, { color: colors.text }]}>
-                {calendarPickerLabel(calendar, t.calendars.personal)}
-              </Text>
+              <Text style={optionText}>{calendarPickerLabel(calendar, t.calendars.personal)}</Text>
             </View>
-            {calendar.id === calendarId ? <Check size={18} color={BRAND} /> : null}
-          </TouchableOpacity>
+          </SheetOption>
         ))}
       </OptionSheet>
 
       <OptionSheet
         visible={picker === 'type'}
         title={t.eventForm.typeLabel}
-        onClose={() => setPicker(null)}
+        onClose={onClose}
         bottomInset={insets.bottom}
       >
         {EVENT_TYPES.map((option) => (
-          <TouchableOpacity
+          <SheetOption
             key={option}
-            style={[styles.sheetOption, { borderBottomColor: colors.divider }]}
+            isSelected={option === selected.type}
             onPress={() => {
-              setType(option);
-              setPicker(null);
+              onSelectType(option);
+              onClose();
             }}
           >
             <View style={styles.iconLeft}>
               <View style={[styles.swatch, { backgroundColor: eventColor(null, option) }]} />
-              <Text style={[styles.sheetOptionText, { color: colors.text }]}>
-                {eventTypeLabel(t, option)}
-              </Text>
+              <Text style={optionText}>{eventTypeLabel(t, option)}</Text>
             </View>
-            {option === type ? <Check size={18} color={BRAND} /> : null}
-          </TouchableOpacity>
+          </SheetOption>
         ))}
       </OptionSheet>
 
       <OptionSheet
         visible={picker === 'status'}
         title={t.eventForm.statusLabel}
-        onClose={() => setPicker(null)}
+        onClose={onClose}
         bottomInset={insets.bottom}
       >
         {EVENT_STATUSES.map((option) => (
-          <TouchableOpacity
+          <SheetOption
             key={option}
-            style={[styles.sheetOption, { borderBottomColor: colors.divider }]}
+            isSelected={option === selected.status}
             onPress={() => {
-              setStatus(option);
-              setPicker(null);
+              onSelectStatus(option);
+              onClose();
             }}
           >
-            <Text style={[styles.sheetOptionText, { color: colors.text }]}>
-              {statusLabel(t, option)}
-            </Text>
-            {option === status ? <Check size={18} color={BRAND} /> : null}
-          </TouchableOpacity>
+            <Text style={optionText}>{statusLabel(t, option)}</Text>
+          </SheetOption>
         ))}
       </OptionSheet>
 
       <OptionSheet
         visible={picker === 'priority'}
         title={t.eventForm.priorityLabel}
-        onClose={() => setPicker(null)}
+        onClose={onClose}
         bottomInset={insets.bottom}
       >
         {EVENT_PRIORITIES.map((option) => (
-          <TouchableOpacity
+          <SheetOption
             key={option}
-            style={[styles.sheetOption, { borderBottomColor: colors.divider }]}
+            isSelected={option === selected.priority}
             onPress={() => {
-              setPriority(option);
-              setPicker(null);
+              onSelectPriority(option);
+              onClose();
             }}
           >
-            <Text style={[styles.sheetOptionText, { color: colors.text }]}>
-              {priorityLabel(t, option)}
-            </Text>
-            {option === priority ? <Check size={18} color={BRAND} /> : null}
-          </TouchableOpacity>
+            <Text style={optionText}>{priorityLabel(t, option)}</Text>
+          </SheetOption>
         ))}
       </OptionSheet>
+    </>
+  );
+}
 
-      {/* Date / time picker — iOS gets a sheet-wrapped spinner, Android the
-          platform dialog, which dismisses itself via onChange. */}
-      {picker === 'startDate' ||
-      picker === 'startTime' ||
-      picker === 'endDate' ||
-      picker === 'endTime' ? (
-        Platform.OS === 'ios' ? (
-          <Modal visible transparent animationType="slide" onRequestClose={() => setPicker(null)}>
-            <Pressable style={styles.backdrop} onPress={() => setPicker(null)}>
-              <Pressable
-                style={[
-                  styles.sheet,
-                  { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16 },
-                ]}
-                onPress={(event) => event.stopPropagation()}
-              >
-                <View style={styles.sheetHeader}>
-                  <Text style={[styles.sheetTitle, { color: colors.text }]}>
-                    {pickerMode() === 'date' ? t.eventForm.pickDate : t.eventForm.pickTime}
-                  </Text>
-                  <TouchableOpacity onPress={() => setPicker(null)}>
-                    <Text style={[styles.sheetAction, { color: BRAND }]}>{t.common.done}</Text>
-                  </TouchableOpacity>
-                </View>
-                <DateTimePicker
-                  value={pickerValue()}
-                  mode={pickerMode()}
-                  display="spinner"
-                  onChange={handlePickerChange(picker)}
-                  themeVariant={colors.text === '#fff' ? 'dark' : 'light'}
-                />
-              </Pressable>
-            </Pressable>
-          </Modal>
-        ) : (
+const DATE_TIME_PICKERS: readonly PickerType[] = ['startDate', 'startTime', 'endDate', 'endTime'];
+
+/**
+ * Date / time picker — iOS gets a sheet-wrapped spinner, Android the platform
+ * dialog, which dismisses itself via onChange.
+ */
+function DateTimePickerHost({
+  picker,
+  start,
+  end,
+  onChange,
+  onClose,
+}: Readonly<{
+  picker: PickerType;
+  start: Date;
+  end: Date;
+  onChange: (kind: PickerType) => (event: unknown, selected?: Date) => void;
+  onClose: () => void;
+}>) {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { t } = useI18n();
+
+  if (!DATE_TIME_PICKERS.includes(picker)) return null;
+
+  const value = picker === 'startDate' || picker === 'startTime' ? start : end;
+  const pickerMode: 'date' | 'time' =
+    picker === 'startTime' || picker === 'endTime' ? 'time' : 'date';
+
+  if (Platform.OS !== 'ios') {
+    return (
+      <DateTimePicker
+        value={value}
+        mode={pickerMode}
+        display="default"
+        onChange={onChange(picker)}
+      />
+    );
+  }
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable
+          style={[
+            styles.sheet,
+            { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16 },
+          ]}
+          onPress={(event) => event.stopPropagation()}
+        >
+          <View style={styles.sheetHeader}>
+            <Text style={[styles.sheetTitle, { color: colors.text }]}>
+              {pickerMode === 'date' ? t.eventForm.pickDate : t.eventForm.pickTime}
+            </Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={[styles.sheetAction, { color: BRAND }]}>{t.common.done}</Text>
+            </TouchableOpacity>
+          </View>
           <DateTimePicker
-            value={pickerValue()}
-            mode={pickerMode()}
-            display="default"
-            onChange={handlePickerChange(picker)}
+            value={value}
+            mode={pickerMode}
+            display="spinner"
+            onChange={onChange(picker)}
+            themeVariant={colors.text === '#fff' ? 'dark' : 'light'}
           />
-        )
-      ) : null}
-    </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 

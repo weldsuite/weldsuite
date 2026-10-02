@@ -441,6 +441,289 @@ function formatFileSize(bytes: number): string {
   return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100} ${sizes[i]}`;
 }
 
+function PriorityField({ task, onUpdate }: { task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }) {
+  const t = useTranslations();
+  const priorityLabels = useTaskPriorityLabels(t);
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 w-32 flex-shrink-0">
+        <Flag className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t('sweep.shared.priority')}</span>
+      </div>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
+            {task.priority ? (
+              <span className={cn(
+                "inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow",
+                priorityConfig[task.priority]?.color,
+              )}>
+                {priorityLabels[task.priority]}
+              </span>
+            ) : (
+              <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setPriority')}</span>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-1" align="start">
+          {Object.entries(priorityConfig).map(([key]) => (
+            <Button
+              variant="ghost"
+              key={key}
+              onClick={() => onUpdate(task.id, { priority: key as Task['priority'] })}
+              className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
+            >
+              <span>{priorityLabels[key as keyof typeof priorityLabels]}</span>
+              {task.priority === key && <Check className="h-3.5 w-3.5 text-primary" />}
+            </Button>
+          ))}
+          {task.priority && (
+            <>
+              <div className="h-px bg-border my-1" />
+              <Button
+                variant="ghost"
+                onClick={() => onUpdate(task.id, { priority: undefined })}
+                className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
+                <span>{t('sweep.shared.clear')}</span>
+              </Button>
+            </>
+          )}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+function DueDateField({ task, onUpdate }: { task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }) {
+  const t = useTranslations();
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 w-32 flex-shrink-0">
+        <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t('sweep.shared.dueDate')}</span>
+      </div>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" className={cn(
+            "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start group/field transition-colors",
+            task.dueDate && "border border-transparent hover:border-border hover:bg-muted/40",
+          )}>
+            {task.dueDate ? (
+              <span className={cn(
+                task.dueDate < new Date() && task.status !== 'done' && "text-red-600 dark:text-red-400"
+              )}>
+                {format(task.dueDate, 'MMM d, yyyy')}
+              </span>
+            ) : (
+              <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setDueDate')}</span>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={task.dueDate}
+            onSelect={(date) => onUpdate(task.id, { dueDate: date })}
+            initialFocus
+          />
+          {task.dueDate && (
+            <div className="p-1 border-t border-border">
+              <Button
+                variant="ghost"
+                onClick={() => onUpdate(task.id, { dueDate: undefined })}
+                className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
+                <span>{t('sweep.shared.clear')}</span>
+              </Button>
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+function ScheduledSlotField({ task }: { task: Task }) {
+  const t = useTranslations();
+  const scheduledStart = task.scheduledStart
+    ? new Date(task.scheduledStart)
+    : null;
+  const scheduledEnd = task.scheduledEnd
+    ? new Date(task.scheduledEnd)
+    : null;
+  const autoScheduled = task.autoScheduled;
+  if (!scheduledStart) return null;
+  const sameDay =
+    scheduledEnd &&
+    scheduledStart.toDateString() === scheduledEnd.toDateString();
+  const display = scheduledEnd
+    ? sameDay
+      ? `${format(scheduledStart, 'MMM d, HH:mm')}–${format(scheduledEnd, 'HH:mm')}`
+      : `${format(scheduledStart, 'MMM d, HH:mm')} – ${format(scheduledEnd, 'MMM d, HH:mm')}`
+    : format(scheduledStart, 'MMM d, HH:mm');
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 w-32 flex-shrink-0">
+        <Clock className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t('sweep.shared.scheduled')}</span>
+      </div>
+      <div className="h-8 inline-flex items-center gap-2 text-sm">
+        <span>{display}</span>
+        {autoScheduled === false && (
+          <span
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+            title={t('sweep.shared.pinnedAutoSchedulingOffTitle')}
+          >
+            <Pin className="h-3 w-3" />
+            {t('sweep.shared.pinned')}
+          </span>
+        )}
+        {autoScheduled === true && (
+          <span
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+            title={t('sweep.shared.autoScheduledTitle')}
+          >
+            <Sparkles className="h-3 w-3" />
+            {t('sweep.shared.auto')}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssigneesField({
+  task,
+  onUpdate,
+  availableAssignees,
+}: {
+  task: Task;
+  onUpdate: (taskId: string, data: TaskUpdateData) => void;
+  availableAssignees: TaskDetailContentProps['availableAssignees'];
+}) {
+  const t = useTranslations();
+  return (
+    <div className="flex items-start gap-3 group/assignees">
+      <div className="flex items-center gap-2 w-32 flex-shrink-0 h-8">
+        <User className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t('sweep.shared.assignees')}</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        {/* Single trigger — clicking anywhere on the assignees area
+            opens the picker. Matches the Status/Priority/Labels pattern.
+            Inner remove buttons stopPropagation so they don't toggle
+            the popover. Uses a <div> trigger so the inner remove
+            buttons stay valid HTML (no nested <button>s). */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <div
+              role="button"
+              tabIndex={0}
+              className="text-sm cursor-pointer flex items-start justify-between gap-2 self-start min-h-8 outline-none focus-visible:ring-2 focus-visible:ring-ring w-full group/field"
+            >
+              {(task.assignees && task.assignees.length > 0) || task.assignee ? (
+                <>
+                  <div className="flex flex-col gap-1 min-w-0">
+                    {(task.assignees || (task.assignee ? [task.assignee] : [])).map((a) => (
+                      <div
+                        key={a.id || a.name}
+                        className="flex items-center gap-2 pl-0.5 pr-1.5 py-0.5 -ml-0.5 rounded-[6px] group/assignee"
+                      >
+                        <AssigneeAvatar id={a.id} name={a.name} avatar={a.avatar} />
+                        <span className="text-sm text-gray-600 dark:text-muted-foreground truncate max-w-[150px]">
+                          {a.name}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            const current = task.assignees || (task.assignee ? [task.assignee] : []);
+                            const updated = current.filter((x) => (x.id || x.name) !== (a.id || a.name));
+                            onUpdate(task.id, { assignees: updated.length > 0 ? updated : null });
+                          }}
+                          className="inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/assignee:opacity-100 transition-[opacity,color,background-color]"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <span
+                    className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                    aria-label={t('sweep.shared.addAssignee')}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </span>
+                </>
+              ) : (
+                <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.addAssignee')}</span>
+              )}
+            </div>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-0" align="start">
+            <Command>
+              <CommandInput placeholder={t('sweep.shared.searchAssigneesPlaceholder')} />
+              <CommandList className="max-h-[260px] p-1">
+                <CommandEmpty>{t('sweep.shared.noAssigneesFound')}</CommandEmpty>
+                {availableAssignees.map((item) => {
+                  const id = typeof item === 'string' ? item : item.id;
+                  const name = typeof item === 'string' ? item : item.name;
+                  const avatar = typeof item === 'string' ? undefined : item.avatar;
+                  const current = task.assignees || (task.assignee ? [task.assignee] : []);
+                  const isSelected = current.some((a) => a.id === id || a.name === name);
+                  return (
+                    <CommandItem
+                      key={id}
+                      value={name}
+                      onSelect={() => {
+                        if (isSelected) {
+                          const updated = current.filter((a) => (a.id || a.name) !== id && a.name !== name);
+                          onUpdate(task.id, { assignees: updated.length > 0 ? updated : null });
+                        } else {
+                          onUpdate(task.id, { assignees: [...current, { id, name, avatar }] });
+                        }
+                      }}
+                      className="flex items-center justify-between gap-2 px-1.5"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AssigneeAvatar id={id} name={name} avatar={avatar} />
+                        <span className="truncate">{name}</span>
+                      </div>
+                      {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                    </CommandItem>
+                  );
+                })}
+                {((task.assignees && task.assignees.length > 0) || task.assignee) && (
+                  <>
+                    <div className="h-px bg-border my-1" />
+                    <CommandItem
+                      value="__clear__"
+                      onSelect={() => onUpdate(task.id, { assignees: null })}
+                      className="px-1.5 text-red-600 data-[selected=true]:text-red-600 data-[selected=true]:bg-red-50 dark:data-[selected=true]:bg-red-950"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-5 w-5 flex items-center justify-center shrink-0">
+                          <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                        </div>
+                        <span>{t('sweep.shared.clearAll')}</span>
+                      </div>
+                    </CommandItem>
+                  </>
+                )}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </div>
+    </div>
+  );
+}
+
 // The comments/create-label props below are accepted for prop-contract
 // parity with long-standing callers (task-panel.tsx, weldflow/*,
 // welddrive/*, …) that still pass a comments/labels API — this component no
@@ -481,7 +764,6 @@ export function TaskDetailContent({
 /* eslint-enable @typescript-eslint/no-unused-vars */
   const t = useTranslations();
   const statusLabels = useTaskStatusLabels(t);
-  const priorityLabels = useTaskPriorityLabels(t);
   const repeatLabels = useTaskRepeatLabels(t);
   const {
     isFieldVisible: isFieldVisibleBase,
@@ -636,272 +918,22 @@ export function TaskDetailContent({
 
           {/* Priority */}
           {isFieldVisible('priority') && (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 w-32 flex-shrink-0">
-              <Flag className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{t('sweep.shared.priority')}</span>
-            </div>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
-                  {task.priority ? (
-                    <span className={cn(
-                      "inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow",
-                      priorityConfig[task.priority]?.color,
-                    )}>
-                      {priorityLabels[task.priority]}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setPriority')}</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-1" align="start">
-                {Object.entries(priorityConfig).map(([key]) => (
-                  <Button
-                    variant="ghost"
-                    key={key}
-                    onClick={() => onUpdate(task.id, { priority: key as Task['priority'] })}
-                    className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
-                  >
-                    <span>{priorityLabels[key as keyof typeof priorityLabels]}</span>
-                    {task.priority === key && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </Button>
-                ))}
-                {task.priority && (
-                  <>
-                    <div className="h-px bg-border my-1" />
-                    <Button
-                      variant="ghost"
-                      onClick={() => onUpdate(task.id, { priority: undefined })}
-                      className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
-                      <span>{t('sweep.shared.clear')}</span>
-                    </Button>
-                  </>
-                )}
-              </PopoverContent>
-            </Popover>
-          </div>
+          <PriorityField task={task} onUpdate={onUpdate} />
           )}
 
           {/* Due Date */}
           {isFieldVisible('dueDate') && (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 w-32 flex-shrink-0">
-              <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{t('sweep.shared.dueDate')}</span>
-            </div>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" className={cn(
-                  "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start group/field transition-colors",
-                  task.dueDate && "border border-transparent hover:border-border hover:bg-muted/40",
-                )}>
-                  {task.dueDate ? (
-                    <span className={cn(
-                      task.dueDate < new Date() && task.status !== 'done' && "text-red-600 dark:text-red-400"
-                    )}>
-                      {format(task.dueDate, 'MMM d, yyyy')}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setDueDate')}</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={task.dueDate}
-                  onSelect={(date) => onUpdate(task.id, { dueDate: date })}
-                  initialFocus
-                />
-                {task.dueDate && (
-                  <div className="p-1 border-t border-border">
-                    <Button
-                      variant="ghost"
-                      onClick={() => onUpdate(task.id, { dueDate: undefined })}
-                      className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
-                      <span>{t('sweep.shared.clear')}</span>
-                    </Button>
-                  </div>
-                )}
-              </PopoverContent>
-            </Popover>
-          </div>
+          <DueDateField task={task} onUpdate={onUpdate} />
           )}
 
           {/* Scheduled slot — read-only, sourced from the linked calendar event.
               Shown only when the task has actually been auto-scheduled or
               manually pinned to a time. */}
-          {(() => {
-            const scheduledStart = task.scheduledStart
-              ? new Date(task.scheduledStart)
-              : null;
-            const scheduledEnd = task.scheduledEnd
-              ? new Date(task.scheduledEnd)
-              : null;
-            const autoScheduled = task.autoScheduled;
-            if (!scheduledStart) return null;
-            const sameDay =
-              scheduledEnd &&
-              scheduledStart.toDateString() === scheduledEnd.toDateString();
-            const display = scheduledEnd
-              ? sameDay
-                ? `${format(scheduledStart, 'MMM d, HH:mm')}–${format(scheduledEnd, 'HH:mm')}`
-                : `${format(scheduledStart, 'MMM d, HH:mm')} – ${format(scheduledEnd, 'MMM d, HH:mm')}`
-              : format(scheduledStart, 'MMM d, HH:mm');
-            return (
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 w-32 flex-shrink-0">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">{t('sweep.shared.scheduled')}</span>
-                </div>
-                <div className="h-8 inline-flex items-center gap-2 text-sm">
-                  <span>{display}</span>
-                  {autoScheduled === false && (
-                    <span
-                      className="inline-flex items-center gap-1 text-xs text-muted-foreground"
-                      title={t('sweep.shared.pinnedAutoSchedulingOffTitle')}
-                    >
-                      <Pin className="h-3 w-3" />
-                      {t('sweep.shared.pinned')}
-                    </span>
-                  )}
-                  {autoScheduled === true && (
-                    <span
-                      className="inline-flex items-center gap-1 text-xs text-muted-foreground"
-                      title={t('sweep.shared.autoScheduledTitle')}
-                    >
-                      <Sparkles className="h-3 w-3" />
-                      {t('sweep.shared.auto')}
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
+          <ScheduledSlotField task={task} />
 
           {/* Assignees (multi-select) */}
           {isFieldVisible('assignee') && (
-          <div className="flex items-start gap-3 group/assignees">
-            <div className="flex items-center gap-2 w-32 flex-shrink-0 h-8">
-              <User className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{t('sweep.shared.assignees')}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              {/* Single trigger — clicking anywhere on the assignees area
-                  opens the picker. Matches the Status/Priority/Labels pattern.
-                  Inner remove buttons stopPropagation so they don't toggle
-                  the popover. Uses a <div> trigger so the inner remove
-                  buttons stay valid HTML (no nested <button>s). */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    className="text-sm cursor-pointer flex items-start justify-between gap-2 self-start min-h-8 outline-none focus-visible:ring-2 focus-visible:ring-ring w-full group/field"
-                  >
-                    {(task.assignees && task.assignees.length > 0) || task.assignee ? (
-                      <>
-                        <div className="flex flex-col gap-1 min-w-0">
-                          {(task.assignees || (task.assignee ? [task.assignee] : [])).map((a) => (
-                            <div
-                              key={a.id || a.name}
-                              className="flex items-center gap-2 pl-0.5 pr-1.5 py-0.5 -ml-0.5 rounded-[6px] group/assignee"
-                            >
-                              <AssigneeAvatar id={a.id} name={a.name} avatar={a.avatar} />
-                              <span className="text-sm text-gray-600 dark:text-muted-foreground truncate max-w-[150px]">
-                                {a.name}
-                              </span>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  const current = task.assignees || (task.assignee ? [task.assignee] : []);
-                                  const updated = current.filter((x) => (x.id || x.name) !== (a.id || a.name));
-                                  onUpdate(task.id, { assignees: updated.length > 0 ? updated : null });
-                                }}
-                                className="inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/assignee:opacity-100 transition-[opacity,color,background-color]"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                        <span
-                          className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover/field:opacity-100"
-                          aria-label={t('sweep.shared.addAssignee')}
-                        >
-                          <Plus className="h-4 w-4" />
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.addAssignee')}</span>
-                    )}
-                  </div>
-                </PopoverTrigger>
-                <PopoverContent className="w-64 p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder={t('sweep.shared.searchAssigneesPlaceholder')} />
-                    <CommandList className="max-h-[260px] p-1">
-                      <CommandEmpty>{t('sweep.shared.noAssigneesFound')}</CommandEmpty>
-                      {availableAssignees.map((item) => {
-                        const id = typeof item === 'string' ? item : item.id;
-                        const name = typeof item === 'string' ? item : item.name;
-                        const avatar = typeof item === 'string' ? undefined : item.avatar;
-                        const current = task.assignees || (task.assignee ? [task.assignee] : []);
-                        const isSelected = current.some((a) => a.id === id || a.name === name);
-                        return (
-                          <CommandItem
-                            key={id}
-                            value={name}
-                            onSelect={() => {
-                              if (isSelected) {
-                                const updated = current.filter((a) => (a.id || a.name) !== id && a.name !== name);
-                                onUpdate(task.id, { assignees: updated.length > 0 ? updated : null });
-                              } else {
-                                onUpdate(task.id, { assignees: [...current, { id, name, avatar }] });
-                              }
-                            }}
-                            className="flex items-center justify-between gap-2 px-1.5"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <AssigneeAvatar id={id} name={name} avatar={avatar} />
-                              <span className="truncate">{name}</span>
-                            </div>
-                            {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                          </CommandItem>
-                        );
-                      })}
-                      {((task.assignees && task.assignees.length > 0) || task.assignee) && (
-                        <>
-                          <div className="h-px bg-border my-1" />
-                          <CommandItem
-                            value="__clear__"
-                            onSelect={() => onUpdate(task.id, { assignees: null })}
-                            className="px-1.5 text-red-600 data-[selected=true]:text-red-600 data-[selected=true]:bg-red-50 dark:data-[selected=true]:bg-red-950"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className="h-5 w-5 flex items-center justify-center shrink-0">
-                                <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                              </div>
-                              <span>{t('sweep.shared.clearAll')}</span>
-                            </div>
-                          </CommandItem>
-                        </>
-                      )}
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-          </div>
+          <AssigneesField task={task} onUpdate={onUpdate} availableAssignees={availableAssignees} />
           )}
 
           {/* Company */}
@@ -1439,6 +1471,56 @@ export function TaskDetailContent({
   );
 }
 
+/** Index of the next sibling at the same depth (skipping descendants) for row `i`, or -1. */
+function findNextSiblingIndex(subtasks: SubtaskItem[], i: number): number {
+  const d = subtasks[i].depth ?? 0;
+  for (let j = i + 1; j < subtasks.length; j++) {
+    const dj = subtasks[j].depth ?? 0;
+    if (dj === d) return j;
+    if (dj < d) return -1;
+  }
+  return -1;
+}
+
+// Ancestor lookup: in DFS order, row i's ancestor at depth c is
+// simply the most recent preceding row whose depth equals c —
+// any rows between them are strictly deeper (descendants of that
+// ancestor's subtree that contain row i). A later sibling of the
+// ancestor would only appear AFTER the ancestor's entire subtree
+// closes, i.e. after row i.
+function findAncestorContinuations(subtasks: SubtaskItem[], nextSiblingAt: number[], i: number): boolean[] {
+  const d = subtasks[i].depth ?? 0;
+  const arr: boolean[] = new Array(d).fill(false);
+  for (let c = 0; c < d; c++) {
+    let j = i - 1;
+    while (j >= 0 && (subtasks[j].depth ?? 0) !== c) j--;
+    arr[c] = j >= 0 && nextSiblingAt[j] !== -1;
+  }
+  return arr;
+}
+
+/** Per-row guide-line data for the subtask tree (see the render comment for what each array means). */
+function computeSubtaskTreeGuides(subtasks: SubtaskItem[]): {
+  nextSiblingAt: number[];
+  ancestorContinuations: boolean[][];
+  hasChildBelow: boolean[];
+} {
+  const nextSiblingAt = subtasks.map((_, i) => findNextSiblingIndex(subtasks, i));
+  const ancestorContinuations = subtasks.map((_, i) => findAncestorContinuations(subtasks, nextSiblingAt, i));
+  // A row "has a direct child below" when the next row in the flat
+  // list sits one level deeper (DFS always emits a parent's first
+  // child immediately after the parent). That means we need a
+  // descending trunk at col d+1 from this row's middle down to its
+  // bottom, so the child's upper vertical at col d+1 visually
+  // threads back to THIS row — not to some distant ancestor.
+  const hasChildBelow: boolean[] = subtasks.map((s, i) => {
+    const d = s.depth ?? 0;
+    const next = subtasks[i + 1];
+    return !!next && (next.depth ?? 0) === d + 1;
+  });
+  return { nextSiblingAt, ancestorContinuations, hasChildBelow };
+}
+
 export function SubtasksSection({
   subtasks,
   parentTask,
@@ -1577,43 +1659,7 @@ export function SubtasksSection({
             group — meaning the tree at depth c still has unfinished
             business below, and the guide line must continue past row i. */}
       {effectiveSubtasks.length > 0 && (() => {
-            const nextSiblingAt: number[] = new Array(effectiveSubtasks.length).fill(-1);
-            for (let i = 0; i < effectiveSubtasks.length; i++) {
-              const d = effectiveSubtasks[i].depth ?? 0;
-              for (let j = i + 1; j < effectiveSubtasks.length; j++) {
-                const dj = effectiveSubtasks[j].depth ?? 0;
-                if (dj === d) { nextSiblingAt[i] = j; break; }
-                if (dj < d) break;
-              }
-            }
-            // Ancestor lookup: in DFS order, row i's ancestor at depth c is
-            // simply the most recent preceding row whose depth equals c —
-            // any rows between them are strictly deeper (descendants of that
-            // ancestor's subtree that contain row i). A later sibling of the
-            // ancestor would only appear AFTER the ancestor's entire subtree
-            // closes, i.e. after row i.
-            const ancestorContinuations: boolean[][] = new Array(effectiveSubtasks.length);
-            for (let i = 0; i < effectiveSubtasks.length; i++) {
-              const d = effectiveSubtasks[i].depth ?? 0;
-              const arr: boolean[] = new Array(d).fill(false);
-              for (let c = 0; c < d; c++) {
-                let j = i - 1;
-                while (j >= 0 && (effectiveSubtasks[j].depth ?? 0) !== c) j--;
-                arr[c] = j >= 0 && nextSiblingAt[j] !== -1;
-              }
-              ancestorContinuations[i] = arr;
-            }
-            // A row "has a direct child below" when the next row in the flat
-            // list sits one level deeper (DFS always emits a parent's first
-            // child immediately after the parent). That means we need a
-            // descending trunk at col d+1 from this row's middle down to its
-            // bottom, so the child's upper vertical at col d+1 visually
-            // threads back to THIS row — not to some distant ancestor.
-            const hasChildBelow: boolean[] = effectiveSubtasks.map((s, i) => {
-              const d = s.depth ?? 0;
-              const next = effectiveSubtasks[i + 1];
-              return !!next && (next.depth ?? 0) === d + 1;
-            });
+            const { nextSiblingAt, ancestorContinuations, hasChildBelow } = computeSubtaskTreeGuides(effectiveSubtasks);
             return (
             <div style={{ overflow: 'hidden', maxWidth: '100%' }}>
               {effectiveSubtasks.map((subtask, index) => {
@@ -2056,8 +2102,8 @@ export function CommentsList({
   const htmlToContent = useCallback((html: string): string => {
     const div = document.createElement('div');
     div.innerHTML = html;
-    div.querySelectorAll('.comment-mention-badge').forEach((badge) => {
-      const userId = badge.getAttribute('data-userid');
+    div.querySelectorAll<HTMLElement>('.comment-mention-badge').forEach((badge) => {
+      const userId = badge.dataset.userid;
       if (userId) badge.replaceWith(`<@${userId}>`);
     });
     return div.innerText;
@@ -2413,6 +2459,60 @@ function descriptionToHtml(input: string): string {
   return html;
 }
 
+type EditorFormatKind = 'bold' | 'italic' | 'strike' | 'code' | 'highlight' | 'ul' | 'ol';
+
+const EXEC_COMMANDS: Record<Exclude<EditorFormatKind, 'code' | 'highlight'>, string> = {
+  bold: 'bold',
+  italic: 'italic',
+  strike: 'strikeThrough',
+  ul: 'insertUnorderedList',
+  ol: 'insertOrderedList',
+};
+
+function execListOrInlineCommand(kind: Exclude<EditorFormatKind, 'code' | 'highlight'>): void {
+  document.execCommand(EXEC_COMMANDS[kind], false);
+}
+
+function placeCaretAfter(sel: Selection, node: Node): void {
+  const range = document.createRange();
+  range.setStartAfter(node);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+/**
+ * Wrap the current selection in a `code` / `mark` tag, or unwrap it when the
+ * caret is already inside one. execCommand has no portable way to do this so
+ * we handle it manually. Returns false when there is no selection at all.
+ */
+function toggleWrapperTag(tagName: 'code' | 'mark'): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const anchorNode = sel.anchorNode;
+  const wrapperEl = anchorNode instanceof HTMLElement
+    ? anchorNode.closest(tagName)
+    : anchorNode?.parentElement?.closest(tagName);
+  if (wrapperEl) {
+    const textNode = document.createTextNode(wrapperEl.textContent || '');
+    wrapperEl.replaceWith(textNode);
+    placeCaretAfter(sel, textNode);
+  } else if (!sel.isCollapsed) {
+    const range = sel.getRangeAt(0);
+    const fragment = range.extractContents();
+    const wrapper = document.createElement(tagName);
+    if (tagName === 'code') {
+      wrapper.className = 'bg-muted text-[0.85em] px-1 py-0.5 rounded font-mono';
+    } else {
+      wrapper.className = 'bg-yellow-200 dark:bg-yellow-400/30 text-inherit rounded px-0.5';
+    }
+    wrapper.appendChild(fragment);
+    range.insertNode(wrapper);
+    placeCaretAfter(sel, wrapper);
+  }
+  return true;
+}
+
 /**
  * Inline-editable description field with file upload support.
  * Click to edit, blur or Cmd+Enter to save (Enter for new line).
@@ -2513,9 +2613,7 @@ export function DescriptionField({
   // Apply a formatting command to the current selection. Mirrors the pattern
   // used by weldchat's message-input — straight `document.execCommand` for
   // WYSIWYG (bold text appears bold as you type, no `**` markers).
-  const applyFormat = useCallback((
-    kind: 'bold' | 'italic' | 'strike' | 'code' | 'highlight' | 'ul' | 'ol',
-  ) => {
+  const applyFormat = useCallback((kind: EditorFormatKind) => {
     const el = editorRef.current;
     if (!el) return;
     el.focus();
@@ -2524,46 +2622,9 @@ export function DescriptionField({
     // and toggle off when the caret is already inside one. execCommand has no
     // portable way to do this so we handle it manually.
     if (kind === 'code' || kind === 'highlight') {
-      const tagName = kind === 'code' ? 'code' : 'mark';
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-      const anchorNode = sel.anchorNode;
-      const wrapperEl = anchorNode instanceof HTMLElement
-        ? anchorNode.closest(tagName)
-        : anchorNode?.parentElement?.closest(tagName);
-      if (wrapperEl) {
-        const textNode = document.createTextNode(wrapperEl.textContent || '');
-        wrapperEl.replaceWith(textNode);
-        const range = document.createRange();
-        range.setStartAfter(textNode);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } else if (!sel.isCollapsed) {
-        const range = sel.getRangeAt(0);
-        const fragment = range.extractContents();
-        const wrapper = document.createElement(tagName);
-        if (tagName === 'code') {
-          wrapper.className = 'bg-muted text-[0.85em] px-1 py-0.5 rounded font-mono';
-        } else {
-          wrapper.className = 'bg-yellow-200 dark:bg-yellow-400/30 text-inherit rounded px-0.5';
-        }
-        wrapper.appendChild(fragment);
-        range.insertNode(wrapper);
-        range.setStartAfter(wrapper);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
+      if (!toggleWrapperTag(kind === 'code' ? 'code' : 'mark')) return;
     } else {
-      const command: Record<typeof kind, string> = {
-        bold: 'bold',
-        italic: 'italic',
-        strike: 'strikeThrough',
-        ul: 'insertUnorderedList',
-        ol: 'insertOrderedList',
-      };
-      document.execCommand(command[kind], false);
+      execListOrInlineCommand(kind);
     }
 
     currentHtmlRef.current = el.innerHTML;

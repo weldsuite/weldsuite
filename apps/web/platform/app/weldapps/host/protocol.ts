@@ -118,6 +118,13 @@ export function isSafeRelativePath(path: unknown): path is string {
   return !decoded.split('/').some((segment) => segment === '..' || segment === '.');
 }
 
+/** Drop trailing `/` characters (linear scan; avoids a backtracking regex). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+  return value.slice(0, end);
+}
+
 /**
  * Where a proxied `fetch` goes, or null when the app may not call it.
  *
@@ -133,7 +140,7 @@ export function resolveProxyUrl(params: {
 }): string | null {
   const { apiBase, appCode, usesPlatformSession, path } = params;
   if (!isSafeRelativePath(path)) return null;
-  const base = apiBase.replace(/\/+$/, '');
+  const base = stripTrailingSlashes(apiBase);
   if (usesPlatformSession) {
     return path.startsWith('/api/') ? `${base}${path}` : null;
   }

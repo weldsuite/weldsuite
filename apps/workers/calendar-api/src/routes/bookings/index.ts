@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createBookingSchema, updateBookingSchema } from '@weldsuite/core-api-client/schemas/bookings';
@@ -39,31 +40,46 @@ async function ownsPage(
   return !!page && page.ownerId === scope;
 }
 
+const isNonEmpty = (v: string | undefined): v is string => v !== undefined && v !== '';
+
+/** Restricts bookings to those on booking pages owned by `scope`. */
+async function ownedPagesCondition(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  scope: string,
+): Promise<SQL | undefined> {
+  const db = c.get('tenantDb');
+  const pages = await db.select({ id: bp.id }).from(bp).where(eq(bp.ownerId, scope));
+  const pageIds = pages.map((p) => p.id);
+  return inArray(t.bookingPageId, pageIds.length ? pageIds : ['']);
+}
+
+/** Keyset condition for the page after `cursorId` (createdAt DESC, id DESC). */
+async function keysetCondition(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  cursorId: string | undefined,
+): Promise<SQL | undefined> {
+  if (!cursorId) return undefined;
+  const db = c.get('tenantDb');
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursorId)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('bookings:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.bookingPageId !== undefined && q.bookingPageId !== '') conditions.push(eq(t.bookingPageId, q.bookingPageId));
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
+  if (isNonEmpty(q.bookingPageId)) conditions.push(eq(t.bookingPageId, q.bookingPageId));
+  if (isNonEmpty(q.status)) conditions.push(eq(t.status, q.status));
   // Owner scope: restrict to bookings on the caller's own pages unless scope:all.
   const scope = await scopeFor(c);
-  if (scope) {
-    const pages = await db.select({ id: bp.id }).from(bp).where(eq(bp.ownerId, scope));
-    const pageIds = pages.map((p) => p.id);
-    conditions.push(inArray(t.bookingPageId, pageIds.length ? pageIds : ['']));
-  }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
+  if (scope) conditions.push(await ownedPagesCondition(c, scope));
+  const cursorCondition = await keysetCondition(c, q.cursor);
+  if (cursorCondition) conditions.push(cursorCondition);
   const where = conditions.length ? and(...conditions) : undefined;
   const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
   const countWhere = filterConditions.length ? and(...filterConditions) : undefined;

@@ -89,6 +89,7 @@ import {
   PieChart
 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { secureRandom } from '@/lib/random';
 
 interface Deal {
   id: string;
@@ -231,6 +232,78 @@ function matchesFilter(deal: Deal, filter: ActiveFilter): boolean {
   }
 }
 
+const SORTABLE_STAGE_PREFIX = 'sortable-stage-';
+const STAGE_DROP_PREFIX = 'stage-';
+
+function findStageOfDeal(stages: Stage[], dealId: string): Stage | undefined {
+  return stages.find(stage => stage.deals.some(d => d.id === dealId));
+}
+
+/** Resolves the stage id a drag-over target refers to (stage handle, stage drop zone, or a deal in a stage). */
+function resolveOverStageId(stages: Stage[], overId: string): string {
+  if (overId.startsWith(SORTABLE_STAGE_PREFIX)) return overId.replace(SORTABLE_STAGE_PREFIX, '');
+  if (overId.startsWith(STAGE_DROP_PREFIX)) return overId.replace(STAGE_DROP_PREFIX, '');
+  return findStageOfDeal(stages, overId)?.id ?? overId;
+}
+
+/** Resolves the stage a dragged deal was dropped on (stage drop zone, stage handle, or another deal). */
+function resolveTargetStage(stages: Stage[], overId: string): Stage | undefined {
+  if (overId.startsWith(STAGE_DROP_PREFIX)) {
+    const stageId = overId.replace(STAGE_DROP_PREFIX, '');
+    return stages.find(s => s.id === stageId);
+  }
+  if (overId.startsWith(SORTABLE_STAGE_PREFIX)) {
+    const stageId = overId.replace(SORTABLE_STAGE_PREFIX, '');
+    return stages.find(s => s.id === stageId);
+  }
+  return findStageOfDeal(stages, overId);
+}
+
+function reorderStages(prevStages: Stage[], activeStageId: string, overStageId: string): Stage[] {
+  const oldIndex = prevStages.findIndex(s => s.id === activeStageId);
+  const newIndex = prevStages.findIndex(s => s.id === overStageId);
+
+  if (oldIndex === -1 || newIndex === -1) return prevStages;
+
+  const newStages = [...prevStages];
+  const [movedStage] = newStages.splice(oldIndex, 1);
+  newStages.splice(newIndex, 0, movedStage);
+  return newStages;
+}
+
+/** Moves a deal between two stages, keeping each stage's count and value in sync. */
+function moveDealBetweenStages(
+  prevStages: Stage[],
+  dealId: string,
+  fromStageId: string,
+  toStageId: string,
+): Stage[] {
+  const newStages = [...prevStages];
+
+  const fromStageIndex = newStages.findIndex(s => s.id === fromStageId);
+  const toStageIndex = newStages.findIndex(s => s.id === toStageId);
+  if (fromStageIndex === -1 || toStageIndex === -1) return prevStages;
+
+  // Find and remove deal from source stage
+  const dealIndex = newStages[fromStageIndex].deals.findIndex(d => d.id === dealId);
+  if (dealIndex === -1) return prevStages;
+
+  const [movedDeal] = newStages[fromStageIndex].deals.splice(dealIndex, 1);
+  if (!movedDeal) return prevStages;
+
+  // Update source stage counts
+  newStages[fromStageIndex].count -= 1;
+  newStages[fromStageIndex].value -= movedDeal.value;
+
+  // Add deal to target stage and update its counts
+  movedDeal.stage = toStageId;
+  newStages[toStageIndex].deals.push(movedDeal);
+  newStages[toStageIndex].count += 1;
+  newStages[toStageIndex].value += movedDeal.value;
+
+  return newStages;
+}
+
 export function PipelineKanban({
   initialDeals = [],
   initialStages = [],
@@ -301,11 +374,11 @@ export function PipelineKanban({
         angle: 270,
         origin: { x, y: 0 },
         colors,
-        startVelocity: 30 + Math.random() * 15,
+        startVelocity: 30 + secureRandom() * 15,
         gravity: 1.2,
         ticks: 100,
         scalar: 1.2,
-        drift: (Math.random() - 0.5) * 2,
+        drift: (secureRandom() - 0.5) * 2,
       });
     }
 
@@ -471,8 +544,8 @@ export function PipelineKanban({
     const activeId = active.id as string;
     
     // Check if we're dragging a stage or a deal
-    if (activeId.startsWith('sortable-stage-')) {
-      const stageId = activeId.replace('sortable-stage-', '');
+    if (activeId.startsWith(SORTABLE_STAGE_PREFIX)) {
+      const stageId = activeId.replace(SORTABLE_STAGE_PREFIX, '');
       setActiveStageId(stageId);
       setActiveDealId(null);
     } else {
@@ -485,164 +558,52 @@ export function PipelineKanban({
     const { active, over } = event;
     setActiveDealId(null);
     setActiveStageId(null);
-    
+
     if (!over) return;
 
     const activeId = active.id as string;
     const overId = over.id as string;
 
     // Handle stage reordering
-    if (activeId.startsWith('sortable-stage-')) {
-      const activeStageId = activeId.replace('sortable-stage-', '');
-      let overStageId = overId;
-      
-      if (overId.startsWith('sortable-stage-')) {
-        overStageId = overId.replace('sortable-stage-', '');
-      } else if (overId.startsWith('stage-')) {
-        overStageId = overId.replace('stage-', '');
-      } else {
-        // Over a deal, find its stage
-        for (const stage of stages) {
-          if (stage.deals.some(d => d.id === overId)) {
-            overStageId = stage.id;
-            break;
-          }
-        }
-      }
+    if (activeId.startsWith(SORTABLE_STAGE_PREFIX)) {
+      const activeStageId = activeId.replace(SORTABLE_STAGE_PREFIX, '');
+      const overStageId = resolveOverStageId(stages, overId);
 
       if (activeStageId !== overStageId) {
-        setStages(prevStages => {
-          const oldIndex = prevStages.findIndex(s => s.id === activeStageId);
-          const newIndex = prevStages.findIndex(s => s.id === overStageId);
-          
-          if (oldIndex !== -1 && newIndex !== -1) {
-            const newStages = [...prevStages];
-            const [movedStage] = newStages.splice(oldIndex, 1);
-            newStages.splice(newIndex, 0, movedStage);
-            return newStages;
-          }
-          
-          return prevStages;
-        });
+        setStages(prevStages => reorderStages(prevStages, activeStageId, overStageId));
       }
       return;
     }
 
-    // Handle deal movement (existing code)
+    // Handle deal movement
     const activeDealId = activeId;
 
-    // Find the deal and its current stage
-    let fromStage: Stage | undefined;
-    let deal: Deal | undefined;
-    
-    for (const stage of stages) {
-      const foundDeal = stage.deals.find(d => d.id === activeDealId);
-      if (foundDeal) {
-        fromStage = stage;
-        deal = foundDeal;
-        break;
-      }
+    // Find the deal's current stage and the target stage
+    const fromStage = findStageOfDeal(stages, activeDealId);
+    if (!fromStage) return;
+
+    const toStage = resolveTargetStage(stages, overId);
+    if (!toStage || fromStage.id === toStage.id) return;
+
+    const fromStageId = fromStage.id;
+    const toStageId = toStage.id;
+
+    // Update local state immediately for smooth UX
+    setStages(prevStages => moveDealBetweenStages(prevStages, activeDealId, fromStageId, toStageId));
+
+    // Fire confetti if target stage has it enabled
+    if (confettiStages.has(toStageId)) {
+      fireConfetti();
     }
 
-    if (!fromStage || !deal) return;
-
-    // Find the target stage
-    let toStage: Stage | undefined;
-    
-    if (overId.startsWith('stage-')) {
-      const stageId = overId.replace('stage-', '');
-      toStage = stages.find(s => s.id === stageId);
-    } else if (overId.startsWith('sortable-stage-')) {
-      const stageId = overId.replace('sortable-stage-', '');
-      toStage = stages.find(s => s.id === stageId);
-    } else {
-      // We're over a deal, find its stage
-      for (const stage of stages) {
-        if (stage.deals.some(d => d.id === overId)) {
-          toStage = stage;
-          break;
-        }
-      }
-    }
-
-    if (toStage && fromStage.id !== toStage.id) {
-      // Update local state immediately for smooth UX
-      setStages(prevStages => {
-        const newStages = [...prevStages];
-        
-        // Find indices
-        const fromStageIndex = newStages.findIndex(s => s.id === fromStage.id);
-        const toStageIndex = newStages.findIndex(s => s.id === toStage.id);
-        
-        if (fromStageIndex === -1 || toStageIndex === -1) {
-          return prevStages;
-        }
-        
-        // Find and remove deal from source stage
-        const dealIndex = newStages[fromStageIndex].deals.findIndex(d => d.id === activeDealId);
-        
-        if (dealIndex === -1) {
-          return prevStages;
-        }
-        
-        const [movedDeal] = newStages[fromStageIndex].deals.splice(dealIndex, 1);
-        
-        if (!movedDeal) {
-          return prevStages;
-        }
-        
-        // Update source stage counts
-        newStages[fromStageIndex].count -= 1;
-        newStages[fromStageIndex].value -= movedDeal.value;
-        
-        // Add deal to target stage
-        movedDeal.stage = toStage.id;
-        newStages[toStageIndex].deals.push(movedDeal);
-        
-        // Update target stage counts
-        newStages[toStageIndex].count += 1;
-        newStages[toStageIndex].value += movedDeal.value;
-        
-        return newStages;
-      });
-
-      // Fire confetti if target stage has it enabled
-      if (confettiStages.has(toStage.id)) {
-        fireConfetti();
-      }
-
-      // Call server action to persist the change
-      if (onDealMove) {
-        // Update server state and refresh after a short delay to allow animation to complete
-        Promise.resolve(onDealMove(activeDealId, fromStage.id, toStage.id))
-          .then(() => {
-          })
-          .catch((error) => {
-            console.error('Failed to move deal:', error);
-            // Revert the optimistic update on error
-            setStages(prevStages => {
-              const newStages = [...prevStages];
-              const fromIdx = newStages.findIndex(s => s.id === toStage.id);
-              const toIdx = newStages.findIndex(s => s.id === fromStage.id);
-
-              if (fromIdx !== -1 && toIdx !== -1) {
-                const dealIdx = newStages[fromIdx].deals.findIndex(d => d.id === activeDealId);
-                if (dealIdx !== -1) {
-                  const [movedDeal] = newStages[fromIdx].deals.splice(dealIdx, 1);
-                  movedDeal.stage = fromStage.id;
-                  newStages[toIdx].deals.push(movedDeal);
-
-                  newStages[fromIdx].count -= 1;
-                  newStages[fromIdx].value -= movedDeal.value;
-                  newStages[toIdx].count += 1;
-                  newStages[toIdx].value += movedDeal.value;
-                }
-              }
-
-              return newStages;
-            });
-          });
-      }
+    // Call server action to persist the change
+    if (onDealMove) {
+      Promise.resolve(onDealMove(activeDealId, fromStageId, toStageId))
+        .catch((error) => {
+          console.error('Failed to move deal:', error);
+          // Revert the optimistic update on error
+          setStages(prevStages => moveDealBetweenStages(prevStages, activeDealId, toStageId, fromStageId));
+        });
     }
   };
 

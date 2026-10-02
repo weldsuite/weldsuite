@@ -146,19 +146,27 @@ function buildObject(def: any, depth: number): Record<string, unknown> {
   return out;
 }
 
+/** Fixed sample per Zod string check kind that dictates the value's format. */
+const FORMAT_SAMPLES = new Map<string, string>([
+  ['email', 'test@example.com'],
+  ['url', 'https://example.com'],
+  ['uuid', FIXED_UUID],
+  ['datetime', FIXED_DATE],
+  ['cuid', 'ckxtest0000000000000000'],
+  ['cuid2', 'ckxtest0000000000000000'],
+  ['emoji', '✅'],
+]);
+
 function stringSample(def: any, key: string): string {
-  for (const c of def.checks ?? []) {
-    if (c.kind === 'email') return 'test@example.com';
-    if (c.kind === 'url') return 'https://example.com';
-    if (c.kind === 'uuid') return FIXED_UUID;
-    if (c.kind === 'datetime') return FIXED_DATE;
-    if (c.kind === 'cuid' || c.kind === 'cuid2') return 'ckxtest0000000000000000';
-    if (c.kind === 'emoji') return '✅';
+  const checks: any[] = def.checks ?? [];
+  for (const c of checks) {
+    const formatted = FORMAT_SAMPLES.get(c.kind);
+    if (formatted !== undefined) return formatted;
   }
   let v = namedString(key) ?? 'test';
-  const min = (def.checks ?? []).find((c: any) => c.kind === 'min')?.value ?? 0;
+  const min = checks.find((c) => c.kind === 'min')?.value ?? 0;
   while (v.length < min) v += 'x';
-  const max = (def.checks ?? []).find((c: any) => c.kind === 'length' || c.kind === 'max')?.value;
+  const max = checks.find((c) => c.kind === 'length' || c.kind === 'max')?.value;
   if (typeof max === 'number' && v.length > max) v = v.slice(0, max);
   return v;
 }
@@ -180,36 +188,40 @@ export function requiresParentFk(schema: ZodTypeAny): boolean {
   return JSON.stringify(buildCreateBody(schema)).includes(REQUIRED_FK);
 }
 
+/** Zod wrappers `buildUpdateBody` looks through to reach the underlying schema. */
+const WRAPPER_TYPES = new Set(['ZodEffects', 'ZodOptional', 'ZodNullable', 'ZodDefault', 'ZodReadonly', 'ZodBranded']);
+
+/** Unwrap up to 8 wrapper layers of `schema`, stopping at `stopAt` (inclusive) or the first non-wrapper. */
+function unwrapSchema(schema: any, stopAt: string): any {
+  let s: any = schema;
+  for (let i = 0; i < 8 && s?._def; i++) {
+    const t = s._def.typeName;
+    if (t === stopAt || !WRAPPER_TYPES.has(t)) break;
+    s = s._def.innerType ?? s._def.schema;
+  }
+  return s;
+}
+
+/** Sample for a field if it is (a wrapped) plain string, else null. */
+function plainStringFieldSample(field: any, key: string): Record<string, unknown> | null {
+  const inner = unwrapSchema(field, 'ZodString');
+  if (inner?._def?.typeName !== 'ZodString') return null;
+  return { [key]: stringSample(inner._def, key) };
+}
+
 /**
  * A small valid PATCH body that actually changes something: the first
  * top-level plain-string field (excluding ids). Falls back to `{}` (a valid
  * no-op for partial update schemas).
  */
 export function buildUpdateBody(schema: ZodTypeAny): Record<string, unknown> {
-  let s: any = schema;
-  for (let i = 0; i < 8 && s?._def; i++) {
-    const t = s._def.typeName;
-    if (t === 'ZodObject') break;
-    if (['ZodEffects', 'ZodOptional', 'ZodNullable', 'ZodDefault', 'ZodReadonly', 'ZodBranded'].includes(t)) {
-      s = s._def.innerType ?? s._def.schema;
-    } else break;
-  }
-  const def = s?._def;
+  const def = unwrapSchema(schema, 'ZodObject')?._def;
   if (!def || def.typeName !== 'ZodObject') return {};
   const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
   for (const k of Object.keys(shape)) {
     if (isIdKey(k)) continue;
-    // unwrap to find the base string type
-    let inner: any = shape[k];
-    for (let i = 0; i < 8 && inner?._def; i++) {
-      const t = inner._def.typeName;
-      if (t === 'ZodString') {
-        return { [k]: stringSample(inner._def, k) };
-      }
-      if (['ZodOptional', 'ZodNullable', 'ZodDefault', 'ZodEffects', 'ZodReadonly', 'ZodBranded'].includes(t)) {
-        inner = inner._def.innerType ?? inner._def.schema;
-      } else break;
-    }
+    const body = plainStringFieldSample(shape[k], k);
+    if (body) return body;
   }
   return {};
 }

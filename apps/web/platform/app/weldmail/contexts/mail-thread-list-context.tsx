@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import type { ThreadSummary } from '../lib/thread-utils';
 import type { ThreadListLocation } from '../lib/next-thread';
 import type { ThreadRef } from '../lib/optimistic-thread-list';
@@ -26,10 +26,12 @@ export function MailThreadListProvider({
   unhideThread?: MailThreadListContextValue['unhideThread'];
   children: ReactNode;
 }) {
+  const value = useMemo(
+    () => ({ threads, isUnified, folder, accountId, hideThread, unhideThread }),
+    [threads, isUnified, folder, accountId, hideThread, unhideThread],
+  );
   return (
-    <MailThreadListContext.Provider
-      value={{ threads, isUnified, folder, accountId, hideThread, unhideThread }}
-    >
+    <MailThreadListContext.Provider value={value}>
       {children}
     </MailThreadListContext.Provider>
   );

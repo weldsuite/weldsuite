@@ -36,6 +36,156 @@ import type { DeskConversation, DeskConversationWithMessages, DeskMessage } from
 
 type ComposerMode = 'message' | 'note';
 
+type Translations = ReturnType<typeof useI18n>['t'];
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+
+function resolveConversationTitle(data: DeskConversationWithMessages | null, fallback: string) {
+  if (!data) return fallback;
+  return data.name || data.email || `#${data.conversationNumber}`;
+}
+
+interface ConversationHeaderProps {
+  data: DeskConversationWithMessages | null;
+  title: string;
+  visitorOnline: boolean;
+  managing: boolean;
+  onBack: () => void;
+  onToggleState: () => void;
+}
+
+function ConversationHeader({ data, title, visitorOnline, managing, onBack, onToggleState }: Readonly<ConversationHeaderProps>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  const isOpen = data?.state === 'open';
+
+  return (
+    <ScreenHeader
+      title={title}
+      subtitle={data?.email ?? undefined}
+      onBack={onBack}
+      actions={
+        data ? (
+          <>
+            <IconButton
+              icon={
+                isOpen ? (
+                  <CheckCircle2 size={20} color={colors.text} />
+                ) : (
+                  <RotateCcw size={20} color={colors.text} />
+                )
+              }
+              accessibilityLabel={isOpen ? t.conversation.close : t.conversation.reopen}
+              onPress={onToggleState}
+              disabled={managing}
+            />
+          </>
+        ) : null
+      }
+      below={
+        data ? (
+          <View style={styles.metaRow}>
+            <ConversationStateBadge state={data.state} />
+            <ChannelBadge channel={data.channel} />
+            <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
+              #{data.conversationNumber}
+            </Text>
+            {visitorOnline ? (
+              <View style={styles.online}>
+                <View style={styles.onlineDot} />
+                <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
+                  {t.conversation.visitorOnline}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null
+      }
+    />
+  );
+}
+
+interface ComposerProps {
+  mode: ComposerMode;
+  body: string;
+  sending: boolean;
+  onModeChange: (mode: ComposerMode) => void;
+  onBodyChange: (text: string) => void;
+  onTyping: () => void;
+  onSend: () => void;
+}
+
+function Composer({ mode, body, sending, onModeChange, onBodyChange, onTyping, onSend }: Readonly<ComposerProps>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+
+  const handleChangeText = (text: string) => {
+    onBodyChange(text);
+    if (mode === 'message' && text.trim()) onTyping();
+  };
+
+  return (
+    <View style={[styles.composer, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
+      <View style={styles.modeRow}>
+        {(['message', 'note'] as const).map((m) => {
+          const active = mode === m;
+          return (
+            <Pressable
+              key={m}
+              onPress={() => onModeChange(m)}
+              style={[
+                styles.modeChip,
+                { backgroundColor: active ? colors.text : colors.secondary },
+              ]}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '600',
+                  color: active ? colors.background : colors.text,
+                }}
+              >
+                {m === 'message' ? t.conversation.reply : t.conversation.note}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={[styles.inputRow, { backgroundColor: colors.secondary }]}>
+        <TextInput
+          value={body}
+          onChangeText={handleChangeText}
+          placeholder={
+            mode === 'message'
+              ? t.conversation.replyPlaceholder
+              : t.conversation.notePlaceholder
+          }
+          placeholderTextColor={colors.mutedForeground}
+          multiline
+          style={[styles.input, { color: colors.text }]}
+        />
+        <Pressable
+          onPress={onSend}
+          disabled={!body.trim() || sending}
+          style={[
+            styles.send,
+            {
+              backgroundColor: body.trim() ? BRAND : colors.border,
+              opacity: sending ? 0.6 : 1,
+            },
+          ]}
+          accessibilityLabel={t.conversation.send}
+        >
+          {sending ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Send size={18} color="#fff" />
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function ConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -138,51 +288,16 @@ export default function ConversationScreen() {
     }
   }, [id, data, managing, toast, t, applyConversation, applyMessage]);
 
-  const title =
-    data?.name || data?.email || (data ? `#${data.conversationNumber}` : t.conversation.title);
+  const title = resolveConversationTitle(data, t.conversation.title);
 
   const header = (
-    <ScreenHeader
+    <ConversationHeader
+      data={data}
       title={title}
-      subtitle={data?.email ?? undefined}
+      visitorOnline={live.visitorOnline}
+      managing={managing}
       onBack={() => router.back()}
-      actions={
-        data ? (
-          <>
-            <IconButton
-              icon={
-                data.state === 'open' ? (
-                  <CheckCircle2 size={20} color={colors.text} />
-                ) : (
-                  <RotateCcw size={20} color={colors.text} />
-                )
-              }
-              accessibilityLabel={data.state === 'open' ? t.conversation.close : t.conversation.reopen}
-              onPress={() => void toggleState()}
-              disabled={managing}
-            />
-          </>
-        ) : null
-      }
-      below={
-        data ? (
-          <View style={styles.metaRow}>
-            <ConversationStateBadge state={data.state} />
-            <ChannelBadge channel={data.channel} />
-            <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-              #{data.conversationNumber}
-            </Text>
-            {live.visitorOnline ? (
-              <View style={styles.online}>
-                <View style={styles.onlineDot} />
-                <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-                  {t.conversation.visitorOnline}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null
-      }
+      onToggleState={() => void toggleState()}
     />
   );
 
@@ -231,71 +346,51 @@ export default function ConversationScreen() {
           </Text>
         ) : null}
 
-        <View style={[styles.composer, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
-          <View style={styles.modeRow}>
-            {(['message', 'note'] as const).map((m) => {
-              const active = mode === m;
-              return (
-                <Pressable
-                  key={m}
-                  onPress={() => setMode(m)}
-                  style={[
-                    styles.modeChip,
-                    { backgroundColor: active ? colors.text : colors.secondary },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      fontWeight: '600',
-                      color: active ? colors.background : colors.text,
-                    }}
-                  >
-                    {m === 'message' ? t.conversation.reply : t.conversation.note}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <View style={[styles.inputRow, { backgroundColor: colors.secondary }]}>
-            <TextInput
-              value={body}
-              onChangeText={(text) => {
-                setBody(text);
-                if (mode === 'message' && text.trim()) live.notifyTyping();
-              }}
-              placeholder={
-                mode === 'message'
-                  ? t.conversation.replyPlaceholder
-                  : t.conversation.notePlaceholder
-              }
-              placeholderTextColor={colors.mutedForeground}
-              multiline
-              style={[styles.input, { color: colors.text }]}
-            />
-            <Pressable
-              onPress={() => void send()}
-              disabled={!body.trim() || sending}
-              style={[
-                styles.send,
-                {
-                  backgroundColor: body.trim() ? BRAND : colors.border,
-                  opacity: sending ? 0.6 : 1,
-                },
-              ]}
-              accessibilityLabel={t.conversation.send}
-            >
-              {sending ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Send size={18} color="#fff" />
-              )}
-            </Pressable>
-          </View>
-        </View>
+        <Composer
+          mode={mode}
+          body={body}
+          sending={sending}
+          onModeChange={setMode}
+          onBodyChange={setBody}
+          onTyping={live.notifyTyping}
+          onSend={() => void send()}
+        />
       </KeyboardAvoidingView>
     </Screen>
   );
+}
+
+function eventLabel(t: Translations, eventType: unknown, body?: string | null) {
+  switch (eventType) {
+    case 'closed':
+      return t.conversation.closedEvent;
+    case 'reopened':
+      return t.conversation.reopenedEvent;
+    case 'assigned':
+      return t.conversation.assignedEvent;
+    case 'unassigned':
+      return t.conversation.unassignedEvent;
+    default:
+      return body || t.conversation.system;
+  }
+}
+
+function authorLabel(t: Translations, authorType: DeskMessage['authorType']) {
+  switch (authorType) {
+    case 'visitor':
+      return t.conversation.visitor;
+    case 'bot':
+      return t.conversation.bot;
+    case 'system':
+      return t.conversation.system;
+    default:
+      return t.conversation.agent;
+  }
+}
+
+function bubbleBackground(colors: ThemeColors, isNote: boolean, isAgent: boolean) {
+  if (isNote) return 'rgba(245,158,11,0.15)';
+  return isAgent ? BRAND : colors.secondary;
 }
 
 function MessageBubble({ message }: Readonly<{ message: DeskMessage }>) {
@@ -303,17 +398,7 @@ function MessageBubble({ message }: Readonly<{ message: DeskMessage }>) {
   const { t } = useI18n();
 
   if (message.kind === 'event') {
-    const eventType = message.metadata?.eventType;
-    const label =
-      eventType === 'closed'
-        ? t.conversation.closedEvent
-        : eventType === 'reopened'
-          ? t.conversation.reopenedEvent
-          : eventType === 'assigned'
-            ? t.conversation.assignedEvent
-            : eventType === 'unassigned'
-              ? t.conversation.unassignedEvent
-              : message.body || t.conversation.system;
+    const label = eventLabel(t, message.metadata?.eventType, message.body);
 
     return (
       <View style={styles.eventRow}>
@@ -327,14 +412,8 @@ function MessageBubble({ message }: Readonly<{ message: DeskMessage }>) {
 
   const isAgent = message.authorType === 'agent' || message.authorType === 'bot';
   const isNote = message.kind === 'note';
-  const author =
-    message.authorType === 'visitor'
-      ? t.conversation.visitor
-      : message.authorType === 'bot'
-        ? t.conversation.bot
-        : message.authorType === 'system'
-          ? t.conversation.system
-          : t.conversation.agent;
+  const onBrand = isAgent && !isNote;
+  const author = authorLabel(t, message.authorType);
 
   return (
     <View
@@ -343,39 +422,23 @@ function MessageBubble({ message }: Readonly<{ message: DeskMessage }>) {
         isAgent ? styles.bubbleWrapAgent : styles.bubbleWrapVisitor,
       ]}
     >
-      <View
-        style={[
-          styles.bubble,
-          {
-            backgroundColor: isNote
-              ? 'rgba(245,158,11,0.15)'
-              : isAgent
-                ? BRAND
-                : colors.secondary,
-          },
-        ]}
-      >
+      <View style={[styles.bubble, { backgroundColor: bubbleBackground(colors, isNote, isAgent) }]}>
         <Text
           style={[
             styles.author,
-            { color: isAgent && !isNote ? 'rgba(255,255,255,0.8)' : colors.mutedForeground },
+            { color: onBrand ? 'rgba(255,255,255,0.8)' : colors.mutedForeground },
           ]}
         >
           {author}
           {isNote ? ` · ${t.conversation.note}` : ''}
         </Text>
-        <Text
-          style={[
-            styles.body,
-            { color: isAgent && !isNote ? '#fff' : colors.text },
-          ]}
-        >
+        <Text style={[styles.body, { color: onBrand ? '#fff' : colors.text }]}>
           {message.body || t.common.dash}
         </Text>
         <Text
           style={[
             styles.time,
-            { color: isAgent && !isNote ? 'rgba(255,255,255,0.7)' : colors.mutedForeground },
+            { color: onBrand ? 'rgba(255,255,255,0.7)' : colors.mutedForeground },
           ]}
         >
           {formatShortTime(message.createdAt)}

@@ -74,6 +74,14 @@ export function SmartReplyClient({ emails, suggestedReplies: initialReplies, sta
 
   const isPending = smartRepliesMutation.isPending;
 
+  // Stable keys: tone, plus an occurrence counter in case a tone repeats.
+  const toneCounts = new Map<string, number>();
+  const replyKeys = suggestedReplies.map((reply) => {
+    const occurrence = toneCounts.get(reply.tone) ?? 0;
+    toneCounts.set(reply.tone, occurrence + 1);
+    return `${reply.tone}-${occurrence}`;
+  });
+
   const handleCopy = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
     setCopiedIndex(index);
@@ -214,34 +222,35 @@ export function SmartReplyClient({ emails, suggestedReplies: initialReplies, sta
             <CardContent>
               <div className="space-y-2 max-h-[400px] overflow-y-auto">
                 {emails.map((email) => (
-                  <div
+                  <button
+                    type="button"
                     key={email.id}
                     className={cn(
-                      "p-3 rounded-lg border cursor-pointer transition-colors",
+                      "block w-full text-left p-3 rounded-lg border cursor-pointer transition-colors",
                       selectedEmail?.id === email.id
                         ? "bg-primary/10 border-primary"
                         : "hover:bg-accent"
                     )}
                     onClick={() => handleSelectEmail(email)}
                   >
-                    <div className="flex items-start gap-3">
+                    <span className="flex items-start gap-3">
                       <Avatar className="h-8 w-8">
                         <AvatarFallback>{email.from[0]?.toUpperCase()}</AvatarFallback>
                       </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
+                      <span className="block flex-1 min-w-0">
+                        <span className="flex items-center justify-between">
                           <span className="text-sm font-medium">{email.from}</span>
                           <span className="text-xs text-muted-foreground">
                             {new Date(email.date).toLocaleDateString()}
                           </span>
-                        </div>
-                        <p className="text-sm font-medium mt-1">{email.subject}</p>
-                        <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                        </span>
+                        <span className="block text-sm font-medium mt-1">{email.subject}</span>
+                        <span className="block text-sm text-muted-foreground line-clamp-2 mt-1">
                           {email.preview}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                        </span>
+                      </span>
+                    </span>
+                  </button>
                 ))}
               </div>
             </CardContent>
@@ -291,7 +300,7 @@ export function SmartReplyClient({ emails, suggestedReplies: initialReplies, sta
                 <div className="mt-4 space-y-4">
                   {suggestedReplies.map((reply, index) => (
                     <TabsContent
-                      key={index}
+                      key={replyKeys[index]}
                       value={reply.tone.toLowerCase()}
                       className="mt-0"
                     >

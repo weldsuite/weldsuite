@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+  useCallback,
+} from 'react';
 import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
@@ -32,17 +40,48 @@ async function getDeviceId(): Promise<string> {
   return `device_${Date.now()}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+/**
+ * Prefer the server's error.message (e.g. Expo's real rejection reason) over a
+ * bare "HTTP 400 Bad Request" status line.
+ */
+function testPushErrorMessage(err: unknown): string {
+  const fallback = 'Failed to send test push';
+  if (!isRecord(err)) return fallback;
+  const serverError = isRecord(err.body) ? err.body.error : undefined;
+  const nested = isRecord(serverError) ? nonEmptyString(serverError.message) : undefined;
+  return nested ?? nonEmptyString(err.message) ?? fallback;
+}
+
+function testPushResult(sent: number): { ok: boolean; message: string } {
+  if (sent <= 0) return { ok: false, message: 'Expo did not accept the test push.' };
+  const devices = sent === 1 ? 'device' : 'devices';
+  return { ok: true, message: `Test push accepted by Expo (${sent} ${devices}).` };
+}
+
+function pushTokenType(isExpoToken: boolean): 'expo' | 'fcm' | 'apns' {
+  if (isExpoToken) return 'expo';
+  return Platform.OS === 'android' ? 'fcm' : 'apns';
+}
+
 /** Register the Expo push token with app-api's push-tokens endpoint. */
 async function registerPushToken(token: string): Promise<boolean> {
   const deviceId = await getDeviceId();
   const isExpoToken = token.startsWith('ExponentPushToken[');
-  const tokenType = isExpoToken ? 'expo' : Platform.OS === 'android' ? 'fcm' : 'apns';
+  const tokenType = pushTokenType(isExpoToken);
   const body = {
     token,
     platform: Platform.OS as 'ios' | 'android',
     deviceId,
     appCode: APP_CODE,
-    tokenType: tokenType as 'expo' | 'fcm' | 'apns',
+    tokenType,
     deviceModel: Device.modelName || undefined,
     osVersion: Device.osVersion || undefined,
     appVersion: Application.nativeApplicationVersion || undefined,
@@ -223,7 +262,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     return next;
   }, []);
 
-  const requestPermissions = async (): Promise<boolean> => {
+  const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (!notifUtils || !EAS_PROJECT_ID) return false;
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
@@ -238,12 +277,12 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       console.error('[Notifications] Error:', error);
       return false;
     }
-  };
+  }, [refreshRegistrationStatus]);
 
-  const openNotificationSettings = async () => {
+  const openNotificationSettings = useCallback(async () => {
     if (Platform.OS === 'ios') await Linking.openURL('app-settings:');
     else await Linking.openSettings();
-  };
+  }, []);
 
   const sendTestPush = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
     try {
@@ -254,35 +293,9 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
       const res = await appApi.pushTokens.test();
       await refreshRegistrationStatus();
-      const sent = res.data?.sent ?? 0;
-      return {
-        ok: sent > 0,
-        message:
-          sent > 0
-            ? `Test push accepted by Expo (${sent} device${sent === 1 ? '' : 's'}).`
-            : 'Expo did not accept the test push.',
-      };
+      return testPushResult(res.data?.sent ?? 0);
     } catch (err) {
-      // Prefer the server's error.message (e.g. Expo's real rejection reason)
-      // over a bare "HTTP 400 Bad Request" status line.
-      let message = 'Failed to send test push';
-      if (err && typeof err === 'object') {
-        const apiBody = 'body' in err ? (err as { body?: unknown }).body : undefined;
-        const nested =
-          apiBody &&
-          typeof apiBody === 'object' &&
-          apiBody !== null &&
-          'error' in apiBody &&
-          typeof (apiBody as { error?: unknown }).error === 'object' &&
-          (apiBody as { error?: { message?: unknown } }).error !== null
-            ? (apiBody as { error: { message?: unknown } }).error.message
-            : undefined;
-        if (typeof nested === 'string' && nested.trim()) {
-          message = nested;
-        } else if ('message' in err && typeof err.message === 'string' && err.message.trim()) {
-          message = err.message;
-        }
-      }
+      const message = testPushErrorMessage(err);
       await refreshRegistrationStatus();
       return { ok: false, message };
     }
@@ -423,22 +436,32 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     };
   }, [user, organizationId, navigateFromNotificationData, refreshRegistrationStatus]);
 
-  return (
-    <NotificationContext.Provider
-      value={{
-        unreadCount,
-        isConnected,
-        isPermissionGranted,
-        registrationStatus,
-        requestPermissions,
-        openNotificationSettings,
-        refreshRegistrationStatus,
-        sendTestPush,
-        unregisterDevice,
-        prepareWorkspaceSwitch,
-      }}
-    >
-      {children}
-    </NotificationContext.Provider>
+  const contextValue = useMemo<NotificationContextType>(
+    () => ({
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      registrationStatus,
+      requestPermissions,
+      openNotificationSettings,
+      refreshRegistrationStatus,
+      sendTestPush,
+      unregisterDevice,
+      prepareWorkspaceSwitch,
+    }),
+    [
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      registrationStatus,
+      requestPermissions,
+      openNotificationSettings,
+      refreshRegistrationStatus,
+      sendTestPush,
+      unregisterDevice,
+      prepareWorkspaceSwitch,
+    ],
   );
+
+  return <NotificationContext.Provider value={contextValue}>{children}</NotificationContext.Provider>;
 }

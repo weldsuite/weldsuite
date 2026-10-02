@@ -258,7 +258,15 @@ export default function InstantReturnPage() {
                           ? "border-blue-600 bg-blue-50"
                           : "hover:border-gray-400"
                       }`}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setSelectedStore(store)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedStore(store);
+                        }
+                      }}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">

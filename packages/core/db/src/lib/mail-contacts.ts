@@ -115,33 +115,39 @@ export async function upsertMailContact(
   return { contactId: id, email, created: true };
 }
 
-/**
- * Upsert many mail people in a single round trip.
- * Dedupes by normalized email, one SELECT to find existing rows, one INSERT per missing.
- * Returns one entry per valid input email (skipping invalid ones).
- */
-export async function upsertMailContactsBatch(
-  db: AnyDb,
-  addresses: MailContactAddress[],
-  generateId: IdGenerator,
-): Promise<MailContactUpsertResult[]> {
-  if (!addresses || addresses.length === 0) return [];
+/** Shape of a person row inserted by the mail pipeline. */
+interface NewMailPersonRow {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  fullName: string | null;
+  displayName: string;
+  email: string;
+  status: 'active';
+  inCrm: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  version: number;
+}
 
+/** Dedupe addresses by normalized email, preferring the first non-empty name. */
+function dedupeAddressesByEmail(addresses: MailContactAddress[]): Map<string, MailContactAddress> {
   const byEmail = new Map<string, MailContactAddress>();
   for (const addr of addresses) {
     const normalized = normalizeEmail(addr.email);
     if (!normalized) continue;
-    if (!byEmail.has(normalized)) {
+    const prior = byEmail.get(normalized);
+    if (!prior) {
       byEmail.set(normalized, { email: normalized, name: addr.name ?? null });
-    } else if (!byEmail.get(normalized)!.name && addr.name) {
+    } else if (!prior.name && addr.name) {
       byEmail.set(normalized, { email: normalized, name: addr.name });
     }
   }
+  return byEmail;
+}
 
-  if (byEmail.size === 0) return [];
-
-  const emails = Array.from(byEmail.keys());
-
+/** One SELECT for the people that already exist, keyed by lower-cased email. */
+async function findExistingPeopleByEmail(db: AnyDb, emails: string[]): Promise<Map<string, string>> {
   const existingRows = (await db
     .select({ id: schema.people.id, email: schema.people.email })
     .from(schema.people)
@@ -159,21 +165,77 @@ export async function upsertMailContactsBatch(
   for (const row of existingRows) {
     if (row.email) existingByEmail.set(row.email.toLowerCase(), row.id);
   }
+  return existingByEmail;
+}
+
+function buildNewMailPersonRow(
+  id: string,
+  email: string,
+  name: string | null | undefined,
+  now: Date,
+): NewMailPersonRow {
+  const { firstName, lastName } = deriveNames(email, name);
+  const fullName = lastName ? `${firstName} ${lastName}`.trim() : firstName;
+  return {
+    id,
+    firstName: firstName || null,
+    lastName: lastName || null,
+    fullName: fullName || null,
+    displayName: buildDisplayName(firstName, lastName, email),
+    email,
+    status: 'active',
+    // Mail-pipeline identity — kept out of the CRM until explicitly added.
+    inCrm: false,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+  };
+}
+
+/**
+ * Insert one row at a time after the batch insert failed. A row that still
+ * fails lost a race with a concurrent writer: re-resolve the winner's id in `results`.
+ */
+async function insertPeopleRowByRow(
+  db: AnyDb,
+  toInsert: NewMailPersonRow[],
+  results: MailContactUpsertResult[],
+): Promise<void> {
+  for (const row of toInsert) {
+    try {
+      await db.insert(schema.people).values(row);
+    } catch {
+      const [winner] = await db
+        .select({ id: schema.people.id })
+        .from(schema.people)
+        .where(and(eq(schema.people.email, row.email), isNull(schema.people.deletedAt)))
+        .limit(1);
+      if (!winner) continue;
+      const idx = results.findIndex((r) => r.email === row.email && r.created);
+      if (idx >= 0) results[idx] = { contactId: winner.id, email: row.email, created: false };
+    }
+  }
+}
+
+/**
+ * Upsert many mail people in a single round trip.
+ * Dedupes by normalized email, one SELECT to find existing rows, one INSERT per missing.
+ * Returns one entry per valid input email (skipping invalid ones).
+ */
+export async function upsertMailContactsBatch(
+  db: AnyDb,
+  addresses: MailContactAddress[],
+  generateId: IdGenerator,
+): Promise<MailContactUpsertResult[]> {
+  if (!addresses || addresses.length === 0) return [];
+
+  const byEmail = dedupeAddressesByEmail(addresses);
+  if (byEmail.size === 0) return [];
+
+  const existingByEmail = await findExistingPeopleByEmail(db, Array.from(byEmail.keys()));
 
   const results: MailContactUpsertResult[] = [];
-  const toInsert: Array<{
-    id: string;
-    firstName: string | null;
-    lastName: string | null;
-    fullName: string | null;
-    displayName: string;
-    email: string;
-    status: 'active';
-    inCrm: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-    version: number;
-  }> = [];
+  const toInsert: NewMailPersonRow[] = [];
 
   const now = new Date();
   for (const [email, addr] of byEmail) {
@@ -182,24 +244,8 @@ export async function upsertMailContactsBatch(
       results.push({ contactId: existingId, email, created: false });
       continue;
     }
-    const { firstName, lastName } = deriveNames(email, addr.name);
     const id = generateId('person');
-    const fullName = lastName ? `${firstName} ${lastName}`.trim() : firstName;
-    const displayName = buildDisplayName(firstName, lastName, email);
-    toInsert.push({
-      id,
-      firstName: firstName || null,
-      lastName: lastName || null,
-      fullName: fullName || null,
-      displayName,
-      email,
-      status: 'active',
-      // Mail-pipeline identity — kept out of the CRM until explicitly added.
-      inCrm: false,
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-    });
+    toInsert.push(buildNewMailPersonRow(id, email, addr.name, now));
     results.push({ contactId: id, email, created: true });
   }
 
@@ -210,21 +256,7 @@ export async function upsertMailContactsBatch(
     try {
       await db.insert(schema.people).values(toInsert);
     } catch (err) {
-      for (const row of toInsert) {
-        try {
-          await db.insert(schema.people).values(row);
-        } catch {
-          const [winner] = await db
-            .select({ id: schema.people.id })
-            .from(schema.people)
-            .where(and(eq(schema.people.email, row.email), isNull(schema.people.deletedAt)))
-            .limit(1);
-          if (winner) {
-            const idx = results.findIndex((r) => r.email === row.email && r.created);
-            if (idx >= 0) results[idx] = { contactId: winner.id, email: row.email, created: false };
-          }
-        }
-      }
+      await insertPeopleRowByRow(db, toInsert, results);
       console.error('[mail-contacts] Batch insert hit a conflict, fell back to per-row:', err);
     }
   }

@@ -71,6 +71,13 @@ async function emitAgentEntityEvent(
   }
 }
 
+/** `length` random base36 characters from the Web Crypto RNG. */
+function randomBase36(length: number): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 /**
  * An agent works across apps, so an app-scoped grant counts when ANY app
  * gives it (`weldcrm:people:read` satisfies `people:read`). Agent grants
@@ -487,7 +494,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       const { helpdeskTickets: t } = schema;
       const id = generateId('tkt');
       const now = new Date();
-      const ticketNumber = `TKT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      const ticketNumber = `TKT-${Date.now().toString(36).toUpperCase()}-${randomBase36(4).toUpperCase()}`;
       await ctx.db.insert(t).values({
         id,
         ticketNumber,

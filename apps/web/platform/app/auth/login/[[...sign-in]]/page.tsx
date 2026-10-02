@@ -18,6 +18,174 @@ import { getTranslations } from '@/lib/i18n';
 
 type LoginStep = 'credentials' | 'two-factor' | 'email-verify' | 'first-factor-verify';
 
+function LoginErrorBanner({ error }: Readonly<{ error: string | null }>) {
+  if (!error) return null;
+  return (
+    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+      {error}
+    </div>
+  );
+}
+
+function SubmitLabel({
+  isLoading,
+  loadingLabel,
+  label,
+}: Readonly<{ isLoading: boolean; loadingLabel: string; label: string }>) {
+  if (!isLoading) return <>{label}</>;
+  return (
+    <>
+      <Loader2 className="h-4 w-4 animate-spin" />
+      {loadingLabel}
+    </>
+  );
+}
+
+interface TwoFactorStepProps {
+  error: string | null;
+  useBackupCode: boolean;
+  twoFactorCode: string;
+  isLoading: boolean;
+  isLoaded: boolean;
+  onSubmit: (e: React.FormEvent) => void;
+  onCodeChange: (code: string) => void;
+  onToggleBackupCode: () => void;
+  onBack: () => void;
+}
+
+function TwoFactorStep({
+  error,
+  useBackupCode,
+  twoFactorCode,
+  isLoading,
+  isLoaded,
+  onSubmit,
+  onCodeChange,
+  onToggleBackupCode,
+  onBack,
+}: Readonly<TwoFactorStepProps>) {
+  const t = getTranslations('common');
+  return (
+    <div className="min-h-screen bg-white flex relative">
+      <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
+        <div className="w-full max-w-[448px] mx-auto">
+          <div className="mb-[32px]">
+            <h1 className="text-[26px] font-semibold text-gray-900 mb-2">
+              {t.auth.login.twoFactor.title}
+            </h1>
+            <p className="text-gray-600">
+              {useBackupCode
+                ? t.auth.login.twoFactor.subtitleBackupCode
+                : t.auth.login.twoFactor.subtitleAuthenticator}
+            </p>
+          </div>
+
+          <LoginErrorBanner error={error} />
+
+          <form onSubmit={onSubmit} className="space-y-[25px]">
+            <div>
+              <Label htmlFor="code" className="mb-2 block text-gray-900">
+                {useBackupCode ? t.auth.login.twoFactor.backupCodeLabel : t.auth.login.twoFactor.verificationCodeLabel}
+              </Label>
+              <div className="relative">
+                <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[17px] w-[17px] text-gray-400 pointer-events-none" />
+                <Input
+                  id="code"
+                  type="text"
+                  inputMode={useBackupCode ? 'text' : 'numeric'}
+                  autoComplete="one-time-code"
+                  placeholder={useBackupCode ? t.auth.login.twoFactor.backupCodePlaceholder : t.auth.login.twoFactor.verificationCodePlaceholder}
+                  value={twoFactorCode}
+                  onChange={(e) => onCodeChange(e.target.value)}
+                  required
+                  disabled={isLoading}
+                  autoFocus
+                  className={`pl-10 !h-[40px] !border-gray-300 !bg-white text-gray-900 !text-[14px] !ring-0 !ring-offset-0 focus:!ring-0 focus:!ring-offset-0 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus:!border-gray-400 ${!useBackupCode ? 'text-center tracking-widest' : ''}`}
+                />
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              disabled={isLoading || !isLoaded || !twoFactorCode}
+              className="w-full h-[42px] shadow-none rounded-[calc(var(--radius)+1px)] bg-black hover:bg-black/90 text-white text-[14px]"
+              size="lg"
+            >
+              <SubmitLabel isLoading={isLoading} loadingLabel={t.auth.login.twoFactor.verifying} label={t.auth.login.twoFactor.verify} />
+            </Button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onToggleBackupCode}
+              className="text-sm text-gray-600 hover:text-gray-900"
+            >
+              {useBackupCode
+                ? t.auth.login.twoFactor.useAuthenticatorInstead
+                : t.auth.login.twoFactor.useBackupCodeInstead}
+            </Button>
+          </div>
+
+          <div className="mt-4 text-center">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onBack}
+              className="text-gray-600 hover:text-gray-900 inline-flex items-center gap-1 pl-2 pr-[9px] py-1 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              {t.auth.login.twoFactor.backToLogin}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type SignInResource = NonNullable<ReturnType<typeof useSignIn>['signIn']>;
+
+/**
+ * Picks the second-factor step to show. TOTP wins over email code; for an email
+ * code the code is sent first. Returns null when no supported factor exists.
+ */
+async function resolveSecondFactorStep(
+  signIn: SignInResource,
+  secondFactors: SignInResource['supportedSecondFactors'],
+): Promise<LoginStep | null> {
+  if (secondFactors?.some((f) => f.strategy === 'totp')) {
+    // TOTP authenticator app
+    return 'two-factor';
+  }
+  if (secondFactors?.some((f) => f.strategy === 'email_code')) {
+    // Email verification needed
+    await signIn.prepareSecondFactor({ strategy: 'email_code' });
+    return 'email-verify';
+  }
+  return null;
+}
+
+/**
+ * Sends the first-factor email code when the factor is offered.
+ * Returns false when no email-code factor is supported.
+ */
+async function prepareEmailCodeFirstFactor(
+  signIn: SignInResource,
+  firstFactors: SignInResource['supportedFirstFactors'],
+): Promise<boolean> {
+  const emailFactor = firstFactors?.find((f) => f.strategy === 'email_code');
+  if (!emailFactor) return false;
+  if ('emailAddressId' in emailFactor) {
+    await signIn.prepareFirstFactor({
+      strategy: 'email_code',
+      emailAddressId: emailFactor.emailAddressId,
+    });
+  }
+  return true;
+}
+
 function GoogleIcon({ className }: Readonly<{ className?: string }>) {
   return (
     <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -179,15 +347,9 @@ export default function LoginPage() {
         }, 500);
       } else if (result.status === 'needs_second_factor') {
         // Check what type of second factor is needed
-        const secondFactors = result.supportedSecondFactors;
-
-        if (secondFactors?.some(f => f.strategy === 'totp')) {
-          // TOTP authenticator app
-          setStep('two-factor');
-        } else if (secondFactors?.some(f => f.strategy === 'email_code')) {
-          // Email verification needed
-          await signIn.prepareSecondFactor({ strategy: 'email_code' });
-          setStep('email-verify');
+        const nextStep = await resolveSecondFactorStep(signIn, result.supportedSecondFactors);
+        if (nextStep) {
+          setStep(nextStep);
         } else {
           // Unknown second factor type
           setError(t.auth.login.additionalVerificationRequired);
@@ -195,17 +357,8 @@ export default function LoginPage() {
         setIsLoading(false);
       } else if (result.status === 'needs_first_factor') {
         // Handle first factor verification (e.g., email verification for existing accounts)
-        const firstFactors = result.supportedFirstFactors;
-
-        if (firstFactors?.some(f => f.strategy === 'email_code')) {
-          // Email verification required
-          const emailFactor = firstFactors.find(f => f.strategy === 'email_code');
-          if (emailFactor && 'emailAddressId' in emailFactor) {
-            await signIn.prepareFirstFactor({
-              strategy: 'email_code',
-              emailAddressId: emailFactor.emailAddressId,
-            });
-          }
+        // Email verification required when an email-code factor is offered
+        if (await prepareEmailCodeFirstFactor(signIn, result.supportedFirstFactors)) {
           setStep('first-factor-verify');
         } else {
           // Unknown first factor type
@@ -330,13 +483,8 @@ export default function LoginPage() {
         }, 500);
       } else if (result.status === 'needs_second_factor') {
         // User also has 2FA enabled
-        const secondFactors = result.supportedSecondFactors;
-        if (secondFactors?.some(f => f.strategy === 'totp')) {
-          setStep('two-factor');
-        } else if (secondFactors?.some(f => f.strategy === 'email_code')) {
-          await signIn.prepareSecondFactor({ strategy: 'email_code' });
-          setStep('email-verify');
-        }
+        const nextStep = await resolveSecondFactorStep(signIn, result.supportedSecondFactors);
+        if (nextStep) setStep(nextStep);
         setIsLoading(false);
       } else {
         setError(t.auth.login.emailVerify.verificationFailed);
@@ -358,14 +506,7 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const firstFactors = signIn.supportedFirstFactors;
-      const emailFactor = firstFactors?.find(f => f.strategy === 'email_code');
-      if (emailFactor && 'emailAddressId' in emailFactor) {
-        await signIn.prepareFirstFactor({
-          strategy: 'email_code',
-          emailAddressId: emailFactor.emailAddressId,
-        });
-      }
+      await prepareEmailCodeFirstFactor(signIn, signIn.supportedFirstFactors);
       setIsLoading(false);
     } catch (err) {
       const errorMessage = getClerkErrorMessage(err, t.auth.login.twoFactor.failedToResend);
@@ -377,102 +518,26 @@ export default function LoginPage() {
   // Two-factor authentication step
   if (step === 'two-factor') {
     return (
-      <div className="min-h-screen bg-white flex relative">
-        <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
-          <div className="w-full max-w-[448px] mx-auto">
-            <div className="mb-[32px]">
-              <h1 className="text-[26px] font-semibold text-gray-900 mb-2">
-                {t.auth.login.twoFactor.title}
-              </h1>
-              <p className="text-gray-600">
-                {useBackupCode
-                  ? t.auth.login.twoFactor.subtitleBackupCode
-                  : t.auth.login.twoFactor.subtitleAuthenticator}
-              </p>
-            </div>
-
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
-                {error}
-              </div>
-            )}
-
-            <form onSubmit={handleTwoFactorSubmit} className="space-y-[25px]">
-              <div>
-                <Label htmlFor="code" className="mb-2 block text-gray-900">
-                  {useBackupCode ? t.auth.login.twoFactor.backupCodeLabel : t.auth.login.twoFactor.verificationCodeLabel}
-                </Label>
-                <div className="relative">
-                  <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[17px] w-[17px] text-gray-400 pointer-events-none" />
-                  <Input
-                    id="code"
-                    type="text"
-                    inputMode={useBackupCode ? 'text' : 'numeric'}
-                    autoComplete="one-time-code"
-                    placeholder={useBackupCode ? t.auth.login.twoFactor.backupCodePlaceholder : t.auth.login.twoFactor.verificationCodePlaceholder}
-                    value={twoFactorCode}
-                    onChange={(e) => setTwoFactorCode(e.target.value)}
-                    required
-                    disabled={isLoading}
-                    autoFocus
-                    className={`pl-10 !h-[40px] !border-gray-300 !bg-white text-gray-900 !text-[14px] !ring-0 !ring-offset-0 focus:!ring-0 focus:!ring-offset-0 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus:!border-gray-400 ${!useBackupCode ? 'text-center tracking-widest' : ''}`}
-                  />
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                disabled={isLoading || !isLoaded || !twoFactorCode}
-                className="w-full h-[42px] shadow-none rounded-[calc(var(--radius)+1px)] bg-black hover:bg-black/90 text-white text-[14px]"
-                size="lg"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t.auth.login.twoFactor.verifying}
-                  </>
-                ) : (
-                  t.auth.login.twoFactor.verify
-                )}
-              </Button>
-            </form>
-
-            <div className="mt-6 text-center">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setUseBackupCode(!useBackupCode);
-                  setTwoFactorCode('');
-                  setError(null);
-                }}
-                className="text-sm text-gray-600 hover:text-gray-900"
-              >
-                {useBackupCode
-                  ? t.auth.login.twoFactor.useAuthenticatorInstead
-                  : t.auth.login.twoFactor.useBackupCodeInstead}
-              </Button>
-            </div>
-
-            <div className="mt-4 text-center">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setStep('credentials');
-                  setTwoFactorCode('');
-                  setUseBackupCode(false);
-                  setError(null);
-                }}
-                className="text-gray-600 hover:text-gray-900 inline-flex items-center gap-1 pl-2 pr-[9px] py-1 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                {t.auth.login.twoFactor.backToLogin}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <TwoFactorStep
+        error={error}
+        useBackupCode={useBackupCode}
+        twoFactorCode={twoFactorCode}
+        isLoading={isLoading}
+        isLoaded={isLoaded}
+        onSubmit={handleTwoFactorSubmit}
+        onCodeChange={setTwoFactorCode}
+        onToggleBackupCode={() => {
+          setUseBackupCode(!useBackupCode);
+          setTwoFactorCode('');
+          setError(null);
+        }}
+        onBack={() => {
+          setStep('credentials');
+          setTwoFactorCode('');
+          setUseBackupCode(false);
+          setError(null);
+        }}
+      />
     );
   }
 
@@ -491,11 +556,7 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
-                {error}
-              </div>
-            )}
+            <LoginErrorBanner error={error} />
 
             <form onSubmit={handleEmailVerifySubmit} className="space-y-[25px]">
               <div>
@@ -529,14 +590,7 @@ export default function LoginPage() {
                 className="w-full h-[42px] shadow-none rounded-[calc(var(--radius)+1px)] bg-black hover:bg-black/90 text-white text-[14px]"
                 size="lg"
               >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t.auth.login.emailVerify.verifying}
-                  </>
-                ) : (
-                  t.auth.login.emailVerify.verify
-                )}
+                <SubmitLabel isLoading={isLoading} loadingLabel={t.auth.login.emailVerify.verifying} label={t.auth.login.emailVerify.verify} />
               </Button>
             </form>
 
@@ -588,11 +642,7 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
-                {error}
-              </div>
-            )}
+            <LoginErrorBanner error={error} />
 
             <form onSubmit={handleFirstFactorVerifySubmit} className="space-y-[25px]">
               <div>
@@ -626,14 +676,7 @@ export default function LoginPage() {
                 className="w-full h-[42px] shadow-none rounded-[calc(var(--radius)+1px)] bg-black hover:bg-black/90 text-white text-[14px]"
                 size="lg"
               >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t.auth.login.emailVerify.verifying}
-                  </>
-                ) : (
-                  t.auth.login.emailVerify.verify
-                )}
+                <SubmitLabel isLoading={isLoading} loadingLabel={t.auth.login.emailVerify.verifying} label={t.auth.login.emailVerify.verify} />
               </Button>
             </form>
 
@@ -684,11 +727,7 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
-              {error}
-            </div>
-          )}
+          <LoginErrorBanner error={error} />
 
           {/* Google Sign In */}
           <Button
@@ -777,14 +816,7 @@ export default function LoginPage() {
               className="w-full h-[42px] shadow-none !mt-[4px] rounded-[calc(var(--radius)+1px)] bg-black hover:bg-black/90 text-white text-[14px]"
               size="lg"
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t.auth.login.signingIn}
-                </>
-              ) : (
-                t.auth.login.signIn
-              )}
+              <SubmitLabel isLoading={isLoading} loadingLabel={t.auth.login.signingIn} label={t.auth.login.signIn} />
             </Button>
           </form>
         </div>

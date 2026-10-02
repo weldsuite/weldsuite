@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useMemo } from 'react';
-import { getTranslations } from '@/lib/i18n';
+import { getTranslations, type TranslationNamespaces } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useRouter } from '@/lib/router';
 import { HostEntityFormLayout, type HostFormSection, type HostSummaryField } from '@/app/weldhost/components/host-entity-form-layout';
@@ -136,6 +136,315 @@ function pricingKey(countryCode: string, numberType: string): string {
   return `${countryCode.trim().toUpperCase()}:${numberType.trim().toLowerCase().replace(/_/g, '-')}`;
 }
 
+type NewNumberStrings = TranslationNamespaces['settings']['phoneNumbers']['newNumber'];
+
+function formatMoney(currency: string, amount: number): string {
+  return `${currency} ${amount.toFixed(2)}`;
+}
+
+function formatCapabilities(capabilities: AvailableNumber['capabilities']): string {
+  return [
+    capabilities?.voice && 'Voice',
+    capabilities?.sms && 'SMS',
+    capabilities?.mms && 'MMS',
+  ].filter(Boolean).join(', ');
+}
+
+function numberTypeLabel(numberType: string): string {
+  return NUMBER_TYPES.find(t => t.value === numberType)?.label || numberType;
+}
+
+function formatLocation(num: AvailableNumber): string {
+  const region = num.region ? `, ${num.region}` : '';
+  return `${num.locality}${region}`;
+}
+
+function buildPreviewSummaryFields(
+  num: AvailableNumber,
+  searchType: string,
+  tn: NewNumberStrings,
+  numberColumnLabel: string,
+): HostSummaryField[] {
+  const fields: HostSummaryField[] = [
+    { label: numberColumnLabel, value: num.friendly_name },
+    { label: tn.summaryCountry, value: COUNTRIES.find(c => c.code === num.iso_country)?.name || num.iso_country },
+    { label: tn.summaryType, value: numberTypeLabel(searchType) },
+  ];
+  if (num.locality) {
+    fields.push({ label: tn.summaryLocation, value: formatLocation(num) });
+  }
+  const caps = formatCapabilities(num.capabilities);
+  if (caps) {
+    fields.push({ label: tn.summaryCapabilities, value: caps });
+  }
+  return fields;
+}
+
+interface CartItemSummaryProps {
+  num: AvailableNumber;
+  index: number;
+  isExpanded: boolean;
+  cartCurrency: string;
+  searchType: string;
+  firstMonth: number;
+  setup: number;
+  monthly: number;
+  tn: NewNumberStrings;
+  onToggle: () => void;
+  onRemove: () => void;
+}
+
+function CartItemSummary({
+  num,
+  index,
+  isExpanded,
+  cartCurrency,
+  searchType,
+  firstMonth,
+  setup,
+  monthly,
+  tn,
+  onToggle,
+  onRemove,
+}: Readonly<CartItemSummaryProps>) {
+  const country = COUNTRIES.find(c => c.code === num.iso_country);
+
+  return (
+    <div className={`group space-y-2 ${index > 0 ? 'pt-4 mt-4 border-t border-input' : ''}`}>
+      <button
+        type="button"
+        className="flex w-full items-center justify-between text-left cursor-pointer"
+        onClick={onToggle}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-medium">{num.friendly_name || num.phone_number}</span>
+          {isExpanded ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground transition-opacity" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
+        </div>
+        <span className="text-sm font-medium">{formatMoney(cartCurrency, firstMonth)}</span>
+      </button>
+
+      {isExpanded && (
+        <div className="space-y-2 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">{tn.summaryCountry}</span>
+            <span className="font-medium">{country?.name || num.iso_country}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">{tn.summaryType}</span>
+            <span className="font-medium">{numberTypeLabel(searchType)}</span>
+          </div>
+          {num.locality && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">{tn.summaryLocation}</span>
+              <span className="font-medium">{formatLocation(num)}</span>
+            </div>
+          )}
+          {setup > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">{tn.setupFee}</span>
+              <span className="font-medium">{formatMoney(cartCurrency, setup)}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">{tn.summaryCapabilities}</span>
+            <span className="font-medium">
+              {formatCapabilities(num.capabilities)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          {tn.remove}
+        </Button>
+        <span className="text-xs text-muted-foreground">{
+          monthly > 0
+            ? tn.thenMonthly.replace('{price}', formatMoney(cartCurrency, monthly))
+            : tn.priceNotAvailable
+        }</span>
+      </div>
+    </div>
+  );
+}
+
+interface AvailableNumberRowProps {
+  num: AvailableNumber;
+  isInCart: boolean;
+  isPreviewed: boolean;
+  priceLabel: string;
+  onTogglePreview: () => void;
+  onToggleCart: () => void;
+}
+
+function AvailableNumberRow({
+  num,
+  isInCart,
+  isPreviewed,
+  priceLabel,
+  onTogglePreview,
+  onToggleCart,
+}: Readonly<AvailableNumberRowProps>) {
+  return (
+    <div
+      className={`flex items-center justify-between px-3 py-3 hover:bg-gray-50 dark:hover:bg-muted/50 transition-colors gap-2 cursor-pointer ${
+        isPreviewed ? 'bg-gray-50 dark:bg-muted/50' : ''
+      }`}
+      role="button"
+      tabIndex={0}
+      onClick={onTogglePreview}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onTogglePreview();
+        }
+      }}
+    >
+      <div className="flex-1 min-w-0 flex items-center gap-2">
+        <p className="text-sm md:text-base font-medium font-mono text-gray-900 dark:text-foreground truncate">
+          {num.friendly_name || num.phone_number}
+        </p>
+        {num.locality && (
+          <Badge variant="secondary" className="hidden md:inline-flex font-mono text-xs rounded-md border border-border flex-shrink-0">
+            {formatLocation(num)}
+          </Badge>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+        <div className="text-right min-w-[70px] md:min-w-[100px]">
+          <p className="text-sm md:text-base font-medium text-gray-900 dark:text-foreground">
+            {priceLabel}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={`h-9 w-9 flex items-center justify-center border rounded-md transition-colors ${
+            isInCart
+              ? 'bg-primary border-primary'
+              : 'border-input hover:bg-gray-50 dark:hover:bg-muted'
+          }`}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleCart();
+          }}
+        >
+          {isInCart ? (
+            <Check className="h-4 w-4 text-primary-foreground" />
+          ) : (
+            <ShoppingCart className="h-4 w-4 text-gray-600 dark:text-muted-foreground" />
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface AddressRequirementNoticeProps {
+  tn: NewNumberStrings;
+  countryName: string;
+  countryAddresses: ProviderAddress[];
+  countryBundles: ProviderBundle[];
+  selectedAddressId: string;
+  selectedBundleId: string;
+  onAddressChange: (id: string) => void;
+  onBundleChange: (id: string) => void;
+  onAddNewAddress: () => void;
+}
+
+function AddressRequirementNotice({
+  tn,
+  countryName,
+  countryAddresses,
+  countryBundles,
+  selectedAddressId,
+  selectedBundleId,
+  onAddressChange,
+  onBundleChange,
+  onAddNewAddress,
+}: Readonly<AddressRequirementNoticeProps>) {
+  return (
+    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+        <div className="flex-1">
+          <p className="font-medium text-yellow-800 dark:text-yellow-200">
+            {tn.addressRequired.replace('{country}', countryName)}
+          </p>
+          <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+            {tn.addressRequiredDescription}
+          </p>
+
+          {countryAddresses.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <Label className="text-yellow-800 dark:text-yellow-200">{tn.selectAddress}</Label>
+              <Select value={selectedAddressId} onValueChange={onAddressChange}>
+                <SelectTrigger className="bg-white dark:bg-secondary">
+                  <SelectValue placeholder={tn.selectAddressPlaceholder} />
+                </SelectTrigger>
+                <SelectContent>
+                  {countryAddresses.map((addr) => (
+                    <SelectItem key={addr.id} value={addr.id}>
+                      <div className="flex flex-col">
+                        <span>{addr.business_name || addr.friendly_name || addr.customer_name}</span>
+                        <span className="text-xs text-muted-foreground">{addr.street_address || addr.street}, {addr.locality || addr.city}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {countryBundles.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <Label className="text-yellow-800 dark:text-yellow-200">{tn.selectBundle}</Label>
+              <Select value={selectedBundleId} onValueChange={onBundleChange}>
+                <SelectTrigger className="bg-white dark:bg-secondary">
+                  <SelectValue placeholder={tn.selectBundlePlaceholder} />
+                </SelectTrigger>
+                <SelectContent>
+                  {countryBundles.map((bundle) => (
+                    <SelectItem key={bundle.id} value={bundle.id}>
+                      {bundle.friendly_name || bundle.description || bundle.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={onAddNewAddress}
+          >
+            <Plus className="h-4 w-4 mr-1.5" />
+            {tn.addNewAddress}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function NewNumberClient({
   addresses: initialAddresses,
   bundles: initialBundles,
@@ -199,8 +508,6 @@ export function NewNumberClient({
 
   const firstMonthAmount = (num: AvailableNumber) => monthlyAmount(num) + setupAmount(num);
 
-  const formatMoney = (currency: string, amount: number) => `${currency} ${amount.toFixed(2)}`;
-
   const formatPrice = (num: AvailableNumber, numberType: string) => {
     const currency =
       getPrice(num.iso_country, numberType)?.currency || num.cost_information?.currency || 'USD';
@@ -263,7 +570,8 @@ export function NewNumberClient({
     });
   };
 
-  const selectedCountryRequiresAddress = COUNTRIES.find(c => c.code === searchCountry)?.requiresAddress ?? false;
+  const selectedCountry = COUNTRIES.find(c => c.code === searchCountry);
+  const selectedCountryRequiresAddress = selectedCountry?.requiresAddress ?? false;
   const countryAddresses = addresses.filter(a => (a.country_code || a.iso_country) === searchCountry);
   const countryBundles = bundles.filter(b => (b.country_code || b.iso_country) === searchCountry);
 
@@ -383,7 +691,8 @@ export function NewNumberClient({
     handleProvisionNumbers(e);
   };
 
-  const isSubmitDisabled = (!isPreviewingNumber && cartNumbers.length === 0) || isProvisioning || (!isPreviewingNumber && cartNumbers.length > 0 && selectedCountryRequiresAddress && !selectedAddressId && !selectedBundleId);
+  const cartNeedsAddress = !isPreviewingNumber && cartNumbers.length > 0 && selectedCountryRequiresAddress && !selectedAddressId && !selectedBundleId;
+  const isSubmitDisabled = (!isPreviewingNumber && cartNumbers.length === 0) || isProvisioning || cartNeedsAddress;
 
   const allCartPriced = cartNumbers.length > 0 && cartNumbers.every((num) => monthlyAmount(num) > 0);
   const totalPrice = cartNumbers.reduce((sum, num) => sum + firstMonthAmount(num), 0);
@@ -396,120 +705,55 @@ export function NewNumberClient({
         ?? 'USD')
       : 'USD';
 
-  const submitText = isProvisioning
-    ? tn.processing
-    : isPreviewingNumber
-      ? <><ShoppingCart className="h-4 w-4 mr-0.5" />{tn.addToCart}</>
-      : cartNumbers.length > 0
-        ? tn.proceedToPayment
-        : tn.selectANumber;
+  const resolveSubmitText = () => {
+    if (isProvisioning) return tn.processing;
+    if (isPreviewingNumber) return <><ShoppingCart className="h-4 w-4 mr-0.5" />{tn.addToCart}</>;
+    return cartNumbers.length > 0 ? tn.proceedToPayment : tn.selectANumber;
+  };
+  const submitText = resolveSubmitText();
 
   // --- Summary sidebar content ---
-  const summaryFields: HostSummaryField[] = [];
-
   // Show preview fields when previewing a number
   const displayedNumber = previewedNumber;
-  if (displayedNumber) {
-    summaryFields.push(
-      { label: ts.phoneNumbers.columns.number, value: displayedNumber.friendly_name },
-      { label: tn.summaryCountry, value: COUNTRIES.find(c => c.code === displayedNumber.iso_country)?.name || displayedNumber.iso_country },
-      { label: tn.summaryType, value: NUMBER_TYPES.find(t => t.value === searchType)?.label || searchType },
-    );
-    if (displayedNumber.locality) {
-      summaryFields.push({ label: tn.summaryLocation, value: `${displayedNumber.locality}${displayedNumber.region ? `, ${displayedNumber.region}` : ''}` });
-    }
-    const caps = [
-      displayedNumber.capabilities?.voice && 'Voice',
-      displayedNumber.capabilities?.sms && 'SMS',
-      displayedNumber.capabilities?.mms && 'MMS',
-    ].filter(Boolean).join(', ');
-    if (caps) {
-      summaryFields.push({ label: tn.summaryCapabilities, value: caps });
-    }
-  }
+  const summaryFields: HostSummaryField[] = displayedNumber
+    ? buildPreviewSummaryFields(displayedNumber, searchType, tn, ts.phoneNumbers.columns.number)
+    : [];
 
   // Summary content — cart items list (domain register style), hidden when previewing
-  const summaryContent = isPreviewingNumber ? null : cartNumbers.length > 0 ? (
-    <div className="space-y-3">
-      {cartNumbers.map((num, index) => {
-        const isExpanded = expandedCartNumbers.has(num.phone_number);
-        const country = COUNTRIES.find(c => c.code === num.iso_country);
-
-        return (
-          <div key={num.phone_number} className={`group space-y-2 ${index > 0 ? 'pt-4 mt-4 border-t border-input' : ''}`}>
-            <div
-              className="flex items-center justify-between cursor-pointer"
-              onClick={() => toggleCartExpand(num.phone_number)}
-            >
-              <div className="flex items-center gap-1">
-                <span className="text-sm font-medium">{num.friendly_name || num.phone_number}</span>
-                {isExpanded ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground transition-opacity" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                )}
-              </div>
-              <span className="text-sm font-medium">{formatMoney(cartCurrency, firstMonthAmount(num))}</span>
-            </div>
-
-            {isExpanded && (
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{tn.summaryCountry}</span>
-                  <span className="font-medium">{country?.name || num.iso_country}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{tn.summaryType}</span>
-                  <span className="font-medium">{NUMBER_TYPES.find(t => t.value === searchType)?.label || searchType}</span>
-                </div>
-                {num.locality && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">{tn.summaryLocation}</span>
-                    <span className="font-medium">{num.locality}{num.region ? `, ${num.region}` : ''}</span>
-                  </div>
-                )}
-                {setupAmount(num) > 0 && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">{tn.setupFee}</span>
-                    <span className="font-medium">{formatMoney(cartCurrency, setupAmount(num))}</span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{tn.summaryCapabilities}</span>
-                  <span className="font-medium">
-                    {[num.capabilities?.voice && 'Voice', num.capabilities?.sms && 'SMS', num.capabilities?.mms && 'MMS'].filter(Boolean).join(', ')}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRemoveFromCart(num.phone_number);
-                }}
-                className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-              >
-                {tn.remove}
-              </Button>
-              <span className="text-xs text-muted-foreground">{
-                monthlyAmount(num) > 0
-                  ? tn.thenMonthly.replace('{price}', formatMoney(cartCurrency, monthlyAmount(num)))
-                  : tn.priceNotAvailable
-              }</span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  ) : !displayedNumber ? (
-    <div className="flex items-center justify-center text-center py-8">
-      <p className="text-sm text-muted-foreground">{tn.cartEmpty}</p>
-    </div>
-  ) : null;
+  const renderSummaryContent = () => {
+    if (isPreviewingNumber) return null;
+    if (cartNumbers.length > 0) {
+      return (
+        <div className="space-y-3">
+          {cartNumbers.map((num, index) => (
+            <CartItemSummary
+              key={num.phone_number}
+              num={num}
+              index={index}
+              isExpanded={expandedCartNumbers.has(num.phone_number)}
+              cartCurrency={cartCurrency}
+              searchType={searchType}
+              firstMonth={firstMonthAmount(num)}
+              setup={setupAmount(num)}
+              monthly={monthlyAmount(num)}
+              tn={tn}
+              onToggle={() => toggleCartExpand(num.phone_number)}
+              onRemove={() => handleRemoveFromCart(num.phone_number)}
+            />
+          ))}
+        </div>
+      );
+    }
+    if (!displayedNumber) {
+      return (
+        <div className="flex items-center justify-center text-center py-8">
+          <p className="text-sm text-muted-foreground">{tn.cartEmpty}</p>
+        </div>
+      );
+    }
+    return null;
+  };
+  const summaryContent = renderSummaryContent();
 
   // --- Form sections (left column) ---
   const sections: HostFormSection[] = [
@@ -531,8 +775,8 @@ export function NewNumberClient({
                         aria-expanded={countryOpen}
                         className="w-full justify-between font-normal"
                       >
-                        {COUNTRIES.find(c => c.code === searchCountry)
-                          ? `${COUNTRIES.find(c => c.code === searchCountry)!.name} (${COUNTRIES.find(c => c.code === searchCountry)!.prefix})`
+                        {selectedCountry
+                          ? `${selectedCountry.name} (${selectedCountry.prefix})`
                           : tn.selectCountry}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
@@ -589,71 +833,20 @@ export function NewNumberClient({
 
               {/* Address Requirement Warning */}
               {selectedCountryRequiresAddress && (
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <p className="font-medium text-yellow-800 dark:text-yellow-200">
-                        {tn.addressRequired.replace('{country}', COUNTRIES.find(c => c.code === searchCountry)?.name ?? searchCountry)}
-                      </p>
-                      <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                        {tn.addressRequiredDescription}
-                      </p>
-
-                      {countryAddresses.length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          <Label className="text-yellow-800 dark:text-yellow-200">{tn.selectAddress}</Label>
-                          <Select value={selectedAddressId} onValueChange={setSelectedAddressId}>
-                            <SelectTrigger className="bg-white dark:bg-secondary">
-                              <SelectValue placeholder={tn.selectAddressPlaceholder} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {countryAddresses.map((addr) => (
-                                <SelectItem key={addr.id} value={addr.id}>
-                                  <div className="flex flex-col">
-                                    <span>{addr.business_name || addr.friendly_name || addr.customer_name}</span>
-                                    <span className="text-xs text-muted-foreground">{addr.street_address || addr.street}, {addr.locality || addr.city}</span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      {countryBundles.length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          <Label className="text-yellow-800 dark:text-yellow-200">{tn.selectBundle}</Label>
-                          <Select value={selectedBundleId} onValueChange={setSelectedBundleId}>
-                            <SelectTrigger className="bg-white dark:bg-secondary">
-                              <SelectValue placeholder={tn.selectBundlePlaceholder} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {countryBundles.map((bundle) => (
-                                <SelectItem key={bundle.id} value={bundle.id}>
-                                  {bundle.friendly_name || bundle.description || bundle.id}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="mt-3"
-                        onClick={() => {
-                          setNewAddress(prev => ({ ...prev, isoCountry: searchCountry }));
-                          setIsAddressDialogOpen(true);
-                        }}
-                      >
-                        <Plus className="h-4 w-4 mr-1.5" />
-                        {tn.addNewAddress}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
+                <AddressRequirementNotice
+                  tn={tn}
+                  countryName={selectedCountry?.name ?? searchCountry}
+                  countryAddresses={countryAddresses}
+                  countryBundles={countryBundles}
+                  selectedAddressId={selectedAddressId}
+                  selectedBundleId={selectedBundleId}
+                  onAddressChange={setSelectedAddressId}
+                  onBundleChange={setSelectedBundleId}
+                  onAddNewAddress={() => {
+                    setNewAddress(prev => ({ ...prev, isoCountry: searchCountry }));
+                    setIsAddressDialogOpen(true);
+                  }}
+                />
               )}
 
             </div>
@@ -674,59 +867,24 @@ export function NewNumberClient({
                   <div className="divide-y divide-border">
                     {availableNumbers.map((num) => {
                       const isInCart = cartNumbers.some(n => n.phone_number === num.phone_number);
+                      const isPreviewed = previewedNumber?.phone_number === num.phone_number;
 
                       return (
-                        <div
+                        <AvailableNumberRow
                           key={num.phone_number}
-                          className={`flex items-center justify-between px-3 py-3 hover:bg-gray-50 dark:hover:bg-muted/50 transition-colors gap-2 cursor-pointer ${
-                            previewedNumber?.phone_number === num.phone_number ? 'bg-gray-50 dark:bg-muted/50' : ''
-                          }`}
-                          onClick={() => setPreviewedNumber(previewedNumber?.phone_number === num.phone_number ? null : num)}
-                        >
-                          <div className="flex-1 min-w-0 flex items-center gap-2">
-                            <p className="text-sm md:text-base font-medium font-mono text-gray-900 dark:text-foreground truncate">
-                              {num.friendly_name || num.phone_number}
-                            </p>
-                            {num.locality && (
-                              <Badge variant="secondary" className="hidden md:inline-flex font-mono text-xs rounded-md border border-border flex-shrink-0">
-                                {num.locality}{num.region ? `, ${num.region}` : ''}
-                              </Badge>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
-                            <div className="text-right min-w-[70px] md:min-w-[100px]">
-                              <p className="text-sm md:text-base font-medium text-gray-900 dark:text-foreground">
-                                {formatPrice(num, searchType)}
-                              </p>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className={`h-9 w-9 flex items-center justify-center border rounded-md transition-colors ${
-                                isInCart
-                                  ? 'bg-primary border-primary'
-                                  : 'border-input hover:bg-gray-50 dark:hover:bg-muted'
-                              }`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (isInCart) {
-                                  handleRemoveFromCart(num.phone_number);
-                                } else {
-                                  handleAddToCart(num);
-                                }
-                              }}
-                            >
-                              {isInCart ? (
-                                <Check className="h-4 w-4 text-primary-foreground" />
-                              ) : (
-                                <ShoppingCart className="h-4 w-4 text-gray-600 dark:text-muted-foreground" />
-                              )}
-                            </Button>
-                          </div>
-                        </div>
+                          num={num}
+                          isInCart={isInCart}
+                          isPreviewed={isPreviewed}
+                          priceLabel={formatPrice(num, searchType)}
+                          onTogglePreview={() => setPreviewedNumber(isPreviewed ? null : num)}
+                          onToggleCart={() => {
+                            if (isInCart) {
+                              handleRemoveFromCart(num.phone_number);
+                            } else {
+                              handleAddToCart(num);
+                            }
+                          }}
+                        />
                       );
                     })}
                   </div>

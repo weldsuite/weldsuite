@@ -105,6 +105,115 @@ export function SavedRepliesSettings() {
     }
   };
 
+  const renderList = () => {
+    if (isLoading) {
+      return (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-4">
+                  <Skeleton className="h-10 w-10 rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                  <Skeleton className="h-6 w-12" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      );
+    }
+    if (items.length === 0) {
+      return (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <BookOpen className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h3 className="text-lg font-medium mb-1">{srp.noRepliesTitle}</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              {srp.noRepliesDesc}
+            </p>
+            <Button onClick={handleCreate}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              {srp.createFirstReply}
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+    return (
+      <div className="space-y-2">
+        {items.map((item) => {
+          const ScopeIcon = SCOPE_ICONS[item.scope] || Globe;
+          return (
+            <Card key={item.id} className={cn(!item.isActive && 'opacity-60')}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-4">
+                  <div
+                    className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0 bg-muted"
+                  >
+                    <ScopeIcon className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate">{item.name}</span>
+                      {item.shortcut && (
+                        <Badge variant="outline" className="text-xs font-mono shrink-0">
+                          /{item.shortcut}
+                        </Badge>
+                      )}
+                      {item.category && (
+                        <Badge variant="secondary" className="text-xs shrink-0">
+                          {item.category}
+                        </Badge>
+                      )}
+                      {!item.isActive && (
+                        <Badge variant="secondary" className="text-xs">{srp.disabled}</Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {item.content.slice(0, 100)}
+                      {item.content.length > 100 ? '...' : ''}
+                    </p>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                      <span>{SCOPE_LABELS[item.scope] || item.scope}</span>
+                      {item.usageCount != null && item.usageCount > 0 && (
+                        <span>{srp.usedTimes.replace('{count}', String(item.usageCount))}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={item.isActive}
+                      onCheckedChange={() => handleToggleActive(item)}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEdit(item)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeleteId(item.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+  const listContent = renderList();
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="container max-w-4xl mx-auto p-6 space-y-6">
@@ -128,105 +237,7 @@ export function SavedRepliesSettings() {
         </div>
 
         {/* List */}
-        {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <Card key={i}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    <Skeleton className="h-10 w-10 rounded-lg" />
-                    <div className="flex-1 space-y-2">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="h-3 w-48" />
-                    </div>
-                    <Skeleton className="h-6 w-12" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : items.length === 0 ? (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <BookOpen className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-medium mb-1">{srp.noRepliesTitle}</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                {srp.noRepliesDesc}
-              </p>
-              <Button onClick={handleCreate}>
-                <Plus className="h-4 w-4 mr-1.5" />
-                {srp.createFirstReply}
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            {items.map((item) => {
-              const ScopeIcon = SCOPE_ICONS[item.scope] || Globe;
-              return (
-                <Card key={item.id} className={cn(!item.isActive && 'opacity-60')}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
-                      <div
-                        className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0 bg-muted"
-                      >
-                        <ScopeIcon className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium truncate">{item.name}</span>
-                          {item.shortcut && (
-                            <Badge variant="outline" className="text-xs font-mono shrink-0">
-                              /{item.shortcut}
-                            </Badge>
-                          )}
-                          {item.category && (
-                            <Badge variant="secondary" className="text-xs shrink-0">
-                              {item.category}
-                            </Badge>
-                          )}
-                          {!item.isActive && (
-                            <Badge variant="secondary" className="text-xs">{srp.disabled}</Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground truncate">
-                          {item.content.slice(0, 100)}
-                          {item.content.length > 100 ? '...' : ''}
-                        </p>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                          <span>{SCOPE_LABELS[item.scope] || item.scope}</span>
-                          {item.usageCount != null && item.usageCount > 0 && (
-                            <span>{srp.usedTimes.replace('{count}', String(item.usageCount))}</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={item.isActive}
-                          onCheckedChange={() => handleToggleActive(item)}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(item)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setDeleteId(item.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+        {listContent}
       </div>
 
       {/* Editor Dialog */}

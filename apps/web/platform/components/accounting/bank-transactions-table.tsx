@@ -55,6 +55,65 @@ function formatAmount(amount: string, currency: string, locale?: string | null):
   return formatWeldbooksMoney(amount, currency, locale);
 }
 
+function renderDateCell(t: BankTransaction) {
+  return <span className="text-sm">{formatDate(t.date)}</span>;
+}
+
+function renderDescriptionCell(t: BankTransaction) {
+  return <div className="text-sm truncate max-w-[360px]">{t.description || '—'}</div>;
+}
+
+function renderCounterpartyCell(t: BankTransaction) {
+  return t.counterpartyName ? (
+    <div className="text-sm">
+      <div className="truncate max-w-[200px]">{t.counterpartyName}</div>
+      {t.counterpartyIban ? (
+        <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+          {t.counterpartyIban}
+        </div>
+      ) : null}
+    </div>
+  ) : (
+    <span className="text-muted-foreground">—</span>
+  );
+}
+
+function renderReferenceCell(t: BankTransaction) {
+  return (
+    <span className="text-sm text-muted-foreground truncate max-w-[200px]">
+      {t.reference || '—'}
+    </span>
+  );
+}
+
+function createAmountCell(
+  currencyByAccountId: BankTransactionsTableProps['currencyByAccountId'],
+  displayCurrency: string,
+  locale: string | null | undefined,
+) {
+  return function renderAmountCell(t: BankTransaction) {
+    const isPositive = (Number(t.amount) || 0) >= 0;
+    return (
+      <span
+        className={cn(
+          'text-sm font-medium tabular-nums',
+          isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
+        )}
+      >
+        {formatAmount(t.amount, currencyByAccountId?.[t.bankAccountId] ?? displayCurrency, locale)}
+      </span>
+    );
+  };
+}
+
+function renderStatusCell(t: BankTransaction) {
+  return (
+    <Badge variant={statusVariant(t.status)} className="capitalize">
+      {t.status}
+    </Badge>
+  );
+}
+
 export function BankTransactionsTable({
   transactions,
   emptyMessage,
@@ -72,69 +131,35 @@ export function BankTransactionsTable({
       id: 'date',
       header: st('sweep.weldbooks.date'),
       width: 110,
-      cell: (t) => <span className="text-sm">{formatDate(t.date)}</span>,
+      cell: renderDateCell,
     },
     {
       id: 'description',
       header: st('sweep.weldbooks.description'),
-      cell: (t) => (
-        <div className="text-sm truncate max-w-[360px]">{t.description || '—'}</div>
-      ),
+      cell: renderDescriptionCell,
     },
     {
       id: 'counterparty',
       header: st('sweep.weldbooks.bankTransactionsTable.counterparty'),
       hidden: dense,
-      cell: (t) =>
-        t.counterpartyName ? (
-          <div className="text-sm">
-            <div className="truncate max-w-[200px]">{t.counterpartyName}</div>
-            {t.counterpartyIban ? (
-              <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                {t.counterpartyIban}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        ),
+      cell: renderCounterpartyCell,
     },
     {
       id: 'reference',
       header: st('sweep.weldbooks.bankTransactionsTable.reference'),
-      cell: (t) => (
-        <span className="text-sm text-muted-foreground truncate max-w-[200px]">
-          {t.reference || '—'}
-        </span>
-      ),
+      cell: renderReferenceCell,
     },
     {
       id: 'amount',
       header: st('sweep.weldbooks.amount'),
       align: 'right',
-      cell: (t) => {
-        const isPositive = (Number(t.amount) || 0) >= 0;
-        return (
-          <span
-            className={cn(
-              'text-sm font-medium tabular-nums',
-              isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
-            )}
-          >
-            {formatAmount(t.amount, currencyByAccountId?.[t.bankAccountId] ?? displayCurrency, locale)}
-          </span>
-        );
-      },
+      cell: createAmountCell(currencyByAccountId, displayCurrency, locale),
     },
     {
       id: 'status',
       header: st('sweep.weldbooks.status'),
       width: 120,
-      cell: (t) => (
-        <Badge variant={statusVariant(t.status)} className="capitalize">
-          {t.status}
-        </Badge>
-      ),
+      cell: renderStatusCell,
     },
   ];
 

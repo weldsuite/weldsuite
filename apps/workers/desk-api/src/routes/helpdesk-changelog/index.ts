@@ -13,8 +13,8 @@
  * no create/update/delete routes are speculatively added.
  */
 
-import { Hono } from 'hono';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { Hono, type Context } from 'hono';
+import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import type { PaginationMeta } from '@weldsuite/worker-kit/response';
@@ -36,6 +36,70 @@ interface OffsetPaginationMeta extends PaginationMeta {
   totalPages: number;
 }
 
+/** Parse a query-string integer; NaN when absent or empty. */
+function parseIntParam(value: string | undefined): number {
+  return value ? Number.parseInt(value, 10) : Number.NaN;
+}
+
+/** Resolve pagination mode + window from the query string. */
+function parsePaging(q: Record<string, string>) {
+  // Clamp rather than reject, matching this route's existing behaviour.
+  const limit = Math.min(Math.max(q.limit ? Number.parseInt(q.limit, 10) : 25, 1), 100);
+  const rawPage = parseIntParam(q.page);
+  const rawPageSize = parseIntParam(q.pageSize);
+  // A cursor always wins; offset mode engages only on an explicit, valid `page`.
+  const useCursor = q.cursor !== undefined || Number.isNaN(rawPage);
+  const page = Number.isNaN(rawPage) ? 1 : Math.max(rawPage, 1);
+  const pageSize = Number.isNaN(rawPageSize) ? limit : Math.min(Math.max(rawPageSize, 1), 100);
+  return { limit, useCursor, page, pageSize };
+}
+
+/** Filter conditions (status / type / search) — never the cursor window. */
+function buildChangelogFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (q.status && q.status !== 'all') conditions.push(eq(t.status, q.status));
+  if (q.type && q.type !== 'all') conditions.push(eq(t.type, q.type));
+  if (q.search) {
+    const term = `%${q.search}%`;
+    conditions.push(or(like(t.title, term), like(t.version, term), like(t.description, term))!);
+  }
+  return conditions;
+}
+
+/** Keyset condition (release date, then id) for the row identified by `cursorId`, if it exists. */
+async function releaseCursorCondition(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  cursorId: string,
+): Promise<SQL | null> {
+  const db = c.get('tenantDb');
+  const [cur] = await db
+    .select({ releaseDate: t.releaseDate, id: t.id })
+    .from(t)
+    .where(eq(t.id, cursorId))
+    .limit(1);
+  if (!cur?.releaseDate) return null;
+  return sql`(${t.releaseDate} < ${cur.releaseDate} OR (${t.releaseDate} = ${cur.releaseDate} AND ${t.id} < ${cur.id}))`;
+}
+
+/** Offset-mode pagination meta for one numbered page of rows. */
+function offsetMeta(
+  rows: Array<{ id: string }>,
+  totalCount: number,
+  offset: number,
+  page: number,
+  pageSize: number,
+): OffsetPaginationMeta {
+  const hasMore = offset + rows.length < totalCount;
+  return {
+    totalCount,
+    hasMore,
+    cursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : null,
+    page,
+    pageSize,
+    totalPages: Math.ceil(totalCount / pageSize),
+  };
+}
+
 /**
  * List changelog entries, newest release first.
  *
@@ -53,34 +117,13 @@ interface OffsetPaginationMeta extends PaginationMeta {
 app.get('/', requirePermission('articles:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  // Clamp rather than reject, matching this route's existing behaviour.
-  const limit = Math.min(Math.max(q.limit ? Number.parseInt(q.limit, 10) : 25, 1), 100);
-  const rawPage = q.page !== undefined && q.page !== '' ? Number.parseInt(q.page, 10) : Number.NaN;
-  const rawPageSize = q.pageSize !== undefined && q.pageSize !== '' ? Number.parseInt(q.pageSize, 10) : Number.NaN;
-  // A cursor always wins; offset mode engages only on an explicit, valid `page`.
-  const useCursor = q.cursor !== undefined || Number.isNaN(rawPage);
-  const page = Number.isNaN(rawPage) ? 1 : Math.max(rawPage, 1);
-  const pageSize = Number.isNaN(rawPageSize) ? limit : Math.min(Math.max(rawPageSize, 1), 100);
+  const { limit, useCursor, page, pageSize } = parsePaging(q);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.status !== undefined && q.status !== '' && q.status !== 'all') conditions.push(eq(t.status, q.status));
-  if (q.type !== undefined && q.type !== '' && q.type !== 'all') conditions.push(eq(t.type, q.type));
-  if (q.search) {
-    const term = `%${q.search}%`;
-    conditions.push(or(like(t.title, term), like(t.version, term), like(t.description, term))!);
-  }
+  const conditions = buildChangelogFilters(q);
   const filterConditions = [...conditions];
   if (useCursor && q.cursor) {
-    const [cur] = await db
-      .select({ releaseDate: t.releaseDate, id: t.id })
-      .from(t)
-      .where(eq(t.id, q.cursor))
-      .limit(1);
-    if (cur?.releaseDate) {
-      conditions.push(
-        sql`(${t.releaseDate} < ${cur.releaseDate} OR (${t.releaseDate} = ${cur.releaseDate} AND ${t.id} < ${cur.id}))`,
-      );
-    }
+    const cursorCond = await releaseCursorCondition(c, q.cursor);
+    if (cursorCond) conditions.push(cursorCond);
   }
   const where = conditions.length ? and(...conditions) : undefined;
   // Count reflects the filters only — never the cursor window.
@@ -110,16 +153,7 @@ app.get('/', requirePermission('articles:read'), async (c) => {
       return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
     }
 
-    const hasMore = offset + rows.length < totalCount;
-    const meta: OffsetPaginationMeta = {
-      totalCount,
-      hasMore,
-      cursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : null,
-      page,
-      pageSize,
-      totalPages: Math.ceil(totalCount / pageSize),
-    };
-    return list(c, rows, meta);
+    return list(c, rows, offsetMeta(rows, totalCount, offset, page, pageSize));
   } catch (err) {
     console.error('[app-api/helpdesk-changelog] list failed:', err);
     return error.internal(c, 'Failed to list changelog entries');

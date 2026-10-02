@@ -79,6 +79,21 @@ const fontSizes = [
   { value: '36', label: '36' },
 ];
 
+/** Force LTR direction on the paragraph that currently holds the caret. */
+function forceLtrOnCaretParagraph() {
+  const selection = window.getSelection();
+  if (!selection?.anchorNode) return;
+
+  let element = selection.anchorNode as HTMLElement;
+  if (element.nodeType === Node.TEXT_NODE) {
+    element = element.parentElement as HTMLElement;
+  }
+  if (element && element.tagName === 'P') {
+    element.setAttribute('dir', 'ltr');
+    element.style.direction = 'ltr';
+  }
+}
+
 export default function DocumentsPage() {
   const { t } = useI18n();
   const titleRef = useRef<HTMLDivElement>(null);
@@ -245,59 +260,55 @@ export default function DocumentsPage() {
     document.execCommand('insertText', false, text);
   };
 
-  const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const selection = window.getSelection();
-    if (selection && selection.anchorNode) {
-      let element = selection.anchorNode as HTMLElement;
-      if (element.nodeType === Node.TEXT_NODE) {
-        element = element.parentElement as HTMLElement;
+  const handleCommandMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedCommandIndex((prev) =>
+        prev < filteredCommands.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedCommandIndex((prev) =>
+        prev > 0 ? prev - 1 : filteredCommands.length - 1
+      );
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredCommands[selectedCommandIndex]) {
+        filteredCommands[selectedCommandIndex].action();
       }
-      if (element && element.tagName === 'P') {
-        element.setAttribute('dir', 'ltr');
-        element.style.direction = 'ltr';
-      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowCommandMenu(false);
+      setCommandFilter('');
     }
+  };
+
+  const openCommandMenuAtCaret = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      const editorRect = contentRef.current?.getBoundingClientRect();
+
+      if (editorRect) {
+        setCommandMenuPosition({
+          top: rect.bottom - editorRect.top + 5,
+          left: rect.left - editorRect.left,
+        });
+      }
+      setShowCommandMenu(true);
+      setCommandFilter('');
+      setSelectedCommandIndex(0);
+    }
+  };
+
+  const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    forceLtrOnCaretParagraph();
 
     if (showCommandMenu) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev < filteredCommands.length - 1 ? prev + 1 : 0
-        );
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredCommands.length - 1
-        );
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (filteredCommands[selectedCommandIndex]) {
-          filteredCommands[selectedCommandIndex].action();
-        }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        setShowCommandMenu(false);
-        setCommandFilter('');
-      }
+      handleCommandMenuKeyDown(e);
     } else if (e.key === '/') {
-      setTimeout(() => {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-          const range = sel.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          const editorRect = contentRef.current?.getBoundingClientRect();
-
-          if (editorRect) {
-            setCommandMenuPosition({
-              top: rect.bottom - editorRect.top + 5,
-              left: rect.left - editorRect.left,
-            });
-          }
-          setShowCommandMenu(true);
-          setCommandFilter('');
-          setSelectedCommandIndex(0);
-        }
-      }, 0);
+      setTimeout(openCommandMenuAtCaret, 0);
     }
   };
 
@@ -845,17 +856,18 @@ export default function DocumentsPage() {
             </div>
             <div className="space-y-1">
               {tabs.map((tab) => (
-                <div
+                <button
+                  type="button"
                   key={tab.id}
                   className={cn(
-                    "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm",
+                    "flex w-full items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm text-left",
                     tab.active ? "bg-blue-50 hover:bg-blue-100" : "hover:bg-muted"
                   )}
                   onClick={() => handleTabClick(tab.id)}
                 >
                   <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                   <span className="flex-1 truncate">{tab.name}</span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -902,6 +914,9 @@ export default function DocumentsPage() {
           ref={titleRef}
           contentEditable
           suppressContentEditableWarning
+          role="textbox"
+          tabIndex={0}
+          aria-label={t.projects.documentEditor.titlePlaceholder}
           onInput={handleTitleInput}
           onKeyDown={handleTitleKeyDown}
           dir="ltr"
@@ -925,6 +940,10 @@ export default function DocumentsPage() {
             ref={contentRef}
             contentEditable
             suppressContentEditableWarning
+            role="textbox"
+            tabIndex={0}
+            aria-multiline="true"
+            aria-label={t.projects.documentEditor.contentPlaceholder}
             onInput={handleContentInput}
             onKeyDown={handleContentKeyDown}
             onPaste={handleContentPaste}
@@ -961,23 +980,24 @@ export default function DocumentsPage() {
               <div className="overflow-hidden p-1">
                 <div className="overflow-y-auto max-h-[300px] overflow-x-hidden">
                   {filteredCommands.map((command, index) => (
-                    <div
+                    <button
+                      type="button"
                       key={command.id}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => command.action()}
                       className={cn(
-                        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+                        "relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors",
                         index === selectedCommandIndex
                           ? "bg-accent text-accent-foreground"
                           : "hover:bg-accent hover:text-accent-foreground"
                       )}
-                      role="option"
-                      aria-selected={index === selectedCommandIndex}
+                      aria-current={index === selectedCommandIndex}
                     >
-                      <div className="mr-0.5 h-4 w-4 shrink-0 opacity-70">
+                      <span className="mr-0.5 h-4 w-4 shrink-0 opacity-70">
                         {command.icon}
-                      </div>
+                      </span>
                       <span className="flex-1 truncate">{command.label}</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>

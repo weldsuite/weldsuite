@@ -174,48 +174,57 @@ export default function DraftsPage() {
 
   const renderRow = useCallback((draft: DraftItem) => {
     const category = categorize(draft);
-    const Icon = category === 'thread' ? MessageSquare : category === 'dm' ? MessageSquare : Hash;
+    const Icon = category === 'thread' || category === 'dm' ? MessageSquare : Hash;
     return (
       <div
         key={draft.id}
-        onClick={() => handleContinueWriting(draft)}
         className={cn(
           'flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group',
           draft.channelId
-            ? 'hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer'
+            ? 'hover:bg-gray-50 dark:hover:bg-secondary/50'
             : '',
         )}
       >
-        <div className="w-[260px] flex-shrink-0 flex items-center gap-3 min-w-0">
-          <div className="h-6 w-6 flex items-center justify-center flex-shrink-0">
-            <Icon className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
-            {draftLabel(draft, {
-              threadReply: t.draftsPage?.threadReply ?? 'Thread reply',
-              directMessage: t.draftsPage?.directMessage ?? 'Direct message',
-              draft: t.draftsPage?.draft ?? 'Draft',
-            })}
-          </span>
-        </div>
-
-        <div className="flex-1 min-w-0">
-          {draft.content ? (
-            <span className="text-sm text-gray-600 dark:text-muted-foreground truncate block">
-              {draft.content}
-            </span>
-          ) : (
-            <span className="text-sm text-gray-400 italic">{t.draftsPage?.noContent ?? 'No content'}</span>
+        <button
+          type="button"
+          disabled={!draft.channelId}
+          onClick={() => handleContinueWriting(draft)}
+          className={cn(
+            'flex flex-1 min-w-0 items-center gap-4 text-left',
+            draft.channelId ? 'cursor-pointer' : 'cursor-default',
           )}
-        </div>
-
-        <div className="w-[120px] flex-shrink-0">
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">
-            {formatRelative(draft.updatedAt, st)}
+        >
+          <span className="w-[260px] flex-shrink-0 flex items-center gap-3 min-w-0">
+            <span className="h-6 w-6 flex items-center justify-center flex-shrink-0">
+              <Icon className="h-4 w-4 text-muted-foreground" />
+            </span>
+            <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
+              {draftLabel(draft, {
+                threadReply: t.draftsPage?.threadReply ?? 'Thread reply',
+                directMessage: t.draftsPage?.directMessage ?? 'Direct message',
+                draft: t.draftsPage?.draft ?? 'Draft',
+              })}
+            </span>
           </span>
-        </div>
 
-        <div className="w-[40px] flex-shrink-0 flex justify-end" onClick={(e) => e.stopPropagation()}>
+          <span className="flex-1 min-w-0">
+            {draft.content ? (
+              <span className="text-sm text-gray-600 dark:text-muted-foreground truncate block">
+                {draft.content}
+              </span>
+            ) : (
+              <span className="text-sm text-gray-400 italic">{t.draftsPage?.noContent ?? 'No content'}</span>
+            )}
+          </span>
+
+          <span className="w-[120px] flex-shrink-0">
+            <span className="text-sm text-gray-600 dark:text-muted-foreground">
+              {formatRelative(draft.updatedAt, st)}
+            </span>
+          </span>
+        </button>
+
+        <div className="w-[40px] flex-shrink-0 flex justify-end">
           <Button
             variant="ghost"
             size="icon"

@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
 import {
@@ -20,6 +21,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { BASE36_UPPER, randomString } from '@weldsuite/worker-kit/random';
 import { schema } from '@weldsuite/worker-kit/db';
 import { commercePortalSlugMiddleware } from '@weldsuite/commerce-domain/portal-slug';
 import { commercePortalAuthMiddleware } from '../../middleware/commerce-portal-auth';
@@ -183,6 +185,99 @@ async function activateAccess(db: Database, accessId: string) {
     .where(eq(schema.commercePortalAccess.id, accessId));
 }
 
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+type PortalAccessRow = typeof schema.commercePortalAccess.$inferSelect;
+
+/**
+ * Challenges are stored per-email. We don't know the email from a token
+ * alone, so scan isn't possible — callers send email via the OTP path, and
+ * magic-link tokens include the email by looking up... we stored email
+ * inside the challenge keyed by email. Magic-link verify therefore needs
+ * the email OR we store a reverse index.
+ *
+ * Reverse index: cportal:tok:{tokenHash} → email. Written alongside the challenge.
+ */
+async function resolveChallengeEmail(env: Env, presentedHash: string): Promise<string | undefined> {
+  // Prefer reverse lookup for magic-link tokens.
+  const reverse = await kvGetJson<{ email: string }>(env, `cportal:tok:${presentedHash}`);
+  if (reverse?.email) return reverse.email;
+
+  // OTP path: client may retry without email. Scan isn't available; require
+  // that request() wrote a reverse index for both token and otp hashes.
+  const otpReverse = await kvGetJson<{ email: string }>(env, `cportal:otpidx:${presentedHash}`);
+  return otpReverse?.email;
+}
+
+/**
+ * Load the stored challenge and check the presented token/OTP against it.
+ * Returns null when the challenge is missing, exhausted, or does not match
+ * (counting the failed attempt).
+ */
+async function loadMatchingChallenge(
+  env: Env,
+  args: { workspaceId: string; email: string; presentedHash: string; token?: string; otp?: string },
+): Promise<PortalChallenge | null> {
+  const { workspaceId, email, presentedHash, token, otp } = args;
+  const challenge = await kvGetJson<PortalChallenge>(env, otpKvKey(workspaceId, email));
+  if (!challenge) return null;
+  if (challenge.attempts >= 8) {
+    await kvDelete(env, otpKvKey(workspaceId, email));
+    return null;
+  }
+
+  const tokenOk = token && challenge.tokenHash === presentedHash;
+  const otpOk = otp && challenge.otpHash === presentedHash;
+  if (!tokenOk && !otpOk) {
+    await kvPutJson(env, otpKvKey(workspaceId, email), { ...challenge, attempts: challenge.attempts + 1 }, OTP_TTL_SECONDS);
+    return null;
+  }
+  return challenge;
+}
+
+/** Mint a buyer session for one company access row. */
+async function signInWithAccess(
+  c: AppContext,
+  db: Database,
+  workspaceId: string,
+  access: PortalAccessRow,
+) {
+  const session = await accessToSession(db, workspaceId, access);
+  if (!session) return error.badRequest(c, 'Company has no commercial party record');
+  await activateAccess(db, access.id);
+  const token = await mintSession(c.env, session);
+  return success(c, { token, needsCompanyPicker: false, companies: [] });
+}
+
+/** Multiple companies for one email: hand back a picker token + the company list. */
+async function startCompanyPicker(
+  c: AppContext,
+  db: Database,
+  args: { workspaceId: string; email: string; accessRows: PortalAccessRow[] },
+) {
+  const { workspaceId, email, accessRows } = args;
+  const pickerToken = randomToken();
+  const pickerHash = await sha256Hex(pickerToken);
+  const picker: PortalPicker = {
+    workspaceId,
+    email,
+    accessIds: accessRows.map((r) => r.id),
+  };
+  await kvPutJson(c.env, pickerKvKey(pickerHash), picker, OTP_TTL_SECONDS);
+
+  const companies = await Promise.all(
+    accessRows.map(async (row) => {
+      const [company] = await db
+        .select({ id: schema.companies.id, displayName: schema.companies.displayName })
+        .from(schema.companies)
+        .where(eq(schema.companies.id, row.companyId))
+        .limit(1);
+      return { accessId: row.id, companyId: row.companyId, name: company?.displayName ?? row.companyId };
+    }),
+  );
+
+  return success(c, { token: null, pickerToken, needsCompanyPicker: true, companies });
+}
+
 app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), async (c) => {
   const db = c.get('tenantDb');
   const workspaceId = c.get('workspaceId');
@@ -193,44 +288,21 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
     const settings = await requireEnabled(db);
     if (!settings) return error.unauthorized(c, 'Invalid or expired code');
 
-    // Challenges are stored per-email. We don't know the email from a token
-    // alone, so scan isn't possible — callers send email via the OTP path, and
-    // magic-link tokens include the email by looking up... we stored email
-    // inside the challenge keyed by email. Magic-link verify therefore needs
-    // the email OR we store a reverse index.
-    //
-    // Reverse index: cportal:tok:{tokenHash} → email. Written alongside the challenge.
-
     const presented = body.token || body.otp;
     if (!presented) return error.unauthorized(c, 'Invalid or expired code');
     const presentedHash = await sha256Hex(presented);
 
-    let email: string | undefined;
-    // Prefer reverse lookup for magic-link tokens.
-    const reverse = await kvGetJson<{ email: string }>(c.env, `cportal:tok:${presentedHash}`);
-    email = reverse?.email;
-
-    // OTP path: client may retry without email. Scan isn't available; require
-    // that request() wrote a reverse index for both token and otp hashes.
-    if (!email) {
-      const otpReverse = await kvGetJson<{ email: string }>(c.env, `cportal:otpidx:${presentedHash}`);
-      email = otpReverse?.email;
-    }
+    const email = await resolveChallengeEmail(c.env, presentedHash);
     if (!email) return error.unauthorized(c, 'Invalid or expired code');
 
-    const challenge = await kvGetJson<PortalChallenge>(c.env, otpKvKey(workspaceId, email));
+    const challenge = await loadMatchingChallenge(c.env, {
+      workspaceId,
+      email,
+      presentedHash,
+      token: body.token,
+      otp: body.otp,
+    });
     if (!challenge) return error.unauthorized(c, 'Invalid or expired code');
-    if (challenge.attempts >= 8) {
-      await kvDelete(c.env, otpKvKey(workspaceId, email));
-      return error.unauthorized(c, 'Invalid or expired code');
-    }
-
-    const tokenOk = body.token && challenge.tokenHash === presentedHash;
-    const otpOk = body.otp && challenge.otpHash === presentedHash;
-    if (!tokenOk && !otpOk) {
-      await kvPutJson(c.env, otpKvKey(workspaceId, email), { ...challenge, attempts: challenge.attempts + 1 }, OTP_TTL_SECONDS);
-      return error.unauthorized(c, 'Invalid or expired code');
-    }
 
     const accessRows = await db
       .select()
@@ -249,42 +321,14 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
     if (body.accessId) {
       const chosen = accessRows.find((r) => r.id === body.accessId);
       if (!chosen) return error.badRequest(c, 'Unknown company');
-      const session = await accessToSession(db, workspaceId, chosen);
-      if (!session) return error.badRequest(c, 'Company has no commercial party record');
-      await activateAccess(db, chosen.id);
-      const token = await mintSession(c.env, session);
-      return success(c, { token, needsCompanyPicker: false, companies: [] });
+      return await signInWithAccess(c, db, workspaceId, chosen);
     }
 
     if (accessRows.length === 1) {
-      const session = await accessToSession(db, workspaceId, accessRows[0]!);
-      if (!session) return error.badRequest(c, 'Company has no commercial party record');
-      await activateAccess(db, accessRows[0]!.id);
-      const token = await mintSession(c.env, session);
-      return success(c, { token, needsCompanyPicker: false, companies: [] });
+      return await signInWithAccess(c, db, workspaceId, accessRows[0]!);
     }
 
-    const pickerToken = randomToken();
-    const pickerHash = await sha256Hex(pickerToken);
-    const picker: PortalPicker = {
-      workspaceId,
-      email,
-      accessIds: accessRows.map((r) => r.id),
-    };
-    await kvPutJson(c.env, pickerKvKey(pickerHash), picker, OTP_TTL_SECONDS);
-
-    const companies = await Promise.all(
-      accessRows.map(async (row) => {
-        const [company] = await db
-          .select({ id: schema.companies.id, displayName: schema.companies.displayName })
-          .from(schema.companies)
-          .where(eq(schema.companies.id, row.companyId))
-          .limit(1);
-        return { accessId: row.id, companyId: row.companyId, name: company?.displayName ?? row.companyId };
-      }),
-    );
-
-    return success(c, { token: null, pickerToken, needsCompanyPicker: true, companies });
+    return await startCompanyPicker(c, db, { workspaceId, email, accessRows });
   } catch (err) {
     console.error('[app-api/public-commerce-portal] auth verify failed:', err);
     return error.internal(c, 'Failed to verify sign-in');
@@ -726,7 +770,7 @@ authed.post('/returns', zValidator('json', commercePortalCreateReturnSchema), as
     const [person] = await db.select().from(schema.people).where(eq(schema.people.id, personId)).limit(1);
     const id = generateId('ret');
     const now = new Date();
-    const returnNumber = `RMA-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const returnNumber = `RMA-${Date.now().toString(36).toUpperCase()}-${randomString(4, BASE36_UPPER)}`;
 
     await db.insert(schema.returns).values({
       id,

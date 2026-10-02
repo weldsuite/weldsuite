@@ -222,6 +222,43 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
   }
 });
 
+type TeamSummaryFilters = z.infer<typeof teamSummarySchema>;
+
+/** WHERE clauses for GET /team-summary: one project, optionally narrowed. */
+function buildTeamSummaryConditions(f: TeamSummaryFilters): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt), eq(t.projectId, f.projectId)];
+  if (f.userId) conditions.push(eq(t.userId, f.userId));
+  if (f.taskId) conditions.push(eq(t.taskId, f.taskId));
+  if (f.status) conditions.push(eq(t.status, f.status));
+  if (f.billable !== undefined) conditions.push(eq(t.billable, f.billable));
+  if (f.fromDate) conditions.push(sql`${t.date} >= ${f.fromDate}`);
+  if (f.toDate) conditions.push(sql`${t.date} <= ${f.toDate}`);
+  return conditions;
+}
+
+type MinutesBucket = {
+  totalMinutes: number;
+  billableMinutes: number;
+  nonBillableMinutes: number;
+  entryCount: number;
+};
+
+/** Fold the per-member/per-billable SQL rollup into each member's bucket. */
+function addTotalsToBuckets(
+  byUser: Map<string, MinutesBucket>,
+  totals: Array<{ userId: string; billable: boolean | null; minutes: number; entryCount: number }>,
+): void {
+  for (const row of totals) {
+    const bucket = byUser.get(row.userId);
+    if (!bucket) continue;
+    const minutes = Number(row.minutes) || 0;
+    bucket.totalMinutes += minutes;
+    if (row.billable) bucket.billableMinutes += minutes;
+    else bucket.nonBillableMinutes += minutes;
+    bucket.entryCount += Number(row.entryCount) || 0;
+  }
+}
+
 // ============================================================================
 // GET /team-summary — per-member hour totals for one project, with the billable
 // split, over an optional date range. Gated by `canManageProject`: the project
@@ -247,14 +284,7 @@ app.get(
       return error.forbidden(c, 'You cannot view the team timesheet for this project');
     }
 
-    const conditions: SQL[] = [isNull(t.deletedAt), eq(t.projectId, f.projectId)];
-    if (f.userId) conditions.push(eq(t.userId, f.userId));
-    if (f.taskId) conditions.push(eq(t.taskId, f.taskId));
-    if (f.status) conditions.push(eq(t.status, f.status));
-    if (f.billable !== undefined) conditions.push(eq(t.billable, f.billable));
-    if (f.fromDate) conditions.push(sql`${t.date} >= ${f.fromDate}`);
-    if (f.toDate) conditions.push(sql`${t.date} <= ${f.toDate}`);
-    const where = and(...conditions);
+    const where = and(...buildTeamSummaryConditions(f));
 
     try {
       const { projects, projectMembers, workspaceMembers, tasks } = schema;
@@ -379,15 +409,7 @@ app.get(
         for (const id of offRoster) byUser.set(id, blank(id, directory.get(id), false));
       }
 
-      for (const row of totals) {
-        const bucket = byUser.get(row.userId);
-        if (!bucket) continue;
-        const minutes = Number(row.minutes) || 0;
-        bucket.totalMinutes += minutes;
-        if (row.billable) bucket.billableMinutes += minutes;
-        else bucket.nonBillableMinutes += minutes;
-        bucket.entryCount += Number(row.entryCount) || 0;
-      }
+      addTotalsToBuckets(byUser, totals);
 
       const teamMembers = [...byUser.values()].sort((a, b) => b.totalMinutes - a.totalMinutes);
       const rollup = teamMembers.reduce(
@@ -693,6 +715,42 @@ app.post(
 // duration changes.
 // ============================================================================
 
+type TimeEntryPatch = z.infer<typeof updateTimeEntrySchema>;
+
+/** PATCH fields written to the row exactly as received (no conversion needed). */
+const COPIED_PATCH_FIELDS = [
+  'date',
+  'description',
+  'activity',
+  'billable',
+  'location',
+  'isRemote',
+  'taskId',
+  'projectId',
+] as const;
+
+/** Only the fields the caller sent; recomputes `cost` when rate or duration changes. */
+function buildTimeEntryUpdate(
+  data: TimeEntryPatch,
+  existing: typeof t.$inferSelect,
+): Record<string, any> {
+  const update: Record<string, any> = { updatedAt: new Date() };
+  for (const key of COPIED_PATCH_FIELDS) {
+    if (data[key] !== undefined) update[key] = data[key];
+  }
+  if (data.duration !== undefined) update.duration = String(data.duration);
+  if (data.rate !== undefined) update.rate = data.rate === null ? null : String(data.rate);
+  if (data.startTime !== undefined) update.startTime = data.startTime ? new Date(data.startTime) : null;
+  if (data.endTime !== undefined) update.endTime = data.endTime ? new Date(data.endTime) : null;
+
+  if (data.rate !== undefined || data.duration !== undefined) {
+    const rate = data.rate ?? existing.rate;
+    const duration = data.duration ?? existing.duration;
+    update.cost = computeCost(rate as any, duration as any);
+  }
+  return update;
+}
+
 app.patch(
   '/:id',
   requirePermission('time:update'),
@@ -710,25 +768,7 @@ app.patch(
         .limit(1);
       if (!existing) return error.notFound(c, 'Time entry', id);
 
-      const update: Record<string, any> = { updatedAt: new Date() };
-      if (data.date !== undefined) update.date = data.date;
-      if (data.duration !== undefined) update.duration = String(data.duration);
-      if (data.description !== undefined) update.description = data.description;
-      if (data.activity !== undefined) update.activity = data.activity;
-      if (data.billable !== undefined) update.billable = data.billable;
-      if (data.rate !== undefined) update.rate = data.rate === null ? null : String(data.rate);
-      if (data.startTime !== undefined) update.startTime = data.startTime ? new Date(data.startTime) : null;
-      if (data.endTime !== undefined) update.endTime = data.endTime ? new Date(data.endTime) : null;
-      if (data.location !== undefined) update.location = data.location;
-      if (data.isRemote !== undefined) update.isRemote = data.isRemote;
-      if (data.taskId !== undefined) update.taskId = data.taskId;
-      if (data.projectId !== undefined) update.projectId = data.projectId;
-
-      if (data.rate !== undefined || data.duration !== undefined) {
-        const rate = data.rate ?? existing.rate;
-        const duration = data.duration ?? existing.duration;
-        update.cost = computeCost(rate as any, duration as any);
-      }
+      const update = buildTimeEntryUpdate(data, existing);
 
       await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
 

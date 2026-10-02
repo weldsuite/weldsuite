@@ -201,6 +201,53 @@ export function resolveWebhookSecret(
   return decryptedWebhookSecret;
 }
 
+type WebhookResult = { ok: boolean; status: number; message: string };
+type WebhookTopic = NonNullable<ReturnType<typeof matchWebhookTopic>>;
+type WebhookSync = NonNullable<ReturnType<typeof getConnector>>['syncs'][number];
+
+/**
+ * Maps an incoming webhook to the sync it feeds. Returns the topic + sync to
+ * ingest, or the (successful or failed) response to answer with when the
+ * delivery should not be ingested.
+ */
+function resolveWebhookTarget(
+  connection: ConnectorConnectionRow,
+  headers: Headers,
+  payload: Record<string, unknown>,
+): { topic: WebhookTopic; sync: WebhookSync } | { result: WebhookResult } {
+  const topicName =
+    readWebhookTopicFromHeaders(connection.provider, headers)
+    ?? readWebhookTopicFromPayload(connection.provider, payload);
+  if (!topicName) {
+    return { result: { ok: false, status: 400, message: 'missing webhook topic' } };
+  }
+  const topic = matchWebhookTopic(connection.provider, topicName);
+  if (!topic) {
+    return { result: { ok: true, status: 200, message: `ignored topic ${topicName}` } };
+  }
+
+  const connector = getConnector(connection.provider);
+  const sync = connector?.syncs.find((s) =>
+    topic.syncName ? s.syncName === topic.syncName : s.settingKey === topic.settingKey,
+  );
+  if (!connector || !sync) {
+    return { result: { ok: true, status: 200, message: 'topic not enabled' } };
+  }
+  const enabled = enabledConnectorSyncs(connector, connection.enabledSyncs);
+  if (!enabled.some((s) => s.syncName === sync.syncName)) {
+    return { result: { ok: true, status: 200, message: 'sync disabled' } };
+  }
+  const direction = resolveConnectorObjectDirection({
+    direction: connection.direction,
+    objectSyncDirections: connection.objectSyncDirections,
+    settingKey: sync.settingKey,
+  });
+  if (!allowsInboundSync(direction)) {
+    return { result: { ok: true, status: 200, message: 'inbound sync disabled for object' } };
+  }
+  return { topic, sync };
+}
+
 export async function processConnectorWebhook(args: {
   db: Database;
   env: ConnectorWebhooksEnv;
@@ -209,7 +256,7 @@ export async function processConnectorWebhook(args: {
   workspaceId: string;
   rawBody: string;
   headers: Headers;
-}): Promise<{ ok: boolean; status: number; message: string }> {
+}): Promise<WebhookResult> {
   if (args.connection.status === 'paused' || args.connection.deletedAt) {
     return { ok: true, status: 200, message: 'ignored paused connection' };
   }
@@ -243,36 +290,9 @@ export async function processConnectorWebhook(args: {
     return { ok: false, status: 400, message: 'invalid JSON body' };
   }
 
-  const topicName =
-    readWebhookTopicFromHeaders(args.connection.provider, args.headers)
-    ?? readWebhookTopicFromPayload(args.connection.provider, payload);
-  if (!topicName) {
-    return { ok: false, status: 400, message: 'missing webhook topic' };
-  }
-  const topic = matchWebhookTopic(args.connection.provider, topicName);
-  if (!topic) {
-    return { ok: true, status: 200, message: `ignored topic ${topicName}` };
-  }
-
-  const connector = getConnector(args.connection.provider);
-  const sync = connector?.syncs.find((s) =>
-    topic.syncName ? s.syncName === topic.syncName : s.settingKey === topic.settingKey,
-  );
-  if (!sync) {
-    return { ok: true, status: 200, message: 'topic not enabled' };
-  }
-  const enabled = enabledConnectorSyncs(connector!, args.connection.enabledSyncs);
-  if (!enabled.some((s) => s.syncName === sync.syncName)) {
-    return { ok: true, status: 200, message: 'sync disabled' };
-  }
-  const direction = resolveConnectorObjectDirection({
-    direction: args.connection.direction,
-    objectSyncDirections: args.connection.objectSyncDirections,
-    settingKey: sync.settingKey,
-  });
-  if (!allowsInboundSync(direction)) {
-    return { ok: true, status: 200, message: 'inbound sync disabled for object' };
-  }
+  const target = resolveWebhookTarget(args.connection, args.headers, payload);
+  if ('result' in target) return target.result;
+  const { topic, sync } = target;
 
   const record = unwrapWebhookPayload(args.connection.provider, payload);
 

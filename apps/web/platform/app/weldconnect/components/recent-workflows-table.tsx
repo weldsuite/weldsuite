@@ -96,27 +96,13 @@ type ActivityRow = {
   href: string
 }
 
-interface ActivityTableProps {
-  activities: ActivityItem[]
-}
+type RecentActivityT = ReturnType<typeof useI18n>['t']
 
-export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>) {
-  const router = useRouter()
-  const { t } = useI18n()
-  const st = useTranslations()
-  const [sorting, setSorting] = React.useState<SortingState>([])
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
-
-  const activityTypeLabels: Record<ActivityType, string> = React.useMemo(() => ({
-    workflow_created: t.weldconnect.recentActivityTable.activityTypes.workflow_created,
-    workflow_executed: t.weldconnect.recentActivityTable.activityTypes.workflow_executed,
-    task_completed: t.weldconnect.recentActivityTable.activityTypes.task_completed,
-    execution_failed: t.weldconnect.recentActivityTable.activityTypes.execution_failed,
-    automation_triggered: t.weldconnect.recentActivityTable.activityTypes.automation_triggered,
-  }), [t])
-
-  const columns: ColumnDef<ActivityRow>[] = React.useMemo(() => [
+function buildColumns(
+  t: RecentActivityT,
+  activityTypeLabels: Record<ActivityType, string>,
+): ColumnDef<ActivityRow>[] {
+  return [
     {
       accessorKey: "customerName",
       header: () => <div>{t.weldconnect.components.recentActivity.recentActivity}</div>,
@@ -191,7 +177,33 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
         )
       },
     },
-  ], [t, activityTypeLabels])
+  ]
+}
+
+interface ActivityTableProps {
+  activities: ActivityItem[]
+}
+
+export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>) {
+  const router = useRouter()
+  const { t } = useI18n()
+  const st = useTranslations()
+  const [sorting, setSorting] = React.useState<SortingState>([])
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+
+  const activityTypeLabels: Record<ActivityType, string> = React.useMemo(() => ({
+    workflow_created: t.weldconnect.recentActivityTable.activityTypes.workflow_created,
+    workflow_executed: t.weldconnect.recentActivityTable.activityTypes.workflow_executed,
+    task_completed: t.weldconnect.recentActivityTable.activityTypes.task_completed,
+    execution_failed: t.weldconnect.recentActivityTable.activityTypes.execution_failed,
+    automation_triggered: t.weldconnect.recentActivityTable.activityTypes.automation_triggered,
+  }), [t])
+
+  const columns: ColumnDef<ActivityRow>[] = React.useMemo(
+    () => buildColumns(t, activityTypeLabels),
+    [t, activityTypeLabels],
+  )
 
   const data: ActivityRow[] = React.useMemo(() =>
     activities.map(activity => ({

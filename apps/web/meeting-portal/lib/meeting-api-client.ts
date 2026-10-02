@@ -2,8 +2,9 @@
  * Meeting API Client
  *
  * Client-side fetch wrapper for the meeting portal's own API routes.
- * No auth headers — guests are unauthenticated. Responses are validated with
- * Zod so React state never sees a corrupt payload.
+ * Guests have no account: after /join they authenticate with the signed guest
+ * session token it returns (see guestAuthHeaders). Responses are validated
+ * with Zod so React state never sees a corrupt payload.
  */
 
 import {
@@ -22,6 +23,11 @@ interface ApiError {
 async function readError(res: Response, fallback: string): Promise<string> {
   const body = (await res.json().catch(() => ({}))) as ApiError;
   return body?.error?.message || `${fallback} (${res.status})`;
+}
+
+/** Authorization header for the guest chat, upload and leave routes. */
+export function guestAuthHeaders(guestToken: string): Record<string, string> {
+  return { Authorization: `Bearer ${guestToken}` };
 }
 
 export async function getGuestMeetingInfo(
@@ -56,12 +62,14 @@ export async function guestJoinMeeting(
 
 export async function guestLeaveMeeting(
   orgId: string,
-  body: { meetingId: string; sessionId: string; email: string },
+  { meetingId, guestToken }: { meetingId: string; guestToken: string },
+  init?: { keepalive?: boolean },
 ): Promise<void> {
   await fetch('/api/meeting/leave', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ orgId, ...body }),
+    headers: { 'Content-Type': 'application/json', ...guestAuthHeaders(guestToken) },
+    body: JSON.stringify({ orgId, meetingId }),
+    keepalive: init?.keepalive,
   });
 }
 

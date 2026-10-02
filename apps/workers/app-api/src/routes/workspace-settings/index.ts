@@ -407,6 +407,12 @@ app.put('/name', zValidator('json', updateWorkspaceNameInput), async (c) => {
   }
 });
 
+const SLUG_SYNC_FAILURE_MESSAGES: Record<ClerkSyncError['reasonCode'], string> = {
+  taken: 'That slug is already in use. Please try a different value.',
+  format: 'That slug is not in a valid format. Use lowercase letters, numbers, and hyphens.',
+  unknown: 'That slug could not be used. Please try a different value.',
+};
+
 /**
  * POST /slug — change the workspace slug. Owner only. Mirrored to Clerk and
  * the help-center subdomain; invalidates the WORKSPACE_CACHE KV entry.
@@ -470,13 +476,7 @@ app.post('/slug', zValidator('json', updateWorkspaceSlugInput), async (c) => {
     }
     if (err instanceof ClerkSyncError) {
       console.error('[app-api/workspace-settings] slug sync failed:', err.clerkStatus, err.details);
-      const message =
-        err.reasonCode === 'taken'
-          ? 'That slug is already in use. Please try a different value.'
-          : err.reasonCode === 'format'
-            ? 'That slug is not in a valid format. Use lowercase letters, numbers, and hyphens.'
-            : 'That slug could not be used. Please try a different value.';
-      return error.conflict(c, message);
+      return error.conflict(c, SLUG_SYNC_FAILURE_MESSAGES[err.reasonCode]);
     }
     console.error('[app-api/workspace-settings] updateWorkspaceSlug failed:', err);
     return error.internal(c, 'Failed to update workspace slug');

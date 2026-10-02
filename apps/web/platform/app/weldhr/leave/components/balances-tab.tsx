@@ -7,6 +7,7 @@ import { Card } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import type { HrLeaveBalance } from '@weldsuite/app-api-client/domains/weldhr';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useHrLeaveBalances, useSetHrLeaveAllowance } from '@/hooks/queries/use-weldhr-queries';
@@ -43,6 +44,100 @@ export function BalancesTab() {
     }
   }
 
+  function renderAllowance(balance: HrLeaveBalance) {
+    if (editingTypeId === balance.leaveTypeId) {
+      return (
+        <div className="flex items-center gap-1">
+          <Input
+            type="number"
+            min={0}
+            step={0.5}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            className="h-7 w-20"
+          />
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => void saveAllowance(balance.leaveTypeId)}>
+            <Check className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingTypeId(null)}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      );
+    }
+    if (balance.allowance === null) return t('weldhr.leave.balances.unlimited');
+    return balance.allowance;
+  }
+
+  function renderContent() {
+    if (!employeeId) {
+      return (
+        <Card>
+          <EmptyText>{t('weldhr.leave.balances.selectEmployee')}</EmptyText>
+        </Card>
+      );
+    }
+    if (isLoading) return <PageLoader fullScreen={false} />;
+    if (!balances || balances.length === 0) {
+      return (
+        <Card>
+          <EmptyText>{t('weldhr.leave.balances.empty')}</EmptyText>
+        </Card>
+      );
+    }
+    return (
+      <Card className="overflow-hidden p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('weldhr.leave.balances.table.type')}</TableHead>
+              <TableHead>{t('weldhr.leave.balances.table.allowance')}</TableHead>
+              <TableHead>{t('weldhr.leave.balances.table.used')}</TableHead>
+              <TableHead>{t('weldhr.leave.balances.table.pending')}</TableHead>
+              <TableHead>{t('weldhr.leave.balances.table.remaining')}</TableHead>
+              {canEdit && <TableHead />}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {balances.map((balance) => (
+              <TableRow key={balance.leaveTypeId}>
+                <TableCell>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: balance.color ?? '#94a3b8' }} />
+                    {balance.name}
+                  </span>
+                </TableCell>
+                <TableCell>{renderAllowance(balance)}</TableCell>
+                <TableCell>{balance.used}</TableCell>
+                <TableCell>{balance.pending}</TableCell>
+                <TableCell>{balance.remaining ?? '—'}</TableCell>
+                {canEdit && (
+                  <TableCell>
+                    {editingTypeId !== balance.leaveTypeId && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          setEditingTypeId(balance.leaveTypeId);
+                          setEditValue(String(balance.allowance ?? 0));
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+    );
+  }
+
+  const content = renderContent();
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -77,88 +172,7 @@ export function BalancesTab() {
 
       <ErrorBanner error={failure ?? (error ? errorMessage(error, t('weldhr.leave.balances.loadFailed')) : null)} />
 
-      {!employeeId ? (
-        <Card>
-          <EmptyText>{t('weldhr.leave.balances.selectEmployee')}</EmptyText>
-        </Card>
-      ) : isLoading ? (
-        <PageLoader fullScreen={false} />
-      ) : !balances || balances.length === 0 ? (
-        <Card>
-          <EmptyText>{t('weldhr.leave.balances.empty')}</EmptyText>
-        </Card>
-      ) : (
-        <Card className="overflow-hidden p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('weldhr.leave.balances.table.type')}</TableHead>
-                <TableHead>{t('weldhr.leave.balances.table.allowance')}</TableHead>
-                <TableHead>{t('weldhr.leave.balances.table.used')}</TableHead>
-                <TableHead>{t('weldhr.leave.balances.table.pending')}</TableHead>
-                <TableHead>{t('weldhr.leave.balances.table.remaining')}</TableHead>
-                {canEdit && <TableHead />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {balances.map((balance) => (
-                <TableRow key={balance.leaveTypeId}>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: balance.color ?? '#94a3b8' }} />
-                      {balance.name}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {editingTypeId === balance.leaveTypeId ? (
-                      <div className="flex items-center gap-1">
-                        <Input
-                          type="number"
-                          min={0}
-                          step={0.5}
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          className="h-7 w-20"
-                        />
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => void saveAllowance(balance.leaveTypeId)}>
-                          <Check className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingTypeId(null)}>
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    ) : balance.allowance === null ? (
-                      t('weldhr.leave.balances.unlimited')
-                    ) : (
-                      balance.allowance
-                    )}
-                  </TableCell>
-                  <TableCell>{balance.used}</TableCell>
-                  <TableCell>{balance.pending}</TableCell>
-                  <TableCell>{balance.remaining ?? '—'}</TableCell>
-                  {canEdit && (
-                    <TableCell>
-                      {editingTypeId !== balance.leaveTypeId && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          onClick={() => {
-                            setEditingTypeId(balance.leaveTypeId);
-                            setEditValue(String(balance.allowance ?? 0));
-                          }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
-      )}
+      {content}
     </div>
   );
 }

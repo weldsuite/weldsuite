@@ -67,48 +67,79 @@ interface PhoneNumberSettingsClientProps {
   isConfigured: boolean;
 }
 
+interface PhoneNumberFormat {
+  prefix: string;
+  accepts: (length: number) => boolean;
+  format: (cleaned: string) => string;
+}
+
+// First matching entry wins, so the order mirrors the country-code precedence.
+const PHONE_NUMBER_FORMATS: PhoneNumberFormat[] = [
+  {
+    prefix: '+1',
+    accepts: (length) => length === 12,
+    format: (cleaned) => `+1 (${cleaned.slice(2, 5)}) ${cleaned.slice(5, 8)}-${cleaned.slice(8)}`,
+  },
+  {
+    prefix: '+44',
+    accepts: (length) => length >= 12,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      if (national.startsWith('7')) {
+        return `+44 ${national.slice(0, 4)} ${national.slice(4, 7)} ${national.slice(7)}`;
+      }
+      return `+44 ${national.slice(0, 2)} ${national.slice(2, 6)} ${national.slice(6)}`;
+    },
+  },
+  {
+    prefix: '+31',
+    accepts: (length) => length >= 11,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      if (national.startsWith('6')) {
+        return `+31 6 ${national.slice(1, 5)} ${national.slice(5)}`;
+      }
+      return `+31 ${national.slice(0, 2)} ${national.slice(2, 5)} ${national.slice(5)}`;
+    },
+  },
+  {
+    prefix: '+49',
+    accepts: (length) => length >= 12,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      if (national.startsWith('1')) {
+        return `+49 ${national.slice(0, 3)} ${national.slice(3, 7)} ${national.slice(7)}`;
+      }
+      return `+49 ${national.slice(0, 2)} ${national.slice(2, 6)} ${national.slice(6)}`;
+    },
+  },
+  {
+    prefix: '+33',
+    accepts: (length) => length === 12,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      return `+33 ${national.slice(0, 1)} ${national.slice(1, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
+    },
+  },
+  {
+    prefix: '+32',
+    accepts: (length) => length >= 11,
+    format: (cleaned) => {
+      const national = cleaned.slice(3);
+      return `+32 ${national.slice(0, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
+    },
+  },
+];
+
 function formatPhoneNumber(number: string): string {
   if (!number) return '';
 
   const cleaned = number.replace(/[^\d+]/g, '');
 
-  if (cleaned.startsWith('+1') && cleaned.length === 12) {
-    return `+1 (${cleaned.slice(2, 5)}) ${cleaned.slice(5, 8)}-${cleaned.slice(8)}`;
-  }
-
-  if (cleaned.startsWith('+44') && cleaned.length >= 12) {
-    const national = cleaned.slice(3);
-    if (national.startsWith('7')) {
-      return `+44 ${national.slice(0, 4)} ${national.slice(4, 7)} ${national.slice(7)}`;
-    }
-    return `+44 ${national.slice(0, 2)} ${national.slice(2, 6)} ${national.slice(6)}`;
-  }
-
-  if (cleaned.startsWith('+31') && cleaned.length >= 11) {
-    const national = cleaned.slice(3);
-    if (national.startsWith('6')) {
-      return `+31 6 ${national.slice(1, 5)} ${national.slice(5)}`;
-    }
-    return `+31 ${national.slice(0, 2)} ${national.slice(2, 5)} ${national.slice(5)}`;
-  }
-
-  if (cleaned.startsWith('+49') && cleaned.length >= 12) {
-    const national = cleaned.slice(3);
-    if (national.startsWith('1')) {
-      return `+49 ${national.slice(0, 3)} ${national.slice(3, 7)} ${national.slice(7)}`;
-    }
-    return `+49 ${national.slice(0, 2)} ${national.slice(2, 6)} ${national.slice(6)}`;
-  }
-
-  if (cleaned.startsWith('+33') && cleaned.length === 12) {
-    const national = cleaned.slice(3);
-    return `+33 ${national.slice(0, 1)} ${national.slice(1, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
-  }
-
-  if (cleaned.startsWith('+32') && cleaned.length >= 11) {
-    const national = cleaned.slice(3);
-    return `+32 ${national.slice(0, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
-  }
+  const known = PHONE_NUMBER_FORMATS.find(
+    (entry) => cleaned.startsWith(entry.prefix) && entry.accepts(cleaned.length),
+  );
+  if (known) return known.format(cleaned);
 
   if (cleaned.startsWith('+') && cleaned.length > 7) {
     const countryCode = cleaned.slice(0, cleaned.length > 12 ? 3 : 2);
@@ -144,6 +175,124 @@ const NUMBER_TYPES = [
   { value: 'toll-free', label: 'Toll-Free' },
   { value: 'mobile', label: 'Mobile' },
 ];
+
+type PhoneNumberTranslations = ReturnType<typeof getTranslations<'settings'>>['phoneNumbers'];
+
+interface PhoneNumberColumnHandlers {
+  onSetDefault: (numberId: string) => void;
+  onEdit: (phoneNumber: VoipPhoneNumber) => void;
+  onDelete: (phoneNumber: VoipPhoneNumber) => void;
+}
+
+// Kept outside the component so the cell renderers are not re-declared as
+// nested component definitions on every render.
+function buildPhoneNumberColumns(
+  tp: PhoneNumberTranslations,
+  { onSetDefault, onEdit, onDelete }: PhoneNumberColumnHandlers,
+): ColumnDef<VoipPhoneNumber>[] {
+  return [
+  {
+    accessorKey: 'phoneNumber',
+    header: tp.columns.number,
+    size: 250,
+    cell: ({ row }) => {
+      const phone = row.original;
+      return (
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-medium">
+            {phone.formattedNumber || formatPhoneNumber(phone.phoneNumber)}
+          </span>
+          {phone.isDefault && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Star className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{tp.defaultTooltip}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {phone.status === 'pending' && (
+            <Badge variant="outline" className="text-xs">
+              {tp.pendingDocuments}
+            </Badge>
+          )}
+        </div>
+      );
+    },
+  },
+  {
+    accessorKey: 'displayName',
+    header: tp.columns.name,
+    cell: ({ row }) => (
+      <span className="text-sm text-muted-foreground">
+        {row.original.displayName || '—'}
+      </span>
+    ),
+  },
+  {
+    id: 'type',
+    header: tp.columns.type,
+    cell: ({ row }) => (
+      <Badge variant="secondary" className="font-mono text-xs rounded-md border border-border capitalize">
+        {row.original.numberType || 'local'}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: 'countryCode',
+    header: tp.columns.country,
+    cell: ({ row }) => (
+      <Badge variant="secondary" className="font-mono text-xs rounded-md border border-border">
+        {row.original.countryCode}
+      </Badge>
+    ),
+  },
+  {
+    id: 'actions',
+    header: '',
+    cell: ({ row }) => {
+      const phone = row.original;
+
+      return (
+        <div className="flex justify-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <span className="sr-only">{tp.openMenu}</span>
+                <EllipsisVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{tp.menu.actions}</DropdownMenuLabel>
+              {!phone.isDefault && (
+                <DropdownMenuItem onClick={() => onSetDefault(phone.id)}>
+                  <Star className="h-4 w-4 mr-0.5" />
+                  {tp.menu.setDefault}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => onEdit(phone)}>
+                <Settings className="h-4 w-4 mr-0.5" />
+                {tp.menu.settings}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => onDelete(phone)}
+                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
+                {tp.menu.delete}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      );
+    },
+  },
+  ];
+}
 
 export function PhoneNumberSettingsClient({
   phoneNumbers: initialPhoneNumbers,
@@ -221,111 +370,14 @@ export function PhoneNumberSettingsClient({
     });
   };
 
-  const columns: ColumnDef<VoipPhoneNumber>[] = [
-    {
-      accessorKey: 'phoneNumber',
-      header: tp.columns.number,
-      size: 250,
-      cell: ({ row }) => {
-        const phone = row.original;
-        return (
-          <div className="flex items-center gap-2">
-            <span className="font-mono font-medium">
-              {phone.formattedNumber || formatPhoneNumber(phone.phoneNumber)}
-            </span>
-            {phone.isDefault && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Star className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500 flex-shrink-0" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{tp.defaultTooltip}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            {phone.status === 'pending' && (
-              <Badge variant="outline" className="text-xs">
-                {tp.pendingDocuments}
-              </Badge>
-            )}
-          </div>
-        );
-      },
+  const columns = buildPhoneNumberColumns(tp, {
+    onSetDefault: handleSetDefault,
+    onEdit: handleEdit,
+    onDelete: (phoneNumber) => {
+      setSelectedNumber(phoneNumber);
+      setIsDeleteDialogOpen(true);
     },
-    {
-      accessorKey: 'displayName',
-      header: tp.columns.name,
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {row.original.displayName || '—'}
-        </span>
-      ),
-    },
-    {
-      id: 'type',
-      header: tp.columns.type,
-      cell: ({ row }) => (
-        <Badge variant="secondary" className="font-mono text-xs rounded-md border border-border capitalize">
-          {row.original.numberType || 'local'}
-        </Badge>
-      ),
-    },
-    {
-      accessorKey: 'countryCode',
-      header: tp.columns.country,
-      cell: ({ row }) => (
-        <Badge variant="secondary" className="font-mono text-xs rounded-md border border-border">
-          {row.original.countryCode}
-        </Badge>
-      ),
-    },
-    {
-      id: 'actions',
-      header: '',
-      cell: ({ row }) => {
-        const phone = row.original;
-
-        return (
-          <div className="flex justify-end">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-8 w-8 p-0">
-                  <span className="sr-only">{tp.openMenu}</span>
-                  <EllipsisVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{tp.menu.actions}</DropdownMenuLabel>
-                {!phone.isDefault && (
-                  <DropdownMenuItem onClick={() => handleSetDefault(phone.id)}>
-                    <Star className="h-4 w-4 mr-0.5" />
-                    {tp.menu.setDefault}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => handleEdit(phone)}>
-                  <Settings className="h-4 w-4 mr-0.5" />
-                  {tp.menu.settings}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    setSelectedNumber(phone);
-                    setIsDeleteDialogOpen(true);
-                  }}
-                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                >
-                  <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
-                  {tp.menu.delete}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        );
-      },
-    },
-  ];
+  });
 
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [searchQuery, setSearchQuery] = useState('');

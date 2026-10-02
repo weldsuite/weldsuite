@@ -44,8 +44,8 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
-export async function listMessages(db: Database, filters: MessageFilters) {
-  const limit = Math.min(filters.limit ?? 50, 100);
+/** The WHERE conditions a set of message filters translates to (soft-deleted rows always excluded). */
+function buildMessageConditions(filters: MessageFilters): SQL[] {
   const conditions: SQL[] = [isNull(mailMessages.deletedAt)!];
 
   if (filters.accountId) conditions.push(eq(mailMessages.accountId, filters.accountId));
@@ -73,6 +73,13 @@ export async function listMessages(db: Database, filters: MessageFilters) {
   }
   if (filters.threadId) conditions.push(eq(mailMessages.threadId, filters.threadId));
   if (filters.label) conditions.push(labelCondition(filters.label));
+
+  return conditions;
+}
+
+export async function listMessages(db: Database, filters: MessageFilters) {
+  const limit = Math.min(filters.limit ?? 50, 100);
+  const conditions = buildMessageConditions(filters);
 
   if (filters.cursor) {
     const [cur] = await db
@@ -138,15 +145,40 @@ export async function listMessages(db: Database, filters: MessageFilters) {
   return { data, hasMore, cursor, totalCount };
 }
 
-async function enrichSenderContacts(
-  db: Database,
-  rows: Array<{ from: unknown }>,
-): Promise<void> {
+function collectSenderEmails(rows: Array<{ from: unknown }>): Set<string> {
   const senderEmails = new Set<string>();
   for (const msg of rows) {
     const from = msg.from as { email?: string } | null;
     if (from?.email) senderEmails.add(from.email.toLowerCase());
   }
+  return senderEmails;
+}
+
+function buildContactLookups(
+  contactRows: Array<{
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    avatarUrl: string | null;
+  }>,
+): { nameMap: Map<string, string>; avatarMap: Map<string, string> } {
+  const nameMap = new Map<string, string>();
+  const avatarMap = new Map<string, string>();
+  for (const row of contactRows) {
+    if (!row.email) continue;
+    const key = row.email.toLowerCase();
+    const name = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim();
+    if (name && !nameMap.has(key)) nameMap.set(key, name);
+    if (row.avatarUrl && !avatarMap.has(key)) avatarMap.set(key, row.avatarUrl);
+  }
+  return { nameMap, avatarMap };
+}
+
+async function enrichSenderContacts(
+  db: Database,
+  rows: Array<{ from: unknown }>,
+): Promise<void> {
+  const senderEmails = collectSenderEmails(rows);
   if (senderEmails.size === 0) return;
 
   const contactRows = await db
@@ -159,15 +191,7 @@ async function enrichSenderContacts(
     .from(contacts)
     .where(and(inArray(contacts.email, [...senderEmails]), isNull(contacts.deletedAt)));
 
-  const nameMap = new Map<string, string>();
-  const avatarMap = new Map<string, string>();
-  for (const row of contactRows) {
-    if (!row.email) continue;
-    const key = row.email.toLowerCase();
-    const name = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim();
-    if (name && !nameMap.has(key)) nameMap.set(key, name);
-    if (row.avatarUrl && !avatarMap.has(key)) avatarMap.set(key, row.avatarUrl);
-  }
+  const { nameMap, avatarMap } = buildContactLookups(contactRows);
 
   for (const msg of rows) {
     const from = msg.from as { email?: string; name?: string } | null;

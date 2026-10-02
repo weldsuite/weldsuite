@@ -151,6 +151,7 @@ export function ConversationFlowBuilder({
 
   return (
     <div
+      role="presentation"
       className={cn(
         'relative w-full h-full overflow-auto',
         className,

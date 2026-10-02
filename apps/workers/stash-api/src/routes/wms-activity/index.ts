@@ -6,7 +6,7 @@
  */
 
 import { Hono } from 'hono';
-import { and, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, like, lte, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
@@ -18,12 +18,11 @@ const t = schema.activityLogs;
 // ---------------------------------------------------------------------------
 // GET / — list activity logs with filters + counts block
 // ---------------------------------------------------------------------------
-app.get('/', requirePermission('inventory:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 50, 100);
+type ListQuery = Record<string, string>;
 
-  const conditions: any[] = [];
+/** Filter conditions from the list query string (`all` means unfiltered where supported). */
+function filterConditionsFromQuery(q: ListQuery): SQL[] {
+  const conditions: SQL[] = [];
 
   if (q.search) {
     const term = `%${q.search}%`;
@@ -36,16 +35,27 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
   if (q.warehouseId && q.warehouseId !== 'all') conditions.push(eq(t.warehouseId, q.warehouseId));
   if (q.dateFrom) conditions.push(gte(t.createdAt, new Date(q.dateFrom)));
   if (q.dateTo) conditions.push(lte(t.createdAt, new Date(q.dateTo)));
+  return conditions;
+}
+
+async function cursorCondition(db: Variables['tenantDb'], cursor: string): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
+app.get('/', requirePermission('inventory:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 50, 100);
+
+  const conditions = filterConditionsFromQuery(q);
 
   if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
+    const cursorCond = await cursorCondition(db, q.cursor);
+    if (cursorCond) conditions.push(cursorCond);
   }
 
   const where = conditions.length ? and(...conditions) : undefined;

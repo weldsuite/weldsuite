@@ -39,6 +39,76 @@ export interface SendScheduledEmailParams {
   scheduledFor: string; // ISO string
 }
 
+type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
+type MailMessageRow = typeof schema.mailMessages.$inferSelect;
+type ResolvedAttachment = { filename: string; contentType?: string; content: ArrayBuffer };
+
+/**
+ * Why the stored message must not be sent by this instance (or null when it may).
+ * Covers not-scheduled-anymore and stale-instance (reschedule) races.
+ */
+function getSkipReason(message: MailMessageRow, messageId: string, instanceId: string): string | null {
+  // Guard: only send if still scheduled (prevents double delivery)
+  if (message.sendStatus !== 'scheduled') {
+    return `Message ${messageId} status is "${message.sendStatus}", skipping`;
+  }
+
+  // Guard: only the instance the row currently points at may send.
+  // A reschedule creates a fresh instance and only best-effort-terminates
+  // the old one (terminateWorkflow swallows failures), so a surviving
+  // orphan would otherwise wake at its *original* time, still see
+  // sendStatus 'scheduled', and send the mail early. This also covers the
+  // api-worker → app-api cutover: instances created before the cutover
+  // live in the old workflow and cannot be terminated via this binding.
+  if (message.triggerRunId && message.triggerRunId !== instanceId) {
+    return `Message ${messageId} is owned by instance ${message.triggerRunId}, not ${instanceId} — skipping stale instance`;
+  }
+  return null;
+}
+
+function buildExtraHeaders(message: MailMessageRow): Record<string, string> {
+  const extraHeaders: Record<string, string> = {};
+  if (message.inReplyTo) extraHeaders['In-Reply-To'] = message.inReplyTo;
+  if (message.references && (message.references as string[]).length > 0) {
+    extraHeaders['References'] = (message.references as string[]).join(' ');
+  }
+  return extraHeaders;
+}
+
+/**
+ * Fetch attachments from R2. mail_attachments.storagePath holds the
+ * fileKey written when the user clicked "Schedule".
+ */
+async function resolveAttachments(
+  db: TenantDb,
+  storage: R2Bucket | undefined,
+  messageId: string,
+): Promise<ResolvedAttachment[]> {
+  const { mailAttachments } = schema;
+  const attachmentRows = await db
+    .select()
+    .from(mailAttachments)
+    .where(and(eq(mailAttachments.messageId, messageId), isNull(mailAttachments.deletedAt)));
+
+  const resolvedAttachments: ResolvedAttachment[] = [];
+  if (attachmentRows.length === 0 || !storage) return resolvedAttachments;
+
+  for (const row of attachmentRows) {
+    if (!row.storagePath) continue;
+    const obj = await storage.get(row.storagePath);
+    if (!obj) {
+      console.warn(`[SendScheduledEmail] Attachment ${row.id} missing from R2 at ${row.storagePath}`);
+      continue;
+    }
+    resolvedAttachments.push({
+      filename: row.fileName,
+      contentType: row.contentType || undefined,
+      content: await obj.arrayBuffer(),
+    });
+  }
+  return resolvedAttachments;
+}
+
 export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduledEmailEnv, SendScheduledEmailParams> {
   async run(event: WorkflowEvent<SendScheduledEmailParams>, step: WorkflowStep) {
     const { workspaceId, messageId, accountId, scheduledFor } = event.payload;
@@ -51,7 +121,7 @@ export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduled
       retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
     }, async () => {
       const db = await getTenantDbForWorkspace(this.env, workspaceId);
-      const { mailMessages, mailAccounts, mailAttachments } = schema;
+      const { mailMessages, mailAccounts } = schema;
 
       const [message] = await db
         .select()
@@ -64,23 +134,9 @@ export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduled
         return;
       }
 
-      // Guard: only send if still scheduled (prevents double delivery)
-      if (message.sendStatus !== 'scheduled') {
-        console.log(`[SendScheduledEmail] Message ${messageId} status is "${message.sendStatus}", skipping`);
-        return;
-      }
-
-      // Guard: only the instance the row currently points at may send.
-      // A reschedule creates a fresh instance and only best-effort-terminates
-      // the old one (terminateWorkflow swallows failures), so a surviving
-      // orphan would otherwise wake at its *original* time, still see
-      // sendStatus 'scheduled', and send the mail early. This also covers the
-      // api-worker → app-api cutover: instances created before the cutover
-      // live in the old workflow and cannot be terminated via this binding.
-      if (message.triggerRunId && message.triggerRunId !== event.instanceId) {
-        console.log(
-          `[SendScheduledEmail] Message ${messageId} is owned by instance ${message.triggerRunId}, not ${event.instanceId} — skipping stale instance`,
-        );
+      const skipReason = getSkipReason(message, messageId, event.instanceId);
+      if (skipReason) {
+        console.log(`[SendScheduledEmail] ${skipReason}`);
         return;
       }
 
@@ -106,35 +162,8 @@ export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduled
       const ccAddresses = ((message.cc as any[]) || []).map((t: any) => t.email).filter(Boolean);
       const bccAddresses = ((message.bcc as any[]) || []).map((t: any) => t.email).filter(Boolean);
 
-      const extraHeaders: Record<string, string> = {};
-      if (message.inReplyTo) extraHeaders['In-Reply-To'] = message.inReplyTo;
-      if (message.references && (message.references as string[]).length > 0) {
-        extraHeaders['References'] = (message.references as string[]).join(' ');
-      }
-
-      // Fetch attachments from R2. mail_attachments.storagePath holds the
-      // fileKey written when the user clicked "Schedule".
-      const attachmentRows = await db
-        .select()
-        .from(mailAttachments)
-        .where(and(eq(mailAttachments.messageId, messageId), isNull(mailAttachments.deletedAt)));
-
-      const resolvedAttachments: Array<{ filename: string; contentType?: string; content: ArrayBuffer }> = [];
-      if (attachmentRows.length > 0 && this.env.STORAGE) {
-        for (const row of attachmentRows) {
-          if (!row.storagePath) continue;
-          const obj = await this.env.STORAGE.get(row.storagePath);
-          if (!obj) {
-            console.warn(`[SendScheduledEmail] Attachment ${row.id} missing from R2 at ${row.storagePath}`);
-            continue;
-          }
-          resolvedAttachments.push({
-            filename: row.fileName,
-            contentType: row.contentType || undefined,
-            content: await obj.arrayBuffer(),
-          });
-        }
-      }
+      const extraHeaders = buildExtraHeaders(message);
+      const resolvedAttachments = await resolveAttachments(db, this.env.STORAGE, messageId);
 
       const sendResult = await cfEmail.sendEmail(this.env, {
         from: fromAddress,

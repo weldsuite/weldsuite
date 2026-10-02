@@ -243,6 +243,47 @@ export function buildCustomObjectTools(
 
 // ── Execution ───────────────────────────────────────────────────────────────
 
+type BuiltCustomObjectRequest =
+  | { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: Record<string, unknown>; url: URL }
+  | { error: CallToolResult };
+
+/** Translate a custom object tool call into the v1 API request it maps to. */
+function buildCustomObjectRequest(
+  tool: CustomObjectTool,
+  args: Record<string, unknown>,
+): BuiltCustomObjectRequest {
+  const base = `/v1/custom-objects/${tool.object.slug}`;
+  const recordUrl = (id: string) => new URL(`${base}/records/${encodeURIComponent(id)}`, INTERNAL_ORIGIN);
+  const idRequired = { error: toolError('An id is required') };
+
+  switch (tool.operation) {
+    case 'list': {
+      const url = new URL(`${base}/records`, INTERNAL_ORIGIN);
+      if (typeof args.search === 'string') url.searchParams.set('search', args.search);
+      if (typeof args.limit === 'number') url.searchParams.set('limit', String(args.limit));
+      if (typeof args.cursor === 'string') url.searchParams.set('cursor', args.cursor);
+      return { method: 'GET', url };
+    }
+    case 'get':
+      if (typeof args.id !== 'string') return idRequired;
+      return { method: 'GET', url: recordUrl(args.id) };
+    case 'create':
+      return {
+        method: 'POST',
+        body: { fields: args },
+        url: new URL(`${base}/records`, INTERNAL_ORIGIN),
+      };
+    case 'update': {
+      const { id, ...fields } = args;
+      if (typeof id !== 'string') return idRequired;
+      return { method: 'PATCH', body: { fields }, url: recordUrl(id) };
+    }
+    case 'delete':
+      if (typeof args.id !== 'string') return idRequired;
+      return { method: 'DELETE', url: recordUrl(args.id) };
+  }
+}
+
 /**
  * Execute a custom object tool by dispatching against the server's own v1 API.
  *
@@ -258,48 +299,9 @@ export async function executeCustomObjectTool(
   env: Env,
   executionCtx: ExecutionContext,
 ): Promise<CallToolResult> {
-  const base = `/v1/custom-objects/${tool.object.slug}`;
-
-  let path = `${base}/records`;
-  let method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET';
-  let body: Record<string, unknown> | undefined;
-  const query = new URLSearchParams();
-
-  switch (tool.operation) {
-    case 'list': {
-      if (typeof args.search === 'string') query.set('search', args.search);
-      if (typeof args.limit === 'number') query.set('limit', String(args.limit));
-      if (typeof args.cursor === 'string') query.set('cursor', args.cursor);
-      break;
-    }
-    case 'get': {
-      if (typeof args.id !== 'string') return toolError('An id is required');
-      path = `${base}/records/${encodeURIComponent(args.id)}`;
-      break;
-    }
-    case 'create': {
-      method = 'POST';
-      body = { fields: args };
-      break;
-    }
-    case 'update': {
-      const { id, ...fields } = args;
-      if (typeof id !== 'string') return toolError('An id is required');
-      method = 'PATCH';
-      path = `${base}/records/${encodeURIComponent(id)}`;
-      body = { fields };
-      break;
-    }
-    case 'delete': {
-      if (typeof args.id !== 'string') return toolError('An id is required');
-      method = 'DELETE';
-      path = `${base}/records/${encodeURIComponent(args.id)}`;
-      break;
-    }
-  }
-
-  const url = new URL(path, INTERNAL_ORIGIN);
-  for (const [key, value] of query) url.searchParams.set(key, value);
+  const built = buildCustomObjectRequest(tool, args);
+  if ('error' in built) return built.error;
+  const { method, body, url } = built;
 
   try {
     const res = await apiApp.fetch(

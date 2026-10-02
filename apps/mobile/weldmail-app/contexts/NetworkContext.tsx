@@ -15,7 +15,7 @@
  * round-trip should prefer it.
  */
 
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 
 interface NetworkStatus {
@@ -64,8 +64,13 @@ export function NetworkProvider({ children }: Readonly<{ children: React.ReactNo
     return () => unsubscribe();
   }, []);
 
+  const value = useMemo(
+    () => ({ isOnline, isInternetReachable, wasOffline }),
+    [isOnline, isInternetReachable, wasOffline],
+  );
+
   return (
-    <NetworkContext.Provider value={{ isOnline, isInternetReachable, wasOffline }}>
+    <NetworkContext.Provider value={value}>
       {children}
     </NetworkContext.Provider>
   );

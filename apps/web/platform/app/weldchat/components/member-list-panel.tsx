@@ -28,6 +28,23 @@ function RoleIcon({ role }: Readonly<{ role: string | undefined }>) {
   return null;
 }
 
+type GuestStrings = { badge?: string; tooltip?: string } | undefined;
+
+function MemberRoleBadge({
+  member,
+  guestStrings,
+}: Readonly<{ member: ChatChannelMember; guestStrings: GuestStrings }>) {
+  if (member.workspaceMemberType !== 'EXTERNAL_GUEST') return <RoleIcon role={member.role} />;
+  return (
+    <span
+      className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+      title={guestStrings?.tooltip ?? 'External guest — only sees channels they\'re invited to'}
+    >
+      {guestStrings?.badge ?? 'Guest'}
+    </span>
+  );
+}
+
 export function MemberListPanel({ channelId, embedded = false }: Readonly<MemberListPanelProps>) {
   const { setRightPanel, openUserProfile, openAgentProfile } = useChatContext();
   const { user } = useUser();
@@ -226,13 +243,22 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                 const canRemove = isAgent
                   ? isPrivate
                   : isPrivate && member.role !== 'owner' && member.userId !== user?.id;
+                const openProfile = () => {
+                  if (isAgent) openAgentProfile(member.userId);
+                  else openUserProfile(member.userId);
+                };
                 return (
                   <div
                     key={member.userId}
                     data-testid="chat-member-row"
-                    onClick={() => {
-                      if (isAgent) openAgentProfile(member.userId);
-                      else openUserProfile(member.userId);
+                    role="button"
+                    tabIndex={0}
+                    onClick={openProfile}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key !== 'Enter' && e.key !== ' ') return;
+                      e.preventDefault();
+                      openProfile();
                     }}
                     className="group/member flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 transition-colors cursor-pointer"
                   >
@@ -260,15 +286,8 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                           <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground">
                             {t.weldchat.memberList.agentBadge}
                           </span>
-                        ) : member.workspaceMemberType === 'EXTERNAL_GUEST' ? (
-                          <span
-                            className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                            title={guestStrings?.tooltip ?? 'External guest — only sees channels they\'re invited to'}
-                          >
-                            {guestStrings?.badge ?? 'Guest'}
-                          </span>
                         ) : (
-                          <RoleIcon role={member.role} />
+                          <MemberRoleBadge member={member} guestStrings={guestStrings} />
                         )}
                       </div>
                       {!isAgent && userStatus?.statusText && (
@@ -308,7 +327,15 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                   <div
                     key={member.userId}
                     data-testid="chat-member-row"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => openUserProfile(member.userId)}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key !== 'Enter' && e.key !== ' ') return;
+                      e.preventDefault();
+                      openUserProfile(member.userId);
+                    }}
                     className="group/member flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 cursor-pointer transition-colors opacity-60"
                   >
                     <div className="relative flex-shrink-0">
@@ -325,16 +352,7 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                         <span className="text-sm font-medium truncate">
                           {member.name || member.email}
                         </span>
-                        {member.workspaceMemberType === 'EXTERNAL_GUEST' ? (
-                          <span
-                            className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                            title={guestStrings?.tooltip ?? 'External guest — only sees channels they\'re invited to'}
-                          >
-                            {guestStrings?.badge ?? 'Guest'}
-                          </span>
-                        ) : (
-                          <RoleIcon role={member.role} />
-                        )}
+                        <MemberRoleBadge member={member} guestStrings={guestStrings} />
                       </div>
                       {userStatus?.statusText && (
                         <p className="text-[11px] text-muted-foreground truncate">

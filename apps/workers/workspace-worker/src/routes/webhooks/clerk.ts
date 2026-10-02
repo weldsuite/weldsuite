@@ -375,6 +375,195 @@ async function getWorkspaceIdFromClerkOrg(
   return workspace?.id || null;
 }
 
+async function upsertMasterUserWorkspace(
+  masterDb: ReturnType<typeof getMasterDb>,
+  userId: string,
+  masterWorkspaceId: string,
+  membership: ClerkOrganizationMembership,
+) {
+  try {
+    const [existingUW] = await masterDb
+      .select()
+      .from(userWorkspaces)
+      .where(and(
+        eq(userWorkspaces.userId, userId),
+        eq(userWorkspaces.workspaceId, masterWorkspaceId),
+      ));
+
+    if (existingUW) {
+      await masterDb
+        .update(userWorkspaces)
+        .set({
+          clerkMembershipId: membership.id,
+          role: membership.role,
+          status: 'ACTIVE',
+          joinedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(userWorkspaces.id, existingUW.id));
+    } else {
+      await masterDb.insert(userWorkspaces).values({
+        id: generateId('uw'),
+        userId,
+        workspaceId: masterWorkspaceId,
+        clerkMembershipId: membership.id,
+        role: membership.role,
+        status: 'ACTIVE',
+        joinedAt: new Date(),
+      });
+    }
+  } catch (error) {
+    console.error('[Clerk Webhook] Error updating user_workspaces:', error);
+  }
+}
+
+type TenantDbClient = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
+type WorkspaceMemberRow = typeof workspaceMembers.$inferSelect;
+
+interface MembershipTenantIdentity {
+  userId: string;
+  email: string;
+  name: string | null;
+  picture: string | null | undefined;
+  role: ReturnType<typeof mapClerkRoleToDisplay>;
+  membershipId: string;
+}
+
+/**
+ * Don't downgrade OWNER — Clerk has no OWNER concept, so a sync from Clerk
+ * (org:admin → ADMIN, org:member → MEMBER) must not strip the OWNER set
+ * by provisioning or by the first-member rule.
+ * Don't promote EXTERNAL_GUEST either — guests are deliberately VIEWER
+ * with a fixed permissions allowlist; Clerk's org:member role mapping
+ * would bump them to MEMBER and quietly turn a guest into a billable
+ * employee.
+ */
+function resolvePreservedRole(
+  existing: WorkspaceMemberRow,
+  clerkRole: MembershipTenantIdentity['role'],
+): WorkspaceMemberRow['role'] | MembershipTenantIdentity['role'] {
+  if (existing.role === 'OWNER') return 'OWNER';
+  if (existing.memberType === 'EXTERNAL_GUEST') return existing.role;
+  return clerkRole;
+}
+
+async function activateExistingMember(
+  tenantDb: TenantDbClient,
+  existing: WorkspaceMemberRow,
+  identity: MembershipTenantIdentity,
+): Promise<string> {
+  const { userId, email, name, picture, role, membershipId } = identity;
+  const preservedRole = resolvePreservedRole(existing, role);
+  console.log(`[Clerk Webhook] Updating existing member ${existing.id} to ACTIVE for user ${userId} (role: ${preservedRole}, memberType: ${existing.memberType})`);
+  await tenantDb
+    .update(workspaceMembers)
+    .set({ email, name, picture, role: preservedRole, status: 'ACTIVE', clerkMembershipId: membershipId, updatedAt: new Date() })
+    .where(eq(workspaceMembers.id, existing.id));
+  return existing.memberType;
+}
+
+/**
+ * Look for an invitation row by email — match either:
+ *  - PENDING (membership.created arrived before invitation.accepted), or
+ *  - already-ACTIVE row whose userId is still the `pending_clerk_…`
+ *    placeholder (invitation.accepted arrived first and flipped status
+ *    to ACTIVE without knowing the real userId).
+ */
+async function findInvitationMemberByEmail(
+  tenantDb: TenantDbClient,
+  email: string,
+): Promise<WorkspaceMemberRow | undefined> {
+  if (!email) return undefined;
+  const [pendingByEmail] = await tenantDb
+    .select()
+    .from(workspaceMembers)
+    .where(and(
+      sql`lower(${workspaceMembers.email}) = lower(${email})`,
+      or(
+        eq(workspaceMembers.status, 'PENDING'),
+        sql`${workspaceMembers.userId} LIKE 'pending_clerk_%'`,
+        sql`${workspaceMembers.userId} LIKE 'invited_%'`,
+      ),
+      isNull(workspaceMembers.deletedAt),
+    ));
+  return pendingByEmail;
+}
+
+async function activateInvitationMember(
+  tenantDb: TenantDbClient,
+  pendingByEmail: WorkspaceMemberRow,
+  identity: MembershipTenantIdentity,
+): Promise<string> {
+  const { userId, email, name, picture, role, membershipId } = identity;
+  // OWNER preserved; EXTERNAL_GUEST role preserved (would otherwise be
+  // bumped from VIEWER → MEMBER by Clerk's role mapping).
+  const preservedRole = resolvePreservedRole(pendingByEmail, role);
+  // Don't wipe values supplied at invite time: a brand-new Clerk user often
+  // has null first_name/last_name and image_url at this webhook moment, but
+  // the admin already entered a name (and possibly avatar) when sending the
+  // invite. Prefer Clerk's values only when they're actually populated.
+  console.log(`[Clerk Webhook] Activating invitation member ${pendingByEmail.id} (email: ${email}) for user ${userId} (role: ${preservedRole}, memberType: ${pendingByEmail.memberType})`);
+  await tenantDb
+    .update(workspaceMembers)
+    .set({
+      userId,
+      name: name ?? pendingByEmail.name,
+      picture: picture ?? pendingByEmail.picture,
+      role: preservedRole,
+      status: 'ACTIVE',
+      clerkMembershipId: membershipId,
+      acceptedAt: pendingByEmail.acceptedAt ?? new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaceMembers.id, pendingByEmail.id));
+  return pendingByEmail.memberType;
+}
+
+async function insertFirstOrNewMember(
+  tenantDb: TenantDbClient,
+  identity: MembershipTenantIdentity,
+): Promise<string> {
+  const { userId, email, name, picture, role, membershipId } = identity;
+  // First-member rule: if there are no other active members, this is the
+  // org creator and must be OWNER — Clerk's role mapping tops out at ADMIN.
+  const [{ count: memberCount }] = await tenantDb
+    .select({ count: sql<number>`count(*)::int` })
+    .from(workspaceMembers)
+    .where(isNull(workspaceMembers.deletedAt));
+  const insertRole = memberCount === 0 ? 'OWNER' : role;
+  console.log(`[Clerk Webhook] No existing member found for user ${userId} / email ${email}, creating new ACTIVE member (role: ${insertRole}, existingCount: ${memberCount})`);
+  await tenantDb.insert(workspaceMembers).values({
+    id: generateId('mbr'),
+    userId, email, name, picture, role: insertRole,
+    status: 'ACTIVE',
+    clerkMembershipId: membershipId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  // Fresh insert uses the column default (`INTERNAL`).
+  return 'INTERNAL';
+}
+
+/** Upserts the tenant member row; returns the member type that was activated. */
+async function syncTenantMemberForMembership(
+  tenantDb: TenantDbClient,
+  identity: MembershipTenantIdentity,
+): Promise<string> {
+  // 1. Check if member already exists by userId
+  const [existing] = await tenantDb
+    .select()
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.userId, identity.userId), isNull(workspaceMembers.deletedAt)));
+  if (existing) return activateExistingMember(tenantDb, existing, identity);
+
+  // 2. Look for an invitation row by email
+  const pendingByEmail = await findInvitationMemberByEmail(tenantDb, identity.email);
+  if (pendingByEmail) return activateInvitationMember(tenantDb, pendingByEmail, identity);
+
+  // 3. Brand-new member
+  return insertFirstOrNewMember(tenantDb, identity);
+}
+
 async function handleMembershipCreated(
   env: Env,
   masterDb: ReturnType<typeof getMasterDb>,
@@ -385,40 +574,7 @@ async function handleMembershipCreated(
 
   const masterWorkspaceId = await getWorkspaceIdFromClerkOrg(masterDb, clerkOrgId);
   if (masterWorkspaceId) {
-    try {
-      const [existingUW] = await masterDb
-        .select()
-        .from(userWorkspaces)
-        .where(and(
-          eq(userWorkspaces.userId, userId),
-          eq(userWorkspaces.workspaceId, masterWorkspaceId),
-        ));
-
-      if (existingUW) {
-        await masterDb
-          .update(userWorkspaces)
-          .set({
-            clerkMembershipId: membership.id,
-            role: membership.role,
-            status: 'ACTIVE',
-            joinedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(userWorkspaces.id, existingUW.id));
-      } else {
-        await masterDb.insert(userWorkspaces).values({
-          id: generateId('uw'),
-          userId,
-          workspaceId: masterWorkspaceId,
-          clerkMembershipId: membership.id,
-          role: membership.role,
-          status: 'ACTIVE',
-          joinedAt: new Date(),
-        });
-      }
-    } catch (error) {
-      console.error('[Clerk Webhook] Error updating user_workspaces:', error);
-    }
+    await upsertMasterUserWorkspace(masterDb, userId, masterWorkspaceId, membership);
   }
 
   // Update tenant DB
@@ -426,112 +582,18 @@ async function handleMembershipCreated(
     const tenantDb = await getTenantDbForWorkspace(env, clerkOrgId);
     if (!masterWorkspaceId) return;
 
-    const email = membership.public_user_data.identifier;
     const name = [membership.public_user_data.first_name, membership.public_user_data.last_name]
       .filter(Boolean).join(' ') || null;
-    const picture = membership.public_user_data.image_url;
-    const role = mapClerkRoleToDisplay(membership.role);
 
-    // Captured per branch so we can fan the user into every public weldchat
-    // channel once the row is ACTIVE. Null = no activation happened.
-    let activatedMemberType: string | null = null;
-
-    // 1. Check if member already exists by userId
-    const [existing] = await tenantDb
-      .select()
-      .from(workspaceMembers)
-      .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)));
-
-    if (existing) {
-      // Don't downgrade OWNER — Clerk has no OWNER concept, so a sync from Clerk
-      // (org:admin → ADMIN, org:member → MEMBER) must not strip the OWNER set
-      // by provisioning or by the first-member rule below.
-      // Don't promote EXTERNAL_GUEST either — guests are deliberately VIEWER
-      // with a fixed permissions allowlist; Clerk's org:member role mapping
-      // would bump them to MEMBER and quietly turn a guest into a billable
-      // employee.
-      const preservedRole =
-        existing.role === 'OWNER'
-          ? 'OWNER'
-          : existing.memberType === 'EXTERNAL_GUEST'
-            ? existing.role
-            : role;
-      console.log(`[Clerk Webhook] Updating existing member ${existing.id} to ACTIVE for user ${userId} (role: ${preservedRole}, memberType: ${existing.memberType})`);
-      await tenantDb
-        .update(workspaceMembers)
-        .set({ email, name, picture, role: preservedRole, status: 'ACTIVE', clerkMembershipId: membership.id, updatedAt: new Date() })
-        .where(eq(workspaceMembers.id, existing.id));
-      activatedMemberType = existing.memberType;
-    } else {
-      // 2. Look for an invitation row by email — match either:
-      //    - PENDING (membership.created arrived before invitation.accepted), or
-      //    - already-ACTIVE row whose userId is still the `pending_clerk_…`
-      //      placeholder (invitation.accepted arrived first and flipped status
-      //      to ACTIVE without knowing the real userId).
-      const [pendingByEmail] = email
-        ? await tenantDb
-            .select()
-            .from(workspaceMembers)
-            .where(and(
-              sql`lower(${workspaceMembers.email}) = lower(${email})`,
-              or(
-                eq(workspaceMembers.status, 'PENDING'),
-                sql`${workspaceMembers.userId} LIKE 'pending_clerk_%'`,
-                sql`${workspaceMembers.userId} LIKE 'invited_%'`,
-              ),
-              isNull(workspaceMembers.deletedAt),
-            ))
-        : [];
-
-      if (pendingByEmail) {
-        // OWNER preserved; EXTERNAL_GUEST role preserved (would otherwise be
-        // bumped from VIEWER → MEMBER by Clerk's role mapping).
-        const preservedRole =
-          pendingByEmail.role === 'OWNER'
-            ? 'OWNER'
-            : pendingByEmail.memberType === 'EXTERNAL_GUEST'
-              ? pendingByEmail.role
-              : role;
-        // Don't wipe values supplied at invite time: a brand-new Clerk user often
-        // has null first_name/last_name and image_url at this webhook moment, but
-        // the admin already entered a name (and possibly avatar) when sending the
-        // invite. Prefer Clerk's values only when they're actually populated.
-        console.log(`[Clerk Webhook] Activating invitation member ${pendingByEmail.id} (email: ${email}) for user ${userId} (role: ${preservedRole}, memberType: ${pendingByEmail.memberType})`);
-        await tenantDb
-          .update(workspaceMembers)
-          .set({
-            userId,
-            name: name ?? pendingByEmail.name,
-            picture: picture ?? pendingByEmail.picture,
-            role: preservedRole,
-            status: 'ACTIVE',
-            clerkMembershipId: membership.id,
-            acceptedAt: pendingByEmail.acceptedAt ?? new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(workspaceMembers.id, pendingByEmail.id));
-        activatedMemberType = pendingByEmail.memberType;
-      } else {
-        // First-member rule: if there are no other active members, this is the
-        // org creator and must be OWNER — Clerk's role mapping tops out at ADMIN.
-        const [{ count: memberCount }] = await tenantDb
-          .select({ count: sql<number>`count(*)::int` })
-          .from(workspaceMembers)
-          .where(isNull(workspaceMembers.deletedAt));
-        const insertRole = memberCount === 0 ? 'OWNER' : role;
-        console.log(`[Clerk Webhook] No existing member found for user ${userId} / email ${email}, creating new ACTIVE member (role: ${insertRole}, existingCount: ${memberCount})`);
-        await tenantDb.insert(workspaceMembers).values({
-          id: generateId('mbr'),
-          userId, email, name, picture, role: insertRole,
-          status: 'ACTIVE',
-          clerkMembershipId: membership.id,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-        // Fresh insert uses the column default (`INTERNAL`).
-        activatedMemberType = 'INTERNAL';
-      }
-    }
+    // Fan the user into every public weldchat channel once the row is ACTIVE.
+    const activatedMemberType = await syncTenantMemberForMembership(tenantDb, {
+      userId,
+      email: membership.public_user_data.identifier,
+      name,
+      picture: membership.public_user_data.image_url,
+      role: mapClerkRoleToDisplay(membership.role),
+      membershipId: membership.id,
+    });
     console.log(`[Clerk Webhook] Tenant DB updated for membership ${membership.id}`);
 
     if (activatedMemberType) {

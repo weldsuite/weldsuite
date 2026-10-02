@@ -11,7 +11,7 @@
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   hasContextPermission,
@@ -29,7 +29,7 @@ import {
   hydrateCustomFields,
   hydrateCustomFieldsOne,
 } from '@weldsuite/core-domain/custom-field-values';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmActivities;
@@ -41,37 +41,54 @@ async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Pr
 
 const DATE_FIELDS = new Set(['dueDate', 'startTime', 'endTime', 'followUpDate']);
 
+/** Query-string params that filter by exact column equality. */
+const EQUALITY_FILTERS = [
+  ['type', t.type],
+  ['status', t.status],
+  ['assignedToId', t.assignedToId],
+  ['customerId', t.customerId],
+  ['contactId', t.contactId],
+  ['leadId', t.leadId],
+  ['opportunityId', t.opportunityId],
+] as const;
+
+/** Build the list filter conditions (without the pagination cursor). */
+function buildListFilters(q: Record<string, string>, scope: string | undefined): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  if (scope) conditions.push(eq(t.assignedToId, scope));
+  for (const [param, column] of EQUALITY_FILTERS) {
+    const value = q[param];
+    if (value) conditions.push(eq(column, value));
+  }
+  if (q.search) {
+    const term = `%${q.search}%`;
+    conditions.push(or(like(t.subject, term), like(t.description, term))!);
+  }
+  return conditions;
+}
+
+/** Keyset condition selecting rows strictly after the cursor row, if it exists. */
+async function cursorCondition(db: Database, cursor: string): Promise<SQL | null> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return null;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('activities:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
   const scope = await scopeFor(c);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (scope) conditions.push(eq(t.assignedToId, scope));
-  if (q.type) conditions.push(eq(t.type, q.type));
-  if (q.status) conditions.push(eq(t.status, q.status));
-  if (q.assignedToId) conditions.push(eq(t.assignedToId, q.assignedToId));
-  if (q.customerId) conditions.push(eq(t.customerId, q.customerId));
-  if (q.contactId) conditions.push(eq(t.contactId, q.contactId));
-  if (q.leadId) conditions.push(eq(t.leadId, q.leadId));
-  if (q.opportunityId) conditions.push(eq(t.opportunityId, q.opportunityId));
-  if (q.search) {
-    const term = `%${q.search}%`;
-    conditions.push(or(like(t.subject, term), like(t.description, term))!);
-  }
+  const filterConditions = buildListFilters(q, scope);
+  const conditions = [...filterConditions];
   if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
+    const cursorCond = await cursorCondition(db, q.cursor);
+    if (cursorCond) conditions.push(cursorCond);
   }
   const where = and(...conditions);
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
 
   try {
     const [rows, countRes] = await Promise.all([

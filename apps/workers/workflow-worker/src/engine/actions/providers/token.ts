@@ -60,6 +60,37 @@ export interface ValidIntegrationToken {
   integrationId: string;
 }
 
+type ResolvedIntegration = Awaited<ReturnType<typeof resolveIntegration>>;
+
+/**
+ * Refresh an expiring OAuth access token via the provider's token endpoint and
+ * persist the re-encrypted token. Returns the fresh access token, or `null`
+ * when the integration isn't an OAuth2 definition (nothing to refresh).
+ */
+async function refreshAndPersistToken(
+  ctx: ActionContext,
+  integ: ResolvedIntegration,
+  refreshTokenEncrypted: string,
+  key: EncryptionKeyring,
+): Promise<string | null> {
+  const def = getIntegrationDef(integ.type);
+  if (!def || def.auth.kind !== 'oauth2') return null;
+  const refreshToken = await maybeDecrypt(refreshTokenEncrypted, key);
+  const refreshed = await refreshOAuthToken(def.auth, refreshToken, ctx.env);
+  await ctx.db
+    .update(schema.workflowIntegrations)
+    .set({
+      oauthTokens: {
+        accessToken: key.v1 || key.v2 ? await encryptField(refreshed.accessToken, key) : refreshed.accessToken,
+        refreshToken: refreshTokenEncrypted,
+        expiresAt: refreshed.expiresAt,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.workflowIntegrations.id, integ.id));
+  return refreshed.accessToken;
+}
+
 /**
  * Resolve a usable, non-expired access token for the workspace's connected
  * integration of `type` (or a specific `integrationId`).
@@ -79,23 +110,7 @@ export async function getValidIntegrationToken(
     const expiringSoon = Number.isFinite(expiresMs) && expiresMs - Date.now() < REFRESH_WINDOW_MS;
 
     if (expiringSoon && tokens.refreshToken) {
-      const def = getIntegrationDef(integ.type);
-      if (def && def.auth.kind === 'oauth2') {
-        const refreshToken = await maybeDecrypt(tokens.refreshToken, key);
-        const refreshed = await refreshOAuthToken(def.auth, refreshToken, ctx.env);
-        accessToken = refreshed.accessToken;
-        await ctx.db
-          .update(schema.workflowIntegrations)
-          .set({
-            oauthTokens: {
-              accessToken: key.v1 || key.v2 ? await encryptField(refreshed.accessToken, key) : refreshed.accessToken,
-              refreshToken: tokens.refreshToken,
-              expiresAt: refreshed.expiresAt,
-            },
-            updatedAt: new Date(),
-          })
-          .where(eq(schema.workflowIntegrations.id, integ.id));
-      }
+      accessToken = (await refreshAndPersistToken(ctx, integ, tokens.refreshToken, key)) ?? accessToken;
     }
     return { accessToken, integrationId: integ.id };
   }

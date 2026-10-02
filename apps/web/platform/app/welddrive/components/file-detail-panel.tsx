@@ -289,12 +289,13 @@ export function FileDetailPanel({
               </div>
 
               {isImage && (
-                <div
-                  className="mt-4 rounded-lg overflow-hidden bg-muted/30 border border-border/50 cursor-pointer hover:opacity-90 transition-opacity"
+                <button
+                  type="button"
+                  className="mt-4 block w-full p-0 rounded-lg overflow-hidden bg-muted/30 border border-border/50 cursor-pointer hover:opacity-90 transition-opacity"
                   onClick={() => onPreview?.(file)}
                 >
                   <img src={file.url || file.thumbnailUrl!} alt={file.name} className="w-full object-contain max-h-[300px]" />
-                </div>
+                </button>
               )}
 
               {/* Who has access */}

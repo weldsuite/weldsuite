@@ -160,6 +160,8 @@ export function PhonePricingList({
     });
   }
 
+  const markupSource = editRow ?? defaultMarkup;
+
   return (
     <PageContent>
       <PageBody className="space-y-6">
@@ -315,8 +317,8 @@ export function PhonePricingList({
         open={bulkOpen || editRow !== null}
         label={editRow ? `${editRow.countryCode} ${editRow.numberType}` : null}
         currency={editRow?.currency ?? rows[0]?.currency ?? 'USD'}
-        initialKind={editRow ? markupKindOf(editRow) : defaultMarkup ? markupKindOf(defaultMarkup) : 'percent'}
-        initialValue={editRow ? markupValueOf(editRow) : defaultMarkup ? markupValueOf(defaultMarkup) : ''}
+        initialKind={markupSource ? markupKindOf(markupSource) : 'percent'}
+        initialValue={markupSource ? markupValueOf(markupSource) : ''}
         showScope={!editRow}
         isMutating={isMutating}
         onClose={() => {

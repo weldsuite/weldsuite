@@ -60,7 +60,7 @@ export class WidgetPage {
    */
   async goto(path: string = '/') {
     await this.page.goto(path);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('load');
   }
 
   /**

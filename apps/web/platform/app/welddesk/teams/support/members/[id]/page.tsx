@@ -17,6 +17,12 @@ interface RawAgentTicket {
   createdAt: string;
 }
 
+function getAgentStatus(agent: { isOnline?: boolean; availability?: string }): 'online' | 'away' | 'offline' {
+  if (agent.isOnline) return 'online';
+  if (agent.availability === 'away') return 'away';
+  return 'offline';
+}
+
 export default function MemberDetailPage() {
   const { t } = useI18n();
   const mdp = t.helpdesk.memberDetailPage;
@@ -68,7 +74,7 @@ export default function MemberDetailPage() {
     email: agent.email,
     avatar: getInitials(agent.name),
     role: (agent.role || 'agent').replace('_', ' '),
-    status: agent.isOnline ? 'online' as const : agent.availability === 'away' ? 'away' as const : 'offline' as const,
+    status: getAgentStatus(agent),
     activeTickets: agent.currentActiveTickets || 0,
     resolvedToday: agent.ticketsResolved || 0,
     avgResponseTime: formatResponseTime(agent.averageResponseTime),

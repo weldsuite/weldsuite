@@ -47,6 +47,14 @@ export interface MeetingAttendee {
    * for b2b attendees (Company party) and b2c attendees (Person's own party).
    */
   counterpartyId?: string;
+  /**
+   * 'walk_in' marks a guest who added themselves by joining through the
+   * public meeting link (meeting-portal) rather than being invited. Walk-ins
+   * are kept for display and history, but are never trusted as pre-invited:
+   * they still go through the waiting room, "Lock after start" and
+   * invite-only checks. Absent on invited attendees.
+   */
+  source?: 'walk_in';
 }
 
 export const meetings = pgTable('meetings', {

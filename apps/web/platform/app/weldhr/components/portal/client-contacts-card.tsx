@@ -1,6 +1,6 @@
 /** Workforce portal access card for a CRM company's client detail page. */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Plus, RotateCcw, Trash2, UserX } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -52,6 +52,61 @@ export function ClientPortalContactsCard({ companyId, companyName }: Readonly<{ 
     }
   }
 
+  let body: ReactNode;
+  if (isLoading) {
+    body = (
+      <div className="flex items-center justify-center py-6">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (error) {
+    body = (
+      <ErrorBanner error={errorMessage(error, t('weldhr.common.loadFailed'))} />
+    );
+  } else if (!data || data.length === 0) {
+    body = (
+      <EmptyText>{t('weldhr.portal.clientCard.emptyDescription')}</EmptyText>
+    );
+  } else {
+    body = (
+      <div className="space-y-2">
+        {data.map((access) => (
+          <div key={access.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{access.displayName ?? access.email}</p>
+              <p className="truncate text-xs text-muted-foreground">{access.email}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t('weldhr.portal.access.lastSignIn')}: {formatDateTime(access.lastLoginAt)} · {t('weldhr.portal.access.invitedAt')}:{' '}
+                {formatDate(access.invitedAt)}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <StatusBadge group="portalAccess" status={access.status} />
+              {access.status === 'revoked' ? (
+                <Button variant="ghost" size="icon" className="h-7 w-7" title={t('weldhr.portal.access.restore')} onClick={() => void handleRestore(access)}>
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </Button>
+              ) : (
+                <Button variant="ghost" size="icon" className="h-7 w-7" title={t('weldhr.portal.access.revoke')} onClick={() => void handleRevoke(access)}>
+                  <UserX className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-destructive"
+                title={t('weldhr.common.delete')}
+                onClick={() => setDeleteTarget(access)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <SectionCard
       title={t('weldhr.portal.clientCard.title')}
@@ -65,51 +120,7 @@ export function ClientPortalContactsCard({ companyId, companyName }: Readonly<{ 
     >
         <ErrorBanner error={rowFailure} onDismiss={() => setRowFailure(null)} />
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : error ? (
-          <ErrorBanner error={errorMessage(error, t('weldhr.common.loadFailed'))} />
-        ) : !data || data.length === 0 ? (
-          <EmptyText>{t('weldhr.portal.clientCard.emptyDescription')}</EmptyText>
-        ) : (
-          <div className="space-y-2">
-            {data.map((access) => (
-              <div key={access.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{access.displayName ?? access.email}</p>
-                  <p className="truncate text-xs text-muted-foreground">{access.email}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {t('weldhr.portal.access.lastSignIn')}: {formatDateTime(access.lastLoginAt)} · {t('weldhr.portal.access.invitedAt')}:{' '}
-                    {formatDate(access.invitedAt)}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <StatusBadge group="portalAccess" status={access.status} />
-                  {access.status === 'revoked' ? (
-                    <Button variant="ghost" size="icon" className="h-7 w-7" title={t('weldhr.portal.access.restore')} onClick={() => void handleRestore(access)}>
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </Button>
-                  ) : (
-                    <Button variant="ghost" size="icon" className="h-7 w-7" title={t('weldhr.portal.access.revoke')} onClick={() => void handleRevoke(access)}>
-                      <UserX className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive"
-                    title={t('weldhr.common.delete')}
-                    onClick={() => setDeleteTarget(access)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        {body}
 
       {inviting && <InviteContactDialog companyId={companyId} companyName={companyName} onClose={() => setInviting(false)} />}
       {deleteTarget && <DeleteContactAccessDialog access={deleteTarget} onClose={() => setDeleteTarget(null)} />}

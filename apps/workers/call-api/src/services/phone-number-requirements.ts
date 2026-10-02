@@ -249,7 +249,7 @@ export async function submitNumberOrderRequirements(
 ): Promise<{ requirementsMet: boolean }> {
   const resp = await telnyxRequest<{ data?: TelnyxOrderPhoneNumber }>(
     env,
-    `/number_order_phone_numbers/${args.phoneNumberOrderId}`,
+    `/number_order_phone_numbers/${encodeURIComponent(args.phoneNumberOrderId)}`,
     {
       method: 'PATCH',
       body: JSON.stringify({

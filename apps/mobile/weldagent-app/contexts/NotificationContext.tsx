@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
@@ -101,14 +101,16 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const registerPushToken = useCallback(async (token: string) => {
     const deviceId = await getDeviceId();
     const isExpoToken = token.startsWith('ExponentPushToken[');
-    const tokenType = isExpoToken ? 'expo' : Platform.OS === 'android' ? 'fcm' : 'apns';
+    let tokenType: 'expo' | 'fcm' | 'apns' = 'apns';
+    if (isExpoToken) tokenType = 'expo';
+    else if (Platform.OS === 'android') tokenType = 'fcm';
     try {
       await appApi.pushTokens.register({
         token,
         platform: Platform.OS as 'ios' | 'android',
         deviceId,
         appCode: APP_CODE,
-        tokenType: tokenType as 'expo' | 'fcm' | 'apns',
+        tokenType,
         deviceModel: Device.modelName || undefined,
         osVersion: Device.osVersion || undefined,
         appVersion: Application.nativeApplicationVersion || undefined,
@@ -118,7 +120,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
   }, []);
 
-  const requestPermissions = async (): Promise<boolean> => {
+  const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (!notifUtils || !EAS_PROJECT_ID) {
       console.warn('[Notifications] EAS project ID is not configured; skipping push registration');
       return false;
@@ -135,12 +137,12 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       console.error('[Notifications] Error:', error);
       return false;
     }
-  };
+  }, [registerPushToken]);
 
-  const openNotificationSettings = async () => {
+  const openNotificationSettings = useCallback(async () => {
     if (Platform.OS === 'ios') await Linking.openURL('app-settings:');
     else await Linking.openSettings();
-  };
+  }, []);
 
   const refreshBadgeCount = useCallback(async () => {
     try {
@@ -259,18 +261,29 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     };
   }, [user, organizationId, registerPushToken, refreshBadgeCount, router]);
 
+  const contextValue = useMemo(
+    () => ({
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      requestPermissions,
+      openNotificationSettings,
+      refreshBadgeCount,
+      unregisterDevice,
+    }),
+    [
+      unreadCount,
+      isConnected,
+      isPermissionGranted,
+      requestPermissions,
+      openNotificationSettings,
+      refreshBadgeCount,
+      unregisterDevice,
+    ],
+  );
+
   return (
-    <NotificationContext.Provider
-      value={{
-        unreadCount,
-        isConnected,
-        isPermissionGranted,
-        requestPermissions,
-        openNotificationSettings,
-        refreshBadgeCount,
-        unregisterDevice,
-      }}
-    >
+    <NotificationContext.Provider value={contextValue}>
       {children}
     </NotificationContext.Provider>
   );

@@ -103,6 +103,33 @@ function getInitials(name: string): string {
   return name.charAt(0).toUpperCase();
 }
 
+type ProjectOwnerRecord = Omit<Project['owner'], 'initials'> & { projectId: string };
+
+// Merge the resolved project owners into the project rows (projects without a
+// resolved owner are left untouched).
+function applyOwnersToProjects(projects: Project[], owners: (ProjectOwnerRecord | null)[]): Project[] {
+  const ownerByProject = new Map<string, ProjectOwnerRecord>();
+  for (const owner of owners) {
+    if (owner) ownerByProject.set(owner.projectId, owner);
+  }
+  return projects.map((project) => {
+    const ownerData = ownerByProject.get(project.id);
+    if (!ownerData) return project;
+    return {
+      ...project,
+      owner: {
+        name: ownerData.name,
+        initials: getInitials(ownerData.name),
+        userId: ownerData.userId,
+        email: ownerData.email,
+        avatar: ownerData.avatar,
+        role: ownerData.role,
+        joinedAt: ownerData.joinedAt,
+      },
+    };
+  });
+}
+
 // Status and priority configs are now built inside the component using i18n
 // (moved below the component definition start)
 
@@ -224,32 +251,8 @@ export function AllProjectsClient({
           return null;
         })
       ).then((owners) => {
-        const ownerMap = new Map<string, string>();
-        owners.forEach((o) => {
-          if (o) ownerMap.set(o.projectId, o.name);
-        });
-        if (ownerMap.size > 0) {
-          setProjects((prev) =>
-            prev.map((p) => {
-              const ownerName = ownerMap.get(p.id);
-              if (ownerName) {
-                const ownerData = owners.find(o => o?.projectId === p.id);
-                return {
-                  ...p,
-                  owner: {
-                    name: ownerName,
-                    initials: getInitials(ownerName),
-                    userId: ownerData?.userId,
-                    email: ownerData?.email,
-                    avatar: ownerData?.avatar,
-                    role: ownerData?.role,
-                    joinedAt: ownerData?.joinedAt,
-                  },
-                };
-              }
-              return p;
-            })
-          );
+        if (owners.some(Boolean)) {
+          setProjects((prev) => applyOwnersToProjects(prev, owners));
         }
       });
     }
@@ -505,7 +508,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -543,7 +546,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Owner */}
-        <div className="w-[130px] min-w-0" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[130px] min-w-0" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Button
             variant="ghost"
             className="group/owner flex items-center gap-1.5 max-w-full min-w-0 rounded px-1 py-0.5 -mx-1 cursor-pointer"
@@ -577,7 +580,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -619,7 +622,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

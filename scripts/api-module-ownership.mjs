@@ -118,7 +118,7 @@ for (const f of files) {
   else if (!r || r.size === 0) owner.set(f, 'UNREACHED');
   else if (r.size === 1) owner.set(f, [...r][0]);
   else if (r.has('core')) owner.set(f, 'core'); // core must keep anything it reaches
-  else owner.set(f, 'SHARED:' + [...r].sort().join('+'));
+  else owner.set(f, 'SHARED:' + [...r].sort((a, b) => a.localeCompare(b)).join('+'));
 }
 
 // A test file belongs to whoever owns the file it tests (x.test.ts → x.ts,
@@ -142,7 +142,7 @@ if (target === '--core-shared') {
   const counts = {};
   for (const o of owner.values()) counts[o.startsWith('SHARED') ? 'SHARED' : o] = (counts[o.startsWith('SHARED') ? 'SHARED' : o] ?? 0) + 1;
   console.log(counts);
-  const shared = [...owner].filter(([, o]) => o.startsWith('SHARED')).map(([f, o]) => `${rel(f)}  ${o}`).sort();
+  const shared = [...owner].filter(([, o]) => o.startsWith('SHARED')).map(([f, o]) => `${rel(f)}  ${o}`).sort((a, b) => a.localeCompare(b));
   console.log('\nSHARED (reached by >1 non-core module):\n' + shared.join('\n'));
   // core files importing module-owned files (core -> module edges)
   const edges = [];
@@ -153,22 +153,22 @@ if (target === '--core-shared') {
       if (od && od !== 'core' && !od.startsWith('SHARED')) edges.push(`${rel(f)} -> ${rel(d)} (${od})`);
     }
   }
-  console.log('\nCORE -> MODULE edges:\n' + edges.sort().join('\n'));
+  console.log('\nCORE -> MODULE edges:\n' + edges.sort((a, b) => a.localeCompare(b)).join('\n'));
 } else if (target !== '--core-shared') {
   const mine = [...owner].filter(([, o]) => o === target).map(([f]) => f);
   console.log(`# ${target}: ${mine.length} files`);
-  console.log(mine.map(rel).sort().join('\n'));
+  console.log(mine.map(rel).sort((a, b) => a.localeCompare(b)).join('\n'));
   console.log(`\n# ${target} -> outside imports`);
   const out = new Set();
   for (const f of mine) for (const d of imports.get(f) ?? []) if (owner.get(d) !== target) out.add(`${rel(d)} [${owner.get(d)}]  <- ${rel(f)}`);
-  console.log([...out].sort().join('\n'));
+  console.log([...out].sort((a, b) => a.localeCompare(b)).join('\n'));
   console.log(`\n# inbound: other files importing ${target} files`);
   const inb = new Set();
   for (const [f, deps] of imports) {
     if (owner.get(f) === target) continue;
     for (const d of deps) if (owner.get(d) === target) inb.add(`${rel(f)} [${owner.get(f)}] -> ${rel(d)}`);
   }
-  console.log([...inb].sort().join('\n'));
+  console.log([...inb].sort((a, b) => a.localeCompare(b)).join('\n'));
 }
 
 if (process.argv[2] === '--core-shared') {
@@ -176,9 +176,9 @@ if (process.argv[2] === '--core-shared') {
   for (const [f, o] of owner) {
     if (o !== 'core') continue;
     const r = [...(reachers.get(f) ?? [])].filter((m) => m !== 'core');
-    if (r.length) rows.push(`${rel(f)}  <- ${r.sort().join(',')}`);
+    if (r.length) rows.push(`${rel(f)}  <- ${r.sort((a, b) => a.localeCompare(b)).join(',')}`);
   }
-  console.log(rows.sort().join('\n'));
+  console.log(rows.sort((a, b) => a.localeCompare(b)).join('\n'));
   console.log('\nMULTI seeds:', [...seeds].filter(([, m]) => m === 'MULTI').map(([f]) => rel(f)));
   console.log('\nUNREACHED non-test:', [...owner].filter(([f, o]) => o === 'UNREACHED' && !f.endsWith('.test.ts') && !f.includes('/test/')).map(([f]) => rel(f)));
 }

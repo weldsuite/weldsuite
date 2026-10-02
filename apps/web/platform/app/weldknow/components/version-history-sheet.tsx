@@ -59,6 +59,48 @@ export function VersionHistorySheet({ pageId, open, onOpenChange }: Readonly<Ver
     }
   };
 
+  const versionList = (() => {
+    if (isLoading) {
+      return (
+        <>
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </>
+      );
+    }
+    if (versions.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-1 py-10 text-center">
+          <p className="text-sm font-medium">{t.versions.empty}</p>
+          <p className="text-sm text-muted-foreground">{t.versions.emptyDescription}</p>
+        </div>
+      );
+    }
+    return versions.map((version) => (
+      <div
+        key={version.id}
+        className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
+      >
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">
+            {version.label || t.versions.autoSnapshot}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {formatDistanceToNow(new Date(version.createdAt), { addSuffix: true })}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          onClick={() => setRestoreTarget(version)}
+        >
+          {t.versions.restore}
+        </Button>
+      </div>
+    ));
+  })();
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-md flex flex-col">
@@ -85,41 +127,7 @@ export function VersionHistorySheet({ pageId, open, onOpenChange }: Readonly<Ver
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-2">
-          {isLoading ? (
-            <>
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </>
-          ) : versions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-1 py-10 text-center">
-              <p className="text-sm font-medium">{t.versions.empty}</p>
-              <p className="text-sm text-muted-foreground">{t.versions.emptyDescription}</p>
-            </div>
-          ) : (
-            versions.map((version) => (
-              <div
-                key={version.id}
-                className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    {version.label || t.versions.autoSnapshot}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatDistanceToNow(new Date(version.createdAt), { addSuffix: true })}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => setRestoreTarget(version)}
-                >
-                  {t.versions.restore}
-                </Button>
-              </div>
-            ))
-          )}
+          {versionList}
         </div>
       </SheetContent>
 

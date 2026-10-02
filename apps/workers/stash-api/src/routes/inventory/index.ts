@@ -11,6 +11,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import type { z } from 'zod';
 import { and, desc, eq, gte, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
@@ -116,6 +117,22 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
   }
 });
 
+/** Filter conditions for the stock ledger (everything except the pagination cursor). */
+function buildLedgerFilters(q: z.infer<typeof inventoryLedgerQuerySchema>): SQL[] {
+  const { stockAdjustments } = schema;
+  const conditions: SQL[] = [];
+  if (q.productId) conditions.push(eq(stockAdjustments.productId, q.productId));
+  if (q.variantId) conditions.push(eq(stockAdjustments.variantId, q.variantId));
+  if (q.warehouseId) conditions.push(eq(stockAdjustments.warehouseId, q.warehouseId));
+  if (q.locationId) conditions.push(eq(stockAdjustments.locationId, q.locationId));
+  if (q.lotNumber) conditions.push(eq(stockAdjustments.lotNumber, q.lotNumber));
+  if (q.type) conditions.push(eq(stockAdjustments.type, q.type));
+  if (q.sourceType) conditions.push(eq(stockAdjustments.sourceType, q.sourceType));
+  if (q.from) conditions.push(gte(stockAdjustments.createdAt, q.from));
+  if (q.to) conditions.push(lte(stockAdjustments.createdAt, q.to));
+  return conditions;
+}
+
 /**
  * Stock ledger — the movement history behind current quantities, read from
  * `stock_adjustments` and enriched with product / warehouse / location names.
@@ -130,16 +147,7 @@ app.get('/ledger', requirePermission('inventory:read'), zValidator('query', inve
   const limit = q.limit ?? 25;
   const { stockAdjustments, products, warehouses, warehouseLocations } = schema;
 
-  const conditions: SQL[] = [];
-  if (q.productId) conditions.push(eq(stockAdjustments.productId, q.productId));
-  if (q.variantId) conditions.push(eq(stockAdjustments.variantId, q.variantId));
-  if (q.warehouseId) conditions.push(eq(stockAdjustments.warehouseId, q.warehouseId));
-  if (q.locationId) conditions.push(eq(stockAdjustments.locationId, q.locationId));
-  if (q.lotNumber) conditions.push(eq(stockAdjustments.lotNumber, q.lotNumber));
-  if (q.type) conditions.push(eq(stockAdjustments.type, q.type));
-  if (q.sourceType) conditions.push(eq(stockAdjustments.sourceType, q.sourceType));
-  if (q.from) conditions.push(gte(stockAdjustments.createdAt, q.from));
-  if (q.to) conditions.push(lte(stockAdjustments.createdAt, q.to));
+  const conditions = buildLedgerFilters(q);
 
   // Snapshot the filters before the cursor predicate joins them — a stale
   // cursor matches no row and pushes nothing, so trimming the last element

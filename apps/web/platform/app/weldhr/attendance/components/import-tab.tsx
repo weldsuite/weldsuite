@@ -52,6 +52,80 @@ function toIsoDateTime(date: string, value: string, errorKey: string, errors: st
   return null;
 }
 
+type CsvColumns = {
+  employee: number;
+  date: number;
+  clockIn: number;
+  clockOut: number;
+  breakMinutes: number;
+  status: number;
+  notes: number;
+};
+
+function cellAt(cells: string[], index: number): string {
+  return index >= 0 ? (cells[index] ?? '') : '';
+}
+
+function parseBreakMinutes(breakRaw: string, errors: string[]): number | undefined {
+  if (!breakRaw) return undefined;
+  const n = Number(breakRaw);
+  if (!Number.isInteger(n) || n < 0 || n > 1440) {
+    errors.push('invalidBreak');
+    return undefined;
+  }
+  return n;
+}
+
+function parseStatus(statusRaw: string, errors: string[]): HrAttendanceStatus | undefined {
+  if (!statusRaw) return undefined;
+  if (!STATUSES.includes(statusRaw as HrAttendanceStatus)) {
+    errors.push('invalidStatus');
+    return undefined;
+  }
+  return statusRaw as HrAttendanceStatus;
+}
+
+function parseRow(cells: string[], i: number, columns: CsvColumns): ParsedRow {
+  const errors: string[] = [];
+  const employee = cellAt(cells, columns.employee);
+  const date = cellAt(cells, columns.date);
+  const clockInRaw = cellAt(cells, columns.clockIn);
+  const clockOutRaw = cellAt(cells, columns.clockOut);
+  const breakRaw = cellAt(cells, columns.breakMinutes);
+  const statusRaw = cellAt(cells, columns.status).toLowerCase();
+  const notes = cellAt(cells, columns.notes);
+
+  if (!employee) errors.push('missingEmployee');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) errors.push('missingDate');
+
+  const clockIn = toIsoDateTime(date, clockInRaw, 'invalidClockIn', errors);
+  const clockOut = toIsoDateTime(date, clockOutRaw, 'invalidClockOut', errors);
+  const breakMinutes = parseBreakMinutes(breakRaw, errors);
+  const status = parseStatus(statusRaw, errors);
+
+  const payload =
+    errors.length === 0
+      ? { employee, date, clockIn, clockOut, breakMinutes, status, notes: notes || undefined }
+      : null;
+
+  return {
+    row: i + 1,
+    errors,
+    payload,
+    preview: { employee, date, clockIn: clockInRaw, clockOut: clockOutRaw, breakMinutes: breakRaw, status: statusRaw, notes },
+  };
+}
+
+function downloadTemplate() {
+  const blob = new Blob([TEMPLATE], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'weldhr-attendance-template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function ImportTab() {
   const t = useTranslations();
   const importAttendance = useImportHrAttendance();
@@ -67,55 +141,17 @@ export function ImportTab() {
     if (lines.length === 0) return [];
     const header = lines[0]!.map((h) => h.toLowerCase());
     const idx = (name: string) => header.indexOf(name);
-    const iEmployee = idx('employee');
-    const iDate = idx('date');
-    const iIn = idx('clock_in');
-    const iOut = idx('clock_out');
-    const iBreak = idx('break_minutes');
-    const iStatus = idx('status');
-    const iNotes = idx('notes');
+    const columns: CsvColumns = {
+      employee: idx('employee'),
+      date: idx('date'),
+      clockIn: idx('clock_in'),
+      clockOut: idx('clock_out'),
+      breakMinutes: idx('break_minutes'),
+      status: idx('status'),
+      notes: idx('notes'),
+    };
 
-    return lines.slice(1).map((cells, i) => {
-      const errors: string[] = [];
-      const employee = iEmployee >= 0 ? (cells[iEmployee] ?? '') : '';
-      const date = iDate >= 0 ? (cells[iDate] ?? '') : '';
-      const clockInRaw = iIn >= 0 ? (cells[iIn] ?? '') : '';
-      const clockOutRaw = iOut >= 0 ? (cells[iOut] ?? '') : '';
-      const breakRaw = iBreak >= 0 ? (cells[iBreak] ?? '') : '';
-      const statusRaw = iStatus >= 0 ? (cells[iStatus] ?? '').toLowerCase() : '';
-      const notes = iNotes >= 0 ? (cells[iNotes] ?? '') : '';
-
-      if (!employee) errors.push('missingEmployee');
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) errors.push('missingDate');
-
-      const clockIn = toIsoDateTime(date, clockInRaw, 'invalidClockIn', errors);
-      const clockOut = toIsoDateTime(date, clockOutRaw, 'invalidClockOut', errors);
-
-      let breakMinutes: number | undefined;
-      if (breakRaw) {
-        const n = Number(breakRaw);
-        if (!Number.isInteger(n) || n < 0 || n > 1440) errors.push('invalidBreak');
-        else breakMinutes = n;
-      }
-
-      let status: HrAttendanceStatus | undefined;
-      if (statusRaw) {
-        if (!STATUSES.includes(statusRaw as HrAttendanceStatus)) errors.push('invalidStatus');
-        else status = statusRaw as HrAttendanceStatus;
-      }
-
-      const payload =
-        errors.length === 0
-          ? { employee, date, clockIn, clockOut, breakMinutes, status, notes: notes || undefined }
-          : null;
-
-      return {
-        row: i + 1,
-        errors,
-        payload,
-        preview: { employee, date, clockIn: clockInRaw, clockOut: clockOutRaw, breakMinutes: breakRaw, status: statusRaw, notes },
-      };
-    });
+    return lines.slice(1).map((cells, i) => parseRow(cells, i, columns));
   }, [csvText]);
 
   const validRows = parsed.filter((r) => r.payload).map((r) => r.payload!);
@@ -125,16 +161,6 @@ export function ImportTab() {
     const reader = new FileReader();
     reader.onload = () => setCsvText(String(reader.result ?? ''));
     reader.readAsText(file);
-  }
-
-  function downloadTemplate() {
-    const blob = new Blob([TEMPLATE], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'weldhr-attendance-template.csv';
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   async function submit() {
@@ -252,8 +278,8 @@ export function ImportTab() {
             <div className="pt-1 text-destructive">
               <p>{t('weldhr.attendance.import.result.errors', { count: result.errors.length })}</p>
               <ul className="mt-1 list-inside list-disc">
-                {result.errors.map((e, i) => (
-                  <li key={i}>{t('weldhr.attendance.import.result.errorRow', { row: e.row, reason: e.reason })}</li>
+                {result.errors.map((e) => (
+                  <li key={`${e.row}-${e.reason}`}>{t('weldhr.attendance.import.result.errorRow', { row: e.row, reason: e.reason })}</li>
                 ))}
               </ul>
             </div>

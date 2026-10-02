@@ -55,6 +55,11 @@ export function ShiftDialog({
   const pending = createShift.isPending || updateShift.isPending;
   const canSubmit = Boolean(employeeId && date && start && end) && !pending;
 
+  let submitLabel: string;
+  if (pending) submitLabel = t('weldhr.attendance.schedule.form.saving');
+  else if (shift) submitLabel = t('weldhr.attendance.schedule.form.save');
+  else submitLabel = t('weldhr.attendance.schedule.form.create');
+
   async function submit() {
     if (!employeeId || !date) return;
     setFailure(null);
@@ -144,11 +149,7 @@ export function ShiftDialog({
             </Button>
             <Button onClick={() => void submit()} disabled={!canSubmit}>
               {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {pending
-                ? t('weldhr.attendance.schedule.form.saving')
-                : shift
-                  ? t('weldhr.attendance.schedule.form.save')
-                  : t('weldhr.attendance.schedule.form.create')}
+              {submitLabel}
             </Button>
           </div>
         </DialogFooter>

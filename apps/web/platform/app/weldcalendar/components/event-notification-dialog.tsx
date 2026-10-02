@@ -27,6 +27,13 @@ export function EventNotificationDialog({ open, onOpenChange, onConfirm, isPendi
 
   const isDelete = variant === 'delete';
 
+  let confirmLabel: string;
+  if (isPending) {
+    confirmLabel = isDelete ? t.eventNotification.deleting : t.eventNotification.savingChanges;
+  } else {
+    confirmLabel = isDelete ? t.eventNotification.deleteConfirm : t.eventNotification.updateConfirm;
+  }
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -59,9 +66,7 @@ export function EventNotificationDialog({ open, onOpenChange, onConfirm, isPendi
             disabled={isPending}
             className={isDelete ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
           >
-            {isPending
-              ? (isDelete ? t.eventNotification.deleting : t.eventNotification.savingChanges)
-              : (isDelete ? t.eventNotification.deleteConfirm : t.eventNotification.updateConfirm)}
+            {confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

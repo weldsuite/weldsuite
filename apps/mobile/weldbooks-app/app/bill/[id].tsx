@@ -8,24 +8,27 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
+import { useLocalSearchParams } from 'expo-router';
 import { Check, X, CreditCard, Trash2 } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
-import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 
 import api from '@/services/api';
 import { toNumber } from '@/lib/currency';
-import { daysUntil } from '@/lib/date';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { BRAND } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
-import { SectionCard, DetailRow, TotalsBlock } from '@/components/detail';
+import { SectionCard, DetailRow } from '@/components/detail';
+import {
+  DocumentLineItems,
+  DocumentSummaryCard,
+  DocumentTotalsCard,
+  documentCurrency,
+  useDocumentMutations,
+} from '@/components/document-detail';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { BillStatusBadge } from '@/components/status-badge';
 import { RecordPaymentSheet } from '@/components/record-payment-sheet';
@@ -33,19 +36,78 @@ import type { Bill } from '@/types/accounting';
 
 type Confirm = 'reject' | 'delete' | null;
 
+/** Draft and pending bills can still be approved, rejected or deleted. */
+function isAwaitingApproval(status: Bill['status'] | undefined): boolean {
+  return status === 'draft' || status === 'pending';
+}
+
+function isPayable(bill: Bill, balanceDue: number): boolean {
+  return balanceDue > 0 && (bill.status === 'approved' || bill.status === 'partially_paid');
+}
+
+function BillActions({
+  canApprove,
+  canPay,
+  busy,
+  onApprove,
+  onReject,
+  onPay,
+}: Readonly<{
+  canApprove: boolean;
+  canPay: boolean;
+  busy: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+  onPay: () => void;
+}>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+
+  return (
+    <View style={styles.actions}>
+      {canApprove ? (
+        <>
+          <Button
+            title={t.billDetail.approve}
+            leftIcon={<Check size={18} color={colors.primaryForeground} />}
+            onPress={onApprove}
+            loading={busy}
+            fullWidth
+          />
+          <Button
+            title={t.billDetail.reject}
+            variant="outline"
+            leftIcon={<X size={18} color={colors.destructive} />}
+            onPress={onReject}
+            disabled={busy}
+            fullWidth
+          />
+        </>
+      ) : null}
+
+      {canPay ? (
+        <Button
+          title={t.billDetail.recordPayment}
+          leftIcon={<CreditCard size={18} color={colors.primaryForeground} />}
+          onPress={onPay}
+          disabled={busy}
+          fullWidth
+        />
+      ) : null}
+    </View>
+  );
+}
+
 export default function BillDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
-  const router = useRouter();
-  const toast = useToast();
-  const { t, format, plural } = useI18n();
-  const { formatCurrency, formatDate } = useLocaleFormatters();
+  const { t } = useI18n();
+  const { formatDate } = useLocaleFormatters();
 
   const [bill, setBill] = useState<Bill | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [confirm, setConfirm] = useState<Confirm>(null);
 
@@ -67,22 +129,7 @@ export default function BillDetailScreen() {
     load();
   }, [load]);
 
-  const run = useCallback(
-    async (action: () => Promise<unknown>, successMessage: string) => {
-      setBusy(true);
-      try {
-        await action();
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        toast.success(successMessage);
-        await load();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : t.common.actionFailed);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [load, toast, t],
-  );
+  const { busy, run, remove } = useDocumentMutations(load);
 
   const header = (
     <ScreenHeader
@@ -90,7 +137,7 @@ export default function BillDetailScreen() {
       subtitle={bill?.contactName}
       showBack
       actions={
-        bill?.status === 'draft' || bill?.status === 'pending' ? (
+        isAwaitingApproval(bill?.status) ? (
           <IconButton
             icon={<Trash2 size={20} color={colors.destructive} />}
             accessibilityLabel={t.billDetail.deleteBill}
@@ -123,12 +170,8 @@ export default function BillDetailScreen() {
     );
   }
 
-  const currency = bill.currency || 'EUR';
+  const currency = documentCurrency(bill);
   const balanceDue = toNumber(bill.balanceDue);
-  const amountPaid = toNumber(bill.amountPaid);
-  const due = daysUntil(bill.dueDate);
-  const canApprove = bill.status === 'draft' || bill.status === 'pending';
-  const canPay = balanceDue > 0 && (bill.status === 'approved' || bill.status === 'partially_paid');
 
   return (
     <Screen header={header}>
@@ -145,38 +188,18 @@ export default function BillDetailScreen() {
           />
         }
       >
-        <SectionCard>
-          <View style={styles.summary}>
-            <View>
-              <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>
-                {balanceDue > 0 ? t.billDetail.balanceDue : t.billDetail.total}
-              </Text>
-              <Text style={[styles.summaryValue, { color: colors.text }]}>
-                {formatCurrency(balanceDue > 0 ? balanceDue : bill.total, currency)}
-              </Text>
-            </View>
+        <DocumentSummaryCard
+          doc={bill}
+          labels={t.billDetail}
+          badge={
             <BillStatusBadge
               status={bill.status}
               dueDate={bill.dueDate}
               balanceDue={bill.balanceDue}
               size="md"
             />
-          </View>
-          {balanceDue > 0 && due !== null ? (
-            <Text
-              style={[
-                styles.dueHint,
-                { color: due < 0 ? colors.destructive : colors.mutedForeground },
-              ]}
-            >
-              {due < 0
-                ? plural(Math.abs(due), t.billDetail.overdueBy)
-                : due === 0
-                  ? t.billDetail.dueToday
-                  : plural(due, t.billDetail.dueIn)}
-            </Text>
-          ) : null}
-        </SectionCard>
+          }
+        />
 
         <SectionCard title={t.billDetail.details}>
           <DetailRow label={t.billDetail.vendor} value={bill.contactName} />
@@ -185,45 +208,14 @@ export default function BillDetailScreen() {
           {bill.reference ? <DetailRow label={t.billDetail.reference} value={bill.reference} /> : null}
         </SectionCard>
 
-        {bill.items?.length ? (
-          <SectionCard title={t.billDetail.lineItems}>
-            {bill.items.map((item, index) => (
-              <View key={item.id ?? index}>
-                {index > 0 ? <Divider style={styles.itemDivider} /> : null}
-                <Text style={[styles.itemDescription, { color: colors.text }]}>
-                  {item.description}
-                </Text>
-                <View style={styles.itemMeta}>
-                  <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>
-                    {toNumber(item.quantity)} × {formatCurrency(item.unitPrice, currency)}
-                    {toNumber(item.taxRate) > 0
-                      ? `  ·  ${format(t.billDetail.vatRate, { rate: toNumber(item.taxRate) })}`
-                      : ''}
-                  </Text>
-                  <Text style={[styles.itemTotal, { color: colors.text }]}>
-                    {formatCurrency(item.lineTotal, currency)}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </SectionCard>
-        ) : null}
+        <DocumentLineItems
+          items={bill.items}
+          currency={currency}
+          title={t.billDetail.lineItems}
+          vatRateLabel={t.billDetail.vatRate}
+        />
 
-        <SectionCard title={t.billDetail.totals}>
-          <TotalsBlock
-            rows={[
-              { label: t.billDetail.subtotal, value: formatCurrency(bill.subtotal, currency) },
-              { label: t.billDetail.vat, value: formatCurrency(bill.taxTotal, currency) },
-              ...(amountPaid > 0
-                ? [{ label: t.billDetail.paid, value: `−${formatCurrency(amountPaid, currency)}` }]
-                : []),
-            ]}
-            total={{
-              label: balanceDue > 0 && amountPaid > 0 ? t.billDetail.balanceDue : t.billDetail.total,
-              value: formatCurrency(balanceDue > 0 && amountPaid > 0 ? balanceDue : bill.total, currency),
-            }}
-          />
-        </SectionCard>
+        <DocumentTotalsCard doc={bill} labels={t.billDetail} />
 
         {bill.notes ? (
           <SectionCard title={t.billDetail.notes}>
@@ -231,37 +223,14 @@ export default function BillDetailScreen() {
           </SectionCard>
         ) : null}
 
-        <View style={styles.actions}>
-          {canApprove ? (
-            <>
-              <Button
-                title={t.billDetail.approve}
-                leftIcon={<Check size={18} color={colors.primaryForeground} />}
-                onPress={() => run(() => api.approveBill(bill.id), t.billDetail.approved)}
-                loading={busy}
-                fullWidth
-              />
-              <Button
-                title={t.billDetail.reject}
-                variant="outline"
-                leftIcon={<X size={18} color={colors.destructive} />}
-                onPress={() => setConfirm('reject')}
-                disabled={busy}
-                fullWidth
-              />
-            </>
-          ) : null}
-
-          {canPay ? (
-            <Button
-              title={t.billDetail.recordPayment}
-              leftIcon={<CreditCard size={18} color={colors.primaryForeground} />}
-              onPress={() => setPaymentOpen(true)}
-              disabled={busy}
-              fullWidth
-            />
-          ) : null}
-        </View>
+        <BillActions
+          canApprove={isAwaitingApproval(bill.status)}
+          canPay={isPayable(bill, balanceDue)}
+          busy={busy}
+          onApprove={() => run(() => api.approveBill(bill.id), t.billDetail.approved)}
+          onReject={() => setConfirm('reject')}
+          onPay={() => setPaymentOpen(true)}
+        />
       </ScrollView>
 
       <RecordPaymentSheet
@@ -298,18 +267,9 @@ export default function BillDetailScreen() {
         variant="destructive"
         loading={busy}
         onCancel={() => setConfirm(null)}
-        onConfirm={async () => {
+        onConfirm={() => {
           setConfirm(null);
-          setBusy(true);
-          try {
-            await api.deleteBill(bill.id);
-            toast.success(t.billDetail.deleted);
-            router.back();
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : t.billDetail.deleteFailed);
-          } finally {
-            setBusy(false);
-          }
+          remove(() => api.deleteBill(bill.id), t.billDetail.deleted, t.billDetail.deleteFailed);
         }}
       />
     </Screen>
@@ -318,21 +278,6 @@ export default function BillDetailScreen() {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 40, paddingTop: 4 },
-  summary: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-  summaryLabel: { fontSize: 13, fontWeight: '500' },
-  summaryValue: { fontSize: 30, fontWeight: '700', marginTop: 2, letterSpacing: -0.8 },
-  dueHint: { fontSize: 13, marginTop: 8 },
-  itemDivider: { marginVertical: 12 },
-  itemDescription: { fontSize: 14, fontWeight: '500' },
-  itemMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
-    gap: 12,
-  },
-  itemQty: { fontSize: 13, flexShrink: 1 },
-  itemTotal: { fontSize: 14, fontWeight: '600' },
   notes: { fontSize: 14, lineHeight: 20 },
   actions: { padding: 12, paddingTop: 20, gap: 8 },
 });

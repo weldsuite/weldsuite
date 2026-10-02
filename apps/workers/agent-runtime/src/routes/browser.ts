@@ -74,6 +74,71 @@ async function resolveSessionId(browser: {
   return undefined;
 }
 
+type BrowserInstance = Awaited<ReturnType<typeof puppeteer.launch>>;
+type BrowserPage = Awaited<ReturnType<BrowserInstance['newPage']>>;
+type ActBody = z.infer<typeof actSchema>;
+
+// Reconnect to the stored session when there is one; fall back to a fresh launch.
+async function acquireBrowser(
+  binding: NonNullable<Env['BROWSER']>,
+  storedSessionId: string | undefined,
+): Promise<BrowserInstance> {
+  if (storedSessionId) {
+    try {
+      return await puppeteer.connect(binding, storedSessionId);
+    } catch {
+      // Stored session expired; start a new one below.
+    }
+  }
+  return puppeteer.launch(binding, { keep_alive: 60_000 });
+}
+
+// Performs the requested action. Returns a validation error message (HTTP 400)
+// or null once the action has run.
+async function runAction(page: BrowserPage, body: ActBody): Promise<string | null> {
+  switch (body.action) {
+    case 'goto':
+      if (!body.url) return 'url required for goto';
+      await page.goto(body.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      return null;
+    case 'click':
+      if (!body.selector) return 'selector required for click';
+      await page.click(body.selector);
+      return null;
+    case 'type':
+      if (!body.selector || body.text == null) return 'selector and text required for type';
+      await page.type(body.selector, body.text);
+      return null;
+    case 'press':
+      if (!body.key) return 'key required for press';
+      await page.keyboard.press(body.key as never);
+      return null;
+    case 'wait':
+      await new Promise((r) => setTimeout(r, body.waitMs ?? 1000));
+      return null;
+    case 'screenshot':
+    case 'extract':
+    case 'live_view':
+      return null;
+    default:
+      return 'Unknown action';
+  }
+}
+
+// Live View is not available in all environments, so failures are non-fatal.
+async function fetchLiveViewUrl(page: BrowserPage): Promise<string | undefined> {
+  try {
+    const cdp = await page.createCDPSession();
+    const live = (await cdp.send('Cloudflare.getLiveView' as never, {
+      mode: 'tab',
+      expiresInMs: 300_000,
+    } as never)) as { devtoolsFrontendUrl?: string };
+    return live.devtoolsFrontendUrl;
+  } catch {
+    return undefined;
+  }
+}
+
 export const browserRoutes = new Hono<AppEnv>();
 
 browserRoutes.post('/open', async (c) => {
@@ -134,55 +199,14 @@ browserRoutes.post('/act', async (c) => {
   const body = actSchema.parse(await c.req.json());
   const stored = await loadSession(c.env, body.workspaceId, body.agentId);
 
-  let browser: Awaited<ReturnType<typeof puppeteer.launch>>;
-  if (stored?.sessionId) {
-    try {
-      browser = await puppeteer.connect(c.env.BROWSER, stored.sessionId);
-    } catch {
-      browser = await puppeteer.launch(c.env.BROWSER, { keep_alive: 60_000 });
-    }
-  } else {
-    browser = await puppeteer.launch(c.env.BROWSER, { keep_alive: 60_000 });
-  }
+  const browser = await acquireBrowser(c.env.BROWSER, stored?.sessionId);
 
   const pages = await browser.pages();
   const page = pages[0] ?? (await browser.newPage());
 
   try {
-    switch (body.action) {
-      case 'goto': {
-        if (!body.url) return c.json({ error: 'url required for goto' }, 400);
-        await page.goto(body.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-        break;
-      }
-      case 'click': {
-        if (!body.selector) return c.json({ error: 'selector required for click' }, 400);
-        await page.click(body.selector);
-        break;
-      }
-      case 'type': {
-        if (!body.selector || body.text == null) {
-          return c.json({ error: 'selector and text required for type' }, 400);
-        }
-        await page.type(body.selector, body.text);
-        break;
-      }
-      case 'press': {
-        if (!body.key) return c.json({ error: 'key required for press' }, 400);
-        await page.keyboard.press(body.key as never);
-        break;
-      }
-      case 'wait': {
-        await new Promise((r) => setTimeout(r, body.waitMs ?? 1000));
-        break;
-      }
-      case 'screenshot':
-      case 'extract':
-      case 'live_view':
-        break;
-      default:
-        return c.json({ error: 'Unknown action' }, 400);
-    }
+    const actionError = await runAction(page, body);
+    if (actionError) return c.json({ error: actionError }, 400);
 
     const title = await page.title();
     const url = page.url();
@@ -195,19 +219,8 @@ browserRoutes.post('/act', async (c) => {
         ? bufferToBase64((await page.screenshot({ type: 'jpeg', quality: 60 })) as Buffer)
         : undefined;
 
-    let liveViewUrl: string | undefined;
-    if (body.action === 'live_view' || body.action === 'goto') {
-      try {
-        const cdp = await page.createCDPSession();
-        const live = (await cdp.send('Cloudflare.getLiveView' as never, {
-          mode: 'tab',
-          expiresInMs: 300_000,
-        } as never)) as { devtoolsFrontendUrl?: string };
-        liveViewUrl = live.devtoolsFrontendUrl;
-      } catch {
-        // optional
-      }
-    }
+    const liveViewUrl =
+      body.action === 'live_view' || body.action === 'goto' ? await fetchLiveViewUrl(page) : undefined;
 
     const sid =
       stored?.sessionId ??

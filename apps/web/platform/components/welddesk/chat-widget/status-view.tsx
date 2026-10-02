@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 import { Button } from '@weldsuite/ui/components/button';
+import { secureRandom } from '@/lib/random';
 
 interface StatusViewProps {
   onClose: () => void;
@@ -62,7 +63,7 @@ export function StatusView({
   const generateUptimeData = (): ('operational' | 'minor' | 'moderate' | 'major')[] => {
     const data: ('operational' | 'minor' | 'moderate' | 'major')[] = [];
     for (let i = 0; i < 90; i++) {
-      const random = Math.random();
+      const random = secureRandom();
       if (random > 0.98) {
         data.push('major');
       } else if (random > 0.96) {

@@ -33,6 +33,15 @@ import { useTopic } from '@weldsuite/realtime/react';
 
 const findIconByLabel = findColoredSquareIconByLabel;
 
+/** Returns `value` when `allowed`, otherwise `undefined` (used for permission-gated menu actions). */
+function whenAllowed<T>(allowed: boolean, value: T): T | undefined {
+  return allowed ? value : undefined;
+}
+
+function resolveProjectIcon(iconLabel: string | null | undefined): LucideIcon {
+  return (iconLabel ? findIconByLabel(iconLabel) : undefined) || FolderKanban;
+}
+
 export function useProjectsSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
   dialogs: React.ReactNode;
@@ -103,7 +112,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
       const isAdmin = project.isAdmin ?? true;
 
       // Resolve icon from stored label or fallback
-      const resolvedIcon = project.icon ? (findIconByLabel(project.icon) || FolderKanban) : FolderKanban;
+      const resolvedIcon = resolveProjectIcon(project.icon);
 
       return {
         title: project.name,
@@ -112,40 +121,30 @@ export function useProjectsSidebarItems(isActive: boolean): {
         iconStyle: 'colored-square' as const,
         iconColor: project.color || coloredSquareColors[0].value,
         subItems: [],
-        onAddSubItem: canWrite ? () => handleAddSubProjectRef.current(projectId) : undefined,
-        onRename: canWrite
-          ? () => {
-              setProjectToRename({ id: projectId, name: project.name });
-              setRenameValue(project.name);
-              setRenameColor(project.color || coloredSquareColors[0].value);
-              setRenameIcon(resolvedIcon);
-              setShowRenameDialog(true);
-            }
-          : undefined,
-        onDuplicate: canWrite
-          ? () => {
-              // TODO: implement duplicate
-            }
-          : undefined,
-        onDelete: isAdmin
-          ? () => {
-              setProjectToDelete({ id: projectId, name: project.name });
-              setShowDeleteDialog(true);
-            }
-          : undefined,
-        onChangeColor: canWrite
-          ? async (color: string) => {
-              await projectsApi.update(projectId, { color });
-              await reloadProjectsRef.current();
-            }
-          : undefined,
-        onChangeIcon: canWrite
-          ? async (icon: LucideIcon) => {
-              const iconLabel = coloredSquareIcons.find((i) => i.value === icon)?.label || '';
-              await projectsApi.update(projectId, { icon: iconLabel });
-              await reloadProjectsRef.current();
-            }
-          : undefined,
+        onAddSubItem: whenAllowed(canWrite, () => handleAddSubProjectRef.current(projectId)),
+        onRename: whenAllowed(canWrite, () => {
+          setProjectToRename({ id: projectId, name: project.name });
+          setRenameValue(project.name);
+          setRenameColor(project.color || coloredSquareColors[0].value);
+          setRenameIcon(resolvedIcon);
+          setShowRenameDialog(true);
+        }),
+        onDuplicate: whenAllowed(canWrite, () => {
+          // TODO: implement duplicate
+        }),
+        onDelete: whenAllowed(isAdmin, () => {
+          setProjectToDelete({ id: projectId, name: project.name });
+          setShowDeleteDialog(true);
+        }),
+        onChangeColor: whenAllowed(canWrite, async (color: string) => {
+          await projectsApi.update(projectId, { color });
+          await reloadProjectsRef.current();
+        }),
+        onChangeIcon: whenAllowed(canWrite, async (icon: LucideIcon) => {
+          const iconLabel = coloredSquareIcons.find((i) => i.value === icon)?.label || '';
+          await projectsApi.update(projectId, { icon: iconLabel });
+          await reloadProjectsRef.current();
+        }),
         onMoveUp: () => handleMoveProjectRef.current(`/weldflow/project/${projectId}/tasks`, 'up'),
         onMoveDown: () => handleMoveProjectRef.current(`/weldflow/project/${projectId}/tasks`, 'down'),
       };

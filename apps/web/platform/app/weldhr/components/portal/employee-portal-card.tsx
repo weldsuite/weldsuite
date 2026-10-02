@@ -15,6 +15,93 @@ import {
 import { ErrorBanner, StatusBadge, errorMessage, formatDate, formatDateTime } from '../shared';
 import { EmptyText, SectionCard } from '../page-kit';
 
+type PortalAccess = NonNullable<ReturnType<typeof useHrPortalAccess>['data']>[number];
+
+type PortalCardBodyProps = Readonly<{
+  isLoading: boolean;
+  error: unknown;
+  isTerminated: boolean;
+  access: PortalAccess | null;
+  portalEnabled: boolean;
+  pending: boolean;
+  onInvite: () => void;
+  onRevoke: () => void;
+  onRestore: () => void;
+}>;
+
+function PortalCardBody({
+  isLoading,
+  error,
+  isTerminated,
+  access,
+  portalEnabled,
+  pending,
+  onInvite,
+  onRevoke,
+  onRestore,
+}: PortalCardBodyProps) {
+  const t = useTranslations();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-6">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (error) return <ErrorBanner error={errorMessage(error, t('weldhr.common.loadFailed'))} />;
+  if (isTerminated) return <EmptyText>{t('weldhr.portal.employeeCard.terminatedHint')}</EmptyText>;
+  if (!access) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">{t('weldhr.portal.employeeCard.noAccess')}</p>
+        {!portalEnabled && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">{t('weldhr.portal.access.portalDisabledNotice')}</p>
+        )}
+        <Button size="sm" onClick={onInvite} disabled={pending}>
+          {pending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
+          {t('weldhr.portal.employeeCard.invite')}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <StatusBadge group="portalAccess" status={access.status} />
+        <span className="text-xs text-muted-foreground">
+          {t('weldhr.portal.access.invitedAt')}: {formatDate(access.invitedAt)}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t('weldhr.portal.access.lastSignIn')}: {formatDateTime(access.lastLoginAt)}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {access.status === 'revoked' ? (
+          <Button size="sm" variant="outline" onClick={onRestore} disabled={pending}>
+            <RotateCcw className="mr-1.5 h-4 w-4" />
+            {t('weldhr.portal.access.restore')}
+          </Button>
+        ) : (
+          <>
+            {access.status === 'invited' && (
+              <Button size="sm" variant="outline" onClick={onInvite} disabled={pending}>
+                <Send className="mr-1.5 h-4 w-4" />
+                {t('weldhr.portal.employeeCard.resend')}
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={onRevoke} disabled={pending}>
+              <UserX className="mr-1.5 h-4 w-4" />
+              {t('weldhr.portal.access.revoke')}
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function EmployeePortalAccessCard({ employeeId, employeeStatus }: Readonly<{ employeeId: string; employeeStatus: string }>) {
   const t = useTranslations();
   const settings = useHrPortalSettings();
@@ -66,59 +153,17 @@ export function EmployeePortalAccessCard({ employeeId, employeeStatus }: Readonl
     <SectionCard title={t('weldhr.portal.employeeCard.title')} contentClassName="space-y-3">
         <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : error ? (
-          <ErrorBanner error={errorMessage(error, t('weldhr.common.loadFailed'))} />
-        ) : isTerminated ? (
-          <EmptyText>{t('weldhr.portal.employeeCard.terminatedHint')}</EmptyText>
-        ) : !access ? (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">{t('weldhr.portal.employeeCard.noAccess')}</p>
-            {!settings.data?.isEnabled && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">{t('weldhr.portal.access.portalDisabledNotice')}</p>
-            )}
-            <Button size="sm" onClick={() => void handleInvite()} disabled={pending}>
-              {pending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
-              {t('weldhr.portal.employeeCard.invite')}
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <StatusBadge group="portalAccess" status={access.status} />
-              <span className="text-xs text-muted-foreground">
-                {t('weldhr.portal.access.invitedAt')}: {formatDate(access.invitedAt)}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t('weldhr.portal.access.lastSignIn')}: {formatDateTime(access.lastLoginAt)}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {access.status === 'revoked' ? (
-                <Button size="sm" variant="outline" onClick={() => void handleRestore()} disabled={pending}>
-                  <RotateCcw className="mr-1.5 h-4 w-4" />
-                  {t('weldhr.portal.access.restore')}
-                </Button>
-              ) : (
-                <>
-                  {access.status === 'invited' && (
-                    <Button size="sm" variant="outline" onClick={() => void handleInvite()} disabled={pending}>
-                      <Send className="mr-1.5 h-4 w-4" />
-                      {t('weldhr.portal.employeeCard.resend')}
-                    </Button>
-                  )}
-                  <Button size="sm" variant="outline" onClick={() => void handleRevoke()} disabled={pending}>
-                    <UserX className="mr-1.5 h-4 w-4" />
-                    {t('weldhr.portal.access.revoke')}
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-        )}
+        <PortalCardBody
+          isLoading={isLoading}
+          error={error}
+          isTerminated={isTerminated}
+          access={access}
+          portalEnabled={!!settings.data?.isEnabled}
+          pending={pending}
+          onInvite={() => void handleInvite()}
+          onRevoke={() => void handleRevoke()}
+          onRestore={() => void handleRestore()}
+        />
     </SectionCard>
   );
 }

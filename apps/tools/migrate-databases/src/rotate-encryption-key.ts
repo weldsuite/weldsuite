@@ -167,6 +167,79 @@ async function rotateJsonb(
   return changed ? out : null;
 }
 
+interface RawRow {
+  id: string;
+  value: unknown;
+}
+
+/**
+ * Fetch one batch of rows for a target. Returns null when the table or
+ * column doesn't exist in this database (caller skips the target).
+ */
+async function fetchBatch(
+  sql: postgres.Sql,
+  target: ColumnTarget,
+  offset: number,
+  verbose: boolean,
+): Promise<RawRow[] | null> {
+  const { table, idColumn, column } = target;
+  try {
+    return (await sql.unsafe(
+      `SELECT ${idColumn} AS id, ${column} AS value FROM ${table}
+         WHERE ${column} IS NOT NULL
+         ORDER BY ${idColumn} LIMIT ${BATCH_SIZE} OFFSET ${offset}`,
+    )) as unknown as RawRow[];
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === '42P01' || code === '42703') {
+      // Table or column doesn't exist in this database — fine, skip.
+      if (verbose) console.log(`    ${table}.${column}: not present, skipped`);
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function rotateTextRow(
+  sql: postgres.Sql,
+  target: ColumnTarget,
+  row: RawRow,
+  keys: Required<EncryptionKeyring>,
+  execute: boolean,
+  counts: SweepCounts,
+): Promise<void> {
+  const { table, idColumn, column } = target;
+  if (typeof row.value !== 'string') return;
+  const rotated = await rotateValue(row.value, keys, counts);
+  if (rotated !== null && execute) {
+    await sql.unsafe(`UPDATE ${table} SET ${column} = $1 WHERE ${idColumn} = $2`, [
+      rotated,
+      row.id,
+    ]);
+    counts.rewritten++;
+  }
+}
+
+async function rotateJsonbRow(
+  sql: postgres.Sql,
+  target: ColumnTarget,
+  row: RawRow,
+  keys: Required<EncryptionKeyring>,
+  execute: boolean,
+  counts: SweepCounts,
+): Promise<void> {
+  const { table, idColumn, column } = target;
+  if (row.value === null || typeof row.value !== 'object' || Array.isArray(row.value)) return;
+  const rotated = await rotateJsonb(row.value as Record<string, unknown>, keys, counts);
+  if (rotated !== null && execute) {
+    await sql.unsafe(`UPDATE ${table} SET ${column} = $1::jsonb WHERE ${idColumn} = $2`, [
+      JSON.stringify(rotated),
+      row.id,
+    ]);
+    counts.rewritten++;
+  }
+}
+
 async function sweepTarget(
   sql: postgres.Sql,
   target: ColumnTarget,
@@ -175,51 +248,18 @@ async function sweepTarget(
   verbose: boolean,
 ): Promise<SweepCounts> {
   const counts = newCounts();
-  const { table, idColumn, column, kind } = target;
+  const { table, column, kind } = target;
+  const rotateRow = kind === 'text' ? rotateTextRow : rotateJsonbRow;
 
   let offset = 0;
   for (;;) {
-    let rows: { id: string; value: unknown }[];
-    try {
-      rows = (await sql.unsafe(
-        `SELECT ${idColumn} AS id, ${column} AS value FROM ${table}
-         WHERE ${column} IS NOT NULL
-         ORDER BY ${idColumn} LIMIT ${BATCH_SIZE} OFFSET ${offset}`,
-      )) as unknown as { id: string; value: unknown }[];
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code === '42P01' || code === '42703') {
-        // Table or column doesn't exist in this database — fine, skip.
-        if (verbose) console.log(`    ${table}.${column}: not present, skipped`);
-        return counts;
-      }
-      throw err;
-    }
+    const rows = await fetchBatch(sql, target, offset, verbose);
+    if (rows === null) return counts;
 
     if (rows.length === 0) break;
 
     for (const row of rows) {
-      if (kind === 'text') {
-        if (typeof row.value !== 'string') continue;
-        const rotated = await rotateValue(row.value, keys, counts);
-        if (rotated !== null && execute) {
-          await sql.unsafe(`UPDATE ${table} SET ${column} = $1 WHERE ${idColumn} = $2`, [
-            rotated,
-            row.id,
-          ]);
-          counts.rewritten++;
-        }
-      } else {
-        if (row.value === null || typeof row.value !== 'object' || Array.isArray(row.value)) continue;
-        const rotated = await rotateJsonb(row.value as Record<string, unknown>, keys, counts);
-        if (rotated !== null && execute) {
-          await sql.unsafe(`UPDATE ${table} SET ${column} = $1::jsonb WHERE ${idColumn} = $2`, [
-            JSON.stringify(rotated),
-            row.id,
-          ]);
-          counts.rewritten++;
-        }
-      }
+      await rotateRow(sql, target, row, keys, execute, counts);
     }
 
     if (rows.length < BATCH_SIZE) break;
@@ -251,11 +291,81 @@ async function sweepDatabase(
   } finally {
     await sql.end({ timeout: 5 });
   }
-  const status = counts.v1 === 0 ? 'clean' : execute ? 'rotated' : 'NEEDS ROTATION';
+  let status = 'clean';
+  if (counts.v1 !== 0) status = execute ? 'rotated' : 'NEEDS ROTATION';
   console.log(
     `  ${label}: v1=${counts.v1} v2=${counts.v2} plaintext=${counts.plaintext} failed=${counts.failed} rewritten=${counts.rewritten} → ${status}`,
   );
   return counts;
+}
+
+interface TenantRow {
+  id: string;
+  name: string;
+  neonProjectId: string | null;
+  neonBranchId: string | null;
+  neonRoleName: string | null;
+  neonDatabaseName: string | null;
+  databaseUrl: string | null;
+}
+
+async function loadTenantRows(masterUrl: string, only: string | null): Promise<TenantRow[]> {
+  const masterClient = postgres(masterUrl, { max: 1, ssl: 'require', prepare: false });
+  const db = drizzle(masterClient);
+  const conditions = [eq(workspaces.isActive, true), isNotNull(workspaces.neonProjectId)];
+  if (only) conditions.push(eq(workspaces.id, only));
+
+  const rows = await db
+    .select({
+      id: workspaces.id,
+      name: workspaces.name,
+      neonProjectId: workspaces.neonProjectId,
+      neonBranchId: workspaces.neonBranchId,
+      neonRoleName: workspaces.neonRoleName,
+      neonDatabaseName: workspaces.neonDatabaseName,
+      databaseUrl: workspaces.databaseUrl,
+    })
+    .from(workspaces)
+    .where(and(...conditions));
+  await masterClient.end({ timeout: 5 });
+  return rows;
+}
+
+async function sweepTenants(
+  masterUrl: string,
+  neonApiKey: string,
+  keyring: EncryptionKeyring,
+  keys: Required<EncryptionKeyring>,
+  options: CliOptions,
+  total: SweepCounts,
+): Promise<void> {
+  const rows = await loadTenantRows(masterUrl, options.only);
+
+  console.log(`\nTenant DBs (${rows.length}):`);
+  for (const w of rows) {
+    if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
+    try {
+      const url = await resolveDatabaseUrl(neonApiKey, w as never, keyring);
+      addCounts(
+        total,
+        await sweepDatabase(w.id, url, TENANT_TARGETS, keys, options.execute, options.verbose),
+      );
+    } catch (err) {
+      console.error(`  ${w.id}: FAILED to connect/sweep — ${(err as Error).message}`);
+      total.failed++;
+    }
+  }
+}
+
+function printTotals(total: SweepCounts, execute: boolean): void {
+  console.log(
+    `\nTOTAL: v1=${total.v1} v2=${total.v2} plaintext=${total.plaintext} failed=${total.failed} rewritten=${total.rewritten}`,
+  );
+  if (total.v1 === 0 && total.failed === 0) {
+    console.log('All encrypted values are on v2 — the v1 key can be retired.');
+  } else if (!execute) {
+    console.log('Dry-run only. Re-run with --execute to rotate.');
+  }
 }
 
 async function main() {
@@ -292,53 +402,16 @@ async function main() {
 
   // Tenant DBs
   if (!options.masterOnly) {
-    const masterClient = postgres(masterUrl, { max: 1, ssl: 'require', prepare: false });
-    const db = drizzle(masterClient);
-    const conditions = [eq(workspaces.isActive, true), isNotNull(workspaces.neonProjectId)];
-    if (options.only) conditions.push(eq(workspaces.id, options.only));
-
-    const rows = await db
-      .select({
-        id: workspaces.id,
-        name: workspaces.name,
-        neonProjectId: workspaces.neonProjectId,
-        neonBranchId: workspaces.neonBranchId,
-        neonRoleName: workspaces.neonRoleName,
-        neonDatabaseName: workspaces.neonDatabaseName,
-        databaseUrl: workspaces.databaseUrl,
-      })
-      .from(workspaces)
-      .where(and(...conditions));
-    await masterClient.end({ timeout: 5 });
-
-    console.log(`\nTenant DBs (${rows.length}):`);
-    for (const w of rows) {
-      if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
-      try {
-        const url = await resolveDatabaseUrl(neonApiKey, w as never, { v1, v2 });
-        addCounts(
-          total,
-          await sweepDatabase(w.id, url, TENANT_TARGETS, keys, options.execute, options.verbose),
-        );
-      } catch (err) {
-        console.error(`  ${w.id}: FAILED to connect/sweep — ${(err as Error).message}`);
-        total.failed++;
-      }
-    }
+    await sweepTenants(masterUrl, neonApiKey, { v1, v2 }, keys, options, total);
   }
 
-  console.log(
-    `\nTOTAL: v1=${total.v1} v2=${total.v2} plaintext=${total.plaintext} failed=${total.failed} rewritten=${total.rewritten}`,
-  );
-  if (total.v1 === 0 && total.failed === 0) {
-    console.log('All encrypted values are on v2 — the v1 key can be retired.');
-  } else if (!options.execute) {
-    console.log('Dry-run only. Re-run with --execute to rotate.');
-  }
+  printTotals(total, options.execute);
   process.exit(total.failed > 0 ? 1 : 0);
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error('Sweep failed:', err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}

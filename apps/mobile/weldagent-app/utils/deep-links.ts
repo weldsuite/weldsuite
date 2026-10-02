@@ -12,36 +12,32 @@ export interface WeldAgentDeepLink {
   runId?: string;
 }
 
+/** An explicit payload field when it is a well-formed id, else the id scraped from `actionUrl`. */
+function pickId(
+  data: Record<string, unknown>,
+  key: string,
+  actionUrlPattern: RegExp,
+): string | undefined {
+  const explicit = data[key];
+  if (typeof explicit === 'string' && ID.test(explicit)) return explicit;
+  const actionUrl = data.actionUrl;
+  return typeof actionUrl === 'string' ? actionUrl.match(actionUrlPattern)?.[1] : undefined;
+}
+
+function onlyValidId(value: string | undefined): string | undefined {
+  return value && ID.test(value) ? value : undefined;
+}
+
 export function resolveWeldAgentDeepLink(
   data: Record<string, unknown> | undefined,
 ): WeldAgentDeepLink | null {
   if (!data) return null;
 
-  const conversationId =
-    typeof data.conversationId === 'string' && ID.test(data.conversationId)
-      ? data.conversationId
-      : typeof data.actionUrl === 'string'
-        ? data.actionUrl.match(/\/weldagent\/chat\/([^/?#]+)/)?.[1]
-        : undefined;
-
-  const agentId =
-    typeof data.agentId === 'string' && ID.test(data.agentId)
-      ? data.agentId
-      : typeof data.actionUrl === 'string'
-        ? data.actionUrl.match(/\/weldagent\/agent\/([^/?#/]+)/)?.[1]
-        : undefined;
-
-  const runId =
-    typeof data.runId === 'string' && ID.test(data.runId)
-      ? data.runId
-      : typeof data.actionUrl === 'string'
-        ? data.actionUrl.match(/\/run\/([^/?#]+)/)?.[1]
-        : undefined;
-
-  const safeConversation =
-    conversationId && ID.test(conversationId) ? conversationId : undefined;
-  const safeAgent = agentId && ID.test(agentId) ? agentId : undefined;
-  const safeRun = runId && ID.test(runId) ? runId : undefined;
+  const safeConversation = onlyValidId(
+    pickId(data, 'conversationId', /\/weldagent\/chat\/([^/?#]+)/),
+  );
+  const safeAgent = onlyValidId(pickId(data, 'agentId', /\/weldagent\/agent\/([^/?#]+)/));
+  const safeRun = onlyValidId(pickId(data, 'runId', /\/run\/([^/?#]+)/));
 
   if (!safeConversation && !safeAgent) return null;
   return { conversationId: safeConversation, agentId: safeAgent, runId: safeRun };

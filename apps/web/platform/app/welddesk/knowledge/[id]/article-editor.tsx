@@ -26,6 +26,20 @@ import { useCreateArticle, useUpdateArticle, useHelpdeskFolders } from '@/hooks/
 import { useI18n } from '@/lib/i18n/provider';
 import { DocumentEditorPage } from '@/components/document-editor-page';
 
+/**
+ * Pair each string with a stable React key built from its text plus how many
+ * times that text has already appeared (duplicates stay unique without using
+ * the array position as the key).
+ */
+function keyByOccurrence(items: readonly string[]): { item: string; key: string; index: number }[] {
+  const seen = new Map<string, number>();
+  return items.map((item, index) => {
+    const n = (seen.get(item) ?? 0) + 1;
+    seen.set(item, n);
+    return { item, key: `${item}#${n}`, index };
+  });
+}
+
 interface FolderOption {
   id: string;
   name: string;
@@ -94,7 +108,7 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
     try {
       const content = currentContentRef.current;
       const title = currentTitleRef.current || article.title;
-      const excerpt = article.excerpt || content.replace(/<[^>]*>/g, '').slice(0, 200).trim();
+      const excerpt = article.excerpt || content.replace(/<[^<>]*>/g, '').slice(0, 200).trim();
 
       const articleData = {
         title: title || 'Untitled',
@@ -278,9 +292,9 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
         <div>
           <label className="text-sm font-medium mb-2 block">{t.helpdesk.knowledge.tags}</label>
           <div className="flex flex-wrap gap-2 mb-2">
-            {article.tags.map((tag, index) => (
+            {keyByOccurrence(article.tags).map(({ item: tag, key, index }) => (
               <Badge
-                key={index}
+                key={key}
                 variant="secondary"
                 className="cursor-pointer"
                 onClick={() =>

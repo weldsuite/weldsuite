@@ -178,6 +178,16 @@ interface RawGanttTask {
   } | null;
 }
 
+// Keyboard activation (Enter / Space) for non-native `role="menuitem"` elements
+function onActivateKey(action: () => void) {
+  return (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      action();
+    }
+  };
+}
+
 // Raw milestone shape as returned by the app-api gantt/milestones endpoint
 interface RawGanttMilestone {
   id: string;
@@ -999,6 +1009,23 @@ const GanttPage = () => {
 
   const hasFeatures = filteredFeatures.length > 0;
 
+  const handleMarkerChangeDate = () => setMarkerDatePickerOpen(true);
+
+  const handleMarkerRenameFromPopover = () => {
+    if (!selectedMarker) return;
+    setViewMarkerPopoverOpen(false);
+    setMarkerPopoverPosition(null);
+    handleRenameMarker(selectedMarker.id);
+  };
+
+  const handleMarkerRemoveFromPopover = () => {
+    if (!selectedMarker) return;
+    handleRemoveMarker(selectedMarker.id);
+    setViewMarkerPopoverOpen(false);
+    setSelectedMarker(null);
+    setMarkerPopoverPosition(null);
+  };
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Toolbar */}
@@ -1456,33 +1483,30 @@ const GanttPage = () => {
                   {/* Menu items */}
                   <div
                     role="menuitem"
+                    tabIndex={0}
                     className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
-                    onClick={() => setMarkerDatePickerOpen(true)}
+                    onClick={handleMarkerChangeDate}
+                    onKeyDown={onActivateKey(handleMarkerChangeDate)}
                   >
                     <CalendarIcon className="h-4 w-4" />
                     {t.projects.gantt.changeDate}
                   </div>
                   <div
                     role="menuitem"
+                    tabIndex={0}
                     className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
-                    onClick={() => {
-                      setViewMarkerPopoverOpen(false);
-                      setMarkerPopoverPosition(null);
-                      handleRenameMarker(selectedMarker.id);
-                    }}
+                    onClick={handleMarkerRenameFromPopover}
+                    onKeyDown={onActivateKey(handleMarkerRenameFromPopover)}
                   >
                     <SquarePen className="h-4 w-4" />
                     {t.projects.gantt.rename}
                   </div>
                   <div
                     role="menuitem"
+                    tabIndex={0}
                     className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors"
-                    onClick={() => {
-                      handleRemoveMarker(selectedMarker.id);
-                      setViewMarkerPopoverOpen(false);
-                      setSelectedMarker(null);
-                      setMarkerPopoverPosition(null);
-                    }}
+                    onClick={handleMarkerRemoveFromPopover}
+                    onKeyDown={onActivateKey(handleMarkerRemoveFromPopover)}
                   >
                     <Trash2 className="h-4 w-4" />
                     {t.projects.gantt.delete}

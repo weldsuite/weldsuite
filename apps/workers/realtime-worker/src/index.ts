@@ -97,6 +97,106 @@ async function assertResourceInWorkspace(
 }
 
 /**
+ * Channel-membership gate for ChatRoom: a public channel, or an explicit
+ * membership row. Fail-closed on DB errors. Returns `null` when access is
+ * allowed, or an error Response to return to the caller.
+ */
+async function assertChatChannelAccess(
+  c: Context<{ Bindings: Env }>,
+  workspaceId: string,
+  channelId: string,
+  userId: string,
+): Promise<Response | null> {
+  try {
+    const db = await getTenantDbForWorkspace(c.env, workspaceId);
+    const { chatChannels, chatChannelMembers } = schema;
+
+    const [channel] = await db
+      .select({ id: chatChannels.id, type: chatChannels.type })
+      .from(chatChannels)
+      .where(and(eq(chatChannels.id, channelId), isNull(chatChannels.deletedAt)))
+      .limit(1);
+
+    if (!channel) {
+      return c.text('Forbidden: channel not found', 403);
+    }
+
+    if (channel.type !== 'public') {
+      const [membership] = await db
+        .select({ id: chatChannelMembers.id })
+        .from(chatChannelMembers)
+        .where(and(eq(chatChannelMembers.channelId, channelId), eq(chatChannelMembers.userId, userId)))
+        .limit(1);
+
+      if (!membership) {
+        return c.text('Forbidden: not a member of this channel', 403);
+      }
+    }
+    return null;
+  } catch (dbErr) {
+    console.error('[realtime /ws/chat] Channel access check failed:', (dbErr as Error).message);
+    return c.text('Internal error checking channel access', 500);
+  }
+}
+
+/** Extract a JWT from query param, Authorization header, or WebSocket subprotocol. */
+function extractSupportToken(c: Context<{ Bindings: Env }>, url: URL): string | undefined {
+  const fromQuery = url.searchParams.get('token');
+  if (fromQuery) return fromQuery;
+
+  const authHeader = c.req.header('Authorization');
+  if (authHeader?.startsWith('Bearer ')) return authHeader.slice(7);
+
+  const protocol = c.req.header('Sec-WebSocket-Protocol');
+  if (protocol) {
+    const parts = protocol.split(', ');
+    const idx = parts.indexOf('authorization');
+    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+  }
+  return undefined;
+}
+
+/**
+ * Verify a JWT signature against the platform key first, then the admin key.
+ * Tracks WHICH key matched: the 'support' role must be reserved for
+ * admin-instance tokens, not inferred from an org mismatch.
+ */
+async function verifySupportJwt(
+  env: Env,
+  jwtParts: string[],
+): Promise<{ payload: any; verifiedByAdminKey: boolean } | null> {
+  const keyEntries = [
+    { pem: env.CLERK_JWT_KEY, isAdmin: false },
+    { pem: env.ADMIN_CLERK_JWT_KEY, isAdmin: true },
+  ].filter((k) => Boolean(k.pem)) as { pem: string; isAdmin: boolean }[];
+
+  for (const { pem, isAdmin } of keyEntries) {
+    try {
+      const keyData = pemToBuffer(pem);
+      const cryptoKey = await crypto.subtle.importKey(
+        'spki',
+        keyData,
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+        false,
+        ['verify'],
+      );
+
+      const signedData = new TextEncoder().encode(`${jwtParts[0]}.${jwtParts[1]}`);
+      const signature = base64UrlToBuffer(jwtParts[2]);
+
+      const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', cryptoKey, signature, signedData);
+      if (valid) {
+        const payload = JSON.parse(atob(jwtParts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return payload ? { payload, verifiedByAdminKey: isAdmin } : null;
+      }
+    } catch {
+      // Key didn't match — try next
+    }
+  }
+  return null;
+}
+
+/**
  * Conversation ownership check across both helpdesk models. Returns `null`
  * when the conversation exists in the caller's tenant DB.
  */
@@ -397,40 +497,8 @@ app.get('/ws/chat/:channelId', async (c) => {
     // (same as the guest path below). Skip the membership query for them so
     // authenticated meeting participants aren't wrongly rejected.
     if (!isMeetingChannel) {
-      try {
-        const db = await getTenantDbForWorkspace(c.env, auth.workspaceId);
-        const { chatChannels, chatChannelMembers } = schema;
-
-        const [channel] = await db
-          .select({ id: chatChannels.id, type: chatChannels.type })
-          .from(chatChannels)
-          .where(and(eq(chatChannels.id, channelId), isNull(chatChannels.deletedAt)))
-          .limit(1);
-
-        if (!channel) {
-          return c.text('Forbidden: channel not found', 403);
-        }
-
-        if (channel.type !== 'public') {
-          const [membership] = await db
-            .select({ id: chatChannelMembers.id })
-            .from(chatChannelMembers)
-            .where(
-              and(
-                eq(chatChannelMembers.channelId, channelId),
-                eq(chatChannelMembers.userId, auth.userId),
-              ),
-            )
-            .limit(1);
-
-          if (!membership) {
-            return c.text('Forbidden: not a member of this channel', 403);
-          }
-        }
-      } catch (dbErr) {
-        console.error('[realtime /ws/chat] Channel access check failed:', (dbErr as Error).message);
-        return c.text('Internal error checking channel access', 500);
-      }
+      const denied = await assertChatChannelAccess(c, auth.workspaceId, channelId, auth.userId);
+      if (denied) return denied;
     }
   } catch (err) {
     if (!isMeetingChannel) {
@@ -611,73 +679,23 @@ app.get('/ws/support/:workspaceId', async (c) => {
 
   const workspaceId = c.req.param('workspaceId');
 
-  // Extract JWT from query param, Authorization header, or WebSocket subprotocol.
   const url = new URL(c.req.url);
-  let token: string | undefined = url.searchParams.get('token') ?? undefined;
-  if (!token) {
-    const authHeader = c.req.header('Authorization');
-    if (authHeader?.startsWith('Bearer ')) token = authHeader.slice(7);
-  }
-  if (!token) {
-    const protocol = c.req.header('Sec-WebSocket-Protocol');
-    if (protocol) {
-      const parts = protocol.split(', ');
-      const idx = parts.indexOf('authorization');
-      if (idx >= 0 && parts[idx + 1]) token = parts[idx + 1];
-    }
-  }
+  const token = extractSupportToken(c, url);
 
   if (!token) {
     return c.text('Unauthorized: Missing token', 401);
   }
 
-  // Verify JWT signature against both Clerk instances (platform + admin).
-  // Try platform key first, then admin key.
-  let payload: any;
   const jwtParts = token.split('.');
   if (jwtParts.length !== 3) {
     return c.text('Unauthorized: Invalid JWT format', 401);
   }
 
-  // Verify against the platform key first, then the admin key. Track WHICH key
-  // matched: the 'support' role must be reserved for admin-instance tokens, not
-  // inferred from an org mismatch (see role assignment below).
-  const keyEntries = [
-    { pem: c.env.CLERK_JWT_KEY, isAdmin: false },
-    { pem: c.env.ADMIN_CLERK_JWT_KEY, isAdmin: true },
-  ].filter((k) => Boolean(k.pem)) as { pem: string; isAdmin: boolean }[];
-  let verified = false;
-  let verifiedByAdminKey = false;
-
-  for (const { pem, isAdmin } of keyEntries) {
-    try {
-      const keyData = pemToBuffer(pem);
-      const cryptoKey = await crypto.subtle.importKey(
-        'spki',
-        keyData,
-        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-        false,
-        ['verify'],
-      );
-
-      const signedData = new TextEncoder().encode(`${jwtParts[0]}.${jwtParts[1]}`);
-      const signature = base64UrlToBuffer(jwtParts[2]);
-
-      const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', cryptoKey, signature, signedData);
-      if (valid) {
-        payload = JSON.parse(atob(jwtParts[1].replace(/-/g, '+').replace(/_/g, '/')));
-        verified = true;
-        verifiedByAdminKey = isAdmin;
-        break;
-      }
-    } catch {
-      // Key didn't match — try next
-    }
-  }
-
-  if (!verified || !payload) {
+  const verifiedToken = await verifySupportJwt(c.env, jwtParts);
+  if (!verifiedToken) {
     return c.text('Unauthorized: Token verification failed', 401);
   }
+  const { payload, verifiedByAdminKey } = verifiedToken;
 
   if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
     return c.text('Unauthorized: Token expired', 401);

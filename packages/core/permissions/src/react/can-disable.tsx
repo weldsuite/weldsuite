@@ -71,6 +71,37 @@ function isDev(): boolean {
   return proc?.env?.NODE_ENV !== 'production';
 }
 
+type PermissionsCtx = NonNullable<ReturnType<typeof usePermissionsMaybe>>;
+
+function resolveAllowed(
+  ctx: ReturnType<typeof usePermissionsMaybe>,
+  { permission, any, all, object }: { permission?: string; any?: string[]; all?: string[]; object?: string },
+): boolean {
+  if (!ctx || ctx.isLoading) return false;
+  if (ctx.isOwner) return true;
+  if (countDefined(permission, any, all, object) > 1) {
+    if (isDev()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[<CanDisable>] Exactly one of `permission`, `any`, `all`, or `object` should be provided. Treating as denied.',
+      );
+    }
+    return false;
+  }
+  return checkSingle(ctx, { permission, any, all, object });
+}
+
+function checkSingle(
+  ctx: PermissionsCtx,
+  { permission, any, all, object }: { permission?: string; any?: string[]; all?: string[]; object?: string },
+): boolean {
+  if (permission) return ctx.can(permission);
+  if (any) return ctx.canAny(...any);
+  if (all) return ctx.canAll(...all);
+  if (object) return ctx.hasAnyObject([object]);
+  return true;
+}
+
 export function CanDisable({
   permission,
   any,
@@ -91,34 +122,7 @@ export function CanDisable({
   }
 
   // Determine allow/deny using the same logic as <Can>.
-  let allowed: boolean;
-
-  if (!ctx || ctx.isLoading) {
-    allowed = false;
-  } else if (ctx.isOwner) {
-    allowed = true;
-  } else {
-    const provided = countDefined(permission, any, all, object);
-    if (provided > 1) {
-      if (isDev()) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          '[<CanDisable>] Exactly one of `permission`, `any`, `all`, or `object` should be provided. Treating as denied.',
-        );
-      }
-      allowed = false;
-    } else if (permission) {
-      allowed = ctx.can(permission);
-    } else if (any) {
-      allowed = ctx.canAny(...any);
-    } else if (all) {
-      allowed = ctx.canAll(...all);
-    } else if (object) {
-      allowed = ctx.hasAnyObject([object]);
-    } else {
-      allowed = true;
-    }
-  }
+  const allowed = resolveAllowed(ctx, { permission, any, all, object });
 
   if (allowed) {
     return children;

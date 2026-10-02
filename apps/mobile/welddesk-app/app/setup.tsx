@@ -357,21 +357,25 @@ function ProvisioningStep({ onComplete, colors }: Readonly<{
         const isComplete = index < currentPhase;
         const isActive = index === currentPhase && !failed;
 
+        let circleColor = colors.border;
+        let phaseIcon = <Icon size={16} color={colors.muted} />;
+        if (isComplete) {
+          circleColor = '#10B981';
+          phaseIcon = <Check size={16} color="#fff" />;
+        } else if (isActive) {
+          circleColor = '#3B82F6';
+          phaseIcon = <ActivityIndicator size="small" color="#fff" />;
+        }
+
         return (
-          <View key={index} style={provisionStyles.phaseRow}>
+          <View key={phase.label} style={provisionStyles.phaseRow}>
             <View style={[
               provisionStyles.iconCircle,
               {
-                backgroundColor: isComplete ? '#10B981' : isActive ? '#3B82F6' : colors.border,
+                backgroundColor: circleColor,
               },
             ]}>
-              {isComplete ? (
-                <Check size={16} color="#fff" />
-              ) : isActive ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Icon size={16} color={colors.muted} />
-              )}
+              {phaseIcon}
             </View>
             <Text style={[
               provisionStyles.phaseLabel,

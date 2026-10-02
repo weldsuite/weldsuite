@@ -63,6 +63,12 @@ const getStatusBadge = (status: string, labels: Record<string, string>) => {
   }
 };
 
+const EventStatusIcon = ({ status }: Readonly<{ status: string }>) => {
+  if (status === 'success') return <CheckCircle className="h-5 w-5 text-green-500" />;
+  if (status === 'failed') return <XCircle className="h-5 w-5 text-red-500" />;
+  return <Activity className="h-5 w-5 text-yellow-500" />;
+};
+
 const formatDate = (date: string | Date) => {
   return new Date(date).toLocaleString();
 };
@@ -350,13 +356,7 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
                         <div className="flex items-start gap-3">
                           <div>
                             <div className="flex items-center gap-2">
-                              {event.status === 'success' ? (
-                                <CheckCircle className="h-5 w-5 text-green-500" />
-                              ) : event.status === 'failed' ? (
-                                <XCircle className="h-5 w-5 text-red-500" />
-                              ) : (
-                                <Activity className="h-5 w-5 text-yellow-500" />
-                              )}
+                              <EventStatusIcon status={event.status} />
                               <CardTitle className="text-base">{t.weldconnect.webhookDetail.events.webhookEvent}</CardTitle>
                               {getStatusBadge(event.status, t.weldconnect.webhookDetail.eventStatuses)}
                             </div>

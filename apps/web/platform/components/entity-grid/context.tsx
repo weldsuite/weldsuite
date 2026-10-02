@@ -33,6 +33,129 @@ interface GridProviderProps<TEntity> {
   children: React.ReactNode;
 }
 
+type CalcValues = { allValues: unknown[]; values: unknown[]; fieldType: FieldType };
+
+const isEmptyCheckValue = (v: unknown) => v === false || v === null || v === undefined;
+const percentOf = (part: number, whole: number) =>
+  whole > 0 ? `${Math.round((part / whole) * 100)}%` : '0%';
+const formatCalcNumber = (v: number, fieldType: FieldType) =>
+  fieldType === 'currency' ? `$${v.toLocaleString()}` : v.toLocaleString();
+const numericValues = (values: unknown[]) => values.filter((v) => typeof v === 'number') as number[];
+const parseDateValues = (values: unknown[]) =>
+  values
+    .filter((v) => v)
+    .map((v) => new Date(v as string))
+    .filter((d) => !Number.isNaN(d.getTime()));
+
+function countUnique(values: unknown[]): number {
+  return new Set(values.map((v) => String(v))).size;
+}
+
+function countDuplicates(values: unknown[]): number {
+  const counts: Record<string, number> = {};
+  values.forEach((v) => {
+    const key = String(v);
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  return Object.values(counts).reduce((acc, c) => acc + (c > 1 ? c : 0), 0);
+}
+
+function medianOf(nums: number[]): number {
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function calcCountOrPercent(type: CalculationType, { allValues, values }: CalcValues): string | null {
+  switch (type) {
+    case 'count':
+      return `${allValues.length}`;
+    case 'count_empty':
+      return `${allValues.length - values.length}`;
+    case 'count_not_empty':
+      return `${values.length}`;
+    case 'count_unique':
+      return `${countUnique(values)}`;
+    case 'count_duplicates':
+      return `${countDuplicates(values)}`;
+    case 'percent_empty':
+      return percentOf(allValues.length - values.length, allValues.length);
+    case 'percent_not_empty':
+      return percentOf(values.length, allValues.length);
+    case 'percent_unique':
+      return percentOf(countUnique(values), values.length);
+    default:
+      return null;
+  }
+}
+
+function calcNumeric(type: CalculationType, { values, fieldType }: CalcValues): string | null {
+  const fmt = (v: number) => formatCalcNumber(v, fieldType);
+  const nums = numericValues(values);
+  switch (type) {
+    case 'sum':
+      return fmt(nums.reduce((acc, v) => acc + v, 0));
+    case 'average': {
+      const avg = nums.length > 0 ? nums.reduce((acc, v) => acc + v, 0) / nums.length : 0;
+      return fieldType === 'currency' ? `$${avg.toFixed(2)}` : avg.toFixed(2);
+    }
+    case 'median':
+      return nums.length === 0 ? '0' : fmt(medianOf(nums));
+    case 'min':
+      return nums.length > 0 ? fmt(Math.min(...nums)) : '0';
+    case 'max':
+      return nums.length > 0 ? fmt(Math.max(...nums)) : '0';
+    case 'range':
+      return nums.length === 0 ? '0' : fmt(Math.max(...nums) - Math.min(...nums));
+    default:
+      return null;
+  }
+}
+
+function calcChecked(type: CalculationType, { allValues, values }: CalcValues): string | null {
+  switch (type) {
+    case 'checked':
+      return `${values.filter((v) => v === true).length}`;
+    case 'unchecked':
+      return `${allValues.filter(isEmptyCheckValue).length}`;
+    case 'percent_checked':
+      return percentOf(values.filter((v) => v === true).length, allValues.length);
+    case 'percent_unchecked':
+      return percentOf(allValues.filter(isEmptyCheckValue).length, allValues.length);
+    default:
+      return null;
+  }
+}
+
+function calcDate(type: CalculationType, { values }: CalcValues): string | null {
+  if (type !== 'earliest' && type !== 'latest' && type !== 'date_range') return null;
+  const times = parseDateValues(values).map((d) => d.getTime());
+  if (type === 'date_range') {
+    if (times.length < 2) return '-';
+    const days = Math.round((Math.max(...times) - Math.min(...times)) / (1000 * 60 * 60 * 24));
+    return `${days} day${days !== 1 ? 's' : ''}`;
+  }
+  if (times.length === 0) return '-';
+  const pick = type === 'earliest' ? Math.min(...times) : Math.max(...times);
+  return new Date(pick).toLocaleDateString();
+}
+
+function computeCalculation(
+  allValues: unknown[],
+  fieldType: FieldType,
+  calculationType: CalculationType,
+): string {
+  const values = allValues.filter((v) => v !== null && v !== undefined && v !== '');
+  const ctx: CalcValues = { allValues, values, fieldType };
+  return (
+    calcCountOrPercent(calculationType, ctx) ??
+    calcNumeric(calculationType, ctx) ??
+    calcChecked(calculationType, ctx) ??
+    calcDate(calculationType, ctx) ??
+    ''
+  );
+}
+
 export function GridProvider<TEntity>({
   config,
   actions,
@@ -398,98 +521,7 @@ export function GridProvider<TEntity>({
         return column.getValue(entity);
       });
 
-      const values = allValues.filter((v) => v !== null && v !== undefined && v !== '');
-
-      const formatNum = (v: number) => fieldType === 'currency' ? `$${v.toLocaleString()}` : v.toLocaleString();
-      const getNumericValues = () => values.filter((v) => typeof v === 'number') as number[];
-      const parseDates = () => values.filter((v) => v).map((v) => new Date(v as string)).filter((d) => !Number.isNaN(d.getTime()));
-
-      switch (calculationType) {
-        case 'count':
-          return `${allValues.length}`;
-        case 'count_empty':
-          return `${allValues.length - values.length}`;
-        case 'count_not_empty':
-          return `${values.length}`;
-        case 'count_unique': {
-          const unique = new Set(values.map((v) => String(v)));
-          return `${unique.size}`;
-        }
-        case 'count_duplicates': {
-          const counts: Record<string, number> = {};
-          values.forEach((v) => { const key = String(v); counts[key] = (counts[key] || 0) + 1; });
-          const dupes = Object.values(counts).reduce((acc, c) => acc + (c > 1 ? c : 0), 0);
-          return `${dupes}`;
-        }
-        case 'percent_empty':
-          return allValues.length > 0 ? `${Math.round(((allValues.length - values.length) / allValues.length) * 100)}%` : '0%';
-        case 'percent_not_empty':
-          return allValues.length > 0 ? `${Math.round((values.length / allValues.length) * 100)}%` : '0%';
-        case 'percent_unique': {
-          const uniqueSet = new Set(values.map((v) => String(v)));
-          return values.length > 0 ? `${Math.round((uniqueSet.size / values.length) * 100)}%` : '0%';
-        }
-        case 'sum': {
-          const sum = getNumericValues().reduce((acc, v) => acc + v, 0);
-          return formatNum(sum);
-        }
-        case 'average': {
-          const nums = getNumericValues();
-          const avg = nums.length > 0 ? nums.reduce((acc, v) => acc + v, 0) / nums.length : 0;
-          return fieldType === 'currency' ? `$${avg.toFixed(2)}` : avg.toFixed(2);
-        }
-        case 'median': {
-          const nums = getNumericValues().sort((a, b) => a - b);
-          if (nums.length === 0) return '0';
-          const mid = Math.floor(nums.length / 2);
-          const med = nums.length % 2 !== 0 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
-          return formatNum(med);
-        }
-        case 'min': {
-          const nums = getNumericValues();
-          return nums.length > 0 ? formatNum(Math.min(...nums)) : '0';
-        }
-        case 'max': {
-          const nums = getNumericValues();
-          return nums.length > 0 ? formatNum(Math.max(...nums)) : '0';
-        }
-        case 'range': {
-          const nums = getNumericValues();
-          if (nums.length === 0) return '0';
-          return formatNum(Math.max(...nums) - Math.min(...nums));
-        }
-        case 'checked':
-          return `${values.filter((v) => v === true).length}`;
-        case 'unchecked':
-          return `${allValues.filter((v) => v === false || v === null || v === undefined).length}`;
-        case 'percent_checked': {
-          const checked = values.filter((v) => v === true).length;
-          return allValues.length > 0 ? `${Math.round((checked / allValues.length) * 100)}%` : '0%';
-        }
-        case 'percent_unchecked': {
-          const unchecked = allValues.filter((v) => v === false || v === null || v === undefined).length;
-          return allValues.length > 0 ? `${Math.round((unchecked / allValues.length) * 100)}%` : '0%';
-        }
-        case 'earliest': {
-          const dates = parseDates();
-          if (dates.length === 0) return '-';
-          return new Date(Math.min(...dates.map((d) => d.getTime()))).toLocaleDateString();
-        }
-        case 'latest': {
-          const dates = parseDates();
-          if (dates.length === 0) return '-';
-          return new Date(Math.max(...dates.map((d) => d.getTime()))).toLocaleDateString();
-        }
-        case 'date_range': {
-          const dates = parseDates();
-          if (dates.length < 2) return '-';
-          const diffMs = Math.max(...dates.map((d) => d.getTime())) - Math.min(...dates.map((d) => d.getTime()));
-          const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
-          return `${days} day${days !== 1 ? 's' : ''}`;
-        }
-        default:
-          return '';
-      }
+      return computeCalculation(allValues, fieldType, calculationType);
     },
     [columns, entities, customFieldData, config]
   );

@@ -1,5 +1,10 @@
+function portalUrl(slug: string, path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `/api/portal${normalizedPath}?slug=${encodeURIComponent(slug)}`;
+}
+
 export async function portalGet<T>(slug: string, path: string): Promise<T> {
-  const url = `/api/portal${path.startsWith('/') ? path : `/${path}`}?slug=${encodeURIComponent(slug)}`;
+  const url = portalUrl(slug, path);
   const res = await fetch(url, { credentials: 'include' });
   if (res.status === 401) {
     window.location.href = `/${slug}/login`;
@@ -10,7 +15,7 @@ export async function portalGet<T>(slug: string, path: string): Promise<T> {
 }
 
 export async function portalPost<T>(slug: string, path: string, body: unknown): Promise<T> {
-  const url = `/api/portal${path.startsWith('/') ? path : `/${path}`}?slug=${encodeURIComponent(slug)}`;
+  const url = portalUrl(slug, path);
   const res = await fetch(url, {
     method: 'POST',
     credentials: 'include',

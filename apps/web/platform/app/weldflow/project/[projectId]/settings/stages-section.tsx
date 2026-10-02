@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { toast } from 'sonner';
 import { PageLoader } from '@/components/page-loader';
@@ -222,6 +222,31 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
     return result;
   }, [stages, searchQuery, activeFilters]);
 
+  let bodyContent: ReactNode;
+  if (loading) {
+    bodyContent = <PageLoader fullScreen={false} />;
+  } else if (filteredStages.length === 0) {
+    bodyContent = (
+      <div className="text-center py-12 text-muted-foreground text-sm">
+        {stages.length === 0 ? t.projects.settings.noStatusesYet : t.projects.settings.noStatusesMatch}
+      </div>
+    );
+  } else {
+    bodyContent = (
+      <div className="divide-y divide-border/70">
+        {filteredStages.map((stage) => (
+          <StageRow
+            key={stage.id}
+            stage={stage}
+            isAdmin={isAdmin}
+            onEdit={() => setEditingStage(stage)}
+            onDelete={() => { setDeletingStage(stage); setReassignTargetId(''); }}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl">
       <div className="flex items-center justify-end mb-4 gap-2">
@@ -289,25 +314,7 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
         </div>
 
         {/* Body */}
-        {loading ? (
-          <PageLoader fullScreen={false} />
-        ) : filteredStages.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground text-sm">
-            {stages.length === 0 ? t.projects.settings.noStatusesYet : t.projects.settings.noStatusesMatch}
-          </div>
-        ) : (
-          <div className="divide-y divide-border/70">
-            {filteredStages.map((stage) => (
-              <StageRow
-                key={stage.id}
-                stage={stage}
-                isAdmin={isAdmin}
-                onEdit={() => setEditingStage(stage)}
-                onDelete={() => { setDeletingStage(stage); setReassignTargetId(''); }}
-              />
-            ))}
-          </div>
-        )}
+        {bodyContent}
       </div>
 
       {/* Add dialog */}

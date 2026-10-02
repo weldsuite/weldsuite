@@ -212,27 +212,45 @@ export async function listInboxMessagesPage(opts: {
     return listSingleAccountPage(opts.selected, { label, search, limit, cursor });
   }
 
-  // Unified: current workspace (if the JWT has an org) + personal.
+  return listUnifiedPage({ label, search, limit, cursor });
+}
+
+type SourceQuery = { label?: string; search?: string; limit: number; cursor?: string };
+
+async function fetchWorkspaceSource(query: SourceQuery): Promise<SourcePage> {
+  const r = await appApi.mailMessages.list(query);
+  return {
+    rows: r.data as EmailListItem[],
+    cursor: r.pagination?.cursor ?? null,
+    hasMore: !!r.pagination?.hasMore,
+  };
+}
+
+async function fetchPersonalSource(query: SourceQuery): Promise<SourcePage> {
+  const r = await personalApi.mailMessages.list(query);
+  return {
+    rows: r.data.map(normalizePersonalMessage),
+    cursor: r.pagination?.cursor ?? null,
+    hasMore: !!r.pagination?.hasMore,
+  };
+}
+
+/** Unified inbox: current workspace (if the JWT has an org) + personal. */
+async function listUnifiedPage(params: {
+  label?: string;
+  search?: string;
+  limit: number;
+  cursor: InboxCursor;
+}): Promise<InboxPage> {
+  const { label, search, limit, cursor } = params;
   const wantWorkspace = !cursor.workspaceDone;
   const wantPersonal = !cursor.personalDone && personalAccountIds.size > 0;
   const [workspace, personal] = await Promise.allSettled([
     wantWorkspace
-      ? appApi.mailMessages
-          .list({ label, search, limit, cursor: cursor.workspace })
-          .then((r): SourcePage => ({
-            rows: r.data as EmailListItem[],
-            cursor: r.pagination?.cursor ?? null,
-            hasMore: !!r.pagination?.hasMore,
-          }))
+      ? fetchWorkspaceSource({ label, search, limit, cursor: cursor.workspace })
       : Promise.resolve(null),
     wantPersonal
-      ? personalApi.mailMessages
-          .list({ label, search, limit, cursor: cursor.personal })
-          .then((r): SourcePage => ({
-            rows: r.data.map(normalizePersonalMessage),
-            cursor: r.pagination?.cursor ?? null,
-            hasMore: !!r.pagination?.hasMore,
-          }))
+      ? fetchPersonalSource({ label, search, limit, cursor: cursor.personal })
       : Promise.resolve(null),
   ]);
 

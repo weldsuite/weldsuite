@@ -83,6 +83,189 @@ interface RawWorkspaceMember {
   createdAt?: string;
 }
 
+type EmailAccountTranslations = ReturnType<typeof getTranslations<'settings'>>['weldmail']['accounts'];
+
+interface AccountMember {
+  userId: string;
+  name: string;
+  avatar?: string;
+}
+
+interface EmailAccountColumnOptions {
+  ta: EmailAccountTranslations;
+  memberById: Map<string, AccountMember>;
+  onSelectMember: (userId: string) => void;
+  onEdit: (account: EmailAccount) => void;
+  onManageAccess: (account: EmailAccount) => void;
+  onAiSettings: (account: EmailAccount) => void;
+  onDelete: (account: EmailAccount) => void;
+}
+
+// Kept outside the component so the cell renderers are not re-declared as
+// nested component definitions on every render.
+function buildEmailAccountColumns({
+  ta,
+  memberById,
+  onSelectMember,
+  onEdit,
+  onManageAccess,
+  onAiSettings,
+  onDelete,
+}: EmailAccountColumnOptions): ColumnDef<EmailAccount>[] {
+  return [
+  {
+    accessorKey: 'email',
+    header: ta.columns.email,
+    size: 250,
+    cell: ({ row }) => (
+      <span className="font-medium">{row.original.email}</span>
+    ),
+  },
+  {
+    accessorKey: 'displayName',
+    header: ta.columns.name,
+    cell: ({ row }) => (
+      <span className="text-sm text-muted-foreground">
+        {row.original.displayName || '—'}
+      </span>
+    ),
+  },
+  {
+    id: 'access',
+    header: ta.columns.access,
+    size: 160,
+    cell: ({ row }) => {
+      const account = row.original;
+
+      if (account.isShared) {
+        return (
+          <Tooltip delayDuration={150}>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground cursor-default">
+                {ta.shared}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={4}>
+              {ta.sharedTooltip}
+            </TooltipContent>
+          </Tooltip>
+        );
+      }
+
+      const users = (account.assignedUserIds ?? [])
+        .map((id) => memberById.get(id))
+        .filter((u): u is { userId: string; name: string; avatar?: string } => !!u);
+
+      if (users.length === 0) {
+        return <span className="text-sm text-muted-foreground">—</span>;
+      }
+
+      const visible = users.slice(0, 3);
+      const overflow = users.length - visible.length;
+
+      return (
+        <div className="flex items-center">
+          <div className="flex -space-x-1.5">
+            {visible.map((u) => {
+              const avatar = (
+                <Avatar
+                  key={u.userId}
+                  className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
+                  title={u.name}
+                >
+                  {u.avatar && <AvatarImage src={u.avatar} alt={u.name} className="!rounded-[7px]" />}
+                  <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                    {u.name.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+              );
+              return (
+                <Tooltip key={u.userId} delayDuration={150}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => onSelectMember(u.userId)}
+                      className="inline-flex cursor-pointer focus:outline-none"
+                    >
+                      {avatar}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={4}>
+                    {u.name}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+            {overflow > 0 && (
+              <div className="relative z-10 w-5 h-5 !rounded-[7px] bg-gray-300 dark:bg-accent flex items-center justify-center ring-1 ring-background">
+                <span className="text-[9px] font-medium text-gray-600 dark:text-muted-foreground">
+                  +{overflow}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    },
+  },
+  {
+    id: 'actions',
+    header: '',
+    cell: ({ row }) => {
+      const account = row.original;
+
+      return (
+        <div className="flex justify-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+              >
+                <span className="sr-only">{ta.openMenu}</span>
+                <EllipsisVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => onEdit(account)}
+              >
+                <Pencil className="h-4 w-4 mr-0.5" />
+                {ta.menuEdit}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onManageAccess(account)}
+              >
+                <Users className="h-4 w-4 mr-0.5" />
+                {ta.menuManageAccess}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onAiSettings(account)}
+              >
+                <img
+                  src="/assets/images/weldagent/logo-light.png"
+                  alt="WeldAgent"
+                  className="h-4 w-4 mr-0.5 grayscale opacity-70"
+                />
+                {ta.menuAiSettings}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onDelete(account)}
+                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
+                {ta.menuDelete}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      );
+    },
+  },
+  ];
+}
+
 export function EmailAccountsList({ accounts }: Readonly<EmailAccountsListProps>) {
   const ts = getTranslations('settings');
   const ta = ts.weldmail.accounts;
@@ -161,170 +344,27 @@ export function EmailAccountsList({ accounts }: Readonly<EmailAccountsListProps>
     });
   };
 
-  const columns: ColumnDef<EmailAccount>[] = [
-    {
-      accessorKey: 'email',
-      header: ta.columns.email,
-      size: 250,
-      cell: ({ row }) => (
-        <span className="font-medium">{row.original.email}</span>
-      ),
+  const columns = buildEmailAccountColumns({
+    ta,
+    memberById,
+    onSelectMember: setSelectedMemberUserId,
+    onEdit: (account) => {
+      setEditAccount(account);
+      setEditDialogOpen(true);
     },
-    {
-      accessorKey: 'displayName',
-      header: ta.columns.name,
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {row.original.displayName || '—'}
-        </span>
-      ),
+    onManageAccess: (account) => {
+      setAccessAccount(account);
+      setAccessDialogOpen(true);
     },
-    {
-      id: 'access',
-      header: ta.columns.access,
-      size: 160,
-      cell: ({ row }) => {
-        const account = row.original;
-
-        if (account.isShared) {
-          return (
-            <Tooltip delayDuration={150}>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground cursor-default">
-                  {ta.shared}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" sideOffset={4}>
-                {ta.sharedTooltip}
-              </TooltipContent>
-            </Tooltip>
-          );
-        }
-
-        const users = (account.assignedUserIds ?? [])
-          .map((id) => memberById.get(id))
-          .filter((u): u is { userId: string; name: string; avatar?: string } => !!u);
-
-        if (users.length === 0) {
-          return <span className="text-sm text-muted-foreground">—</span>;
-        }
-
-        const visible = users.slice(0, 3);
-        const overflow = users.length - visible.length;
-
-        return (
-          <div className="flex items-center">
-            <div className="flex -space-x-1.5">
-              {visible.map((u) => {
-                const avatar = (
-                  <Avatar
-                    key={u.userId}
-                    className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
-                    title={u.name}
-                  >
-                    {u.avatar && <AvatarImage src={u.avatar} alt={u.name} className="!rounded-[7px]" />}
-                    <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                      {u.name.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                );
-                return (
-                  <Tooltip key={u.userId} delayDuration={150}>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setSelectedMemberUserId(u.userId)}
-                        className="inline-flex cursor-pointer focus:outline-none"
-                      >
-                        {avatar}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={4}>
-                      {u.name}
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })}
-              {overflow > 0 && (
-                <div className="relative z-10 w-5 h-5 !rounded-[7px] bg-gray-300 dark:bg-accent flex items-center justify-center ring-1 ring-background">
-                  <span className="text-[9px] font-medium text-gray-600 dark:text-muted-foreground">
-                    +{overflow}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      },
+    onAiSettings: (account) => {
+      setAiSettingsAccount(account);
+      setAiSettingsDialogOpen(true);
     },
-    {
-      id: 'actions',
-      header: '',
-      cell: ({ row }) => {
-        const account = row.original;
-
-        return (
-          <div className="flex justify-end">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
-                >
-                  <span className="sr-only">{ta.openMenu}</span>
-                  <EllipsisVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => {
-                    setEditAccount(account);
-                    setEditDialogOpen(true);
-                  }}
-                >
-                  <Pencil className="h-4 w-4 mr-0.5" />
-                  {ta.menuEdit}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    setAccessAccount(account);
-                    setAccessDialogOpen(true);
-                  }}
-                >
-                  <Users className="h-4 w-4 mr-0.5" />
-                  {ta.menuManageAccess}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    setAiSettingsAccount(account);
-                    setAiSettingsDialogOpen(true);
-                  }}
-                >
-                  <img
-                    src="/assets/images/weldagent/logo-light.png"
-                    alt="WeldAgent"
-                    className="h-4 w-4 mr-0.5 grayscale opacity-70"
-                  />
-                  {ta.menuAiSettings}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    setDeletingAccount(account);
-                    setDeleteDialogOpen(true);
-                  }}
-                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                >
-                  <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
-                  {ta.menuDelete}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        );
-      },
+    onDelete: (account) => {
+      setDeletingAccount(account);
+      setDeleteDialogOpen(true);
     },
-  ];
+  });
 
   const table = useReactTable({
     data: accounts,

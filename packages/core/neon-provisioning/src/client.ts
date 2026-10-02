@@ -441,27 +441,39 @@ export class NeonClient {
     const deadline = Date.now() + timeoutMs;
 
     const terminalOk = new Set(['finished', 'skipped']);
-    const terminalBad = new Set(['failed', 'error', 'cancelled', 'cancelling']);
-
     const pending = operations.filter((op) => !terminalOk.has(op.status)).map((op) => op.id);
 
     for (const operationId of pending) {
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { operation } = await this.getOperation(projectId, operationId);
+      await this.waitForOperation(projectId, operationId, deadline, intervalMs);
+    }
+  }
 
-        if (terminalOk.has(operation.status)) break;
-        if (terminalBad.has(operation.status)) {
-          throw new NeonApiError(
-            `Neon operation ${operationId} ${operation.status}${operation.error ? `: ${operation.error}` : ''}`,
-            500
-          );
-        }
-        if (Date.now() > deadline) {
-          throw new NeonApiError(`Timed out waiting for Neon operation ${operationId} (last status: ${operation.status})`, 504);
-        }
-        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  /**
+   * Poll a single Neon operation until it finishes. Throws on a
+   * failed/cancelled operation or once `deadline` (epoch ms) has passed.
+   */
+  private async waitForOperation(
+    projectId: string,
+    operationId: string,
+    deadline: number,
+    intervalMs: number
+  ): Promise<void> {
+    const terminalOk = new Set(['finished', 'skipped']);
+    const terminalBad = new Set(['failed', 'error', 'cancelled', 'cancelling']);
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { operation } = await this.getOperation(projectId, operationId);
+
+      if (terminalOk.has(operation.status)) return;
+      if (terminalBad.has(operation.status)) {
+        const detail = operation.error ? `: ${operation.error}` : '';
+        throw new NeonApiError(`Neon operation ${operationId} ${operation.status}${detail}`, 500);
       }
+      if (Date.now() > deadline) {
+        throw new NeonApiError(`Timed out waiting for Neon operation ${operationId} (last status: ${operation.status})`, 504);
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
   }
 

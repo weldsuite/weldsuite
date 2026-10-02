@@ -142,7 +142,7 @@ export function PortNumberWizard() {
       a.download = `LOA-${draft.id}.pdf`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : st('sweep.settings.portingWizard.fetchTemplateFailed'));
@@ -250,8 +250,8 @@ export function PortNumberWizard() {
                 <AlertTitle>{t.notPortable}</AlertTitle>
                 <AlertDescription>
                   <ul className="list-inside list-disc space-y-1">
-                    {preflightReasons.map((r, i) => (
-                      <li key={i}>{r}</li>
+                    {preflightReasons.map((r) => (
+                      <li key={r}>{r}</li>
                     ))}
                   </ul>
                 </AlertDescription>
@@ -508,6 +508,9 @@ function DocUploadRow({
   busy: boolean;
 }>) {
   const st = useTranslations();
+  const uploadLabel = uploaded
+    ? st('sweep.settings.portingWizard.replace')
+    : st('sweep.settings.portingWizard.uploadPdf');
   return (
     <div className="flex items-center justify-between rounded-lg border pl-[18px] pr-3 py-3">
       <div className="flex items-center gap-2">
@@ -529,7 +532,7 @@ function DocUploadRow({
           }}
         />
         <Button asChild variant="outline" size="sm" disabled={busy}>
-          <span>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : uploaded ? st('sweep.settings.portingWizard.replace') : st('sweep.settings.portingWizard.uploadPdf')}</span>
+          <span>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : uploadLabel}</span>
         </Button>
       </label>
     </div>

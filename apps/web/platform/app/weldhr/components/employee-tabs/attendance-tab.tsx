@@ -1,6 +1,6 @@
 /** Employee detail — attendance tab: last 30 days summary, records and upcoming shifts. */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
@@ -35,6 +35,75 @@ export function EmployeeAttendanceTab({ employeeId }: Readonly<{ employeeId: str
 
   const [adding, setAdding] = useState(false);
 
+  let recordsContent: ReactNode;
+  if (isLoading) {
+    recordsContent = (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (!records || records.data.length === 0) {
+    recordsContent = <EmptyText>{t('weldhr.attendance.records.empty.title')}</EmptyText>;
+  } else {
+    recordsContent = (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('weldhr.attendance.records.table.date')}</TableHead>
+            <TableHead>{t('weldhr.attendance.records.table.clockIn')}</TableHead>
+            <TableHead>{t('weldhr.attendance.records.table.clockOut')}</TableHead>
+            <TableHead>{t('weldhr.attendance.records.table.worked')}</TableHead>
+            <TableHead>{t('weldhr.attendance.records.table.late')}</TableHead>
+            <TableHead>{t('weldhr.attendance.records.table.status')}</TableHead>
+            <TableHead>{t('weldhr.attendance.records.table.approved')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {records.data.map((record) => (
+            <TableRow key={record.id}>
+              <TableCell>{formatDate(record.date)}</TableCell>
+              <TableCell>{formatTime(record.clockIn)}</TableCell>
+              <TableCell>{formatTime(record.clockOut)}</TableCell>
+              <TableCell>{formatMinutes(record.workedMinutes)}</TableCell>
+              <TableCell className={record.lateMinutes > 0 ? 'text-destructive' : undefined}>
+                {record.lateMinutes > 0 ? record.lateMinutes : '—'}
+              </TableCell>
+              <TableCell>
+                <StatusBadge group="attendance" status={record.status} />
+              </TableCell>
+              <TableCell>{record.approvedAt ? '✓' : '—'}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }
+
+  let shiftsContent: ReactNode;
+  if (shiftsLoading) {
+    shiftsContent = (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  } else if (!shifts || shifts.length === 0) {
+    shiftsContent = <EmptyText>{t('weldhr.attendance.schedule.empty.title')}</EmptyText>;
+  } else {
+    shiftsContent = (
+      <ul className="divide-y">
+        {shifts.map((shift) => (
+          <li key={shift.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+            <span className="font-medium">{formatDate(shift.startsAt)}</span>
+            <span className="text-muted-foreground">
+              {formatTime(shift.startsAt)}–{formatTime(shift.endsAt)}
+              {shift.companyName ? ` · ${shift.companyName}` : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <SectionCard title={t('weldhr.attendance.records.summary.last30Days')} contentClassName="pt-0">
@@ -65,66 +134,11 @@ export function EmployeeAttendanceTab({ employeeId }: Readonly<{ employeeId: str
       >
         <ErrorBanner error={error ? errorMessage(error, t('weldhr.attendance.records.loadFailed')) : null} />
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-10">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : !records || records.data.length === 0 ? (
-          <EmptyText>{t('weldhr.attendance.records.empty.title')}</EmptyText>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('weldhr.attendance.records.table.date')}</TableHead>
-                <TableHead>{t('weldhr.attendance.records.table.clockIn')}</TableHead>
-                <TableHead>{t('weldhr.attendance.records.table.clockOut')}</TableHead>
-                <TableHead>{t('weldhr.attendance.records.table.worked')}</TableHead>
-                <TableHead>{t('weldhr.attendance.records.table.late')}</TableHead>
-                <TableHead>{t('weldhr.attendance.records.table.status')}</TableHead>
-                <TableHead>{t('weldhr.attendance.records.table.approved')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {records.data.map((record) => (
-                <TableRow key={record.id}>
-                  <TableCell>{formatDate(record.date)}</TableCell>
-                  <TableCell>{formatTime(record.clockIn)}</TableCell>
-                  <TableCell>{formatTime(record.clockOut)}</TableCell>
-                  <TableCell>{formatMinutes(record.workedMinutes)}</TableCell>
-                  <TableCell className={record.lateMinutes > 0 ? 'text-destructive' : undefined}>
-                    {record.lateMinutes > 0 ? record.lateMinutes : '—'}
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge group="attendance" status={record.status} />
-                  </TableCell>
-                  <TableCell>{record.approvedAt ? '✓' : '—'}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+        {recordsContent}
       </SectionCard>
 
       <SectionCard title={t('weldhr.attendance.tabs.schedule')}>
-        {shiftsLoading ? (
-          <div className="flex items-center justify-center py-10">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : !shifts || shifts.length === 0 ? (
-          <EmptyText>{t('weldhr.attendance.schedule.empty.title')}</EmptyText>
-        ) : (
-          <ul className="divide-y">
-            {shifts.map((shift) => (
-              <li key={shift.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <span className="font-medium">{formatDate(shift.startsAt)}</span>
-                <span className="text-muted-foreground">
-                  {formatTime(shift.startsAt)}–{formatTime(shift.endsAt)}
-                  {shift.companyName ? ` · ${shift.companyName}` : ''}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {shiftsContent}
       </SectionCard>
 
       {adding && <AttendanceRecordDialog employeeId={employeeId} onClose={() => setAdding(false)} />}

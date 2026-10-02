@@ -292,42 +292,47 @@ function getActionMeta(type: string) {
 // trigger itself) — this reads defensively across all of them.
 type TriggerBag = Record<string, unknown> & { config?: Record<string, unknown> };
 
+type TriggerWarningCheck = (trigger: TriggerBag) => string | null;
+
+function getEntityEventWarning(trigger: TriggerBag): string | null {
+  const missing: string[] = [];
+  if (!trigger.entityType) missing.push('entity type');
+  if (!trigger.eventType) missing.push('event type');
+  return missing.length > 0 ? `Missing ${missing.join(' and ')}` : null;
+}
+
+function getScheduleWarning(trigger: TriggerBag): string | null {
+  const config = trigger.config || trigger;
+  const scheduleType = config.scheduleType || trigger.scheduleType;
+  if (!scheduleType) return 'Missing schedule type';
+  if (scheduleType === 'recurring' && !(config.cronExpression || trigger.cronExpression)) return 'Missing cron expression';
+  if (scheduleType === 'one_time' && !(config.executeAt || trigger.executeAt)) return 'Missing execution time';
+  return null;
+}
+
+function getWorkflowCompleteWarning(trigger: TriggerBag): string | null {
+  const config = trigger.config || trigger;
+  return config.sourceWorkflowId || trigger.sourceWorkflowId ? null : 'Missing source workflow';
+}
+
+function getIntegrationEventWarning(trigger: TriggerBag): string | null {
+  const config = trigger.config || trigger;
+  const provider = trigger.provider || config.provider;
+  const event = trigger.event || config.event;
+  return provider && event ? null : 'Missing integration provider and event';
+}
+
+// Trigger types without an entry (api, manual, unknown) never warn.
+const TRIGGER_WARNING_CHECKS = new Map<string, TriggerWarningCheck>([
+  ['entity_event', getEntityEventWarning],
+  ['schedule', getScheduleWarning],
+  ['workflow_complete', getWorkflowCompleteWarning],
+  ['integration_event', getIntegrationEventWarning],
+]);
+
 function getTriggerWarningMessage(trigger: TriggerBag | null | undefined, triggerType: string): string | null {
   if (!trigger || !triggerType) return 'No trigger configured';
-
-  switch (triggerType) {
-    case 'entity_event': {
-      const missing = [];
-      if (!trigger.entityType) missing.push('entity type');
-      if (!trigger.eventType) missing.push('event type');
-      return missing.length > 0 ? `Missing ${missing.join(' and ')}` : null;
-    }
-    case 'schedule': {
-      const config = trigger.config || trigger;
-      const scheduleType = config.scheduleType || trigger.scheduleType;
-      if (!scheduleType) return 'Missing schedule type';
-      if (scheduleType === 'recurring' && !(config.cronExpression || trigger.cronExpression)) return 'Missing cron expression';
-      if (scheduleType === 'one_time' && !(config.executeAt || trigger.executeAt)) return 'Missing execution time';
-      return null;
-    }
-    case 'workflow_complete': {
-      const config = trigger.config || trigger;
-      if (!(config.sourceWorkflowId || trigger.sourceWorkflowId)) return 'Missing source workflow';
-      return null;
-    }
-    case 'integration_event': {
-      const config = trigger.config || trigger;
-      const provider = trigger.provider || config.provider;
-      const event = trigger.event || config.event;
-      if (!provider || !event) return 'Missing integration provider and event';
-      return null;
-    }
-    case 'api':
-    case 'manual':
-      return null;
-    default:
-      return null;
-  }
+  return TRIGGER_WARNING_CHECKS.get(triggerType)?.(trigger) ?? null;
 }
 
 // Sidebar action types
@@ -448,37 +453,2372 @@ const TIMEZONE_OPTIONS = [
   { value: 'UTC', label: 'UTC' },
 ];
 
+type ConfigSummarizer = (config: Record<string, unknown>) => string;
+
+function summarizeSendEmail(config: Record<string, unknown>): string {
+  if (!config.to) return '';
+  return config.subject ? `To: ${config.to} • ${config.subject}` : `To: ${config.to}`;
+}
+
+function summarizeHttpRequest(config: Record<string, unknown>): string {
+  return config.method && config.url ? `${config.method} ${config.url}` : '';
+}
+
+function summarizeCondition(config: Record<string, unknown>): string {
+  return config.field && config.operator ? `${config.field} ${config.operator} ${config.value || ''}` : '';
+}
+
+function summarizeDelay(config: Record<string, unknown>): string {
+  if (config.seconds) return `Wait ${config.seconds} seconds`;
+  if (config.minutes) return `Wait ${config.minutes} minutes`;
+  if (config.hours) return `Wait ${config.hours} hours`;
+  return '';
+}
+
+function summarizeLogMessage(config: Record<string, unknown>): string {
+  const message = config.message;
+  if (typeof message !== 'string') return '';
+  return message.substring(0, 60) + (message.length > 60 ? '...' : '');
+}
+
+function summarizeRecordAction(config: Record<string, unknown>): string {
+  const entity = config.entityType || config.entity;
+  return entity ? `Entity: ${entity}` : '';
+}
+
+function summarizeCreateCustomer(config: Record<string, unknown>): string {
+  return typeof config.name === 'string' ? config.name : '';
+}
+
+const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
+  ['send_email', summarizeSendEmail],
+  ['http_request', summarizeHttpRequest],
+  ['condition', summarizeCondition],
+  ['delay', summarizeDelay],
+  ['log_message', summarizeLogMessage],
+  ['create_record', summarizeRecordAction],
+  ['update_record', summarizeRecordAction],
+  ['create_customer', summarizeCreateCustomer],
+]);
+
 function getConfigSummary(actionType: string, config: Record<string, unknown>): string {
-  switch (actionType) {
-    case 'send_email':
-      if (config.to && config.subject) return `To: ${config.to} • ${config.subject}`;
-      if (config.to) return `To: ${config.to}`;
-      return '';
-    case 'http_request':
-      if (config.method && config.url) return `${config.method} ${config.url}`;
-      return '';
-    case 'condition':
-      if (config.field && config.operator) return `${config.field} ${config.operator} ${config.value || ''}`;
-      return '';
-    case 'delay':
-      if (config.seconds) return `Wait ${config.seconds} seconds`;
-      if (config.minutes) return `Wait ${config.minutes} minutes`;
-      if (config.hours) return `Wait ${config.hours} hours`;
-      return '';
-    case 'log_message': {
-      const message = config.message;
-      if (typeof message === 'string') return message.substring(0, 60) + (message.length > 60 ? '...' : '');
-      return '';
-    }
-    case 'create_record':
-    case 'update_record':
-      if (config.entityType || config.entity) return `Entity: ${config.entityType || config.entity}`;
-      return '';
-    case 'create_customer':
-      return typeof config.name === 'string' ? config.name : '';
-    default:
-      return '';
+  return CONFIG_SUMMARIZERS.get(actionType)?.(config) ?? '';
+}
+
+// --- Reading an existing trigger back into the trigger panel's form state ---
+
+function readIntegrationEventId(trigger: WorkflowTriggerBag): string {
+  return (trigger.event as string | undefined)
+    || (trigger.config as { event?: string } | undefined)?.event
+    || '';
+}
+
+interface WorkflowCompleteSettings {
+  sourceWorkflowId: string;
+  triggerOn: 'success' | 'failure' | 'both';
+  passOutput: boolean;
+}
+
+const DEFAULT_WORKFLOW_COMPLETE_SETTINGS: WorkflowCompleteSettings = {
+  sourceWorkflowId: '',
+  triggerOn: 'success',
+  passOutput: false,
+};
+
+function readWorkflowCompleteSettings(trigger: WorkflowTriggerBag): WorkflowCompleteSettings {
+  const cfg = (trigger.config as Record<string, unknown> | undefined) ?? {};
+  return {
+    sourceWorkflowId:
+      (trigger.sourceWorkflowId as string | undefined)
+      || (cfg.sourceWorkflowId as string | undefined)
+      || '',
+    triggerOn:
+      (trigger.triggerOn as WorkflowCompleteSettings['triggerOn'] | undefined)
+      || (cfg.triggerOn as WorkflowCompleteSettings['triggerOn'] | undefined)
+      || 'success',
+    passOutput:
+      trigger.passOutput !== undefined
+        ? Boolean(trigger.passOutput)
+        : Boolean(cfg.passOutput),
+  };
+}
+
+interface ScheduleSettings {
+  scheduleType: 'recurring' | 'one_time';
+  timezone: string;
+  executeAt: string;
+  /** Set only when the trigger has a cron expression: the matching preset, or 'custom'. */
+  cronPresetId?: string;
+  /** Set only when the cron expression matches no preset. */
+  customCron?: string;
+}
+
+function readScheduleSettings(
+  trigger: WorkflowTriggerBag,
+  cronPresets: Array<{ id: string; cron: string }>,
+): ScheduleSettings {
+  const settings: ScheduleSettings = {
+    scheduleType: (trigger.scheduleType as 'recurring' | 'one_time' | undefined) || 'recurring',
+    timezone: (trigger.timezone as string | undefined) || 'Europe/Amsterdam',
+    executeAt: (trigger.executeAt as string | undefined) || '',
+  };
+  const cronExpression = trigger.cronExpression as string | undefined;
+  if (!cronExpression) return settings;
+  const preset = cronPresets.find((p) => p.cron === cronExpression);
+  if (preset) return { ...settings, cronPresetId: preset.id };
+  return { ...settings, cronPresetId: 'custom', customCron: cronExpression };
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar / header building blocks. They were inlined in the editor's JSX;
+// they live here as components so the editor itself only wires state.
+// ---------------------------------------------------------------------------
+
+type EditorModule = 'helpdesk' | 'general';
+
+/** Shared ghost "X" button that closes a sidebar panel. */
+function PanelCloseButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClick}>
+      <X className="h-4 w-4" />
+    </Button>
+  );
+}
+
+interface EditorActionButtonsProps {
+  module: EditorModule;
+  hideTemplatesAndAi?: boolean;
+  hidePublish?: boolean;
+  hasBlockingIssues: boolean;
+  stepCount: number;
+  incompleteCount: number;
+  isTesting: boolean;
+  isSaving: boolean;
+  publishLabel?: string;
+  onGenerate: () => void;
+  onTest: () => void;
+  onJumpToIssue: () => void;
+  onSave: () => unknown;
+  onPublish: () => unknown;
+}
+
+/** Generate / Test / "needs setup" chip / Save / Publish. Rendered in the header or portaled to an external nav. */
+function EditorActionButtons({
+  module,
+  hideTemplatesAndAi,
+  hidePublish,
+  hasBlockingIssues,
+  stepCount,
+  incompleteCount,
+  isTesting,
+  isSaving,
+  publishLabel,
+  onGenerate,
+  onTest,
+  onJumpToIssue,
+  onSave,
+  onPublish,
+}: EditorActionButtonsProps) {
+  const { t } = useI18n();
+  const st = useTranslations();
+  const tec = t.weldconnect.workflowEditorClient;
+  const tg = t.weldconnect.generateWithAi;
+  const isHelpdesk = module === 'helpdesk';
+
+  return (
+    <>
+      {!isHelpdesk && !hideTemplatesAndAi && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs md:text-sm px-2 md:px-3 hidden sm:flex"
+          onClick={onGenerate}
+        >
+          <Sparkles className="h-3 w-3 mr-1" />
+          {tg.button}
+        </Button>
+      )}
+      {!isHelpdesk && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs md:text-sm px-2 md:px-3 hidden sm:flex"
+          onClick={onTest}
+          disabled={isTesting || stepCount === 0}
+        >
+          {st('sweep.weldflow.editorClient.test')}
+        </Button>
+      )}
+      {!hidePublish && hasBlockingIssues && stepCount > 0 && (
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={onJumpToIssue}
+          title={tec.publishGate.chipTooltip}
+          className="hidden sm:flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
+        >
+          <AlertCircle className="h-3.5 w-3.5" />
+          {tec.publishGate.needsSetup.replace('{count}', String(incompleteCount))}
+        </Button>
+      )}
+      <Button
+        variant="outline"
+        size="sm"
+        className="text-xs md:text-sm px-2 md:px-3"
+        onClick={onSave}
+        disabled={isSaving}
+      >
+        {st('sweep.weldflow.editorClient.save')}
+      </Button>
+      {!hidePublish && (
+        <Button
+          size="sm"
+          className="text-xs md:text-sm px-2 md:px-3"
+          onClick={onPublish}
+          disabled={isSaving || stepCount === 0}
+        >
+          {publishLabel || st('sweep.weldflow.editorClient.publish')}
+        </Button>
+      )}
+    </>
+  );
+}
+
+/** Underline under the active header tab. */
+function TabUnderline({ active }: { active: boolean }) {
+  return (
+    <div className={cn(
+      "absolute -bottom-[9px] left-0 right-0 h-0.5 transition-colors",
+      active ? "bg-foreground" : "bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-gray-600"
+    )} />
+  );
+}
+
+function tabButtonClassName(active: boolean): string {
+  return cn(
+    "text-xs md:text-sm px-2 md:px-3",
+    active ? "bg-muted/50 border-gray-300/70 dark:border-border" : "border-transparent bg-transparent hover:bg-accent"
+  );
+}
+
+interface ExecutionsTabProps {
+  showRunsPanel: boolean;
+  replaceExecutionsTab?: { label: string; href: string; icon: LucideIcon };
+  onOpenRunsTab: () => void;
+}
+
+function ExecutionsTab({ showRunsPanel, replaceExecutionsTab, onOpenRunsTab }: ExecutionsTabProps) {
+  const st = useTranslations();
+
+  if (replaceExecutionsTab) {
+    const ReplaceIcon = replaceExecutionsTab.icon;
+    return (
+      <div className="relative group">
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs md:text-sm px-2 md:px-3 border-transparent bg-transparent hover:bg-accent"
+          asChild
+        >
+          <Link href={replaceExecutionsTab.href}>
+            <ReplaceIcon className="h-3 w-3 mr-0.5" />
+            {replaceExecutionsTab.label}
+          </Link>
+        </Button>
+        <TabUnderline active={false} />
+      </div>
+    );
   }
+
+  return (
+    <div className="relative group">
+      <Button
+        variant="outline"
+        size="sm"
+        className={tabButtonClassName(showRunsPanel)}
+        onClick={onOpenRunsTab}
+      >
+        <History className="h-3 w-3 mr-0.5" />
+        {st('sweep.weldflow.editorClient.executionsTab')}
+      </Button>
+      <TabUnderline active={showRunsPanel} />
+    </div>
+  );
+}
+
+interface EditorNavTabsProps extends ExecutionsTabProps {
+  module: EditorModule;
+  basePath: string;
+  workflowId: string;
+  onOpenEditorTab: () => void;
+}
+
+function EditorNavTabs({
+  module,
+  basePath,
+  workflowId,
+  showRunsPanel,
+  replaceExecutionsTab,
+  onOpenEditorTab,
+  onOpenRunsTab,
+}: EditorNavTabsProps) {
+  const st = useTranslations();
+  const showModuleTabs = module !== 'helpdesk';
+
+  return (
+    <div className="flex items-center gap-1 md:gap-2">
+      <div className="relative group">
+        <Button
+          variant="outline"
+          size="sm"
+          className={tabButtonClassName(!showRunsPanel)}
+          onClick={onOpenEditorTab}
+        >
+          <GitPullRequest className="h-3 w-3 mr-0.5" />
+          {st('sweep.weldflow.editorClient.editorTab')}
+        </Button>
+        <TabUnderline active={!showRunsPanel} />
+      </div>
+      {showModuleTabs && (
+        <ExecutionsTab
+          showRunsPanel={showRunsPanel}
+          replaceExecutionsTab={replaceExecutionsTab}
+          onOpenRunsTab={onOpenRunsTab}
+        />
+      )}
+      {showModuleTabs && (
+        <div className="relative hidden sm:block">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs md:text-sm px-2 md:px-3"
+            asChild
+          >
+            <Link href={`${basePath}/${workflowId}/settings`}>
+              <Settings className="h-3 w-3 mr-0.5" />
+              {st('sweep.weldflow.editorClient.settingsTab')}
+            </Link>
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface EditorHeaderProps {
+  hideNavTabs?: boolean;
+  nav: EditorNavTabsProps;
+  actions: EditorActionButtonsProps;
+  onToggleMobileSidebar: () => void;
+}
+
+function EditorHeader({ hideNavTabs, nav, actions, onToggleMobileSidebar }: EditorHeaderProps) {
+  return (
+    <div className={cn("bg-background border-b flex-shrink-0 relative z-10", hideNavTabs && "hidden")}>
+      <div className="px-2 md:px-4 py-2">
+        <div className="flex items-center justify-between">
+          {hideNavTabs ? <div /> : <EditorNavTabs {...nav} />}
+
+          <div className="flex items-center gap-1 md:gap-2">
+            {/* Mobile sidebar toggle */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="lg:hidden h-8 w-8 p-0"
+              onClick={onToggleMobileSidebar}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+            <EditorActionButtons {...actions} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Runs panel (execution history empty state + overview stats). */
+function RunsPanel({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+
+  return (
+    <>
+      <div className="pl-4 py-3 pr-3 border-b flex items-center justify-between">
+        <h3 className="font-semibold text-sm">{tec.runHistory.title}</h3>
+        <PanelCloseButton onClick={onClose} />
+      </div>
+      <div className="flex-1 flex flex-col">
+        {/* Empty State */}
+        <div className="flex-1 flex flex-col items-center justify-center px-4">
+          <div className="relative mb-4 scale-75">
+            {/* Dashed border illustration */}
+            <div className="relative py-4">
+              {/* Top row */}
+              <div className="flex gap-3 mb-3">
+                <div className="w-14 h-10 border border-dashed border-red-200 rounded-lg" />
+                <div className="w-24 h-10 border border-dashed border-red-200 rounded-lg" />
+              </div>
+              {/* Middle circle with X */}
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 rounded-full border-2 border-red-200 bg-background flex items-center justify-center z-10">
+                <XCircle className="w-5 h-5 text-red-400" />
+              </div>
+              {/* Bottom row */}
+              <div className="flex gap-3">
+                <div className="w-20 h-10 border border-dashed border-red-200 rounded-lg" />
+                <div className="w-16 h-10 border border-dashed border-red-200 rounded-lg" />
+              </div>
+            </div>
+          </div>
+          <h4 className="text-base font-semibold mb-1">{tec.runHistory.noRuns}</h4>
+          <p className="text-sm text-muted-foreground text-center">
+            {tec.runHistory.noRunsYet}
+          </p>
+        </div>
+
+        {/* Overview Stats */}
+        <div className="p-4 border-t">
+          <div className="grid grid-cols-2 gap-2">
+            {/* Completed */}
+            <div className="p-3 rounded-lg bg-green-50 border border-green-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-lg font-semibold text-green-700">0</span>
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+              </div>
+              <p className="text-xs text-green-600">{tec.runHistory.completed}</p>
+            </div>
+            {/* Failed */}
+            <div className="p-3 rounded-lg bg-red-50 border border-red-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-lg font-semibold text-red-700">0</span>
+                <XCircle className="w-4 h-4 text-red-500" />
+              </div>
+              <p className="text-xs text-red-600">{tec.runHistory.failed}</p>
+            </div>
+            {/* In progress */}
+            <div className="p-3 rounded-lg bg-muted/50 border border-border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-lg font-semibold">0</span>
+                <RefreshCw className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <p className="text-xs text-muted-foreground">{tec.runHistory.inProgress}</p>
+            </div>
+            {/* Avg. runtime */}
+            <div className="p-3 rounded-lg bg-muted/50 border border-border">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-lg font-semibold">-</span>
+                <Clock className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <p className="text-xs text-muted-foreground">{tec.runHistory.avgRuntime}</p>
+            </div>
+          </div>
+          {/* Credits consumed - full width */}
+          <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border">
+            <div className="flex items-center justify-between mb-1">
+              <div>
+                <span className="text-lg font-semibold">0</span>
+              </div>
+              <Settings className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <p className="text-xs text-muted-foreground">0 credits consumed / 250 included</p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trigger panel
+// ---------------------------------------------------------------------------
+
+type ScheduleMode = 'one_time' | 'recurring';
+type WorkflowCompleteOn = 'success' | 'failure' | 'both';
+
+interface CronPreset {
+  id: string;
+  label: string;
+  cron: string;
+}
+
+interface TriggerTypeOption {
+  id: string;
+  name: string;
+  description: string;
+  icon: LucideIcon;
+}
+
+type WebhookData = NonNullable<WorkflowEditorClientProps['webhookData']>;
+
+/** The trigger panel's local form state, owned by the editor and shared with its sections. */
+interface TriggerFormApi {
+  triggerType: string;
+  setTriggerType: (value: string) => void;
+  triggerEntityType: string;
+  setTriggerEntityType: (value: string) => void;
+  triggerEventType: string;
+  setTriggerEventType: (value: string) => void;
+  integrationTriggerEventId: string;
+  setIntegrationTriggerEventId: (value: string) => void;
+  scheduleType: ScheduleMode;
+  setScheduleType: (value: ScheduleMode) => void;
+  scheduleCronPreset: string;
+  setScheduleCronPreset: (value: string) => void;
+  scheduleCustomCron: string;
+  setScheduleCustomCron: (value: string) => void;
+  scheduleTimezone: string;
+  setScheduleTimezone: (value: string) => void;
+  scheduleExecuteAt: string;
+  setScheduleExecuteAt: (value: string) => void;
+  sourceWorkflowId: string;
+  setSourceWorkflowId: (value: string) => void;
+  workflowCompleteTriggerOn: WorkflowCompleteOn;
+  setWorkflowCompleteTriggerOn: (value: WorkflowCompleteOn) => void;
+  workflowCompletePassOutput: boolean;
+  setWorkflowCompletePassOutput: (value: boolean) => void;
+  showWebhookSecret: boolean;
+  setShowWebhookSecret: (value: boolean) => void;
+}
+
+type ApplyTriggerData = (triggerData: WorkflowTriggerBag) => void;
+
+function resolveCronExpression(preset: string, customCron: string, cronPresets: CronPreset[]): string {
+  return preset === 'custom'
+    ? customCron
+    : cronPresets.find((p) => p.id === preset)?.cron || '0 9 * * *';
+}
+
+type HelpdeskRoutingTrigger = (typeof HELPDESK_ROUTING_TRIGGERS)[number];
+
+function HelpdeskTriggerList({ form, applyTriggerData }: { form: TriggerFormApi; applyTriggerData: ApplyTriggerData }) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+
+  const handleSelect = (rt: HelpdeskRoutingTrigger) => {
+    form.setTriggerType('entity_event');
+    form.setTriggerEntityType(rt.entityType);
+    form.setTriggerEventType(rt.eventType);
+    applyTriggerData({
+      type: 'entity_event',
+      isEnabled: true,
+      entityType: rt.entityType,
+      eventType: rt.eventType,
+      name: rt.label,
+    });
+  };
+
+  return (
+    <div className="p-4 space-y-1">
+      <Label className="text-xs font-medium mb-2 block">{tec.triggerPanel.whenThisHappens}</Label>
+      {HELPDESK_ROUTING_TRIGGERS.map((rt) => {
+        const isSelected = form.triggerEntityType === rt.entityType && form.triggerEventType === rt.eventType;
+        const Icon = rt.icon;
+        return (
+          <Button
+            key={rt.id}
+            type="button"
+            variant="ghost"
+            onClick={() => handleSelect(rt)}
+            className={cn(
+              'flex items-center gap-3 w-full py-2.5 px-3 rounded-lg transition-all text-left',
+              isSelected
+                ? 'bg-teal-50 dark:bg-teal-950/40 ring-1 ring-teal-200 dark:ring-teal-800'
+                : 'hover:bg-muted'
+            )}
+          >
+            <Icon className={cn('w-4 h-4 flex-shrink-0', isSelected ? 'text-teal-600' : 'text-muted-foreground')} />
+            <span className={cn('text-sm', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : '')}>{rt.label}</span>
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
+interface TriggerTypeListProps {
+  types: TriggerTypeOption[];
+  selectedType: string;
+  onSelect: (typeId: string) => void;
+}
+
+function TriggerTypeList({ types, selectedType, onSelect }: TriggerTypeListProps) {
+  const { t } = useI18n();
+  const tcd = t.weldconnect.triggerConfigDialog;
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs font-medium">{tcd.triggerTypeLabel}</Label>
+      <div className="space-y-1">
+        {types.map((type) => {
+          const Icon = type.icon;
+          const isSelected = selectedType === type.id;
+          return (
+            <Button
+              key={type.id}
+              type="button"
+              variant="ghost"
+              onClick={() => onSelect(type.id)}
+              className={cn(
+                'flex items-center gap-3 py-2.5 -mx-4 px-4 transition-all text-left',
+                isSelected
+                  ? 'bg-blue-50 dark:bg-blue-950/40'
+                  : 'hover:bg-muted'
+              )}
+              style={{ width: 'calc(100% + 2rem)' }}
+            >
+              <div className={cn(
+                'w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0',
+                isSelected ? 'bg-blue-100 dark:bg-blue-900/40' : 'bg-muted'
+              )}>
+                <Icon className={cn(
+                  'w-4 h-4',
+                  isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground'
+                )} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={cn(
+                  'text-sm font-medium',
+                  isSelected ? 'text-blue-700 dark:text-blue-300' : 'text-foreground'
+                )}>{type.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{type.description}</p>
+              </div>
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+interface EntityEventFieldsProps {
+  form: TriggerFormApi;
+  groupedEntityEvents: Array<{ category: string; entities: EntityEvent[] }>;
+  filteredEntityEvents: EntityEvent[];
+  applyTriggerData: ApplyTriggerData;
+}
+
+function EntityEventFields({ form, groupedEntityEvents, filteredEntityEvents, applyTriggerData }: EntityEventFieldsProps) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const tcd = t.weldconnect.triggerConfigDialog;
+
+  const handleEntityTypeChange = (entityType: string) => {
+    form.setTriggerEntityType(entityType);
+    form.setTriggerEventType('');
+    // Update workflow immediately
+    applyTriggerData({ type: 'entity_event', entityType, eventType: '' });
+  };
+
+  const handleEventTypeChange = (eventType: string) => {
+    form.setTriggerEventType(eventType);
+    // Update workflow immediately
+    applyTriggerData({ type: 'entity_event', entityType: form.triggerEntityType, eventType });
+  };
+
+  return (
+    <div className="space-y-3 pt-3 border-t">
+      <div className="space-y-2">
+        <Label className="text-xs font-medium">{tcd.entityEvent.entityTypeLabel}</Label>
+        <Select value={form.triggerEntityType} onValueChange={handleEntityTypeChange}>
+          <SelectTrigger>
+            <SelectValue placeholder={tec.triggerPanel.selectEntityPlaceholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {groupedEntityEvents.map((group) => (
+              <SelectGroup key={group.category}>
+                <SelectLabel>{group.category}</SelectLabel>
+                {group.entities.map((entity) => (
+                  <SelectItem key={entity.entityType} value={entity.entityType}>
+                    {entity.label ?? entity.entityType}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {form.triggerEntityType && (
+        <div className="space-y-2">
+          <Label className="text-xs font-medium">{tcd.entityEvent.eventLabel}</Label>
+          <Select value={form.triggerEventType} onValueChange={handleEventTypeChange}>
+            <SelectTrigger>
+              <SelectValue placeholder={tec.triggerPanel.selectEventPlaceholder} />
+            </SelectTrigger>
+            <SelectContent>
+              {filteredEntityEvents.find((e) => e.entityType === form.triggerEntityType)?.events.map((event) => {
+                const eventId = getEntityEventId(event as EntityEventDetail);
+                return (
+                  <SelectItem key={eventId} value={eventId}>
+                    {getEntityEventLabel(event as EntityEventDetail)}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface ScheduleFieldsProps {
+  form: TriggerFormApi;
+  cronPresets: CronPreset[];
+  oneTimeScheduleAllowed: boolean;
+  applyTriggerData: ApplyTriggerData;
+}
+
+function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTriggerData }: ScheduleFieldsProps) {
+  const { t } = useI18n();
+  const tcd = t.weldconnect.triggerConfigDialog;
+  const { scheduleType, scheduleCronPreset, scheduleCustomCron, scheduleTimezone, scheduleExecuteAt } = form;
+
+  const handleScheduleTypeChange = (value: string) => {
+    const newType = value as ScheduleMode;
+    form.setScheduleType(newType);
+    // Update workflow immediately
+    const cronExpression = resolveCronExpression(scheduleCronPreset, scheduleCustomCron, cronPresets);
+    applyTriggerData({
+      type: 'schedule',
+      scheduleType: newType,
+      ...(newType === 'one_time' ? { executeAt: scheduleExecuteAt } : { cronExpression }),
+      timezone: scheduleTimezone,
+    });
+  };
+
+  const handleExecuteAtChange = (executeAt: string) => {
+    form.setScheduleExecuteAt(executeAt);
+    applyTriggerData({
+      type: 'schedule',
+      scheduleType: 'one_time',
+      executeAt,
+      timezone: scheduleTimezone,
+    });
+  };
+
+  const handleCronPresetChange = (preset: string) => {
+    form.setScheduleCronPreset(preset);
+    applyTriggerData({
+      type: 'schedule',
+      scheduleType: 'recurring',
+      cronExpression: resolveCronExpression(preset, scheduleCustomCron, cronPresets),
+      timezone: scheduleTimezone,
+    });
+  };
+
+  const handleCustomCronChange = (cronExpression: string) => {
+    form.setScheduleCustomCron(cronExpression);
+    applyTriggerData({
+      type: 'schedule',
+      scheduleType: 'recurring',
+      cronExpression,
+      timezone: scheduleTimezone,
+    });
+  };
+
+  const handleTimezoneChange = (timezone: string) => {
+    form.setScheduleTimezone(timezone);
+    const cronExpression = resolveCronExpression(scheduleCronPreset, scheduleCustomCron, cronPresets);
+    applyTriggerData({
+      type: 'schedule',
+      scheduleType,
+      ...(scheduleType === 'one_time' ? { executeAt: scheduleExecuteAt } : { cronExpression }),
+      timezone,
+    });
+  };
+
+  return (
+    <div className="space-y-4 pt-3 border-t">
+      {/* Schedule Type */}
+      <div className={cn('space-y-2', !oneTimeScheduleAllowed && scheduleType !== 'one_time' && 'hidden')}>
+        <Label className="text-xs font-medium">{tcd.schedule.scheduleTypeLabel}</Label>
+        <RadioGroup
+          value={scheduleType}
+          onValueChange={handleScheduleTypeChange}
+          className="flex gap-4"
+        >
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="one_time" id="one_time" />
+            <Label htmlFor="one_time" className="flex items-center gap-1.5 cursor-pointer text-sm">
+              <CalendarDays className="w-3.5 h-3.5" />
+              {tcd.schedule.oneTime}
+            </Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="recurring" id="recurring" />
+            <Label htmlFor="recurring" className="flex items-center gap-1.5 cursor-pointer text-sm">
+              <Repeat className="w-3.5 h-3.5" />
+              {tcd.schedule.recurring}
+            </Label>
+          </div>
+        </RadioGroup>
+      </div>
+
+      {/* One-time: Date/Time Picker */}
+      {scheduleType === 'one_time' && (
+        <div className="space-y-2">
+          <Label className="text-xs font-medium">{tcd.schedule.executeAtLabel}</Label>
+          <Input
+            type="datetime-local"
+            value={scheduleExecuteAt}
+            onChange={(e) => handleExecuteAtChange(e.target.value)}
+            className="text-sm"
+          />
+          <p className="text-xs text-muted-foreground">
+            {tcd.schedule.executeAtHint}
+          </p>
+        </div>
+      )}
+
+      {/* Recurring: Cron Preset */}
+      {scheduleType === 'recurring' && (
+        <>
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">{tcd.schedule.scheduleLabel}</Label>
+            <Select value={scheduleCronPreset} onValueChange={handleCronPresetChange}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {cronPresets.map((preset) => (
+                  <SelectItem key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Custom Cron Expression */}
+          {scheduleCronPreset === 'custom' && (
+            <div className="space-y-2">
+              <Label className="text-xs font-medium">{tcd.schedule.cronExpressionLabel}</Label>
+              <Input
+                value={scheduleCustomCron}
+                onChange={(e) => handleCustomCronChange(e.target.value)}
+                placeholder="0 9 * * *"
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                {tcd.schedule.cronExpressionHint}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Timezone */}
+      <div className="space-y-2">
+        <Label className="text-xs font-medium">{tcd.schedule.timezoneLabel}</Label>
+        <Select value={scheduleTimezone} onValueChange={handleTimezoneChange}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TIMEZONE_OPTIONS.map((tz) => (
+              <SelectItem key={tz.value} value={tz.value}>
+                {tz.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+interface IntegrationEventFieldsProps {
+  form: TriggerFormApi;
+  integrationTriggers: TriggerType[];
+  applyTriggerData: ApplyTriggerData;
+}
+
+function IntegrationEventFields({ form, integrationTriggers, applyTriggerData }: IntegrationEventFieldsProps) {
+  const { t } = useI18n();
+  const tcd = t.weldconnect.triggerConfigDialog;
+
+  const handleEventChange = (eventId: string) => {
+    form.setIntegrationTriggerEventId(eventId);
+    const selected = integrationTriggers.find((trigger) => trigger.id === eventId);
+    const provider =
+      (selected as { provider?: string } | undefined)?.provider ??
+      eventId.split('.')[0];
+    applyTriggerData({
+      type: 'integration_event',
+      provider,
+      event: eventId,
+    });
+  };
+
+  return (
+    <div className="space-y-3 pt-3 border-t">
+      <div className="space-y-2">
+        <Label className="text-xs font-medium">{tcd.integrationEvent.eventLabel}</Label>
+        <Select value={form.integrationTriggerEventId} onValueChange={handleEventChange}>
+          <SelectTrigger>
+            <SelectValue placeholder={tcd.integrationEvent.eventPlaceholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {integrationTriggers.map((trigger) => (
+              <SelectItem key={trigger.id} value={trigger.id}>
+                {trigger.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {integrationTriggers.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            {tcd.integrationEvent.noEvents}{' '}
+            <Link href="/weldconnect/integrations" className="text-primary underline-offset-2 hover:underline">
+              {t.weldconnect.breadcrumbs.integrations}
+            </Link>
+          </p>
+        )}
+        {form.integrationTriggerEventId && (
+          <p className="text-xs text-muted-foreground">
+            {integrationTriggers.find((trigger) => trigger.id === form.integrationTriggerEventId)?.description}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface WorkflowCompleteFieldsProps {
+  form: TriggerFormApi;
+  workflowsForChaining: Array<{ id: string; name: string; status: string }>;
+  applyTriggerData: ApplyTriggerData;
+}
+
+function WorkflowCompleteFields({ form, workflowsForChaining, applyTriggerData }: WorkflowCompleteFieldsProps) {
+  const { t } = useI18n();
+  const tcd = t.weldconnect.triggerConfigDialog;
+
+  const applyWorkflowComplete = (overrides: Partial<{ sourceWorkflowId: string; triggerOn: WorkflowCompleteOn; passOutput: boolean }>) => {
+    applyTriggerData({
+      type: 'workflow_complete',
+      sourceWorkflowId: form.sourceWorkflowId,
+      triggerOn: form.workflowCompleteTriggerOn,
+      passOutput: form.workflowCompletePassOutput,
+      ...overrides,
+    });
+  };
+
+  const handleSourceWorkflowChange = (sourceWorkflowId: string) => {
+    form.setSourceWorkflowId(sourceWorkflowId);
+    applyWorkflowComplete({ sourceWorkflowId });
+  };
+
+  const handleTriggerOnChange = (value: string) => {
+    const triggerOn = value as WorkflowCompleteOn;
+    form.setWorkflowCompleteTriggerOn(triggerOn);
+    applyWorkflowComplete({ triggerOn });
+  };
+
+  const handlePassOutputChange = (passOutput: boolean) => {
+    form.setWorkflowCompletePassOutput(passOutput);
+    applyWorkflowComplete({ passOutput });
+  };
+
+  return (
+    <div className="space-y-4 pt-3 border-t">
+      <div className="space-y-2">
+        <Label className="text-xs font-medium">{tcd.workflowComplete.sourceWorkflowLabel}</Label>
+        <Select value={form.sourceWorkflowId} onValueChange={handleSourceWorkflowChange}>
+          <SelectTrigger>
+            <SelectValue placeholder={tcd.workflowComplete.sourceWorkflowPlaceholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {(workflowsForChaining).map((wf) => (
+              <SelectItem key={wf.id} value={wf.id}>
+                {wf.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {workflowsForChaining.length === 0 && (
+          <p className="text-xs text-muted-foreground">{tcd.workflowComplete.noOtherWorkflows}</p>
+        )}
+        <p className="text-xs text-muted-foreground">{tcd.workflowComplete.sourceWorkflowHint}</p>
+      </div>
+      <div className="space-y-2">
+        <Label className="text-xs font-medium">{tcd.workflowComplete.triggerOnLabel}</Label>
+        <RadioGroup
+          value={form.workflowCompleteTriggerOn}
+          onValueChange={handleTriggerOnChange}
+          className="flex flex-col gap-2"
+        >
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="success" id="wc_success" />
+            <Label htmlFor="wc_success" className="text-sm cursor-pointer">{tcd.workflowComplete.successOnly}</Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="failure" id="wc_failure" />
+            <Label htmlFor="wc_failure" className="text-sm cursor-pointer">{tcd.workflowComplete.failureOnly}</Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="both" id="wc_both" />
+            <Label htmlFor="wc_both" className="text-sm cursor-pointer">{tcd.workflowComplete.both}</Label>
+          </div>
+        </RadioGroup>
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="space-y-0.5">
+          <p className="text-sm font-medium">{tcd.workflowComplete.passOutputLabel}</p>
+          <p className="text-xs text-muted-foreground">{tcd.workflowComplete.passOutputHint}</p>
+        </div>
+        <Switch
+          checked={form.workflowCompletePassOutput}
+          onCheckedChange={handlePassOutputChange}
+        />
+      </div>
+    </div>
+  );
+}
+
+function WebhookSecretField({ webhookSecret, form }: { webhookSecret: string; form: TriggerFormApi }) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs font-medium">{tec.triggerPanel.webhookSecretLabel}</Label>
+      <div className="flex gap-2">
+        <Input
+          type={form.showWebhookSecret ? 'text' : 'password'}
+          value={webhookSecret}
+          readOnly
+          className="font-mono text-xs bg-muted/50"
+        />
+        <Button
+          variant="outline"
+          size="icon"
+          className="flex-shrink-0"
+          onClick={() => form.setShowWebhookSecret(!form.showWebhookSecret)}
+        >
+          {form.showWebhookSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="flex-shrink-0"
+          onClick={() => {
+            navigator.clipboard.writeText(webhookSecret);
+            toast.success(tec.toasts.secretCopied);
+          }}
+        >
+          <Copy className="h-4 w-4" />
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {tec.triggerPanel.webhookSecretHint}
+      </p>
+    </div>
+  );
+}
+
+function WebhookDetails({ webhookData, form }: { webhookData: WebhookData; form: TriggerFormApi }) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+
+  return (
+    <>
+      {/* Webhook URL */}
+      <div className="space-y-2">
+        <Label className="text-xs font-medium">{tec.triggerPanel.webhookUrlLabel}</Label>
+        <div className="flex gap-2">
+          <Input
+            value={webhookData.externalUrl || webhookData.url}
+            readOnly
+            className="font-mono text-xs bg-muted/50"
+          />
+          <Button
+            variant="outline"
+            size="icon"
+            className="flex-shrink-0"
+            onClick={() => {
+              navigator.clipboard.writeText(webhookData.externalUrl || webhookData.url);
+              toast.success(tec.toasts.urlCopied);
+            }}
+          >
+            <Copy className="h-4 w-4" />
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {tec.triggerPanel.webhookUrlHint}
+        </p>
+      </div>
+
+      {/* Webhook Secret */}
+      {webhookData.secret && <WebhookSecretField webhookSecret={webhookData.secret} form={form} />}
+
+      {/* Status indicator */}
+      <div className="p-3 bg-muted/50 rounded-lg">
+        <div className="flex items-center gap-2">
+          <div className={cn(
+            "w-2 h-2 rounded-full",
+            webhookData.isEnabled ? "bg-green-500" : "bg-gray-400"
+          )} />
+          <span className="text-xs text-muted-foreground">
+            {webhookData.isEnabled ? tec.triggerPanel.webhookActive : tec.triggerPanel.webhookDisabled}
+          </span>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function WebhookFields({ webhookData, form }: { webhookData: WebhookData | null | undefined; form: TriggerFormApi }) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+
+  return (
+    <div className="pt-3 border-t space-y-4">
+      {webhookData ? (
+        <WebhookDetails webhookData={webhookData} form={form} />
+      ) : (
+        <div className="p-3 bg-muted/50 rounded-lg">
+          <p className="text-xs text-muted-foreground">
+            {tec.triggerPanel.webhookNoUrl}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TriggerHint({ text }: { text: string }) {
+  return (
+    <div className="pt-3 border-t">
+      <div className="p-3 bg-muted/50 rounded-lg">
+        <p className="text-xs text-muted-foreground">
+          {text}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+interface TriggerPanelProps {
+  module: EditorModule;
+  hasTrigger: boolean;
+  warning: string | null;
+  filteredTriggerTypes: TriggerTypeOption[];
+  groupedEntityEvents: Array<{ category: string; entities: EntityEvent[] }>;
+  filteredEntityEvents: EntityEvent[];
+  integrationTriggers: TriggerType[];
+  workflowsForChaining: Array<{ id: string; name: string; status: string }>;
+  webhookData: WebhookData | null | undefined;
+  cronPresets: CronPreset[];
+  oneTimeScheduleAllowed: boolean;
+  form: TriggerFormApi;
+  initialTriggerData: (type: string) => WorkflowTriggerBag;
+  applyTriggerData: ApplyTriggerData;
+  onClose: () => void;
+}
+
+/** The per-type settings shown under the trigger type list. */
+function TriggerTypeDetails({
+  filteredEntityEvents,
+  groupedEntityEvents,
+  integrationTriggers,
+  workflowsForChaining,
+  webhookData,
+  cronPresets,
+  oneTimeScheduleAllowed,
+  form,
+  applyTriggerData,
+}: Omit<TriggerPanelProps, 'module' | 'hasTrigger' | 'warning' | 'filteredTriggerTypes' | 'initialTriggerData' | 'onClose'>) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const tcd = t.weldconnect.triggerConfigDialog;
+
+  switch (form.triggerType) {
+    case 'entity_event':
+      return (
+        <EntityEventFields
+          form={form}
+          groupedEntityEvents={groupedEntityEvents}
+          filteredEntityEvents={filteredEntityEvents}
+          applyTriggerData={applyTriggerData}
+        />
+      );
+    case 'schedule':
+      return (
+        <ScheduleFields
+          form={form}
+          cronPresets={cronPresets}
+          oneTimeScheduleAllowed={oneTimeScheduleAllowed}
+          applyTriggerData={applyTriggerData}
+        />
+      );
+    case 'integration_event':
+      return <IntegrationEventFields form={form} integrationTriggers={integrationTriggers} applyTriggerData={applyTriggerData} />;
+    case 'workflow_complete':
+      return <WorkflowCompleteFields form={form} workflowsForChaining={workflowsForChaining} applyTriggerData={applyTriggerData} />;
+    case 'webhook':
+      return <WebhookFields webhookData={webhookData} form={form} />;
+    case 'manual':
+      return <TriggerHint text={tec.triggerPanel.manualHint} />;
+    case 'api':
+      return <TriggerHint text={tcd.api.hint} />;
+    default:
+      return null;
+  }
+}
+
+function TriggerPanel({
+  module,
+  hasTrigger,
+  warning,
+  filteredTriggerTypes,
+  initialTriggerData,
+  onClose,
+  ...detailProps
+}: TriggerPanelProps) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const { form, applyTriggerData } = detailProps;
+
+  const handleSelectType = (typeId: string) => {
+    form.setTriggerType(typeId);
+    // Update workflow immediately
+    applyTriggerData(initialTriggerData(typeId));
+  };
+
+  return (
+    <>
+      <div className="p-3 border-b">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-md bg-purple-100 dark:bg-purple-900/30">
+              <Zap className="h-4 w-4 text-purple-600" />
+            </div>
+            <h3 className="font-semibold text-sm">{hasTrigger ? tec.triggerPanel.editTrigger : tec.triggerPanel.addTrigger}</h3>
+          </div>
+          <PanelCloseButton onClick={onClose} />
+        </div>
+      </div>
+      {warning && (
+        <div className="mx-3 mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
+          <div className="flex items-center gap-2 text-amber-700 dark:text-muted-foreground">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="text-xs">{warning}</span>
+          </div>
+        </div>
+      )}
+      <ScrollArea className="flex-1">
+        {module === 'helpdesk' ? (
+          <HelpdeskTriggerList form={form} applyTriggerData={applyTriggerData} />
+        ) : (
+          <div className="p-4 space-y-4">
+            <TriggerTypeList
+              types={filteredTriggerTypes}
+              selectedType={form.triggerType}
+              onSelect={handleSelectType}
+            />
+            <TriggerTypeDetails {...detailProps} />
+          </div>
+        )}
+      </ScrollArea>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add action panel
+// ---------------------------------------------------------------------------
+
+const ACTION_CATEGORY_ORDER = ['communication', 'data', 'logic', 'integration', 'ai', 'helpdesk'] as const;
+
+interface ActionCategoryGroupProps {
+  label: string;
+  actions: SidebarActionType[];
+  onSelect: (actionId: string) => void;
+}
+
+function ActionCategoryGroup({ label, actions, onSelect }: ActionCategoryGroupProps) {
+  if (actions.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs font-medium">
+        {label}
+      </Label>
+      <div>
+        {actions.map((action) => {
+          const Icon = getActionMeta(action.id).icon;
+          return (
+            <Button
+              key={action.id}
+              type="button"
+              variant="ghost"
+              onClick={() => onSelect(action.id)}
+              className="flex items-center gap-3 py-2 -mx-4 px-4 transition-all text-left hover:bg-muted"
+              style={{ width: 'calc(100% + 2rem)' }}
+            >
+              <div className="w-8 h-8 rounded-md border border-border/70 flex items-center justify-center flex-shrink-0">
+                <Icon className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground">{action.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{action.description}</p>
+              </div>
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+interface AddActionPanelProps {
+  module: EditorModule;
+  actions: SidebarActionType[];
+  categoryLabels: Record<string, string>;
+  onSelectAction: (actionId: string) => void;
+  onClose: () => void;
+}
+
+function AddActionPanel({ module, actions, categoryLabels, onSelectAction, onClose }: AddActionPanelProps) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+
+  return (
+    <>
+      <div className="pl-4 pt-3 pb-3 pr-3 border-b">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-base">{module === 'helpdesk' ? tec.addActionPanel.addAction : tec.addActionPanel.addStep}</h3>
+          <PanelCloseButton onClick={onClose} />
+        </div>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-3">
+          {ACTION_CATEGORY_ORDER.map((category) => (
+            <ActionCategoryGroup
+              key={category}
+              label={categoryLabels[category]}
+              actions={actions.filter((a) => a.category === category)}
+              onSelect={onSelectAction}
+            />
+          ))}
+        </div>
+      </ScrollArea>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Branch edit panel
+// ---------------------------------------------------------------------------
+
+interface EditingBranch {
+  branchNodeId: string;
+  branchType: string;
+  parentConditionId: string;
+  parentConditionStepIndex: number;
+}
+
+interface BranchStyle {
+  bg: string;
+  icon: LucideIcon;
+  iconColor: string;
+  label: string;
+  borderColor: string;
+  description: string;
+}
+
+// Branch display styling
+const BRANCH_STYLE_MAP: Record<string, BranchStyle> = {
+  if: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: 'If True', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the condition is true' },
+  if_not: { bg: 'bg-gray-100 dark:bg-secondary', icon: X, iconColor: 'text-gray-500 dark:text-muted-foreground', label: 'If False', borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border', description: 'Executes when the condition is false' },
+  escalated: { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: ArrowUpRight, iconColor: 'text-amber-600', label: 'Escalated', borderColor: 'border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900', description: 'Executes when the agent escalates to a human' },
+  completed: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: 'Completed', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the agent resolves the issue' },
+  failed: { bg: 'bg-red-100 dark:bg-red-900/30', icon: XCircle, iconColor: 'text-red-600', label: 'Failed', borderColor: 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900', description: 'Executes when the agent encounters an error' },
+};
+
+function getBranchStyle(branchType: string): BranchStyle {
+  return BRANCH_STYLE_MAP[branchType] || {
+    bg: 'bg-gray-100 dark:bg-secondary',
+    icon: GitBranch,
+    iconColor: 'text-gray-500',
+    label: branchType,
+    borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border',
+    description: `Executes for "${branchType}" outcome`,
+  };
+}
+
+function BranchAddStepButton({ className, onClick }: { className?: string; onClick: () => void }) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+
+  return (
+    <Button variant="outline" size="sm" className={className} onClick={onClick}>
+      <Plus className="h-4 w-4 mr-0.5" />
+      {tec.addActionPanel.addStep}
+    </Button>
+  );
+}
+
+interface BranchChildStepsProps {
+  childSteps: WorkflowStepBag[];
+  allSteps: WorkflowStepBag[];
+  onSelectStep: (index: number) => void;
+  onAddStep: () => void;
+}
+
+function BranchChildSteps({ childSteps, allSteps, onSelectStep, onAddStep }: BranchChildStepsProps) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+
+  if (childSteps.length === 0) {
+    return (
+      <div className="text-center py-6">
+        <p className="text-sm text-muted-foreground mb-3">{tec.addActionPanel.noStepsInBranch}</p>
+        <BranchAddStepButton onClick={onAddStep} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {childSteps.map((childStep) => {
+        const meta = getActionMeta(childStep.type || '');
+        const Icon = meta.icon;
+        const stepIndex = allSteps.findIndex((s) => s.id === childStep.id);
+        const summary = getConfigSummary(childStep.type || '', childStep.config || {});
+        return (
+          <Button
+            key={childStep.id}
+            variant="ghost"
+            onClick={() => onSelectStep(stepIndex)}
+            className="w-full text-left p-3 rounded-lg border border-border hover:border-blue-200 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <div className={cn('w-6 h-6 rounded-md flex items-center justify-center', meta.bgColor)}>
+                <Icon className={cn('w-3.5 h-3.5', meta.color)} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{childStep.name}</p>
+                {summary && (
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {summary}
+                  </p>
+                )}
+              </div>
+            </div>
+          </Button>
+        );
+      })}
+      <BranchAddStepButton className="w-full mt-2" onClick={onAddStep} />
+    </div>
+  );
+}
+
+interface BranchEditPanelProps {
+  branch: EditingBranch;
+  steps: WorkflowStepBag[];
+  onSelectStep: (index: number) => void;
+  onAddStep: () => void;
+  onClose: () => void;
+}
+
+function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: BranchEditPanelProps) {
+  const parentStep = steps[branch.parentConditionStepIndex];
+  const branchChildren = steps.filter((s) => s.parentBranchId === branch.branchNodeId);
+  const conditionExpression = parentStep?.config?.field
+    ? `${parentStep.config.field} ${parentStep.config.operator || ''} ${parentStep.config.value || ''}`
+    : (parentStep?.config?.expression as string | undefined) || '';
+  const branchStyle = getBranchStyle(branch.branchType);
+  const BranchIcon = branchStyle.icon;
+
+  return (
+    <>
+      <div className="p-3 border-b">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className={cn('p-1.5 rounded-md', branchStyle.bg)}>
+              <BranchIcon className={cn('h-4 w-4', branchStyle.iconColor)} />
+            </div>
+            <h3 className="font-semibold text-sm">{branchStyle.label}</h3>
+          </div>
+          <PanelCloseButton onClick={onClose} />
+        </div>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4">
+          {/* Condition Info */}
+          <div className="space-y-2">
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Parent Condition</Label>
+            <Button
+              variant="ghost"
+              onClick={() => onSelectStep(branch.parentConditionStepIndex)}
+              className="w-full text-left p-3 rounded-lg border border-border hover:border-amber-200 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                  <GitBranch className="w-3.5 h-3.5 text-amber-600" />
+                </div>
+                <span className="text-sm font-medium">{parentStep?.name || 'Condition'}</span>
+              </div>
+              {conditionExpression && (
+                <p className="text-xs text-muted-foreground mt-2 truncate">{conditionExpression}</p>
+              )}
+            </Button>
+          </div>
+
+          {/* Branch Description */}
+          <div className="space-y-2">
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Branch</Label>
+            <div className={cn('p-3 rounded-lg border', branchStyle.borderColor)}>
+              <p className="text-sm font-medium">{branchStyle.description}</p>
+            </div>
+          </div>
+
+          {/* Child Steps */}
+          <div className="border-t pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Steps ({branchChildren.length})
+              </Label>
+            </div>
+
+            <BranchChildSteps
+              childSteps={branchChildren}
+              allSteps={steps}
+              onSelectStep={onSelectStep}
+              onAddStep={onAddStep}
+            />
+          </div>
+        </div>
+      </ScrollArea>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Edit step panel
+// ---------------------------------------------------------------------------
+
+function StepStatusBanner({ step, unsupported }: { step: WorkflowStepBag; unsupported: boolean }) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
+
+  if (unsupported) {
+    return (
+      <div className="mx-3 mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
+        <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
+          <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+          <span className="text-xs">{tec.publishGate.unsupportedStep}</span>
+        </div>
+      </div>
+    );
+  }
+  const missing = getMissingRequiredFields(step.type || '', step.config || {});
+  if (missing.length === 0) {
+    return (
+      <div className="mx-3 mt-3 p-2.5 rounded-lg bg-emerald-50 dark:bg-muted border border-emerald-200 dark:border-border">
+        <div className="flex items-center gap-2 text-emerald-700 dark:text-muted-foreground">
+          <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="text-xs">{tec.editStepPanel.allRequiredDone}</span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mx-3 mt-3 p-3 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
+      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+        <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+        <span className="text-xs font-medium">{tec.editStepPanel.requiredFieldsTitle}</span>
+      </div>
+      <p className="mt-1 text-xs text-amber-700/80 dark:text-muted-foreground">
+        {tec.editStepPanel.requiredFieldsHint}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {missing.map((m) => (
+          <span
+            key={m.labelKey}
+            className="inline-flex items-center rounded-md border border-amber-200 bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+          >
+            {(acf[m.labelKey] as string | undefined) || m.labelKey}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface EditStepPanelProps {
+  step: WorkflowStepBag;
+  steps: WorkflowStepBag[];
+  triggerType: string | undefined;
+  unsupported: boolean;
+  emailAccounts: NonNullable<WorkflowEditorClientProps['emailAccounts']>;
+  workspaceMembers: NonNullable<WorkflowEditorClientProps['workspaceMembers']>;
+  workflowVariables: Array<{ name: string; type?: string }>;
+  extraVariableGroups: WorkflowEditorClientProps['extraVariableGroups'];
+  excludeVariableGroups: string[] | undefined;
+  onStepChange: (step: WorkflowStepBag) => void;
+  onUpdateStep: (stepId: string, data: Record<string, unknown>) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}
+
+function EditStepPanel({
+  step,
+  steps,
+  triggerType,
+  unsupported,
+  emailAccounts,
+  workspaceMembers,
+  workflowVariables,
+  extraVariableGroups,
+  excludeVariableGroups,
+  onStepChange,
+  onUpdateStep,
+  onDelete,
+  onClose,
+}: EditStepPanelProps) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const meta = getActionMeta(step.type || '');
+  const Icon = meta.icon;
+
+  return (
+    <>
+      <div className="p-3 border-b">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className={cn('p-1.5 rounded-md', meta.bgColor)}>
+              <Icon className={cn('h-4 w-4', meta.color)} />
+            </div>
+            <h3 className="font-semibold text-sm">{tec.editStepPanel.editStep}</h3>
+          </div>
+          <PanelCloseButton onClick={onClose} />
+        </div>
+      </div>
+      <StepStatusBanner step={step} unsupported={unsupported} />
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4">
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">{tec.editStepPanel.actionNameLabel}</Label>
+            <Input
+              value={step.name || ''}
+              onChange={(e) => {
+                const newName = e.target.value;
+                onStepChange({ ...step, name: newName });
+                onUpdateStep(step.id || '', { name: newName });
+              }}
+              placeholder={tec.editStepPanel.actionNamePlaceholder}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">{tec.editStepPanel.descriptionLabel}</Label>
+            <Textarea
+              value={step.description || ''}
+              onChange={(e) => {
+                const newDescription = e.target.value;
+                onStepChange({ ...step, description: newDescription });
+                onUpdateStep(step.id || '', { description: newDescription });
+              }}
+              placeholder={tec.editStepPanel.descriptionPlaceholder}
+              rows={3}
+            />
+          </div>
+
+          <div className="border-t pt-4">
+            <h4 className="text-xs font-medium mb-3 text-muted-foreground uppercase tracking-wide">{tec.editStepPanel.settingsLabel}</h4>
+            <ActionConfigForm
+              actionType={step.type || ''}
+              config={step.config || {}}
+              onChange={(config) => {
+                onStepChange({ ...step, config });
+                onUpdateStep(step.id || '', { config });
+              }}
+              emailAccounts={emailAccounts}
+              workspaceMembers={workspaceMembers}
+              workflowSteps={steps.map((s) => ({
+                id: s.id || '',
+                name: s.name || '',
+                type: s.type || '',
+              }))}
+              currentStepIndex={steps.findIndex((s) => s.id === step.id)}
+              workflowVariables={workflowVariables}
+              triggerType={triggerType}
+              extraVariableGroups={extraVariableGroups}
+              excludeGroups={excludeVariableGroups}
+            />
+          </div>
+        </div>
+      </ScrollArea>
+      <div className="p-3">
+        <Button
+          variant="outline"
+          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+          onClick={onDelete}
+        >
+          <Trash2 className="h-4 w-4 mr-0.5 text-red-600 dark:text-red-400" />
+          {tec.editStepPanel.deleteStep}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Overview panel
+// ---------------------------------------------------------------------------
+
+function ChecklistCard({
+  icon,
+  title,
+  badge,
+  alignTop,
+  message,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: React.ReactNode;
+  badge: React.ReactNode;
+  alignTop?: boolean;
+  message: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      onClick={onClick}
+      className="w-full text-left p-3 rounded-lg border border-border hover:border-blue-200 transition-colors"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center">
+            {icon}
+          </div>
+          <span className="text-sm font-medium">{title}</span>
+        </div>
+        <span className="px-2 py-0.5 text-xs font-medium text-muted-foreground bg-muted border border-border rounded-md">
+          {badge}
+        </span>
+      </div>
+      <div className="my-3 border-t border-border" />
+      <div className={cn('flex gap-1.5 text-amber-600', alignTop ? 'items-start' : 'items-center')}>
+        <AlertCircle className={cn('w-3.5 h-3.5', alignTop && 'mt-0.5 flex-shrink-0')} />
+        <span className="text-xs">{message}</span>
+      </div>
+    </Button>
+  );
+}
+
+interface StepChecklistItemProps {
+  step: WorkflowStepBag;
+  index: number;
+  unsupported: boolean;
+  actionTypes: SidebarActionType[];
+  categoryLabels: Record<string, string>;
+  onSelectStep: (index: number) => void;
+}
+
+function StepChecklistItem({ step, index, unsupported, actionTypes, categoryLabels, onSelectStep }: StepChecklistItemProps) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const missing = getMissingRequiredFields(step.type || '', step.config || {});
+  if (!unsupported && missing.length === 0) return null;
+
+  const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
+  const missingLabels = missing.map((m) => acf[m.labelKey] || m.labelKey).join(', ');
+  const actionMeta = actionTypes.find((a) => a.id === step.type);
+  const Icon = step.type ? getActionMeta(step.type).icon : Code;
+
+  return (
+    <ChecklistCard
+      icon={<Icon className="w-3.5 h-3.5 text-blue-600" />}
+      title={step.name}
+      badge={categoryLabels[actionMeta?.category || 'data']}
+      alignTop
+      message={unsupported
+        ? tec.publishGate.unsupportedStep
+        : tec.overviewPanel.missingFields.replace('{fields}', missingLabels)}
+      onClick={() => onSelectStep(index)}
+    />
+  );
+}
+
+interface OverviewPanelProps {
+  steps: WorkflowStepBag[];
+  triggerLocked?: boolean;
+  triggerIssue: string | null;
+  triggerTypeId: string | undefined;
+  triggerTypes: Array<{ id: string; name: string }>;
+  allStepsConfigured: boolean;
+  actionTypes: SidebarActionType[];
+  categoryLabels: Record<string, string>;
+  hideTemplatesAndAi?: boolean;
+  isStepUnsupported: (type: string | undefined) => boolean;
+  onSelectTrigger: () => void;
+  onSelectStep: (index: number) => void;
+  onOpenTemplates: () => void;
+  onCloseMobile: () => void;
+}
+
+function OverviewPanel({
+  steps,
+  triggerLocked,
+  triggerIssue,
+  triggerTypeId,
+  triggerTypes,
+  allStepsConfigured,
+  actionTypes,
+  categoryLabels,
+  hideTemplatesAndAi,
+  isStepUnsupported,
+  onSelectTrigger,
+  onSelectStep,
+  onOpenTemplates,
+  onCloseMobile,
+}: OverviewPanelProps) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const showTriggerCheck = !triggerLocked && !!triggerIssue;
+  const showAllConfigured = (triggerLocked || !triggerIssue) && steps.length > 0 && allStepsConfigured;
+
+  return (
+    <>
+      {/* Mobile header for overview panel */}
+      <div className="p-3 border-b lg:hidden flex items-center justify-between">
+        <h3 className="font-semibold text-sm">{tec.overviewPanel.workflowDetails}</h3>
+        <PanelCloseButton onClick={onCloseMobile} />
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4">
+          {/* Checklist Section */}
+          <div className="space-y-1">
+            <h3 className="text-sm font-semibold">{tec.overviewPanel.checklist}</h3>
+            <p className="text-xs text-muted-foreground">
+              {tec.overviewPanel.checklistDescription}
+            </p>
+          </div>
+
+          {/* Checklist Items - Show unconfigured trigger and steps */}
+          <div className="space-y-3">
+            {/* Trigger check */}
+            {showTriggerCheck && (
+              <ChecklistCard
+                icon={<Zap className="w-3.5 h-3.5 text-blue-600" />}
+                title={triggerTypeId
+                  ? triggerTypes.find((tr) => tr.id === triggerTypeId)?.name
+                  : tec.overviewPanel.selectTrigger}
+                badge={tec.overviewPanel.triggerBadge}
+                message={tec.overviewPanel.triggerNeedsConfig}
+                onClick={onSelectTrigger}
+              />
+            )}
+
+            {/* Steps that need configuration */}
+            {steps.map((step, index) => (
+              <StepChecklistItem
+                key={step.id}
+                step={step}
+                index={index}
+                unsupported={isStepUnsupported(step.type)}
+                actionTypes={actionTypes}
+                categoryLabels={categoryLabels}
+                onSelectStep={onSelectStep}
+              />
+            ))}
+
+            {/* All configured message */}
+            {showAllConfigured && (
+              <div className="flex items-center gap-2 px-3 py-[11px] rounded-lg border border-border text-muted-foreground">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span className="text-sm">{tec.overviewPanel.allStepsConfigured}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </ScrollArea>
+
+      {/* Helpful Resources - Fixed at bottom */}
+      <div className={cn('p-4 border-t', hideTemplatesAndAi && 'hidden')}>
+        <p className="text-xs text-muted-foreground mb-3">{tec.overviewPanel.helpfulResources}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <a
+            href="#"
+            className="p-3 rounded-lg border border-border hover:border-gray-300 dark:hover:border-border hover:bg-muted/50 transition-colors"
+          >
+            <p className="text-sm font-medium mb-1">{tec.overviewPanel.documentation}</p>
+            <p className="text-xs text-muted-foreground">
+              {tec.overviewPanel.documentationHint}
+            </p>
+          </a>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onOpenTemplates}
+            className="p-3 rounded-lg border border-border hover:border-gray-300 dark:hover:border-border hover:bg-muted/50 transition-colors text-left"
+          >
+            <p className="text-sm font-medium mb-1">{tec.overviewPanel.templates}</p>
+            <p className="text-xs text-muted-foreground">
+              {tec.overviewPanel.templatesHint}
+            </p>
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sub-agent dialogs
+// ---------------------------------------------------------------------------
+
+interface SubAgentForm {
+  name: string;
+  description: string;
+  systemPrompt: string;
+  modelId: string;
+  temperature: number;
+  maxTokens: number;
+  maxIterations: number;
+  maxTotalTokens: number;
+  enabledBuiltinTools: string[];
+  integrationIds: string[];
+  integrationToolPermissions: Record<string, string[]>;
+  escalationRules: { escalateOnFailure: boolean; escalateOnMaxIterations: boolean };
+}
+
+interface SavedAgent {
+  id: string;
+  name: string;
+  description?: string;
+  moduleKey: string;
+}
+
+interface McpConnection {
+  id: string;
+  name: string;
+  provider: string;
+  status: string;
+  settings: {
+    discoveredTools?: Array<{ name: string; description: string }>;
+    [key: string]: unknown;
+  };
+}
+
+type SetSubAgentForm = React.Dispatch<React.SetStateAction<SubAgentForm | null>>;
+
+const BUILTIN_SUB_AGENT_TOOLS = [
+  { name: 'search_knowledge_base', label: 'Search Knowledge Base' },
+  { name: 'escalate_to_human', label: 'Escalate to Human' },
+  { name: 'get_conversation_history', label: 'Get Conversation History' },
+  { name: 'get_customer_info', label: 'Get Customer Info' },
+  { name: 'get_order_status', label: 'Get Order Status' },
+  { name: 'search_tickets', label: 'Search Tickets' },
+  { name: 'send_message_to_customer', label: 'Send Message' },
+  { name: 'tag_conversation', label: 'Tag Conversation' },
+  { name: 'update_conversation_status', label: 'Update Status' },
+  { name: 'create_ticket', label: 'Create Ticket' },
+  { name: 'assign_conversation', label: 'Assign Conversation' },
+];
+
+function toggleBuiltinTool(form: SubAgentForm, toolName: string): SubAgentForm {
+  const tools = form.enabledBuiltinTools.includes(toolName)
+    ? form.enabledBuiltinTools.filter((name) => name !== toolName)
+    : [...form.enabledBuiltinTools, toolName];
+  return { ...form, enabledBuiltinTools: tools };
+}
+
+function toggleIntegration(
+  form: SubAgentForm,
+  connectionId: string,
+  allToolNames: string[],
+  enabled: boolean,
+): SubAgentForm {
+  if (enabled) {
+    return {
+      ...form,
+      integrationIds: [...form.integrationIds, connectionId],
+      integrationToolPermissions: { ...form.integrationToolPermissions, [connectionId]: allToolNames },
+    };
+  }
+  const { [connectionId]: _, ...restPerms } = form.integrationToolPermissions;
+  return {
+    ...form,
+    integrationIds: form.integrationIds.filter((id) => id !== connectionId),
+    integrationToolPermissions: restPerms,
+  };
+}
+
+function toggleIntegrationTool(
+  form: SubAgentForm,
+  connectionId: string,
+  toolName: string,
+  allowed: boolean,
+): SubAgentForm {
+  const current = form.integrationToolPermissions[connectionId] || [];
+  const next = allowed
+    ? [...current, toolName]
+    : current.filter((name) => name !== toolName);
+  return {
+    ...form,
+    integrationToolPermissions: { ...form.integrationToolPermissions, [connectionId]: next },
+  };
+}
+
+interface SubAgentPickerDialogProps {
+  stepId: string | null;
+  steps: WorkflowStepBag[];
+  savedAgents: SavedAgent[] | undefined;
+  onSelect: (agentId: string, agentName: string) => void;
+  onClose: () => void;
+}
+
+function SubAgentPickerList({
+  step,
+  savedAgents,
+  onSelect,
+}: {
+  step: WorkflowStepBag | null | undefined;
+  savedAgents: SavedAgent[] | undefined;
+  onSelect: (agentId: string, agentName: string) => void;
+}) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const stepConfig = step?.config as Record<string, unknown> | undefined;
+  const currentSubIds: string[] = (stepConfig?.subAgentIds as string[] | undefined) || [];
+  const headAgentId = stepConfig?.agentDefinitionId;
+  const available = (savedAgents || []).filter(
+    (a) => a.id !== headAgentId && !currentSubIds.includes(a.id)
+  );
+
+  if (available.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-4 text-center col-span-2">
+        {tec.subAgentDialog.noAgentsAvailable}{' '}
+        <a href="/welddesk/weldagent" className="text-primary underline underline-offset-2" target="_blank" rel="noreferrer">
+          {tec.subAgentDialog.createAgents}
+        </a>{' '}
+        {tec.subAgentDialog.createAgentsFirst}
+      </p>
+    );
+  }
+  return (
+    <>
+      {available.map((agent) => (
+        <Button
+          key={agent.id}
+          type="button"
+          variant="ghost"
+          onClick={() => onSelect(agent.id, agent.name)}
+          className="flex items-center gap-2.5 w-full rounded-md p-2.5 hover:bg-muted/80 transition-colors text-left"
+        >
+          <Bot className="w-4 h-4 text-violet-500 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium truncate">{agent.name}</p>
+            {agent.description && (
+              <p className="text-xs text-muted-foreground truncate">{agent.description}</p>
+            )}
+          </div>
+        </Button>
+      ))}
+    </>
+  );
+}
+
+function SubAgentPickerDialog({ stepId, steps, savedAgents, onSelect, onClose }: SubAgentPickerDialogProps) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const step = stepId ? steps.find((s) => s.id === stepId) : null;
+
+  return (
+    <Dialog open={!!stepId} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{tec.subAgentDialog.addSubAgent}</DialogTitle>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-2 max-h-[400px] overflow-y-auto">
+          <SubAgentPickerList step={step} savedAgents={savedAgents} onSelect={onSelect} />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const SUB_AGENT_LABEL_CLASS = 'text-xs font-medium text-muted-foreground';
+
+function SubAgentLeftColumn({ form, setForm }: { form: SubAgentForm; setForm: SetSubAgentForm }) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const patch = (partial: Partial<SubAgentForm>) => setForm({ ...form, ...partial });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.nameLabel} *</label>
+          <Input
+            value={form.name}
+            onChange={(e) => patch({ name: e.target.value })}
+            placeholder={tec.subAgentDialog.agentNamePlaceholder}
+            className="mt-1"
+          />
+        </div>
+        <div>
+          <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.descriptionLabel}</label>
+          <Input
+            value={form.description}
+            onChange={(e) => patch({ description: e.target.value })}
+            placeholder={tec.subAgentDialog.agentDescriptionPlaceholder}
+            className="mt-1"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.systemPromptLabel} *</label>
+        <Textarea
+          value={form.systemPrompt}
+          onChange={(e) => patch({ systemPrompt: e.target.value })}
+          placeholder={tec.subAgentDialog.systemPromptPlaceholder}
+          rows={6}
+          className="mt-1"
+        />
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.modelLabel}</label>
+          <Select
+            value={form.modelId}
+            onValueChange={(v) => patch({ modelId: v })}
+          >
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inherit">{tec.subAgentDialog.inheritFromParent}</SelectItem>
+              <SelectItem value="openai/gpt-4o">GPT-4o</SelectItem>
+              <SelectItem value="openai/gpt-4o-mini">GPT-4o Mini</SelectItem>
+              <SelectItem value="anthropic/claude-sonnet-4-20250514">Claude Sonnet 4</SelectItem>
+              <SelectItem value="anthropic/claude-3-5-haiku-latest">Claude Haiku</SelectItem>
+              <SelectItem value="google/gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.temperatureLabel}</label>
+          <Input
+            type="number"
+            value={form.temperature}
+            onChange={(e) => patch({ temperature: Number.parseFloat(e.target.value) || 0.7 })}
+            min={0}
+            max={2}
+            step={0.1}
+            className="mt-1"
+          />
+        </div>
+        <div>
+          <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.maxIterationsLabel}</label>
+          <Input
+            type="number"
+            value={form.maxIterations}
+            onChange={(e) => patch({ maxIterations: Number.parseInt(e.target.value) || 10 })}
+            min={1}
+            max={50}
+            className="mt-1"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.maxTokensLabel}</label>
+          <Input
+            type="number"
+            value={form.maxTokens}
+            onChange={(e) => patch({ maxTokens: Number.parseInt(e.target.value) || 1024 })}
+            min={100}
+            max={16384}
+            className="mt-1"
+          />
+        </div>
+        <div>
+          <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.tokenBudgetLabel}</label>
+          <Input
+            type="number"
+            value={form.maxTotalTokens}
+            onChange={(e) => patch({ maxTotalTokens: Number.parseInt(e.target.value) || 20000 })}
+            min={1000}
+            max={100000}
+            step={1000}
+            className="mt-1"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SubAgentIntegrationItem({
+  connection,
+  form,
+  setForm,
+}: {
+  connection: McpConnection;
+  form: SubAgentForm;
+  setForm: SetSubAgentForm;
+}) {
+  const isEnabled = form.integrationIds.includes(connection.id);
+  const discoveredTools = connection.settings?.discoveredTools || [];
+  const allowedTools = form.integrationToolPermissions[connection.id] || [];
+  const hasTools = isEnabled && discoveredTools.length > 0;
+
+  const handleToggleIntegration = (checked: boolean | 'indeterminate') => {
+    const allToolNames = discoveredTools.map((tool) => tool.name);
+    setForm((prev) => (prev ? toggleIntegration(prev, connection.id, allToolNames, !!checked) : prev));
+  };
+
+  const handleToggleTool = (toolName: string, checked: boolean | 'indeterminate') => {
+    setForm((prev) => (prev ? toggleIntegrationTool(prev, connection.id, toolName, !!checked) : prev));
+  };
+
+  return (
+    <div className="rounded-md border p-2.5 space-y-2">
+      <label className="flex items-center gap-2 cursor-pointer">
+        <Checkbox checked={isEnabled} onCheckedChange={handleToggleIntegration} />
+        <span className="text-sm font-medium">{connection.name}</span>
+        {hasTools && (
+          <span className="text-xs text-muted-foreground ml-auto">{allowedTools.length}/{discoveredTools.length}</span>
+        )}
+      </label>
+      {hasTools && (
+        <div className="ml-6 space-y-0.5">
+          {discoveredTools.map((tool) => (
+            <label key={tool.name} className="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                checked={allowedTools.includes(tool.name)}
+                onCheckedChange={(checked) => handleToggleTool(tool.name, checked)}
+              />
+              <span className="text-xs">{tool.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubAgentRightColumn({
+  form,
+  setForm,
+  mcpConnections,
+}: {
+  form: SubAgentForm;
+  setForm: SetSubAgentForm;
+  mcpConnections: McpConnection[] | undefined;
+}) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+  const connections = mcpConnections || [];
+  const patchEscalation = (partial: Partial<SubAgentForm['escalationRules']>) =>
+    setForm({ ...form, escalationRules: { ...form.escalationRules, ...partial } });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.toolsLabel}</label>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mt-1.5">
+          {BUILTIN_SUB_AGENT_TOOLS.map((tool) => (
+            <label key={tool.name} className="flex items-center gap-2 cursor-pointer py-1">
+              <Checkbox
+                checked={form.enabledBuiltinTools.includes(tool.name)}
+                onCheckedChange={() => {
+                  setForm((prev) => (prev ? toggleBuiltinTool(prev, tool.name) : prev));
+                }}
+              />
+              <span className="text-sm">{tool.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.escalationLabel}</label>
+        <div className="space-y-1 mt-1.5">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox
+              checked={form.escalationRules.escalateOnFailure}
+              onCheckedChange={(checked) => patchEscalation({ escalateOnFailure: !!checked })}
+            />
+            <span className="text-sm">{tec.subAgentDialog.escalateOnError}</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox
+              checked={form.escalationRules.escalateOnMaxIterations}
+              onCheckedChange={(checked) => patchEscalation({ escalateOnMaxIterations: !!checked })}
+            />
+            <span className="text-sm">{tec.subAgentDialog.escalateOnMaxIterations}</span>
+          </label>
+        </div>
+      </div>
+
+      {/* Integrations (MCP Servers) */}
+      {connections.length > 0 && (
+        <div>
+          <label className={SUB_AGENT_LABEL_CLASS}>{tec.subAgentDialog.integrationsLabel}</label>
+          <div className="space-y-2 mt-1.5">
+            {connections.map((conn) => (
+              <SubAgentIntegrationItem key={conn.id} connection={conn} form={form} setForm={setForm} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface SubAgentEditDialogProps {
+  open: boolean;
+  form: SubAgentForm | null;
+  setForm: SetSubAgentForm;
+  mcpConnections: McpConnection[] | undefined;
+  isSaving: boolean;
+  onClose: () => void;
+  onSave: () => void;
+}
+
+function SubAgentEditDialog({ open, form, setForm, mcpConnections, isSaving, onClose, onSave }: SubAgentEditDialogProps) {
+  const { t } = useI18n();
+  const tec = t.weldconnect.workflowEditorClient;
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{tec.subAgentDialog.editSubAgent}</DialogTitle>
+        </DialogHeader>
+        {form ? (
+          <div className="grid grid-cols-2 gap-6">
+            <SubAgentLeftColumn form={form} setForm={setForm} />
+            <SubAgentRightColumn form={form} setForm={setForm} mcpConnections={mcpConnections} />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-violet-500" />
+          </div>
+        )}
+        {form && (
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose}>
+              {tec.subAgentDialog.cancel}
+            </Button>
+            <Button onClick={onSave} disabled={isSaving}>
+              {isSaving ? tec.subAgentDialog.saving : tec.subAgentDialog.saveChanges}
+            </Button>
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function WorkflowEditorClient({
@@ -786,9 +3126,7 @@ export function WorkflowEditorClient({
   const initialTriggerData = (type: string): WorkflowTriggerBag => {
     if (type !== 'schedule') return { type, isEnabled: true };
     const mode = scheduleType === 'one_time' && oneTimeScheduleAllowed ? 'one_time' : 'recurring';
-    const cronExpression = scheduleCronPreset === 'custom'
-      ? scheduleCustomCron
-      : CRON_PRESETS.find((p) => p.id === scheduleCronPreset)?.cron || '0 9 * * *';
+    const cronExpression = resolveCronExpression(scheduleCronPreset, scheduleCustomCron, CRON_PRESETS);
     return {
       type: 'schedule',
       isEnabled: true,
@@ -867,20 +3205,7 @@ export function WorkflowEditorClient({
     },
   });
 
-  const [subAgentForm, setSubAgentForm] = useState<{
-    name: string;
-    description: string;
-    systemPrompt: string;
-    modelId: string;
-    temperature: number;
-    maxTokens: number;
-    maxIterations: number;
-    maxTotalTokens: number;
-    enabledBuiltinTools: string[];
-    integrationIds: string[];
-    integrationToolPermissions: Record<string, string[]>;
-    escalationRules: { escalateOnFailure: boolean; escalateOnMaxIterations: boolean };
-  } | null>(null);
+  const [subAgentForm, setSubAgentForm] = useState<SubAgentForm | null>(null);
 
   // Populate form when agent data loads
   useEffect(() => {
@@ -916,12 +3241,7 @@ export function WorkflowEditorClient({
   });
 
   // Branch editing state
-  const [editingBranch, setEditingBranch] = useState<{
-    branchNodeId: string;
-    branchType: string;
-    parentConditionId: string;
-    parentConditionStepIndex: number;
-  } | null>(null);
+  const [editingBranch, setEditingBranch] = useState<EditingBranch | null>(null);
 
   // Close edit panel on Escape key
   useEffect(() => {
@@ -1176,73 +3496,51 @@ export function WorkflowEditorClient({
     setEditingBranch(null);
   }, [workflow.steps]);
 
+  const resetTriggerPanel = useCallback(() => {
+    setTriggerType('entity_event');
+    setTriggerEntityType('');
+    setTriggerEventType('');
+    setScheduleType('recurring');
+    setScheduleCronPreset('every_day_9am');
+    setScheduleCustomCron('0 9 * * *');
+    setScheduleTimezone('Europe/Amsterdam');
+    setScheduleExecuteAt('');
+    setIntegrationTriggerEventId('');
+    setSourceWorkflowId('');
+    setWorkflowCompleteTriggerOn('success');
+    setWorkflowCompletePassOutput(false);
+  }, []);
+
+  const loadTriggerIntoPanel = useCallback((trigger: WorkflowTriggerBag) => {
+    setTriggerType(trigger.type || 'entity_event');
+    setTriggerEntityType((trigger.entityType as string | undefined) || '');
+    setTriggerEventType((trigger.eventType as string | undefined) || '');
+    setIntegrationTriggerEventId(trigger.type === 'integration_event' ? readIntegrationEventId(trigger) : '');
+
+    const workflowComplete = trigger.type === 'workflow_complete'
+      ? readWorkflowCompleteSettings(trigger)
+      : DEFAULT_WORKFLOW_COMPLETE_SETTINGS;
+    setSourceWorkflowId(workflowComplete.sourceWorkflowId);
+    setWorkflowCompleteTriggerOn(workflowComplete.triggerOn);
+    setWorkflowCompletePassOutput(workflowComplete.passOutput);
+
+    // Load schedule settings if it's a schedule trigger
+    if (trigger.type === 'schedule') {
+      const schedule = readScheduleSettings(trigger, CRON_PRESETS);
+      setScheduleType(schedule.scheduleType);
+      setScheduleTimezone(schedule.timezone);
+      setScheduleExecuteAt(schedule.executeAt);
+      if (schedule.cronPresetId) setScheduleCronPreset(schedule.cronPresetId);
+      if (schedule.customCron !== undefined) setScheduleCustomCron(schedule.customCron);
+    }
+  }, [CRON_PRESETS]);
+
   const handleSelectTrigger = useCallback(() => {
     // Open trigger panel for editing the first trigger
     if (workflow.triggers.length > 0) {
-      const trigger = workflow.triggers[0];
-      setTriggerType(trigger.type || 'entity_event');
-      setTriggerEntityType((trigger.entityType as string | undefined) || '');
-      setTriggerEventType((trigger.eventType as string | undefined) || '');
-
-      if (trigger.type === 'integration_event') {
-        const eventId = (trigger.event as string | undefined) || (trigger.config as { event?: string } | undefined)?.event || '';
-        setIntegrationTriggerEventId(eventId);
-      } else {
-        setIntegrationTriggerEventId('');
-      }
-
-      if (trigger.type === 'workflow_complete') {
-        const cfg = (trigger.config as Record<string, unknown> | undefined) ?? {};
-        setSourceWorkflowId(
-          (trigger.sourceWorkflowId as string | undefined)
-            || (cfg.sourceWorkflowId as string | undefined)
-            || '',
-        );
-        setWorkflowCompleteTriggerOn(
-          (trigger.triggerOn as 'success' | 'failure' | 'both' | undefined)
-            || (cfg.triggerOn as 'success' | 'failure' | 'both' | undefined)
-            || 'success',
-        );
-        setWorkflowCompletePassOutput(
-          trigger.passOutput !== undefined
-            ? Boolean(trigger.passOutput)
-            : Boolean(cfg.passOutput),
-        );
-      } else {
-        setSourceWorkflowId('');
-        setWorkflowCompleteTriggerOn('success');
-        setWorkflowCompletePassOutput(false);
-      }
-
-      // Load schedule settings if it's a schedule trigger
-      if (trigger.type === 'schedule') {
-        setScheduleType((trigger.scheduleType as 'recurring' | 'one_time' | undefined) || 'recurring');
-        setScheduleTimezone((trigger.timezone as string | undefined) || 'Europe/Amsterdam');
-        setScheduleExecuteAt((trigger.executeAt as string | undefined) || '');
-        const cronExpression = trigger.cronExpression as string | undefined;
-        if (cronExpression) {
-          const preset = CRON_PRESETS.find((p) => p.cron === cronExpression);
-          if (preset) {
-            setScheduleCronPreset(preset.id);
-          } else {
-            setScheduleCronPreset('custom');
-            setScheduleCustomCron(cronExpression);
-          }
-        }
-      }
+      loadTriggerIntoPanel(workflow.triggers[0]);
     } else {
-      setTriggerType('entity_event');
-      setTriggerEntityType('');
-      setTriggerEventType('');
-      setScheduleType('recurring');
-      setScheduleCronPreset('every_day_9am');
-      setScheduleCustomCron('0 9 * * *');
-      setScheduleTimezone('Europe/Amsterdam');
-      setScheduleExecuteAt('');
-      setIntegrationTriggerEventId('');
-      setSourceWorkflowId('');
-      setWorkflowCompleteTriggerOn('success');
-      setWorkflowCompletePassOutput(false);
+      resetTriggerPanel();
     }
     setShowTriggerPanel(true);
     setShowRunsPanel(false);
@@ -1250,7 +3548,7 @@ export function WorkflowEditorClient({
     setEditingStep(null);
     setEditingBranch(null);
     setSelectedStepIndex(null);
-  }, [workflow.triggers, CRON_PRESETS]);
+  }, [workflow.triggers, loadTriggerIntoPanel, resetTriggerPanel]);
 
   const handleSelectStep = useCallback((index: number) => {
     setSelectedStepIndex(index);
@@ -1339,221 +3637,230 @@ export function WorkflowEditorClient({
   );
   const canvasTrigger = useMemo(() => asTriggerConfig(workflow.triggers[0]), [workflow.triggers]);
 
+  const applyTriggerData: ApplyTriggerData = (triggerData) => {
+    if (workflow.triggers.length > 0) {
+      setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
+    } else {
+      setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
+    }
+  };
+
+  const triggerForm: TriggerFormApi = {
+    triggerType,
+    setTriggerType,
+    triggerEntityType,
+    setTriggerEntityType,
+    triggerEventType,
+    setTriggerEventType,
+    integrationTriggerEventId,
+    setIntegrationTriggerEventId,
+    scheduleType,
+    setScheduleType,
+    scheduleCronPreset,
+    setScheduleCronPreset,
+    scheduleCustomCron,
+    setScheduleCustomCron,
+    scheduleTimezone,
+    setScheduleTimezone,
+    scheduleExecuteAt,
+    setScheduleExecuteAt,
+    sourceWorkflowId,
+    setSourceWorkflowId,
+    workflowCompleteTriggerOn,
+    setWorkflowCompleteTriggerOn,
+    workflowCompletePassOutput,
+    setWorkflowCompletePassOutput,
+    showWebhookSecret,
+    setShowWebhookSecret,
+  };
+
+  const handleOpenEditorTab = () => {
+    setShowRunsPanel(false);
+    router.replace(editorHref ?? `${basePath}/${workflow.id}/edit`, { scroll: false });
+  };
+
+  const handleOpenRunsTab = () => {
+    setShowRunsPanel(true);
+    setShowTriggerPanel(false);
+    setEditingStep(null);
+    setEditingBranch(null);
+    setShowMobileSidebar(true);
+    router.replace(`${basePath}/${workflow.id}/edit?panel=runs`, { scroll: false });
+  };
+
+  const handleDeleteEditingStep = () => {
+    if (!editingStep) return;
+    const stepIndex = workflow.steps.findIndex((s) => s.id === editingStep.id);
+    if (stepIndex !== -1) {
+      handleDeleteStep(stepIndex);
+      setEditingStep(null);
+    }
+  };
+
+  const closeSubAgentEditor = () => {
+    setEditSubAgentId(null);
+    setSubAgentForm(null);
+  };
+
+  const handleSaveSubAgent = () => {
+    if (!editSubAgentId || !subAgentForm) return;
+    if (!subAgentForm.name.trim() || !subAgentForm.systemPrompt.trim()) {
+      toast.error(tec.toasts.nameAndPromptRequired);
+      return;
+    }
+    updateSubAgentMutation.mutate({ id: editSubAgentId, data: subAgentForm });
+  };
+
+  const actionButtonProps: EditorActionButtonsProps = {
+    module,
+    hideTemplatesAndAi,
+    hidePublish,
+    hasBlockingIssues,
+    stepCount: workflow.steps.length,
+    incompleteCount,
+    isTesting,
+    isSaving,
+    publishLabel,
+    onGenerate: () => setShowGenerateDialog(true),
+    onTest: handleTest,
+    onJumpToIssue: jumpToFirstIssue,
+    onSave: handleSave,
+    onPublish: handlePublish,
+  };
+
+  // Right sidebar: the runs, trigger, add-action, branch or step panel (or the overview when none is open).
+  const renderSidebarPanel = () => {
+    if (showRunsPanel) {
+      return (
+        <RunsPanel
+          onClose={() => {
+            setShowRunsPanel(false);
+            setShowMobileSidebar(false);
+          }}
+        />
+      );
+    }
+    if (showTriggerPanel) {
+      return (
+        <TriggerPanel
+          module={module}
+          hasTrigger={workflow.triggers.length > 0}
+          warning={getTriggerWarningMessage(workflow.triggers?.[0], triggerType)}
+          filteredTriggerTypes={filteredTriggerTypes}
+          groupedEntityEvents={groupedEntityEvents}
+          filteredEntityEvents={filteredEntityEvents}
+          integrationTriggers={integrationTriggers}
+          workflowsForChaining={workflowsForChaining}
+          webhookData={webhookData}
+          cronPresets={CRON_PRESETS}
+          oneTimeScheduleAllowed={oneTimeScheduleAllowed}
+          form={triggerForm}
+          initialTriggerData={initialTriggerData}
+          applyTriggerData={applyTriggerData}
+          onClose={() => {
+            setShowTriggerPanel(false);
+            setShowMobileSidebar(false);
+          }}
+        />
+      );
+    }
+    if (showAddActionPanel) {
+      return (
+        <AddActionPanel
+          module={module}
+          actions={filteredActionTypes}
+          categoryLabels={categoryLabels}
+          onSelectAction={(actionId) => {
+            handleAddAction(actionId);
+            setShowAddActionPanel(false);
+          }}
+          onClose={() => {
+            setShowAddActionPanel(false);
+            setShowMobileSidebar(false);
+          }}
+        />
+      );
+    }
+    if (editingBranch) {
+      return (
+        <BranchEditPanel
+          branch={editingBranch}
+          steps={workflow.steps}
+          onSelectStep={handleSelectStep}
+          onAddStep={() => {
+            setEditingBranch(null);
+            setShowAddActionPanel(true);
+            setAddStepSourceNodeId(editingBranch.branchNodeId);
+          }}
+          onClose={() => {
+            setEditingBranch(null);
+            setShowMobileSidebar(false);
+          }}
+        />
+      );
+    }
+    if (editingStep) {
+      return (
+        <EditStepPanel
+          step={editingStep}
+          steps={workflow.steps}
+          triggerType={workflow.triggers?.[0]?.type}
+          unsupported={isStepUnsupported(editingStep.type)}
+          emailAccounts={emailAccounts}
+          workspaceMembers={workspaceMembers}
+          workflowVariables={workflowVariables}
+          extraVariableGroups={extraVariableGroups}
+          excludeVariableGroups={excludeVariableGroups}
+          onStepChange={setEditingStep}
+          onUpdateStep={handleUpdateStep}
+          onDelete={handleDeleteEditingStep}
+          onClose={() => {
+            setEditingStep(null);
+            setShowMobileSidebar(false);
+          }}
+        />
+      );
+    }
+    return (
+      <OverviewPanel
+        steps={workflow.steps}
+        triggerLocked={triggerLocked}
+        triggerIssue={triggerIssue}
+        triggerTypeId={workflow.triggers?.[0]?.type}
+        triggerTypes={TRIGGER_TYPES}
+        allStepsConfigured={incompleteStepIds.size === 0}
+        actionTypes={filteredActionTypes}
+        categoryLabels={categoryLabels}
+        hideTemplatesAndAi={hideTemplatesAndAi}
+        isStepUnsupported={isStepUnsupported}
+        onSelectTrigger={handleSelectTrigger}
+        onSelectStep={handleSelectStep}
+        onOpenTemplates={() => setShowTemplateDialog(true)}
+        onCloseMobile={() => setShowMobileSidebar(false)}
+      />
+    );
+  };
+
   return (
     <div className="h-full flex flex-col bg-muted/30 overflow-hidden">
-      {/* Header */}
-      <div className={cn("bg-background border-b flex-shrink-0 relative z-10", hideNavTabs && "hidden")}>
-        <div className="px-2 md:px-4 py-2">
-          <div className="flex items-center justify-between">
-            {!hideNavTabs ? (
-            <div className="flex items-center gap-1 md:gap-2">
-              <div className="relative group">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    "text-xs md:text-sm px-2 md:px-3",
-                    !showRunsPanel ? "bg-muted/50 border-gray-300/70 dark:border-border" : "border-transparent bg-transparent hover:bg-accent"
-                  )}
-                  onClick={() => {
-                    setShowRunsPanel(false);
-                    router.replace(editorHref ?? `${basePath}/${workflow.id}/edit`, { scroll: false });
-                  }}
-                >
-                  <GitPullRequest className="h-3 w-3 mr-0.5" />
-                  {st('sweep.weldflow.editorClient.editorTab')}
-                </Button>
-                <div className={cn(
-                  "absolute -bottom-[9px] left-0 right-0 h-0.5 transition-colors",
-                  !showRunsPanel ? "bg-foreground" : "bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-gray-600"
-                )} />
-              </div>
-              {module !== 'helpdesk' && (
-                replaceExecutionsTab ? (
-                <div className="relative group">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs md:text-sm px-2 md:px-3 border-transparent bg-transparent hover:bg-accent"
-                    asChild
-                  >
-                    <Link href={replaceExecutionsTab.href}>
-                      <replaceExecutionsTab.icon className="h-3 w-3 mr-0.5" />
-                      {replaceExecutionsTab.label}
-                    </Link>
-                  </Button>
-                  <div className="absolute -bottom-[9px] left-0 right-0 h-0.5 transition-colors bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-gray-600" />
-                </div>
-              ) : (
-                <div className="relative group">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "text-xs md:text-sm px-2 md:px-3",
-                      showRunsPanel ? "bg-muted/50 border-gray-300/70 dark:border-border" : "border-transparent bg-transparent hover:bg-accent"
-                    )}
-                    onClick={() => {
-                      setShowRunsPanel(true);
-                      setShowTriggerPanel(false);
-                      setEditingStep(null);
-                      setEditingBranch(null);
-                      setShowMobileSidebar(true);
-                      router.replace(`${basePath}/${workflow.id}/edit?panel=runs`, { scroll: false });
-                    }}
-                  >
-                    <History className="h-3 w-3 mr-0.5" />
-                    {st('sweep.weldflow.editorClient.executionsTab')}
-                  </Button>
-                  <div className={cn(
-                    "absolute -bottom-[9px] left-0 right-0 h-0.5 transition-colors",
-                    showRunsPanel ? "bg-foreground" : "bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-gray-600"
-                  )} />
-                </div>
-              ))}
-              {module !== 'helpdesk' && (
-              <div className="relative hidden sm:block">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs md:text-sm px-2 md:px-3"
-                  asChild
-                >
-                  <Link href={`${basePath}/${workflow.id}/settings`}>
-                    <Settings className="h-3 w-3 mr-0.5" />
-                    {st('sweep.weldflow.editorClient.settingsTab')}
-                  </Link>
-                </Button>
-              </div>
-              )}
-            </div>
-            ) : <div />}
-
-            <div className="flex items-center gap-1 md:gap-2">
-              {/* Mobile sidebar toggle */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="lg:hidden h-8 w-8 p-0"
-                onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-              {module !== 'helpdesk' && !hideTemplatesAndAi && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-xs md:text-sm px-2 md:px-3 hidden sm:flex"
-                onClick={() => setShowGenerateDialog(true)}
-              >
-                <Sparkles className="h-3 w-3 mr-1" />
-                {tg.button}
-              </Button>
-              )}
-              {module !== 'helpdesk' && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-xs md:text-sm px-2 md:px-3 hidden sm:flex"
-                onClick={handleTest}
-                disabled={isTesting || workflow.steps.length === 0}
-              >
-                {st('sweep.weldflow.editorClient.test')}
-              </Button>
-              )}
-              {!hidePublish && hasBlockingIssues && workflow.steps.length > 0 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={jumpToFirstIssue}
-                  title={tec.publishGate.chipTooltip}
-                  className="hidden sm:flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
-                >
-                  <AlertCircle className="h-3.5 w-3.5" />
-                  {tec.publishGate.needsSetup.replace('{count}', String(incompleteCount))}
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-xs md:text-sm px-2 md:px-3"
-                onClick={handleSave}
-                disabled={isSaving}
-              >
-                {st('sweep.weldflow.editorClient.save')}
-              </Button>
-              {!hidePublish && (
-              <Button
-                size="sm"
-                className="text-xs md:text-sm px-2 md:px-3"
-                onClick={handlePublish}
-                disabled={isSaving || workflow.steps.length === 0}
-              >
-                {publishLabel || st('sweep.weldflow.editorClient.publish')}
-              </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      <EditorHeader
+        hideNavTabs={hideNavTabs}
+        nav={{
+          module,
+          basePath,
+          workflowId: workflow.id,
+          showRunsPanel,
+          replaceExecutionsTab,
+          onOpenEditorTab: handleOpenEditorTab,
+          onOpenRunsTab: handleOpenRunsTab,
+        }}
+        actions={actionButtonProps}
+        onToggleMobileSidebar={() => setShowMobileSidebar(!showMobileSidebar)}
+      />
 
       {/* Portal action buttons to external nav when hideNavTabs */}
       {hideNavTabs && actionsPortalRef?.current && createPortal(
-        <>
-          {module !== 'helpdesk' && !hideTemplatesAndAi && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs md:text-sm px-2 md:px-3 hidden sm:flex"
-              onClick={() => setShowGenerateDialog(true)}
-            >
-              <Sparkles className="h-3 w-3 mr-1" />
-              {tg.button}
-            </Button>
-          )}
-          {module !== 'helpdesk' && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs md:text-sm px-2 md:px-3 hidden sm:flex"
-              onClick={handleTest}
-              disabled={isTesting || workflow.steps.length === 0}
-            >
-              {st('sweep.weldflow.editorClient.test')}
-            </Button>
-          )}
-          {!hidePublish && hasBlockingIssues && workflow.steps.length > 0 && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={jumpToFirstIssue}
-              title={tec.publishGate.chipTooltip}
-              className="hidden sm:flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
-            >
-              <AlertCircle className="h-3.5 w-3.5" />
-              {tec.publishGate.needsSetup.replace('{count}', String(incompleteCount))}
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs md:text-sm px-2 md:px-3"
-            onClick={handleSave}
-            disabled={isSaving}
-          >
-            {st('sweep.weldflow.editorClient.save')}
-          </Button>
-          {!hidePublish && (
-            <Button
-              size="sm"
-              className="text-xs md:text-sm px-2 md:px-3"
-              onClick={handlePublish}
-              disabled={isSaving || workflow.steps.length === 0}
-            >
-              {publishLabel || st('sweep.weldflow.editorClient.publish')}
-            </Button>
-          )}
-        </>,
+        <EditorActionButtons {...actionButtonProps} />,
         actionsPortalRef.current
       )}
 
@@ -1612,1232 +3919,7 @@ export function WorkflowEditorClient({
           "lg:relative lg:top-0 lg:w-[399px] lg:border-l",
           showMobileSidebar ? "translate-y-0" : "translate-y-full lg:translate-y-0 lg:translate-x-0"
         )}>
-          {showRunsPanel ? (
-            // Runs Panel
-            <>
-              <div className="pl-4 py-3 pr-3 border-b flex items-center justify-between">
-                <h3 className="font-semibold text-sm">{tec.runHistory.title}</h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  onClick={() => { setShowRunsPanel(false); setShowMobileSidebar(false); }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="flex-1 flex flex-col">
-                {/* Empty State */}
-                <div className="flex-1 flex flex-col items-center justify-center px-4">
-                  <div className="relative mb-4 scale-75">
-                    {/* Dashed border illustration */}
-                    <div className="relative py-4">
-                      {/* Top row */}
-                      <div className="flex gap-3 mb-3">
-                        <div className="w-14 h-10 border border-dashed border-red-200 rounded-lg" />
-                        <div className="w-24 h-10 border border-dashed border-red-200 rounded-lg" />
-                      </div>
-                      {/* Middle circle with X */}
-                      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 rounded-full border-2 border-red-200 bg-background flex items-center justify-center z-10">
-                        <XCircle className="w-5 h-5 text-red-400" />
-                      </div>
-                      {/* Bottom row */}
-                      <div className="flex gap-3">
-                        <div className="w-20 h-10 border border-dashed border-red-200 rounded-lg" />
-                        <div className="w-16 h-10 border border-dashed border-red-200 rounded-lg" />
-                      </div>
-                    </div>
-                  </div>
-                  <h4 className="text-base font-semibold mb-1">{tec.runHistory.noRuns}</h4>
-                  <p className="text-sm text-muted-foreground text-center">
-                    {tec.runHistory.noRunsYet}
-                  </p>
-                </div>
-
-                {/* Overview Stats */}
-                <div className="p-4 border-t">
-                  <div className="grid grid-cols-2 gap-2">
-                    {/* Completed */}
-                    <div className="p-3 rounded-lg bg-green-50 border border-green-100">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-lg font-semibold text-green-700">0</span>
-                        <CheckCircle2 className="w-4 h-4 text-green-500" />
-                      </div>
-                      <p className="text-xs text-green-600">{tec.runHistory.completed}</p>
-                    </div>
-                    {/* Failed */}
-                    <div className="p-3 rounded-lg bg-red-50 border border-red-100">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-lg font-semibold text-red-700">0</span>
-                        <XCircle className="w-4 h-4 text-red-500" />
-                      </div>
-                      <p className="text-xs text-red-600">{tec.runHistory.failed}</p>
-                    </div>
-                    {/* In progress */}
-                    <div className="p-3 rounded-lg bg-muted/50 border border-border">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-lg font-semibold">0</span>
-                        <RefreshCw className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">{tec.runHistory.inProgress}</p>
-                    </div>
-                    {/* Avg. runtime */}
-                    <div className="p-3 rounded-lg bg-muted/50 border border-border">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-lg font-semibold">-</span>
-                        <Clock className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">{tec.runHistory.avgRuntime}</p>
-                    </div>
-                  </div>
-                  {/* Credits consumed - full width */}
-                  <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border">
-                    <div className="flex items-center justify-between mb-1">
-                      <div>
-                        <span className="text-lg font-semibold">0</span>
-                      </div>
-                      <Settings className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                    <p className="text-xs text-muted-foreground">0 credits consumed / 250 included</p>
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : showTriggerPanel ? (
-            // Trigger Panel
-            <>
-              <div className="p-3 border-b">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-md bg-purple-100 dark:bg-purple-900/30">
-                      <Zap className="h-4 w-4 text-purple-600" />
-                    </div>
-                    <h3 className="font-semibold text-sm">{workflow.triggers.length > 0 ? tec.triggerPanel.editTrigger : tec.triggerPanel.addTrigger}</h3>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    onClick={() => {
-                      setShowTriggerPanel(false);
-                      setShowMobileSidebar(false);
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              {(() => {
-                const currentTrigger = workflow.triggers?.[0];
-                const warning = getTriggerWarningMessage(currentTrigger, triggerType);
-                if (!warning) return null;
-                return (
-                  <div className="mx-3 mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
-                    <div className="flex items-center gap-2 text-amber-700 dark:text-muted-foreground">
-                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span className="text-xs">{warning}</span>
-                    </div>
-                  </div>
-                );
-              })()}
-              <ScrollArea className="flex-1">
-                {module === 'helpdesk' ? (
-                  <div className="p-4 space-y-1">
-                    <Label className="text-xs font-medium mb-2 block">{tec.triggerPanel.whenThisHappens}</Label>
-                    {HELPDESK_ROUTING_TRIGGERS.map((rt) => {
-                      const isSelected = triggerEntityType === rt.entityType && triggerEventType === rt.eventType;
-                      const Icon = rt.icon;
-                      return (
-                        <Button
-                          key={rt.id}
-                          type="button"
-                          variant="ghost"
-                          onClick={() => {
-                            setTriggerType('entity_event');
-                            setTriggerEntityType(rt.entityType);
-                            setTriggerEventType(rt.eventType);
-                            const triggerData: WorkflowTriggerBag = {
-                              type: 'entity_event',
-                              isEnabled: true,
-                              entityType: rt.entityType,
-                              eventType: rt.eventType,
-                              name: rt.label,
-                            };
-                            if (workflow.triggers.length > 0) {
-                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                            } else {
-                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                            }
-                          }}
-                          className={cn(
-                            'flex items-center gap-3 w-full py-2.5 px-3 rounded-lg transition-all text-left',
-                            isSelected
-                              ? 'bg-teal-50 dark:bg-teal-950/40 ring-1 ring-teal-200 dark:ring-teal-800'
-                              : 'hover:bg-muted'
-                          )}
-                        >
-                          <Icon className={cn('w-4 h-4 flex-shrink-0', isSelected ? 'text-teal-600' : 'text-muted-foreground')} />
-                          <span className={cn('text-sm', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : '')}>{rt.label}</span>
-                        </Button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                <div className="p-4 space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{tcd.triggerTypeLabel}</Label>
-                    <div className="space-y-1">
-                      {filteredTriggerTypes.map((type) => {
-                        const Icon = type.icon;
-                        const isSelected = triggerType === type.id;
-                        return (
-                          <Button
-                            key={type.id}
-                            type="button"
-                            variant="ghost"
-                            onClick={() => {
-                              setTriggerType(type.id);
-                              // Update workflow immediately
-                              const triggerData = initialTriggerData(type.id);
-                              if (workflow.triggers.length > 0) {
-                                setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                              } else {
-                                setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                              }
-                            }}
-                            className={cn(
-                              'flex items-center gap-3 py-2.5 -mx-4 px-4 transition-all text-left',
-                              isSelected
-                                ? 'bg-blue-50 dark:bg-blue-950/40'
-                                : 'hover:bg-muted'
-                            )}
-                            style={{ width: 'calc(100% + 2rem)' }}
-                          >
-                            <div className={cn(
-                              'w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0',
-                              isSelected ? 'bg-blue-100 dark:bg-blue-900/40' : 'bg-muted'
-                            )}>
-                              <Icon className={cn(
-                                'w-4 h-4',
-                                isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground'
-                              )} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className={cn(
-                                'text-sm font-medium',
-                                isSelected ? 'text-blue-700 dark:text-blue-300' : 'text-foreground'
-                              )}>{type.name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{type.description}</p>
-                            </div>
-                          </Button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {triggerType === 'entity_event' && (
-                    <div className="space-y-3 pt-3 border-t">
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium">{tcd.entityEvent.entityTypeLabel}</Label>
-                        <Select value={triggerEntityType} onValueChange={(v) => {
-                          setTriggerEntityType(v);
-                          setTriggerEventType('');
-                          // Update workflow immediately
-                          const triggerData: WorkflowTriggerBag = { type: 'entity_event', entityType: v, eventType: '' };
-                          if (workflow.triggers.length > 0) {
-                            setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                          } else {
-                            setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                          }
-                        }}>
-                          <SelectTrigger>
-                            <SelectValue placeholder={tec.triggerPanel.selectEntityPlaceholder} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {groupedEntityEvents.map((group) => (
-                              <SelectGroup key={group.category}>
-                                <SelectLabel>{group.category}</SelectLabel>
-                                {group.entities.map((entity) => (
-                                  <SelectItem key={entity.entityType} value={entity.entityType}>
-                                    {entity.label ?? entity.entityType}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {triggerEntityType && (
-                        <div className="space-y-2">
-                          <Label className="text-xs font-medium">{tcd.entityEvent.eventLabel}</Label>
-                          <Select value={triggerEventType} onValueChange={(v) => {
-                            setTriggerEventType(v);
-                            // Update workflow immediately
-                            const triggerData: WorkflowTriggerBag = { type: 'entity_event', entityType: triggerEntityType, eventType: v };
-                            if (workflow.triggers.length > 0) {
-                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                            } else {
-                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                            }
-                          }}>
-                            <SelectTrigger>
-                              <SelectValue placeholder={tec.triggerPanel.selectEventPlaceholder} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {filteredEntityEvents.find((e) => e.entityType === triggerEntityType)?.events.map((event) => {
-                                const eventId = getEntityEventId(event as EntityEventDetail);
-                                return (
-                                  <SelectItem key={eventId} value={eventId}>
-                                    {getEntityEventLabel(event as EntityEventDetail)}
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {triggerType === 'schedule' && (
-                    <div className="space-y-4 pt-3 border-t">
-                      {/* Schedule Type */}
-                      <div className={cn('space-y-2', !oneTimeScheduleAllowed && scheduleType !== 'one_time' && 'hidden')}>
-                        <Label className="text-xs font-medium">{tcd.schedule.scheduleTypeLabel}</Label>
-                        <RadioGroup
-                          value={scheduleType}
-                          onValueChange={(v) => {
-                            const newType = v as 'one_time' | 'recurring';
-                            setScheduleType(newType);
-                            // Update workflow immediately
-                            const cronExpression = scheduleCronPreset === 'custom'
-                              ? scheduleCustomCron
-                              : CRON_PRESETS.find((p) => p.id === scheduleCronPreset)?.cron || '0 9 * * *';
-                            const triggerData: WorkflowTriggerBag = {
-                              type: 'schedule',
-                              scheduleType: newType,
-                              ...(newType === 'one_time' ? { executeAt: scheduleExecuteAt } : { cronExpression }),
-                              timezone: scheduleTimezone,
-                            };
-                            if (workflow.triggers.length > 0) {
-                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                            } else {
-                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                            }
-                          }}
-                          className="flex gap-4"
-                        >
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="one_time" id="one_time" />
-                            <Label htmlFor="one_time" className="flex items-center gap-1.5 cursor-pointer text-sm">
-                              <CalendarDays className="w-3.5 h-3.5" />
-                              {tcd.schedule.oneTime}
-                            </Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="recurring" id="recurring" />
-                            <Label htmlFor="recurring" className="flex items-center gap-1.5 cursor-pointer text-sm">
-                              <Repeat className="w-3.5 h-3.5" />
-                              {tcd.schedule.recurring}
-                            </Label>
-                          </div>
-                        </RadioGroup>
-                      </div>
-
-                      {/* One-time: Date/Time Picker */}
-                      {scheduleType === 'one_time' && (
-                        <div className="space-y-2">
-                          <Label className="text-xs font-medium">{tcd.schedule.executeAtLabel}</Label>
-                          <Input
-                            type="datetime-local"
-                            value={scheduleExecuteAt}
-                            onChange={(e) => {
-                              setScheduleExecuteAt(e.target.value);
-                              const triggerData: WorkflowTriggerBag = {
-                                type: 'schedule',
-                                scheduleType: 'one_time',
-                                executeAt: e.target.value,
-                                timezone: scheduleTimezone,
-                              };
-                              if (workflow.triggers.length > 0) {
-                                setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                              } else {
-                                setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                              }
-                            }}
-                            className="text-sm"
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            {tcd.schedule.executeAtHint}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Recurring: Cron Preset */}
-                      {scheduleType === 'recurring' && (
-                        <>
-                          <div className="space-y-2">
-                            <Label className="text-xs font-medium">{tcd.schedule.scheduleLabel}</Label>
-                            <Select
-                              value={scheduleCronPreset}
-                              onValueChange={(v) => {
-                                setScheduleCronPreset(v);
-                                const cron = v === 'custom'
-                                  ? scheduleCustomCron
-                                  : CRON_PRESETS.find((p) => p.id === v)?.cron || '0 9 * * *';
-                                const triggerData: WorkflowTriggerBag = {
-                                  type: 'schedule',
-                                  scheduleType: 'recurring',
-                                  cronExpression: cron,
-                                  timezone: scheduleTimezone,
-                                };
-                                if (workflow.triggers.length > 0) {
-                                  setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                                } else {
-                                  setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                                }
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {CRON_PRESETS.map((preset) => (
-                                  <SelectItem key={preset.id} value={preset.id}>
-                                    {preset.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {/* Custom Cron Expression */}
-                          {scheduleCronPreset === 'custom' && (
-                            <div className="space-y-2">
-                              <Label className="text-xs font-medium">{tcd.schedule.cronExpressionLabel}</Label>
-                              <Input
-                                value={scheduleCustomCron}
-                                onChange={(e) => {
-                                  setScheduleCustomCron(e.target.value);
-                                  const triggerData: WorkflowTriggerBag = {
-                                    type: 'schedule',
-                                    scheduleType: 'recurring',
-                                    cronExpression: e.target.value,
-                                    timezone: scheduleTimezone,
-                                  };
-                                  if (workflow.triggers.length > 0) {
-                                    setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                                  } else {
-                                    setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                                  }
-                                }}
-                                placeholder="0 9 * * *"
-                                className="font-mono text-sm"
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                {tcd.schedule.cronExpressionHint}
-                              </p>
-                            </div>
-                          )}
-                        </>
-                      )}
-
-                      {/* Timezone */}
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium">{tcd.schedule.timezoneLabel}</Label>
-                        <Select
-                          value={scheduleTimezone}
-                          onValueChange={(v) => {
-                            setScheduleTimezone(v);
-                            const cronExpression = scheduleCronPreset === 'custom'
-                              ? scheduleCustomCron
-                              : CRON_PRESETS.find((p) => p.id === scheduleCronPreset)?.cron || '0 9 * * *';
-                            const triggerData: WorkflowTriggerBag = {
-                              type: 'schedule',
-                              scheduleType,
-                              ...(scheduleType === 'one_time' ? { executeAt: scheduleExecuteAt } : { cronExpression }),
-                              timezone: v,
-                            };
-                            if (workflow.triggers.length > 0) {
-                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                            } else {
-                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                            }
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {TIMEZONE_OPTIONS.map((tz) => (
-                              <SelectItem key={tz.value} value={tz.value}>
-                                {tz.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                  )}
-
-                  {triggerType === 'integration_event' && (
-                    <div className="space-y-3 pt-3 border-t">
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium">{tcd.integrationEvent.eventLabel}</Label>
-                        <Select
-                          value={integrationTriggerEventId}
-                          onValueChange={(v) => {
-                            setIntegrationTriggerEventId(v);
-                            const selected = integrationTriggers.find((t) => t.id === v);
-                            const provider =
-                              (selected as { provider?: string } | undefined)?.provider ??
-                              v.split('.')[0];
-                            const triggerData: WorkflowTriggerBag = {
-                              type: 'integration_event',
-                              provider,
-                              event: v,
-                            };
-                            if (workflow.triggers.length > 0) {
-                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                            } else {
-                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                            }
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder={tcd.integrationEvent.eventPlaceholder} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {integrationTriggers.map((trigger) => (
-                              <SelectItem key={trigger.id} value={trigger.id}>
-                                {trigger.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {integrationTriggers.length === 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            {tcd.integrationEvent.noEvents}{' '}
-                            <Link href="/weldconnect/integrations" className="text-primary underline-offset-2 hover:underline">
-                              {t.weldconnect.breadcrumbs.integrations}
-                            </Link>
-                          </p>
-                        )}
-                        {integrationTriggerEventId && (
-                          <p className="text-xs text-muted-foreground">
-                            {integrationTriggers.find((t) => t.id === integrationTriggerEventId)?.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {triggerType === 'workflow_complete' && (
-                    <div className="space-y-4 pt-3 border-t">
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium">{tcd.workflowComplete.sourceWorkflowLabel}</Label>
-                        <Select
-                          value={sourceWorkflowId}
-                          onValueChange={(v) => {
-                            setSourceWorkflowId(v);
-                            const triggerData: WorkflowTriggerBag = {
-                              type: 'workflow_complete',
-                              sourceWorkflowId: v,
-                              triggerOn: workflowCompleteTriggerOn,
-                              passOutput: workflowCompletePassOutput,
-                            };
-                            if (workflow.triggers.length > 0) {
-                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                            } else {
-                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                            }
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder={tcd.workflowComplete.sourceWorkflowPlaceholder} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(workflowsForChaining).map((wf) => (
-                              <SelectItem key={wf.id} value={wf.id}>
-                                {wf.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {workflowsForChaining.length === 0 && (
-                          <p className="text-xs text-muted-foreground">{tcd.workflowComplete.noOtherWorkflows}</p>
-                        )}
-                        <p className="text-xs text-muted-foreground">{tcd.workflowComplete.sourceWorkflowHint}</p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium">{tcd.workflowComplete.triggerOnLabel}</Label>
-                        <RadioGroup
-                          value={workflowCompleteTriggerOn}
-                          onValueChange={(v) => {
-                            const triggerOn = v as 'success' | 'failure' | 'both';
-                            setWorkflowCompleteTriggerOn(triggerOn);
-                            const triggerData: WorkflowTriggerBag = {
-                              type: 'workflow_complete',
-                              sourceWorkflowId,
-                              triggerOn,
-                              passOutput: workflowCompletePassOutput,
-                            };
-                            if (workflow.triggers.length > 0) {
-                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                            } else {
-                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                            }
-                          }}
-                          className="flex flex-col gap-2"
-                        >
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="success" id="wc_success" />
-                            <Label htmlFor="wc_success" className="text-sm cursor-pointer">{tcd.workflowComplete.successOnly}</Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="failure" id="wc_failure" />
-                            <Label htmlFor="wc_failure" className="text-sm cursor-pointer">{tcd.workflowComplete.failureOnly}</Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="both" id="wc_both" />
-                            <Label htmlFor="wc_both" className="text-sm cursor-pointer">{tcd.workflowComplete.both}</Label>
-                          </div>
-                        </RadioGroup>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <p className="text-sm font-medium">{tcd.workflowComplete.passOutputLabel}</p>
-                          <p className="text-xs text-muted-foreground">{tcd.workflowComplete.passOutputHint}</p>
-                        </div>
-                        <Switch
-                          checked={workflowCompletePassOutput}
-                          onCheckedChange={(checked) => {
-                            setWorkflowCompletePassOutput(checked);
-                            const triggerData: WorkflowTriggerBag = {
-                              type: 'workflow_complete',
-                              sourceWorkflowId,
-                              triggerOn: workflowCompleteTriggerOn,
-                              passOutput: checked,
-                            };
-                            if (workflow.triggers.length > 0) {
-                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
-                            } else {
-                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
-                            }
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {triggerType === 'webhook' && (
-                    <div className="pt-3 border-t space-y-4">
-                      {webhookData ? (
-                        <>
-                          {/* Webhook URL */}
-                          <div className="space-y-2">
-                            <Label className="text-xs font-medium">{tec.triggerPanel.webhookUrlLabel}</Label>
-                            <div className="flex gap-2">
-                              <Input
-                                value={webhookData.externalUrl || webhookData.url}
-                                readOnly
-                                className="font-mono text-xs bg-muted/50"
-                              />
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                className="flex-shrink-0"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(webhookData.externalUrl || webhookData.url);
-                                  toast.success(tec.toasts.urlCopied);
-                                }}
-                              >
-                                <Copy className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {tec.triggerPanel.webhookUrlHint}
-                            </p>
-                          </div>
-
-                          {/* Webhook Secret */}
-                          {webhookData.secret && (
-                            <div className="space-y-2">
-                              <Label className="text-xs font-medium">{tec.triggerPanel.webhookSecretLabel}</Label>
-                              <div className="flex gap-2">
-                                <Input
-                                  type={showWebhookSecret ? 'text' : 'password'}
-                                  value={webhookData.secret}
-                                  readOnly
-                                  className="font-mono text-xs bg-muted/50"
-                                />
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  className="flex-shrink-0"
-                                  onClick={() => setShowWebhookSecret(!showWebhookSecret)}
-                                >
-                                  {showWebhookSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  className="flex-shrink-0"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(webhookData.secret!);
-                                    toast.success(tec.toasts.secretCopied);
-                                  }}
-                                >
-                                  <Copy className="h-4 w-4" />
-                                </Button>
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                {tec.triggerPanel.webhookSecretHint}
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Status indicator */}
-                          <div className="p-3 bg-muted/50 rounded-lg">
-                            <div className="flex items-center gap-2">
-                              <div className={cn(
-                                "w-2 h-2 rounded-full",
-                                webhookData.isEnabled ? "bg-green-500" : "bg-gray-400"
-                              )} />
-                              <span className="text-xs text-muted-foreground">
-                                {webhookData.isEnabled ? tec.triggerPanel.webhookActive : tec.triggerPanel.webhookDisabled}
-                              </span>
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="p-3 bg-muted/50 rounded-lg">
-                          <p className="text-xs text-muted-foreground">
-                            {tec.triggerPanel.webhookNoUrl}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {triggerType === 'manual' && (
-                    <div className="pt-3 border-t">
-                      <div className="p-3 bg-muted/50 rounded-lg">
-                        <p className="text-xs text-muted-foreground">
-                          {tec.triggerPanel.manualHint}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {triggerType === 'api' && (
-                    <div className="pt-3 border-t">
-                      <div className="p-3 bg-muted/50 rounded-lg">
-                        <p className="text-xs text-muted-foreground">
-                          {tcd.api.hint}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                )}
-              </ScrollArea>
-            </>
-          ) : showAddActionPanel ? (
-            // Add Action Panel
-            <>
-              <div className="pl-4 pt-3 pb-3 pr-3 border-b">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-base">{module === 'helpdesk' ? tec.addActionPanel.addAction : tec.addActionPanel.addStep}</h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    onClick={() => {
-                      setShowAddActionPanel(false);
-                      setShowMobileSidebar(false);
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              <ScrollArea className="flex-1">
-                <div className="p-4 space-y-3">
-                  {(['communication', 'data', 'logic', 'integration', 'ai', 'helpdesk'] as const).map((category) => {
-                    const actionsInCategory = filteredActionTypes.filter((a) => a.category === category);
-                    if (actionsInCategory.length === 0) return null;
-                    return (
-                      <div key={category} className="space-y-1">
-                        <Label className="text-xs font-medium">
-                          {categoryLabels[category]}
-                        </Label>
-                        <div>
-                          {actionsInCategory.map((action) => {
-                            const Icon = getActionMeta(action.id).icon;
-                            return (
-                              <Button
-                                key={action.id}
-                                type="button"
-                                variant="ghost"
-                                onClick={() => {
-                                  handleAddAction(action.id);
-                                  setShowAddActionPanel(false);
-                                }}
-                                className="flex items-center gap-3 py-2 -mx-4 px-4 transition-all text-left hover:bg-muted"
-                                style={{ width: 'calc(100% + 2rem)' }}
-                              >
-                                <div className="w-8 h-8 rounded-md border border-border/70 flex items-center justify-center flex-shrink-0">
-                                  <Icon className="w-4 h-4 text-muted-foreground" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-foreground">{action.name}</p>
-                                  <p className="text-xs text-muted-foreground truncate">{action.description}</p>
-                                </div>
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-            </>
-          ) : editingBranch ? (
-            // Branch Edit Panel
-            (() => {
-              const parentStep = workflow.steps[editingBranch.parentConditionStepIndex];
-              const branchChildren = workflow.steps.filter((s) => s.parentBranchId === editingBranch.branchNodeId);
-              const conditionExpression = parentStep?.config?.field
-                ? `${parentStep.config.field} ${parentStep.config.operator || ''} ${parentStep.config.value || ''}`
-                : (parentStep?.config?.expression as string | undefined) || '';
-
-              // Branch display styling
-              const branchStyleMap: Record<string, { bg: string; icon: LucideIcon; iconColor: string; label: string; borderColor: string; description: string }> = {
-                if: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: 'If True', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the condition is true' },
-                if_not: { bg: 'bg-gray-100 dark:bg-secondary', icon: X, iconColor: 'text-gray-500 dark:text-muted-foreground', label: 'If False', borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border', description: 'Executes when the condition is false' },
-                escalated: { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: ArrowUpRight, iconColor: 'text-amber-600', label: 'Escalated', borderColor: 'border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900', description: 'Executes when the agent escalates to a human' },
-                completed: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: 'Completed', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the agent resolves the issue' },
-                failed: { bg: 'bg-red-100 dark:bg-red-900/30', icon: XCircle, iconColor: 'text-red-600', label: 'Failed', borderColor: 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900', description: 'Executes when the agent encounters an error' },
-              };
-              const defaultBranchStyle = { bg: 'bg-gray-100 dark:bg-secondary', icon: GitBranch, iconColor: 'text-gray-500', label: editingBranch.branchType, borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border', description: `Executes for "${editingBranch.branchType}" outcome` };
-              const branchStyle = branchStyleMap[editingBranch.branchType] || defaultBranchStyle;
-              const BranchIcon = branchStyle.icon;
-
-              return (
-                <>
-                  <div className="p-3 border-b">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className={cn('p-1.5 rounded-md', branchStyle.bg)}>
-                          <BranchIcon className={cn('h-4 w-4', branchStyle.iconColor)} />
-                        </div>
-                        <h3 className="font-semibold text-sm">{branchStyle.label}</h3>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        onClick={() => {
-                          setEditingBranch(null);
-                          setShowMobileSidebar(false);
-                        }}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  <ScrollArea className="flex-1">
-                    <div className="p-4 space-y-4">
-                      {/* Condition Info */}
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Parent Condition</Label>
-                        <Button
-                          variant="ghost"
-                          onClick={() => handleSelectStep(editingBranch.parentConditionStepIndex)}
-                          className="w-full text-left p-3 rounded-lg border border-border hover:border-amber-200 transition-colors"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                              <GitBranch className="w-3.5 h-3.5 text-amber-600" />
-                            </div>
-                            <span className="text-sm font-medium">{parentStep?.name || 'Condition'}</span>
-                          </div>
-                          {conditionExpression && (
-                            <p className="text-xs text-muted-foreground mt-2 truncate">{conditionExpression}</p>
-                          )}
-                        </Button>
-                      </div>
-
-                      {/* Branch Description */}
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Branch</Label>
-                        <div className={cn('p-3 rounded-lg border', branchStyle.borderColor)}>
-                          <p className="text-sm font-medium">{branchStyle.description}</p>
-                        </div>
-                      </div>
-
-                      {/* Child Steps */}
-                      <div className="border-t pt-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                            Steps ({branchChildren.length})
-                          </Label>
-                        </div>
-
-                        {branchChildren.length === 0 ? (
-                          <div className="text-center py-6">
-                            <p className="text-sm text-muted-foreground mb-3">{tec.addActionPanel.noStepsInBranch}</p>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setEditingBranch(null);
-                                setShowAddActionPanel(true);
-                                setAddStepSourceNodeId(editingBranch.branchNodeId);
-                              }}
-                            >
-                              <Plus className="h-4 w-4 mr-0.5" />
-                              {tec.addActionPanel.addStep}
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {branchChildren.map((childStep) => {
-                              const meta = getActionMeta(childStep.type || '');
-                              const Icon = meta.icon;
-                              const stepIndex = workflow.steps.findIndex((s) => s.id === childStep.id);
-                              return (
-                                <Button
-                                  key={childStep.id}
-                                  variant="ghost"
-                                  onClick={() => handleSelectStep(stepIndex)}
-                                  className="w-full text-left p-3 rounded-lg border border-border hover:border-blue-200 transition-colors"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <div className={cn('w-6 h-6 rounded-md flex items-center justify-center', meta.bgColor)}>
-                                      <Icon className={cn('w-3.5 h-3.5', meta.color)} />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium truncate">{childStep.name}</p>
-                                      {getConfigSummary(childStep.type || '', childStep.config || {}) && (
-                                        <p className="text-xs text-muted-foreground truncate mt-0.5">
-                                          {getConfigSummary(childStep.type || '', childStep.config || {})}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                </Button>
-                              );
-                            })}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full mt-2"
-                              onClick={() => {
-                                setEditingBranch(null);
-                                setShowAddActionPanel(true);
-                                setAddStepSourceNodeId(editingBranch.branchNodeId);
-                              }}
-                            >
-                              <Plus className="h-4 w-4 mr-0.5" />
-                              {tec.addActionPanel.addStep}
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </ScrollArea>
-                </>
-              );
-            })()
-          ) : editingStep ? (
-            // Edit Step Panel
-            <>
-              <div className="p-3 border-b">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {(() => {
-                      const meta = getActionMeta(editingStep.type || '');
-                      const Icon = meta.icon;
-                      return (
-                        <div className={cn('p-1.5 rounded-md', meta.bgColor)}>
-                          <Icon className={cn('h-4 w-4', meta.color)} />
-                        </div>
-                      );
-                    })()}
-                    <h3 className="font-semibold text-sm">{tec.editStepPanel.editStep}</h3>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    onClick={() => {
-                      setEditingStep(null);
-                      setShowMobileSidebar(false);
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              {(() => {
-                const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
-                if (isStepUnsupported(editingStep.type)) {
-                  return (
-                    <div className="mx-3 mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
-                      <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
-                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                        <span className="text-xs">{tec.publishGate.unsupportedStep}</span>
-                      </div>
-                    </div>
-                  );
-                }
-                const missing = getMissingRequiredFields(editingStep.type || '', editingStep.config || {});
-                if (missing.length === 0) {
-                  return (
-                    <div className="mx-3 mt-3 p-2.5 rounded-lg bg-emerald-50 dark:bg-muted border border-emerald-200 dark:border-border">
-                      <div className="flex items-center gap-2 text-emerald-700 dark:text-muted-foreground">
-                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="text-xs">{tec.editStepPanel.allRequiredDone}</span>
-                      </div>
-                    </div>
-                  );
-                }
-                return (
-                  <div className="mx-3 mt-3 p-3 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
-                    <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
-                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span className="text-xs font-medium">{tec.editStepPanel.requiredFieldsTitle}</span>
-                    </div>
-                    <p className="mt-1 text-xs text-amber-700/80 dark:text-muted-foreground">
-                      {tec.editStepPanel.requiredFieldsHint}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {missing.map((m) => (
-                        <span
-                          key={m.labelKey}
-                          className="inline-flex items-center rounded-md border border-amber-200 bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                        >
-                          {(acf[m.labelKey] as string | undefined) || m.labelKey}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-              <ScrollArea className="flex-1">
-                <div className="p-4 space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{tec.editStepPanel.actionNameLabel}</Label>
-                    <Input
-                      value={editingStep.name || ''}
-                      onChange={(e) => {
-                        const newName = e.target.value;
-                        setEditingStep({ ...editingStep, name: newName });
-                        handleUpdateStep(editingStep.id || '', { name: newName });
-                      }}
-                      placeholder={tec.editStepPanel.actionNamePlaceholder}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{tec.editStepPanel.descriptionLabel}</Label>
-                    <Textarea
-                      value={editingStep.description || ''}
-                      onChange={(e) => {
-                        const newDescription = e.target.value;
-                        setEditingStep({ ...editingStep, description: newDescription });
-                        handleUpdateStep(editingStep.id || '', { description: newDescription });
-                      }}
-                      placeholder={tec.editStepPanel.descriptionPlaceholder}
-                      rows={3}
-                    />
-                  </div>
-
-                  <div className="border-t pt-4">
-                    <h4 className="text-xs font-medium mb-3 text-muted-foreground uppercase tracking-wide">{tec.editStepPanel.settingsLabel}</h4>
-                    <ActionConfigForm
-                      actionType={editingStep.type || ''}
-                      config={editingStep.config || {}}
-                      onChange={(config) => {
-                        setEditingStep({ ...editingStep, config });
-                        handleUpdateStep(editingStep.id || '', { config });
-                      }}
-                      emailAccounts={emailAccounts}
-                      workspaceMembers={workspaceMembers}
-                      workflowSteps={workflow.steps.map((s) => ({
-                        id: s.id || '',
-                        name: s.name || '',
-                        type: s.type || '',
-                      }))}
-                      currentStepIndex={workflow.steps.findIndex((s) => s.id === editingStep.id)}
-                      workflowVariables={workflowVariables}
-                      triggerType={workflow.triggers?.[0]?.type}
-                      extraVariableGroups={extraVariableGroups}
-                      excludeGroups={excludeVariableGroups}
-                    />
-                  </div>
-                </div>
-              </ScrollArea>
-              <div className="p-3">
-                <Button
-                  variant="outline"
-                  className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={() => {
-                    const stepIndex = workflow.steps.findIndex((s) => s.id === editingStep.id);
-                    if (stepIndex !== -1) {
-                      handleDeleteStep(stepIndex);
-                      setEditingStep(null);
-                    }
-                  }}
-                >
-                  <Trash2 className="h-4 w-4 mr-0.5 text-red-600 dark:text-red-400" />
-                  {tec.editStepPanel.deleteStep}
-                </Button>
-              </div>
-            </>
-          ) : (
-            // Workflow Overview Panel
-            <>
-              {/* Mobile header for overview panel */}
-              <div className="p-3 border-b lg:hidden flex items-center justify-between">
-                <h3 className="font-semibold text-sm">{tec.overviewPanel.workflowDetails}</h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  onClick={() => setShowMobileSidebar(false)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <ScrollArea className="flex-1">
-                <div className="p-4 space-y-4">
-                  {/* Checklist Section */}
-                  <div className="space-y-1">
-                    <h3 className="text-sm font-semibold">{tec.overviewPanel.checklist}</h3>
-                    <p className="text-xs text-muted-foreground">
-                      {tec.overviewPanel.checklistDescription}
-                    </p>
-                  </div>
-
-                  {/* Checklist Items - Show unconfigured trigger and steps */}
-                  <div className="space-y-3">
-                    {/* Trigger check */}
-                    {!triggerLocked && triggerIssue && (
-                      <Button
-                        variant="ghost"
-                        onClick={handleSelectTrigger}
-                        className="w-full text-left p-3 rounded-lg border border-border hover:border-blue-200 transition-colors"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center">
-                              <Zap className="w-3.5 h-3.5 text-blue-600" />
-                            </div>
-                            <span className="text-sm font-medium">
-                              {workflow.triggers?.[0]?.type
-                                ? TRIGGER_TYPES.find(tr => tr.id === workflow.triggers[0].type)?.name
-                                : tec.overviewPanel.selectTrigger}
-                            </span>
-                          </div>
-                          <span className="px-2 py-0.5 text-xs font-medium text-muted-foreground bg-muted border border-border rounded-md">
-                            {tec.overviewPanel.triggerBadge}
-                          </span>
-                        </div>
-                        <div className="my-3 border-t border-border" />
-                        <div className="flex items-center gap-1.5 text-amber-600">
-                          <AlertCircle className="w-3.5 h-3.5" />
-                          <span className="text-xs">{tec.overviewPanel.triggerNeedsConfig}</span>
-                        </div>
-                      </Button>
-                    )}
-
-                    {/* Steps that need configuration */}
-                    {workflow.steps.map((step, index) => {
-                      const unsupported = isStepUnsupported(step.type);
-                      const missing = getMissingRequiredFields(step.type || '', step.config || {});
-                      if (!unsupported && missing.length === 0) return null;
-
-                      const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
-                      const missingLabels = missing.map((m) => acf[m.labelKey] || m.labelKey).join(', ');
-                      const actionMeta = filteredActionTypes.find((a) => a.id === step.type);
-                      const Icon = step.type ? getActionMeta(step.type).icon : Code;
-
-                      return (
-                        <Button
-                          key={step.id}
-                          variant="ghost"
-                          onClick={() => handleSelectStep(index)}
-                          className="w-full text-left p-3 rounded-lg border border-border hover:border-blue-200 transition-colors"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center">
-                                <Icon className="w-3.5 h-3.5 text-blue-600" />
-                              </div>
-                              <span className="text-sm font-medium">{step.name}</span>
-                            </div>
-                            <span className="px-2 py-0.5 text-xs font-medium text-muted-foreground bg-muted border border-border rounded-md">
-                              {categoryLabels[actionMeta?.category || 'data']}
-                            </span>
-                          </div>
-                          <div className="my-3 border-t border-border" />
-                          <div className="flex items-start gap-1.5 text-amber-600">
-                            <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                            <span className="text-xs">
-                              {unsupported
-                                ? tec.publishGate.unsupportedStep
-                                : tec.overviewPanel.missingFields.replace('{fields}', missingLabels)}
-                            </span>
-                          </div>
-                        </Button>
-                      );
-                    })}
-
-                    {/* All configured message */}
-                    {(triggerLocked || !triggerIssue) &&
-                      workflow.steps.length > 0 &&
-                      incompleteStepIds.size === 0 && (
-                        <div className="flex items-center gap-2 px-3 py-[11px] rounded-lg border border-border text-muted-foreground">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                          <span className="text-sm">{tec.overviewPanel.allStepsConfigured}</span>
-                        </div>
-                      )}
-                  </div>
-                </div>
-              </ScrollArea>
-
-              {/* Helpful Resources - Fixed at bottom */}
-              <div className={cn('p-4 border-t', hideTemplatesAndAi && 'hidden')}>
-                <p className="text-xs text-muted-foreground mb-3">{tec.overviewPanel.helpfulResources}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <a
-                    href="#"
-                    className="p-3 rounded-lg border border-border hover:border-gray-300 dark:hover:border-border hover:bg-muted/50 transition-colors"
-                  >
-                    <p className="text-sm font-medium mb-1">{tec.overviewPanel.documentation}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {tec.overviewPanel.documentationHint}
-                    </p>
-                  </a>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setShowTemplateDialog(true)}
-                    className="p-3 rounded-lg border border-border hover:border-gray-300 dark:hover:border-border hover:bg-muted/50 transition-colors text-left"
-                  >
-                    <p className="text-sm font-medium mb-1">{tec.overviewPanel.templates}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {tec.overviewPanel.templatesHint}
-                    </p>
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
+          {renderSidebarPanel()}
         </div>
       </div>
 
@@ -2917,334 +3999,23 @@ export function WorkflowEditorClient({
         }}
       />
 
-      {/* Sub-Agent Picker Dialog */}
-      <Dialog open={!!addSubAgentForStepId} onOpenChange={(open) => { if (!open) setAddSubAgentForStepId(null); }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{tec.subAgentDialog.addSubAgent}</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-2 max-h-[400px] overflow-y-auto">
-            {(() => {
-              const step = addSubAgentForStepId ? workflow.steps.find((s) => s.id === addSubAgentForStepId) : null;
-              const currentSubIds: string[] = ((step?.config as Record<string, unknown> | undefined)?.subAgentIds as string[] | undefined) || [];
-              const headAgentId = (step?.config as Record<string, unknown> | undefined)?.agentDefinitionId;
-              const available = (savedAgents || []).filter(
-                (a) => a.id !== headAgentId && !currentSubIds.includes(a.id)
-              );
-              if (available.length === 0) {
-                return (
-                  <p className="text-sm text-muted-foreground py-4 text-center col-span-2">
-                    {tec.subAgentDialog.noAgentsAvailable}{' '}
-                    <a href="/welddesk/weldagent" className="text-primary underline underline-offset-2" target="_blank" rel="noreferrer">
-                      {tec.subAgentDialog.createAgents}
-                    </a>{' '}
-                    {tec.subAgentDialog.createAgentsFirst}
-                  </p>
-                );
-              }
-              return available.map((agent) => (
-                <Button
-                  key={agent.id}
-                  type="button"
-                  variant="ghost"
-                  onClick={() => handleSelectSubAgent(agent.id, agent.name)}
-                  className="flex items-center gap-2.5 w-full rounded-md p-2.5 hover:bg-muted/80 transition-colors text-left"
-                >
-                  <Bot className="w-4 h-4 text-violet-500 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{agent.name}</p>
-                    {agent.description && (
-                      <p className="text-xs text-muted-foreground truncate">{agent.description}</p>
-                    )}
-                  </div>
-                </Button>
-              ));
-            })()}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <SubAgentPickerDialog
+        stepId={addSubAgentForStepId}
+        steps={workflow.steps}
+        savedAgents={savedAgents}
+        onSelect={handleSelectSubAgent}
+        onClose={() => setAddSubAgentForStepId(null)}
+      />
 
-      {/* Edit Sub-Agent Dialog */}
-      <Dialog
+      <SubAgentEditDialog
         open={!!editSubAgentId}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditSubAgentId(null);
-            setSubAgentForm(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{tec.subAgentDialog.editSubAgent}</DialogTitle>
-          </DialogHeader>
-          {subAgentForm ? (
-            <div className="grid grid-cols-2 gap-6">
-              {/* Left column */}
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.nameLabel} *</label>
-                    <Input
-                      value={subAgentForm.name}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, name: e.target.value })}
-                      placeholder={tec.subAgentDialog.agentNamePlaceholder}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.descriptionLabel}</label>
-                    <Input
-                      value={subAgentForm.description}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, description: e.target.value })}
-                      placeholder={tec.subAgentDialog.agentDescriptionPlaceholder}
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.systemPromptLabel} *</label>
-                  <Textarea
-                    value={subAgentForm.systemPrompt}
-                    onChange={(e) => setSubAgentForm({ ...subAgentForm, systemPrompt: e.target.value })}
-                    placeholder={tec.subAgentDialog.systemPromptPlaceholder}
-                    rows={6}
-                    className="mt-1"
-                  />
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.modelLabel}</label>
-                    <Select
-                      value={subAgentForm.modelId}
-                      onValueChange={(v) => setSubAgentForm({ ...subAgentForm, modelId: v })}
-                    >
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="inherit">{tec.subAgentDialog.inheritFromParent}</SelectItem>
-                        <SelectItem value="openai/gpt-4o">GPT-4o</SelectItem>
-                        <SelectItem value="openai/gpt-4o-mini">GPT-4o Mini</SelectItem>
-                        <SelectItem value="anthropic/claude-sonnet-4-20250514">Claude Sonnet 4</SelectItem>
-                        <SelectItem value="anthropic/claude-3-5-haiku-latest">Claude Haiku</SelectItem>
-                        <SelectItem value="google/gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.temperatureLabel}</label>
-                    <Input
-                      type="number"
-                      value={subAgentForm.temperature}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, temperature: Number.parseFloat(e.target.value) || 0.7 })}
-                      min={0}
-                      max={2}
-                      step={0.1}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.maxIterationsLabel}</label>
-                    <Input
-                      type="number"
-                      value={subAgentForm.maxIterations}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, maxIterations: Number.parseInt(e.target.value) || 10 })}
-                      min={1}
-                      max={50}
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.maxTokensLabel}</label>
-                    <Input
-                      type="number"
-                      value={subAgentForm.maxTokens}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, maxTokens: Number.parseInt(e.target.value) || 1024 })}
-                      min={100}
-                      max={16384}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.tokenBudgetLabel}</label>
-                    <Input
-                      type="number"
-                      value={subAgentForm.maxTotalTokens}
-                      onChange={(e) => setSubAgentForm({ ...subAgentForm, maxTotalTokens: Number.parseInt(e.target.value) || 20000 })}
-                      min={1000}
-                      max={100000}
-                      step={1000}
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Right column */}
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.toolsLabel}</label>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mt-1.5">
-                    {[
-                      { name: 'search_knowledge_base', label: 'Search Knowledge Base' },
-                      { name: 'escalate_to_human', label: 'Escalate to Human' },
-                      { name: 'get_conversation_history', label: 'Get Conversation History' },
-                      { name: 'get_customer_info', label: 'Get Customer Info' },
-                      { name: 'get_order_status', label: 'Get Order Status' },
-                      { name: 'search_tickets', label: 'Search Tickets' },
-                      { name: 'send_message_to_customer', label: 'Send Message' },
-                      { name: 'tag_conversation', label: 'Tag Conversation' },
-                      { name: 'update_conversation_status', label: 'Update Status' },
-                      { name: 'create_ticket', label: 'Create Ticket' },
-                      { name: 'assign_conversation', label: 'Assign Conversation' },
-                    ].map((tool) => (
-                      <label key={tool.name} className="flex items-center gap-2 cursor-pointer py-1">
-                        <Checkbox
-                          checked={subAgentForm.enabledBuiltinTools.includes(tool.name)}
-                          onCheckedChange={() => {
-                            setSubAgentForm((prev) => {
-                              if (!prev) return prev;
-                              const tools = prev.enabledBuiltinTools.includes(tool.name)
-                                ? prev.enabledBuiltinTools.filter((t) => t !== tool.name)
-                                : [...prev.enabledBuiltinTools, tool.name];
-                              return { ...prev, enabledBuiltinTools: tools };
-                            });
-                          }}
-                        />
-                        <span className="text-sm">{tool.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.escalationLabel}</label>
-                  <div className="space-y-1 mt-1.5">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={subAgentForm.escalationRules.escalateOnFailure}
-                        onCheckedChange={(checked) =>
-                          setSubAgentForm({ ...subAgentForm, escalationRules: { ...subAgentForm.escalationRules, escalateOnFailure: !!checked } })
-                        }
-                      />
-                      <span className="text-sm">{tec.subAgentDialog.escalateOnError}</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={subAgentForm.escalationRules.escalateOnMaxIterations}
-                        onCheckedChange={(checked) =>
-                          setSubAgentForm({ ...subAgentForm, escalationRules: { ...subAgentForm.escalationRules, escalateOnMaxIterations: !!checked } })
-                        }
-                      />
-                      <span className="text-sm">{tec.subAgentDialog.escalateOnMaxIterations}</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Integrations (MCP Servers) */}
-                {(mcpConnections || []).length > 0 && (
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">{tec.subAgentDialog.integrationsLabel}</label>
-                    <div className="space-y-2 mt-1.5">
-                      {(mcpConnections || []).map((conn) => {
-                        const isEnabled = subAgentForm.integrationIds.includes(conn.id);
-                        const discoveredTools = conn.settings?.discoveredTools || [];
-                        const allowedTools = subAgentForm.integrationToolPermissions[conn.id] || [];
-                        return (
-                          <div key={conn.id} className="rounded-md border p-2.5 space-y-2">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <Checkbox
-                                checked={isEnabled}
-                                onCheckedChange={(checked) => {
-                                  setSubAgentForm((prev) => {
-                                    if (!prev) return prev;
-                                    if (checked) {
-                                      const allToolNames = discoveredTools.map((t) => t.name);
-                                      return {
-                                        ...prev,
-                                        integrationIds: [...prev.integrationIds, conn.id],
-                                        integrationToolPermissions: { ...prev.integrationToolPermissions, [conn.id]: allToolNames },
-                                      };
-                                    } else {
-                                      const { [conn.id]: _, ...restPerms } = prev.integrationToolPermissions;
-                                      return {
-                                        ...prev,
-                                        integrationIds: prev.integrationIds.filter((id) => id !== conn.id),
-                                        integrationToolPermissions: restPerms,
-                                      };
-                                    }
-                                  });
-                                }}
-                              />
-                              <span className="text-sm font-medium">{conn.name}</span>
-                              {isEnabled && discoveredTools.length > 0 && (
-                                <span className="text-xs text-muted-foreground ml-auto">{allowedTools.length}/{discoveredTools.length}</span>
-                              )}
-                            </label>
-                            {isEnabled && discoveredTools.length > 0 && (
-                              <div className="ml-6 space-y-0.5">
-                                {discoveredTools.map((tool) => (
-                                  <label key={tool.name} className="flex items-center gap-2 cursor-pointer">
-                                    <Checkbox
-                                      checked={allowedTools.includes(tool.name)}
-                                      onCheckedChange={(checked) => {
-                                        setSubAgentForm((prev) => {
-                                          if (!prev) return prev;
-                                          const current = prev.integrationToolPermissions[conn.id] || [];
-                                          const next = checked
-                                            ? [...current, tool.name]
-                                            : current.filter((t) => t !== tool.name);
-                                          return {
-                                            ...prev,
-                                            integrationToolPermissions: { ...prev.integrationToolPermissions, [conn.id]: next },
-                                          };
-                                        });
-                                      }}
-                                    />
-                                    <span className="text-xs">{tool.name}</span>
-                                  </label>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-violet-500" />
-            </div>
-          )}
-          {subAgentForm && (
-            <DialogFooter>
-              <Button variant="outline" onClick={() => { setEditSubAgentId(null); setSubAgentForm(null); }}>
-                {tec.subAgentDialog.cancel}
-              </Button>
-              <Button
-                onClick={() => {
-                  if (!editSubAgentId || !subAgentForm) return;
-                  if (!subAgentForm.name.trim() || !subAgentForm.systemPrompt.trim()) {
-                    toast.error(tec.toasts.nameAndPromptRequired);
-                    return;
-                  }
-                  updateSubAgentMutation.mutate({ id: editSubAgentId, data: subAgentForm });
-                }}
-                disabled={updateSubAgentMutation.isPending}
-              >
-                {updateSubAgentMutation.isPending ? tec.subAgentDialog.saving : tec.subAgentDialog.saveChanges}
-              </Button>
-            </DialogFooter>
-          )}
-        </DialogContent>
-      </Dialog>
+        form={subAgentForm}
+        setForm={setSubAgentForm}
+        mcpConnections={mcpConnections}
+        isSaving={updateSubAgentMutation.isPending}
+        onClose={closeSubAgentEditor}
+        onSave={handleSaveSubAgent}
+      />
     </div>
   );
 }

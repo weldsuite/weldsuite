@@ -32,7 +32,7 @@ import { createIntegrationSchema, updateIntegrationSchema } from '@weldsuite/cor
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getWorkspaceForOrg, schema } from '@weldsuite/worker-kit/db';
+import { getWorkspaceForOrg, schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   getWebhookWorkerUrl,
   triggerConnectionSync,
@@ -40,7 +40,11 @@ import {
   renewGoogleCalendarWatch,
   type IntegrationsEnv,
 } from '../../services/integrations/connections';
-import { getOAuthAdapter, hasOAuthAdapter } from '../../services/integrations/oauth-providers';
+import {
+  getOAuthAdapter,
+  hasOAuthAdapter,
+  type IntegrationOAuthAdapter,
+} from '../../services/integrations/oauth-providers';
 import { removeCrmIndex, upsertCrmIndex } from '../../lib/crm-sync-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -356,6 +360,118 @@ app.post('/connections/:provider/authorize', requirePermission('integrations:cre
   }
 });
 
+/** Default field mappings for every entity the adapter syncs. */
+function buildDefaultFieldMappings(
+  adapter: IntegrationOAuthAdapter,
+  connectionId: string,
+): (typeof schema.integrationFieldMappings.$inferInsert)[] {
+  const values: (typeof schema.integrationFieldMappings.$inferInsert)[] = [];
+  for (const entityType of adapter.supportedEntities) {
+    adapter.getDefaultFieldMappings(entityType).forEach((mapping, i) => {
+      values.push({
+        id: generateId('ifm'),
+        connectionId,
+        entityType,
+        externalFieldPath: mapping.externalFieldPath,
+        internalFieldPath: mapping.internalFieldPath,
+        direction: mapping.direction,
+        transformType: mapping.transformType,
+        transformConfig: mapping.transformConfig,
+        isRequired: mapping.isRequired || false,
+        isDefault: true,
+        position: i,
+      } as typeof schema.integrationFieldMappings.$inferInsert);
+    });
+  }
+  return values;
+}
+
+/** HubSpot portal id (hub_id) for webhook routing; undefined when it cannot be resolved. */
+async function fetchHubspotPortalId(accessToken: string): Promise<string | undefined> {
+  try {
+    const tokenInfoRes = await fetch('https://api.hubapi.com/oauth/v1/access-tokens/' + accessToken);
+    if (!tokenInfoRes.ok) return undefined;
+    const tokenInfo = (await tokenInfoRes.json()) as { hub_id: number };
+    return tokenInfo.hub_id ? String(tokenInfo.hub_id) : undefined;
+  } catch (err) {
+    console.warn('[app-api/integrations] failed to get HubSpot portal ID:', err);
+    return undefined;
+  }
+}
+
+/** Create the WeldSuite calendar container that receives synced Google Calendar events. */
+async function createGoogleCalendarContainer(
+  db: Database,
+  ownerId: string,
+): Promise<Record<string, unknown>> {
+  const calId = generateId('cal');
+  await db.insert(schema.calendars).values({
+    id: calId,
+    name: 'Google Calendar',
+    color: '#4285f4',
+    ownerId,
+    isDefault: false,
+  } as unknown as typeof schema.calendars.$inferInsert);
+  return { googleCalendarId: calId };
+}
+
+/** When to renew a Google Calendar push channel (24h before it expires), from the stored watch info. */
+function googleWatchRenewalTime(webhookSecret: unknown): number | null {
+  if (typeof webhookSecret !== 'string') return null;
+  try {
+    const watchInfo = JSON.parse(webhookSecret) as { expiration?: string };
+    if (!watchInfo.expiration) return null;
+    const expiresAt = Number(watchInfo.expiration);
+    return Number.isFinite(expiresAt) ? expiresAt - 24 * 60 * 60 * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate the one-time OAuth `state` nonce against the caller's org + provider
+ * and consume it. Null when it is unknown, expired or belongs to someone else.
+ */
+async function consumeOAuthState(
+  env: IntegrationsEnv,
+  state: string,
+  orgId: string,
+  provider: string,
+): Promise<{ orgId: string; userId: string; provider: string } | null> {
+  const stateKey = `oauth_state:${state}`;
+  const stateData = (await env.WORKSPACE_CACHE.get(stateKey, 'json')) as {
+    orgId: string;
+    userId: string;
+    provider: string;
+  } | null;
+
+  if (!stateData || stateData.orgId !== orgId || stateData.provider !== provider) return null;
+  await env.WORKSPACE_CACHE.delete(stateKey);
+  return stateData;
+}
+
+interface ConnectionProfile {
+  name: string;
+  direction: 'bidirectional' | 'inbound';
+  syncSettings: Record<string, unknown> & { syncIntervalHours: number };
+}
+
+/** Display name, direction and sync settings a freshly connected provider starts with. */
+function connectionProfile(provider: string): ConnectionProfile {
+  if (provider === 'google_calendar') {
+    return {
+      name: 'Google Calendar',
+      direction: 'bidirectional',
+      syncSettings: { syncCalendarEvents: true, syncIntervalHours: 1 },
+    };
+  }
+  return {
+    name: `${provider.charAt(0).toUpperCase() + provider.slice(1)} CRM`,
+    direction: 'inbound',
+    syncSettings: { syncCompanies: true, syncPeople: true, syncIntervalHours: 6 },
+  };
+}
+
 app.post('/connections/:provider/callback', requirePermission('integrations:create'), zValidator('json', callbackSchema), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
@@ -370,17 +486,10 @@ app.post('/connections/:provider/callback', requirePermission('integrations:crea
   }
 
   try {
-    const stateKey = `oauth_state:${state}`;
-    const stateData = (await env.WORKSPACE_CACHE.get(stateKey, 'json')) as {
-      orgId: string;
-      userId: string;
-      provider: string;
-    } | null;
-
-    if (!stateData || stateData.orgId !== orgId || stateData.provider !== provider) {
+    const stateData = await consumeOAuthState(env, state, orgId, provider);
+    if (!stateData) {
       return error.badRequest(c, 'Invalid or expired OAuth state');
     }
-    await env.WORKSPACE_CACHE.delete(stateKey);
 
     const { clientId, clientSecret } = providerCredentials(env, provider);
     if (!clientId || !clientSecret) {
@@ -392,6 +501,7 @@ app.post('/connections/:provider/callback', requirePermission('integrations:crea
 
     const connectionId = generateId('intc');
     const isGoogleCalendar = provider === 'google_calendar';
+    const profile = connectionProfile(provider);
 
     // Google Calendar uses a dedicated webhook path with gcal/ prefix
     const webhookPath = isGoogleCalendar ? `gcal/${connectionId}` : connectionId;
@@ -401,75 +511,33 @@ app.post('/connections/:provider/callback', requirePermission('integrations:crea
     const webhookReg = await adapter.registerWebhooks(tokens.accessToken, webhookTargetUrl, adapter.supportedEntities);
 
     // Insert default field mappings (skip for Google Calendar — hardcoded transforms)
-    const fieldMappingValues: (typeof schema.integrationFieldMappings.$inferInsert)[] = [];
-    if (!isGoogleCalendar) {
-      for (const entityType of adapter.supportedEntities) {
-        const defaults = adapter.getDefaultFieldMappings(entityType);
-        for (let i = 0; i < defaults.length; i++) {
-          const mapping = defaults[i];
-          fieldMappingValues.push({
-            id: generateId('ifm'),
-            connectionId,
-            entityType,
-            externalFieldPath: mapping.externalFieldPath,
-            internalFieldPath: mapping.internalFieldPath,
-            direction: mapping.direction,
-            transformType: mapping.transformType,
-            transformConfig: mapping.transformConfig,
-            isRequired: mapping.isRequired || false,
-            isDefault: true,
-            position: i,
-          } as typeof schema.integrationFieldMappings.$inferInsert);
-        }
-      }
-    }
+    const fieldMappingValues = isGoogleCalendar ? [] : buildDefaultFieldMappings(adapter, connectionId);
 
     // For HubSpot, use the client secret for webhook signature verification
     const webhookSecret = provider === 'hubspot' ? clientSecret : webhookReg.secret;
 
     // For HubSpot: get the portal ID (hub_id) for webhook routing
-    let externalAccountId: string | undefined;
-    if (provider === 'hubspot') {
-      try {
-        const tokenInfoRes = await fetch('https://api.hubapi.com/oauth/v1/access-tokens/' + tokens.accessToken);
-        if (tokenInfoRes.ok) {
-          const tokenInfo = (await tokenInfoRes.json()) as { hub_id: number };
-          if (tokenInfo.hub_id) externalAccountId = String(tokenInfo.hub_id);
-        }
-      } catch (err) {
-        console.warn('[app-api/integrations] failed to get HubSpot portal ID:', err);
-      }
-    }
+    const externalAccountId =
+      provider === 'hubspot' ? await fetchHubspotPortalId(tokens.accessToken) : undefined;
 
     // For Google Calendar: create a WeldSuite calendar container for synced events
-    let googleCalendarSettings: Record<string, unknown> | undefined;
-    if (isGoogleCalendar) {
-      const calId = generateId('cal');
-      await db.insert(schema.calendars).values({
-        id: calId,
-        name: 'Google Calendar',
-        color: '#4285f4',
-        ownerId: stateData.userId,
-        isDefault: false,
-      } as unknown as typeof schema.calendars.$inferInsert);
-      googleCalendarSettings = { googleCalendarId: calId };
-    }
+    const googleCalendarSettings = isGoogleCalendar
+      ? await createGoogleCalendarContainer(db, stateData.userId)
+      : undefined;
 
     // Insert connection
     await db.insert(t).values({
       id: connectionId,
       provider,
-      name: isGoogleCalendar ? 'Google Calendar' : `${provider.charAt(0).toUpperCase() + provider.slice(1)} CRM`,
+      name: profile.name,
       status: 'active',
-      direction: isGoogleCalendar ? 'bidirectional' : 'inbound',
+      direction: profile.direction,
       externalAccountId,
       oauthTokens: tokens,
       webhookId: webhookReg.webhookId,
       webhookSecret,
       settings: googleCalendarSettings,
-      syncSettings: isGoogleCalendar
-        ? { syncCalendarEvents: true, syncIntervalHours: 1 }
-        : { syncCompanies: true, syncPeople: true, syncIntervalHours: 6 },
+      syncSettings: profile.syncSettings,
       connectedAt: new Date(),
       connectedBy: stateData.userId,
     } as unknown as typeof t.$inferInsert);
@@ -491,20 +559,7 @@ app.post('/connections/:provider/callback', requirePermission('integrations:crea
       { expirationTtl: 86400 * 365 },
     );
 
-    let renewWatchAt: number | null = null;
-    if (isGoogleCalendar && typeof webhookSecret === 'string') {
-      try {
-        const watchInfo = JSON.parse(webhookSecret) as { expiration?: string };
-        if (watchInfo.expiration) {
-          const expiresAt = Number(watchInfo.expiration);
-          if (Number.isFinite(expiresAt)) {
-            renewWatchAt = expiresAt - 24 * 60 * 60 * 1000;
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-    }
+    const renewWatchAt = isGoogleCalendar ? googleWatchRenewalTime(webhookSecret) : null;
 
     await upsertCrmIndex({
       env: c.env,
@@ -512,7 +567,7 @@ app.post('/connections/:provider/callback', requirePermission('integrations:crea
       workspaceId: internalWorkspaceId,
       clerkOrgId: orgId,
       provider,
-      syncIntervalHours: isGoogleCalendar ? 1 : 6,
+      syncIntervalHours: profile.syncSettings.syncIntervalHours,
       renewWatchAt,
       dueNow: true,
     });
@@ -800,6 +855,48 @@ app.post('/connections/:id/discover-tools', requirePermission('integrations:upda
 // Connections — connectivity test
 // ============================================================================
 
+/** Simple connectivity test — HEAD request to the MCP server URL; records the outcome on the connection. */
+async function testMcpConnection(
+  db: Database,
+  id: string,
+  url: string,
+): Promise<{ connected: boolean; status?: number; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    const connected = response.ok || response.status === 405; // 405 is fine — MCP servers may not support HEAD
+
+    await db
+      .update(t)
+      .set({
+        status: connected ? 'active' : 'error',
+        lastError: connected ? null : `HTTP ${response.status}`,
+        lastErrorAt: connected ? null : new Date(),
+        updatedAt: new Date(),
+      } as Partial<typeof t.$inferInsert>)
+      .where(eq(t.id, id));
+
+    return { connected, status: response.status };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Connection failed';
+
+    await db
+      .update(t)
+      .set({
+        status: 'error',
+        lastError: errorMsg,
+        lastErrorAt: new Date(),
+        updatedAt: new Date(),
+      } as Partial<typeof t.$inferInsert>)
+      .where(eq(t.id, id));
+
+    return { connected: false, error: errorMsg };
+  }
+}
+
 app.post('/connections/:id/test', requirePermission('integrations:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -819,41 +916,7 @@ app.post('/connections/:id/test', requirePermission('integrations:update'), asyn
 
       if (!url) return success(c, { connected: false, error: 'No URL configured' });
 
-      // Simple connectivity test — HEAD request to the MCP server URL
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        const connected = response.ok || response.status === 405; // 405 is fine — MCP servers may not support HEAD
-
-        await db
-          .update(t)
-          .set({
-            status: connected ? 'active' : 'error',
-            lastError: connected ? null : `HTTP ${response.status}`,
-            lastErrorAt: connected ? null : new Date(),
-            updatedAt: new Date(),
-          } as Partial<typeof t.$inferInsert>)
-          .where(eq(t.id, id));
-
-        return success(c, { connected, status: response.status });
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Connection failed';
-
-        await db
-          .update(t)
-          .set({
-            status: 'error',
-            lastError: errorMsg,
-            lastErrorAt: new Date(),
-            updatedAt: new Date(),
-          } as Partial<typeof t.$inferInsert>)
-          .where(eq(t.id, id));
-
-        return success(c, { connected: false, error: errorMsg });
-      }
+      return success(c, await testMcpConnection(db, id, url));
     }
 
     return success(c, { connected: true, message: 'Test not implemented for this provider' });

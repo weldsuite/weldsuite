@@ -69,6 +69,105 @@ function groupEventsByDay(events: CalendarEvent[]): DayGroup[] {
   return Array.from(groups.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
+interface EventListItemProps {
+  event: CalendarEvent;
+  calendar: { name: string; color?: string } | undefined;
+  onClick: (event: CalendarEvent) => void;
+}
+
+function EventListItem({ event, calendar, onClick }: EventListItemProps) {
+  const TypeIcon = eventTypeIcons[event.type] || Calendar;
+  const eventColor = event.color || EVENT_TYPE_COLORS[event.type] || EVENT_TYPE_COLORS.other;
+
+  return (
+    <div
+      onClick={() => onClick(event)}
+      className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group transition-colors"
+    >
+      {/* Color dot */}
+      <div
+        className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+        style={{ backgroundColor: eventColor }}
+      />
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <TypeIcon className="h-3.5 w-3.5 text-gray-400 dark:text-muted-foreground flex-shrink-0" />
+          <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
+            {event.title}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-xs text-gray-500 dark:text-muted-foreground">
+            {formatEventTime(event)}
+          </span>
+          {calendar && (
+            <>
+              <span className="text-gray-300 dark:text-border">Â·</span>
+              <span className="text-xs text-gray-400 dark:text-muted-foreground truncate">
+                {calendar.name}
+              </span>
+            </>
+          )}
+          {event.isVirtual && event.meetingUrl && (
+            <>
+              <span className="text-gray-300 dark:text-border">Â·</span>
+              <Video className="h-3 w-3 text-blue-500 flex-shrink-0" />
+            </>
+          )}
+        </div>
+        {event.location && !event.isVirtual && (
+          <div className="text-xs text-gray-400 dark:text-muted-foreground mt-0.5 truncate">
+            {event.location}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmptyEventsState({ hasSearch }: { hasSearch: boolean }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center text-center px-6 bg-white dark:bg-background/30">
+      <EmptyStateIllustration width={210} height={150}>
+        <svg width="100" height="100" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Calendar body fill */}
+          <rect x="20" y="28" width="80" height="72" rx="8" className="fill-white dark:fill-white/[0.03]" />
+          {/* Header strip fill */}
+          <path d="M20 36a8 8 0 0 1 8-8h64a8 8 0 0 1 8 8v8H20v-8z" className="fill-gray-50 dark:fill-white/[0.04]" />
+          {/* Divider between header and body */}
+          <line x1="20" y1="44" x2="100" y2="44" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
+          {/* Day grid - 5 cols x 4 rows of dots */}
+          {[0, 1, 2, 3].map((row) =>
+            [0, 1, 2, 3, 4].map((col) => (
+              <circle
+                key={`${row}-${col}`}
+                cx={32 + col * 14}
+                cy={56 + row * 10}
+                r="1.5"
+                className="fill-gray-200 dark:fill-white/20"
+              />
+            ))
+          )}
+          {/* Outer border drawn last so it stays consistent around header + body */}
+          <rect x="20" y="28" width="80" height="72" rx="8" fill="none" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
+          {/* Binding rings */}
+          <rect x="36" y="20" width="4" height="14" rx="2" className="fill-gray-200 dark:fill-white/20" />
+          <rect x="80" y="20" width="4" height="14" rx="2" className="fill-gray-200 dark:fill-white/20" />
+        </svg>
+      </EmptyStateIllustration>
+      <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
+        {hasSearch ? 'No matching events' : "You're all caught up"}
+      </h3>
+      <p className="text-sm text-muted-foreground max-w-[280px] leading-relaxed">
+        {hasSearch
+          ? 'Try a different search term.'
+          : 'Your next 7 days are clear.'}
+      </p>
+    </div>
+  );
+}
+
 export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimation }: GlobalCalendarDrawerProps) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
@@ -212,43 +311,7 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
         ) : view === 'day' ? (
           <PanelDayView events={events} onEventClick={handleEventClick} />
         ) : dayGroups.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 bg-white dark:bg-background/30">
-            <EmptyStateIllustration width={210} height={150}>
-              <svg width="100" height="100" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-                {/* Calendar body fill */}
-                <rect x="20" y="28" width="80" height="72" rx="8" className="fill-white dark:fill-white/[0.03]" />
-                {/* Header strip fill */}
-                <path d="M20 36a8 8 0 0 1 8-8h64a8 8 0 0 1 8 8v8H20v-8z" className="fill-gray-50 dark:fill-white/[0.04]" />
-                {/* Divider between header and body */}
-                <line x1="20" y1="44" x2="100" y2="44" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
-                {/* Day grid - 5 cols x 4 rows of dots */}
-                {[0, 1, 2, 3].map((row) =>
-                  [0, 1, 2, 3, 4].map((col) => (
-                    <circle
-                      key={`${row}-${col}`}
-                      cx={32 + col * 14}
-                      cy={56 + row * 10}
-                      r="1.5"
-                      className="fill-gray-200 dark:fill-white/20"
-                    />
-                  ))
-                )}
-                {/* Outer border drawn last so it stays consistent around header + body */}
-                <rect x="20" y="28" width="80" height="72" rx="8" fill="none" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
-                {/* Binding rings */}
-                <rect x="36" y="20" width="4" height="14" rx="2" className="fill-gray-200 dark:fill-white/20" />
-                <rect x="80" y="20" width="4" height="14" rx="2" className="fill-gray-200 dark:fill-white/20" />
-              </svg>
-            </EmptyStateIllustration>
-            <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
-              {searchQuery ? 'No matching events' : "You're all caught up"}
-            </h3>
-            <p className="text-sm text-muted-foreground max-w-[280px] leading-relaxed">
-              {searchQuery
-                ? 'Try a different search term.'
-                : 'Your next 7 days are clear.'}
-            </p>
-          </div>
+          <EmptyEventsState hasSearch={!!searchQuery} />
         ) : (
           <div className="flex-1 overflow-y-auto">
             {dayGroups.map((group) => (
@@ -262,58 +325,14 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
                 </div>
 
                 {/* Events for this day */}
-                {group.events.map((event) => {
-                  const TypeIcon = eventTypeIcons[event.type] || Calendar;
-                  const eventColor = event.color || EVENT_TYPE_COLORS[event.type] || EVENT_TYPE_COLORS.other;
-                  const calendar = event.calendarId ? calendarMap.get(event.calendarId) : undefined;
-
-                  return (
-                    <div
-                      key={event.id}
-                      onClick={() => handleEventClick(event)}
-                      className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group transition-colors"
-                    >
-                      {/* Color dot */}
-                      <div
-                        className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
-                        style={{ backgroundColor: eventColor }}
-                      />
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <TypeIcon className="h-3.5 w-3.5 text-gray-400 dark:text-muted-foreground flex-shrink-0" />
-                          <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
-                            {event.title}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-gray-500 dark:text-muted-foreground">
-                            {formatEventTime(event)}
-                          </span>
-                          {calendar && (
-                            <>
-                              <span className="text-gray-300 dark:text-border">Â·</span>
-                              <span className="text-xs text-gray-400 dark:text-muted-foreground truncate">
-                                {calendar.name}
-                              </span>
-                            </>
-                          )}
-                          {event.isVirtual && event.meetingUrl && (
-                            <>
-                              <span className="text-gray-300 dark:text-border">Â·</span>
-                              <Video className="h-3 w-3 text-blue-500 flex-shrink-0" />
-                            </>
-                          )}
-                        </div>
-                        {event.location && !event.isVirtual && (
-                          <div className="text-xs text-gray-400 dark:text-muted-foreground mt-0.5 truncate">
-                            {event.location}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {group.events.map((event) => (
+                  <EventListItem
+                    key={event.id}
+                    event={event}
+                    calendar={event.calendarId ? calendarMap.get(event.calendarId) : undefined}
+                    onClick={handleEventClick}
+                  />
+                ))}
               </div>
             ))}
           </div>

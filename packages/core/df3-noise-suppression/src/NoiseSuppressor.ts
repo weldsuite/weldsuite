@@ -2,40 +2,28 @@ import { SAMPLE_RATE } from './constants';
 import type { SuppressorOptions, WorkerEvent } from './types';
 
 /**
- * Wires the AudioWorklet ↔ Web Worker pipeline and exposes a processed
- * MediaStream that can be handed to RealtimeKit's mediaHandler hook.
+ * One AudioWorklet ↔ Web Worker graph for one input stream.
  *
  * Engine-agnostic: the worklet only buffers 480-sample frames and bridges them
  * to a worker via the main thread; the worker is what actually denoises. Today
  * that worker is RNNoise.
- *
- * A SAB ring buffer is a future optimisation (requires COOP/COEP — see README).
  */
-export class NoiseSuppressor {
+class SuppressionPipeline {
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private worker: Worker | null = null;
-  private readyPromise: Promise<void> | null = null;
-  private bypass: boolean;
-  private logRtf: boolean;
   private rtfWindow: number[] = [];
-  private inputStream: MediaStream | null = null;
+  private inputTracks: MediaStreamTrack[] = [];
+  private disposed = false;
 
-  constructor(private readonly options: SuppressorOptions) {
-    this.bypass = options.initialBypass ?? false;
-    this.logRtf = options.logRtf ?? false;
-  }
+  constructor(
+    private readonly options: SuppressorOptions,
+    private readonly logRtf: boolean,
+  ) {}
 
-  async process(inputStream: MediaStream): Promise<MediaStream> {
-    // Idempotent. RTK calls getUserMedia again on device switches; we tear
-    // down the prior pipeline before standing up a new one so the in-flight
-    // worker doesn't receive frames against a discarded session.
-    if (this.audioContext) {
-      await this.dispose();
-    }
-    this.inputStream = inputStream;
+  async start(inputStream: MediaStream, bypass: boolean): Promise<MediaStream> {
     this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
     if (this.audioContext.sampleRate !== SAMPLE_RATE) {
       // eslint-disable-next-line no-console
@@ -47,7 +35,7 @@ export class NoiseSuppressor {
     await this.audioContext.audioWorklet.addModule(this.options.workletUrl);
 
     this.worker = new Worker(this.options.workerUrl, { type: 'module' });
-    this.readyPromise = new Promise((resolve, reject) => {
+    const ready = new Promise<void>((resolve, reject) => {
       const onMsg = (ev: MessageEvent<WorkerEvent>) => {
         if (ev.data.type === 'ready') {
           this.worker?.removeEventListener('message', onMsg);
@@ -60,7 +48,7 @@ export class NoiseSuppressor {
       this.worker?.addEventListener('message', onMsg);
     });
     this.worker.postMessage({ type: 'init' });
-    await this.readyPromise;
+    await ready;
 
     this.sourceNode = this.audioContext.createMediaStreamSource(inputStream);
     this.workletNode = new AudioWorkletNode(this.audioContext, 'df3-processor', {
@@ -69,7 +57,7 @@ export class NoiseSuppressor {
       outputChannelCount: [1],
     });
     this.destinationNode = this.audioContext.createMediaStreamDestination();
-    this.workletNode.port.postMessage({ type: 'set-bypass', bypass: this.bypass });
+    this.setBypass(bypass);
 
     this.workletNode.port.onmessage = (ev) => {
       const m = ev.data as { type: string; pcm: Float32Array; seq: number };
@@ -90,11 +78,13 @@ export class NoiseSuppressor {
     };
 
     this.sourceNode.connect(this.workletNode).connect(this.destinationNode);
+    // Only take ownership of the raw mic once the graph is live: if start()
+    // throws, the caller falls back to the raw stream, which must stay usable.
+    this.inputTracks = inputStream.getAudioTracks();
     return this.destinationNode.stream;
   }
 
   setBypass(bypass: boolean): void {
-    this.bypass = bypass;
     this.workletNode?.port.postMessage({ type: 'set-bypass', bypass });
   }
 
@@ -112,6 +102,8 @@ export class NoiseSuppressor {
   }
 
   async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
     this.workletNode?.port.close();
     try {
       this.sourceNode?.disconnect();
@@ -130,16 +122,83 @@ export class NoiseSuppressor {
     this.sourceNode = null;
     this.workletNode = null;
     this.destinationNode = null;
-    // Release the raw microphone. dispose() previously only dropped the
-    // reference, leaving the underlying MediaStreamTrack live — so the OS mic
-    // indicator stayed on after the user left the meeting.
-    this.inputStream?.getTracks().forEach((track) => {
+    // Release the raw microphone, otherwise the OS mic indicator stays on
+    // after the user leaves the meeting.
+    for (const track of this.inputTracks) {
       try {
         track.stop();
       } catch {
         /* already stopped */
       }
+    }
+    this.inputTracks = [];
+  }
+}
+
+/**
+ * Turns raw microphone streams into noise-suppressed ones that can be handed
+ * to RealtimeKit (directly, or through `installGetUserMediaPatch`).
+ *
+ * Every `process()` call gets its own pipeline. RTK acquires the mic more than
+ * once per call (it re-acquires when the track's device isn't in its device
+ * list, when it thinks the track is silent, on device switches) and keeps
+ * using whichever track it settled on, so one pipeline must never tear down
+ * another: doing so left RTK holding a track that was still `live` but
+ * permanently silent, which no mute/unmute could bring back. A pipeline is
+ * released when the track it produced is stopped, and `dispose()` releases
+ * whatever is left.
+ *
+ * A SAB ring buffer is a future optimisation (requires COOP/COEP — see README).
+ */
+export class NoiseSuppressor {
+  private readonly pipelines = new Set<SuppressionPipeline>();
+  private bypass: boolean;
+  private readonly logRtf: boolean;
+
+  constructor(private readonly options: SuppressorOptions) {
+    this.bypass = options.initialBypass ?? false;
+    this.logRtf = options.logRtf ?? false;
+  }
+
+  /** Processes the stream's audio tracks; video tracks are ignored. */
+  async process(inputStream: MediaStream): Promise<MediaStream> {
+    const pipeline = new SuppressionPipeline(this.options, this.logRtf);
+    this.pipelines.add(pipeline);
+    let output: MediaStream;
+    try {
+      output = await pipeline.start(inputStream, this.bypass);
+    } catch (err) {
+      this.release(pipeline);
+      throw err;
+    }
+    // RTK stops the tracks it discards, so stopping the processed track is the
+    // signal to free its pipeline (and the raw mic behind it).
+    for (const track of output.getAudioTracks()) {
+      const stopTrack = track.stop.bind(track);
+      track.stop = () => {
+        stopTrack();
+        this.release(pipeline);
+      };
+    }
+    return output;
+  }
+
+  setBypass(bypass: boolean): void {
+    this.bypass = bypass;
+    for (const pipeline of this.pipelines) pipeline.setBypass(bypass);
+  }
+
+  private release(pipeline: SuppressionPipeline): void {
+    if (!this.pipelines.delete(pipeline)) return;
+    pipeline.dispose().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[noise] pipeline dispose error:', err);
     });
-    this.inputStream = null;
+  }
+
+  async dispose(): Promise<void> {
+    const pipelines = [...this.pipelines];
+    this.pipelines.clear();
+    await Promise.all(pipelines.map((pipeline) => pipeline.dispose()));
   }
 }

@@ -49,36 +49,48 @@ export async function requirePortalAccess(db: Database, id: string) {
   return row;
 }
 
+type PortalInviteInput =
+  | { kind: 'employee'; employeeId: string }
+  | { kind: 'client'; personId: string; companyId: string };
+
+/** Resolve who is being invited: their email, display name and the row that identifies an existing grant. */
+async function resolveInviteTarget(
+  db: Database,
+  input: PortalInviteInput,
+): Promise<{ email: string; displayName: string; lookup: ReturnType<typeof and> }> {
+  if (input.kind === 'employee') {
+    const employee = await requireEmployee(db, input.employeeId);
+    if (employee.status === 'terminated') {
+      throw new HrValidationError('Terminated employees cannot be given portal access');
+    }
+    return {
+      email: employee.email,
+      displayName: displayNameOf(employee),
+      lookup: and(eq(pa.kind, 'employee'), eq(pa.employeeId, employee.id)),
+    };
+  }
+
+  const person = await personAtCompany(db, input.personId, input.companyId);
+  if (!person) throw new HrNotFoundError('Person', input.personId);
+  if (!person.linked) throw new HrValidationError('This person is not linked to that company in the CRM');
+  if (!person.email) throw new HrValidationError('This person has no email address in the CRM');
+  return {
+    email: person.email,
+    displayName: person.fullName || [person.firstName, person.lastName].filter(Boolean).join(' ') || person.email,
+    lookup: and(eq(pa.kind, 'client'), eq(pa.personId, person.id), eq(pa.companyId, input.companyId)),
+  };
+}
+
 /**
  * Grant portal access. Re-inviting someone whose access was revoked flips the
  * existing row back to `invited` instead of adding a second one.
  */
 export async function invitePortalAccess(
   db: Database,
-  input: { kind: 'employee'; employeeId: string } | { kind: 'client'; personId: string; companyId: string },
+  input: PortalInviteInput,
   invitedBy: string,
 ) {
-  let email: string;
-  let displayName: string;
-  let lookup;
-
-  if (input.kind === 'employee') {
-    const employee = await requireEmployee(db, input.employeeId);
-    if (employee.status === 'terminated') {
-      throw new HrValidationError('Terminated employees cannot be given portal access');
-    }
-    email = employee.email;
-    displayName = displayNameOf(employee);
-    lookup = and(eq(pa.kind, 'employee'), eq(pa.employeeId, employee.id));
-  } else {
-    const person = await personAtCompany(db, input.personId, input.companyId);
-    if (!person) throw new HrNotFoundError('Person', input.personId);
-    if (!person.linked) throw new HrValidationError('This person is not linked to that company in the CRM');
-    if (!person.email) throw new HrValidationError('This person has no email address in the CRM');
-    email = person.email;
-    displayName = person.fullName || [person.firstName, person.lastName].filter(Boolean).join(' ') || person.email;
-    lookup = and(eq(pa.kind, 'client'), eq(pa.personId, person.id), eq(pa.companyId, input.companyId));
-  }
+  const { email, displayName, lookup } = await resolveInviteTarget(db, input);
 
   const now = new Date();
   const [existing] = await db.select().from(pa).where(lookup).limit(1);

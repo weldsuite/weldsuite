@@ -8,9 +8,9 @@
  * human does not need a second "Schedule" click.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -36,27 +36,92 @@ const decideSchema = z.object({
   rejectionReason: z.string().optional(),
 });
 
+type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
+type Db = Variables['tenantDb'];
+
+/** Cursor row → keyset condition for "rows after the cursor row", or null when the cursor row is unknown. */
+async function cursorCondition(db: Db, cursor: string) {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return null;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
+/** Optional `decisionNotes` from a possibly empty / non-JSON body. */
+async function readDecisionNotes(c: Ctx): Promise<string | undefined> {
+  const raw: unknown = await c.req.json().catch(() => ({}));
+  if (!raw || typeof raw !== 'object') return undefined;
+  const notes = (raw as { decisionNotes?: unknown }).decisionNotes;
+  return typeof notes === 'string' ? notes : undefined;
+}
+
+function scheduleErrorMessage(err: unknown): string {
+  if (err instanceof PostPeerNotConfiguredError) return 'Social publishing is not configured';
+  if (err instanceof SocialPublishConflictError) return err.message;
+  if (err instanceof SocialInsufficientCreditsError) {
+    return `Insufficient credits (need ${err.required}, have ${err.currentBalance})`;
+  }
+  return err instanceof Error ? err.message : 'Failed to auto-schedule after approval';
+}
+
+/**
+ * Register delivery for an approved post that already has an intended
+ * `scheduledAt`. Never throws: approval still succeeds when scheduling fails
+ * (it can be retried from the queue/composer).
+ */
+async function autoScheduleApprovedPost(
+  c: Ctx,
+  db: Db,
+  workspaceId: string,
+  post: typeof posts.$inferSelect,
+): Promise<{
+  scheduled: boolean;
+  scheduleError: string | null;
+  publishResult: Awaited<ReturnType<typeof publishPost>> | null;
+}> {
+  if (!post.scheduledAt) return { scheduled: false, scheduleError: null, publishResult: null };
+  try {
+    const scheduledAt =
+      post.scheduledAt instanceof Date
+        ? post.scheduledAt.toISOString()
+        : new Date(post.scheduledAt).toISOString();
+    const publishResult = await publishPost(db, socialContext(c.env), workspaceId, post.id, {
+      now: false,
+      scheduledAt,
+      timezone: post.timezone ?? undefined,
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'social_post',
+      entityId: post.id,
+      action: 'scheduled',
+      data: {
+        id: post.id,
+        status: publishResult.status,
+        scheduledAt,
+        postpeerPostId: publishResult.postpeerPostId,
+      },
+    });
+    return { scheduled: true, scheduleError: null, publishResult };
+  } catch (err) {
+    console.error('[app-api/social-approvals] auto-schedule after approve failed:', err);
+    return { scheduled: false, scheduleError: scheduleErrorMessage(err), publishResult: null };
+  }
+}
+
 app.get('/', requirePermission('posts:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  if (q.postId !== undefined && q.postId !== '') conditions.push(eq(t.postId, q.postId));
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status as never));
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
+  const filters: SQL[] = [isNull(t.deletedAt)];
+  if (q.postId !== undefined && q.postId !== '') filters.push(eq(t.postId, q.postId));
+  if (q.status !== undefined && q.status !== '') filters.push(eq(t.status, q.status as never));
+  const cursorCond = q.cursor ? await cursorCondition(db, q.cursor) : null;
+  const conditions = cursorCond ? [...filters, cursorCond] : filters;
   const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const countWhere = and(...filters);
 
   try {
     const [rows, countRes] = await Promise.all([
@@ -157,15 +222,7 @@ app.post('/:id/approve', requirePermission('posts:update'), async (c) => {
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId') ?? 'system';
   const id = c.req.param('id');
-  let decisionNotes: string | undefined;
-  try {
-    const raw = await c.req.json().catch(() => ({}));
-    if (raw && typeof raw === 'object' && typeof (raw as { decisionNotes?: unknown }).decisionNotes === 'string') {
-      decisionNotes = (raw as { decisionNotes: string }).decisionNotes;
-    }
-  } catch {
-    // empty body is fine
-  }
+  const decisionNotes = await readDecisionNotes(c);
 
   try {
     const [approval] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
@@ -203,48 +260,7 @@ app.post('/:id/approve', requirePermission('posts:update'), async (c) => {
       })
       .where(eq(posts.id, post.id));
 
-    let scheduled = false;
-    let scheduleError: string | null = null;
-    let publishResult: Awaited<ReturnType<typeof publishPost>> | null = null;
-
-    if (post.scheduledAt) {
-      try {
-        const scheduledAt =
-          post.scheduledAt instanceof Date
-            ? post.scheduledAt.toISOString()
-            : new Date(post.scheduledAt).toISOString();
-        publishResult = await publishPost(db, socialContext(c.env), workspaceId, post.id, {
-          now: false,
-          scheduledAt,
-          timezone: post.timezone ?? undefined,
-        });
-        scheduled = true;
-        publishEntityEvent({
-          c,
-          entityType: 'social_post',
-          entityId: post.id,
-          action: 'scheduled',
-          data: {
-            id: post.id,
-            status: publishResult.status,
-            scheduledAt,
-            postpeerPostId: publishResult.postpeerPostId,
-          },
-        });
-      } catch (err) {
-        // Approval still succeeds — scheduling can be retried from the queue/composer.
-        scheduleError =
-          err instanceof Error ? err.message : 'Failed to auto-schedule after approval';
-        console.error('[app-api/social-approvals] auto-schedule after approve failed:', err);
-        if (err instanceof PostPeerNotConfiguredError) {
-          scheduleError = 'Social publishing is not configured';
-        } else if (err instanceof SocialPublishConflictError) {
-          scheduleError = err.message;
-        } else if (err instanceof SocialInsufficientCreditsError) {
-          scheduleError = `Insufficient credits (need ${err.required}, have ${err.currentBalance})`;
-        }
-      }
-    }
+    const { scheduled, scheduleError, publishResult } = await autoScheduleApprovedPost(c, db, workspaceId, post);
 
     publishEntityEvent({
       c,

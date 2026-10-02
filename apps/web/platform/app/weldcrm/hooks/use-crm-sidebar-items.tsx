@@ -138,7 +138,7 @@ export function useCrmSidebarItems(isActive: boolean): {
   const deleteListMutation = useDeleteList();
   // All-kinds lists for the sidebar. Only enabled when the CRM module is
   // active, so other modules don't fire this query.
-  const { data: sidebarListsResp } = useLists(undefined);
+  const { data: sidebarListsResp } = useLists();
 
   const [customerPages, setCustomerPages] = React.useState<PageData[]>([]);
   const [pipelinePages, setPipelinePages] = React.useState<PageData[]>([]);
@@ -651,7 +651,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       a.download = `pipeline-${exportData.pipeline.name.toLowerCase().replace(/\s+/g, '-')}.json`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      a.remove();
       URL.revokeObjectURL(url);
       toast.success(t('crm.sidebar.dealExported'));
     } catch (error) {

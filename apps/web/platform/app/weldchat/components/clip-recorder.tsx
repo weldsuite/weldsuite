@@ -6,7 +6,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { Monitor, Video, VideoOff, Square, RotateCcw, Loader2, Mic, MicOff, MoreVertical, Send, ChevronUp } from 'lucide-react';
+import { Monitor, Video, VideoOff, Square, RotateCcw, Loader2, Mic, MicOff, MoreVertical, Send, ChevronUp, type LucideIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,6 +55,83 @@ function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+interface DeviceToggleControlProps {
+  isOn: boolean;
+  onToggle: () => void;
+  OnIcon: LucideIcon;
+  OffIcon: LucideIcon;
+  turnOffTitle: string;
+  turnOnTitle: string;
+  optionsTitle: string;
+  deviceFallbackLabel: string;
+  devices: MediaDeviceInfo[];
+  activeDeviceId: string;
+  onDeviceChange: (deviceId: string) => void;
+}
+
+/** Paired on/off toggle + device chooser chevron, shared by the mic and camera controls. */
+function DeviceToggleControl({
+  isOn,
+  onToggle,
+  OnIcon,
+  OffIcon,
+  turnOffTitle,
+  turnOnTitle,
+  optionsTitle,
+  deviceFallbackLabel,
+  devices,
+  activeDeviceId,
+  onDeviceChange,
+}: Readonly<DeviceToggleControlProps>) {
+  const Icon = isOn ? OnIcon : OffIcon;
+  return (
+    <div className={cn('flex items-center rounded-[10px] overflow-hidden ring-1', !isOn ? 'ring-red-400/40' : 'ring-border')}>
+      <Button
+        variant="secondary"
+        size="icon"
+        className={cn(
+          'h-9 w-9 rounded-none rounded-l-[10px] border-0 transition-all',
+          !isOn
+            ? 'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400'
+            : '[&]:hover:brightness-95 dark:[&]:hover:brightness-110',
+        )}
+        onClick={onToggle}
+        title={isOn ? turnOffTitle : turnOnTitle}
+      >
+        <Icon className="!h-4 !w-4" />
+      </Button>
+      {devices.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              className={cn(
+                'group/arrow h-9 w-6 rounded-none rounded-r-[10px] border-0 border-l border-border/30 px-0 flex items-center justify-center transition-colors',
+                !isOn
+                  ? 'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400 border-red-400/20 data-[state=open]:bg-red-200 dark:data-[state=open]:bg-red-500/30'
+                  : '[&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110',
+              )}
+              title={optionsTitle}
+            >
+              <ChevronUp className="h-4 w-4 transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
+            <DropdownMenuRadioGroup value={activeDeviceId} onValueChange={onDeviceChange}>
+              {devices.map(d => (
+                <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
+                  <span className="truncate">{d.label || `${deviceFallbackLabel} ${d.deviceId.slice(0, 8)}`}</span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
+  );
 }
 
 export function ClipRecorder({ open, onClose, onClipReady, initialMode }: Readonly<ClipRecorderProps>) {
@@ -156,11 +233,9 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: Readon
           }
         })
         .catch(() => {});
-    } else {
-      if (camStream) {
-        camStream.getTracks().forEach(t => t.stop());
-        setCamStream(null);
-      }
+    } else if (camStream) {
+      camStream.getTracks().forEach(t => t.stop());
+      setCamStream(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder.mode, recorder.state]);
@@ -285,8 +360,11 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: Readon
   return (
     <>
       {/* Overlay */}
-      <div
-        className="fixed inset-0 z-50 bg-black/50 animate-in fade-in-0 duration-200"
+      <button
+        type="button"
+        aria-hidden="true"
+        tabIndex={-1}
+        className="fixed inset-0 z-50 h-full w-full cursor-default bg-black/50 animate-in fade-in-0 duration-200"
         onClick={handleClose}
       />
 
@@ -373,96 +451,34 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: Readon
       <div className="flex items-center justify-between gap-3 pt-3 pb-1 px-1">
         <div className="flex items-center gap-3">
         {/* Mic + device chooser */}
-        <div className={cn('flex items-center rounded-[10px] overflow-hidden ring-1', !micOn ? 'ring-red-400/40' : 'ring-border')}>
-          <Button
-            variant="secondary"
-            size="icon"
-            className={cn(
-              'h-9 w-9 rounded-none rounded-l-[10px] border-0 transition-all',
-              !micOn
-                ? 'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400'
-                : '[&]:hover:brightness-95 dark:[&]:hover:brightness-110',
-            )}
-            onClick={toggleMic}
-            title={micOn ? st('sweep.weldchat.clipRecorder.turnOffMicrophone') : st('sweep.weldchat.clipRecorder.turnOnMicrophone')}
-          >
-            {micOn ? <Mic className="!h-4 !w-4" /> : <MicOff className="!h-4 !w-4" />}
-          </Button>
-          {audioDevices.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className={cn(
-                    'group/arrow h-9 w-6 rounded-none rounded-r-[10px] border-0 border-l border-border/30 px-0 flex items-center justify-center transition-colors',
-                    !micOn
-                      ? 'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400 border-red-400/20 data-[state=open]:bg-red-200 dark:data-[state=open]:bg-red-500/30'
-                      : '[&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110',
-                  )}
-                  title={st('sweep.weldchat.clipRecorder.microphoneOptions')}
-                >
-                  <ChevronUp className="h-4 w-4 transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-                <DropdownMenuRadioGroup value={activeAudioId} onValueChange={switchAudioDevice}>
-                  {audioDevices.map(d => (
-                    <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
-                      <span className="truncate">{d.label || `${st('sweep.weldchat.clipRecorder.microphoneLabel')} ${d.deviceId.slice(0, 8)}`}</span>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
+        <DeviceToggleControl
+          isOn={micOn}
+          onToggle={toggleMic}
+          OnIcon={Mic}
+          OffIcon={MicOff}
+          turnOffTitle={st('sweep.weldchat.clipRecorder.turnOffMicrophone')}
+          turnOnTitle={st('sweep.weldchat.clipRecorder.turnOnMicrophone')}
+          optionsTitle={st('sweep.weldchat.clipRecorder.microphoneOptions')}
+          deviceFallbackLabel={st('sweep.weldchat.clipRecorder.microphoneLabel')}
+          devices={audioDevices}
+          activeDeviceId={activeAudioId}
+          onDeviceChange={switchAudioDevice}
+        />
 
         {/* Camera + device chooser */}
-        <div className={cn('flex items-center rounded-[10px] overflow-hidden ring-1', !cameraOn ? 'ring-red-400/40' : 'ring-border')}>
-          <Button
-            variant="secondary"
-            size="icon"
-            className={cn(
-              'h-9 w-9 rounded-none rounded-l-[10px] border-0 transition-all',
-              !cameraOn
-                ? 'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400'
-                : '[&]:hover:brightness-95 dark:[&]:hover:brightness-110',
-            )}
-            onClick={toggleCamera}
-            title={cameraOn ? st('sweep.weldchat.clipRecorder.turnOffCamera') : st('sweep.weldchat.clipRecorder.turnOnCamera')}
-          >
-            {cameraOn ? <Video className="!h-4 !w-4" /> : <VideoOff className="!h-4 !w-4" />}
-          </Button>
-          {videoDevices.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className={cn(
-                    'group/arrow h-9 w-6 rounded-none rounded-r-[10px] border-0 border-l border-border/30 px-0 flex items-center justify-center transition-colors',
-                    !cameraOn
-                      ? 'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400 border-red-400/20 data-[state=open]:bg-red-200 dark:data-[state=open]:bg-red-500/30'
-                      : '[&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110',
-                  )}
-                  title={st('sweep.weldchat.clipRecorder.cameraOptions')}
-                >
-                  <ChevronUp className="h-4 w-4 transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-                <DropdownMenuRadioGroup value={activeVideoId} onValueChange={switchVideoDevice}>
-                  {videoDevices.map(d => (
-                    <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
-                      <span className="truncate">{d.label || `${st('sweep.weldchat.clipRecorder.cameraLabel')} ${d.deviceId.slice(0, 8)}`}</span>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
+        <DeviceToggleControl
+          isOn={cameraOn}
+          onToggle={toggleCamera}
+          OnIcon={Video}
+          OffIcon={VideoOff}
+          turnOffTitle={st('sweep.weldchat.clipRecorder.turnOffCamera')}
+          turnOnTitle={st('sweep.weldchat.clipRecorder.turnOnCamera')}
+          optionsTitle={st('sweep.weldchat.clipRecorder.cameraOptions')}
+          deviceFallbackLabel={st('sweep.weldchat.clipRecorder.cameraLabel')}
+          devices={videoDevices}
+          activeDeviceId={activeVideoId}
+          onDeviceChange={switchVideoDevice}
+        />
 
         {/* Screen share toggle */}
         <div className="rounded-[10px] overflow-hidden ring-1 ring-border">

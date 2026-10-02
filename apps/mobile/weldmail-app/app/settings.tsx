@@ -14,6 +14,29 @@ import { LogOut, Moon, Sun, Building2, Check, User } from 'lucide-react-native';
 import { Screen, ScreenHeader, SectionLabel } from '@/components/screen';
 import { BRAND, BRAND_TINT, tint, ACCENTS } from '@/lib/brand';
 
+function getUpdateStatus(): string {
+  if (!Updates.isEnabled) return 'Dev build';
+  if (Updates.isEmbeddedLaunch) return 'Embedded (no OTA yet)';
+  if (Updates.updateId) return Updates.updateId.slice(0, 8);
+  return '—';
+}
+
+function WorkspaceTrailing({ isSwitching, isActive, borderColor }: Readonly<{
+  isSwitching: boolean;
+  isActive: boolean;
+  borderColor: string;
+}>) {
+  if (isSwitching) return <Spinner size="small" color={BRAND} />;
+  if (isActive) {
+    return (
+      <View style={[styles.checkCircle, { backgroundColor: BRAND }]}>
+        <Check size={14} color="#FFFFFF" strokeWidth={3} />
+      </View>
+    );
+  }
+  return <View style={[styles.emptyCircle, { borderColor }]} />;
+}
+
 export default function SettingsScreen() {
   const { theme, colors, toggleTheme } = useTheme();
   const { user, signOut } = useClerkAuth();
@@ -25,13 +48,7 @@ export default function SettingsScreen() {
 
   const appVersion = Application.nativeApplicationVersion ?? '—';
   const buildVersion = Application.nativeBuildVersion ?? '—';
-  const updateStatus = !Updates.isEnabled
-    ? 'Dev build'
-    : Updates.isEmbeddedLaunch
-      ? 'Embedded (no OTA yet)'
-      : Updates.updateId
-        ? Updates.updateId.slice(0, 8)
-        : '—';
+  const updateStatus = getUpdateStatus();
   const publishedAt = Updates.createdAt ? Updates.createdAt.toLocaleString() : '—';
   const aboutRows: { label: string; value: string }[] = [
     { label: 'Version', value: `${appVersion} (${buildVersion})` },
@@ -133,15 +150,7 @@ export default function SettingsScreen() {
                     {ws.name}
                   </Text>
                 </View>
-                {isSwitching ? (
-                  <Spinner size="small" color={BRAND} />
-                ) : isActive ? (
-                  <View style={[styles.checkCircle, { backgroundColor: BRAND }]}>
-                    <Check size={14} color="#FFFFFF" strokeWidth={3} />
-                  </View>
-                ) : (
-                  <View style={[styles.emptyCircle, { borderColor: colors.border }]} />
-                )}
+                <WorkspaceTrailing isSwitching={isSwitching} isActive={isActive} borderColor={colors.border} />
               </TouchableOpacity>
             );
           })}

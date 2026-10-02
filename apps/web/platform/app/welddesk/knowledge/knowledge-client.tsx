@@ -514,6 +514,15 @@ export function KnowledgeClient({
     return lines;
   };
 
+  // Keyboard activation for clickable rows; ignore keys bubbling from nested controls
+  const handleRowKeyDown = (e: React.KeyboardEvent<HTMLElement>, activate: () => void) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      activate();
+    }
+  };
+
   const renderFolderRow = (node: FlatNode) => {
     const folder = node.folder!;
     const isExpanded = expandedFolders.has(folder.id);
@@ -524,7 +533,10 @@ export function KnowledgeClient({
     return (
       <div
         key={folder.id}
+        role="button"
+        tabIndex={0}
         onClick={() => toggleFolder(folder.id)}
+        onKeyDown={(e) => handleRowKeyDown(e, () => toggleFolder(folder.id))}
         className="relative flex items-center gap-4 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group bg-muted/30"
         style={{ paddingLeft: `${16 + node.depth * 44}px` }}
       >
@@ -552,7 +564,7 @@ export function KnowledgeClient({
         <div className="w-[100px]" />
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div role="presentation" className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -590,7 +602,12 @@ export function KnowledgeClient({
     return (
       <div
         key={article.id}
+        role="button"
+        tabIndex={0}
         onClick={() => router.push(`/welddesk/help-center/articles/${article.id}`)}
+        onKeyDown={(e) =>
+          handleRowKeyDown(e, () => router.push(`/welddesk/help-center/articles/${article.id}`))
+        }
         className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
         style={{ paddingLeft: `${16 + node.depth * 44}px` }}
       >
@@ -645,7 +662,7 @@ export function KnowledgeClient({
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div role="presentation" className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

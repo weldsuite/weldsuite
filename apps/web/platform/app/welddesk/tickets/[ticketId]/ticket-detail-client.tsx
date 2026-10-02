@@ -85,6 +85,118 @@ interface TicketDetailClientProps {
   ticket: ApiTicket;
 }
 
+const GROUP_WINDOW_MINUTES = 5;
+
+// Two adjacent messages are visually grouped when the same side sent both within 5 minutes.
+function isGroupedPair(a: ChatMessage | undefined, b: ChatMessage): boolean {
+  if (!a || a.sender !== b.sender) return false;
+  const diffInMinutes = Math.abs(new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) / (1000 * 60);
+  return diffInMinutes <= GROUP_WINDOW_MINUTES;
+}
+
+// Pairs each string with a key derived from its content plus its occurrence count,
+// so repeated values (e.g. blank lines) still get unique keys without using the array index.
+function withOccurrenceKeys(values: string[]): { key: string; value: string }[] {
+  const seen = new Map<string, number>();
+  return values.map((value) => {
+    const count = (seen.get(value) ?? 0) + 1;
+    seen.set(value, count);
+    return { key: `${value}#${count}`, value };
+  });
+}
+
+function getBubbleRadiusClass(sender: ChatMessage['sender'], isGroupedWithPrev: boolean): string {
+  if (sender === 'agent') {
+    return isGroupedWithPrev ? 'rounded-l-2xl rounded-tr-sm rounded-br-sm' : 'rounded-2xl rounded-br-sm';
+  }
+  return isGroupedWithPrev ? 'rounded-r-2xl rounded-tl-sm rounded-bl-sm' : 'rounded-2xl rounded-bl-sm';
+}
+
+function ChatMessageTimestamp({ message }: Readonly<{ message: ChatMessage }>) {
+  return (
+    <>
+      <span className={cn(
+        "text-[11px]",
+        message.sender === 'agent'
+          ? "text-gray-700 dark:text-gray-700"
+          : "text-gray-500 dark:text-muted-foreground"
+      )}>
+        {format(new Date(message.timestamp), 'h:mm a')}
+      </span>
+      {message.sender === 'agent' && (
+        <CheckCheck className="w-4 h-4 text-gray-700" />
+      )}
+    </>
+  );
+}
+
+function ChatMessageRow({
+  message,
+  prevMessage,
+  nextMessage,
+}: Readonly<{
+  message: ChatMessage;
+  prevMessage: ChatMessage | undefined;
+  nextMessage: ChatMessage | undefined;
+}>) {
+  const lines = message.text.split('\n');
+  const lastLine = lines[lines.length - 1];
+  const shouldPutTimestampBelow = lastLine.length > 60;
+
+  const shouldGroupWithNext = isGroupedPair(nextMessage, message);
+  const isGroupedWithPrev = isGroupedPair(prevMessage, message);
+  const marginBottom = shouldGroupWithNext ? "mb-1.5" : "mb-6";
+  const borderRadiusClass = getBubbleRadiusClass(message.sender, isGroupedWithPrev);
+
+  return (
+    <div className={cn(
+      "flex gap-2 items-end",
+      marginBottom,
+      message.sender === 'agent' ? "justify-end" : ""
+    )}>
+      <div className={cn(
+        "inline-block max-w-[70%]",
+        message.sender === 'agent' ? "ml-auto" : ""
+      )}>
+        <div className={cn(
+          "px-4 py-2.5 inline-block",
+          borderRadiusClass,
+          message.sender === 'agent'
+            ? "bg-[#D7E8FE] dark:bg-[#D7E8FE]"
+            : "bg-[#F3F4F6] dark:bg-secondary"
+        )}>
+          <div className={cn(
+            "text-[14px] leading-relaxed whitespace-pre-wrap break-words",
+            message.sender === 'agent'
+              ? "text-gray-900 dark:text-gray-900"
+              : "text-gray-700 dark:text-foreground"
+          )}>
+            {withOccurrenceKeys(lines).map(({ key, value: line }, i) => {
+              const isLastLine = i === lines.length - 1;
+              if (isLastLine && !shouldPutTimestampBelow) {
+                return (
+                  <div key={key} className="flex items-end gap-2">
+                    <span className="flex-1">{line}</span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0 -translate-y-px">
+                      <ChatMessageTimestamp message={message} />
+                    </div>
+                  </div>
+                );
+              }
+              return <div key={key}>{line || <br />}</div>;
+            })}
+            {shouldPutTimestampBelow && (
+              <div className="flex items-center gap-1.5 justify-end mt-1">
+                <ChatMessageTimestamp message={message} />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Customer Chat View ---
 function CustomerChatView({
   messages,
@@ -149,117 +261,14 @@ function CustomerChatView({
             </div>
           )}
 
-          {messages.map((message, index, array) => {
-            const lines = message.text.split('\n');
-            const lastLine = lines[lines.length - 1];
-            const shouldPutTimestampBelow = lastLine.length > 60;
-
-            const nextMessage = array[index + 1];
-            const isFollowedBySameSender = nextMessage && nextMessage.sender === message.sender;
-            const timeDiffInMinutes = nextMessage
-              ? Math.abs(new Date(nextMessage.timestamp).getTime() - new Date(message.timestamp).getTime()) / (1000 * 60)
-              : Infinity;
-            const shouldGroupWithNext = isFollowedBySameSender && timeDiffInMinutes <= 5;
-            const marginBottom = shouldGroupWithNext ? "mb-1.5" : "mb-6";
-
-            const prevMessage = array[index - 1];
-            const isPrecededBySameSender = prevMessage && prevMessage.sender === message.sender;
-            const prevTimeDiffInMinutes = prevMessage
-              ? Math.abs(new Date(message.timestamp).getTime() - new Date(prevMessage.timestamp).getTime()) / (1000 * 60)
-              : Infinity;
-            const isGroupedWithPrev = isPrecededBySameSender && prevTimeDiffInMinutes <= 5;
-
-            let borderRadiusClass = "rounded-2xl";
-            if (message.sender === 'agent') {
-              if (isGroupedWithPrev && shouldGroupWithNext) {
-                borderRadiusClass = "rounded-l-2xl rounded-tr-sm rounded-br-sm";
-              } else if (isGroupedWithPrev && !shouldGroupWithNext) {
-                borderRadiusClass = "rounded-l-2xl rounded-tr-sm rounded-br-sm";
-              } else if (!isGroupedWithPrev && shouldGroupWithNext) {
-                borderRadiusClass = "rounded-2xl rounded-br-sm";
-              } else {
-                borderRadiusClass = "rounded-2xl rounded-br-sm";
-              }
-            } else {
-              if (isGroupedWithPrev && shouldGroupWithNext) {
-                borderRadiusClass = "rounded-r-2xl rounded-tl-sm rounded-bl-sm";
-              } else if (isGroupedWithPrev && !shouldGroupWithNext) {
-                borderRadiusClass = "rounded-r-2xl rounded-tl-sm rounded-bl-sm";
-              } else if (!isGroupedWithPrev && shouldGroupWithNext) {
-                borderRadiusClass = "rounded-2xl rounded-bl-sm";
-              } else {
-                borderRadiusClass = "rounded-2xl rounded-bl-sm";
-              }
-            }
-
-            return (
-              <div key={message.id} className={cn(
-                "flex gap-2 items-end",
-                marginBottom,
-                message.sender === 'agent' ? "justify-end" : ""
-              )}>
-                <div className={cn(
-                  "inline-block max-w-[70%]",
-                  message.sender === 'agent' ? "ml-auto" : ""
-                )}>
-                  <div className={cn(
-                    "px-4 py-2.5 inline-block",
-                    borderRadiusClass,
-                    message.sender === 'agent'
-                      ? "bg-[#D7E8FE] dark:bg-[#D7E8FE]"
-                      : "bg-[#F3F4F6] dark:bg-secondary"
-                  )}>
-                    <div className={cn(
-                      "text-[14px] leading-relaxed whitespace-pre-wrap break-words",
-                      message.sender === 'agent'
-                        ? "text-gray-900 dark:text-gray-900"
-                        : "text-gray-700 dark:text-foreground"
-                    )}>
-                      {lines.map((line, i) => {
-                        const isLastLine = i === lines.length - 1;
-                        if (isLastLine && !shouldPutTimestampBelow) {
-                          return (
-                            <div key={i} className="flex items-end gap-2">
-                              <span className="flex-1">{line}</span>
-                              <div className="flex items-center gap-1.5 flex-shrink-0 -translate-y-px">
-                                <span className={cn(
-                                  "text-[11px]",
-                                  message.sender === 'agent'
-                                    ? "text-gray-700 dark:text-gray-700"
-                                    : "text-gray-500 dark:text-muted-foreground"
-                                )}>
-                                  {format(new Date(message.timestamp), 'h:mm a')}
-                                </span>
-                                {message.sender === 'agent' && (
-                                  <CheckCheck className="w-4 h-4 text-gray-700" />
-                                )}
-                              </div>
-                            </div>
-                          );
-                        }
-                        return <div key={i}>{line || <br />}</div>;
-                      })}
-                      {shouldPutTimestampBelow && (
-                        <div className="flex items-center gap-1.5 justify-end mt-1">
-                          <span className={cn(
-                            "text-[11px]",
-                            message.sender === 'agent'
-                              ? "text-gray-700 dark:text-gray-700"
-                              : "text-gray-500 dark:text-muted-foreground"
-                          )}>
-                            {format(new Date(message.timestamp), 'h:mm a')}
-                          </span>
-                          {message.sender === 'agent' && (
-                            <CheckCheck className="w-4 h-4 text-gray-700" />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {messages.map((message, index, array) => (
+            <ChatMessageRow
+              key={message.id}
+              message={message}
+              prevMessage={array[index - 1]}
+              nextMessage={array[index + 1]}
+            />
+          ))}
 
           <div ref={messagesEndRef} />
         </div>
@@ -316,6 +325,26 @@ function getActionLabel(type: InternalNote['type']) {
   }
 }
 
+const ASSIGNED_PREFIX = 'Assigned to ';
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
+
+// Splits "Assigned to Mark Johnson (Finance)" into [full, prefix, name, " (Finance)"].
+// Linear-time equivalent of /^(Assigned to )(.+?)(\s*\(.+\))$/ (which backtracks super-linearly).
+function splitAssignment(text: string): [string, string, string, string] | null {
+  if (!text.startsWith(ASSIGNED_PREFIX) || !text.endsWith(')')) return null;
+  const rest = text.slice(ASSIGNED_PREFIX.length);
+  // The name needs at least one character; the parenthetical needs "(" + 1+ chars + ")".
+  for (let open = 1; open <= rest.length - 3; open++) {
+    if (rest[open] !== '(') continue;
+    let nameEnd = open;
+    while (nameEnd > 1 && /\s/.test(rest[nameEnd - 1])) nameEnd--;
+    // "." in the original pattern never matched line terminators (only "\s*" could).
+    if (LINE_TERMINATOR.test(rest.slice(0, nameEnd)) || LINE_TERMINATOR.test(rest.slice(open + 1, -1))) continue;
+    return [text, ASSIGNED_PREFIX, rest.slice(0, nameEnd), rest.slice(nameEnd)];
+  }
+  return null;
+}
+
 function highlightSystemText(text: string, type: InternalNote['type']): React.ReactNode {
   if (type === 'status_change') {
     // "Status changed from Open to In Progress"
@@ -326,7 +355,7 @@ function highlightSystemText(text: string, type: InternalNote['type']): React.Re
   }
   if (type === 'assignment') {
     // "Assigned to Mark Johnson (Finance)"
-    const assignMatch = text.match(/^(Assigned to )(.+?)(\s*\(.+\))$/);
+    const assignMatch = splitAssignment(text);
     if (assignMatch) {
       return <>{assignMatch[1]}<span className="text-foreground font-medium">{assignMatch[2]}</span><span className="text-muted-foreground">{assignMatch[3]}</span></>;
     }
@@ -339,8 +368,8 @@ function highlightSystemText(text: string, type: InternalNote['type']): React.Re
     // Highlight ticket references like #tkt_002
     const parts = text.split(/(#[a-zA-Z0-9_-]+)/g);
     if (parts.length > 1) {
-      return <>{parts.map((part, i) =>
-        part.startsWith('#') ? <span key={i} className="text-foreground font-medium">{part}</span> : part
+      return <>{withOccurrenceKeys(parts).map(({ key, value: part }) =>
+        part.startsWith('#') ? <span key={key} className="text-foreground font-medium">{part}</span> : <React.Fragment key={key}>{part}</React.Fragment>
       )}</>;
     }
   }
@@ -487,6 +516,14 @@ function ActivityTimeline({ notes }: Readonly<{ notes: InternalNote[] }>) {
   );
 }
 
+/** Builds the note text from the typed text plus an optional attachment list. */
+function buildNoteText(noteText: string, attachments?: AttachmentPreview[]): string {
+  const hasAttachments = !!attachments && attachments.length > 0;
+  const attachmentList = attachments?.map(a => a.name).join(', ') ?? '';
+  if (!noteText.trim()) return `📎 ${attachmentList}`;
+  if (hasAttachments) return `${noteText}\n\n📎 ${attachmentList}`;
+  return noteText;
+}
 
 // --- Back-Office View ---
 function BackOfficeView({
@@ -509,12 +546,7 @@ function BackOfficeView({
 
   const handleSubmit = (attachments?: AttachmentPreview[]) => {
     if (!noteText.trim() && (!attachments || attachments.length === 0)) return;
-    const text = noteText.trim()
-      ? attachments && attachments.length > 0
-        ? `${noteText}\n\n📎 ${attachments.map(a => a.name).join(', ')}`
-        : noteText
-      : `📎 ${attachments!.map(a => a.name).join(', ')}`;
-    onAddNote(text);
+    onAddNote(buildNoteText(noteText, attachments));
     setNoteText('');
   };
 
@@ -616,12 +648,7 @@ function TrackerView({
 
   const handleSubmit = (attachments?: AttachmentPreview[]) => {
     if (!noteText.trim() && (!attachments || attachments.length === 0)) return;
-    const text = noteText.trim()
-      ? attachments && attachments.length > 0
-        ? `${noteText}\n\n📎 ${attachments.map(a => a.name).join(', ')}`
-        : noteText
-      : `📎 ${attachments!.map(a => a.name).join(', ')}`;
-    onAddNote(text);
+    onAddNote(buildNoteText(noteText, attachments));
     setNoteText('');
   };
 
@@ -916,6 +943,16 @@ function TicketSidebar({
   const tp = t.helpdesk.ticketsPage;
   const { fields: visFields, fieldVisibility, isFieldVisible, toggleField, resetToDefaults } = useDrawerFieldVisibility('ticket-sidebar');
 
+  let panelFallbackTitle = tp.noCustomer;
+  let panelSubtitle = ticket.fromEmail || tp.noEmail;
+  if (category === 'back-office') {
+    panelFallbackTitle = tp.internalTask;
+    panelSubtitle = tp.backOfficeTask;
+  } else if (category === 'tracker') {
+    panelFallbackTitle = tp.trackerTask;
+    panelSubtitle = tp.issueTracker;
+  }
+
   return (
     <div className="w-[484px] bg-background border-l border-border flex flex-col h-full">
       {/* Panel Header */}
@@ -929,10 +966,10 @@ function TicketSidebar({
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-foreground truncate">
-              {category === 'back-office' ? (ticket.from || tp.internalTask) : category === 'tracker' ? (ticket.from || tp.trackerTask) : (ticket.from || tp.noCustomer)}
+              {ticket.from || panelFallbackTitle}
             </h3>
             <p className="text-[12px] text-muted-foreground truncate">
-              {category === 'back-office' ? tp.backOfficeTask : category === 'tracker' ? tp.issueTracker : (ticket.fromEmail || tp.noEmail)}
+              {panelSubtitle}
             </p>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -1276,6 +1313,11 @@ export default function TicketDetailClient({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Focus the subject input when inline editing starts
+  useEffect(() => {
+    if (isEditingSubject) subjectInputRef.current?.focus();
+  }, [isEditingSubject]);
+
   const handleWeldAgentSend = async () => {
     if (!weldAgentPrompt.trim()) return;
 
@@ -1428,20 +1470,22 @@ export default function TicketDetailClient({
                   setIsEditingSubject(false);
                 }}
                 className="text-sm md:text-lg font-medium text-gray-900 dark:text-foreground bg-transparent outline-none border border-blue-500 dark:border-blue-400 rounded-md px-2 py-0.5 min-w-[80px] w-full -ml-0.5"
-                autoFocus
               />
             ) : (
-              <div
-                className="flex items-center min-w-0 group cursor-text border border-transparent hover:border-gray-300 dark:hover:border-border rounded-md px-2 py-0.5 -ml-0.5 transition-colors"
-                onClick={() => {
-                  setEditedSubject(ticket.subject || '');
-                  setIsEditingSubject(true);
-                }}
-              >
-                <h1 className="text-sm md:text-lg font-medium text-gray-900 dark:text-foreground truncate">
-                  {ticket.subject || tp.noSubject}
-                </h1>
-              </div>
+              <h1 className="min-w-0 text-sm md:text-lg font-medium text-gray-900 dark:text-foreground">
+                <button
+                  type="button"
+                  className="flex items-center max-w-full min-w-0 group cursor-text text-left border border-transparent hover:border-gray-300 dark:hover:border-border rounded-md px-2 py-0.5 -ml-0.5 transition-colors"
+                  onClick={() => {
+                    setEditedSubject(ticket.subject || '');
+                    setIsEditingSubject(true);
+                  }}
+                >
+                  <span className="truncate">
+                    {ticket.subject || tp.noSubject}
+                  </span>
+                </button>
+              </h1>
             )}
             {/* Category badge */}
             {category === 'back-office' && (

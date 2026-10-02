@@ -1,7 +1,7 @@
 import { apiRequest, loadConfig, resolveAppId, type UserAppSummary } from '../api.js';
 import { flagBool, flagString, type ParsedArgs } from '../args.js';
 import { bold, cyan, info, success } from '../log.js';
-import { loadManifest } from '../manifest.js';
+import { loadManifest, type Manifest } from '../manifest.js';
 
 export const help = `${bold('weld app update')} — patch app metadata
 
@@ -29,56 +29,75 @@ function nullableUrl(value: string | undefined): string | null | undefined {
   return value;
 }
 
+const FIELD_FLAGS = [
+  'name',
+  'description',
+  'icon',
+  'category',
+  'website-url',
+  'privacy-url',
+  'webhook-url',
+  'active',
+  'inactive',
+];
+
+/** Manifest fields synced by `--from-manifest` (after `name`, which is always sent). */
+const MANIFEST_SYNC_FIELDS = [
+  'description',
+  'icon',
+  'category',
+  'websiteUrl',
+  'privacyUrl',
+  'screenshots',
+  'webhookUrl',
+] as const;
+
+/** Plain string flags that map straight onto a body field. */
+const STRING_FLAGS: ReadonlyArray<readonly [flag: string, field: string]> = [
+  ['name', 'name'],
+  ['description', 'description'],
+  ['icon', 'icon'],
+  ['category', 'category'],
+];
+
+/** URL flags where an empty string clears the field (sent as `null`). */
+const URL_FLAGS: ReadonlyArray<readonly [flag: string, field: string]> = [
+  ['website-url', 'websiteUrl'],
+  ['privacy-url', 'privacyUrl'],
+  ['webhook-url', 'webhookUrl'],
+];
+
+function bodyFromManifest(manifest: Manifest): Record<string, unknown> {
+  const body: Record<string, unknown> = { name: manifest.name };
+  for (const field of MANIFEST_SYNC_FIELDS) {
+    if (manifest[field] !== undefined) body[field] = manifest[field];
+  }
+  return body;
+}
+
+function applyFlagOverrides(body: Record<string, unknown>, flags: ParsedArgs['flags']): void {
+  for (const [flag, field] of STRING_FLAGS) {
+    const value = flagString(flags, flag);
+    if (value !== undefined) body[field] = value;
+  }
+  for (const [flag, field] of URL_FLAGS) {
+    const value = nullableUrl(flagString(flags, flag));
+    if (value !== undefined) body[field] = value;
+  }
+  if (flagBool(flags, 'active')) body.isActive = true;
+  if (flagBool(flags, 'inactive')) body.isActive = false;
+}
+
 export async function run(args: ParsedArgs): Promise<void> {
   const config = loadConfig();
   const manifest = await loadManifest();
   const appId = await resolveAppId(config, manifest.code);
 
-  const fieldFlags = [
-    'name',
-    'description',
-    'icon',
-    'category',
-    'website-url',
-    'privacy-url',
-    'webhook-url',
-    'active',
-    'inactive',
-  ];
-  const hasFieldFlag = fieldFlags.some((name) => args.flags[name] !== undefined);
+  const hasFieldFlag = FIELD_FLAGS.some((name) => args.flags[name] !== undefined);
   const fromManifest = flagBool(args.flags, 'from-manifest') || !hasFieldFlag;
 
-  const body: Record<string, unknown> = {};
-
-  if (fromManifest) {
-    body.name = manifest.name;
-    if (manifest.description !== undefined) body.description = manifest.description;
-    if (manifest.icon !== undefined) body.icon = manifest.icon;
-    if (manifest.category !== undefined) body.category = manifest.category;
-    if (manifest.websiteUrl !== undefined) body.websiteUrl = manifest.websiteUrl;
-    if (manifest.privacyUrl !== undefined) body.privacyUrl = manifest.privacyUrl;
-    if (manifest.screenshots !== undefined) body.screenshots = manifest.screenshots;
-    if (manifest.webhookUrl !== undefined) body.webhookUrl = manifest.webhookUrl;
-  }
-
-  const name = flagString(args.flags, 'name');
-  if (name !== undefined) body.name = name;
-  const description = flagString(args.flags, 'description');
-  if (description !== undefined) body.description = description;
-  const icon = flagString(args.flags, 'icon');
-  if (icon !== undefined) body.icon = icon;
-  const category = flagString(args.flags, 'category');
-  if (category !== undefined) body.category = category;
-
-  const websiteUrl = nullableUrl(flagString(args.flags, 'website-url'));
-  if (websiteUrl !== undefined) body.websiteUrl = websiteUrl;
-  const privacyUrl = nullableUrl(flagString(args.flags, 'privacy-url'));
-  if (privacyUrl !== undefined) body.privacyUrl = privacyUrl;
-  const webhookUrl = nullableUrl(flagString(args.flags, 'webhook-url'));
-  if (webhookUrl !== undefined) body.webhookUrl = webhookUrl;
-
-  if (flagBool(args.flags, 'active')) body.isActive = true;
-  if (flagBool(args.flags, 'inactive')) body.isActive = false;
+  const body: Record<string, unknown> = fromManifest ? bodyFromManifest(manifest) : {};
+  applyFlagOverrides(body, args.flags);
 
   if (Object.keys(body).length === 0) {
     info(`Nothing to update. Pass field flags or edit weldapp.json and re-run ${cyan('weld app update')}.`);

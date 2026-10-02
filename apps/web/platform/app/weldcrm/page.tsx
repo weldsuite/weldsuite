@@ -67,6 +67,95 @@ type CompanyOption = { id: string; name: string; avatar?: string };
 const TASK_STATUS_ORDER = ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'];
 const TASK_PRIORITY_ORDER = ['low', 'medium', 'high'];
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Predicate for the "due date" filter values; unknown values match every task. */
+function makeDueDateMatcher(value: string): (task: Task) => boolean {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTomorrow = new Date(startOfToday.getTime() + DAY_MS);
+  const startOfDayAfterTomorrow = new Date(startOfToday.getTime() + 2 * DAY_MS);
+  const endOfWeek = new Date(startOfToday.getTime() + 7 * DAY_MS);
+
+  return (t) => {
+    switch (value) {
+      case 'overdue': return Boolean(t.dueDate && t.dueDate < startOfToday && t.status !== 'done');
+      case 'today': return Boolean(t.dueDate && t.dueDate >= startOfToday && t.dueDate < startOfTomorrow);
+      case 'tomorrow': return Boolean(t.dueDate && t.dueDate >= startOfTomorrow && t.dueDate < startOfDayAfterTomorrow);
+      case 'this-week': return Boolean(t.dueDate && t.dueDate >= startOfDayAfterTomorrow && t.dueDate < endOfWeek);
+      case 'later': return Boolean(t.dueDate && t.dueDate >= endOfWeek);
+      case 'no-date': return !t.dueDate;
+      default: return true;
+    }
+  };
+}
+
+/** Builds the per-task predicate for one active filter, or null when the field is not filterable. */
+function makeTaskFilterMatcher(filter: ActiveFilter): ((task: Task) => boolean) | null {
+  const { value } = filter;
+  switch (filter.field) {
+    case 'status': return (t) => t.status === value;
+    case 'assignee': return (t) => t.assignee?.name === value;
+    case 'due date': return makeDueDateMatcher(value);
+    case 'company': return (t) => t.linkedCompany?.name === value;
+    case 'priority': return (t) => t.priority === value;
+    case 'label': return (t) => Array.isArray(t.labels) && t.labels.includes(value);
+    default: return null;
+  }
+}
+
+function applyTaskFilters(items: Task[], filters: ActiveFilter[]): Task[] {
+  let result = items;
+  for (const filter of filters) {
+    if (!filter.operator || !filter.value) continue;
+    const matches = makeTaskFilterMatcher(filter);
+    if (!matches) continue;
+    result = filter.operator === 'is' ? result.filter(matches) : result.filter((t) => !matches(t));
+  }
+  return result;
+}
+
+/** Everyone assigned to a task (multi-assignee list, else the single assignee). */
+function getTaskAssignees(task: Task): NonNullable<Task['assignees']> {
+  if (task.assignees && task.assignees.length > 0) return task.assignees;
+  return task.assignee ? [task.assignee] : [];
+}
+
+/** Ids of everyone assigned to a task (multi-assignee list, else the single assignee). */
+function getTaskAssigneeIds(task: Task): string[] {
+  return getTaskAssignees(task).map((a) => a.id);
+}
+
+/** Opens the task on Enter/Space, but only when the row itself (not a nested control) has focus. */
+function handleRowActivateKey(e: React.KeyboardEvent<HTMLElement>, activate: () => void): void {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    activate();
+  }
+}
+
+/** Compact label for a repeating task's badge (e.g. `2w`, `3d`, `M`). */
+function formatRepeatBadge(repeat: NonNullable<Task['repeat']>): string {
+  if (repeat.frequency === 'custom' && repeat.interval && repeat.unit) {
+    return `${repeat.interval}${repeat.unit.charAt(0)}`;
+  }
+  if (repeat.frequency === 'biweekly') return '2w';
+  return repeat.frequency.charAt(0).toUpperCase();
+}
+
+/** Next assignee list after toggling `memberId` in the current selection. */
+function toggleAssignee(
+  currentIds: string[],
+  memberId: string,
+  directory: ReadonlyArray<{ id: string; name: string }>,
+): { id: string; name: string }[] {
+  const nextIds = currentIds.includes(memberId)
+    ? currentIds.filter((id) => id !== memberId)
+    : [...currentIds, memberId];
+  return nextIds.map((id) => ({ id, name: directory.find((x) => x.id === id)?.name || '' }));
+}
+
 const CompanyPicker = React.memo(function CompanyPicker({
   taskId,
   linkedCompany,
@@ -209,7 +298,8 @@ export default function CrmTasksClient() {
       const params = new URLSearchParams(searchParams.toString());
       params.delete('new');
       const query = params.toString();
-      router.replace(`/weldcrm${query ? `?${query}` : ''}`);
+      const querySuffix = query ? `?${query}` : '';
+      router.replace(`/weldcrm${querySuffix}`);
     }
   }, [searchParams, router]);
   const [viewMode, setViewMode] = useState<'list' | 'pipeline'>('list');
@@ -365,10 +455,7 @@ export default function CrmTasksClient() {
         label: m.name,
         sortOrder: i + 1,
         filter: (t: Task) => {
-          const ids = t.assignees && t.assignees.length > 0
-            ? t.assignees.map(a => a.id)
-            : (t.assignee ? [t.assignee.id] : []);
-          return ids.includes(m.id);
+          return getTaskAssigneeIds(t).includes(m.id);
         },
       }));
       memberGroups.push({
@@ -376,10 +463,7 @@ export default function CrmTasksClient() {
         label: t('crm.tasks.groupBy.unassigned'),
         sortOrder: availableAssignees.length + 1,
         filter: (t) => {
-          const ids = t.assignees && t.assignees.length > 0
-            ? t.assignees.map(a => a.id)
-            : (t.assignee ? [t.assignee.id] : []);
-          return ids.length === 0;
+          return getTaskAssigneeIds(t).length === 0;
         },
       });
       return memberGroups;
@@ -489,60 +573,6 @@ export default function CrmTasksClient() {
     </Popover>
   );
 
-  // Apply filters function
-  const applyFilters = useCallback((items: Task[], filters: ActiveFilter[]) => {
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
-    const startOfDayAfterTomorrow = new Date(startOfToday.getTime() + 2 * 24 * 60 * 60 * 1000);
-    const endOfWeek = new Date(startOfToday.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-    let result = items;
-
-    filters.forEach(filter => {
-      if (!filter.operator || !filter.value) return;
-
-      if (filter.field === 'status') {
-        result = filter.operator === 'is'
-          ? result.filter(t => t.status === filter.value)
-          : result.filter(t => t.status !== filter.value);
-      } else if (filter.field === 'assignee') {
-        result = filter.operator === 'is'
-          ? result.filter(t => t.assignee?.name === filter.value)
-          : result.filter(t => t.assignee?.name !== filter.value);
-      } else if (filter.field === 'due date') {
-        const matchesDueDate = (t: Task) => {
-          switch (filter.value) {
-            case 'overdue': return t.dueDate && t.dueDate < startOfToday && t.status !== 'done';
-            case 'today': return t.dueDate && t.dueDate >= startOfToday && t.dueDate < startOfTomorrow;
-            case 'tomorrow': return t.dueDate && t.dueDate >= startOfTomorrow && t.dueDate < startOfDayAfterTomorrow;
-            case 'this-week': return t.dueDate && t.dueDate >= startOfDayAfterTomorrow && t.dueDate < endOfWeek;
-            case 'later': return t.dueDate && t.dueDate >= endOfWeek;
-            case 'no-date': return !t.dueDate;
-            default: return true;
-          }
-        };
-        result = filter.operator === 'is'
-          ? result.filter(matchesDueDate)
-          : result.filter(t => !matchesDueDate(t));
-      } else if (filter.field === 'company') {
-        result = filter.operator === 'is'
-          ? result.filter(t => t.linkedCompany?.name === filter.value)
-          : result.filter(t => t.linkedCompany?.name !== filter.value);
-      } else if (filter.field === 'priority') {
-        result = filter.operator === 'is'
-          ? result.filter(t => t.priority === filter.value)
-          : result.filter(t => t.priority !== filter.value);
-      } else if (filter.field === 'label') {
-        result = filter.operator === 'is'
-          ? result.filter(t => Array.isArray(t.labels) && t.labels.includes(filter.value))
-          : result.filter(t => !Array.isArray(t.labels) || !t.labels.includes(filter.value));
-      }
-    });
-
-    return result;
-  }, []);
-
   // Handlers
   const openTaskPanel = useCallback((task: Task) => {
     openObjectPanel({ type: 'task', id: task.id });
@@ -626,14 +656,17 @@ export default function CrmTasksClient() {
     return (
       <div
         key={task.id}
+        role="button"
+        tabIndex={0}
         onClick={() => openTaskPanel(task)}
+        onKeyDown={(e) => handleRowActivateKey(e, () => openTaskPanel(task))}
         className={cn(
           "flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group",
           task.status === 'done' && "opacity-50"
         )}
       >
         {/* Checkbox */}
-        <div className="w-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="w-4 flex-shrink-0" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Checkbox
             checked={task.status === 'done'}
             onCheckedChange={() => toggleTaskStatus(task.id)}
@@ -660,15 +693,13 @@ export default function CrmTasksClient() {
           {task.repeat && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 flex-shrink-0">
               <Repeat className="h-2.5 w-2.5" />
-              {task.repeat.frequency === 'custom' && task.repeat.interval && task.repeat.unit
-                ? `${task.repeat.interval}${task.repeat.unit.charAt(0)}`
-                : task.repeat.frequency === 'biweekly' ? '2w' : task.repeat.frequency.charAt(0).toUpperCase()}
+              {formatRepeatBadge(task.repeat)}
             </span>
           )}
         </div>
 
         {/* Company */}
-        <div className="w-[140px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[140px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <CompanyPicker
             taskId={task.id}
             linkedCompany={task.linkedCompany}
@@ -681,7 +712,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", status.color, status.bg)}>
@@ -705,7 +736,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority ? priority.color : 'text-gray-400', priority ? priority.bg : '')}>
@@ -742,7 +773,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -777,14 +808,9 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Assignee(s) */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           {(() => {
-            const resolvedList = (task.assignees && task.assignees.length > 0
-              ? task.assignees
-              : task.assignee
-                ? [task.assignee]
-                : []
-            ).map((a) => {
+            const resolvedList = getTaskAssignees(task).map((a) => {
               const fromDirectory = availableAssignees.find((m) => m.id === a.id);
               return {
                 id: a.id,
@@ -860,16 +886,9 @@ export default function CrmTasksClient() {
                         variant="ghost"
                         key={member.id}
                         onClick={() => {
-                          const nextIds = isSelected
-                            ? resolvedIds.filter((id) => id !== member.id)
-                            : [...resolvedIds, member.id];
-                          const nextAssignees = nextIds.map((id) => {
-                            const m = availableAssignees.find((x) => x.id === id);
-                            return { id, name: m?.name || '' };
-                          });
-                          const primary = nextAssignees[0] ?? undefined;
+                          const nextAssignees = toggleAssignee(resolvedIds, member.id, availableAssignees);
                           handlers.onUpdate(task.id, {
-                            assignee: primary,
+                            assignee: nextAssignees[0] ?? undefined,
                             assignees: nextAssignees,
                           });
                         }}
@@ -910,7 +929,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -1053,7 +1072,7 @@ export default function CrmTasksClient() {
           filters={filterConfigs}
           groups={groupConfigs}
           maxFilters={5}
-          applyFilters={applyFilters}
+          applyFilters={applyTaskFilters}
           onUpdateItem={(id, data) => updateTaskMutation.mutate({ taskId: id, data })}
           onDeleteItem={(id) => deleteTaskMutation.mutate(id)}
           renderRow={renderTaskRow}

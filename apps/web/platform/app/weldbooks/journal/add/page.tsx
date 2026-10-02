@@ -29,13 +29,18 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface JournalLine {
+  /** Client-only stable React key; never sent to the API. */
+  key: number;
   accountId: string;
   description: string;
   debit: string;
   credit: string;
 }
 
+let nextLineKey = 0;
+
 const emptyLine = (): JournalLine => ({
+  key: nextLineKey++,
   accountId: '',
   description: '',
   debit: '',
@@ -60,7 +65,7 @@ export default function AddJournalEntryPage() {
   const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
 
-  const updateLine = (idx: number, field: keyof JournalLine, value: string) => {
+  const updateLine = (idx: number, field: Exclude<keyof JournalLine, 'key'>, value: string) => {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
   };
 
@@ -151,7 +156,7 @@ export default function AddJournalEntryPage() {
               </TableHeader>
               <TableBody>
                 {lines.map((line, idx) => (
-                  <TableRow key={idx}>
+                  <TableRow key={line.key}>
                     <TableCell>
                       <Select
                         value={line.accountId}

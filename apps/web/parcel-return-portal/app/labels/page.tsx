@@ -88,7 +88,6 @@ const SAMPLE_LABELS = [
 export default function LabelsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [labels, setLabels] = useState(SAMPLE_LABELS);
-  const [selectedLabel, setSelectedLabel] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSearch = () => {

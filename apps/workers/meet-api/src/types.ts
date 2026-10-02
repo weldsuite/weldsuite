@@ -23,17 +23,16 @@ export interface Env extends KitEnv {
   /** Cloudflare RealtimeKit app secret — meeting sessions (@weldsuite/cloudflare-realtime). */
   CF_REALTIME_APP_SECRET?: string;
   /**
-   * Shared token guarding the RealtimeKit webhook receiver. When set, inbound
-   * `/api/webhooks/cloudflare-realtime` requests must carry a matching
-   * `?token=`, and POST /setup registers the webhook URL with it. Unset =
-   * legacy no-check. (RTK's post-Dyte HMAC signature scheme is undocumented,
-   * so we gate on a URL secret we control instead.)
+   * Operator bearer token for POST /api/webhooks/cloudflare-realtime/setup
+   * (`Authorization: Bearer <token>`). Unset = /setup refuses. Deliveries to
+   * the receiver itself are authenticated by their `rtk-signature`, not this.
    */
   CF_REALTIME_WEBHOOK_TOKEN?: string;
   /**
-   * Shared token guarding the MeetingBaas webhook receiver. When set, inbound
+   * Shared token guarding the MeetingBaas webhook receiver: inbound
    * `/api/webhooks/meeting-bot` requests must carry a matching `?token=`
-   * (append it to the URL registered with MeetingBaas). Unset = legacy no-check.
+   * (append it to the URL registered with MeetingBaas). Unset = every
+   * request is rejected.
    */
   MEETINGBAAS_WEBHOOK_TOKEN?: string;
 
@@ -62,6 +61,9 @@ export interface Env extends KitEnv {
   RESEND_API_KEY?: string;
   /** Resend template id for the task-assignment email (NotificationEnv). */
   RESEND_TEMPLATE_TASK_ASSIGNED?: string;
+  /** Public meeting portal (`apps/web/meeting-portal`) that the join links in
+   *  meeting invitation emails point at. Defaults to https://meet.weldsuite.org. */
+  MEETING_PORTAL_URL?: string;
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;

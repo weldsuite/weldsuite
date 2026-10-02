@@ -175,11 +175,49 @@ export type ResolveOutcome =
       requesterNotification: typeof schema.notifications.$inferSelect;
     };
 
+/**
+ * Add the requested permission to the requester's active membership row.
+ * Returns the granted permission, or null when the requester has no active
+ * membership (nothing to grant to).
+ */
+async function grantRequestedPermission(
+  db: Database,
+  request: typeof schema.accessRequests.$inferSelect,
+): Promise<string | null> {
+  const { workspaceMembers } = schema;
+
+  const [member] = await db
+    .select({
+      id: workspaceMembers.id,
+      permissions: workspaceMembers.permissions,
+    })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.userId, request.requesterId),
+        isNull(workspaceMembers.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!member) return null;
+
+  const current = Array.isArray(member.permissions) ? member.permissions : [];
+  if (!current.includes(request.permission)) {
+    const next = [...current, request.permission];
+    await db
+      .update(workspaceMembers)
+      .set({ permissions: next, updatedAt: new Date() })
+      .where(eq(workspaceMembers.id, member.id));
+  }
+  return request.permission;
+}
+
 export async function resolveAccessRequest(
   db: Database,
   params: ResolveAccessRequestParams,
 ): Promise<ResolveOutcome> {
-  const { accessRequests, workspaceMembers, notifications } = schema;
+  const { accessRequests, notifications } = schema;
 
   const [existing] = await db
     .select()
@@ -190,35 +228,8 @@ export async function resolveAccessRequest(
   if (!existing) return { kind: 'not_found' };
   if (existing.status !== 'pending') return { kind: 'already_resolved', request: existing };
 
-  let grantedPermission: string | null = null;
-
-  if (params.status === 'approved') {
-    const [member] = await db
-      .select({
-        id: workspaceMembers.id,
-        permissions: workspaceMembers.permissions,
-      })
-      .from(workspaceMembers)
-      .where(
-        and(
-          eq(workspaceMembers.userId, existing.requesterId),
-          isNull(workspaceMembers.deletedAt),
-        ),
-      )
-      .limit(1);
-
-    if (member) {
-      const current = Array.isArray(member.permissions) ? member.permissions : [];
-      if (!current.includes(existing.permission)) {
-        const next = [...current, existing.permission];
-        await db
-          .update(workspaceMembers)
-          .set({ permissions: next, updatedAt: new Date() })
-          .where(eq(workspaceMembers.id, member.id));
-      }
-      grantedPermission = existing.permission;
-    }
-  }
+  const grantedPermission =
+    params.status === 'approved' ? await grantRequestedPermission(db, existing) : null;
 
   const now = new Date();
   const [updated] = await db

@@ -36,9 +36,14 @@ const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frid
 
 // ── ID generation ───────────────────────────────────────────────────────
 
+function randomBase36(length: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 function generateId(prefix: string = ''): string {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 10);
+  const random = randomBase36(8);
   return prefix ? `${prefix}_${timestamp}${random}` : `${timestamp}${random}`;
 }
 
@@ -228,40 +233,47 @@ function subtractBreaks(
   return windows;
 }
 
-export async function findFreeSlot(
+interface SlotWindow {
+  start: Date;
+  end: Date;
+}
+
+interface SlotSearchContext {
+  now: Date;
+  deadline: Date;
+  durationMs: number;
+  workingHours: WorkingHours;
+  existingEvents: ExistingEvent[];
+  excludeEventIds?: string[];
+}
+
+/** Event end time; events without one are assumed to last 30 minutes. */
+function eventEndTime(evt: ExistingEvent): Date {
+  const evtStart = new Date(evt.startTime);
+  return evt.endTime ? new Date(evt.endTime) : new Date(evtStart.getTime() + 30 * 60000);
+}
+
+/**
+ * Busy-block union for the user in [dayStart, dayEnd].
+ *
+ * Source 1: calendarEvents (status='confirmed', owned by user).
+ *   This already includes inbound Google Calendar events: the integration
+ *   orchestrator (outbound-calendar-sync / orchestrator.ts) writes fetched
+ *   Google Calendar events directly into the calendarEvents table via the
+ *   'calendar_event' entity type mapping. No extra union needed for those.
+ *
+ * Source 2: meetings (WeldMeet) — treated as priority='high' so cascading
+ *   bumps can never displace them. Matched where the user is the organizer
+ *   OR appears in the attendees JSONB array as a workspaceMemberId.
+ *   Status filter excludes terminal states.
+ */
+async function loadBusyBlocks(
   db: Database,
-  params: FindSlotParams,
-): Promise<TimeSlot | null> {
-  const { calendarEvents } = schema;
-  const { userId, deadline, durationMinutes, workingHours, priority, excludeEventIds, direction, earliestStart } = params;
-  const durationMs = durationMinutes * 60000;
-  const weight = priorityWeight(priority);
-
-  const now = earliestStart ?? new Date();
-  if (deadline <= now) return null;
-
-  const searchEnd = new Date(deadline);
-
-  const dayStart = new Date(now);
-  dayStart.setHours(0, 0, 0, 0);
-
-  const dayEnd = new Date(searchEnd);
-  dayEnd.setHours(23, 59, 59, 999);
-
-  // ── Busy-block union ────────────────────────────────────────────────────
-  // Source 1: calendarEvents (status='confirmed', owned by user).
-  //   This already includes inbound Google Calendar events: the integration
-  //   orchestrator (outbound-calendar-sync / orchestrator.ts) writes fetched
-  //   Google Calendar events directly into the calendarEvents table via the
-  //   'calendar_event' entity type mapping. No extra union needed for those.
-  //
-  // Source 2: meetings (WeldMeet) — treated as priority='high' so cascading
-  //   bumps can never displace them. Matched where the user is the organizer
-  //   OR appears in the attendees JSONB array as a workspaceMemberId.
-  //   Status filter excludes terminal states.
-  // ────────────────────────────────────────────────────────────────────────
-
-  const { meetings, workspaceMembers } = schema;
+  userId: string,
+  dayStart: Date,
+  dayEnd: Date,
+): Promise<ExistingEvent[]> {
+  const { calendarEvents, meetings, workspaceMembers } = schema;
 
   // Resolve the user's workspaceMemberId (needed for JSONB attendee matching)
   const [memberRow] = await db
@@ -324,128 +336,193 @@ export async function findFreeSlot(
       customFields: null,
     }));
 
-  const existingEvents: ExistingEvent[] = [...calendarEventRows, ...meetingBusyBlocks];
+  return [...calendarEventRows, ...meetingBusyBlocks];
+}
 
-  function getWindowsForDay(day: Date): { start: Date; end: Date }[] {
-    const dayName = DAY_NAMES[day.getDay()];
-    if (!dayName) return [];
-    const dayHours = workingHours[dayName] as DayHours | undefined;
+/** Narrow windows on the search's first/last day to `now` / the deadline. */
+function clipWindowsToSearchRange(
+  day: Date,
+  windows: SlotWindow[],
+  now: Date,
+  deadline: Date,
+): SlotWindow[] {
+  let clipped = windows;
 
-    if (!dayHours?.isOpen || !dayHours.openTime || !dayHours.closeTime) return [];
-
-    const open = parseTime(dayHours.openTime);
-    const close = parseTime(dayHours.closeTime);
-
-    const windowStart = new Date(day);
-    windowStart.setHours(open.hours, open.minutes, 0, 0);
-
-    const windowEnd = new Date(day);
-    windowEnd.setHours(close.hours, close.minutes, 0, 0);
-
-    let windows = dayHours.breaks?.length
-      ? subtractBreaks(windowStart, windowEnd, dayHours.breaks, day)
-      : [{ start: windowStart, end: windowEnd }];
-
-    if (day.toDateString() === now.toDateString()) {
-      const earliest = roundUpTo15Min(now);
-      windows = windows
-        .map(w => ({ start: w.start < earliest ? earliest : w.start, end: w.end }))
-        .filter(w => w.start < w.end);
-    }
-
-    if (day.toDateString() === deadline.toDateString()) {
-      windows = windows
-        .map(w => ({ start: w.start, end: w.end > deadline ? deadline : w.end }))
-        .filter(w => w.start < w.end);
-    }
-
-    return windows;
+  if (day.toDateString() === now.toDateString()) {
+    const earliest = roundUpTo15Min(now);
+    clipped = clipped
+      .map(w => ({ start: w.start < earliest ? earliest : w.start, end: w.end }))
+      .filter(w => w.start < w.end);
   }
 
-  function getEventsForDay(day: Date) {
-    return existingEvents.filter((evt) => {
-      if (excludeEventIds?.includes(evt.id)) return false;
-      const evtStart = new Date(evt.startTime);
-      const evtEnd = evt.endTime ? new Date(evt.endTime) : new Date(evtStart.getTime() + 30 * 60000);
-      return evtStart.toDateString() === day.toDateString() ||
-             evtEnd.toDateString() === day.toDateString();
-    });
+  if (day.toDateString() === deadline.toDateString()) {
+    clipped = clipped
+      .map(w => ({ start: w.start, end: w.end > deadline ? deadline : w.end }))
+      .filter(w => w.start < w.end);
   }
 
-  function hasConflict(slotStart: Date, slotEnd: Date, dayEvents: ExistingEvent[]): boolean {
-    return dayEvents.some((evt) => {
-      const evtStart = new Date(evt.startTime);
-      const evtEnd = evt.endTime ? new Date(evt.endTime) : new Date(evtStart.getTime() + 30 * 60000);
-      return slotStart < evtEnd && slotEnd > evtStart;
-    });
-  }
+  return clipped;
+}
 
-  // Resolve direction
-  const effectiveDirection: 'forward' | 'backward' =
-    direction === 'forward' ? 'forward'
-    : direction === 'backward' ? 'backward'
-    : weight <= 1 ? 'backward'
-    : 'forward';
+function getWindowsForDay(day: Date, ctx: SlotSearchContext): SlotWindow[] {
+  const dayName = DAY_NAMES[day.getDay()];
+  if (!dayName) return [];
+  const dayHours = ctx.workingHours[dayName] as DayHours | undefined;
 
-  if (effectiveDirection === 'backward') {
-    const currentDay = new Date(searchEnd);
-    currentDay.setHours(0, 0, 0, 0);
+  if (!dayHours?.isOpen || !dayHours.openTime || !dayHours.closeTime) return [];
 
-    const searchStart = new Date(now);
-    searchStart.setHours(0, 0, 0, 0);
+  const open = parseTime(dayHours.openTime);
+  const close = parseTime(dayHours.closeTime);
 
-    while (currentDay >= searchStart) {
-      const windows = getWindowsForDay(currentDay);
-      const dayEvents = getEventsForDay(currentDay);
+  const windowStart = new Date(day);
+  windowStart.setHours(open.hours, open.minutes, 0, 0);
 
-      for (let wi = windows.length - 1; wi >= 0; wi--) {
-        const window = windows[wi];
-        if (!window) continue;
-        let slotStart = new Date(window.end.getTime() - durationMs);
+  const windowEnd = new Date(day);
+  windowEnd.setHours(close.hours, close.minutes, 0, 0);
 
-        while (slotStart >= window.start) {
-          const slotEnd = new Date(slotStart.getTime() + durationMs);
+  const windows = dayHours.breaks?.length
+    ? subtractBreaks(windowStart, windowEnd, dayHours.breaks, day)
+    : [{ start: windowStart, end: windowEnd }];
 
-          if (!hasConflict(slotStart, slotEnd, dayEvents)) {
-            return { startTime: slotStart, endTime: slotEnd };
-          }
+  return clipWindowsToSearchRange(day, windows, ctx.now, ctx.deadline);
+}
 
-          slotStart = new Date(slotStart.getTime() - SLOT_STEP_MINUTES * 60000);
-        }
+function getEventsForDay(day: Date, ctx: SlotSearchContext): ExistingEvent[] {
+  return ctx.existingEvents.filter((evt) => {
+    if (ctx.excludeEventIds?.includes(evt.id)) return false;
+    const evtStart = new Date(evt.startTime);
+    const evtEnd = eventEndTime(evt);
+    return evtStart.toDateString() === day.toDateString() ||
+           evtEnd.toDateString() === day.toDateString();
+  });
+}
+
+function hasConflict(slotStart: Date, slotEnd: Date, dayEvents: ExistingEvent[]): boolean {
+  return dayEvents.some((evt) => {
+    const evtStart = new Date(evt.startTime);
+    const evtEnd = eventEndTime(evt);
+    return slotStart < evtEnd && slotEnd > evtStart;
+  });
+}
+
+/** Latest free slot inside the given windows (walks windows and slots backwards). */
+function findSlotInWindowsBackward(
+  windows: SlotWindow[],
+  dayEvents: ExistingEvent[],
+  durationMs: number,
+): TimeSlot | null {
+  for (let wi = windows.length - 1; wi >= 0; wi--) {
+    const window = windows[wi];
+    if (!window) continue;
+    let slotStart = new Date(window.end.getTime() - durationMs);
+
+    while (slotStart >= window.start) {
+      const slotEnd = new Date(slotStart.getTime() + durationMs);
+
+      if (!hasConflict(slotStart, slotEnd, dayEvents)) {
+        return { startTime: slotStart, endTime: slotEnd };
       }
 
-      currentDay.setDate(currentDay.getDate() - 1);
+      slotStart = new Date(slotStart.getTime() - SLOT_STEP_MINUTES * 60000);
     }
+  }
+  return null;
+}
 
-    return null;
+/** Earliest free slot inside the given windows. */
+function findSlotInWindowsForward(
+  windows: SlotWindow[],
+  dayEvents: ExistingEvent[],
+  durationMs: number,
+): TimeSlot | null {
+  for (const window of windows) {
+    let slotStart = new Date(window.start);
+
+    while (slotStart.getTime() + durationMs <= window.end.getTime()) {
+      const slotEnd = new Date(slotStart.getTime() + durationMs);
+
+      if (!hasConflict(slotStart, slotEnd, dayEvents)) {
+        return { startTime: slotStart, endTime: slotEnd };
+      }
+
+      slotStart = new Date(slotStart.getTime() + SLOT_STEP_MINUTES * 60000);
+    }
+  }
+  return null;
+}
+
+function searchSlotBackward(ctx: SlotSearchContext, searchEnd: Date): TimeSlot | null {
+  const currentDay = new Date(searchEnd);
+  currentDay.setHours(0, 0, 0, 0);
+
+  const searchStart = new Date(ctx.now);
+  searchStart.setHours(0, 0, 0, 0);
+
+  while (currentDay >= searchStart) {
+    const slot = findSlotInWindowsBackward(
+      getWindowsForDay(currentDay, ctx),
+      getEventsForDay(currentDay, ctx),
+      ctx.durationMs,
+    );
+    if (slot) return slot;
+
+    currentDay.setDate(currentDay.getDate() - 1);
   }
 
-  // Forward search
-  const currentDay = new Date(now);
+  return null;
+}
+
+function searchSlotForward(ctx: SlotSearchContext, searchEnd: Date): TimeSlot | null {
+  const currentDay = new Date(ctx.now);
   currentDay.setHours(0, 0, 0, 0);
 
   while (currentDay <= searchEnd) {
-    const windows = getWindowsForDay(currentDay);
-    const dayEvents = getEventsForDay(currentDay);
-
-    for (const window of windows) {
-      let slotStart = new Date(window.start);
-
-      while (slotStart.getTime() + durationMs <= window.end.getTime()) {
-        const slotEnd = new Date(slotStart.getTime() + durationMs);
-
-        if (!hasConflict(slotStart, slotEnd, dayEvents)) {
-          return { startTime: slotStart, endTime: slotEnd };
-        }
-
-        slotStart = new Date(slotStart.getTime() + SLOT_STEP_MINUTES * 60000);
-      }
-    }
+    const slot = findSlotInWindowsForward(
+      getWindowsForDay(currentDay, ctx),
+      getEventsForDay(currentDay, ctx),
+      ctx.durationMs,
+    );
+    if (slot) return slot;
 
     currentDay.setDate(currentDay.getDate() + 1);
   }
 
   return null;
+}
+
+function resolveSearchDirection(
+  direction: SearchDirection | undefined,
+  weight: number,
+): 'forward' | 'backward' {
+  if (direction === 'forward' || direction === 'backward') return direction;
+  return weight <= 1 ? 'backward' : 'forward';
+}
+
+export async function findFreeSlot(
+  db: Database,
+  params: FindSlotParams,
+): Promise<TimeSlot | null> {
+  const { userId, deadline, durationMinutes, workingHours, priority, excludeEventIds, direction, earliestStart } = params;
+  const durationMs = durationMinutes * 60000;
+  const weight = priorityWeight(priority);
+
+  const now = earliestStart ?? new Date();
+  if (deadline <= now) return null;
+
+  const searchEnd = new Date(deadline);
+
+  const dayStart = new Date(now);
+  dayStart.setHours(0, 0, 0, 0);
+
+  const dayEnd = new Date(searchEnd);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  const existingEvents = await loadBusyBlocks(db, userId, dayStart, dayEnd);
+  const ctx: SlotSearchContext = { now, deadline, durationMs, workingHours, existingEvents, excludeEventIds };
+
+  return resolveSearchDirection(direction, weight) === 'backward'
+    ? searchSlotBackward(ctx, searchEnd)
+    : searchSlotForward(ctx, searchEnd);
 }
 
 // ── Cascading bump: find lower-priority event we can displace ───────────
@@ -528,6 +605,29 @@ async function findBumpableEvent(
   return bumpable[0] ?? null;
 }
 
+/** Deadline and duration of the task behind a bumped event (both null when unknown). */
+async function loadSourceTaskSchedule(
+  db: Database,
+  sourceId: string | null,
+): Promise<{ dueDate: Date | null; duration: number | null }> {
+  if (!sourceId) return { dueDate: null, duration: null };
+  const { tasks } = schema;
+  const [task] = await db
+    .select({
+      dueDate: tasks.dueDate,
+      duration: tasks.duration,
+    })
+    .from(tasks)
+    .where(eq(tasks.id, sourceId))
+    .limit(1);
+
+  if (!task) return { dueDate: null, duration: null };
+  return {
+    dueDate: task.dueDate ? new Date(task.dueDate) : null,
+    duration: task.duration ?? null,
+  };
+}
+
 /**
  * Reschedule a bumped event to a new slot. May trigger another bump if no
  * free slot is available and the bumped event itself outranks something.
@@ -540,27 +640,10 @@ async function rescheduleBumpedEvent(
   visitedEventIds: Set<string>,
   depth: number,
 ): Promise<void> {
-  const { calendarEvents, tasks } = schema;
+  const { calendarEvents } = schema;
 
   // Look up the source task to get its deadline (if any) and duration
-  let taskDueDate: Date | null = null;
-  let taskDuration: number | null = null;
-
-  if (candidate.sourceId) {
-    const [task] = await db
-      .select({
-        dueDate: tasks.dueDate,
-        duration: tasks.duration,
-      })
-      .from(tasks)
-      .where(eq(tasks.id, candidate.sourceId))
-      .limit(1);
-
-    if (task) {
-      taskDueDate = task.dueDate ? new Date(task.dueDate) : null;
-      taskDuration = task.duration ?? null;
-    }
-  }
+  const { dueDate: taskDueDate, duration: taskDuration } = await loadSourceTaskSchedule(db, candidate.sourceId);
 
   const duration = taskDuration ?? Math.max(
     DEFAULT_DURATION_MINUTES,

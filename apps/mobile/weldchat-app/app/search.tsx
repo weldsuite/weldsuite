@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -90,28 +90,30 @@ interface MemberResult {
   picture?: string;
 }
 
-export default function SearchScreen() {
-  const [query, setQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<FilterTab>('all');
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [members, setMembers] = useState<MemberResult[]>([]);
-  const [searched, setSearched] = useState(false);
-  const [loading, setLoading] = useState(false);
+type Styles = ReturnType<typeof makeStyles>;
+
+interface SearchOutcome {
+  ok: boolean;
+  results: SearchResult[];
+  members: MemberResult[];
+}
+
+async function loadRecentSearches(): Promise<string[]> {
+  const stored = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
+  if (!stored) return [];
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return [];
+  }
+}
+
+function useRecentSearches() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const inputRef = useRef<TextInput>(null);
-  const router = useRouter();
-  const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
-  const styles = useMemo(() => makeStyles(colors, insets.top), [colors, insets.top]);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load recent searches on mount
   useEffect(() => {
-    AsyncStorage.getItem(RECENT_SEARCHES_KEY).then((stored) => {
-      if (stored) {
-        try { setRecentSearches(JSON.parse(stored)); } catch {}
-      }
-    });
+    loadRecentSearches().then(setRecentSearches);
   }, []);
 
   const saveRecentSearch = useCallback(async (term: string) => {
@@ -133,8 +135,306 @@ export default function SearchScreen() {
     await AsyncStorage.removeItem(RECENT_SEARCHES_KEY);
   }, []);
 
+  return { recentSearches, saveRecentSearch, removeRecentSearch, clearAllRecent };
+}
+
+async function searchMembers(text: string): Promise<MemberResult[]> {
+  const res = await appApi.chatMembers.list();
+  const all: MemberResult[] = (res.data ?? []) as unknown as MemberResult[];
+  const q = text.toLowerCase();
+  return all.filter((m) =>
+    m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q)
+  );
+}
+
+function toSearchResult(m: ChatSearchResult): SearchResult {
+  return {
+    id: m.id,
+    content: m.content ?? '',
+    authorName: m.authorName ?? 'Unknown',
+    authorAvatar: m.authorAvatar ?? undefined,
+    channelId: m.channelId,
+    channelName: m.channel?.name,
+    channelType: m.channel?.type,
+    createdAt: m.createdAt,
+    attachments: Array.isArray(m.attachments) ? (m.attachments as Attachment[]) : [],
+  };
+}
+
+async function searchMessages(text: string): Promise<SearchResult[]> {
+  const res = await appApi.chatSearch.search({ q: text.trim(), limit: 50 });
+  const messages: ChatSearchResult[] = res.data?.messages ?? [];
+  return messages.map(toSearchResult);
+}
+
+/** Runs the search for the active tab; never throws (`ok` is false on failure). */
+async function searchChat(text: string, tab: FilterTab): Promise<SearchOutcome> {
+  try {
+    if (tab === 'people') {
+      return { ok: true, results: [], members: await searchMembers(text) };
+    }
+    return { ok: true, results: await searchMessages(text), members: [] };
+  } catch (err) {
+    console.error('Search failed:', err);
+    return { ok: false, results: [], members: [] };
+  }
+}
+
+function resultPath(item: SearchResult): string {
+  return item.channelType === 'dm' ? `/dm/${item.channelId}` : `/channel/${item.channelId}`;
+}
+
+function FilterTabButton({
+  tab,
+  active,
+  mutedColor,
+  styles,
+  onPress,
+}: {
+  tab: (typeof TABS)[number];
+  active: boolean;
+  mutedColor: string;
+  styles: Styles;
+  onPress: (key: FilterTab) => void;
+}) {
+  const Icon = tab.Icon;
+  return (
+    <TouchableOpacity
+      style={[styles.tab, active && styles.tabActive]}
+      onPress={() => onPress(tab.key)}
+    >
+      {Icon && <Icon size={14} color={active ? '#fff' : mutedColor} />}
+      <Text style={[styles.tabText, active && styles.tabTextActive]}>
+        {tab.label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+/** What shows before anything is searched: recent searches, or a prompt. */
+function IdleState({
+  showRecent,
+  recentSearches,
+  colors,
+  styles,
+  onClearAll,
+  onTap,
+  onRemove,
+}: {
+  showRecent: boolean;
+  recentSearches: string[];
+  colors: ThemeColors;
+  styles: Styles;
+  onClearAll: () => void;
+  onTap: (term: string) => void;
+  onRemove: (term: string) => void;
+}) {
+  if (!showRecent) {
+    return (
+      <View style={styles.emptyState}>
+        <SearchIcon size={40} color={colors.muted} />
+        <Text style={styles.emptyTitle}>Search your workspace</Text>
+        <Text style={styles.emptyText}>
+          Find messages, people, files, and more
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.recentContainer}>
+      <View style={styles.recentHeader}>
+        <Text style={styles.recentTitle}>Recent Searches</Text>
+        <TouchableOpacity onPress={onClearAll}>
+          <Text style={styles.recentClear}>Clear all</Text>
+        </TouchableOpacity>
+      </View>
+      {recentSearches.map((term) => (
+        <TouchableOpacity
+          key={term}
+          style={styles.recentItem}
+          onPress={() => onTap(term)}
+          activeOpacity={0.7}
+        >
+          <Clock size={16} color={colors.muted} />
+          <Text style={styles.recentText} numberOfLines={1}>{term}</Text>
+          <TouchableOpacity
+            onPress={() => onRemove(term)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <X size={14} color={colors.muted} />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+function PersonRow({
+  item,
+  styles,
+  onPress,
+}: {
+  item: MemberResult;
+  styles: Styles;
+  onPress: (userId: string) => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.personItem}
+      activeOpacity={0.7}
+      onPress={() => onPress(item.userId)}
+    >
+      <View style={styles.personAvatar}>
+        <Text style={styles.personAvatarText}>
+          {(item.name || '?')[0].toUpperCase()}
+        </Text>
+      </View>
+      <View style={styles.personInfo}>
+        <Text style={styles.personName}>{item.name}</Text>
+        {item.email && (
+          <Text style={styles.personEmail} numberOfLines={1}>{item.email}</Text>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function PeopleList({
+  members,
+  showEmpty,
+  colors,
+  styles,
+  onPressPerson,
+}: {
+  members: MemberResult[];
+  showEmpty: boolean;
+  colors: ThemeColors;
+  styles: Styles;
+  onPressPerson: (userId: string) => void;
+}) {
+  return (
+    <FlatList
+      data={members}
+      keyExtractor={(item) => item.userId}
+      contentContainerStyle={members.length === 0 ? styles.emptyListContainer : styles.list}
+      keyboardShouldPersistTaps="handled"
+      renderItem={({ item }) => (
+        <PersonRow item={item} styles={styles} onPress={onPressPerson} />
+      )}
+      ListEmptyComponent={showEmpty ? (
+        <View style={styles.emptyState}>
+          <Users size={36} color={colors.muted} />
+          <Text style={styles.emptyTitle}>No people found</Text>
+        </View>
+      ) : null}
+    />
+  );
+}
+
+function ResultRow({
+  item,
+  colors,
+  styles,
+  onPress,
+}: {
+  item: SearchResult;
+  colors: ThemeColors;
+  styles: Styles;
+  onPress: (item: SearchResult) => void;
+}) {
+  const att = item.attachments?.[0];
+  return (
+    <TouchableOpacity
+      style={styles.resultItem}
+      onPress={() => onPress(item)}
+      activeOpacity={0.7}
+    >
+      <View style={styles.resultHeader}>
+        <View style={styles.resultChannel}>
+          {item.channelType === 'dm' ? (
+            <MessageSquare size={12} color={colors.muted} />
+          ) : (
+            <Hash size={12} color={colors.muted} />
+          )}
+          <Text style={styles.resultChannelName} numberOfLines={1}>
+            {item.channelName || 'Unknown'}
+          </Text>
+        </View>
+        <Text style={styles.resultTime}>
+          {new Date(item.createdAt).toLocaleDateString([], {
+            month: 'short',
+            day: 'numeric',
+          })}
+        </Text>
+      </View>
+      <Text style={styles.resultAuthor}>{item.authorName}</Text>
+      {item.content ? (
+        <Text style={styles.resultContent} numberOfLines={2}>
+          {item.content}
+        </Text>
+      ) : null}
+      {att && (
+        <View style={styles.resultAttachment}>
+          <Paperclip size={12} color={colors.muted} />
+          <Text style={styles.resultAttachmentName} numberOfLines={1}>
+            {att.fileName || att.mimeType || 'Attachment'}
+          </Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function ResultsList({
+  results,
+  showEmpty,
+  colors,
+  styles,
+  onPressResult,
+}: {
+  results: SearchResult[];
+  showEmpty: boolean;
+  colors: ThemeColors;
+  styles: Styles;
+  onPressResult: (item: SearchResult) => void;
+}) {
+  return (
+    <FlatList
+      data={results}
+      keyExtractor={(item) => item.id}
+      contentContainerStyle={results.length === 0 ? styles.emptyListContainer : styles.list}
+      keyboardShouldPersistTaps="handled"
+      renderItem={({ item }) => (
+        <ResultRow item={item} colors={colors} styles={styles} onPress={onPressResult} />
+      )}
+      ListEmptyComponent={showEmpty ? (
+        <View style={styles.emptyState}>
+          <SearchIcon size={36} color={colors.muted} />
+          <Text style={styles.emptyTitle}>No results found</Text>
+          <Text style={styles.emptyText}>Try a different search term</Text>
+        </View>
+      ) : null}
+    />
+  );
+}
+
+export default function SearchScreen() {
+  const [query, setQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<FilterTab>('all');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [members, setMembers] = useState<MemberResult[]>([]);
+  const [searched, setSearched] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { recentSearches, saveRecentSearch, removeRecentSearch, clearAllRecent } = useRecentSearches();
+  const inputRef = useRef<TextInput>(null);
+  const router = useRouter();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => makeStyles(colors, insets.top), [colors, insets.top]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   const performSearch = useCallback((text: string, tab: FilterTab) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    clearTimeout(debounceRef.current);
 
     if (!text.trim()) {
       setResults([]);
@@ -145,40 +445,12 @@ export default function SearchScreen() {
 
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
-      try {
-        if (tab === 'people') {
-          const res = await appApi.chatMembers.list();
-          const all: MemberResult[] = (res.data ?? []) as unknown as MemberResult[];
-          const q = text.toLowerCase();
-          setMembers(all.filter((m) =>
-            m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q)
-          ));
-          setResults([]);
-        } else {
-          const res = await appApi.chatSearch.search({ q: text.trim(), limit: 50 });
-          const messages: ChatSearchResult[] = res.data?.messages ?? [];
-          setResults(messages.map((m) => ({
-            id: m.id,
-            content: m.content ?? '',
-            authorName: m.authorName ?? 'Unknown',
-            authorAvatar: m.authorAvatar ?? undefined,
-            channelId: m.channelId,
-            channelName: m.channel?.name,
-            channelType: m.channel?.type,
-            createdAt: m.createdAt,
-            attachments: Array.isArray(m.attachments) ? (m.attachments as Attachment[]) : [],
-          })));
-          setMembers([]);
-        }
-        saveRecentSearch(text.trim());
-      } catch (err) {
-        console.error('Search failed:', err);
-        setResults([]);
-        setMembers([]);
-      } finally {
-        setLoading(false);
-        setSearched(true);
-      }
+      const outcome = await searchChat(text, tab);
+      setResults(outcome.results);
+      setMembers(outcome.members);
+      setLoading(false);
+      setSearched(true);
+      if (outcome.ok) saveRecentSearch(text.trim());
     }, 400);
   }, [saveRecentSearch]);
 
@@ -199,11 +471,11 @@ export default function SearchScreen() {
   }, [query, performSearch]);
 
   const handleResultPress = useCallback((item: SearchResult) => {
-    if (item.channelType === 'dm') {
-      router.push(`/dm/${item.channelId}` as any);
-    } else {
-      router.push(`/channel/${item.channelId}` as any);
-    }
+    router.push(resultPath(item) as any);
+  }, [router]);
+
+  const handlePersonPress = useCallback((userId: string) => {
+    router.push(`/user/${userId}` as any);
   }, [router]);
 
   const clearSearch = useCallback(() => {
@@ -223,6 +495,41 @@ export default function SearchScreen() {
   const hasResults = showPeople ? members.length > 0 : displayResults.length > 0;
   const showEmpty = searched && !loading && !hasResults && query.trim().length > 0;
   const showRecent = !query.trim() && recentSearches.length > 0;
+
+  let content: ReactNode;
+  if (!searched && !query.trim()) {
+    content = (
+      <IdleState
+        showRecent={showRecent}
+        recentSearches={recentSearches}
+        colors={colors}
+        styles={styles}
+        onClearAll={clearAllRecent}
+        onTap={handleRecentTap}
+        onRemove={removeRecentSearch}
+      />
+    );
+  } else if (showPeople) {
+    content = (
+      <PeopleList
+        members={members}
+        showEmpty={showEmpty}
+        colors={colors}
+        styles={styles}
+        onPressPerson={handlePersonPress}
+      />
+    );
+  } else {
+    content = (
+      <ResultsList
+        results={displayResults}
+        showEmpty={showEmpty}
+        colors={colors}
+        styles={styles}
+        onPressResult={handleResultPress}
+      />
+    );
+  }
 
   return (
     <>
@@ -247,151 +554,21 @@ export default function SearchScreen() {
         {/* Filter tabs */}
         <View style={styles.tabBar}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
-            {TABS.map((tab) => {
-              const active = activeTab === tab.key;
-              const Icon = tab.Icon;
-              return (
-                <TouchableOpacity
-                  key={tab.key}
-                  style={[styles.tab, active && styles.tabActive]}
-                  onPress={() => handleTabChange(tab.key)}
-                >
-                  {Icon && <Icon size={14} color={active ? '#fff' : colors.muted} />}
-                  <Text style={[styles.tabText, active && styles.tabTextActive]}>
-                    {tab.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            {TABS.map((tab) => (
+              <FilterTabButton
+                key={tab.key}
+                tab={tab}
+                active={activeTab === tab.key}
+                mutedColor={colors.muted}
+                styles={styles}
+                onPress={handleTabChange}
+              />
+            ))}
           </ScrollView>
         </View>
 
         {/* Content */}
-        {!searched && !query.trim() ? (
-          showRecent ? (
-            <View style={styles.recentContainer}>
-              <View style={styles.recentHeader}>
-                <Text style={styles.recentTitle}>Recent Searches</Text>
-                <TouchableOpacity onPress={clearAllRecent}>
-                  <Text style={styles.recentClear}>Clear all</Text>
-                </TouchableOpacity>
-              </View>
-              {recentSearches.map((term) => (
-                <TouchableOpacity
-                  key={term}
-                  style={styles.recentItem}
-                  onPress={() => handleRecentTap(term)}
-                  activeOpacity={0.7}
-                >
-                  <Clock size={16} color={colors.muted} />
-                  <Text style={styles.recentText} numberOfLines={1}>{term}</Text>
-                  <TouchableOpacity
-                    onPress={() => removeRecentSearch(term)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <X size={14} color={colors.muted} />
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.emptyState}>
-              <SearchIcon size={40} color={colors.muted} />
-              <Text style={styles.emptyTitle}>Search your workspace</Text>
-              <Text style={styles.emptyText}>
-                Find messages, people, files, and more
-              </Text>
-            </View>
-          )
-        ) : showPeople ? (
-          <FlatList
-            data={members}
-            keyExtractor={(item) => item.userId}
-            contentContainerStyle={members.length === 0 ? styles.emptyListContainer : styles.list}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.personItem}
-                activeOpacity={0.7}
-                onPress={() => router.push(`/user/${item.userId}` as any)}
-              >
-                <View style={styles.personAvatar}>
-                  <Text style={styles.personAvatarText}>
-                    {(item.name || '?')[0].toUpperCase()}
-                  </Text>
-                </View>
-                <View style={styles.personInfo}>
-                  <Text style={styles.personName}>{item.name}</Text>
-                  {item.email && (
-                    <Text style={styles.personEmail} numberOfLines={1}>{item.email}</Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={showEmpty ? (
-              <View style={styles.emptyState}>
-                <Users size={36} color={colors.muted} />
-                <Text style={styles.emptyTitle}>No people found</Text>
-              </View>
-            ) : null}
-          />
-        ) : (
-          <FlatList
-            data={displayResults}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={displayResults.length === 0 ? styles.emptyListContainer : styles.list}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => {
-              const att = item.attachments?.[0];
-              return (
-              <TouchableOpacity
-                style={styles.resultItem}
-                onPress={() => handleResultPress(item)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.resultHeader}>
-                  <View style={styles.resultChannel}>
-                    {item.channelType === 'dm' ? (
-                      <MessageSquare size={12} color={colors.muted} />
-                    ) : (
-                      <Hash size={12} color={colors.muted} />
-                    )}
-                    <Text style={styles.resultChannelName} numberOfLines={1}>
-                      {item.channelName || 'Unknown'}
-                    </Text>
-                  </View>
-                  <Text style={styles.resultTime}>
-                    {new Date(item.createdAt).toLocaleDateString([], {
-                      month: 'short',
-                      day: 'numeric',
-                    })}
-                  </Text>
-                </View>
-                <Text style={styles.resultAuthor}>{item.authorName}</Text>
-                {item.content ? (
-                  <Text style={styles.resultContent} numberOfLines={2}>
-                    {item.content}
-                  </Text>
-                ) : null}
-                {att && (
-                  <View style={styles.resultAttachment}>
-                    <Paperclip size={12} color={colors.muted} />
-                    <Text style={styles.resultAttachmentName} numberOfLines={1}>
-                      {att.fileName || att.mimeType || 'Attachment'}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            );}}
-            ListEmptyComponent={showEmpty ? (
-              <View style={styles.emptyState}>
-                <SearchIcon size={36} color={colors.muted} />
-                <Text style={styles.emptyTitle}>No results found</Text>
-                <Text style={styles.emptyText}>Try a different search term</Text>
-              </View>
-            ) : null}
-          />
-        )}
+        {content}
       </View>
     </>
   );

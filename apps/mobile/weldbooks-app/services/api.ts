@@ -977,8 +977,9 @@ class WeldBooksApi {
     type?: string;
   }): Promise<Contact[]> {
     // Legacy "vendor" naming → app-api accounting role "supplier".
-    const role =
-      params?.type === 'vendor' ? 'supplier' : params?.type === 'customer' ? 'customer' : undefined;
+    let role: 'supplier' | 'customer' | undefined;
+    if (params?.type === 'vendor') role = 'supplier';
+    else if (params?.type === 'customer') role = 'customer';
 
     const res = await client.get<ListEnvelope<Json>>(
       `/accounting-contacts?${qs({
@@ -1145,28 +1146,7 @@ class WeldBooksApi {
       const item = items[i];
       accountingEntityId = item.entityId ?? previousEntityId;
       try {
-        if (item.type === 'document') {
-          const doc = await this.createDocument({
-            type: str(item.data.type, 'receipt'),
-            fileName: str(item.data.fileName, 'offline-scan'),
-            fileKey: item.data.fileKey ? str(item.data.fileKey) : undefined,
-            mimeType: item.data.mimeType ? str(item.data.mimeType) : undefined,
-          });
-          results.push({ index: i, type: 'document', id: doc.id });
-        } else if (item.type === 'expense') {
-          const bill = await this.createQuickExpense({
-            amount: num(item.data.amount),
-            category: str(item.data.category, 'Expense'),
-            description: item.data.description as string | undefined,
-            vendorName: item.data.vendorName as string | undefined,
-            date: item.data.date as string | undefined,
-            documentId: item.data.documentId as string | undefined,
-            taxRate: num(item.data.taxRate),
-          });
-          results.push({ index: i, type: 'expense', id: bill.id });
-        } else {
-          results.push({ index: i, type: item.type, error: 'Unknown item type' });
-        }
+        results.push({ index: i, ...(await this.replayOfflineItem(item)) });
       } catch (err) {
         results.push({
           index: i,
@@ -1178,6 +1158,35 @@ class WeldBooksApi {
 
     accountingEntityId = previousEntityId;
     return results;
+  }
+
+  /** Replays one queued item against its regular route. */
+  private async replayOfflineItem(item: {
+    type: string;
+    data: Json;
+  }): Promise<{ type: string; id?: string; error?: string }> {
+    if (item.type === 'document') {
+      const doc = await this.createDocument({
+        type: str(item.data.type, 'receipt'),
+        fileName: str(item.data.fileName, 'offline-scan'),
+        fileKey: item.data.fileKey ? str(item.data.fileKey) : undefined,
+        mimeType: item.data.mimeType ? str(item.data.mimeType) : undefined,
+      });
+      return { type: 'document', id: doc.id };
+    }
+    if (item.type === 'expense') {
+      const bill = await this.createQuickExpense({
+        amount: num(item.data.amount),
+        category: str(item.data.category, 'Expense'),
+        description: item.data.description as string | undefined,
+        vendorName: item.data.vendorName as string | undefined,
+        date: item.data.date as string | undefined,
+        documentId: item.data.documentId as string | undefined,
+        taxRate: num(item.data.taxRate),
+      });
+      return { type: 'expense', id: bill.id };
+    }
+    return { type: item.type, error: 'Unknown item type' };
   }
 }
 

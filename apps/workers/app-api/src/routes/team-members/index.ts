@@ -353,6 +353,234 @@ app.post('/sync', requirePermission('team:read'), async (c) => {
 // Manage — invite / role change / remove (keeps Clerk org in sync)
 // ===========================================================================
 
+type InviteRole = { roleName: string; resolvedRoleId: string | null };
+
+/**
+ * Resolve role. Guests always land on VIEWER role with a fixed permissions
+ * allowlist — the guest-scope middleware enforces the hard ceiling regardless
+ * of role. Returns null when the requested role does not exist.
+ */
+async function resolveInviteRole(
+  db: Database,
+  isGuest: boolean,
+  roleId: string | undefined | null,
+): Promise<InviteRole | null> {
+  if (isGuest) return { roleName: 'VIEWER', resolvedRoleId: null };
+  if (!roleId) return { roleName: 'MEMBER', resolvedRoleId: null };
+  const role = await lookupRole(db, roleId);
+  if (!role) return null;
+  return { roleName: role.name.toUpperCase(), resolvedRoleId: roleId };
+}
+
+/**
+ * Seat check for internal invites. Returns the user-facing message when the
+ * workspace is at its seat limit, otherwise null. A failed lookup never
+ * blocks an invite — Clerk is still the hard gate behind this.
+ */
+async function getSeatLimitMessage(env: Env, orgId: string): Promise<string | null> {
+  try {
+    const seats = await getWorkspaceSeatLimit(env, orgId);
+    if (seats?.atLimit) {
+      return `Your ${seats.planName} plan includes ${seats.limit} ${seats.limit === 1 ? 'member' : 'members'}. Upgrade your plan to invite more people.`;
+    }
+  } catch (err) {
+    console.error('[app-api/team-members] Seat-limit check failed, continuing:', err);
+  }
+  return null;
+}
+
+type ClerkErrorBody = { errors?: Array<{ code?: string; message?: string }> };
+
+type GuestDirectAddResult =
+  | { status: 'none' }
+  | { status: 'failed' }
+  | { status: 'added'; memberId: string };
+
+/**
+ * For guests: try to short-circuit the email-invitation by adding the
+ * existing Clerk user directly to the org. This is what makes "one
+ * identity, many workspaces" work.
+ */
+async function addExistingClerkUserAsGuest(params: {
+  env: Env;
+  db: Database;
+  orgId: string;
+  invitingUserId: string;
+  email: string;
+  name: string;
+  clerkRole: 'org:admin' | 'org:member';
+}): Promise<GuestDirectAddResult> {
+  const { env, db, orgId, invitingUserId, email, name, clerkRole } = params;
+  const existingClerkUserId = await findClerkUserIdByEmail(env.CLERK_SECRET_KEY, email);
+  if (!existingClerkUserId) return { status: 'none' };
+
+  const membershipResp = await fetch(
+    `https://api.clerk.com/v1/organizations/${orgId}/memberships`,
+    {
+      method: 'POST',
+      headers: clerkHeaders(env.CLERK_SECRET_KEY),
+      body: JSON.stringify({
+        user_id: existingClerkUserId,
+        role: clerkRole,
+        // public_metadata.member_type lets billing-worker exclude this
+        // membership from the seat count without needing tenant DB access.
+        public_metadata: { member_type: 'EXTERNAL_GUEST' },
+      }),
+    },
+  );
+
+  if (!membershipResp.ok) {
+    const errBody = (await membershipResp.json().catch(() => ({}))) as ClerkErrorBody;
+    console.error(
+      '[app-api/team-members] Clerk membership error (guest):',
+      membershipResp.status,
+      logSafe(JSON.stringify(errBody)),
+    );
+    return { status: 'failed' };
+  }
+
+  const membership = (await membershipResp.json()) as { id: string };
+
+  const memberId = generateId('mbr');
+  await db.insert(schema.workspaceMembers).values({
+    id: memberId,
+    userId: existingClerkUserId,
+    email: email.toLowerCase(),
+    name,
+    role: 'VIEWER',
+    roleId: null,
+    permissions: GUEST_DEFAULT_PERMISSIONS,
+    memberType: 'EXTERNAL_GUEST',
+    status: 'ACTIVE',
+    clerkMembershipId: membership.id,
+    invitedBy: invitingUserId,
+    invitedAt: new Date(),
+    acceptedAt: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  return { status: 'added', memberId };
+}
+
+type ClerkInvitationFailure = {
+  kind: 'forbidden' | 'conflict' | 'internal';
+  message: string;
+};
+
+/** Map a failed Clerk invitation response to the API error we return. */
+async function describeClerkInvitationFailure(resp: Response): Promise<ClerkInvitationFailure> {
+  const errBody = (await resp.json().catch(() => ({}))) as ClerkErrorBody;
+  const clerkCode = errBody?.errors?.[0]?.code;
+  // Backstop for the seat cap: the pre-flight check normally catches this, but
+  // it is skipped when the lookup fails and can race a concurrent invite.
+  // Clerk is the authority either way.
+  if (clerkCode?.includes('quota') || clerkCode?.includes('max_allowed_memberships')) {
+    return {
+      kind: 'forbidden',
+      message: 'Your plan has no seats left. Upgrade your plan to invite more people.',
+    };
+  }
+  if (clerkCode === 'duplicate_record' || resp.status === 422) {
+    return { kind: 'conflict', message: 'An invitation for this email already exists in Clerk.' };
+  }
+  console.error(
+    '[app-api/team-members] Clerk invitation error:',
+    resp.status,
+    logSafe(JSON.stringify(errBody)),
+  );
+  return { kind: 'internal', message: 'Failed to create Clerk invitation' };
+}
+
+/**
+ * Check for an existing member / pending invitation for this email. Returns
+ * the conflict message, or null when the address is free to invite.
+ */
+async function getExistingMemberConflict(db: Database, email: string): Promise<string | null> {
+  const { workspaceMembers } = schema;
+  const [existing] = await db
+    .select({ id: workspaceMembers.id, status: workspaceMembers.status })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.email, email.toLowerCase()),
+        isNull(workspaceMembers.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (existing?.status === 'ACTIVE') {
+    return 'This email address is already a member of this workspace.';
+  }
+  if (existing?.status === 'PENDING') {
+    return 'An invitation has already been sent to this email address.';
+  }
+  return null;
+}
+
+/**
+ * Create the Clerk org invitation. For guests, the invitation is tagged so the
+ * resulting membership can be identified as external.
+ */
+async function createClerkInvitation(
+  env: Env,
+  orgId: string,
+  email: string,
+  clerkRole: 'org:admin' | 'org:member',
+  isGuest: boolean,
+): Promise<{ id: string } | { failure: ClerkInvitationFailure }> {
+  const resp = await fetch(`https://api.clerk.com/v1/organizations/${orgId}/invitations`, {
+    method: 'POST',
+    headers: clerkHeaders(env.CLERK_SECRET_KEY),
+    body: JSON.stringify({
+      email_address: email,
+      role: clerkRole,
+      ...(isGuest ? { public_metadata: { member_type: 'EXTERNAL_GUEST' } } : {}),
+    }),
+  });
+
+  if (!resp.ok) {
+    return { failure: await describeClerkInvitationFailure(resp) };
+  }
+  const invitation = (await resp.json()) as { id: string };
+  return { id: invitation.id };
+}
+
+/** Insert the PENDING member row that mirrors a freshly created Clerk invitation. */
+async function insertPendingMember(
+  db: Database,
+  input: {
+    email: string;
+    name: string;
+    roleName: string;
+    resolvedRoleId: string | null;
+    memberType: 'INTERNAL' | 'EXTERNAL_GUEST';
+    isGuest: boolean;
+    clerkInvitationId: string;
+    invitingUserId: string;
+  },
+): Promise<string> {
+  const memberId = generateId('mbr');
+  await db.insert(schema.workspaceMembers).values({
+    id: memberId,
+    userId: `invited_${input.email}`,
+    email: input.email.toLowerCase(),
+    name: input.name,
+    role:
+      input.roleName === 'OWNER' ? 'MEMBER' : (input.roleName as 'ADMIN' | 'MEMBER' | 'VIEWER'),
+    roleId: input.resolvedRoleId,
+    permissions: input.isGuest ? GUEST_DEFAULT_PERMISSIONS : [],
+    memberType: input.memberType,
+    status: 'PENDING',
+    clerkInvitationId: input.clerkInvitationId,
+    invitedBy: input.invitingUserId,
+    invitedAt: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return memberId;
+}
+
 app.post('/invite', async (c) => {
   const db = c.get('tenantDb');
   const orgId = c.get('orgId');
@@ -376,178 +604,62 @@ app.post('/invite', async (c) => {
     return error.forbidden(c, `Missing required permission: ${requiredPermission}`);
   }
 
-  // Resolve role. Guests always land on VIEWER role with a fixed
-  // permissions allowlist — the guest-scope middleware enforces the
-  // hard ceiling regardless of role.
-  let roleName = isGuest ? 'VIEWER' : 'MEMBER';
-  const resolvedRoleId = isGuest ? null : (roleId ?? null);
-  if (!isGuest && roleId) {
-    const role = await lookupRole(db, roleId);
-    if (!role) return error.notFound(c, 'Role', roleId);
-    roleName = role.name.toUpperCase();
-  }
+  const inviteRole = await resolveInviteRole(db, isGuest, roleId);
+  if (!inviteRole) return error.notFound(c, 'Role', roleId ?? '');
+  const { roleName, resolvedRoleId } = inviteRole;
 
   const clerkRole = mapRoleToClerk(roleName);
-  const { workspaceMembers } = schema;
 
-  // Check for existing pending invitation for this email
-  const [existing] = await db
-    .select({ id: workspaceMembers.id, status: workspaceMembers.status })
-    .from(workspaceMembers)
-    .where(
-      and(
-        eq(workspaceMembers.email, email.toLowerCase()),
-        isNull(workspaceMembers.deletedAt),
-      ),
-    )
-    .limit(1);
-
-  if (existing?.status === 'ACTIVE') {
-    return error.conflict(c, 'This email address is already a member of this workspace.');
-  }
-  if (existing?.status === 'PENDING') {
-    return error.conflict(c, 'An invitation has already been sent to this email address.');
-  }
+  const conflictMessage = await getExistingMemberConflict(db, email);
+  if (conflictMessage) return error.conflict(c, conflictMessage);
 
   // Seat check, internal members only — guests are tagged EXTERNAL_GUEST and
   // excluded from the seat count, so they never consume one. Clerk enforces
   // the same cap via max_allowed_memberships and would reject this anyway;
   // checking first turns a generic 500 into an answer the UI can act on,
   // which matters most on Free, where the cap is a single seat.
-  if (!isGuest) {
-    try {
-      const seats = await getWorkspaceSeatLimit(c.env, orgId);
-      if (seats?.atLimit) {
-        return error.forbidden(
-          c,
-          `Your ${seats.planName} plan includes ${seats.limit} ${seats.limit === 1 ? 'member' : 'members'}. Upgrade your plan to invite more people.`,
-        );
-      }
-    } catch (err) {
-      // Never block an invite because the limit lookup failed — Clerk is
-      // still the hard gate behind this.
-      console.error('[app-api/team-members] Seat-limit check failed, continuing:', err);
-    }
-  }
+  const seatLimitMessage = isGuest ? null : await getSeatLimitMessage(c.env, orgId);
+  if (seatLimitMessage) return error.forbidden(c, seatLimitMessage);
 
-  // For guests: try to short-circuit the email-invitation by adding the
-  // existing Clerk user directly to the org. This is what makes "one
-  // identity, many workspaces" work.
-  if (isGuest) {
-    const existingClerkUserId = await findClerkUserIdByEmail(c.env.CLERK_SECRET_KEY, email);
-    if (existingClerkUserId) {
-      const membershipResp = await fetch(
-        `https://api.clerk.com/v1/organizations/${orgId}/memberships`,
-        {
-          method: 'POST',
-          headers: clerkHeaders(c.env.CLERK_SECRET_KEY),
-          body: JSON.stringify({
-            user_id: existingClerkUserId,
-            role: clerkRole,
-            // public_metadata.member_type lets billing-worker exclude this
-            // membership from the seat count without needing tenant DB access.
-            public_metadata: { member_type: 'EXTERNAL_GUEST' },
-          }),
-        },
-      );
-
-      if (!membershipResp.ok) {
-        const errBody = (await membershipResp.json().catch(() => ({}))) as {
-          errors?: Array<{ code?: string; message?: string }>;
-        };
-        console.error(
-          '[app-api/team-members] Clerk membership error (guest):',
-          membershipResp.status,
-          logSafe(JSON.stringify(errBody)),
-        );
-        return error.internal(c, 'Failed to add guest to Clerk organization');
-      }
-
-      const membership = (await membershipResp.json()) as { id: string };
-
-      const memberId = generateId('mbr');
-      await db.insert(workspaceMembers).values({
-        id: memberId,
-        userId: existingClerkUserId,
-        email: email.toLowerCase(),
+  const direct: GuestDirectAddResult = isGuest
+    ? await addExistingClerkUserAsGuest({
+        env: c.env,
+        db,
+        orgId,
+        invitingUserId,
+        email,
         name,
-        role: 'VIEWER',
-        roleId: null,
-        permissions: GUEST_DEFAULT_PERMISSIONS,
-        memberType: 'EXTERNAL_GUEST',
-        status: 'ACTIVE',
-        clerkMembershipId: membership.id,
-        invitedBy: invitingUserId,
-        invitedAt: new Date(),
-        acceptedAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
-      return success(c, { memberId, memberType: 'EXTERNAL_GUEST', activated: true }, 201);
-    }
+        clerkRole,
+      })
+    : { status: 'none' };
+  if (direct.status === 'failed') {
+    return error.internal(c, 'Failed to add guest to Clerk organization');
   }
-
-  // Standard path: Clerk org invitation (sends email). For guests, tag the
-  // invitation so the resulting membership can be identified as external.
-  const clerkResp = await fetch(
-    `https://api.clerk.com/v1/organizations/${orgId}/invitations`,
-    {
-      method: 'POST',
-      headers: clerkHeaders(c.env.CLERK_SECRET_KEY),
-      body: JSON.stringify({
-        email_address: email,
-        role: clerkRole,
-        ...(isGuest ? { public_metadata: { member_type: 'EXTERNAL_GUEST' } } : {}),
-      }),
-    },
-  );
-
-  if (!clerkResp.ok) {
-    const errBody = (await clerkResp.json().catch(() => ({}))) as {
-      errors?: Array<{ code?: string; message?: string }>;
-    };
-    const clerkCode = errBody?.errors?.[0]?.code;
-    // Backstop for the seat cap: the pre-flight check above normally catches
-    // this, but it is skipped when the lookup fails and can race a concurrent
-    // invite. Clerk is the authority either way.
-    if (clerkCode?.includes('quota') || clerkCode?.includes('max_allowed_memberships')) {
-      return error.forbidden(
-        c,
-        'Your plan has no seats left. Upgrade your plan to invite more people.',
-      );
-    }
-    if (clerkCode === 'duplicate_record' || clerkResp.status === 422) {
-      return error.conflict(c, 'An invitation for this email already exists in Clerk.');
-    }
-    console.error(
-      '[app-api/team-members] Clerk invitation error:',
-      clerkResp.status,
-      logSafe(JSON.stringify(errBody)),
+  if (direct.status === 'added') {
+    return success(
+      c,
+      { memberId: direct.memberId, memberType: 'EXTERNAL_GUEST', activated: true },
+      201,
     );
-    return error.internal(c, 'Failed to create Clerk invitation');
   }
 
-  const clerkInvitation = (await clerkResp.json()) as { id: string };
+  // Standard path: Clerk org invitation (sends email).
+  const invitation = await createClerkInvitation(c.env, orgId, email, clerkRole, isGuest);
+  if ('failure' in invitation) {
+    return error[invitation.failure.kind](c, invitation.failure.message);
+  }
 
   // Insert PENDING member record. memberType is preserved through to the
   // accept handler.
-  const memberId = generateId('mbr');
-  await db.insert(workspaceMembers).values({
-    id: memberId,
-    userId: `invited_${email}`,
-    email: email.toLowerCase(),
+  const memberId = await insertPendingMember(db, {
+    email,
     name,
-    role: roleName === 'OWNER' ? 'MEMBER' : (roleName as 'ADMIN' | 'MEMBER' | 'VIEWER'),
-    roleId: resolvedRoleId,
-    permissions: isGuest ? GUEST_DEFAULT_PERMISSIONS : [],
+    roleName,
+    resolvedRoleId,
     memberType,
-    status: 'PENDING',
-    clerkInvitationId: clerkInvitation.id,
-    invitedBy: invitingUserId,
-    invitedAt: new Date(),
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    isGuest,
+    clerkInvitationId: invitation.id,
+    invitingUserId,
   });
 
   return success(c, { memberId, memberType, activated: false }, 201);
@@ -577,6 +689,65 @@ app.get('/:id', async (c) => {
     return error.internal(c, 'Failed to fetch member');
   }
 });
+
+type MemberRoleChange =
+  | { tier: 'ADMIN' | 'MEMBER' | 'VIEWER'; roleIdValue: string | null }
+  | { missingRoleId: string };
+
+/**
+ * Resolve the system tier written to `role` and the custom-role id written to
+ * `roleId`. At most one of `role` / `roleId` is present (enforced by the
+ * schema). `role` is always a valid tier; a custom role maps onto a tier via
+ * its name and otherwise falls back to MEMBER — never write a long
+ * custom-role name into the varchar `role` column.
+ */
+async function resolveMemberRoleChange(
+  db: Database,
+  body: ReturnType<typeof updateMemberInput.parse>,
+): Promise<MemberRoleChange> {
+  if (!body.roleId) {
+    return { tier: body.role!, roleIdValue: null };
+  }
+  const role = await lookupRole(db, body.roleId);
+  if (!role) return { missingRoleId: body.roleId };
+  const name = role.name.toUpperCase();
+  const tier = name === 'ADMIN' || name === 'VIEWER' ? name : 'MEMBER';
+  return { tier, roleIdValue: body.roleId };
+}
+
+/** Push a role change to the Clerk org membership. Returns false on failure. */
+async function updateClerkMembershipRole(
+  env: Env,
+  orgId: string,
+  clerkMembershipId: string,
+  tier: 'ADMIN' | 'MEMBER' | 'VIEWER',
+): Promise<boolean> {
+  const resp = await fetch(
+    `https://api.clerk.com/v1/organizations/${orgId}/memberships/${clerkMembershipId}`,
+    {
+      method: 'PATCH',
+      headers: clerkHeaders(env.CLERK_SECRET_KEY),
+      body: JSON.stringify({ role: mapRoleToClerk(tier) }),
+    },
+  );
+  if (!resp.ok) {
+    console.error('[app-api/team-members] Clerk role update failed:', resp.status);
+    return false;
+  }
+  return true;
+}
+
+/** Only the optional member fields the caller actually sent. */
+function pickMemberFieldUpdates(
+  body: ReturnType<typeof updateMemberInput.parse>,
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (body.name !== undefined) fields.name = body.name;
+  if (body.permissions !== undefined) fields.permissions = body.permissions;
+  if (body.permissionDenies !== undefined) fields.permissionDenies = body.permissionDenies;
+  if (body.hoursPerWeek !== undefined) fields.hoursPerWeek = body.hoursPerWeek;
+  return fields;
+}
 
 /**
  * PATCH /:id — update a member: role (Clerk + DB), display name, per-member
@@ -628,47 +799,22 @@ app.patch('/:id', requirePermission('team:update'), async (c) => {
       return error.badRequest(c, 'Can only update role of an active member.');
     }
 
-    // Resolve the system tier written to `role` and the custom-role id written
-    // to `roleId`. At most one of `role` / `roleId` is present (enforced by the
-    // schema). `role` is always a valid tier; a custom role maps onto a tier
-    // via its name and otherwise falls back to MEMBER — never write a long
-    // custom-role name into the varchar `role` column.
-    let tier: 'ADMIN' | 'MEMBER' | 'VIEWER';
-    let roleIdValue: string | null;
-    if (body.roleId) {
-      const role = await lookupRole(db, body.roleId);
-      if (!role) return error.notFound(c, 'Role', body.roleId);
-      const name = role.name.toUpperCase();
-      tier = name === 'ADMIN' || name === 'VIEWER' ? name : 'MEMBER';
-      roleIdValue = body.roleId;
-    } else {
-      tier = body.role!;
-      roleIdValue = null;
-    }
+    const change = await resolveMemberRoleChange(db, body);
+    if ('missingRoleId' in change) return error.notFound(c, 'Role', change.missingRoleId);
+    const { tier, roleIdValue } = change;
 
-    if (member.clerkMembershipId) {
-      const resp = await fetch(
-        `https://api.clerk.com/v1/organizations/${orgId}/memberships/${member.clerkMembershipId}`,
-        {
-          method: 'PATCH',
-          headers: clerkHeaders(c.env.CLERK_SECRET_KEY),
-          body: JSON.stringify({ role: mapRoleToClerk(tier) }),
-        },
-      );
-      if (!resp.ok) {
-        console.error('[app-api/team-members] Clerk role update failed:', resp.status);
-        return error.internal(c, 'Failed to update role in Clerk');
-      }
+    if (
+      member.clerkMembershipId &&
+      !(await updateClerkMembershipRole(c.env, orgId, member.clerkMembershipId, tier))
+    ) {
+      return error.internal(c, 'Failed to update role in Clerk');
     }
 
     update.role = tier;
     update.roleId = roleIdValue;
   }
 
-  if (body.name !== undefined) update.name = body.name;
-  if (body.permissions !== undefined) update.permissions = body.permissions;
-  if (body.permissionDenies !== undefined) update.permissionDenies = body.permissionDenies;
-  if (body.hoursPerWeek !== undefined) update.hoursPerWeek = body.hoursPerWeek;
+  Object.assign(update, pickMemberFieldUpdates(body));
 
   await db.update(workspaceMembers).set(update).where(eq(workspaceMembers.id, memberId));
 

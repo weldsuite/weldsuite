@@ -68,21 +68,19 @@ export function ConfirmationCard({
       </p>
 
       {emailDelivery === 'failed' && (
-        <div
-          role="status"
-          className="mb-6 max-w-md text-sm rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-amber-900 dark:text-amber-200 px-4 py-3"
+        <output
+          className="block mb-6 max-w-md text-sm rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-amber-900 dark:text-amber-200 px-4 py-3"
         >
           Booking confirmed, but we couldn't deliver the confirmation email. Please reach out to{' '}
           <strong>{workspaceName}</strong> directly if you need the details.
-        </div>
+        </output>
       )}
       {emailDelivery === 'partial' && (
-        <div
-          role="status"
-          className="mb-6 max-w-md text-sm rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-amber-900 dark:text-amber-200 px-4 py-3"
+        <output
+          className="block mb-6 max-w-md text-sm rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-amber-900 dark:text-amber-200 px-4 py-3"
         >
           Some invite emails couldn't be delivered. The host has been notified.
-        </div>
+        </output>
       )}
 
       {selectedSlot && selectedDate && (

@@ -217,7 +217,7 @@ function PooledFrame({
 /** Neutral page skeleton in platform styling while the app boots. */
 function FrameSkeleton() {
   return (
-    <div className="absolute inset-0 flex flex-col gap-4 p-6 bg-background" role="status" aria-busy="true">
+    <output className="absolute inset-0 flex flex-col gap-4 p-6 bg-background" aria-busy="true">
       <Skeleton className="h-7 w-48" />
       <Skeleton className="h-4 w-80" />
       <div className="mt-2 flex flex-col gap-3">
@@ -226,6 +226,6 @@ function FrameSkeleton() {
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-3/4" />
       </div>
-    </div>
+    </output>
   );
 }

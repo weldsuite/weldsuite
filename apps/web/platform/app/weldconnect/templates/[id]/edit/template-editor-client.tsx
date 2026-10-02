@@ -314,7 +314,7 @@ export function TemplateEditorClient({
 
         {/* Right Panel - Step Config or Add Action */}
         <div className="w-[400px] border-l bg-white dark:bg-background flex flex-col">
-          {showAddActionPanel ? (
+          {showAddActionPanel && (
             <>
               <div className="p-4 border-b">
                 <div className="flex items-center justify-between">
@@ -361,7 +361,8 @@ export function TemplateEditorClient({
                 </div>
               </ScrollArea>
             </>
-          ) : editingStep ? (
+          )}
+          {!showAddActionPanel && editingStep && (
             <>
               <div className="p-4 border-b">
                 <div className="flex items-center justify-between">
@@ -399,7 +400,8 @@ export function TemplateEditorClient({
                 </div>
               </ScrollArea>
             </>
-          ) : (
+          )}
+          {!showAddActionPanel && !editingStep && (
             <div className="flex-1 flex items-center justify-center text-center p-8">
               <div>
                 <Zap className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />

@@ -3,6 +3,8 @@
  * Type definitions for postMessage communication between parent and iframes
  */
 
+import { randomIdSuffix } from '../utils/random-id';
+
 /**
  * Message origins for validation
  */
@@ -243,7 +245,7 @@ export function createMessage(
     type,
     origin,
     timestamp: Date.now(),
-    id: `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    id: `${type}_${Date.now()}_${randomIdSuffix(9)}`,
     payload,
   };
 }

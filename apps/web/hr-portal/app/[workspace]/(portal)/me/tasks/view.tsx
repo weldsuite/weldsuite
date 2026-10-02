@@ -27,6 +27,16 @@ export default function TasksView() {
     }
   }
 
+  function statusLine(task: EmployeeTask): string {
+    if (task.completedAt) {
+      return format(dict.tasks.completedOn, { date: formatDate(task.completedAt, locale, timeZone) });
+    }
+    if (task.dueDate) {
+      return format(dict.tasks.due, { date: formatDate(task.dueDate, locale, timeZone) });
+    }
+    return dict.tasks.noDueDate;
+  }
+
   if (loading) return <LoadingState />;
   if (error || !data) return <ErrorState onRetry={refetch} />;
 
@@ -53,11 +63,7 @@ export default function TasksView() {
                 <p className={`text-sm font-medium ${task.completedAt ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{task.title}</p>
                 {task.description && <p className="text-sm text-gray-500 mt-0.5">{task.description}</p>}
                 <p className="text-xs text-gray-400 mt-1">
-                  {task.completedAt
-                    ? format(dict.tasks.completedOn, { date: formatDate(task.completedAt, locale, timeZone) })
-                    : task.dueDate
-                      ? format(dict.tasks.due, { date: formatDate(task.dueDate, locale, timeZone) })
-                      : dict.tasks.noDueDate}
+                  {statusLine(task)}
                   {!task.canComplete && !task.completedAt && ` · ${dict.tasks.notYours}`}
                 </p>
               </div>

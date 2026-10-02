@@ -73,11 +73,11 @@ test.describe('Widget Lifecycle', () => {
       const anyLink = widgetPage.page.locator('a').first();
       if (await anyLink.isVisible()) {
         await anyLink.click();
-        await widgetPage.page.waitForLoadState('networkidle');
+        await widgetPage.page.waitForLoadState('load');
 
         // Go back
         await widgetPage.page.goBack();
-        await widgetPage.page.waitForLoadState('networkidle');
+        await widgetPage.page.waitForLoadState('load');
         expect(widgetPage.page.url()).toBe(startUrl);
       }
     });
@@ -91,10 +91,10 @@ test.describe('Widget Lifecycle', () => {
 
       // Navigate away and back
       await widgetPage.page.goto('/chat');
-      await widgetPage.page.waitForLoadState('networkidle');
+      await widgetPage.page.waitForLoadState('load');
 
       await widgetPage.page.goto(initialUrl);
-      await widgetPage.page.waitForLoadState('networkidle');
+      await widgetPage.page.waitForLoadState('load');
 
       // Should be back at initial state
       expect(widgetPage.page.url()).toBe(initialUrl);
@@ -159,10 +159,10 @@ test.describe('Widget Lifecycle', () => {
       // Navigate multiple times
       for (let i = 0; i < 5; i++) {
         await widgetPage.page.goto('/chat');
-        await widgetPage.page.waitForLoadState('networkidle');
+        await widgetPage.page.waitForLoadState('load');
 
         await widgetPage.page.goto('/');
-        await widgetPage.page.waitForLoadState('networkidle');
+        await widgetPage.page.waitForLoadState('load');
       }
 
       // Page should still be responsive

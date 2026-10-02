@@ -21,7 +21,8 @@ function WarehousesPageContent() {
       if (value) params.set('search', value);
       else params.delete('search');
       const qs = params.toString();
-      router.replace(`/weldstash/warehouses${qs ? `?${qs}` : ''}`);
+      const query = qs ? `?${qs}` : '';
+      router.replace(`/weldstash/warehouses${query}`);
     },
     [router, searchParams],
   );

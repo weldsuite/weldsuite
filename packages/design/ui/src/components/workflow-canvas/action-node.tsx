@@ -138,6 +138,52 @@ interface ActionNodeDataExtended extends ActionNodeData {
   };
 }
 
+type ActionNodeLabels = NonNullable<ActionNodeDataExtended['labels']>;
+type ActionConfig = Record<string, unknown>;
+
+const DELAY_UNITS = ['days', 'hours', 'minutes', 'seconds'] as const;
+
+function describeDelay(config: ActionConfig, labels: ActionNodeLabels): string | null {
+  const unit = DELAY_UNITS.find((u) => config[u]);
+  if (!unit) return null;
+  return (labels.descDelay || 'Wait {duration} {unit}')
+    .replace('{duration}', String(config[unit]))
+    .replace('{unit}', unit);
+}
+
+function describeEntityAction(config: ActionConfig, labels: ActionNodeLabels): string | null {
+  const entity = config.entityType || config.entity;
+  if (!entity) return null;
+  return (labels.descEntity || '{entityType}').replace('{entityType}', String(entity));
+}
+
+// Type-specific one-line summaries; each returns null when its config lacks the needed field.
+const ACTION_DESCRIBERS: Record<string, (config: ActionConfig, labels: ActionNodeLabels) => string | null> = {
+  send_email: (config, labels) =>
+    config.to ? (labels.descTo || 'To: {to}').replace('{to}', String(config.to)) : null,
+  http_request: (config) =>
+    config.url ? `${String(config.method ?? 'GET')} ${String(config.url)}` : null,
+  delay: describeDelay,
+  create_customer: (config) =>
+    typeof config.name === 'string' && config.name ? config.name : null,
+  create_record: describeEntityAction,
+  update_record: describeEntityAction,
+  delete_record: describeEntityAction,
+  query_data: describeEntityAction,
+};
+
+function getActionDescription(nodeData: ActionNodeDataExtended, labels: ActionNodeLabels): string {
+  const fallback = labels.noDescription || 'Not configured';
+  if (nodeData.step?.description) return nodeData.step.description;
+  const config = nodeData.step?.config as ActionConfig | undefined;
+  if (!config || Object.keys(config).length === 0) return fallback;
+  if (typeof config.description === 'string') return config.description;
+  const describe = Object.prototype.hasOwnProperty.call(ACTION_DESCRIBERS, nodeData.actionType)
+    ? ACTION_DESCRIBERS[nodeData.actionType]
+    : undefined;
+  return describe?.(config, labels) ?? fallback;
+}
+
 function ActionNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as ActionNodeDataExtended;
   const labels = nodeData.labels || {};
@@ -147,46 +193,8 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
   const [isHovered, setIsHovered] = useState(false);
   const needsConfig = !nodeData.isConfigured;
 
-  const getDescription = () => {
-    if (nodeData.step?.description) return nodeData.step.description;
-    const config = nodeData.step?.config as Record<string, unknown> | undefined;
-    if (!config || Object.keys(config).length === 0) return labels.noDescription || 'Not configured';
-    if (typeof config.description === 'string') return config.description;
-
-    switch (nodeData.actionType) {
-      case 'send_email':
-        if (config.to) return (labels.descTo || 'To: {to}').replace('{to}', String(config.to));
-        break;
-      case 'http_request':
-        if (config.url) return `${String(config.method ?? 'GET')} ${String(config.url)}`;
-        break;
-      case 'delay': {
-        const unit = config.days ? 'days' : config.hours ? 'hours' : config.minutes ? 'minutes' : config.seconds ? 'seconds' : null;
-        if (unit) {
-          return (labels.descDelay || 'Wait {duration} {unit}')
-            .replace('{duration}', String(config[unit]))
-            .replace('{unit}', unit);
-        }
-        break;
-      }
-      case 'create_customer':
-        if (typeof config.name === 'string' && config.name) return config.name;
-        break;
-      case 'create_record':
-      case 'update_record':
-      case 'delete_record':
-      case 'query_data': {
-        const entity = config.entityType || config.entity;
-        if (entity) return (labels.descEntity || '{entityType}').replace('{entityType}', String(entity));
-        break;
-      }
-    }
-
-    return labels.noDescription || 'Not configured';
-  };
-
   const categoryLabel = actionCategoryLabels[nodeData.actionType] || labels.defaultCategory || 'Action';
-  const description = getDescription();
+  const description = getActionDescription(nodeData, labels);
 
   return (
     <div

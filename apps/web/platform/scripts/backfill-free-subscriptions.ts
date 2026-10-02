@@ -13,7 +13,7 @@
 
 import Stripe from 'stripe';
 import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
+import { drizzle, type NeonDatabase } from 'drizzle-orm/neon-serverless';
 import { eq, and, isNull } from 'drizzle-orm';
 import ws from 'ws';
 import * as masterSchema from '@weldsuite/db/schema/master';
@@ -21,6 +21,73 @@ import * as masterSchema from '@weldsuite/db/schema/master';
 neonConfig.webSocketConstructor = ws;
 
 const dryRun = process.argv.includes('--dry-run');
+
+type MasterDb = NeonDatabase<typeof masterSchema>;
+type WorkspaceRow = Pick<
+  typeof masterSchema.workspaces.$inferSelect,
+  'id' | 'name' | 'clerkOrgId' | 'stripeCustomerId'
+>;
+type PlanRow = typeof masterSchema.plans.$inferSelect;
+
+/** Step 1: Create the Stripe customer if the workspace doesn't have one yet. */
+async function ensureStripeCustomer(db: MasterDb, stripe: Stripe, workspace: WorkspaceRow): Promise<string> {
+  if (workspace.stripeCustomerId) {
+    console.log(`  -> Existing customer: ${workspace.stripeCustomerId}`);
+    return workspace.stripeCustomerId;
+  }
+  if (dryRun) {
+    console.log(`  -> Would create Stripe customer`);
+    return 'cus_dry_run';
+  }
+
+  const customer = await stripe.customers.create({
+    name: workspace.name,
+    metadata: {
+      workspaceId: workspace.id,
+      clerkOrgId: workspace.clerkOrgId,
+    },
+  });
+
+  await db
+    .update(masterSchema.workspaces)
+    .set({ stripeCustomerId: customer.id, updatedAt: new Date() })
+    .where(eq(masterSchema.workspaces.id, workspace.id));
+
+  console.log(`  -> Created customer: ${customer.id}`);
+  return customer.id;
+}
+
+/** Step 2: Create the $0 free subscription. */
+async function createFreeSubscription(
+  db: MasterDb,
+  stripe: Stripe,
+  workspace: WorkspaceRow,
+  customerId: string,
+  freePlan: PlanRow,
+  stripePriceId: string,
+): Promise<void> {
+  if (dryRun) {
+    console.log(`  -> Would create free subscription`);
+    return;
+  }
+
+  const subscription = await stripe.subscriptions.create({
+    customer: customerId,
+    items: [{ price: stripePriceId }],
+    metadata: {
+      workspaceId: workspace.id,
+      planId: freePlan.id,
+      clerkOrgId: workspace.clerkOrgId,
+    },
+  });
+
+  await db
+    .update(masterSchema.workspaces)
+    .set({ stripeSubscriptionId: subscription.id, updatedAt: new Date() })
+    .where(eq(masterSchema.workspaces.id, workspace.id));
+
+  console.log(`  -> Created subscription: ${subscription.id}`);
+}
 
 async function main() {
   // Standalone script invoked directly via `pnpm tsx` (not a turbo task), so
@@ -59,8 +126,10 @@ async function main() {
     process.exit(1);
   }
 
+  const stripePriceId: string = freePlan.stripePriceIdMonthly;
+
   console.log(`Free plan: ${freePlan.name} (${freePlan.id})`);
-  console.log(`Stripe price: ${freePlan.stripePriceIdMonthly}`);
+  console.log(`Stripe price: ${stripePriceId}`);
   console.log(`Dry run: ${dryRun}\n`);
 
   // Get all active workspaces missing a subscription
@@ -90,54 +159,8 @@ async function main() {
     try {
       console.log(`[${workspace.id}] ${workspace.name}`);
 
-      // Step 1: Create Stripe customer if needed
-      let customerId = workspace.stripeCustomerId;
-      if (!customerId) {
-        if (dryRun) {
-          console.log(`  -> Would create Stripe customer`);
-          customerId = 'cus_dry_run';
-        } else {
-          const customer = await stripe.customers.create({
-            name: workspace.name,
-            metadata: {
-              workspaceId: workspace.id,
-              clerkOrgId: workspace.clerkOrgId,
-            },
-          });
-          customerId = customer.id;
-
-          await db
-            .update(masterSchema.workspaces)
-            .set({ stripeCustomerId: customerId, updatedAt: new Date() })
-            .where(eq(masterSchema.workspaces.id, workspace.id));
-
-          console.log(`  -> Created customer: ${customerId}`);
-        }
-      } else {
-        console.log(`  -> Existing customer: ${customerId}`);
-      }
-
-      // Step 2: Create $0 free subscription
-      if (dryRun) {
-        console.log(`  -> Would create free subscription`);
-      } else {
-        const subscription = await stripe.subscriptions.create({
-          customer: customerId,
-          items: [{ price: freePlan.stripePriceIdMonthly! }],
-          metadata: {
-            workspaceId: workspace.id,
-            planId: freePlan.id,
-            clerkOrgId: workspace.clerkOrgId,
-          },
-        });
-
-        await db
-          .update(masterSchema.workspaces)
-          .set({ stripeSubscriptionId: subscription.id, updatedAt: new Date() })
-          .where(eq(masterSchema.workspaces.id, workspace.id));
-
-        console.log(`  -> Created subscription: ${subscription.id}`);
-      }
+      const customerId = await ensureStripeCustomer(db, stripe, workspace);
+      await createFreeSubscription(db, stripe, workspace, customerId, freePlan, stripePriceId);
 
       created++;
     } catch (error) {

@@ -135,87 +135,13 @@ export class WorkspaceHub extends DurableObject<Env> {
     const connId = this.getTag(tags, 'conn:');
 
     switch (msg.type) {
-      case 'subscribe': {
-        if (!Array.isArray(msg.topics)) break;
-        const allowedTopics = await this.getAllowedTopics(connId, tags);
-        const authUserId = this.getTag(tags, 'user:');
-        const accepted: string[] = [];
-        const subs = await this.loadSubs(connId);
-
-        for (const topic of msg.topics) {
-          if (typeof topic !== 'string') continue;
-          // Personal-topic isolation: enforced for EVERY role (including
-          // owner/admin whose allow list is `*`). Blocks a hand-crafted
-          // `notification.<other-user-id>` subscribe regardless of the
-          // role-derived allow list.
-          if (isPersonalTopicForOtherUser(authUserId, topic)) {
-            ws.send(
-              JSON.stringify({
-                type: 'error',
-                code: 'forbidden',
-                message: `Cannot subscribe to another user's personal topic: ${topic}`,
-              }),
-            );
-            continue;
-          }
-          if (canSubscribe(allowedTopics, topic)) {
-            subs.add(topic);
-            accepted.push(topic);
-          } else {
-            ws.send(
-              JSON.stringify({
-                type: 'error',
-                code: 'forbidden',
-                message: `Cannot subscribe to topic: ${topic}`,
-              }),
-            );
-          }
-        }
-
-        await this.saveSubs(connId, subs);
-
-        // Replay missed events when the client supplied a `since` cursor.
-        // Must happen BEFORE the `subscribed` ack so the client's local cache
-        // sees the catch-up before any live tail message.
-        const sinceRaw = msg.since;
-        const wsUserId = this.getTag(tags, 'user:');
-        if (typeof sinceRaw === 'string' && sinceRaw.length > 0 && accepted.length > 0) {
-          const replay = await this.replaySince(sinceRaw, accepted, wsUserId);
-          if (replay.kind === 'resync_required') {
-            ws.send(JSON.stringify({ type: 'resync_required', topics: accepted }));
-          } else {
-            for (const entry of replay.events) {
-              ws.send(
-                JSON.stringify({
-                  type: 'event',
-                  topic: entry.topic,
-                  event: entry.event,
-                  data: entry.data,
-                  ts: entry.ts,
-                  userId: entry.userId,
-                  eventId: entry.eventId,
-                }),
-              );
-            }
-          }
-        }
-
-        if (accepted.length > 0) {
-          ws.send(JSON.stringify({ type: 'subscribed', topics: accepted }));
-        }
+      case 'subscribe':
+        await this.handleSubscribe(ws, msg, connId, tags);
         break;
-      }
 
-      case 'unsubscribe': {
-        if (!Array.isArray(msg.topics)) break;
-        const subs = await this.loadSubs(connId);
-        for (const topic of msg.topics) {
-          subs.delete(topic);
-        }
-        await this.saveSubs(connId, subs);
-        ws.send(JSON.stringify({ type: 'unsubscribed', topics: msg.topics }));
+      case 'unsubscribe':
+        await this.handleUnsubscribe(ws, msg, connId);
         break;
-      }
 
       case 'ping':
         ws.send('{"type":"pong"}');
@@ -230,6 +156,113 @@ export class WorkspaceHub extends DurableObject<Env> {
           }),
         );
     }
+  }
+
+  /** Send a `forbidden` error frame for a rejected subscribe topic. */
+  private sendForbidden(ws: WebSocket, message: string): void {
+    ws.send(JSON.stringify({ type: 'error', code: 'forbidden', message }));
+  }
+
+  /**
+   * Filter the requested topics down to the ones this connection may
+   * subscribe to, adding them to `subs` and sending a `forbidden` error for
+   * each rejected topic. Returns the accepted topics.
+   */
+  private acceptTopics(
+    ws: WebSocket,
+    topics: unknown[],
+    subs: Set<string>,
+    allowedTopics: string[],
+    authUserId: string,
+  ): string[] {
+    const accepted: string[] = [];
+    for (const topic of topics) {
+      if (typeof topic !== 'string') continue;
+      // Personal-topic isolation: enforced for EVERY role (including
+      // owner/admin whose allow list is `*`). Blocks a hand-crafted
+      // `notification.<other-user-id>` subscribe regardless of the
+      // role-derived allow list.
+      if (isPersonalTopicForOtherUser(authUserId, topic)) {
+        this.sendForbidden(ws, `Cannot subscribe to another user's personal topic: ${topic}`);
+        continue;
+      }
+      if (canSubscribe(allowedTopics, topic)) {
+        subs.add(topic);
+        accepted.push(topic);
+      } else {
+        this.sendForbidden(ws, `Cannot subscribe to topic: ${topic}`);
+      }
+    }
+    return accepted;
+  }
+
+  /** Send the catch-up events (or a resync request) for a `since` cursor. */
+  private async sendReplay(
+    ws: WebSocket,
+    since: string,
+    accepted: string[],
+    wsUserId: string,
+  ): Promise<void> {
+    const replay = await this.replaySince(since, accepted, wsUserId);
+    if (replay.kind === 'resync_required') {
+      ws.send(JSON.stringify({ type: 'resync_required', topics: accepted }));
+      return;
+    }
+    for (const entry of replay.events) {
+      ws.send(
+        JSON.stringify({
+          type: 'event',
+          topic: entry.topic,
+          event: entry.event,
+          data: entry.data,
+          ts: entry.ts,
+          userId: entry.userId,
+          eventId: entry.eventId,
+        }),
+      );
+    }
+  }
+
+  private async handleSubscribe(
+    ws: WebSocket,
+    msg: { topics?: string[]; [key: string]: unknown },
+    connId: string,
+    tags: readonly string[],
+  ): Promise<void> {
+    if (!Array.isArray(msg.topics)) return;
+    const allowedTopics = await this.getAllowedTopics(connId, tags);
+    const authUserId = this.getTag(tags, 'user:');
+    const subs = await this.loadSubs(connId);
+
+    const accepted = this.acceptTopics(ws, msg.topics, subs, allowedTopics, authUserId);
+
+    await this.saveSubs(connId, subs);
+
+    // Replay missed events when the client supplied a `since` cursor.
+    // Must happen BEFORE the `subscribed` ack so the client's local cache
+    // sees the catch-up before any live tail message.
+    const sinceRaw = msg.since;
+    if (typeof sinceRaw === 'string' && sinceRaw.length > 0 && accepted.length > 0) {
+      await this.sendReplay(ws, sinceRaw, accepted, authUserId);
+    }
+
+    if (accepted.length > 0) {
+      ws.send(JSON.stringify({ type: 'subscribed', topics: accepted }));
+    }
+  }
+
+  private async handleUnsubscribe(
+    ws: WebSocket,
+    msg: { topics?: string[] },
+    connId: string,
+  ): Promise<void> {
+    if (!Array.isArray(msg.topics)) return;
+    const subs = await this.loadSubs(connId);
+    for (const topic of msg.topics) {
+      subs.delete(topic);
+    }
+    await this.saveSubs(connId, subs);
+    ws.send(JSON.stringify({ type: 'unsubscribed', topics: msg.topics }));
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, _wasClean: boolean): Promise<void> {

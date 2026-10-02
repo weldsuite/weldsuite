@@ -173,6 +173,44 @@ export interface UpdateMailLabelInput {
   aiConfidence?: number;
 }
 
+/**
+ * System labels are immutable except for `position` — renaming SENT
+ * would silently break every reference in `mail_messages.labels`.
+ */
+function assertSystemLabelPatchAllowed(data: UpdateMailLabelInput): void {
+  const touchesImmutable = Object.entries(data).some(([key, value]) => value !== undefined && key !== 'position');
+  if (touchesImmutable) {
+    throw new MailLabelError(
+      'SYSTEM_LABEL_IMMUTABLE',
+      'System labels cannot be renamed or recoloured; only `position` may change.',
+    );
+  }
+}
+
+/** Rename collision check. */
+async function assertLabelNameAvailable(
+  db: Database,
+  existing: typeof mailLabels.$inferSelect,
+  id: string,
+  name: string,
+): Promise<void> {
+  const [collision] = await db
+    .select({ id: mailLabels.id })
+    .from(mailLabels)
+    .where(
+      and(
+        eq(mailLabels.accountId, existing.accountId),
+        sql`LOWER(${mailLabels.name}) = LOWER(${name})`,
+        isNull(mailLabels.deletedAt),
+        sql`${mailLabels.id} != ${id}`,
+      ),
+    )
+    .limit(1);
+  if (collision) {
+    throw new MailLabelError('DUPLICATE_NAME', 'A label with this name already exists on this account');
+  }
+}
+
 export async function updateMailLabel(
   db: Database,
   id: string,
@@ -185,38 +223,10 @@ export async function updateMailLabel(
     .limit(1);
   if (!existing) throw new MailLabelError('NOT_FOUND', 'Label not found');
 
-  // System labels are immutable except for `position` — renaming SENT
-  // would silently break every reference in `mail_messages.labels`.
-  if (existing.isSystem) {
-    const allowed = new Set(['position']);
-    for (const key of Object.keys(data)) {
-      if (data[key as keyof UpdateMailLabelInput] !== undefined && !allowed.has(key)) {
-        throw new MailLabelError(
-          'SYSTEM_LABEL_IMMUTABLE',
-          'System labels cannot be renamed or recoloured; only `position` may change.',
-        );
-      }
-    }
-  }
+  if (existing.isSystem) assertSystemLabelPatchAllowed(data);
 
-  // Rename collision check.
-  if (data.name && data.name !== existing.name) {
-    const [collision] = await db
-      .select({ id: mailLabels.id })
-      .from(mailLabels)
-      .where(
-        and(
-          eq(mailLabels.accountId, existing.accountId),
-          sql`LOWER(${mailLabels.name}) = LOWER(${data.name})`,
-          isNull(mailLabels.deletedAt),
-          sql`${mailLabels.id} != ${id}`,
-        ),
-      )
-      .limit(1);
-    if (collision) {
-      throw new MailLabelError('DUPLICATE_NAME', 'A label with this name already exists on this account');
-    }
-  }
+  const renamed = Boolean(data.name) && data.name !== existing.name;
+  if (data.name && renamed) await assertLabelNameAvailable(db, existing, id, data.name);
 
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   for (const [k, v] of Object.entries(data)) if (v !== undefined) patch[k] = v;
@@ -227,7 +237,7 @@ export async function updateMailLabel(
 
   // If the label was renamed, rewrite every message's JSONB labels array so
   // the rename is visible without rebuilding the index. Single SQL pass.
-  if (data.name && data.name !== existing.name) {
+  if (data.name && renamed) {
     await db.execute(sql`
       UPDATE mail_messages
       SET labels = (

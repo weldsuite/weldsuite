@@ -145,11 +145,12 @@ export default function VoiceAgentsPage() {
           .
         </p>
 
-        {isLoading ? (
+        {isLoading && (
           <div className="flex justify-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : agents.length === 0 ? (
+        )}
+        {!isLoading && agents.length === 0 && (
           <Card className="border-dashed">
             <CardHeader className="text-center">
               <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
@@ -161,7 +162,8 @@ export default function VoiceAgentsPage() {
               </CardDescription>
             </CardHeader>
           </Card>
-        ) : (
+        )}
+        {!isLoading && agents.length > 0 && (
           <div className="space-y-3">
             {agents.map((agent) => (
               <Card key={agent.id}>

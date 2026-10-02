@@ -134,6 +134,51 @@ export function SlackSettingsClient({
 
   const isRefreshing = slackChannelsQuery.isFetching;
 
+  const renderChannelList = () => {
+    if (availableChannels.length === 0) {
+      return (
+        <div className="text-center py-8 text-muted-foreground">
+          <Hash className="h-12 w-12 mx-auto mb-3 opacity-50" />
+          <p>{di.slackNoChannels}</p>
+        </div>
+      );
+    }
+    if (filteredAvailableChannels.length === 0) {
+      return (
+        <div className="text-center py-8 text-muted-foreground">
+          <p className="text-sm">{di.discordNoChannelsMatch} &ldquo;{channelSearchQuery}&rdquo;.</p>
+        </div>
+      );
+    }
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        {filteredAvailableChannels.map((channel) => (
+          <label
+            key={channel.channelId}
+            className={cn(
+              'flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+              isChannelEnabled(channel.channelId)
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:bg-muted/50',
+            )}
+          >
+            <Checkbox
+              checked={isChannelEnabled(channel.channelId)}
+              onCheckedChange={(checked) =>
+                handleChannelToggle(channel.channelId, channel.channelName || '', !!checked)
+              }
+            />
+            <div className="flex items-center gap-2 min-w-0">
+              <Hash className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <span className="truncate">{channel.channelName || channel.channelId}</span>
+            </div>
+          </label>
+        ))}
+      </div>
+    );
+  };
+  const channelListContent = renderChannelList();
+
   return (
     <div className="space-y-6">
       <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
@@ -214,41 +259,7 @@ export function SlackSettingsClient({
                 </AlertDescription>
               </Alert>
             )}
-            {availableChannels.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Hash className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p>{di.slackNoChannels}</p>
-              </div>
-            ) : filteredAvailableChannels.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p className="text-sm">{di.discordNoChannelsMatch} &ldquo;{channelSearchQuery}&rdquo;.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {filteredAvailableChannels.map((channel) => (
-                  <label
-                    key={channel.channelId}
-                    className={cn(
-                      'flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
-                      isChannelEnabled(channel.channelId)
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:bg-muted/50',
-                    )}
-                  >
-                    <Checkbox
-                      checked={isChannelEnabled(channel.channelId)}
-                      onCheckedChange={(checked) =>
-                        handleChannelToggle(channel.channelId, channel.channelName || '', !!checked)
-                      }
-                    />
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Hash className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                      <span className="truncate">{channel.channelName || channel.channelId}</span>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            )}
+            {channelListContent}
           </CardContent>
         </Card>
       )}

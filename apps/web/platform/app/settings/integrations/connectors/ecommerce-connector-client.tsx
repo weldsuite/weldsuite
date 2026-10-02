@@ -32,10 +32,48 @@ function BrandLogo({ slug, alt }: Readonly<{ slug: string; alt: string }>) {
   );
 }
 
+type EcommerceProvider = 'woocommerce' | 'shopify' | 'moneybird' | 'picqer';
+
+const PROVIDER_CATEGORY: Record<EcommerceProvider, string> = {
+  woocommerce: 'E-Commerce',
+  shopify: 'E-Commerce',
+  moneybird: 'Accounting',
+  picqer: 'Warehouse',
+};
+
+const PROVIDER_DOCS_HREF: Record<EcommerceProvider, string> = {
+  woocommerce:
+    'https://developer.woocommerce.com/docs/apis/rest-api/authentication/#auto-generating-api-keys-using-our-application-authentication-endpoint',
+  shopify:
+    'https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin',
+  picqer: 'https://picqer.com/en/api',
+  moneybird: 'https://developer.moneybird.com/authentication/',
+};
+
+const PROVIDER_WEBSITE_HREF: Record<EcommerceProvider, string> = {
+  woocommerce: 'https://woocommerce.com',
+  shopify: 'https://www.shopify.com',
+  picqer: 'https://picqer.com',
+  moneybird: 'https://www.moneybird.com',
+};
+
+function ProviderIcon({ provider, alt }: Readonly<{ provider: EcommerceProvider; alt: string }>) {
+  if (provider === 'moneybird' || provider === 'picqer') {
+    return (
+      <img
+        src={`https://icons.duckduckgo.com/ip3/${provider}.com.ico`}
+        alt={alt}
+        className="h-7 w-7 rounded-[4px]"
+      />
+    );
+  }
+  return <BrandLogo slug={provider === 'woocommerce' ? 'woocommerce' : 'shopify'} alt={alt} />;
+}
+
 export function EcommerceConnectorSettingsPage({
   provider,
 }: Readonly<{
-  provider: 'woocommerce' | 'shopify' | 'moneybird' | 'picqer';
+  provider: EcommerceProvider;
 }>) {
   const { t, format } = useI18n();
   const copy = t.settings.integrations[provider];
@@ -82,26 +120,9 @@ export function EcommerceConnectorSettingsPage({
     return <PageLoader fullScreen={false} />;
   }
 
-  const category =
-    provider === 'moneybird' ? 'Accounting' : provider === 'picqer' ? 'Warehouse' : 'E-Commerce';
-
-  const docsHref =
-    provider === 'woocommerce'
-      ? 'https://developer.woocommerce.com/docs/apis/rest-api/authentication/#auto-generating-api-keys-using-our-application-authentication-endpoint'
-      : provider === 'shopify'
-        ? 'https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin'
-        : provider === 'picqer'
-          ? 'https://picqer.com/en/api'
-          : 'https://developer.moneybird.com/authentication/';
-
-  const websiteHref =
-    provider === 'woocommerce'
-      ? 'https://woocommerce.com'
-      : provider === 'shopify'
-        ? 'https://www.shopify.com'
-        : provider === 'picqer'
-          ? 'https://picqer.com'
-          : 'https://www.moneybird.com';
+  const category = PROVIDER_CATEGORY[provider];
+  const docsHref = PROVIDER_DOCS_HREF[provider];
+  const websiteHref = PROVIDER_WEBSITE_HREF[provider];
 
   return (
     <>
@@ -109,17 +130,7 @@ export function EcommerceConnectorSettingsPage({
         name={copy.title}
         description={copy.description}
         category={category}
-        icon={
-          provider === 'moneybird' || provider === 'picqer' ? (
-            <img
-              src={`https://icons.duckduckgo.com/ip3/${provider}.com.ico`}
-              alt={copy.title}
-              className="h-7 w-7 rounded-[4px]"
-            />
-          ) : (
-            <BrandLogo slug={provider === 'woocommerce' ? 'woocommerce' : 'shopify'} alt={copy.title} />
-          )
-        }
+        icon={<ProviderIcon provider={provider} alt={copy.title} />}
         connected={connections.length > 0}
         canManage={false}
         overview={copy.overview}

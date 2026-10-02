@@ -648,86 +648,93 @@ function readEffectiveFontSize(): string {
   return Number.isFinite(px) ? `${Math.round(px)}px` : '16px';
 }
 
+type TiptapActiveApi = {
+  isActive?: (name: string) => boolean;
+  getAttributes?: (name: string) => Record<string, unknown>;
+};
+
+/** Collect the active inline styles from TipTap's `isActive()`. */
+function readActiveStyles(editor: BlockNoteEditorInstance): Record<string, boolean | string> {
+  // IMPORTANT: The active-styles tracking is driven ENTIRELY by
+  // TipTap's `isActive()` — not by BlockNote's `getActiveStyles()`.
+  // BlockNote reads `selection.$to.marks()`, which at an empty
+  // cursor returns the marks of the previous character, so after
+  // a user untoggled a mark via storedMarks the button would
+  // INCORRECTLY remain highlighted (the cursor is still sitting
+  // next to previously-styled text). TipTap's `isActive` uses the
+  // current selection + storedMarks together, which matches what
+  // `toggleMark` actually toggles against — so the toolbar state
+  // tracks the toggle perfectly.
+  const activeStyles: Record<string, boolean | string> = {};
+  const tt = (editor as unknown as { _tiptapEditor?: TiptapActiveApi })._tiptapEditor;
+  if (!tt?.isActive) return activeStyles;
+
+  for (const markName of ['bold', 'italic', 'underline', 'strike', 'code']) {
+    if (tt.isActive(markName)) activeStyles[markName] = true;
+  }
+  for (const markName of ['textColor', 'backgroundColor', 'fontFamily', 'fontSize']) {
+    if (!tt.isActive(markName)) continue;
+    const attrs = tt.getAttributes?.(markName) ?? {};
+    const val = (attrs as { stringValue?: string }).stringValue;
+    if (typeof val === 'string' && val.length > 0) {
+      activeStyles[markName] = val;
+    }
+  }
+  return activeStyles;
+}
+
+/** Read undo / redo history depths directly from the prosemirror-history
+ *  plugin. `editor.can().undo()` through TipTap's wrapper returned false
+ *  even with history present, so we go to the source: the plugin's own state. */
+function readHistoryAvailability(editor: BlockNoteEditorInstance): { canUndo: boolean; canRedo: boolean } {
+  try {
+    const pmState = (editor as unknown as { _tiptapEditor?: { state: unknown } })._tiptapEditor?.state;
+    if (pmState) {
+      return {
+        canUndo: undoDepth(pmState as never) > 0,
+        canRedo: redoDepth(pmState as never) > 0,
+      };
+    }
+  } catch {
+    /* noop */
+  }
+  return { canUndo: false, canRedo: false };
+}
+
+function computeToolbarState(editor: BlockNoteEditorInstance, lastState: ToolbarState): ToolbarState {
+  try {
+    const activeStyles = readActiveStyles(editor);
+    const inside = selectionInsideEditor();
+    const block = editor.getTextCursorPosition().block;
+    const props = (block as { props?: Record<string, unknown> } | undefined)?.props;
+    const { canUndo, canRedo } = readHistoryAvailability(editor);
+
+    return {
+      activeStyles,
+      activeBlockType: block?.type || 'paragraph',
+      activeHeadingLevel: typeof props?.level === 'number' ? (props.level as number) : null,
+      activeTextAlignment: (props?.textAlignment as TextAlignment | undefined) || 'left',
+      effectiveFontSize: readEffectiveFontSize(),
+      caretInsideEditor: inside,
+      canUndo,
+      canRedo,
+    };
+  } catch {
+    return {
+      ...lastState,
+      effectiveFontSize: readEffectiveFontSize(),
+      caretInsideEditor: selectionInsideEditor(),
+    };
+  }
+}
+
 export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNoteEditorInstance }>) {
   const [state, setState] = useState<ToolbarState>(INITIAL_TOOLBAR_STATE);
   const { activeStyles, activeBlockType, activeHeadingLevel, activeTextAlignment } = state;
   const lastStateRef = useRef<ToolbarState>(INITIAL_TOOLBAR_STATE);
 
   useEffect(() => {
-    const compute = (): ToolbarState => {
-      try {
-        // IMPORTANT: The active-styles tracking is driven ENTIRELY by
-        // TipTap's `isActive()` — not by BlockNote's `getActiveStyles()`.
-        // BlockNote reads `selection.$to.marks()`, which at an empty
-        // cursor returns the marks of the previous character, so after
-        // a user untoggled a mark via storedMarks the button would
-        // INCORRECTLY remain highlighted (the cursor is still sitting
-        // next to previously-styled text). TipTap's `isActive` uses the
-        // current selection + storedMarks together, which matches what
-        // `toggleMark` actually toggles against — so the toolbar state
-        // tracks the toggle perfectly.
-        const activeStyles: Record<string, boolean | string> = {};
-
-        const tt = (editor as unknown as {
-          _tiptapEditor?: {
-            isActive?: (name: string) => boolean;
-            getAttributes?: (name: string) => Record<string, unknown>;
-          };
-        })._tiptapEditor;
-
-        if (tt?.isActive) {
-          for (const markName of ['bold', 'italic', 'underline', 'strike', 'code']) {
-            if (tt.isActive(markName)) activeStyles[markName] = true;
-          }
-          for (const markName of ['textColor', 'backgroundColor', 'fontFamily', 'fontSize']) {
-            if (tt.isActive(markName)) {
-              const attrs = tt.getAttributes?.(markName) ?? {};
-              const val = (attrs as { stringValue?: string }).stringValue;
-              if (typeof val === 'string' && val.length > 0) {
-                activeStyles[markName] = val;
-              }
-            }
-          }
-        }
-
-        const inside = selectionInsideEditor();
-        const block = editor.getTextCursorPosition().block;
-        const props = (block as { props?: Record<string, unknown> } | undefined)?.props;
-
-        // Read undo / redo history depths directly from the
-        // prosemirror-history plugin. `editor.can().undo()` through
-        // TipTap's wrapper returned false even with history present,
-        // so we go to the source: the plugin's own state.
-        let canUndo = false;
-        let canRedo = false;
-        try {
-          const pmState = (editor as unknown as { _tiptapEditor?: { state: unknown } })._tiptapEditor?.state;
-          if (pmState) {
-            canUndo = undoDepth(pmState as never) > 0;
-            canRedo = redoDepth(pmState as never) > 0;
-          }
-        } catch {
-          /* noop */
-        }
-
-        return {
-          activeStyles,
-          activeBlockType: block?.type || 'paragraph',
-          activeHeadingLevel: typeof props?.level === 'number' ? (props.level as number) : null,
-          activeTextAlignment: (props?.textAlignment as TextAlignment | undefined) || 'left',
-          effectiveFontSize: readEffectiveFontSize(),
-          caretInsideEditor: inside,
-          canUndo,
-          canRedo,
-        };
-      } catch {
-        return {
-          ...lastStateRef.current,
-          effectiveFontSize: readEffectiveFontSize(),
-          caretInsideEditor: selectionInsideEditor(),
-        };
-      }
-    };
+    const compute = (): ToolbarState => computeToolbarState(editor, lastStateRef.current);
 
     // State updates are synchronous. Previously we coalesced multiple
     // selection/transaction events per frame via requestAnimationFrame,
@@ -975,8 +982,12 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
     return 'Paragraph';
   })();
 
-  const alignIcon = (a: TextAlignment) =>
-    a === 'center' ? AlignCenter : a === 'right' ? AlignRight : a === 'justify' ? AlignJustify : AlignLeft;
+  const alignIcon = (a: TextAlignment) => {
+    if (a === 'center') return AlignCenter;
+    if (a === 'right') return AlignRight;
+    if (a === 'justify') return AlignJustify;
+    return AlignLeft;
+  };
   const AlignCurrent = alignIcon(activeTextAlignment);
 
   return (
@@ -990,6 +1001,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       // search input and menu items inside those menus can receive
       // focus and clicks normally (popovers propagate React events back
       // through the component tree even though they render in a portal).
+      role="presentation"
       onMouseDown={(e) => {
         const target = e.target as Element | null;
         if (target?.closest('[data-slot="popover-content"], [data-slot="dropdown-menu-content"]')) {
@@ -1064,9 +1076,10 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
               { type: 'checkListItem' as const, label: 'Check list', Icon: ListChecks, match: activeBlockType === 'checkListItem' },
               { type: 'quote' as const, label: 'Quote', Icon: Quote, match: activeBlockType === 'quote' },
             ];
-            return items.map((item, idx) => {
+            let separatorCount = 0;
+            return items.map((item) => {
               if (item.label === '__separator__') {
-                return <div key={idx} className="my-1 h-px bg-border" />;
+                return <div key={`separator-${separatorCount++}`} className="my-1 h-px bg-border" />;
               }
               const { type, label, Icon, match } = item as Exclude<typeof item, { label: '__separator__' }>;
               return (

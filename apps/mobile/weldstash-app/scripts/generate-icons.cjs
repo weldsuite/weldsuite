@@ -1,4 +1,3 @@
-/* eslint-disable */
 /**
  * Rebuild WeldStash splash + adaptive icons from the platform brand mark.
  *

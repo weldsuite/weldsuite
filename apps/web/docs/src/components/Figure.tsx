@@ -159,10 +159,12 @@ export function Figure({
             </div>
 
             <div
+              role="presentation"
               className="min-h-0 flex-1 overflow-auto p-4 sm:p-8"
               onClick={() => setOpen(false)}
             >
               <div
+                role="presentation"
                 className="mx-auto min-w-min"
                 style={{ width: `${scale * 100}%`, maxWidth: scale === 1 ? 'min(96vw, 1200px)' : 'none' }}
                 onClick={(event) => event.stopPropagation()}

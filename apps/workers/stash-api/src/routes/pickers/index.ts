@@ -7,7 +7,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, asc, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
@@ -22,15 +22,9 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.warehouseWorkers;
 
-// ---------------------------------------------------------------------------
-// GET / — list pickers with optional filters + stats block
-// ---------------------------------------------------------------------------
-app.get('/', requirePermission('warehouses:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
-
-  const conditions: any[] = [isNull(t.deletedAt)];
+/** Filter conditions derived from the list query string. */
+function buildPickerFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [isNull(t.deletedAt)];
 
   if (q.search) {
     const term = `%${q.search}%`;
@@ -39,16 +33,34 @@ app.get('/', requirePermission('warehouses:read'), async (c) => {
   if (q.status && q.status !== 'all') conditions.push(eq(t.status, q.status));
   if (q.warehouseId && q.warehouseId !== 'all') conditions.push(eq(t.warehouseId, q.warehouseId));
   if (q.role && q.role !== 'all') conditions.push(eq(t.role, q.role));
+  return conditions;
+}
+
+/** Keyset condition for the row after `cursor`, or undefined when the cursor row is unknown. */
+async function buildCursorCondition(
+  db: Variables['tenantDb'],
+  cursor: string,
+): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
+// ---------------------------------------------------------------------------
+// GET / — list pickers with optional filters + stats block
+// ---------------------------------------------------------------------------
+app.get('/', requirePermission('warehouses:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+
+  const conditions = buildPickerFilters(q);
 
   if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
+    const cursorCondition = await buildCursorCondition(db, q.cursor);
+    if (cursorCondition) conditions.push(cursorCondition);
   }
 
   const where = conditions.length ? and(...conditions) : undefined;

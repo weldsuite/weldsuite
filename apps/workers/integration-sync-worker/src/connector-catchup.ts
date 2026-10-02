@@ -114,21 +114,77 @@ export async function requestConnectorCatchup(
   return { ok: true, status: response.status, watermarks: body?.data?.watermarks ?? null };
 }
 
+interface CatchupResult {
+  ok: boolean;
+  status: number;
+  watermarks?: Record<string, string> | null;
+  error?: string;
+}
+
+interface CatchupRowArgs {
+  now: number;
+  store: ConnectorCatchupStore;
+  decryptCredentials: (json: string) => Promise<Record<string, string>>;
+  probe: typeof probeConnectorUpdates;
+  fingerprint: typeof connectorRemoteFingerprint;
+  catchUp: (row: ConnectorSyncIndexRow) => Promise<CatchupResult>;
+}
+
+function backoffKindForStatus(status: number): 'auth' | 'rate_limit' | 'transient' {
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 429) return 'rate_limit';
+  return 'transient';
+}
+
+/** Asks the provider whether anything changed since the stored watermarks. */
+async function probeForUpdates(
+  row: ConnectorSyncIndexRow,
+  args: CatchupRowArgs,
+  probeInput: {
+    credentials: Record<string, string>;
+    enabledSyncs: ReturnType<typeof parseEnabledSyncs>;
+    watermarks: ReturnType<typeof parseWatermarks>;
+  },
+  flags: { catchupDue: boolean; reconcileDue: boolean },
+): Promise<boolean> {
+  if (!flags.catchupDue || (shouldSkipHealthyWebhook(row, args.now) && flags.reconcileDue)) return false;
+  const probed = await args.probe({ provider: row.provider, ...probeInput });
+  return probed.hasUpdates;
+}
+
+/** Runs the catch-up request and records the ingest, or a backoff when it failed. */
+async function ingestConnectorRow(
+  row: ConnectorSyncIndexRow,
+  args: CatchupRowArgs,
+  ingest: {
+    intervalMinutes: number;
+    watermarks: ReturnType<typeof parseWatermarks>;
+    remoteFingerprint: Record<string, number> | null;
+  },
+): Promise<ConnectorCatchupOutcome> {
+  const result = await args.catchUp(row);
+  if (!result.ok) {
+    await args.store.markBackoff(
+      row.connection_id,
+      result.error ?? `catch-up HTTP ${result.status}`,
+      backoffUntil(backoffKindForStatus(result.status), args.now),
+      args.now,
+    );
+    return 'backed_off';
+  }
+  await args.store.markIngested({
+    connectionId: row.connection_id,
+    intervalMinutes: ingest.intervalMinutes,
+    watermarks: result.watermarks ?? ingest.watermarks,
+    fingerprint: ingest.remoteFingerprint,
+    now: args.now,
+  });
+  return 'ingested';
+}
+
 export async function processConnectorCatchupRow(
   row: ConnectorSyncIndexRow,
-  args: {
-    now: number;
-    store: ConnectorCatchupStore;
-    decryptCredentials: (json: string) => Promise<Record<string, string>>;
-    probe: typeof probeConnectorUpdates;
-    fingerprint: typeof connectorRemoteFingerprint;
-    catchUp: (row: ConnectorSyncIndexRow) => Promise<{
-      ok: boolean;
-      status: number;
-      watermarks?: Record<string, string> | null;
-      error?: string;
-    }>;
-  },
+  args: CatchupRowArgs,
 ): Promise<ConnectorCatchupOutcome> {
   const intervalMinutes = row.interval_minutes || connectorIntervalMinutes(row.provider);
   const catchupDue = row.next_due_at <= args.now;
@@ -155,16 +211,12 @@ export async function processConnectorCatchupRow(
     const enabledSyncs = parseEnabledSyncs(row.enabled_syncs);
     const watermarks = parseWatermarks(row.watermarks);
 
-    let hasUpdates = false;
-    if (catchupDue && !(shouldSkipHealthyWebhook(row, args.now) && reconcileDue)) {
-      const probed = await args.probe({
-        provider: row.provider,
-        credentials,
-        enabledSyncs,
-        watermarks,
-      });
-      hasUpdates = probed.hasUpdates;
-    }
+    const hasUpdates = await probeForUpdates(
+      row,
+      args,
+      { credentials, enabledSyncs, watermarks },
+      { catchupDue, reconcileDue },
+    );
 
     let remoteFingerprint: Record<string, number> | null = null;
     let fingerprintDrift = false;
@@ -178,30 +230,7 @@ export async function processConnectorCatchupRow(
     }
 
     if (hasUpdates || fingerprintDrift) {
-      const result = await args.catchUp(row);
-      if (!result.ok) {
-        const kind =
-          result.status === 401 || result.status === 403
-            ? 'auth'
-            : result.status === 429
-              ? 'rate_limit'
-              : 'transient';
-        await args.store.markBackoff(
-          row.connection_id,
-          result.error ?? `catch-up HTTP ${result.status}`,
-          backoffUntil(kind, args.now),
-          args.now,
-        );
-        return 'backed_off';
-      }
-      await args.store.markIngested({
-        connectionId: row.connection_id,
-        intervalMinutes,
-        watermarks: result.watermarks ?? watermarks,
-        fingerprint: remoteFingerprint,
-        now: args.now,
-      });
-      return 'ingested';
+      return await ingestConnectorRow(row, args, { intervalMinutes, watermarks, remoteFingerprint });
     }
 
     if (reconcileDue && remoteFingerprint) {

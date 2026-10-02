@@ -51,6 +51,19 @@ interface ArticleViewClientProps {
   article: Article;
 }
 
+function StatusIcon({ status }: Readonly<{ status: string }>) {
+  switch (status) {
+    case 'published':
+      return <CheckCircle className="h-3 w-3" />;
+    case 'draft':
+      return <FileText className="h-3 w-3" />;
+    case 'archived':
+      return <Archive className="h-3 w-3" />;
+    default:
+      return null;
+  }
+}
+
 export function ArticleViewClient({ article }: Readonly<ArticleViewClientProps>) {
   const router = useRouter();
   const { t } = useI18n();
@@ -72,19 +85,6 @@ export function ArticleViewClient({ article }: Readonly<ArticleViewClientProps>)
         return 'bg-gray-50 text-gray-700 dark:bg-background/20 dark:text-muted-foreground border-gray-200 dark:border-border';
       default:
         return '';
-    }
-  };
-
-  const StatusIcon = ({ status }: { status: string }) => {
-    switch (status) {
-      case 'published':
-        return <CheckCircle className="h-3 w-3" />;
-      case 'draft':
-        return <FileText className="h-3 w-3" />;
-      case 'archived':
-        return <Archive className="h-3 w-3" />;
-      default:
-        return null;
     }
   };
 

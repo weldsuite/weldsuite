@@ -53,6 +53,11 @@ export interface WeldAgentInputProps {
   onMicClick?: () => void;
 }
 
+function randomBase36(length: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -178,7 +183,7 @@ export function WeldAgentInput({
     const newAttachments: AttachmentPreview[] = Array.from(files).map(file => {
       const isImage = isImageFile(file.name);
       return {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: `${Date.now()}-${randomBase36(9)}`,
         file,
         name: file.name,
         size: formatFileSize(file.size),

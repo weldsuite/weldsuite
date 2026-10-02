@@ -8,7 +8,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, like, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createStockAdjustmentSchema } from '@weldsuite/app-api-client/schemas/stock-adjustments';
@@ -20,12 +20,19 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.stockAdjustments;
 
-app.get('/', requirePermission('inventory:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+type Db = Variables['tenantDb'];
 
-  const conditions: any[] = [];
+/** Keyset condition for "rows after the cursor row", or null when the cursor row is unknown. */
+async function cursorCondition(db: Db, cursor: string) {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return null;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
+function filterConditions(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [];
   if (q.search) {
     const term = `%${q.search}%`;
     conditions.push(or(like(t.reason, term), like(t.notes, term))!);
@@ -34,20 +41,19 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
   if (q.warehouseId) conditions.push(eq(t.warehouseId, q.warehouseId));
   if (q.productId) conditions.push(eq(t.productId, q.productId));
   if (q.sourceType) conditions.push(eq(t.sourceType, q.sourceType));
+  return conditions;
+}
 
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
+app.get('/', requirePermission('inventory:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+
+  const filters = filterConditions(q);
+  const cursorCond = q.cursor ? await cursorCondition(db, q.cursor) : null;
+  const conditions = cursorCond ? [...filters, cursorCond] : filters;
   const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const countWhere = filters.length ? and(...filters) : undefined;
 
   try {
     const [rows, countRes] = await Promise.all([

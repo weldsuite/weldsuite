@@ -24,6 +24,7 @@ import type { CreateOrderInput, UpdateOrderInput } from '@weldsuite/core-api-cli
 import type { CreateProductInput, WeldstashProduct } from '@weldsuite/core-api-client/schemas/weldstash';
 import type { DataResponse, ListResponse } from '@weldsuite/core-api-client/types';
 import { buildQueryString } from '@weldsuite/core-api-client/types';
+import { randomSuffix } from '@/lib/random';
 
 // ============================================================================
 // Row types — shaped to what the app-api routes actually return today.
@@ -204,7 +205,7 @@ export function useCreateCommerceProduct() {
     mutationFn: async (data: CreateProductInput) => {
       const client = await getClient();
       // `/products` requires a slug the client has to supply — same as WeldStash.
-      const slug = `${slugify(data.name)}-${Math.random().toString(36).slice(2, 8)}`;
+      const slug = `${slugify(data.name)}-${randomSuffix(6)}`;
       return client.post<DataResponse<CommerceProduct>>('/products', {
         ...data,
         slug,

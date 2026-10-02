@@ -1,9 +1,11 @@
 
+import type { ComponentProps } from 'react';
 import { Link, useParams } from '@/lib/router';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { useWorkflowEditorData } from '@/hooks/use-workflow-editor-data';
 import { WorkflowEditorClient, WorkflowEditorShell } from '@/components/workflow-editor';
+import type { WorkflowEditorShellProps } from '@/components/workflow-editor/workflow-editor-shell';
 import { EditorWizardNav } from '@/components/editor-wizard-nav';
 import { AlertTriangle, GitPullRequest, History, RotateCw, Settings } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
@@ -12,6 +14,53 @@ import {
   WELDCONNECT_SCHEDULE_TYPES,
   WELDCONNECT_TRIGGER_TYPES,
 } from '@/app/weldconnect/mvp';
+
+type ShellRenderProps = Parameters<WorkflowEditorShellProps['nav']>[0];
+type WizardTabs = ComponentProps<typeof EditorWizardNav>['tabs'];
+type EditorData = Omit<
+  ComponentProps<typeof WorkflowEditorClient>,
+  | 'hideNavTabs'
+  | 'actionsPortalRef'
+  | 'onDirtyChange'
+  | 'allowedTriggerTypes'
+  | 'allowedScheduleTypes'
+  | 'allowedActionIds'
+  | 'blockUnsupported'
+  | 'hideTemplatesAndAi'
+>;
+
+// Render-prop factories live at module level (not inside the page component) so
+// no component definitions are re-created inside WorkflowEditPage's render.
+function createWizardNavRenderer(tabs: WizardTabs) {
+  return function renderWizardNav({ onBeforeNavigate, actionsRef }: ShellRenderProps) {
+    return (
+      <EditorWizardNav
+        tabs={tabs}
+        currentStep={1}
+        onBeforeNavigate={onBeforeNavigate}
+        rightContent={<div ref={actionsRef} className="flex items-center gap-1 md:gap-2" />}
+      />
+    );
+  };
+}
+
+function createEditorRenderer(data: EditorData) {
+  return function renderEditor({ actionsRef, setDirty }: ShellRenderProps) {
+    return (
+      <WorkflowEditorClient
+        {...data}
+        hideNavTabs
+        actionsPortalRef={actionsRef}
+        onDirtyChange={setDirty}
+        allowedTriggerTypes={WELDCONNECT_TRIGGER_TYPES}
+        allowedScheduleTypes={WELDCONNECT_SCHEDULE_TYPES}
+        allowedActionIds={WELDCONNECT_ACTION_TYPES}
+        blockUnsupported
+        hideTemplatesAndAi
+      />
+    );
+  };
+}
 
 export default function WorkflowEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -77,35 +126,18 @@ export default function WorkflowEditPage() {
 
   return (
     <WorkflowEditorShell
-      nav={({ onBeforeNavigate, actionsRef }) => (
-        <EditorWizardNav
-          tabs={wizardTabs}
-          currentStep={1}
-          onBeforeNavigate={onBeforeNavigate}
-          rightContent={<div ref={actionsRef} className="flex items-center gap-1 md:gap-2" />}
-        />
-      )}
-      editor={({ actionsRef, setDirty }) => (
-        <WorkflowEditorClient
-          workflow={workflow}
-          actionTypes={actionTypes ?? []}
-          triggerTypes={triggerTypes ?? []}
-          entityEvents={entityEvents ?? []}
-          emailAccounts={emailAccounts}
-          workspaceMembers={workspaceMembers}
-          workflowVariables={workflowVariables}
-          workflowsForChaining={workflowsForChaining}
-          webhookData={webhookData}
-          hideNavTabs
-          actionsPortalRef={actionsRef}
-          onDirtyChange={setDirty}
-          allowedTriggerTypes={WELDCONNECT_TRIGGER_TYPES}
-          allowedScheduleTypes={WELDCONNECT_SCHEDULE_TYPES}
-          allowedActionIds={WELDCONNECT_ACTION_TYPES}
-          blockUnsupported
-          hideTemplatesAndAi
-        />
-      )}
+      nav={createWizardNavRenderer(wizardTabs)}
+      editor={createEditorRenderer({
+        workflow,
+        actionTypes: actionTypes ?? [],
+        triggerTypes: triggerTypes ?? [],
+        entityEvents: entityEvents ?? [],
+        emailAccounts,
+        workspaceMembers,
+        workflowVariables,
+        workflowsForChaining,
+        webhookData,
+      })}
     />
   );
 }

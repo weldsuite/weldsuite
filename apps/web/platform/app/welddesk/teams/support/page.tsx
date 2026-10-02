@@ -29,6 +29,12 @@ interface RawTeamFeedback {
   createdAt: string | Date;
 }
 
+function getAgentStatus(agent: { isOnline?: boolean; availability?: string }): 'online' | 'away' | 'offline' {
+  if (agent.isOnline) return 'online';
+  if (agent.availability === 'away') return 'away';
+  return 'offline';
+}
+
 export default function SupportTeamPage() {
   const { t } = useI18n();
   const tm = t.helpdesk.teams;
@@ -78,7 +84,7 @@ export default function SupportTeamPage() {
     activeTickets: agent.currentActiveTickets || 0,
     resolvedToday: agent.ticketsResolved || 0,
     avgResponseTime: formatResponseTime(agent.averageResponseTime),
-    status: agent.isOnline ? ('online' as const) : agent.availability === 'away' ? ('away' as const) : ('offline' as const),
+    status: getAgentStatus(agent),
   }));
 
   // Map feedback to team format

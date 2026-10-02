@@ -202,7 +202,7 @@ export default function DiscordSettingsPage() {
               </Button>
             </div>
 
-            {selectedServer && settings && !settingsLoading && !channelsLoading ? (
+            {selectedServer && settings && !settingsLoading && !channelsLoading && (
               <DiscordSettingsClient
                 key={selectedServer.id}
                 integration={selectedServer}
@@ -210,9 +210,10 @@ export default function DiscordSettingsPage() {
                 guildInfo={guildInfo}
                 isNewSetup={isNewSetup}
               />
-            ) : selectedServer ? (
+            )}
+            {selectedServer && !(settings && !settingsLoading && !channelsLoading) && (
               <PageLoader fullScreen={false} />
-            ) : null}
+            )}
           </div>
         )}
       </IntegrationDetailLayout>

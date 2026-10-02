@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Zap, X, Plus, Trash2, Filter, Lock,
   Globe, Mail, Phone, MessageCircle, Share2, Code, Smartphone,
@@ -194,6 +194,10 @@ export function TriggerFilterPanel({
   const existingAudience: string[] = (trigger?.config?.audience as string[] | undefined) || [];
 
   const [filters, setFilters] = useState<TriggerFilter[]>(existingFilters);
+  // Stable per-row keys (filters carry no id of their own), kept parallel to `filters`
+  const nextFilterKey = useRef(0);
+  const createFilterKey = () => `filter-${nextFilterKey.current++}`;
+  const [filterKeys, setFilterKeys] = useState<string[]>(() => existingFilters.map(createFilterKey));
   const [channels, setChannels] = useState<string[]>(existingChannels);
   const [audience] = useState<string[]>(existingAudience);
 
@@ -236,6 +240,7 @@ export function TriggerFilterPanel({
     };
     const updated = [...filters, newFilter];
     setFilters(updated);
+    setFilterKeys([...filterKeys, createFilterKey()]);
     emitUpdate(channels, audience, updated);
   };
 
@@ -248,6 +253,7 @@ export function TriggerFilterPanel({
   const removeFilter = (index: number) => {
     const updated = filters.filter((_, i) => i !== index);
     setFilters(updated);
+    setFilterKeys(filterKeys.filter((_, i) => i !== index));
     emitUpdate(channels, audience, updated);
   };
 
@@ -363,7 +369,7 @@ export function TriggerFilterPanel({
 
                 return (
                   <div
-                    key={index}
+                    key={filterKeys[index] ?? `filter-${filter.field}`}
                     className="rounded-lg border bg-background p-2.5 space-y-2"
                   >
                     <div className="flex items-center gap-1.5">

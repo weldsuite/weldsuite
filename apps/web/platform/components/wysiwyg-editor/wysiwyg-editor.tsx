@@ -152,6 +152,190 @@ export interface WysiwygEditorProps {
   className?: string;
 }
 
+const ACTIVE_FORMAT_COMMANDS: ReadonlyArray<readonly [command: string, format: string]> = [
+  ['bold', 'bold'],
+  ['italic', 'italic'],
+  ['underline', 'underline'],
+  ['strikeThrough', 'strikethrough'],
+  ['insertUnorderedList', 'bulletList'],
+  ['insertOrderedList', 'numberedList'],
+  ['justifyLeft', 'alignLeft'],
+  ['justifyCenter', 'alignCenter'],
+  ['justifyRight', 'alignRight'],
+  ['justifyFull', 'alignJustify'],
+];
+
+/** Formats (bold, lists, alignment, ...) that are active at the current selection. */
+function collectActiveFormats(): Set<string> {
+  const formats = new Set<string>();
+  for (const [command, format] of ACTIVE_FORMAT_COMMANDS) {
+    if (document.queryCommandState(command)) formats.add(format);
+  }
+  return formats;
+}
+
+/** The element containing the selection anchor (text nodes resolve to their parent). */
+function getSelectionAnchorElement(selection: Selection): Node | null {
+  const node: Node | null = selection.anchorNode;
+  return node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+}
+
+function parseFirstFontFamily(rawFontFamily: string): string {
+  return rawFontFamily.split(',')[0].trim().replace(/['"]/g, '');
+}
+
+function matchToolbarFontFamily(el: HTMLElement): string | null {
+  if (!el.style?.fontFamily) return null;
+  const family = parseFirstFontFamily(el.style.fontFamily);
+  return fontFamilies.some((f) => f.value === family) ? family : null;
+}
+
+function matchToolbarFontSize(el: HTMLElement): string | null {
+  if (!el.style?.fontSize) return null;
+  const size = Number.parseInt(el.style.fontSize);
+  return size && fontSizes.some((s) => s.value === String(size)) ? String(size) : null;
+}
+
+/** Walks up from the cursor to find the nearest toolbar-known font family and size. */
+function detectToolbarFontState(
+  root: HTMLElement,
+  anchorNode: Node | null,
+): { font: string | null; size: string | null } {
+  let font: string | null = null;
+  let size: string | null = null;
+  let node: Node | null = anchorNode?.nodeType === Node.TEXT_NODE ? anchorNode.parentElement : anchorNode;
+  while (node && node !== root && !(font && size)) {
+    const el = node as HTMLElement;
+    font ??= matchToolbarFontFamily(el);
+    size ??= matchToolbarFontSize(el);
+    node = node.parentNode;
+  }
+  return { font, size };
+}
+
+/** Reads the raw font family / size in effect at the cursor (no toolbar-list filtering). */
+function readCursorFontStyle(root: HTMLElement | null, anchorNode: Node | null): { font: string; size: string } {
+  let font = '';
+  let size = '';
+  let walk: Node | null = anchorNode?.nodeType === Node.TEXT_NODE ? anchorNode.parentElement : anchorNode;
+  while (walk && walk !== root && !(font && size)) {
+    const el = walk as HTMLElement;
+    if (!font && el.style?.fontFamily) font = parseFirstFontFamily(el.style.fontFamily);
+    if (!size && el.style?.fontSize) size = Number.parseInt(el.style.fontSize).toString();
+    walk = walk.parentNode;
+  }
+  return { font, size };
+}
+
+/**
+ * When the user explicitly picked a font/size and the cursor sits in differently
+ * styled content, insert a zero-width styled span so the next character uses the pick.
+ */
+function applyExplicitStyleAtCursor(
+  root: HTMLElement | null,
+  explicitFont: string | null,
+  explicitSize: string | null,
+): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.getRangeAt(0).collapsed) return;
+
+  const cursor = readCursorFontStyle(root, sel.anchorNode);
+  const needsFont = explicitFont && cursor.font !== explicitFont;
+  const needsSize = explicitSize && cursor.size !== explicitSize;
+  if (!needsFont && !needsSize) return;
+
+  const range = sel.getRangeAt(0);
+  const span = document.createElement('span');
+  if (explicitFont) span.style.fontFamily = `'${explicitFont}', sans-serif`;
+  if (explicitSize) span.style.fontSize = explicitSize + 'px';
+  span.appendChild(document.createTextNode('​'));
+  range.insertNode(span);
+  const newRange = document.createRange();
+  newRange.setStart(span.firstChild!, 1);
+  newRange.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(newRange);
+}
+
+/** Keeps the paragraph under the cursor left-to-right. */
+function forceLtrOnAnchorParagraph(): void {
+  const selection = window.getSelection();
+  if (!selection || !selection.anchorNode) return;
+  let element = selection.anchorNode as HTMLElement;
+  if (element.nodeType === Node.TEXT_NODE) {
+    element = element.parentElement as HTMLElement;
+  }
+  if (element && element.tagName === 'P') {
+    element.setAttribute('dir', 'ltr');
+    element.style.direction = 'ltr';
+  }
+}
+
+/** Only plain printable keys (no Ctrl/Meta/Alt) can need the explicit font/size enforced. */
+function isPlainCharacterKey(e: KeyboardEvent<HTMLDivElement>): boolean {
+  return e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+}
+
+/** Text alignment of the nearest aligned ancestor of the selection, or '' if none. */
+function readCurrentTextAlign(root: HTMLElement | null): string {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return '';
+  let node = getSelectionAnchorElement(selection);
+  while (node && node !== root) {
+    const align = (node as HTMLElement).style?.textAlign;
+    if (align) return align;
+    node = node.parentNode;
+  }
+  return '';
+}
+
+function alignList(list: HTMLElement, align: string): void {
+  list.style.textAlign = align;
+  list.style.listStylePosition = 'inside';
+}
+
+function isListElement(el: Element): boolean {
+  return el.tagName === 'UL' || el.tagName === 'OL';
+}
+
+/** Re-applies a previous text alignment to the list (and items) that execCommand just created. */
+function restoreListAlignment(root: HTMLElement | null, align: string): void {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+  let node = getSelectionAnchorElement(selection);
+  while (node && node !== root) {
+    const el = node as HTMLElement;
+    if (isListElement(el)) {
+      alignList(el, align);
+      el.querySelectorAll('li').forEach((li) => {
+        li.style.textAlign = align;
+      });
+      return;
+    }
+    if (el.tagName === 'LI') {
+      el.style.textAlign = align;
+      const parentList = el.parentElement;
+      if (parentList && isListElement(parentList)) alignList(parentList, align);
+    }
+    node = node.parentNode;
+  }
+}
+
+/** Keeps bullets inside the box for centered/right/justified lists, outside for left. */
+function updateListStylePosition(root: HTMLElement | null, command: string): void {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+  let node = getSelectionAnchorElement(selection);
+  while (node && node !== root) {
+    const el = node as HTMLElement;
+    if (isListElement(el)) {
+      el.style.listStylePosition = command === 'justifyLeft' ? 'outside' : 'inside';
+      return;
+    }
+    node = node.parentNode;
+  }
+}
+
 export function WysiwygEditor({
   initialContent = '',
   initialTitle = '',
@@ -298,50 +482,23 @@ export function WysiwygEditor({
   }, []);
 
   const checkActiveFormats = useCallback(() => {
-    const formats = new Set<string>();
-
-    if (document.queryCommandState('bold')) formats.add('bold');
-    if (document.queryCommandState('italic')) formats.add('italic');
-    if (document.queryCommandState('underline')) formats.add('underline');
-    if (document.queryCommandState('strikeThrough')) formats.add('strikethrough');
-    if (document.queryCommandState('insertUnorderedList')) formats.add('bulletList');
-    if (document.queryCommandState('insertOrderedList')) formats.add('numberedList');
-    if (document.queryCommandState('justifyLeft')) formats.add('alignLeft');
-    if (document.queryCommandState('justifyCenter')) formats.add('alignCenter');
-    if (document.queryCommandState('justifyRight')) formats.add('alignRight');
-    if (document.queryCommandState('justifyFull')) formats.add('alignJustify');
+    const formats = collectActiveFormats();
 
     // Detect font family and size at cursor position to sync toolbar
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0 && contentRef.current?.contains(selection.anchorNode)) {
-      let node: Node | null = selection.anchorNode;
-      if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
-      let detectedFont = false;
-      let detectedSize = false;
-      while (node && node !== contentRef.current) {
-        const el = node as HTMLElement;
-        if (!detectedFont && el.style?.fontFamily) {
-          const ff = el.style.fontFamily.split(',')[0].trim().replace(/['"]/g, '');
-          if (fontFamilies.some(f => f.value === ff)) {
-            setFontFamily(ff);
-            detectedFont = true;
-            if (explicitFontRef.current && ff !== explicitFontRef.current) {
-              explicitFontRef.current = null;
-            }
-          }
+      const detected = detectToolbarFontState(contentRef.current, selection.anchorNode);
+      if (detected.font) {
+        setFontFamily(detected.font);
+        if (explicitFontRef.current && detected.font !== explicitFontRef.current) {
+          explicitFontRef.current = null;
         }
-        if (!detectedSize && el.style?.fontSize) {
-          const fs = Number.parseInt(el.style.fontSize);
-          if (fs && fontSizes.some(s => s.value === String(fs))) {
-            setFontSize(String(fs));
-            detectedSize = true;
-            if (explicitFontSizeRef.current && String(fs) !== explicitFontSizeRef.current) {
-              explicitFontSizeRef.current = null;
-            }
-          }
+      }
+      if (detected.size) {
+        setFontSize(detected.size);
+        if (explicitFontSizeRef.current && detected.size !== explicitFontSizeRef.current) {
+          explicitFontSizeRef.current = null;
         }
-        if (detectedFont && detectedSize) break;
-        node = node.parentNode;
       }
     }
 
@@ -426,109 +583,59 @@ export function WysiwygEditor({
     }
   };
 
+  const handleCommandMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedCommandIndex((prev) =>
+        prev < filteredCommands.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedCommandIndex((prev) =>
+        prev > 0 ? prev - 1 : filteredCommands.length - 1
+      );
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredCommands[selectedCommandIndex]) {
+        filteredCommands[selectedCommandIndex].action();
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowCommandMenu(false);
+      setCommandFilter('');
+    }
+  };
+
+  const openCommandMenuAtCursor = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    const editorRect = contentRef.current?.getBoundingClientRect();
+
+    if (editorRect) {
+      setCommandMenuPosition({
+        top: rect.bottom - editorRect.top + 5,
+        left: rect.left - editorRect.left,
+      });
+    }
+    setShowCommandMenu(true);
+    setCommandFilter('');
+    setSelectedCommandIndex(0);
+  };
+
   const handleContentKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // Enforce explicitly selected font/size when typing in a differently-styled context
-    if (
-      e.key.length === 1 &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      !e.altKey &&
-      (explicitFontRef.current || explicitFontSizeRef.current)
-    ) {
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0 && sel.getRangeAt(0).collapsed) {
-        let node: Node | null = sel.anchorNode;
-        if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
-        let cursorFont = '';
-        let cursorSize = '';
-        let walk: Node | null = node;
-        while (walk && walk !== contentRef.current) {
-          const el = walk as HTMLElement;
-          if (!cursorFont && el.style?.fontFamily) {
-            cursorFont = el.style.fontFamily.split(',')[0].trim().replace(/['"]/g, '');
-          }
-          if (!cursorSize && el.style?.fontSize) {
-            cursorSize = Number.parseInt(el.style.fontSize).toString();
-          }
-          if (cursorFont && cursorSize) break;
-          walk = walk.parentNode;
-        }
-
-        const needsFont = explicitFontRef.current && cursorFont !== explicitFontRef.current;
-        const needsSize = explicitFontSizeRef.current && cursorSize !== explicitFontSizeRef.current;
-
-        if (needsFont || needsSize) {
-          const range = sel.getRangeAt(0);
-          const span = document.createElement('span');
-          if (explicitFontRef.current) {
-            span.style.fontFamily = `'${explicitFontRef.current}', sans-serif`;
-          }
-          if (explicitFontSizeRef.current) {
-            span.style.fontSize = explicitFontSizeRef.current + 'px';
-          }
-          span.appendChild(document.createTextNode('\u200B'));
-          range.insertNode(span);
-          const newRange = document.createRange();
-          newRange.setStart(span.firstChild!, 1);
-          newRange.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(newRange);
-        }
-      }
+    if (isPlainCharacterKey(e) && (explicitFontRef.current || explicitFontSizeRef.current)) {
+      applyExplicitStyleAtCursor(contentRef.current, explicitFontRef.current, explicitFontSizeRef.current);
     }
 
-    const selection = window.getSelection();
-    if (selection && selection.anchorNode) {
-      let element = selection.anchorNode as HTMLElement;
-      if (element.nodeType === Node.TEXT_NODE) {
-        element = element.parentElement as HTMLElement;
-      }
-      if (element && element.tagName === 'P') {
-        element.setAttribute('dir', 'ltr');
-        element.style.direction = 'ltr';
-      }
-    }
+    forceLtrOnAnchorParagraph();
 
     if (showCommandMenu) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev < filteredCommands.length - 1 ? prev + 1 : 0
-        );
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredCommands.length - 1
-        );
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (filteredCommands[selectedCommandIndex]) {
-          filteredCommands[selectedCommandIndex].action();
-        }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        setShowCommandMenu(false);
-        setCommandFilter('');
-      }
+      handleCommandMenuKeyDown(e);
     } else if (e.key === '/') {
-      setTimeout(() => {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-          const range = sel.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          const editorRect = contentRef.current?.getBoundingClientRect();
-
-          if (editorRect) {
-            setCommandMenuPosition({
-              top: rect.bottom - editorRect.top + 5,
-              left: rect.left - editorRect.left,
-            });
-          }
-          setShowCommandMenu(true);
-          setCommandFilter('');
-          setSelectedCommandIndex(0);
-        }
-      }, 0);
+      setTimeout(openCommandMenuAtCursor, 0);
     }
   };
 
@@ -569,71 +676,16 @@ export function WysiwygEditor({
 
   const formatText = useCallback((command: string, value?: string) => {
     const isListCommand = command === 'insertUnorderedList' || command === 'insertOrderedList';
-
-    let currentAlign = '';
-    if (isListCommand) {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0) {
-        let node: Node | null = selection.anchorNode;
-        if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
-        while (node && node !== contentRef.current) {
-          const el = node as HTMLElement;
-          if (el.style?.textAlign) {
-            currentAlign = el.style.textAlign;
-            break;
-          }
-          node = node.parentNode;
-        }
-      }
-    }
+    const currentAlign = isListCommand ? readCurrentTextAlign(contentRef.current) : '';
 
     document.execCommand(command, false, value);
 
     if (isListCommand && currentAlign && currentAlign !== 'left') {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0) {
-        let node: Node | null = selection.anchorNode;
-        if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
-        while (node && node !== contentRef.current) {
-          const el = node as HTMLElement;
-          const tag = el.tagName;
-          if (tag === 'UL' || tag === 'OL') {
-            el.style.textAlign = currentAlign;
-            el.style.listStylePosition = 'inside';
-            el.querySelectorAll('li').forEach((li) => {
-              li.style.textAlign = currentAlign;
-            });
-            break;
-          }
-          if (tag === 'LI') {
-            el.style.textAlign = currentAlign;
-            const parentList = el.parentElement;
-            if (parentList && (parentList.tagName === 'UL' || parentList.tagName === 'OL')) {
-              parentList.style.textAlign = currentAlign;
-              parentList.style.listStylePosition = 'inside';
-            }
-          }
-          node = node.parentNode;
-        }
-      }
+      restoreListAlignment(contentRef.current, currentAlign);
     }
 
-    const isAlignCommand = command.startsWith('justify');
-    if (isAlignCommand) {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0) {
-        let node: Node | null = selection.anchorNode;
-        if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
-        while (node && node !== contentRef.current) {
-          const el = node as HTMLElement;
-          if (el.tagName === 'UL' || el.tagName === 'OL') {
-            const isNonLeft = command !== 'justifyLeft';
-            el.style.listStylePosition = isNonLeft ? 'inside' : 'outside';
-            break;
-          }
-          node = node.parentNode;
-        }
-      }
+    if (command.startsWith('justify')) {
+      updateListStylePosition(contentRef.current, command);
     }
 
     contentRef.current?.focus();

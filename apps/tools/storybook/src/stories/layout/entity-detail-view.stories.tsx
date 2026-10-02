@@ -59,9 +59,9 @@ function MockTabs({
 function MockContent({ rows = 30 }: Readonly<{ rows?: number }>) {
   return (
     <div className="p-6 space-y-3 text-sm text-muted-foreground">
-      {Array.from({ length: rows }).map((_, i) => (
-        <p key={i}>
-          Line {i + 1} — Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+      {Array.from({ length: rows }, (_, i) => i + 1).map((lineNumber) => (
+        <p key={lineNumber}>
+          Line {lineNumber} — Lorem ipsum dolor sit amet, consectetur adipiscing elit.
           Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
         </p>
       ))}

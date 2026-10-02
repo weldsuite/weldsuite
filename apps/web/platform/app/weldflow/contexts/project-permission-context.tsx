@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { projectsApi } from '@/app/weldflow/lib/api-client';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -90,7 +90,7 @@ export function ProjectPermissionProvider({ projectId, children }: Readonly<Proj
     fetchPermissions();
   }, [fetchPermissions]);
 
-  const value: ProjectPermissionContextType = {
+  const value = useMemo<ProjectPermissionContextType>(() => ({
     permissions,
     isLoading,
     error,
@@ -100,9 +100,10 @@ export function ProjectPermissionProvider({ projectId, children }: Readonly<Proj
     canRead: isLoading ? true : (permissions?.canRead ?? false),
     canWrite: isLoading ? true : (permissions?.canWrite ?? false),
     isAdmin: isLoading ? true : (permissions?.isAdmin ?? false),
-    isViewer: !isLoading && permissions?.role === 'viewer',
+    // A workspace admin can hold a 'viewer' member row and still write.
+    isViewer: !isLoading && permissions?.role === 'viewer' && !permissions.canWrite,
     role: permissions?.role ?? null,
-  };
+  }), [permissions, isLoading, error, fetchPermissions]);
 
   return (
     <ProjectPermissionContext.Provider value={value}>

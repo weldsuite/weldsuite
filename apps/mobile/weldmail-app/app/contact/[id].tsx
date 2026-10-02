@@ -28,6 +28,7 @@ import {
   Type,
   Users,
   MapPin,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { appApiClient } from '@/services/app-api';
@@ -79,6 +80,291 @@ function getFieldValue(contact: Contact, key: string): string | null {
 
 type SidebarTab = 'details' | 'comments';
 
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+
+interface DetailField {
+  key: string;
+  icon: LucideIcon;
+  label: string;
+  editable?: boolean;
+  isLink?: boolean;
+  linkAction?: () => void;
+  placeholder?: string;
+  keyboardType?: 'default' | 'email-address' | 'phone-pad';
+  multiline?: boolean;
+}
+
+/** API payloads are either `{ data: T }` or the bare record. */
+function unwrapContact(payload: unknown): Contact | null {
+  const wrapped = payload as { data?: Contact } | null | undefined;
+  return wrapped?.data ?? (payload as Contact | null);
+}
+
+/**
+ * The search is a substring match over names and emails, so the first hit for
+ * bob@acme.com can be jimbob@acme.com.au. Only an exact email match is this
+ * sender (edits PATCH whatever record is shown).
+ */
+async function findContactByEmail(email: string): Promise<Contact | null> {
+  try {
+    const { data: searchData } = await appApiClient.get<{ data: Contact[] }>(`/people?search=${encodeURIComponent(email)}&limit=20`);
+    const wrapped = searchData as { data?: Contact[] } | Contact[] | null | undefined;
+    let items: Contact[] = [];
+    if (Array.isArray(wrapped)) items = wrapped;
+    else if (wrapped?.data) items = wrapped.data;
+    const wanted = email.trim().toLowerCase();
+    return items.find((p) => (p.email || '').trim().toLowerCase() === wanted) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchContact(idStr: string): Promise<Contact | null> {
+  if (idStr.includes('@')) {
+    const match = await findContactByEmail(idStr);
+    return match ?? ({ id: idStr, email: idStr, firstName: idStr.split('@')[0], lastName: '', status: 'active' } as Contact);
+  }
+  const { data: contactData } = await appApiClient.get<{ data: Contact }>('/people/' + idStr);
+  return unwrapContact(contactData);
+}
+
+// Contact fields can originate from a spoofed email sender, so sanitise before
+// building tel:/mailto: URLs (strip CRLF / mailto-header-injection characters).
+function callPhone(phone: string) {
+  const clean = phone.replace(/[^0-9+]/g, '');
+  if (clean) Linking.openURL(`tel:${clean}`);
+}
+
+function emailContact(email: string) {
+  const clean = email.trim();
+  if (/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(clean)) {
+    Linking.openURL(`mailto:${clean}`);
+  }
+}
+
+const FIELD_TO_CONTACT_PROP = new Map<string, string>([
+  ['email', 'email'],
+  ['phone', 'directPhone'],
+  ['description', 'notes'],
+  ['team', 'department'],
+  ['domains', 'linkedinUrl'],
+]);
+
+function buildContactUpdate(field: string, value: string): Record<string, string> {
+  if (field === 'name') {
+    const parts = value.split(' ');
+    return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '' };
+  }
+  const prop = FIELD_TO_CONTACT_PROP.get(field);
+  return prop ? { [prop]: value } : {};
+}
+
+function buildDetailFields(contact: Contact): DetailField[] {
+  const phone = contact.directPhone || contact.mobilePhone;
+  return [
+    { key: 'domains', icon: Globe, label: 'Domains', editable: true, placeholder: 'Set Domains...' },
+    { key: 'name', icon: Type, label: 'Name', editable: true, placeholder: 'Set Name...' },
+    { key: 'description', icon: FileText, label: 'Description', editable: true, placeholder: 'Set Description...', multiline: true },
+    { key: 'team', icon: Users, label: 'Team', editable: true, placeholder: 'Set a value...' },
+    { key: 'email', icon: Mail, label: 'Email', editable: true, isLink: true, linkAction: contact.email ? () => emailContact(contact.email) : undefined, placeholder: 'Set Email...', keyboardType: 'email-address' },
+    { key: 'phone', icon: Phone, label: 'Phone', editable: true, isLink: true, linkAction: phone ? () => callPhone(phone) : undefined, placeholder: 'Set Phone...', keyboardType: 'phone-pad' },
+    { key: 'address', icon: MapPin, label: 'Address', editable: false, placeholder: 'Set Address...' },
+  ];
+}
+
+function ContactHeader({ contact, name, paddingTop, colors }: Readonly<{ contact: Contact; name: string; paddingTop: number; colors: ThemeColors }>) {
+  const phone = contact.directPhone || contact.mobilePhone;
+  return (
+    <View style={[styles.header, { paddingTop, borderBottomColor: colors.border || colors.divider }]}>
+      <View style={styles.headerCenter}>
+        <View style={styles.headerAvatar}>
+          <User size={14} color="#10B981" strokeWidth={2} />
+        </View>
+        <Text style={[styles.headerName, { color: colors.text }]} numberOfLines={1}>
+          {name}
+        </Text>
+      </View>
+      <View style={styles.headerRight}>
+        <TouchableOpacity
+          style={styles.headerIconButton}
+          onPress={contact.email ? () => emailContact(contact.email) : undefined}
+          disabled={!contact.email}
+        >
+          <Mail size={16} color={contact.email ? '#6B7280' : '#E5E7EB'} strokeWidth={2} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.headerIconButton}
+          onPress={phone ? () => callPhone(phone) : undefined}
+          disabled={!phone}
+        >
+          <Phone size={16} color={phone ? '#6B7280' : '#E5E7EB'} strokeWidth={2} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.headerIconButton}>
+          <EllipsisVertical size={16} color="#6B7280" strokeWidth={2} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.headerIconButton} onPress={() => router.back()}>
+          <X size={18} color={colors.muted} strokeWidth={2} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function SidebarTabButton({ label, Icon, active, onPress, colors }: Readonly<{ label: string; Icon: LucideIcon; active: boolean; onPress: () => void; colors: ThemeColors }>) {
+  const color = active ? colors.text : colors.muted;
+  return (
+    <TouchableOpacity style={styles.tab} onPress={onPress}>
+      <View style={[styles.tabInner, active && styles.tabInnerActive]}>
+        <Icon size={14} color={color} strokeWidth={2} />
+        <Text style={[styles.tabText, { color }, active && styles.tabTextActive]}>
+          {label}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function FieldValueEditor({ field, editValue, onChangeText, onSave, colors, inputRef }: Readonly<{ field: DetailField; editValue: string; onChangeText: (text: string) => void; onSave: () => void; colors: ThemeColors; inputRef: React.RefObject<TextInput | null> }>) {
+  return (
+    <TextInput
+      ref={inputRef}
+      style={[styles.fieldInput, { color: colors.text, borderColor: '#3B82F6', backgroundColor: colors.background }]}
+      value={editValue}
+      onChangeText={onChangeText}
+      onBlur={onSave}
+      onSubmitEditing={onSave}
+      placeholder={field.placeholder}
+      placeholderTextColor={colors.muted}
+      keyboardType={field.keyboardType || 'default'}
+      autoCapitalize={field.keyboardType === 'email-address' ? 'none' : 'sentences'}
+      returnKeyType="done"
+      autoFocus
+    />
+  );
+}
+
+function getFieldTextColor(field: DetailField, hasValue: boolean, colors: ThemeColors): string {
+  if (!hasValue) return colors.muted;
+  return field.isLink ? '#2563EB' : colors.text;
+}
+
+function FieldValueButton({ field, value, onStartEditing, colors }: Readonly<{ field: DetailField; value: string | null; onStartEditing: (key: string, value: string) => void; colors: ThemeColors }>) {
+  const hasValue = !!value;
+  const isActiveLink = !!field.isLink && hasValue;
+  const handlePress = () => {
+    if (isActiveLink && field.linkAction) field.linkAction();
+    else if (field.editable) onStartEditing(field.key, value || '');
+  };
+  return (
+    <TouchableOpacity
+      onPress={handlePress}
+      disabled={!field.editable && !isActiveLink}
+      activeOpacity={0.6}
+      style={styles.fieldValueTouchable}
+    >
+      <Text
+        style={[
+          styles.fieldValueText,
+          { color: getFieldTextColor(field, hasValue, colors) },
+          isActiveLink && styles.fieldValueLink,
+        ]}
+        numberOfLines={field.multiline ? 3 : 1}
+      >
+        {hasValue ? value : `Set ${field.label}...`}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+interface DetailsPanelProps {
+  contact: Contact;
+  fields: DetailField[];
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  editingField: string | null;
+  editValue: string;
+  onChangeEditValue: (text: string) => void;
+  onSave: () => void;
+  onStartEditing: (key: string, value: string) => void;
+  inputRef: React.RefObject<TextInput | null>;
+  colors: ThemeColors;
+}
+
+function DetailFieldRow({ field, contact, editingField, editValue, onChangeEditValue, onSave, onStartEditing, inputRef, colors }: Readonly<Omit<DetailsPanelProps, 'fields' | 'expanded' | 'onToggleExpanded'> & { field: DetailField }>) {
+  const IconComponent = field.icon;
+  const value = getFieldValue(contact, field.key);
+  return (
+    <View style={styles.fieldRow}>
+      <View style={styles.fieldLabel}>
+        <IconComponent size={16} color={colors.muted} strokeWidth={2} />
+        <Text style={[styles.fieldLabelText, { color: colors.muted }]}>{field.label}</Text>
+      </View>
+      <View style={styles.fieldValue}>
+        {editingField === field.key ? (
+          <FieldValueEditor field={field} editValue={editValue} onChangeText={onChangeEditValue} onSave={onSave} colors={colors} inputRef={inputRef} />
+        ) : (
+          <FieldValueButton field={field} value={value} onStartEditing={onStartEditing} colors={colors} />
+        )}
+      </View>
+    </View>
+  );
+}
+
+function DetailsPanel({ fields, expanded, onToggleExpanded, colors, ...rowProps }: Readonly<DetailsPanelProps>) {
+  const Chevron = expanded ? ChevronDown : ChevronRight;
+  return (
+    <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+      {/* Record Details Section */}
+      <View style={styles.sectionWrapper}>
+        <TouchableOpacity style={styles.sectionHeader} onPress={onToggleExpanded} activeOpacity={0.7}>
+          <Chevron size={16} color={colors.muted} strokeWidth={2} />
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Record Details</Text>
+        </TouchableOpacity>
+
+        {expanded && (
+          <View style={styles.fieldsContainer}>
+            {fields.map((field) => (
+              <DetailFieldRow key={field.key} field={field} colors={colors} {...rowProps} />
+            ))}
+          </View>
+        )}
+      </View>
+    </ScrollView>
+  );
+}
+
+function CommentsEmpty({ colors }: Readonly<{ colors: ThemeColors }>) {
+  return (
+    <View style={styles.commentsContainer}>
+      <View style={styles.commentsEmpty}>
+        <MessageSquare size={24} color={colors.muted} strokeWidth={1.5} />
+        <Text style={[styles.commentsEmptyTitle, { color: colors.muted }]}>No comments yet</Text>
+        <Text style={[styles.commentsEmptySubtitle, { color: colors.muted }]}>Be the first to add a comment</Text>
+      </View>
+    </View>
+  );
+}
+
+// The loading and not-found states share the same header + container shell;
+// only the centered content differs.
+function ContactShell({ colors, paddingTop, children }: Readonly<{ colors: ThemeColors; paddingTop: number; children: React.ReactNode }>) {
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { paddingTop, borderBottomColor: colors.border || colors.divider }]}>
+        <View style={styles.headerCenter}>
+          <Text style={[styles.headerName, { color: colors.text }]}>Contact</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.headerIconButton} onPress={() => router.back()}>
+            <X size={18} color={colors.muted} strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
+      </View>
+      <View style={styles.centerContainer}>{children}</View>
+    </View>
+  );
+}
+
 export default function ContactDetailScreen() {
   const { id } = useLocalSearchParams();
   const { colors } = useTheme();
@@ -95,41 +381,12 @@ export default function ContactDetailScreen() {
   const loadContact = useCallback(async () => {
     try {
       setLoading(true);
-      const idStr = id as string;
-      if (idStr.includes('@')) {
-        try {
-          // The search is a substring match over names and emails, so the first
-          // hit for bob@acme.com can be jimbob@acme.com.au. Only an exact email
-          // match is this sender (edits PATCH whatever record is shown).
-          const { data: searchData } = await appApiClient.get<{ data: Contact[] }>(`/people?search=${encodeURIComponent(idStr)}&limit=20`);
-          const items: Contact[] = (searchData as any)?.data ?? (Array.isArray(searchData) ? searchData : []);
-          const wanted = idStr.trim().toLowerCase();
-          const match = items.find((p) => (p.email || '').trim().toLowerCase() === wanted);
-          if (match) { setContact(match); return; }
-        } catch {}
-        setContact({ id: idStr, email: idStr, firstName: idStr.split('@')[0], lastName: '', status: 'active' } as Contact);
-        return;
-      }
-      const { data: contactData } = await appApiClient.get<{ data: Contact }>('/people/' + idStr);
-      const contact: Contact = (contactData as any)?.data ?? contactData;
-      if (contact) setContact(contact);
+      const loaded = await fetchContact(id as string);
+      if (loaded) setContact(loaded);
     } catch {} finally { setLoading(false); }
   }, [id]);
 
   useEffect(() => { loadContact(); }, [loadContact]);
-
-  // Contact fields can originate from a spoofed email sender, so sanitise before
-  // building tel:/mailto: URLs (strip CRLF / mailto-header-injection characters).
-  const handleCall = (phone: string) => {
-    const clean = phone.replace(/[^0-9+]/g, '');
-    if (clean) Linking.openURL(`tel:${clean}`);
-  };
-  const handleEmail = (email: string) => {
-    const clean = email.trim();
-    if (/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(clean)) {
-      Linking.openURL(`mailto:${clean}`);
-    }
-  };
 
   const startEditing = useCallback((fieldKey: string, currentValue: string) => {
     setEditingField(fieldKey);
@@ -137,223 +394,82 @@ export default function ContactDetailScreen() {
     setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
 
+  const stopEditing = useCallback(() => {
+    setEditingField(null);
+    setEditValue('');
+  }, []);
+
   const saveField = useCallback(async () => {
     if (!contact || !editingField || saving) return;
     const trimmed = editValue.trim();
     const originalValue = getFieldValue(contact, editingField);
-    if (trimmed === (originalValue || '')) { setEditingField(null); setEditValue(''); Keyboard.dismiss(); return; }
+    if (trimmed === (originalValue || '')) { stopEditing(); Keyboard.dismiss(); return; }
     // A sender with no contact record is shown from a placeholder whose id is
     // the email address; PATCH /people/<email> can only 404.
     if (contact.id.includes('@')) {
       Alert.alert('Not a contact', 'This sender isn’t in your contacts, so their details can’t be edited here.');
-      setEditingField(null);
-      setEditValue('');
+      stopEditing();
       return;
     }
 
     setSaving(true);
     try {
-      const updateData: Record<string, any> = {};
-      if (editingField === 'name') {
-        const parts = trimmed.split(' ');
-        updateData.firstName = parts[0] || '';
-        updateData.lastName = parts.slice(1).join(' ') || '';
-      } else if (editingField === 'email') { updateData.email = trimmed; }
-      else if (editingField === 'phone') { updateData.directPhone = trimmed; }
-      else if (editingField === 'description') { updateData.notes = trimmed; }
-      else if (editingField === 'team') { updateData.department = trimmed; }
-      else if (editingField === 'domains') { updateData.linkedinUrl = trimmed; }
-
+      const updateData = buildContactUpdate(editingField, trimmed);
       const { data: updatedData } = await appApiClient.patch<{ data: Contact }>('/people/' + contact.id, updateData);
-      const updated: Contact = (updatedData as any)?.data ?? updatedData;
+      const updated = unwrapContact(updatedData);
       if (updated) setContact(updated);
     } catch {
       Alert.alert('Error', 'Could not save the change. Please try again.');
     } finally {
       setSaving(false);
-      setEditingField(null);
-      setEditValue('');
+      stopEditing();
     }
-  }, [contact, editingField, editValue, saving]);
-
-  // The loading and not-found states share the same header + container shell;
-  // only the centered content differs.
-  const renderContactShell = (children: React.ReactNode) => (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border || colors.divider }]}>
-        <View style={styles.headerCenter}>
-          <Text style={[styles.headerName, { color: colors.text }]}>Contact</Text>
-        </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.headerIconButton} onPress={() => router.back()}>
-            <X size={18} color={colors.muted} strokeWidth={2} />
-          </TouchableOpacity>
-        </View>
-      </View>
-      <View style={styles.centerContainer}>{children}</View>
-    </View>
-  );
+  }, [contact, editingField, editValue, saving, stopEditing]);
 
   if (loading) {
-    return renderContactShell(
-      <MaterialSpinner size={32} strokeWidth={3} color={colors.text} spinning />,
+    return (
+      <ContactShell colors={colors} paddingTop={insets.top + 8}>
+        <MaterialSpinner size={32} strokeWidth={3} color={colors.text} spinning />
+      </ContactShell>
     );
   }
 
   if (!contact) {
-    return renderContactShell(
-      <Text style={[styles.emptyText, { color: colors.muted }]}>Contact not found</Text>,
+    return (
+      <ContactShell colors={colors} paddingTop={insets.top + 8}>
+        <Text style={[styles.emptyText, { color: colors.muted }]}>Contact not found</Text>
+      </ContactShell>
     );
   }
-
-  const name = getContactName(contact);
-
-  const detailFields: { key: string; icon: any; label: string; editable?: boolean; isLink?: boolean; linkAction?: () => void; placeholder?: string; keyboardType?: 'default' | 'email-address' | 'phone-pad'; multiline?: boolean }[] = [
-    { key: 'domains', icon: Globe, label: 'Domains', editable: true, placeholder: 'Set Domains...' },
-    { key: 'name', icon: Type, label: 'Name', editable: true, placeholder: 'Set Name...' },
-    { key: 'description', icon: FileText, label: 'Description', editable: true, placeholder: 'Set Description...', multiline: true },
-    { key: 'team', icon: Users, label: 'Team', editable: true, placeholder: 'Set a value...' },
-    { key: 'email', icon: Mail, label: 'Email', editable: true, isLink: true, linkAction: contact.email ? () => handleEmail(contact.email) : undefined, placeholder: 'Set Email...', keyboardType: 'email-address' },
-    { key: 'phone', icon: Phone, label: 'Phone', editable: true, isLink: true, linkAction: (contact.directPhone || contact.mobilePhone) ? () => handleCall((contact.directPhone || contact.mobilePhone)!) : undefined, placeholder: 'Set Phone...', keyboardType: 'phone-pad' },
-    { key: 'address', icon: MapPin, label: 'Address', editable: false, placeholder: 'Set Address...' },
-  ];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header: Avatar + Name | Mail Phone ⋮ X */}
-      <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border || colors.divider }]}>
-        <View style={styles.headerCenter}>
-          <View style={styles.headerAvatar}>
-            <User size={14} color="#10B981" strokeWidth={2} />
-          </View>
-          <Text style={[styles.headerName, { color: colors.text }]} numberOfLines={1}>
-            {name}
-          </Text>
-        </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={styles.headerIconButton}
-            onPress={contact.email ? () => handleEmail(contact.email) : undefined}
-            disabled={!contact.email}
-          >
-            <Mail size={16} color={contact.email ? '#6B7280' : '#E5E7EB'} strokeWidth={2} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerIconButton}
-            onPress={(contact.directPhone || contact.mobilePhone) ? () => handleCall((contact.directPhone || contact.mobilePhone)!) : undefined}
-            disabled={!contact.directPhone && !contact.mobilePhone}
-          >
-            <Phone size={16} color={(contact.directPhone || contact.mobilePhone) ? '#6B7280' : '#E5E7EB'} strokeWidth={2} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIconButton}>
-            <EllipsisVertical size={16} color="#6B7280" strokeWidth={2} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIconButton} onPress={() => router.back()}>
-            <X size={18} color={colors.muted} strokeWidth={2} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <ContactHeader contact={contact} name={getContactName(contact)} paddingTop={insets.top + 8} colors={colors} />
 
       {/* Tabs: Details | Comments */}
       <View style={[styles.tabBar, { borderBottomColor: colors.border || colors.divider }]}>
-        <TouchableOpacity style={styles.tab} onPress={() => setActiveTab('details')}>
-          <View style={[styles.tabInner, activeTab === 'details' && styles.tabInnerActive]}>
-            <List size={14} color={activeTab === 'details' ? colors.text : colors.muted} strokeWidth={2} />
-            <Text style={[styles.tabText, { color: activeTab === 'details' ? colors.text : colors.muted }, activeTab === 'details' && styles.tabTextActive]}>
-              Details
-            </Text>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.tab} onPress={() => setActiveTab('comments')}>
-          <View style={[styles.tabInner, activeTab === 'comments' && styles.tabInnerActive]}>
-            <MessageSquare size={14} color={activeTab === 'comments' ? colors.text : colors.muted} strokeWidth={2} />
-            <Text style={[styles.tabText, { color: activeTab === 'comments' ? colors.text : colors.muted }, activeTab === 'comments' && styles.tabTextActive]}>
-              Comments
-            </Text>
-          </View>
-        </TouchableOpacity>
+        <SidebarTabButton label="Details" Icon={List} active={activeTab === 'details'} onPress={() => setActiveTab('details')} colors={colors} />
+        <SidebarTabButton label="Comments" Icon={MessageSquare} active={activeTab === 'comments'} onPress={() => setActiveTab('comments')} colors={colors} />
       </View>
 
       {activeTab === 'details' ? (
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-          {/* Record Details Section */}
-          <View style={styles.sectionWrapper}>
-            <TouchableOpacity style={styles.sectionHeader} onPress={() => setRecordDetailsExpanded(!recordDetailsExpanded)} activeOpacity={0.7}>
-              {recordDetailsExpanded ? <ChevronDown size={16} color={colors.muted} strokeWidth={2} /> : <ChevronRight size={16} color={colors.muted} strokeWidth={2} />}
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Record Details</Text>
-            </TouchableOpacity>
-
-            {recordDetailsExpanded && (
-              <View style={styles.fieldsContainer}>
-                {detailFields.map((field) => {
-                  const IconComponent = field.icon;
-                  const value = getFieldValue(contact, field.key);
-                  const hasValue = !!value;
-                  const isEditing = editingField === field.key;
-
-                  return (
-                    <View key={field.key} style={styles.fieldRow}>
-                      <View style={styles.fieldLabel}>
-                        <IconComponent size={16} color={colors.muted} strokeWidth={2} />
-                        <Text style={[styles.fieldLabelText, { color: colors.muted }]}>{field.label}</Text>
-                      </View>
-                      <View style={styles.fieldValue}>
-                        {isEditing ? (
-                          <TextInput
-                            ref={inputRef}
-                            style={[styles.fieldInput, { color: colors.text, borderColor: '#3B82F6', backgroundColor: colors.background }]}
-                            value={editValue}
-                            onChangeText={setEditValue}
-                            onBlur={saveField}
-                            onSubmitEditing={saveField}
-                            placeholder={field.placeholder}
-                            placeholderTextColor={colors.muted}
-                            keyboardType={field.keyboardType || 'default'}
-                            autoCapitalize={field.keyboardType === 'email-address' ? 'none' : 'sentences'}
-                            returnKeyType="done"
-                            autoFocus
-                          />
-                        ) : (
-                          <TouchableOpacity
-                            onPress={() => {
-                              if (field.isLink && hasValue && field.linkAction) field.linkAction();
-                              else if (field.editable) startEditing(field.key, value || '');
-                            }}
-                            disabled={!field.editable && !(field.isLink && hasValue)}
-                            activeOpacity={0.6}
-                            style={styles.fieldValueTouchable}
-                          >
-                            <Text
-                              style={[
-                                styles.fieldValueText,
-                                { color: hasValue ? (field.isLink ? '#2563EB' : colors.text) : colors.muted },
-                                field.isLink && hasValue && styles.fieldValueLink,
-                              ]}
-                              numberOfLines={field.multiline ? 3 : 1}
-                            >
-                              {hasValue ? value : `Set ${field.label}...`}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-        </ScrollView>
+        <DetailsPanel
+          contact={contact}
+          fields={buildDetailFields(contact)}
+          expanded={recordDetailsExpanded}
+          onToggleExpanded={() => setRecordDetailsExpanded(!recordDetailsExpanded)}
+          editingField={editingField}
+          editValue={editValue}
+          onChangeEditValue={setEditValue}
+          onSave={saveField}
+          onStartEditing={startEditing}
+          inputRef={inputRef}
+          colors={colors}
+        />
       ) : (
-        <View style={styles.commentsContainer}>
-          <View style={styles.commentsEmpty}>
-            <MessageSquare size={24} color={colors.muted} strokeWidth={1.5} />
-            <Text style={[styles.commentsEmptyTitle, { color: colors.muted }]}>No comments yet</Text>
-            <Text style={[styles.commentsEmptySubtitle, { color: colors.muted }]}>Be the first to add a comment</Text>
-          </View>
-        </View>
+        <CommentsEmpty colors={colors} />
       )}
     </View>
   );
 }
-
-

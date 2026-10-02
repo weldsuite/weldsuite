@@ -98,16 +98,18 @@ export function AnalyticsClient() {
           <CardTitle>{t.social.analytics.topPosts}</CardTitle>
         </CardHeader>
         <CardContent>
-          {postsLoading ? (
+          {postsLoading && (
             <div className="flex items-center justify-center h-24">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
-          ) : posts.length === 0 ? (
+          )}
+          {!postsLoading && posts.length === 0 && (
             <div className="flex flex-col items-center justify-center h-24 text-muted-foreground gap-2">
               <BarChart2 className="h-6 w-6 opacity-20" />
               <p className="text-sm">{t.social.posts.noPosts}</p>
             </div>
-          ) : (
+          )}
+          {!postsLoading && posts.length > 0 && (
             <div className="space-y-2">
               {posts.map((post: SocialPost) => (
                 <div key={post.id} className="flex items-center justify-between gap-3 py-2 border-b last:border-0">

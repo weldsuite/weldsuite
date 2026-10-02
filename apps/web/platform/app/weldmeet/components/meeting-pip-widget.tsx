@@ -6,10 +6,11 @@ import { toast } from 'sonner';
 import { usePathname } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, PictureInPicture2, Copy } from 'lucide-react';
-import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
+import { useWeldMeetCall, type MeetingCallStatus } from '@/contexts/weldmeet-call-context';
 import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
+import type RealtimeKitClient from '@cloudflare/realtimekit';
 import type { RTKParticipant } from '@cloudflare/realtimekit';
 import { ParticipantAvatar, getPersonTheme, getInitials } from '@weldsuite/weldmeet-ui';
 import { Button } from '@weldsuite/ui/components/button';
@@ -31,6 +32,621 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
   const s = (seconds % 60).toString().padStart(2, '0');
   return `${m}:${s}`;
+}
+
+/**
+ * Width occupied by ANY open right-side panel, so the widget slides left and
+ * sits next to it instead of being covered. Rather than wiring every panel's
+ * own signal (notifications, calendar, WeldAgent, object/detail panels, …),
+ * we measure the one thing they all affect: every module layout shrinks its
+ * `[data-module-content]` wrapper from the right by the combined panel width.
+ * So `viewport.right - content.right` IS the reserved width — one signal that
+ * captures all current and future panels. Re-measured live via ResizeObserver
+ * so the widget tracks the layout's width transition in lockstep.
+ */
+function usePanelWidth(pathname: string): number {
+  const [panelWidth, setPanelWidth] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    const measure = () => {
+      const el = document.querySelector('[data-module-content]');
+      if (!el) {
+        setPanelWidth(0);
+        return;
+      }
+      const reserved = Math.round(window.innerWidth - el.getBoundingClientRect().right);
+      // Ignore sub-panel noise (scrollbars etc.); real panels are ≥ ~480px.
+      setPanelWidth(reserved > 24 ? reserved : 0);
+    };
+    const schedule = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    };
+    schedule();
+    const el = document.querySelector('[data-module-content]');
+    const ro = el ? new ResizeObserver(schedule) : null;
+    if (el) ro!.observe(el);
+    window.addEventListener('resize', schedule);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', schedule);
+      cancelAnimationFrame(raf);
+    };
+  }, [pathname]);
+  return panelWidth;
+}
+
+/** Re-render the widget whenever the participant list or self media changes. */
+function useMeetingRenderTick(meeting: RealtimeKitClient | null, forceUpdate: (fn: (n: number) => number) => void) {
+  useEffect(() => {
+    if (!meeting) return;
+    const tick = () => forceUpdate(n => n + 1);
+    meeting.participants?.joined?.on?.('participantJoined', tick);
+    meeting.participants?.joined?.on?.('participantLeft', tick);
+    meeting.self?.on?.('videoUpdate', tick);
+    meeting.self?.on?.('audioUpdate', tick);
+    return () => {
+      try {
+        meeting.participants?.joined?.removeListener?.('participantJoined', tick);
+        meeting.participants?.joined?.removeListener?.('participantLeft', tick);
+        meeting.self?.removeListener?.('videoUpdate', tick);
+        meeting.self?.removeListener?.('audioUpdate', tick);
+      } catch { /* ignore */ }
+    };
+  }, [meeting, forceUpdate]);
+}
+
+/** Continuously-redrawn placeholder canvas stream; returns the stream and a stop function. */
+function createPlaceholderStream(meetingTitle: string): { stream: MediaStream; stop: () => void } {
+  // Continuously-redrawn canvas at 30fps. captureStream(1) produces a
+  // single static frame, which Chrome's auto-PiP heuristic treats as
+  // "not actively playing" — the tab-switch trigger then never fires
+  // until something else (a real track or a user gesture) wakes the
+  // video up.
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 180;
+  const ctx = canvas.getContext('2d')!;
+  const draw = () => {
+    ctx.fillStyle = '#0b0b0e';
+    ctx.fillRect(0, 0, 320, 180);
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(meetingTitle || 'Meeting', 160, 95);
+  };
+  draw();
+  const redrawTimer = setInterval(draw, 1000);
+  return { stream: canvas.captureStream(30), stop: () => clearInterval(redrawTimer) };
+}
+
+/**
+ * Keep the hidden video continuously playing on the highest-fidelity stream we
+ * have (a live/pre-warmed track, else a placeholder canvas).
+ */
+function useHiddenPipStream(
+  pipVideoRef: React.RefObject<HTMLVideoElement | null>,
+  activeRealTrack: MediaStreamTrack | null,
+  meetingTitle: string,
+) {
+  useEffect(() => {
+    const video = pipVideoRef.current;
+    if (!video) return;
+
+    let stopPlaceholder: (() => void) | null = null;
+    let playRetryTimer: ReturnType<typeof setInterval> | null = null;
+
+    if (activeRealTrack) {
+      video.srcObject = new MediaStream([activeRealTrack]);
+    } else {
+      const placeholder = createPlaceholderStream(meetingTitle);
+      stopPlaceholder = placeholder.stop;
+      video.srcObject = placeholder.stream;
+    }
+
+    // Some autoplay paths (off-screen muted video, no recent gesture) leave
+    // the video paused. Retry until it actually plays, then keep nudging it
+    // back if Chrome later pauses it (notably right after exiting PiP). The
+    // 250ms cadence is what guarantees the video is unpaused before the user
+    // can switch tabs again — at 1s, fast back-and-forth tab switches catch
+    // the video paused and Chrome then skips auto-PiP.
+    const tryPlay = () => video.play().catch(() => {});
+    tryPlay();
+    playRetryTimer = setInterval(() => {
+      if (video.paused) tryPlay();
+    }, 250);
+
+    return () => {
+      if (stopPlaceholder) stopPlaceholder();
+      if (playRetryTimer) clearInterval(playRetryTimer);
+    };
+  }, [activeRealTrack, meetingTitle, pipVideoRef]);
+}
+
+/** Run `fn`, ignoring any error (unsupported browser API). */
+function tryIgnore(fn: () => void): void {
+  try { fn(); } catch { /* ignore */ }
+}
+
+/**
+ * Register MediaSession action handlers ONCE on mount (not gated on
+ * status). Reason: the click that starts an instant meeting → immediate
+ * tab switch happens BEFORE `status` reaches 'connected' (RTK takes
+ * ~1–3 s to negotiate). Chrome only fires `enterpictureinpicture` on
+ * tab switch when the action handler is already wired up at the moment
+ * the tab loses visibility. The handler reads the LATEST enterNativePiP
+ * via a ref, so closure staleness doesn't matter.
+ */
+function useMediaSessionActionHandlers(enterNativePiP: () => Promise<void> | void) {
+  const enterPipForActionRef = useRef(enterNativePiP);
+  useEffect(() => { enterPipForActionRef.current = enterNativePiP; }, [enterNativePiP]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'WeldMeet',
+      artist: 'WeldMeet',
+    });
+    const handleEnterPiP = () => { enterPipForActionRef.current(); };
+    try {
+      // @ts-expect-error -- 'enterpictureinpicture' is a Chrome MediaSessionAction not in standard lib types
+      navigator.mediaSession.setActionHandler('enterpictureinpicture', handleEnterPiP);
+    } catch { /* unsupported */ }
+    // Other handlers Chrome expects on a "real" media session — without these
+    // some Chrome builds silently downgrade the session and skip auto-PiP.
+    const noop = () => {};
+    tryIgnore(() => navigator.mediaSession.setActionHandler('play', noop));
+    tryIgnore(() => navigator.mediaSession.setActionHandler('pause', noop));
+
+    return () => {
+      try {
+        // @ts-expect-error -- see above
+        navigator.mediaSession.setActionHandler('enterpictureinpicture', null);
+      } catch { /* ignore */ }
+      tryIgnore(() => navigator.mediaSession.setActionHandler('play', null));
+      tryIgnore(() => navigator.mediaSession.setActionHandler('pause', null));
+      navigator.mediaSession.metadata = null;
+    };
+  }, []);
+}
+
+/**
+ * Flip playbackState to 'playing' as soon as a meeting starts negotiating
+ * (`connecting`), not just after `connected`. RTK takes ~1–3 s to fully
+ * connect, and a user who immediately switches tabs after clicking
+ * "Instant Meeting" otherwise hits a window where no MediaSession is
+ * active → Chrome skips auto-PiP. Reset to 'none' when the meeting ends
+ * so a later random tab-switch doesn't auto-PiP a stale placeholder.
+ */
+function useMediaSessionPlaybackState(status: MeetingCallStatus, meetingTitle: string) {
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    if (status === 'connected' || status === 'connecting' || status === 'preview') {
+      tryIgnore(() => { navigator.mediaSession.playbackState = 'playing'; });
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: meetingTitle || 'Meeting',
+        artist: 'WeldMeet',
+      });
+    } else if (status === 'idle' || status === 'ended') {
+      tryIgnore(() => { navigator.mediaSession.playbackState = 'none'; });
+    }
+  }, [status, meetingTitle]);
+}
+
+/**
+ * Enter native PiP when the tab is hidden and exit when it is shown again;
+ * re-prime the video when PiP closes. Registers ONCE per connected session.
+ */
+function usePipVisibilityListeners(
+  status: MeetingCallStatus,
+  pipVideoRef: React.RefObject<HTMLVideoElement | null>,
+  pipWindowRef: React.RefObject<Window | null>,
+  enterNativePipRef: React.RefObject<() => Promise<void> | void>,
+  exitNativePipRef: React.RefObject<() => void>,
+) {
+  useEffect(() => {
+    if (status !== 'connected') return;
+    const onVisChange = () => {
+      // Don't fire native PiP while Document PiP popup is already open
+      if (pipWindowRef.current) return;
+      if (document.hidden) enterNativePipRef.current();
+      else exitNativePipRef.current();
+    };
+    // When PiP closes (user clicks the close button or returns to the tab),
+    // re-prime the video AND media session right away so the next tab
+    // switch is again eligible for auto-PiP. Without this, Chrome leaves the
+    // session in a state where the second `enterpictureinpicture` action
+    // never fires.
+    const onPiPLeave = () => { exitNativePipRef.current(); };
+    const videoEl = pipVideoRef.current;
+
+    document.addEventListener('visibilitychange', onVisChange);
+    videoEl?.addEventListener('leavepictureinpicture', onPiPLeave);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisChange);
+      videoEl?.removeEventListener('leavepictureinpicture', onPiPLeave);
+      exitNativePipRef.current();
+    };
+  }, [status, pipVideoRef, pipWindowRef, enterNativePipRef, exitNativePipRef]);
+}
+
+/**
+ * Capture user gestures globally and ALWAYS — not gated on status — so the
+ * very click that starts the instant meeting is what promotes the hidden
+ * video to "user-initiated playback". Chrome only fires auto-PiP on tab
+ * switch when the active media session was started under a user gesture;
+ * programmatic play() from setInterval doesn't qualify. The widget mounts
+ * in the app shell, so registering at mount means the "Instant Meeting"
+ * click in another component is observed in the capture phase before any
+ * navigation, and its activation is bound to play() of the hidden video.
+ *
+ * For the click that STARTS a meeting (status is still 'idle' until RTK
+ * reaches 'connecting' a moment later), we gate by pathname: any click
+ * while on a `/weldmeet/*` URL is treated as meeting-context, so we both
+ * play() the video AND mark MediaSession 'playing' immediately. Without
+ * this, the tab-switch happening before `status` flips finds the session
+ * inactive and Chrome skips auto-PiP. Random clicks elsewhere on the
+ * platform skip the playbackState change so they don't leave a stale
+ * session that would auto-PiP a placeholder canvas later.
+ */
+function useGestureMediaSessionPromotion(
+  pipVideoRef: React.RefObject<HTMLVideoElement | null>,
+  statusRef: React.RefObject<MeetingCallStatus>,
+) {
+  useEffect(() => {
+    const isMeetingContext = () =>
+      statusRef.current === 'connecting' ||
+      statusRef.current === 'connected' ||
+      statusRef.current === 'preview' ||
+      (typeof window !== 'undefined' && window.location.pathname.startsWith('/weldmeet'));
+    const onUserGesture = () => {
+      const v = pipVideoRef.current;
+      if (v && v.paused) v.play().catch(() => {});
+      if (isMeetingContext() && 'mediaSession' in navigator) {
+        tryIgnore(() => { navigator.mediaSession.playbackState = 'playing'; });
+      }
+    };
+    document.addEventListener('pointerdown', onUserGesture, { capture: true });
+    document.addEventListener('keydown', onUserGesture, { capture: true });
+    return () => {
+      document.removeEventListener('pointerdown', onUserGesture, { capture: true });
+      document.removeEventListener('keydown', onUserGesture, { capture: true });
+    };
+  }, [pipVideoRef, statusRef]);
+}
+
+type WeldmeetStrings = ReturnType<typeof getTranslations<'weldmeet'>>;
+
+/**
+ * Pick the most relevant participant — first remote (active speaker proxy)
+ * or fall back to self — and derive everything the tile needs to render.
+ */
+function deriveFocusedParticipant(meeting: RealtimeKitClient | null, t: WeldmeetStrings) {
+  const remoteParticipants: RTKParticipant[] = meeting?.participants?.joined?.toArray?.() ?? [];
+  const focused = remoteParticipants[0] ?? meeting?.self ?? null;
+  const focusedIsSelf = !remoteParticipants[0];
+  const focusedName = focused?.name || (focusedIsSelf ? t.pipWidget.you : t.pipWidget.participant);
+  const focusedHasVideo = !!(focused?.videoEnabled && focused?.videoTrack);
+  const focusedTrack = focusedHasVideo ? focused.videoTrack : null;
+  const focusedAudioTrack = focused?.audioEnabled ? focused?.audioTrack : null;
+
+  // Camera-off appearance — match the maximized ParticipantTile exactly:
+  // deterministic colored tile background + ParticipantAvatar. Seed mirrors the
+  // tile's (customParticipantId → userId → id → name) so colors agree.
+  const focusedTheme = getPersonTheme(
+    String(focused?.customParticipantId ?? focused?.userId ?? focused?.id ?? focusedName),
+  );
+  const focusedInitials = getInitials(focusedName);
+
+  return { focused, focusedIsSelf, focusedName, focusedTrack, focusedAudioTrack, focusedTheme, focusedInitials };
+}
+
+type FocusedParticipant = ReturnType<typeof deriveFocusedParticipant>;
+
+function widgetClassName({
+  isInPipWindow,
+  isDragging,
+  shouldShow,
+  hasAnimated,
+}: {
+  isInPipWindow: boolean;
+  isDragging: boolean;
+  shouldShow: boolean;
+  hasAnimated: boolean;
+}): string {
+  const visibilityClass = shouldShow ? 'opacity-100' : 'opacity-0 pointer-events-none sr-only';
+  return cn(
+    'group/pip bg-card p-2',
+    isInPipWindow
+      ? 'w-screen h-screen flex flex-col'
+      : cn(
+          'fixed z-[9999] w-[290px] rounded-2xl shadow-2xl ring-1 ring-border cursor-grab [&_img]:select-none',
+          isDragging && 'cursor-grabbing select-none',
+          visibilityClass,
+          !hasAnimated && shouldShow && !isDragging && 'animate-in slide-in-from-bottom-4 fade-in duration-300',
+        ),
+  );
+}
+
+interface PipVideoAreaProps {
+  t: WeldmeetStrings;
+  focus: FocusedParticipant;
+  isMuted: boolean;
+  isInPipWindow: boolean;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  onExpand: () => void;
+  onPopOut: () => void;
+}
+
+/** Video / avatar area — inset, floating inside the panel. */
+function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, onPopOut }: PipVideoAreaProps) {
+  const { focused, focusedIsSelf, focusedName, focusedTrack, focusedTheme, focusedInitials } = focus;
+  const showMutedIcon = focusedIsSelf ? isMuted : !focused?.audioEnabled;
+  return (
+    <div
+      className={cn(
+        // Camera-off → deterministic colored tile (matches ParticipantTile);
+        // with video the track covers it, so only neutral bg-muted is needed.
+        'relative w-full cursor-pointer overflow-hidden rounded-xl ring-1 ring-border',
+        focusedTrack && 'bg-muted',
+        isInPipWindow ? 'flex-1 min-h-0' : 'aspect-[4/3]',
+      )}
+      style={focusedTrack ? undefined : { backgroundColor: focusedTheme.tile }}
+      role="button"
+      tabIndex={0}
+      aria-label={t.pipWidget.openMeeting}
+      onClick={onExpand}
+      onKeyDown={(e) => {
+        // Only react to keys pressed on the tile itself, not on the nested quick-action buttons.
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          onExpand();
+        }
+      }}
+    >
+      {focusedTrack ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={focusedIsSelf}
+          className={cn('absolute inset-0 w-full h-full object-cover', focusedIsSelf && '-scale-x-100')}
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <ParticipantAvatar
+            initials={focusedInitials}
+            color={focusedTheme.avatar}
+            picture={focused?.picture}
+            className="h-14 w-14 !rounded-[15px]"
+          />
+        </div>
+      )}
+
+      {/* Bottom-left: name tag — matches ParticipantTile's design in the expanded meeting view */}
+      <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/60 text-white text-xs px-2 py-1 rounded-md max-w-[70%]">
+        {showMutedIcon && <MicOff className="h-3 w-3 shrink-0" />}
+        <span className="truncate">{focusedIsSelf ? t.pipWidget.you : focusedName}</span>
+      </div>
+
+      {/* Top-right: hover-revealed quick actions */}
+      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/pip:opacity-100 transition-opacity duration-150">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => { e.stopPropagation(); onPopOut(); }}
+          title={t.pipWidget.popOut}
+          className="flex h-7 w-7 items-center justify-center rounded-md bg-black/60 hover:bg-black/75 text-white transition-colors"
+        >
+          <PictureInPicture2 className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => { e.stopPropagation(); onExpand(); }}
+          title={t.pipWidget.openMeeting}
+          className="flex h-7 w-7 items-center justify-center rounded-md bg-black/60 hover:bg-black/75 text-white transition-colors"
+        >
+          <Maximize className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+const OFF_BUTTON_CLASS =
+  'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400';
+const NEUTRAL_BUTTON_CLASS = '[&]:hover:brightness-95 dark:[&]:hover:brightness-110';
+
+function MicControl({ t, isMuted, onToggle }: { t: WeldmeetStrings; isMuted: boolean; onToggle: () => void }) {
+  return (
+    <div className={cn('rounded-[14px] ring-1', isMuted ? 'ring-red-400/40' : 'ring-border')}>
+      <Button
+        variant="secondary"
+        size="icon"
+        className={cn(
+          'h-11 w-11 rounded-[14px] border-0 transition-all',
+          isMuted ? OFF_BUTTON_CLASS : NEUTRAL_BUTTON_CLASS,
+        )}
+        onClick={onToggle}
+        title={isMuted ? t.pipWidget.turnOnMicrophone : t.pipWidget.turnOffMicrophone}
+      >
+        {isMuted ? <MicOff className="size-[18px]" /> : <Mic className="size-[18px]" />}
+      </Button>
+    </div>
+  );
+}
+
+function CameraControl({ t, isVideoOff, onToggle }: { t: WeldmeetStrings; isVideoOff: boolean; onToggle: () => void }) {
+  return (
+    <div className={cn('relative rounded-[14px] ring-1', isVideoOff ? 'ring-red-400/40' : 'ring-border')}>
+      <Button
+        variant="secondary"
+        size="icon"
+        className={cn(
+          'h-11 w-11 rounded-[14px] border-0 transition-all',
+          isVideoOff ? OFF_BUTTON_CLASS : NEUTRAL_BUTTON_CLASS,
+        )}
+        onClick={onToggle}
+        title={isVideoOff ? t.pipWidget.turnOnCamera : t.pipWidget.turnOffCamera}
+      >
+        {isVideoOff ? (
+          <VideoOff className="size-[19px]" />
+        ) : (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="size-[21px]"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
+            />
+          </svg>
+        )}
+      </Button>
+      {isVideoOff && (
+        <span className="pointer-events-none absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-amber-400 ring-2 ring-card flex items-center justify-center">
+          <span className="text-[8px] font-bold text-amber-900 leading-none">!</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ScreenShareControl({
+  t,
+  isScreenSharing,
+  onToggle,
+}: {
+  t: WeldmeetStrings;
+  isScreenSharing: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="rounded-[14px] ring-1 ring-border">
+      <Button
+        variant={isScreenSharing ? 'default' : 'secondary'}
+        size="icon"
+        className="h-11 w-11 rounded-[14px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
+        onClick={onToggle}
+        title={isScreenSharing ? t.pipWidget.stopSharing : t.pipWidget.shareScreen}
+      >
+        <MonitorUp className="size-[18px]" />
+      </Button>
+    </div>
+  );
+}
+
+function MoreControl({
+  t,
+  handRaised,
+  onToggleHandRaise,
+  onExpand,
+  onCopyJoiningInfo,
+}: {
+  t: WeldmeetStrings;
+  handRaised: boolean;
+  onToggleHandRaise: () => void;
+  onExpand: () => void;
+  onCopyJoiningInfo: () => void;
+}) {
+  return (
+    <div className="rounded-[14px] ring-1 ring-border">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-11 w-11 rounded-[14px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110"
+            title={t.pipWidget.moreOptions}
+          >
+            <MoreVertical className="size-[18px]" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="end" sideOffset={6} className="w-48 z-[10000]">
+          <DropdownMenuItem onClick={onToggleHandRaise}>
+            <Hand className={cn('h-4 w-4 mr-0.5', handRaised && 'text-primary')} />
+            {handRaised ? t.pipWidget.lowerHand : t.pipWidget.raiseHand}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onExpand}>
+            <Maximize className="h-4 w-4 mr-0.5" />
+            {t.pipWidget.openMeeting}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onCopyJoiningInfo}>
+            <Copy className="h-4 w-4 mr-0.5" />
+            {t.pipWidget.copyJoiningInfo}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+interface PipControlsBarProps {
+  t: WeldmeetStrings;
+  isMuted: boolean;
+  isVideoOff: boolean;
+  isScreenSharing: boolean;
+  handRaised: boolean;
+  isOrganizer: boolean;
+  onToggleMute: () => void;
+  onToggleVideo: () => void;
+  onScreenShare: () => void;
+  onToggleHandRaise: () => void;
+  onExpand: () => void;
+  onCopyJoiningInfo: () => void;
+  onEnd: () => void;
+}
+
+/** Controls bar — same button style as the main CallControlsBar. */
+function PipControlsBar({
+  t,
+  isMuted,
+  isVideoOff,
+  isScreenSharing,
+  handRaised,
+  isOrganizer,
+  onToggleMute,
+  onToggleVideo,
+  onScreenShare,
+  onToggleHandRaise,
+  onExpand,
+  onCopyJoiningInfo,
+  onEnd,
+}: PipControlsBarProps) {
+  return (
+    <div className="flex items-center justify-center gap-2 px-1 pt-2.5 pb-1">
+      <MicControl t={t} isMuted={isMuted} onToggle={onToggleMute} />
+      <CameraControl t={t} isVideoOff={isVideoOff} onToggle={onToggleVideo} />
+      <ScreenShareControl t={t} isScreenSharing={isScreenSharing} onToggle={onScreenShare} />
+      <MoreControl
+        t={t}
+        handRaised={handRaised}
+        onToggleHandRaise={onToggleHandRaise}
+        onExpand={onExpand}
+        onCopyJoiningInfo={onCopyJoiningInfo}
+      />
+
+      {/* Hangup — same destructive pill + rotated phone icon as the
+          maximized meeting's CallControlsBar leave button. */}
+      <Button
+        variant="destructive"
+        size="icon"
+        className="h-11 w-14 rounded-[14px] transition-all [&]:hover:brightness-90"
+        onClick={onEnd}
+        title={isOrganizer ? t.pipWidget.endMeeting : t.pipWidget.leaveMeeting}
+      >
+        <Phone className="!h-[19px] !w-[19px] rotate-[135deg] fill-current" />
+      </Button>
+    </div>
+  );
 }
 
 /**
@@ -77,42 +693,7 @@ export function MeetingPiPWidget() {
   const hasAnimatedRef = useRef(false);
   const [, forceUpdate] = useState(0);
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
-  // Width occupied by ANY open right-side panel, so the widget slides left and
-  // sits next to it instead of being covered. Rather than wiring every panel's
-  // own signal (notifications, calendar, WeldAgent, object/detail panels, …),
-  // we measure the one thing they all affect: every module layout shrinks its
-  // `[data-module-content]` wrapper from the right by the combined panel width.
-  // So `viewport.right - content.right` IS the reserved width — one signal that
-  // captures all current and future panels. Re-measured live via ResizeObserver
-  // so the widget tracks the layout's width transition in lockstep.
-  const [panelWidth, setPanelWidth] = useState(0);
-  useEffect(() => {
-    let raf = 0;
-    const measure = () => {
-      const el = document.querySelector('[data-module-content]');
-      if (!el) {
-        setPanelWidth(0);
-        return;
-      }
-      const reserved = Math.round(window.innerWidth - el.getBoundingClientRect().right);
-      // Ignore sub-panel noise (scrollbars etc.); real panels are ≥ ~480px.
-      setPanelWidth(reserved > 24 ? reserved : 0);
-    };
-    const schedule = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(measure);
-    };
-    schedule();
-    const el = document.querySelector('[data-module-content]');
-    const ro = el ? new ResizeObserver(schedule) : null;
-    if (el) ro!.observe(el);
-    window.addEventListener('resize', schedule);
-    return () => {
-      ro?.disconnect();
-      window.removeEventListener('resize', schedule);
-      cancelAnimationFrame(raf);
-    };
-  }, [pathname]);
+  const panelWidth = usePanelWidth(pathname);
 
   const t = getTranslations('weldmeet');
   const isOnMeetingPage = !!meetingId && pathname?.startsWith(`/weldmeet/${meetingId}`);
@@ -145,40 +726,10 @@ export function MeetingPiPWidget() {
       .catch(() => {});
   }, [meetingData?.joinCode, workspaceId, t]);
 
-  useEffect(() => {
-    if (!meeting) return;
-    const tick = () => forceUpdate(n => n + 1);
-    meeting.participants?.joined?.on?.('participantJoined', tick);
-    meeting.participants?.joined?.on?.('participantLeft', tick);
-    meeting.self?.on?.('videoUpdate', tick);
-    meeting.self?.on?.('audioUpdate', tick);
-    return () => {
-      try {
-        meeting.participants?.joined?.removeListener?.('participantJoined', tick);
-        meeting.participants?.joined?.removeListener?.('participantLeft', tick);
-        meeting.self?.removeListener?.('videoUpdate', tick);
-        meeting.self?.removeListener?.('audioUpdate', tick);
-      } catch { /* ignore */ }
-    };
-  }, [meeting]);
+  useMeetingRenderTick(meeting, forceUpdate);
 
-  // Pick the most relevant participant — first remote (active speaker proxy)
-  // or fall back to self.
-  const remoteParticipants: RTKParticipant[] = meeting?.participants?.joined?.toArray?.() ?? [];
-  const focused = remoteParticipants[0] ?? meeting?.self ?? null;
-  const focusedIsSelf = !remoteParticipants[0];
-  const focusedName = focused?.name || (focusedIsSelf ? t.pipWidget.you : t.pipWidget.participant);
-  const focusedHasVideo = !!(focused?.videoEnabled && focused?.videoTrack);
-  const focusedTrack = focusedHasVideo ? focused.videoTrack : null;
-  const focusedAudioTrack = focused?.audioEnabled ? focused?.audioTrack : null;
-
-  // Camera-off appearance — match the maximized ParticipantTile exactly:
-  // deterministic colored tile background + ParticipantAvatar. Seed mirrors the
-  // tile's (customParticipantId → userId → id → name) so colors agree.
-  const focusedTheme = getPersonTheme(
-    String(focused?.customParticipantId ?? focused?.userId ?? focused?.id ?? focusedName),
-  );
-  const focusedInitials = getInitials(focusedName);
+  const focus = deriveFocusedParticipant(meeting, t);
+  const { focusedIsSelf, focusedTrack, focusedAudioTrack } = focus;
 
   // Attach video to the visible tile.
   // NOTE: `pipWindow` MUST be a dep — when Document PiP opens, createPortal
@@ -366,113 +917,11 @@ export function MeetingPiPWidget() {
   //   3. canvas — placeholder when there's neither a meeting nor a pre-warm.
   const activeRealTrack = focusedTrack ?? prewarmedVideoTrack;
 
-  useEffect(() => {
-    const video = pipVideoRef.current;
-    if (!video) return;
+  useHiddenPipStream(pipVideoRef, activeRealTrack, meetingTitle);
 
-    let redrawTimer: ReturnType<typeof setInterval> | null = null;
-    let playRetryTimer: ReturnType<typeof setInterval> | null = null;
+  useMediaSessionActionHandlers(enterNativePiP);
 
-    if (activeRealTrack) {
-      video.srcObject = new MediaStream([activeRealTrack]);
-    } else {
-      // Continuously-redrawn canvas at 30fps. captureStream(1) produces a
-      // single static frame, which Chrome's auto-PiP heuristic treats as
-      // "not actively playing" — the tab-switch trigger then never fires
-      // until something else (a real track or a user gesture) wakes the
-      // video up.
-      const canvas = document.createElement('canvas');
-      canvas.width = 320;
-      canvas.height = 180;
-      const ctx = canvas.getContext('2d')!;
-      const draw = () => {
-        ctx.fillStyle = '#0b0b0e';
-        ctx.fillRect(0, 0, 320, 180);
-        ctx.fillStyle = '#fff';
-        ctx.font = '16px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(meetingTitle || 'Meeting', 160, 95);
-      };
-      draw();
-      redrawTimer = setInterval(draw, 1000);
-      video.srcObject = canvas.captureStream(30);
-    }
-
-    // Some autoplay paths (off-screen muted video, no recent gesture) leave
-    // the video paused. Retry until it actually plays, then keep nudging it
-    // back if Chrome later pauses it (notably right after exiting PiP). The
-    // 250ms cadence is what guarantees the video is unpaused before the user
-    // can switch tabs again — at 1s, fast back-and-forth tab switches catch
-    // the video paused and Chrome then skips auto-PiP.
-    const tryPlay = () => video.play().catch(() => {});
-    tryPlay();
-    playRetryTimer = setInterval(() => {
-      if (video.paused) tryPlay();
-    }, 250);
-
-    return () => {
-      if (redrawTimer) clearInterval(redrawTimer);
-      if (playRetryTimer) clearInterval(playRetryTimer);
-    };
-  }, [activeRealTrack, meetingTitle]);
-
-  // Register MediaSession action handlers ONCE on mount (not gated on
-  // status). Reason: the click that starts an instant meeting → immediate
-  // tab switch happens BEFORE `status` reaches 'connected' (RTK takes
-  // ~1–3 s to negotiate). Chrome only fires `enterpictureinpicture` on
-  // tab switch when the action handler is already wired up at the moment
-  // the tab loses visibility. The handler reads the LATEST enterNativePiP
-  // via a ref, so closure staleness doesn't matter.
-  const enterPipForActionRef = useRef(enterNativePiP);
-  useEffect(() => { enterPipForActionRef.current = enterNativePiP; }, [enterNativePiP]);
-
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: 'WeldMeet',
-      artist: 'WeldMeet',
-    });
-    const handleEnterPiP = () => { enterPipForActionRef.current(); };
-    try {
-      // @ts-expect-error -- 'enterpictureinpicture' is a Chrome MediaSessionAction not in standard lib types
-      navigator.mediaSession.setActionHandler('enterpictureinpicture', handleEnterPiP);
-    } catch { /* unsupported */ }
-    // Other handlers Chrome expects on a "real" media session — without these
-    // some Chrome builds silently downgrade the session and skip auto-PiP.
-    const noop = () => {};
-    try { navigator.mediaSession.setActionHandler('play', noop); } catch { /* ignore */ }
-    try { navigator.mediaSession.setActionHandler('pause', noop); } catch { /* ignore */ }
-
-    return () => {
-      try {
-        // @ts-expect-error -- see above
-        navigator.mediaSession.setActionHandler('enterpictureinpicture', null);
-      } catch { /* ignore */ }
-      try { navigator.mediaSession.setActionHandler('play', null); } catch { /* ignore */ }
-      try { navigator.mediaSession.setActionHandler('pause', null); } catch { /* ignore */ }
-      navigator.mediaSession.metadata = null;
-    };
-  }, []);
-
-  // Flip playbackState to 'playing' as soon as a meeting starts negotiating
-  // (`connecting`), not just after `connected`. RTK takes ~1–3 s to fully
-  // connect, and a user who immediately switches tabs after clicking
-  // "Instant Meeting" otherwise hits a window where no MediaSession is
-  // active → Chrome skips auto-PiP. Reset to 'none' when the meeting ends
-  // so a later random tab-switch doesn't auto-PiP a stale placeholder.
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-    if (status === 'connected' || status === 'connecting' || status === 'preview') {
-      try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: meetingTitle || 'Meeting',
-        artist: 'WeldMeet',
-      });
-    } else if (status === 'idle' || status === 'ended') {
-      try { navigator.mediaSession.playbackState = 'none'; } catch { /* ignore */ }
-    }
-  }, [status, meetingTitle]);
+  useMediaSessionPlaybackState(status, meetingTitle);
 
   // Always-current status, so the gesture listener (registered once at
   // mount with []-deps) can decide whether to promote MediaSession without
@@ -491,68 +940,9 @@ export function MeetingPiPWidget() {
   useEffect(() => { exitNativePipRef.current = exitNativePiP; }, [exitNativePiP]);
   useEffect(() => { pipWindowRef.current = pipWindow; }, [pipWindow]);
 
-  useEffect(() => {
-    if (status !== 'connected') return;
-    const onVisChange = () => {
-      // Don't fire native PiP while Document PiP popup is already open
-      if (pipWindowRef.current) return;
-      if (document.hidden) enterNativePipRef.current();
-      else exitNativePipRef.current();
-    };
-    // When PiP closes (user clicks the close button or returns to the tab),
-    // re-prime the video AND media session right away so the next tab
-    // switch is again eligible for auto-PiP. Without this, Chrome leaves the
-    // session in a state where the second `enterpictureinpicture` action
-    // never fires.
-    const onPiPLeave = () => { exitNativePipRef.current(); };
-    const videoEl = pipVideoRef.current;
+  usePipVisibilityListeners(status, pipVideoRef, pipWindowRef, enterNativePipRef, exitNativePipRef);
 
-    document.addEventListener('visibilitychange', onVisChange);
-    videoEl?.addEventListener('leavepictureinpicture', onPiPLeave);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisChange);
-      videoEl?.removeEventListener('leavepictureinpicture', onPiPLeave);
-      exitNativePipRef.current();
-    };
-  }, [status]);
-
-  // Capture user gestures globally and ALWAYS — not gated on status — so the
-  // very click that starts the instant meeting is what promotes the hidden
-  // video to "user-initiated playback". Chrome only fires auto-PiP on tab
-  // switch when the active media session was started under a user gesture;
-  // programmatic play() from setInterval doesn't qualify. The widget mounts
-  // in the app shell, so registering at mount means the "Instant Meeting"
-  // click in another component is observed in the capture phase before any
-  // navigation, and its activation is bound to play() of the hidden video.
-  //
-  // For the click that STARTS a meeting (status is still 'idle' until RTK
-  // reaches 'connecting' a moment later), we gate by pathname: any click
-  // while on a `/weldmeet/*` URL is treated as meeting-context, so we both
-  // play() the video AND mark MediaSession 'playing' immediately. Without
-  // this, the tab-switch happening before `status` flips finds the session
-  // inactive and Chrome skips auto-PiP. Random clicks elsewhere on the
-  // platform skip the playbackState change so they don't leave a stale
-  // session that would auto-PiP a placeholder canvas later.
-  useEffect(() => {
-    const onUserGesture = () => {
-      const v = pipVideoRef.current;
-      if (v && v.paused) v.play().catch(() => {});
-      const inMeetingContext =
-        statusRef.current === 'connecting' ||
-        statusRef.current === 'connected' ||
-        statusRef.current === 'preview' ||
-        (typeof window !== 'undefined' && window.location.pathname.startsWith('/weldmeet'));
-      if (inMeetingContext && 'mediaSession' in navigator) {
-        try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
-      }
-    };
-    document.addEventListener('pointerdown', onUserGesture, { capture: true });
-    document.addEventListener('keydown', onUserGesture, { capture: true });
-    return () => {
-      document.removeEventListener('pointerdown', onUserGesture, { capture: true });
-      document.removeEventListener('keydown', onUserGesture, { capture: true });
-    };
-  }, []);
+  useGestureMediaSessionPromotion(pipVideoRef, statusRef);
 
   useEffect(() => {
     if (status !== 'connected') exitNativePiP();
@@ -639,212 +1029,61 @@ export function MeetingPiPWidget() {
 
   const isInPipWindow = !!pipWindow;
 
+  // The in-page widget is draggable; the Document PiP popup fills its own OS window.
+  const interactiveProps = isInPipWindow
+    ? {}
+    : {
+        ref: widgetRef,
+        onPointerDown: pipDrag.handlers.onPointerDown,
+        onPointerMove: pipDrag.handlers.onPointerMove,
+        onPointerUp: pipDrag.handlers.onPointerUp,
+        onPointerCancel: pipDrag.handlers.onPointerCancel,
+        // Block the browser's native image/text drag so grabbing the avatar (or
+        // any image) drags the whole widget instead of starting a ghost-image drag.
+        onDragStart: (e: React.DragEvent) => e.preventDefault(),
+        style: pipDrag.style,
+      };
+
   const widget = (
     <div
-      ref={isInPipWindow ? undefined : widgetRef}
-      onPointerDown={isInPipWindow ? undefined : pipDrag.handlers.onPointerDown}
-      onPointerMove={isInPipWindow ? undefined : pipDrag.handlers.onPointerMove}
-      onPointerUp={isInPipWindow ? undefined : pipDrag.handlers.onPointerUp}
-      onPointerCancel={isInPipWindow ? undefined : pipDrag.handlers.onPointerCancel}
-      // Block the browser's native image/text drag so grabbing the avatar (or
-      // any image) drags the whole widget instead of starting a ghost-image drag.
-      onDragStart={isInPipWindow ? undefined : (e) => e.preventDefault()}
-      className={cn(
-        'group/pip bg-card p-2',
-        isInPipWindow
-          ? 'w-screen h-screen flex flex-col'
-          : cn(
-              'fixed z-[9999] w-[290px] rounded-2xl shadow-2xl ring-1 ring-border cursor-grab [&_img]:select-none',
-              pipDrag.isDragging && 'cursor-grabbing select-none',
-              shouldShow ? 'opacity-100' : 'opacity-0 pointer-events-none sr-only',
-              !hasAnimatedRef.current && shouldShow && !pipDrag.isDragging && 'animate-in slide-in-from-bottom-4 fade-in duration-300',
-            ),
-      )}
-      style={isInPipWindow ? undefined : pipDrag.style}
+      {...interactiveProps}
+      className={widgetClassName({
+        isInPipWindow,
+        isDragging: pipDrag.isDragging,
+        shouldShow,
+        hasAnimated: hasAnimatedRef.current,
+      })}
     >
-        {/* Video / avatar area — inset, floating inside the panel.
-            Uses fixed 4:3 aspect when in the in-page widget, but flexes to
-            fill the popup window when in Document PiP mode. */}
-        <div
-          className={cn(
-            // Camera-off → deterministic colored tile (matches ParticipantTile);
-            // with video the track covers it, so only neutral bg-muted is needed.
-            'relative w-full cursor-pointer overflow-hidden rounded-xl ring-1 ring-border',
-            focusedTrack && 'bg-muted',
-            isInPipWindow ? 'flex-1 min-h-0' : 'aspect-[4/3]',
-          )}
-          style={focusedTrack ? undefined : { backgroundColor: focusedTheme.tile }}
-          onClick={handleExpand}
-        >
-          {focusedTrack ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted={focusedIsSelf}
-              className={cn('absolute inset-0 w-full h-full object-cover', focusedIsSelf && '-scale-x-100')}
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <ParticipantAvatar
-                initials={focusedInitials}
-                color={focusedTheme.avatar}
-                picture={focused?.picture}
-                className="h-14 w-14 !rounded-[15px]"
-              />
-            </div>
-          )}
+      {/* Video / avatar area — inset, floating inside the panel.
+          Uses fixed 4:3 aspect when in the in-page widget, but flexes to
+          fill the popup window when in Document PiP mode. */}
+      <PipVideoArea
+        t={t}
+        focus={focus}
+        isMuted={isMuted}
+        isInPipWindow={isInPipWindow}
+        videoRef={videoRef}
+        onExpand={handleExpand}
+        onPopOut={openPopOut}
+      />
 
-          {/* Bottom-left: name tag — matches ParticipantTile's design in the expanded meeting view */}
-          <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/60 text-white text-xs px-2 py-1 rounded-md max-w-[70%]">
-            {focusedIsSelf
-              ? (isMuted && <MicOff className="h-3 w-3 shrink-0" />)
-              : (!focused?.audioEnabled && <MicOff className="h-3 w-3 shrink-0" />)
-            }
-            <span className="truncate">{focusedIsSelf ? t.pipWidget.you : focusedName}</span>
-          </div>
+      <audio ref={audioRef} autoPlay />
 
-          {/* Top-right: hover-revealed quick actions */}
-          <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/pip:opacity-100 transition-opacity duration-150">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={(e) => { e.stopPropagation(); openPopOut(); }}
-              title={t.pipWidget.popOut}
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-black/60 hover:bg-black/75 text-white transition-colors"
-            >
-              <PictureInPicture2 className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={(e) => { e.stopPropagation(); handleExpand(); }}
-              title={t.pipWidget.openMeeting}
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-black/60 hover:bg-black/75 text-white transition-colors"
-            >
-              <Maximize className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-
-        <audio ref={audioRef} autoPlay />
-
-        {/* Controls bar — same button style as the main CallControlsBar */}
-        <div className="flex items-center justify-center gap-2 px-1 pt-2.5 pb-1">
-          {/* Mic */}
-          <div className={cn('rounded-[14px] ring-1', isMuted ? 'ring-red-400/40' : 'ring-border')}>
-            <Button
-              variant="secondary"
-              size="icon"
-              className={cn(
-                'h-11 w-11 rounded-[14px] border-0 transition-all',
-                isMuted
-                  ? 'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400'
-                  : '[&]:hover:brightness-95 dark:[&]:hover:brightness-110',
-              )}
-              onClick={toggleMute}
-              title={isMuted ? t.pipWidget.turnOnMicrophone : t.pipWidget.turnOffMicrophone}
-            >
-              {isMuted ? <MicOff className="size-[18px]" /> : <Mic className="size-[18px]" />}
-            </Button>
-          </div>
-
-          {/* Camera */}
-          <div className={cn('relative rounded-[14px] ring-1', isVideoOff ? 'ring-red-400/40' : 'ring-border')}>
-            <Button
-              variant="secondary"
-              size="icon"
-              className={cn(
-                'h-11 w-11 rounded-[14px] border-0 transition-all',
-                isVideoOff
-                  ? 'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400'
-                  : '[&]:hover:brightness-95 dark:[&]:hover:brightness-110',
-              )}
-              onClick={toggleVideo}
-              title={isVideoOff ? t.pipWidget.turnOnCamera : t.pipWidget.turnOffCamera}
-            >
-              {isVideoOff ? (
-                <VideoOff className="size-[19px]" />
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-[21px]"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
-                  />
-                </svg>
-              )}
-            </Button>
-            {isVideoOff && (
-              <span className="pointer-events-none absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-amber-400 ring-2 ring-card flex items-center justify-center">
-                <span className="text-[8px] font-bold text-amber-900 leading-none">!</span>
-              </span>
-            )}
-          </div>
-
-          {/* Screen share */}
-          <div className="rounded-[14px] ring-1 ring-border">
-            <Button
-              variant={isScreenSharing ? 'default' : 'secondary'}
-              size="icon"
-              className="h-11 w-11 rounded-[14px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
-              onClick={handleScreenShare}
-              title={isScreenSharing ? t.pipWidget.stopSharing : t.pipWidget.shareScreen}
-            >
-              <MonitorUp className="size-[18px]" />
-            </Button>
-          </div>
-
-          {/* More */}
-          <div className="rounded-[14px] ring-1 ring-border">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="h-11 w-11 rounded-[14px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110"
-                  title={t.pipWidget.moreOptions}
-                >
-                  <MoreVertical className="size-[18px]" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="end" sideOffset={6} className="w-48 z-[10000]">
-                <DropdownMenuItem onClick={toggleHandRaise}>
-                  <Hand className={cn('h-4 w-4 mr-0.5', handRaised && 'text-primary')} />
-                  {handRaised ? t.pipWidget.lowerHand : t.pipWidget.raiseHand}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExpand}>
-                  <Maximize className="h-4 w-4 mr-0.5" />
-                  {t.pipWidget.openMeeting}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleCopyJoiningInfo}>
-                  <Copy className="h-4 w-4 mr-0.5" />
-                  {t.pipWidget.copyJoiningInfo}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {/* Hangup — same destructive pill + rotated phone icon as the
-              maximized meeting's CallControlsBar leave button. */}
-          <Button
-            variant="destructive"
-            size="icon"
-            className="h-11 w-14 rounded-[14px] transition-all [&]:hover:brightness-90"
-            onClick={handleEnd}
-            title={isOrganizer ? t.pipWidget.endMeeting : t.pipWidget.leaveMeeting}
-          >
-            <Phone className="!h-[19px] !w-[19px] rotate-[135deg] fill-current" />
-          </Button>
-        </div>
+      <PipControlsBar
+        t={t}
+        isMuted={isMuted}
+        isVideoOff={isVideoOff}
+        isScreenSharing={isScreenSharing}
+        handRaised={handRaised}
+        isOrganizer={isOrganizer}
+        onToggleMute={toggleMute}
+        onToggleVideo={toggleVideo}
+        onScreenShare={handleScreenShare}
+        onToggleHandRaise={toggleHandRaise}
+        onExpand={handleExpand}
+        onCopyJoiningInfo={handleCopyJoiningInfo}
+        onEnd={handleEnd}
+      />
 
       {/* Hidden duration tracker — exposed for screen readers; not shown in this design */}
       <span className="sr-only">{formatDuration(duration)}</span>

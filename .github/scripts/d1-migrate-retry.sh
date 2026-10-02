@@ -18,7 +18,7 @@ d1_migrate_with_retry() {
       return 0
     fi
     local status=$?
-    if [ "$attempt" -ge "$max_attempts" ]; then
+    if [[ "$attempt" -ge "$((10#$max_attempts))" ]]; then
       echo "::error::D1 ${label} failed after ${max_attempts} attempts (last exit ${status})"
       return "$status"
     fi

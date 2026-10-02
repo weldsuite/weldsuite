@@ -7,7 +7,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
@@ -16,6 +16,7 @@ import {
   updateProjectFileSchema,
 } from '@weldsuite/core-api-client/schemas/project-files';
 import type { Env, Variables } from '../../types';
+import type { Context } from 'hono';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -52,20 +53,12 @@ async function assertValidParent(
   return { ok: true };
 }
 
-app.get('/', requirePermission('files:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-  const parsedLimit = q.limit ? Number.parseInt(q.limit, 10) : 25;
-  const limit = Math.min(Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 25, 1), 500);
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
-  const conditions = [isNull(t.deletedAt)];
+/** Filters that only depend on the query string (project access is resolved separately). */
+function buildFileFilters(q: Record<string, string>): SQL[] {
+  const conditions: SQL[] = [];
   if (q.projectId !== undefined && q.projectId !== '') conditions.push(eq(t.projectId, q.projectId));
-  if (q.projectId) {
-    if (!(await canAccessProject(c, q.projectId))) return error.forbidden(c, PROJECT_DENIED);
-  } else {
-    const accessible = await accessibleProjectIds(c);
-    if (accessible !== null) conditions.push(inArray(t.projectId, accessible.length ? accessible : ['']));
-  }
   if (q.uploadedById !== undefined && q.uploadedById !== '') conditions.push(eq(t.uploadedById, q.uploadedById));
   if (q.fileType !== undefined && q.fileType !== '') conditions.push(eq(t.fileType, q.fileType));
 
@@ -84,17 +77,49 @@ app.get('/', requirePermission('files:read'), async (c) => {
   if (q.foldersOnly === 'true') {
     conditions.push(eq(t.isFolder, true));
   }
+  return conditions;
+}
+
+/**
+ * Project-membership boundary for the list: an explicit project must be
+ * accessible; otherwise restrict to the caller's accessible projects.
+ */
+async function resolveListAccess(
+  c: AppContext,
+  projectId: string | undefined,
+): Promise<{ denied: true } | { denied: false; condition?: SQL }> {
+  if (projectId) {
+    return (await canAccessProject(c, projectId)) ? { denied: false } : { denied: true };
+  }
+  const accessible = await accessibleProjectIds(c);
+  if (accessible === null) return { denied: false };
+  return { denied: false, condition: inArray(t.projectId, accessible.length ? accessible : ['']) };
+}
+
+/** Keyset condition for the row after `cursor`, or undefined when the cursor row is unknown. */
+async function buildFileCursorCondition(db: Database, cursor: string): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ isFolder: t.isFolder, createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur) return undefined;
+  // Predicate must match orderBy: desc(isFolder), desc(createdAt), desc(id).
+  return sql`((${t.isFolder} < ${cur.isFolder}) OR (${t.isFolder} = ${cur.isFolder} AND (${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))))`;
+}
+
+app.get('/', requirePermission('files:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.query();
+  const parsedLimit = q.limit ? Number.parseInt(q.limit, 10) : 25;
+  const limit = Math.min(Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 25, 1), 500);
+
+  const conditions = [isNull(t.deletedAt), ...buildFileFilters(q)];
+  const access = await resolveListAccess(c, q.projectId);
+  if (access.denied) return error.forbidden(c, PROJECT_DENIED);
+  if (access.condition) conditions.push(access.condition);
 
   if (q.cursor) {
-    const [cur] = await db
-      .select({ isFolder: t.isFolder, createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur) {
-      // Predicate must match orderBy: desc(isFolder), desc(createdAt), desc(id).
-      conditions.push(
-        sql`((${t.isFolder} < ${cur.isFolder}) OR (${t.isFolder} = ${cur.isFolder} AND (${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))))`,
-      );
-    }
+    const cursorCondition = await buildFileCursorCondition(db, q.cursor);
+    if (cursorCondition) conditions.push(cursorCondition);
   }
   const where = conditions.length ? and(...conditions) : undefined;
   const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
@@ -226,6 +251,43 @@ app.post('/', requirePermission('files:create'), zValidator('json', createProjec
   }
 });
 
+/**
+ * Validate a requested `parentId` move: a folder may not move into itself or a
+ * descendant, and the target must be a folder in the same project. Returns an
+ * error response, or null when the move is allowed.
+ */
+async function checkMoveTarget(
+  c: AppContext,
+  db: Database,
+  existing: typeof t.$inferSelect,
+  parentId: unknown,
+): Promise<Response | null> {
+  if (parentId !== undefined && existing.isFolder) {
+    const cycle = await wouldCreateCycle(db, existing.id, (parentId as string | null) ?? null);
+    if (cycle) {
+      return error.badRequest(c, 'Cannot move a folder into itself or one of its subfolders');
+    }
+  }
+
+  if (typeof parentId === 'string' && parentId) {
+    const check = await assertValidParent(db, parentId, existing.projectId);
+    if (!check.ok && check.kind === 'not_found') return error.notFound(c, 'Parent folder', check.parentId);
+    if (!check.ok && check.kind === 'cross_project') {
+      return error.badRequest(c, 'Cannot move across projects');
+    }
+  }
+  return null;
+}
+
+/** Column updates from the PATCH body (projectId is immutable). */
+function buildFileUpdate(data: Record<string, unknown>): Record<string, unknown> {
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [k, v] of Object.entries(data)) {
+    if (v !== undefined && k !== 'projectId') update[k] = v;
+  }
+  return update;
+}
+
 app.patch('/:id', requirePermission('files:update'), zValidator('json', updateProjectFileSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -237,25 +299,10 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updatePr
       return error.forbidden(c, PROJECT_DENIED);
     }
 
-    if (data.parentId !== undefined && existing.isFolder) {
-      const cycle = await wouldCreateCycle(db, id, (data.parentId as string | null) ?? null);
-      if (cycle) {
-        return error.badRequest(c, 'Cannot move a folder into itself or one of its subfolders');
-      }
-    }
+    const moveFailure = await checkMoveTarget(c, db, existing, data.parentId);
+    if (moveFailure) return moveFailure;
 
-    if (typeof data.parentId === 'string' && data.parentId) {
-      const check = await assertValidParent(db, data.parentId, existing.projectId);
-      if (!check.ok && check.kind === 'not_found') return error.notFound(c, 'Parent folder', check.parentId);
-      if (!check.ok && check.kind === 'cross_project') {
-        return error.badRequest(c, 'Cannot move across projects');
-      }
-    }
-
-    const update: Record<string, unknown> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) {
-      if (v !== undefined && k !== 'projectId') update[k] = v;
-    }
+    const update = buildFileUpdate(data);
 
     // Capture the previous R2 key before the row flips to the new object so we
     // can delete it only after the DB update succeeds (replace-file flow).

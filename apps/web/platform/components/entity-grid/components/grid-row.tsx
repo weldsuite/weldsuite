@@ -144,6 +144,55 @@ interface SelectableCellProps {
 const SELECTION_BORDER = '#3b82f6'; // tailwind blue-500
 const SELECTION_BORDER_PX = 1;
 
+const SEL_SELECTED = 1;
+const SEL_ANCHOR = 2;
+const SEL_TOP = 4;
+const SEL_BOTTOM = 8;
+const SEL_LEFT = 16;
+const SEL_RIGHT = 32;
+
+/** Inset box-shadow per edge, in the order top, bottom, left, right. */
+const EDGE_SHADOWS: ReadonlyArray<{ flag: number; shadow: string }> = [
+  { flag: SEL_TOP, shadow: `inset 0 ${SELECTION_BORDER_PX}px 0 0 ${SELECTION_BORDER}` },
+  { flag: SEL_BOTTOM, shadow: `inset 0 -${SELECTION_BORDER_PX}px 0 0 ${SELECTION_BORDER}` },
+  { flag: SEL_LEFT, shadow: `inset ${SELECTION_BORDER_PX}px 0 0 0 ${SELECTION_BORDER}` },
+  { flag: SEL_RIGHT, shadow: `inset -${SELECTION_BORDER_PX}px 0 0 0 ${SELECTION_BORDER}` },
+];
+
+function selectionShadows(state: number): string[] {
+  const has = (flag: number) => (state & flag) !== 0;
+  // Outer-edge borders for cells on the perimeter of the range.
+  const shadows = EDGE_SHADOWS.filter(({ flag }) => has(flag)).map(({ shadow }) => shadow);
+  // Anchor cell — full ring on all four sides, even the ones that aren't
+  // on the perimeter (so the active cell stands out within the range).
+  if (has(SEL_ANCHOR)) {
+    for (const { flag, shadow } of EDGE_SHADOWS) {
+      if (!has(flag)) shadows.push(shadow);
+    }
+  }
+  return shadows;
+}
+
+interface CellBackgroundState {
+  isAnchor: boolean;
+  isSelected: boolean;
+  isCellPopoverOpen: boolean;
+  isRowSelected: boolean;
+}
+
+function cellBackgroundClass({
+  isAnchor,
+  isSelected,
+  isCellPopoverOpen,
+  isRowSelected,
+}: CellBackgroundState): string {
+  if (isAnchor) return 'bg-background';
+  if (isSelected) return 'bg-blue-50 dark:bg-blue-500/10';
+  if (isCellPopoverOpen) return 'bg-muted/50';
+  if (isRowSelected) return 'hover:bg-blue-100 dark:hover:bg-blue-500/20';
+  return 'hover:bg-muted/50';
+}
+
 const SelectableCell = React.memo(function SelectableCell({
   row,
   col,
@@ -155,27 +204,9 @@ const SelectableCell = React.memo(function SelectableCell({
   children,
 }: SelectableCellProps) {
   const state = useCellSelectionState(row, col);
-  const isSelected = (state & 1) !== 0;
-  const isAnchor = (state & 2) !== 0;
-  const isTop = (state & 4) !== 0;
-  const isBottom = (state & 8) !== 0;
-  const isLeft = (state & 16) !== 0;
-  const isRight = (state & 32) !== 0;
-
-  const shadows: string[] = [];
-  // Outer-edge borders for cells on the perimeter of the range.
-  if (isTop) shadows.push(`inset 0 ${SELECTION_BORDER_PX}px 0 0 ${SELECTION_BORDER}`);
-  if (isBottom) shadows.push(`inset 0 -${SELECTION_BORDER_PX}px 0 0 ${SELECTION_BORDER}`);
-  if (isLeft) shadows.push(`inset ${SELECTION_BORDER_PX}px 0 0 0 ${SELECTION_BORDER}`);
-  if (isRight) shadows.push(`inset -${SELECTION_BORDER_PX}px 0 0 0 ${SELECTION_BORDER}`);
-  // Anchor cell — full ring on all four sides, even the ones that aren't
-  // on the perimeter (so the active cell stands out within the range).
-  if (isAnchor) {
-    if (!isTop) shadows.push(`inset 0 ${SELECTION_BORDER_PX}px 0 0 ${SELECTION_BORDER}`);
-    if (!isBottom) shadows.push(`inset 0 -${SELECTION_BORDER_PX}px 0 0 ${SELECTION_BORDER}`);
-    if (!isLeft) shadows.push(`inset ${SELECTION_BORDER_PX}px 0 0 0 ${SELECTION_BORDER}`);
-    if (!isRight) shadows.push(`inset -${SELECTION_BORDER_PX}px 0 0 0 ${SELECTION_BORDER}`);
-  }
+  const isSelected = (state & SEL_SELECTED) !== 0;
+  const isAnchor = (state & SEL_ANCHOR) !== 0;
+  const shadows = selectionShadows(state);
 
   return (
     <td
@@ -190,15 +221,7 @@ const SelectableCell = React.memo(function SelectableCell({
         //  - row selected → keep transparent so the row's blue shows through;
         //    on hover, deepen to blue-100 instead of falling back to gray
         //  - otherwise fall back to the regular per-row hover/popover bg
-        isAnchor
-          ? 'bg-background'
-          : isSelected
-          ? 'bg-blue-50 dark:bg-blue-500/10'
-          : isCellPopoverOpen
-          ? 'bg-muted/50'
-          : isRowSelected
-          ? 'hover:bg-blue-100 dark:hover:bg-blue-500/20'
-          : 'hover:bg-muted/50',
+        cellBackgroundClass({ isAnchor, isSelected, isCellPopoverOpen, isRowSelected }),
       )}
       style={{
         height: `${rowH}px`,

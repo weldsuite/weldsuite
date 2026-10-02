@@ -92,12 +92,15 @@ export function CliAuthPage() {
   }
 
   if (phase === 'sign-in') {
+    const signInRedirectUrl = initialCode
+      ? `/cli-auth?code=${encodeURIComponent(initialCode)}`
+      : '/cli-auth';
     return (
       <Shell>
         <Header title={t.cliAuth.title} subtitle={t.cliAuth.signInHint} />
         <SignIn
           routing="hash"
-          forceRedirectUrl={`/cli-auth${initialCode ? `?code=${encodeURIComponent(initialCode)}` : ''}`}
+          forceRedirectUrl={signInRedirectUrl}
           appearance={clerkAppearance}
         />
       </Shell>

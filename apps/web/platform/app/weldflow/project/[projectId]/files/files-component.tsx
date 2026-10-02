@@ -119,6 +119,317 @@ function normalizeFile(raw: Record<string, unknown>): ExtendedFile {
   } as ExtendedFile;
 }
 
+/** PUT `file` to a pre-signed URL, reporting percentage progress; resolves with the ETag (or ''). */
+function putFileToUrl(uploadUrl: string, file: File, onProgress: (percent: number) => void): Promise<string> {
+  const xhr = new XMLHttpRequest();
+  xhr.upload.addEventListener('progress', (e) => {
+    if (e.lengthComputable) {
+      onProgress(Math.round((e.loaded / e.total) * 100));
+    }
+  });
+
+  return new Promise<string>((resolve, reject) => {
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const etag = xhr.getResponseHeader('ETag');
+        resolve(etag || '');
+      } else {
+        reject(new Error(`Upload failed with status ${xhr.status}`));
+      }
+    });
+    xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+    xhr.open('PUT', uploadUrl);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.send(file);
+  });
+}
+
+type FilesTranslations = ReturnType<typeof useI18n>['t'];
+
+function buildEmptyState({ t, isInFolder, canWrite, onUpload, onNewFolder }: {
+  t: FilesTranslations;
+  isInFolder: boolean;
+  canWrite: boolean;
+  onUpload: () => void;
+  onNewFolder: () => void;
+}) {
+  let description: string;
+  if (isInFolder) {
+    description = canWrite ? t.projects.files.emptyFolderDescCanWrite : t.projects.files.emptyFolderDescViewer;
+  } else {
+    description = canWrite ? t.projects.files.noFilesDescCanWrite : t.projects.files.noFilesDescViewer;
+  }
+
+  return {
+    icon: (
+      <EmptyStateIllustration>
+        <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M20 30C20 27.8 21.8 26 24 26H48L54 34H96C98.2 34 100 35.8 100 38V92C100 94.2 98.2 96 96 96H24C21.8 96 20 94.2 20 92V30Z" className="fill-white dark:fill-white/[0.03]" />
+          <path d="M20 30C20 27.8 21.8 26 24 26H48L54 34H20V30Z" className="fill-gray-50 dark:fill-white/[0.06]" />
+          <path d="M20 30C20 27.8 21.8 26 24 26H48L54 34H96C98.2 34 100 35.8 100 38V92C100 94.2 98.2 96 96 96H24C21.8 96 20 94.2 20 92V30Z" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
+        </svg>
+      </EmptyStateIllustration>
+    ),
+    title: isInFolder ? t.projects.files.emptyFolderTitle : t.projects.files.noFilesTitle,
+    description,
+    action: canWrite ? {
+      label: t.projects.files.uploadFileBtn,
+      onClick: onUpload,
+    } : undefined,
+    secondaryAction: canWrite ? {
+      label: t.projects.files.newFolderBtn,
+      onClick: onNewFolder,
+    } : undefined,
+  };
+}
+
+function UploadProgressBanner({ uploadProgress }: Readonly<{ uploadProgress: Record<string, number> }>) {
+  const { t } = useI18n();
+  const uploadCount = Object.keys(uploadProgress).length;
+  if (uploadCount === 0) return null;
+
+  return (
+    <div className="border-b">
+      <div className="px-4 py-3 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          <span>{uploadCount > 1
+            ? t.projects.files.uploadingFilesPlural.replace('{n}', String(uploadCount))
+            : t.projects.files.uploadingFileSingular.replace('{n}', String(uploadCount))
+          }</span>
+        </div>
+        {Object.entries(uploadProgress).map(([fileId, progress]) => (
+          <div key={fileId} className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
+              <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm truncate max-w-[300px]">{fileId.split('-')[0]}</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{progress}%</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PreviewMedia({ file, url }: Readonly<{ file: ExtendedFile; url: string }>) {
+  return (
+    <>
+      {file.contentType.startsWith('image/') && (
+        <img
+          src={url}
+          alt={file.fileName}
+          className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
+        />
+      )}
+      {file.contentType.startsWith('video/') && (
+        <video
+          src={url}
+          controls
+          autoPlay
+          className="max-w-[90vw] max-h-[85vh] rounded-lg"
+        />
+      )}
+      {file.contentType.startsWith('audio/') && (
+        <div className="bg-white dark:bg-background p-8 rounded-lg flex flex-col items-center gap-4">
+          <FileAudio className="h-16 w-16 text-gray-400" />
+          <p className="text-sm font-medium">{file.fileName}</p>
+          <audio src={url} controls autoPlay className="w-[400px]" />
+        </div>
+      )}
+      {file.contentType === 'application/pdf' && (
+        <iframe
+          src={url}
+          className="w-[90vw] h-[85vh] rounded-lg bg-white"
+          title={file.fileName}
+        />
+      )}
+    </>
+  );
+}
+
+function FilePreviewOverlay({ file, url, loading, onClose, onDownload }: Readonly<{
+  file: ExtendedFile;
+  url: string | null;
+  loading: boolean;
+  onClose: () => void;
+  onDownload: (file: ExtendedFile) => void;
+}>) {
+  const { t } = useI18n();
+  const Icon = getFileIcon(file.contentType);
+
+  let content: React.ReactNode = null;
+  if (loading) {
+    content = (
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-white" />
+        <p className="text-sm text-white/70">{t.projects.files.loadingPreview}</p>
+      </div>
+    );
+  } else if (url) {
+    content = <PreviewMedia file={file} url={url} />;
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={file.fileName}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+    >
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={t.common.actions.close}
+        className="absolute inset-0 h-full w-full cursor-default outline-none"
+        onClick={onClose}
+      />
+      <div className="pointer-events-none absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-10">
+        <div className="pointer-events-auto flex items-center gap-3 min-w-0">
+          <div className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-lg bg-white/10">
+            <Icon className="h-4 w-4 text-white" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-white truncate">{file.fileName}</p>
+            <p className="text-xs text-white/60">{formatFileSize(file.size)}</p>
+          </div>
+        </div>
+        <div className="pointer-events-auto flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
+            onClick={() => onDownload(file)}
+          >
+            <Download className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="relative max-w-[90vw] max-h-[85vh] flex items-center justify-center">
+        {content}
+      </div>
+    </div>
+  );
+}
+
+function MoveFileDialog({
+  open,
+  onOpenChange,
+  moveTarget,
+  selectedId,
+  onSelect,
+  destinations,
+  folderPathLabel,
+  moving,
+  onMove,
+}: Readonly<{
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  moveTarget: ExtendedFile | null;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  destinations: ExtendedFile[];
+  folderPathLabel: (folder: ExtendedFile) => string;
+  moving: boolean;
+  onMove: () => void;
+}>) {
+  const { t } = useI18n();
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>
+            {t.projects.files.moveTitle.replace('{name}', moveTarget?.fileName ?? '')}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-2">
+          <p className="text-sm text-muted-foreground mb-3">{t.projects.files.moveSelectDestination}</p>
+          <div className="border rounded-md max-h-[280px] overflow-y-auto">
+            <Button
+              variant="ghost"
+              onClick={() => onSelect(null)}
+              className={cn(
+                'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors h-auto justify-start rounded-none',
+                selectedId === null
+                  ? 'bg-accent text-accent-foreground'
+                  : 'hover:bg-muted',
+              )}
+            >
+              <Home className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="font-medium">{t.projects.files.moveRoot}</span>
+              {moveTarget?.parentId === null && (
+                <span className="text-xs text-muted-foreground ml-auto">{t.projects.files.moveCurrent}</span>
+              )}
+            </Button>
+
+            {destinations.map((folder) => (
+              <Button
+                key={folder.id}
+                variant="ghost"
+                onClick={() => onSelect(folder.id)}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors h-auto justify-start rounded-none',
+                  selectedId === folder.id
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-muted',
+                )}
+              >
+                {selectedId === folder.id ? (
+                  <FolderOpen className="h-4 w-4 text-amber-500 shrink-0" />
+                ) : (
+                  <Folder className="h-4 w-4 text-amber-500 shrink-0" />
+                )}
+                <span className="truncate">{folderPathLabel(folder)}</span>
+                {moveTarget?.parentId === folder.id && (
+                  <span className="text-xs text-muted-foreground ml-auto">{t.projects.files.moveCurrent}</span>
+                )}
+              </Button>
+            ))}
+
+            {destinations.length === 0 && (
+              <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                {t.projects.files.moveNoFolders}
+              </div>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={moving}>
+            {t.projects.files.cancel}
+          </Button>
+          <Button
+            onClick={onMove}
+            disabled={moving || selectedId === (moveTarget?.parentId ?? null)}
+          >
+            {moving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+            {t.projects.files.moveHere}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function FilesComponent({ projectId, initialFiles }: Readonly<FilesComponentProps>) {
   const { t } = useI18n();
   const { canWrite } = useProjectPermissions();
@@ -255,6 +566,89 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
     resolve?.(choice);
   }, []);
 
+  const clearUploadProgress = (fileId: string) => {
+    setUploadProgress(prev => {
+      const newProgress = { ...prev };
+      delete newProgress[fileId];
+      return newProgress;
+    });
+  };
+
+  /**
+   * Upload one file. Resolves without uploading when the user cancels a name conflict or a
+   * step reports failure (after toasting); throws on unexpected errors.
+   */
+  const uploadSingleFile = async (
+    file: File,
+    fileId: string,
+    folderEntries: NamedFolderEntry[],
+    uploadedFiles: string[],
+  ): Promise<void> => {
+    const existing = findFileNameConflict(file.name, folderEntries);
+    let replaceFileId: string | undefined;
+
+    if (existing) {
+      const choice = await askNameConflict(file.name);
+      if (choice === 'cancel') {
+        return;
+      }
+      if (choice === 'replace') {
+        replaceFileId = existing.id;
+      }
+    }
+
+    const urlResult = await filesApi.generateUploadUrl(projectId, {
+      fileName: file.name,
+      contentType: file.type,
+      fileSize: file.size,
+      folder: 'projects',
+    });
+
+    if (!urlResult.success || !urlResult.data) {
+      toast.error(t.projects.files.failedToPrepareUpload.replace('{name}', file.name));
+      return;
+    }
+
+    const { uploadUrl, fileKey, uploadToken } = urlResult.data;
+    setUploadProgress(prev => ({ ...prev, [fileId]: 0 }));
+
+    const etag = await putFileToUrl(uploadUrl, file, (percentComplete) => {
+      setUploadProgress(prev => ({ ...prev, [fileId]: percentComplete }));
+    });
+
+    const confirmResult = await filesApi.confirmUpload(projectId, {
+      uploadToken,
+      fileKey,
+      etag: etag || undefined,
+      parentId: currentFolderId,
+      replaceFileId,
+    });
+
+    if (!confirmResult.success) {
+      toast.error(t.projects.files.failedToFinalizeUpload.replace('{name}', file.name));
+      return;
+    }
+
+    uploadedFiles.push(file.name);
+    toast.success(
+      (replaceFileId
+        ? t.projects.files.fileReplacedSuccessfully
+        : t.projects.files.fileUploadedSuccessfully
+      ).replace('{name}', file.name),
+    );
+
+    // When replacing, the name is unchanged so the local conflict set keeps the same id.
+    if (!replaceFileId) {
+      folderEntries.push({
+        id: (confirmResult.data as { id?: string } | undefined)?.id ?? `pending-${fileId}`,
+        fileName: file.name,
+        isFolder: false,
+      });
+    }
+
+    clearUploadProgress(fileId);
+  };
+
   const handleFileUpload = async (selectedFiles: FileList | null) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
 
@@ -273,103 +667,11 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
         const fileId = `${file.name}-${Date.now()}`;
 
         try {
-          const existing = findFileNameConflict(file.name, folderEntries);
-          let replaceFileId: string | undefined;
-
-          if (existing) {
-            const choice = await askNameConflict(file.name);
-            if (choice === 'cancel') {
-              continue;
-            }
-            if (choice === 'replace') {
-              replaceFileId = existing.id;
-            }
-          }
-
-          const urlResult = await filesApi.generateUploadUrl(projectId, {
-            fileName: file.name,
-            contentType: file.type,
-            fileSize: file.size,
-            folder: 'projects',
-          });
-
-          if (!urlResult.success || !urlResult.data) {
-            toast.error(t.projects.files.failedToPrepareUpload.replace('{name}', file.name));
-            continue;
-          }
-
-          const { uploadUrl, fileKey, uploadToken } = urlResult.data;
-          setUploadProgress(prev => ({ ...prev, [fileId]: 0 }));
-
-          const xhr = new XMLHttpRequest();
-          xhr.upload.addEventListener('progress', (e) => {
-            if (e.lengthComputable) {
-              const percentComplete = Math.round((e.loaded / e.total) * 100);
-              setUploadProgress(prev => ({ ...prev, [fileId]: percentComplete }));
-            }
-          });
-
-          const uploadPromise = new Promise<string>((resolve, reject) => {
-            xhr.addEventListener('load', () => {
-              if (xhr.status >= 200 && xhr.status < 300) {
-                const etag = xhr.getResponseHeader('ETag');
-                resolve(etag || '');
-              } else {
-                reject(new Error(`Upload failed with status ${xhr.status}`));
-              }
-            });
-            xhr.addEventListener('error', () => reject(new Error('Upload failed')));
-            xhr.open('PUT', uploadUrl);
-            xhr.setRequestHeader('Content-Type', file.type);
-            xhr.send(file);
-          });
-
-          const etag = await uploadPromise;
-
-          const confirmResult = await filesApi.confirmUpload(projectId, {
-            uploadToken,
-            fileKey,
-            etag: etag || undefined,
-            parentId: currentFolderId,
-            replaceFileId,
-          });
-
-          if (!confirmResult.success) {
-            toast.error(t.projects.files.failedToFinalizeUpload.replace('{name}', file.name));
-            continue;
-          }
-
-          uploadedFiles.push(file.name);
-          toast.success(
-            (replaceFileId
-              ? t.projects.files.fileReplacedSuccessfully
-              : t.projects.files.fileUploadedSuccessfully
-            ).replace('{name}', file.name),
-          );
-
-          if (replaceFileId) {
-            // Name unchanged; keep the same id in the local conflict set.
-          } else {
-            folderEntries.push({
-              id: (confirmResult.data as { id?: string } | undefined)?.id ?? `pending-${fileId}`,
-              fileName: file.name,
-              isFolder: false,
-            });
-          }
-
-          setUploadProgress(prev => {
-            const newProgress = { ...prev };
-            delete newProgress[fileId];
-            return newProgress;
-          });
+          await uploadSingleFile(file, fileId, folderEntries, uploadedFiles);
         } catch (error) {
           console.error(`Failed to upload ${file.name}:`, error);
           toast.error(t.projects.files.failedToUpload.replace('{name}', file.name));
-          setUploadProgress(prev => {
-            const newProgress = { ...prev };
-            delete newProgress[fileId];
-            return newProgress;
-          });
+          clearUploadProgress(fileId);
         }
       }
 
@@ -740,31 +1042,26 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
     return (
       <div
         key={file.id}
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
-        onKeyDown={(e) => {
-          if (e.currentTarget !== e.target) return;
-          if (e.key !== 'Enter' && e.key !== ' ') return;
-          e.preventDefault();
-          activateRow(file);
-        }}
-        onClick={() => activateRow(file)}
+        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
-        <div className="flex-1 min-w-[250px] flex items-center gap-3">
-          <div className={cn(
+        <button
+          type="button"
+          className="flex-1 min-w-[250px] flex items-center gap-3 text-left outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-primary/50"
+          onClick={() => activateRow(file)}
+        >
+          <span className={cn(
             "flex-shrink-0 flex items-center justify-center h-9 w-9 rounded-lg",
             file.isFolder ? "bg-amber-50 dark:bg-amber-500/10" : "bg-gray-100 dark:bg-secondary",
           )}>
             <Icon className={cn("h-4 w-4", file.isFolder ? "text-amber-600 dark:text-amber-400" : "text-gray-500")} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{file.fileName}</p>
+          </span>
+          <span className="block min-w-0">
+            <span className="block text-sm font-medium text-gray-900 dark:text-foreground truncate">{file.fileName}</span>
             {file.description && (
-              <p className="text-xs text-gray-500 truncate">{file.description}</p>
+              <span className="block text-xs text-gray-500 truncate">{file.description}</span>
             )}
-          </div>
-        </div>
+          </span>
+        </button>
 
         <div className="w-[100px]">
           <span className="text-sm text-gray-500">
@@ -776,7 +1073,7 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
           <span className="text-sm text-gray-500">{formatDate(file.createdAt)}</span>
         </div>
 
-        <div className="w-[80px] flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-10 w-[80px] flex justify-end gap-1">
           {!file.isFolder && (
             <Button
               variant="ghost"
@@ -857,38 +1154,7 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
         </div>
       )}
 
-      {Object.keys(uploadProgress).length > 0 && (
-        <div className="border-b">
-          <div className="px-4 py-3 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-              <span>{Object.keys(uploadProgress).length > 1
-                ? t.projects.files.uploadingFilesPlural.replace('{n}', String(Object.keys(uploadProgress).length))
-                : t.projects.files.uploadingFileSingular.replace('{n}', String(Object.keys(uploadProgress).length))
-              }</span>
-            </div>
-            {Object.entries(uploadProgress).map(([fileId, progress]) => (
-              <div key={fileId} className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
-                  <Upload className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm truncate max-w-[300px]">{fileId.split('-')[0]}</span>
-                    <span className="text-xs text-muted-foreground tabular-nums">{progress}%</span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <UploadProgressBanner uploadProgress={uploadProgress} />
 
       {/* Breadcrumb */}
       <div className="flex items-center gap-1 px-4 pt-2 text-sm text-muted-foreground min-h-[28px]">
@@ -957,29 +1223,13 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
           label: uploading ? t.projects.files.uploadingBtn : t.projects.files.uploadFileBtn,
           onClick: () => fileInputRef.current?.click(),
         } : undefined}
-        emptyState={{
-          icon: (
-            <EmptyStateIllustration>
-              <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M20 30C20 27.8 21.8 26 24 26H48L54 34H96C98.2 34 100 35.8 100 38V92C100 94.2 98.2 96 96 96H24C21.8 96 20 94.2 20 92V30Z" className="fill-white dark:fill-white/[0.03]" />
-                <path d="M20 30C20 27.8 21.8 26 24 26H48L54 34H20V30Z" className="fill-gray-50 dark:fill-white/[0.06]" />
-                <path d="M20 30C20 27.8 21.8 26 24 26H48L54 34H96C98.2 34 100 35.8 100 38V92C100 94.2 98.2 96 96 96H24C21.8 96 20 94.2 20 92V30Z" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
-              </svg>
-            </EmptyStateIllustration>
-          ),
-          title: isInFolder ? t.projects.files.emptyFolderTitle : t.projects.files.noFilesTitle,
-          description: isInFolder
-            ? (canWrite ? t.projects.files.emptyFolderDescCanWrite : t.projects.files.emptyFolderDescViewer)
-            : (canWrite ? t.projects.files.noFilesDescCanWrite : t.projects.files.noFilesDescViewer),
-          action: canWrite ? {
-            label: t.projects.files.uploadFileBtn,
-            onClick: () => fileInputRef.current?.click(),
-          } : undefined,
-          secondaryAction: canWrite ? {
-            label: t.projects.files.newFolderBtn,
-            onClick: () => setCreateFolderOpen(true),
-          } : undefined,
-        }}
+        emptyState={buildEmptyState({
+          t,
+          isInFolder,
+          canWrite,
+          onUpload: () => fileInputRef.current?.click(),
+          onNewFolder: () => setCreateFolderOpen(true),
+        })}
         noResultsState={{
           title: t.projects.files.noFilesFilterTitle,
           description: t.projects.files.noFilesFilterDesc,
@@ -987,78 +1237,13 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
       />
 
       {previewFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => { setPreviewFile(null); setPreviewUrl(null); }}>
-          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-10">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-lg bg-white/10">
-                {(() => { const Icon = getFileIcon(previewFile.contentType); return <Icon className="h-4 w-4 text-white" />; })()}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-white truncate">{previewFile.fileName}</p>
-                <p className="text-xs text-white/60">{formatFileSize(previewFile.size)}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
-                onClick={(e) => { e.stopPropagation(); handleDownload(previewFile); }}
-              >
-                <Download className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 text-white hover:bg-white/10 hover:text-white"
-                onClick={(e) => { e.stopPropagation(); setPreviewFile(null); setPreviewUrl(null); }}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="max-w-[90vw] max-h-[85vh] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-            {previewLoading ? (
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="h-8 w-8 animate-spin text-white" />
-                <p className="text-sm text-white/70">{t.projects.files.loadingPreview}</p>
-              </div>
-            ) : previewUrl ? (
-              <>
-                {previewFile.contentType.startsWith('image/') && (
-                  <img
-                    src={previewUrl}
-                    alt={previewFile.fileName}
-                    className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
-                  />
-                )}
-                {previewFile.contentType.startsWith('video/') && (
-                  <video
-                    src={previewUrl}
-                    controls
-                    autoPlay
-                    className="max-w-[90vw] max-h-[85vh] rounded-lg"
-                  />
-                )}
-                {previewFile.contentType.startsWith('audio/') && (
-                  <div className="bg-white dark:bg-background p-8 rounded-lg flex flex-col items-center gap-4">
-                    <FileAudio className="h-16 w-16 text-gray-400" />
-                    <p className="text-sm font-medium">{previewFile.fileName}</p>
-                    <audio src={previewUrl} controls autoPlay className="w-[400px]" />
-                  </div>
-                )}
-                {previewFile.contentType === 'application/pdf' && (
-                  <iframe
-                    src={previewUrl}
-                    className="w-[90vw] h-[85vh] rounded-lg bg-white"
-                    title={previewFile.fileName}
-                  />
-                )}
-              </>
-            ) : null}
-          </div>
-        </div>
+        <FilePreviewOverlay
+          file={previewFile}
+          url={previewUrl}
+          loading={previewLoading}
+          onClose={() => { setPreviewFile(null); setPreviewUrl(null); }}
+          onDownload={handleDownload}
+        />
       )}
 
       {/* Create folder */}
@@ -1121,78 +1306,17 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
       </Dialog>
 
       {/* Move */}
-      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
-        <DialogContent className="sm:max-w-[460px]">
-          <DialogHeader>
-            <DialogTitle>
-              {t.projects.files.moveTitle.replace('{name}', moveTarget?.fileName ?? '')}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-2">
-            <p className="text-sm text-muted-foreground mb-3">{t.projects.files.moveSelectDestination}</p>
-            <div className="border rounded-md max-h-[280px] overflow-y-auto">
-              <Button
-                variant="ghost"
-                onClick={() => setMoveSelectedId(null)}
-                className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors h-auto justify-start rounded-none',
-                  moveSelectedId === null
-                    ? 'bg-accent text-accent-foreground'
-                    : 'hover:bg-muted',
-                )}
-              >
-                <Home className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="font-medium">{t.projects.files.moveRoot}</span>
-                {moveTarget?.parentId === null && (
-                  <span className="text-xs text-muted-foreground ml-auto">{t.projects.files.moveCurrent}</span>
-                )}
-              </Button>
-
-              {moveDestinations.map((folder) => (
-                <Button
-                  key={folder.id}
-                  variant="ghost"
-                  onClick={() => setMoveSelectedId(folder.id)}
-                  className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors h-auto justify-start rounded-none',
-                    moveSelectedId === folder.id
-                      ? 'bg-accent text-accent-foreground'
-                      : 'hover:bg-muted',
-                  )}
-                >
-                  {moveSelectedId === folder.id ? (
-                    <FolderOpen className="h-4 w-4 text-amber-500 shrink-0" />
-                  ) : (
-                    <Folder className="h-4 w-4 text-amber-500 shrink-0" />
-                  )}
-                  <span className="truncate">{folderPathLabel(folder)}</span>
-                  {moveTarget?.parentId === folder.id && (
-                    <span className="text-xs text-muted-foreground ml-auto">{t.projects.files.moveCurrent}</span>
-                  )}
-                </Button>
-              ))}
-
-              {moveDestinations.length === 0 && (
-                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-                  {t.projects.files.moveNoFolders}
-                </div>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMoveOpen(false)} disabled={moving}>
-              {t.projects.files.cancel}
-            </Button>
-            <Button
-              onClick={() => void handleMove()}
-              disabled={moving || moveSelectedId === (moveTarget?.parentId ?? null)}
-            >
-              {moving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-              {t.projects.files.moveHere}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <MoveFileDialog
+        open={moveOpen}
+        onOpenChange={setMoveOpen}
+        moveTarget={moveTarget}
+        selectedId={moveSelectedId}
+        onSelect={setMoveSelectedId}
+        destinations={moveDestinations}
+        folderPathLabel={folderPathLabel}
+        moving={moving}
+        onMove={() => void handleMove()}
+      />
 
       {/* Delete */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

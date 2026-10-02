@@ -45,7 +45,7 @@ function triggerAnchorDownload(href: string, filename: string, openInNewTab: boo
   }
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  a.remove();
 }
 
 async function getClerkToken(): Promise<string | null> {
@@ -207,7 +207,7 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
       <div className="flex items-center gap-1.5 px-3 pt-1 pb-3">
         <Icon className={cn('h-3.5 w-3.5 shrink-0', typeConfig.color)} />
         <span className="text-[13px] font-medium text-foreground truncate min-w-0" title={file.name}>{file.name}</span>
-        <div className="shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+        <div role="presentation" className="shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <div className="p-0.5 rounded-md hover:bg-muted cursor-pointer">

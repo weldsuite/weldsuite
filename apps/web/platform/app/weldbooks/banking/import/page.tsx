@@ -203,8 +203,8 @@ export default function BankImportPage() {
             {importResult.errors?.length > 0 && (
               <div className="mt-2">
                 <p className="text-sm font-medium text-destructive">{tbp.parseErrors}</p>
-                {importResult.errors.map((err, i: number) => (
-                  <p key={i} className="text-xs text-muted-foreground">
+                {importResult.errors.map((err) => (
+                  <p key={`${err.line ?? ''}:${err.message}`} className="text-xs text-muted-foreground">
                     {err.line ? st('sweep.weldbooks.bankImport.lineLabel', { line: err.line }) : ''}{err.message}
                   </p>
                 ))}

@@ -70,10 +70,10 @@ export default function SiteRenderer({ website, store }: SiteRendererProps) {
     if (website.customHead) {
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = website.customHead;
-      const elements = Array.from(tempDiv.children);
+      const elements = Array.from(tempDiv.children as HTMLCollectionOf<HTMLElement>);
 
       elements.forEach(element => {
-        element.setAttribute('data-custom-head', 'true');
+        element.dataset.customHead = 'true';
         document.head.appendChild(element);
       });
 

@@ -72,6 +72,76 @@ export default function BankTransactionsPage() {
       ? accounts.find((a) => a.id === accountFilter)?.currency ?? entityCurrency
       : entityCurrency;
 
+  function renderBody() {
+    if (isLoading) {
+      return (
+        <PageLoader fullScreen={false} />
+      );
+    }
+    if (transactions.length === 0) {
+      return (
+        <Card>
+          <CardContent className="py-10 text-center space-y-3">
+            <Inbox className="h-10 w-10 mx-auto text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">{tbp.noTransactionsMatch}</p>
+            <div className="flex items-center justify-center gap-2">
+              <Button variant="outline" onClick={() => setAddOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                {tbp.addTransactionButton}
+              </Button>
+              <Link to="/weldbooks/banking/import">
+                <Button>
+                  <Download className="h-4 w-4 mr-1" />
+                  {tbp.importStatementButton}
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+    return (
+      <>
+        <BankTransactionsTable
+          transactions={transactions}
+          currency={currencyForDisplay}
+          currencyByAccountId={currencyByAccountId}
+          groupByStatus={statusFilter === 'all'}
+        />
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            {total === 1
+              ? tbp.transactionCount.replace('{count}', String(total))
+              : tbp.transactionCountPlural.replace('{count}', String(total))}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              {tbp.previous}
+            </Button>
+            <span>
+              {tbp.pageOf
+                .replace('{page}', String(page))
+                .replace('{total}', String(totalPages))}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              {tbp.next_page}
+            </Button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -177,67 +247,7 @@ export default function BankTransactionsPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <PageLoader fullScreen={false} />
-      ) : transactions.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center space-y-3">
-            <Inbox className="h-10 w-10 mx-auto text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">{tbp.noTransactionsMatch}</p>
-            <div className="flex items-center justify-center gap-2">
-              <Button variant="outline" onClick={() => setAddOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" />
-                {tbp.addTransactionButton}
-              </Button>
-              <Link to="/weldbooks/banking/import">
-                <Button>
-                  <Download className="h-4 w-4 mr-1" />
-                  {tbp.importStatementButton}
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          <BankTransactionsTable
-            transactions={transactions}
-            currency={currencyForDisplay}
-            currencyByAccountId={currencyByAccountId}
-            groupByStatus={statusFilter === 'all'}
-          />
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>
-              {total === 1
-                ? tbp.transactionCount.replace('{count}', String(total))
-                : tbp.transactionCountPlural.replace('{count}', String(total))}
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-              >
-                {tbp.previous}
-              </Button>
-              <span>
-                {tbp.pageOf
-                  .replace('{page}', String(page))
-                  .replace('{total}', String(totalPages))}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-              >
-                {tbp.next_page}
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
+      {renderBody()}
 
       <BankTransactionFormDialog
         open={addOpen}

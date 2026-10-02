@@ -120,6 +120,110 @@ export function TicketTypesSettings() {
     }
   };
 
+  const renderList = () => {
+    if (isLoading) {
+      return (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-4">
+                  <Skeleton className="h-10 w-10 rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                  <Skeleton className="h-6 w-12" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      );
+    }
+    if (!ticketTypes || ticketTypes.length === 0) {
+      return (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <FileText className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h3 className="text-lg font-medium mb-1">{ttp.noTicketTypesTitle}</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              {ttp.noTicketTypesDesc}
+            </p>
+            <Button onClick={handleCreate}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              {ttp.createFirstType}
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+    return (
+      <div className="space-y-2">
+        {ticketTypes.map((type) => {
+          const Icon = getIcon(type.icon);
+          return (
+            <Card key={type.id} className={cn(!type.isActive && 'opacity-60')}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-4">
+                  <div className="text-muted-foreground cursor-grab">
+                    <GripVertical className="h-4 w-4" />
+                  </div>
+                  <div
+                    className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0"
+                    style={{
+                      backgroundColor: type.color ? `${type.color}15` : undefined,
+                      color: type.color || undefined,
+                    }}
+                  >
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate">{type.name}</span>
+                      {!type.isActive && (
+                        <Badge variant="secondary" className="text-xs">{ttp.disabled}</Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {type.description || ttp.noDescription}
+                      {type.fields && type.fields.length > 0 && (
+                        <span className="ml-2 text-xs">
+                          ({type.fields.length !== 1 ? ttp.fieldCountPlural.replace('{count}', String(type.fields.length)) : ttp.fieldCount.replace('{count}', String(type.fields.length))})
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={type.isActive}
+                      onCheckedChange={() => handleToggleActive(type)}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEdit(type)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeleteId(type.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+  const listContent = renderList();
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="container max-w-4xl mx-auto p-6 space-y-6">
@@ -143,100 +247,7 @@ export function TicketTypesSettings() {
         </div>
 
         {/* List */}
-        {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <Card key={i}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    <Skeleton className="h-10 w-10 rounded-lg" />
-                    <div className="flex-1 space-y-2">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="h-3 w-48" />
-                    </div>
-                    <Skeleton className="h-6 w-12" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : !ticketTypes || ticketTypes.length === 0 ? (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <FileText className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-medium mb-1">{ttp.noTicketTypesTitle}</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                {ttp.noTicketTypesDesc}
-              </p>
-              <Button onClick={handleCreate}>
-                <Plus className="h-4 w-4 mr-1.5" />
-                {ttp.createFirstType}
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            {ticketTypes.map((type) => {
-              const Icon = getIcon(type.icon);
-              return (
-                <Card key={type.id} className={cn(!type.isActive && 'opacity-60')}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
-                      <div className="text-muted-foreground cursor-grab">
-                        <GripVertical className="h-4 w-4" />
-                      </div>
-                      <div
-                        className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0"
-                        style={{
-                          backgroundColor: type.color ? `${type.color}15` : undefined,
-                          color: type.color || undefined,
-                        }}
-                      >
-                        <Icon className="h-5 w-5" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium truncate">{type.name}</span>
-                          {!type.isActive && (
-                            <Badge variant="secondary" className="text-xs">{ttp.disabled}</Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground truncate">
-                          {type.description || ttp.noDescription}
-                          {type.fields && type.fields.length > 0 && (
-                            <span className="ml-2 text-xs">
-                              ({type.fields.length !== 1 ? ttp.fieldCountPlural.replace('{count}', String(type.fields.length)) : ttp.fieldCount.replace('{count}', String(type.fields.length))})
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={type.isActive}
-                          onCheckedChange={() => handleToggleActive(type)}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(type)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setDeleteId(type.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+        {listContent}
       </div>
 
       {/* Editor Dialog */}

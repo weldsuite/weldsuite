@@ -115,6 +115,129 @@ function placeCaretAfter(node: Node) {
   sel?.addRange(range);
 }
 
+/**
+ * The `@query` being typed at the caret inside `el`, or `null` when the caret
+ * is not in a mention position.
+ */
+function getMentionQueryAtCaret(el: HTMLElement): string | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.startContainer)) return null;
+  if (range.startContainer.nodeType !== Node.TEXT_NODE) return null;
+  const text = (range.startContainer.textContent ?? "").slice(0, range.startOffset);
+  const atIdx = text.lastIndexOf("@");
+  if (atIdx === -1) return null;
+  const charBefore = atIdx === 0 ? " " : text[atIdx - 1];
+  if (charBefore && !/\s/.test(charBefore)) return null;
+  const query = text.slice(atIdx + 1);
+  return /\s/.test(query) ? null : query;
+}
+
+/**
+ * Replace the `@query` before the caret with a mention badge. Returns false
+ * when the caret is not in a mention position (nothing is changed then).
+ */
+function insertMentionBadge(el: HTMLElement, member: MentionOption): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.startContainer)) return false;
+  if (range.startContainer.nodeType !== Node.TEXT_NODE) return false;
+
+  const textNode = range.startContainer as Text;
+  const text = textNode.textContent ?? "";
+  const caret = range.startOffset;
+  const atIdx = text.slice(0, caret).lastIndexOf("@");
+  if (atIdx === -1) return false;
+
+  textNode.textContent = text.slice(0, atIdx) + text.slice(caret);
+
+  const insertRange = document.createRange();
+  insertRange.setStart(textNode, atIdx);
+  insertRange.collapse(true);
+
+  const badge = document.createElement("span");
+  badge.dataset.mentionUserid = member.userId;
+  badge.setAttribute("contenteditable", "false");
+  badge.className =
+    "inline-block bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded px-1.5 py-0 text-[13px] font-medium align-middle mx-0.5";
+  badge.textContent = `@${member.name}`;
+
+  insertRange.insertNode(badge);
+  const trailing = document.createTextNode("\u00A0");
+  badge.after(trailing);
+  placeCaretAfter(trailing);
+  return true;
+}
+
+type MentionKeyAction = "next" | "previous" | "select" | "close";
+
+function getMentionKeyAction(key: string): MentionKeyAction | null {
+  switch (key) {
+    case "ArrowDown":
+      return "next";
+    case "ArrowUp":
+      return "previous";
+    case "Enter":
+    case "Tab":
+      return "select";
+    case "Escape":
+      return "close";
+    default:
+      return null;
+  }
+}
+
+function buildBuiltInActions(opts: {
+  isRich: boolean;
+  onAttach?: () => void;
+  onEmoji?: () => void;
+  onMention?: () => void;
+  onFormat?: () => void;
+  insertAtToken: () => void;
+}): ChatInputAction[] {
+  const { isRich, onAttach, onEmoji, onMention, onFormat, insertAtToken } = opts;
+  const actions: ChatInputAction[] = [];
+  if (onAttach) actions.push({ icon: Plus, label: "Attach", onClick: onAttach });
+  if (onEmoji) actions.push({ icon: Smile, label: "Emoji", onClick: onEmoji });
+  if (isRich || onMention) {
+    actions.push({
+      icon: AtSign,
+      label: "Mention",
+      onClick: onMention ?? (isRich ? insertAtToken : () => {}),
+    });
+  }
+  if (onFormat) actions.push({ icon: Baseline, label: "Formatting", onClick: onFormat });
+  return actions;
+}
+
+function buildMediaActions(opts: {
+  recording: "video" | "audio" | null;
+  onVideo?: () => void;
+  onAudio?: () => void;
+}): ChatInputAction[] {
+  const { recording, onVideo, onAudio } = opts;
+  const actions: ChatInputAction[] = [];
+  if (onVideo) {
+    actions.push({
+      icon: Video,
+      label: "Record video",
+      onClick: onVideo,
+      active: recording === "video",
+    });
+  }
+  if (onAudio) {
+    actions.push({
+      icon: Mic,
+      label: "Record audio",
+      onClick: onAudio,
+      active: recording === "audio",
+    });
+  }
+  return actions;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -172,38 +295,9 @@ export const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
     const detectMentionQuery = React.useCallback(() => {
       const el = editorRef.current;
       if (!el) return;
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) {
-        setMentionQuery(null);
-        return;
-      }
-      const range = sel.getRangeAt(0);
-      if (!el.contains(range.startContainer)) {
-        setMentionQuery(null);
-        return;
-      }
-      if (range.startContainer.nodeType !== Node.TEXT_NODE) {
-        setMentionQuery(null);
-        return;
-      }
-      const text = (range.startContainer.textContent ?? "").slice(0, range.startOffset);
-      const atIdx = text.lastIndexOf("@");
-      if (atIdx === -1) {
-        setMentionQuery(null);
-        return;
-      }
-      const charBefore = atIdx === 0 ? " " : text[atIdx - 1];
-      if (charBefore && !/\s/.test(charBefore)) {
-        setMentionQuery(null);
-        return;
-      }
-      const query = text.slice(atIdx + 1);
-      if (/\s/.test(query)) {
-        setMentionQuery(null);
-        return;
-      }
+      const query = getMentionQueryAtCaret(el);
       setMentionQuery(query);
-      setMentionActive(0);
+      if (query !== null) setMentionActive(0);
     }, []);
 
     const filteredMentions = React.useMemo(() => {
@@ -223,37 +317,7 @@ export const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
       (member: MentionOption) => {
         const el = editorRef.current;
         if (!el) return;
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) return;
-        const range = sel.getRangeAt(0);
-        if (!el.contains(range.startContainer)) return;
-        if (range.startContainer.nodeType !== Node.TEXT_NODE) return;
-
-        const textNode = range.startContainer as Text;
-        const text = textNode.textContent ?? "";
-        const caret = range.startOffset;
-        const before = text.slice(0, caret);
-        const atIdx = before.lastIndexOf("@");
-        if (atIdx === -1) return;
-
-        textNode.textContent = text.slice(0, atIdx) + text.slice(caret);
-
-        const insertRange = document.createRange();
-        insertRange.setStart(textNode, atIdx);
-        insertRange.collapse(true);
-
-        const badge = document.createElement("span");
-        badge.setAttribute("data-mention-userid", member.userId);
-        badge.setAttribute("contenteditable", "false");
-        badge.className =
-          "inline-block bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded px-1.5 py-0 text-[13px] font-medium align-middle mx-0.5";
-        badge.textContent = `@${member.name}`;
-
-        insertRange.insertNode(badge);
-        const trailing = document.createTextNode("\u00A0");
-        badge.after(trailing);
-        placeCaretAfter(trailing);
-
+        if (!insertMentionBadge(el, member)) return;
         setMentionQuery(null);
         syncFromEditor();
       },
@@ -268,30 +332,36 @@ export const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
       detectMentionQuery();
     }, [detectMentionQuery]);
 
+    const handleMentionKey = React.useCallback(
+      (action: MentionKeyAction) => {
+        const count = filteredMentions.length;
+        switch (action) {
+          case "next":
+            setMentionActive((i) => (i + 1) % count);
+            break;
+          case "previous":
+            setMentionActive((i) => (i - 1 + count) % count);
+            break;
+          case "select": {
+            const activeMention = filteredMentions[mentionActive];
+            if (activeMention) insertMention(activeMention);
+            break;
+          }
+          case "close":
+            setMentionQuery(null);
+            break;
+        }
+      },
+      [filteredMentions, mentionActive, insertMention],
+    );
+
     const handleRichKeyDown = React.useCallback(
       (e: React.KeyboardEvent<HTMLDivElement>) => {
         if (mentionQuery !== null && filteredMentions.length > 0) {
-          if (e.key === "ArrowDown") {
+          const action = getMentionKeyAction(e.key);
+          if (action) {
             e.preventDefault();
-            setMentionActive((i) => (i + 1) % filteredMentions.length);
-            return;
-          }
-          if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setMentionActive((i) => (i - 1 + filteredMentions.length) % filteredMentions.length);
-            return;
-          }
-          if (e.key === "Enter" || e.key === "Tab") {
-            e.preventDefault();
-            const activeMention = filteredMentions[mentionActive];
-            if (activeMention) {
-              insertMention(activeMention);
-            }
-            return;
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            setMentionQuery(null);
+            handleMentionKey(action);
             return;
           }
         }
@@ -305,7 +375,7 @@ export const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
           onSend({ content: content.trim(), mentions });
         }
       },
-      [mentionQuery, filteredMentions, mentionActive, insertMention, canSend, onSend],
+      [mentionQuery, filteredMentions.length, handleMentionKey, canSend, onSend],
     );
 
     const handleTextareaKeyDown = React.useCallback(
@@ -320,33 +390,15 @@ export const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
       [textareaProps, onSend, canSend, value],
     );
 
-    const builtInActions: ChatInputAction[] = [];
-    if (onAttach) builtInActions.push({ icon: Plus, label: "Attach", onClick: onAttach });
-    if (onEmoji) builtInActions.push({ icon: Smile, label: "Emoji", onClick: onEmoji });
-    if (isRich || onMention) {
-      builtInActions.push({
-        icon: AtSign,
-        label: "Mention",
-        onClick: onMention ?? (isRich ? insertAtToken : () => {}),
-      });
-    }
-    if (onFormat) builtInActions.push({ icon: Baseline, label: "Formatting", onClick: onFormat });
-
-    const mediaActions: ChatInputAction[] = [];
-    if (onVideo)
-      mediaActions.push({
-        icon: Video,
-        label: "Record video",
-        onClick: onVideo,
-        active: recording === "video",
-      });
-    if (onAudio)
-      mediaActions.push({
-        icon: Mic,
-        label: "Record audio",
-        onClick: onAudio,
-        active: recording === "audio",
-      });
+    const builtInActions = buildBuiltInActions({
+      isRich,
+      onAttach,
+      onEmoji,
+      onMention,
+      onFormat,
+      insertAtToken,
+    });
+    const mediaActions = buildMediaActions({ recording, onVideo, onAudio });
 
     const handleSendClick = React.useCallback(() => {
       if (!canSend) return;

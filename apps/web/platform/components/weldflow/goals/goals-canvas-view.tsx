@@ -173,6 +173,111 @@ const TASK_PRIORITY_COLORS: Record<string, string> = {
 };
 const TASK_NO_PRIORITY_COLOR = '#4b5563'; // gray-600
 
+interface AlignmentRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Snap/alignment detection for a dragged card against the other cards. Center
+ * alignment snaps silently; left/right edge alignment also yields a guide line.
+ * The first matching candidate (in card order) wins the snap.
+ */
+function computeAlignmentSnap(
+  dragged: AlignmentRect,
+  otherCards: AlignmentRect[],
+): { snapX: number | null; guides: AlignmentGuide[] } {
+  const draggedCenterX = dragged.x + dragged.width / 2;
+  const draggedRightX = dragged.x + dragged.width;
+  const draggedBottom = dragged.y + dragged.height;
+
+  const guides: AlignmentGuide[] = [];
+  const snapCandidates: number[] = [];
+
+  for (const card of otherCards) {
+    const cardCenterX = card.x + card.width / 2;
+    const cardRightX = card.x + card.width;
+    const yStart = Math.min(dragged.y, card.y) + 20;
+    const yEnd = Math.max(draggedBottom, card.y + card.height) - 20;
+
+    // Center alignment (snap without guide line)
+    if (Math.abs(draggedCenterX - cardCenterX) < ALIGNMENT_THRESHOLD) {
+      snapCandidates.push(cardCenterX - dragged.width / 2);
+    }
+
+    // Left edge alignment
+    if (Math.abs(dragged.x - card.x) < ALIGNMENT_THRESHOLD) {
+      guides.push({ x: card.x, type: 'left', yStart, yEnd });
+      snapCandidates.push(card.x);
+    }
+
+    // Right edge alignment
+    if (Math.abs(draggedRightX - cardRightX) < ALIGNMENT_THRESHOLD) {
+      guides.push({ x: cardRightX, type: 'right', yStart, yEnd });
+      snapCandidates.push(cardRightX - dragged.width);
+    }
+  }
+
+  return { snapX: snapCandidates.length > 0 ? snapCandidates[0] : null, guides };
+}
+
+/** Pan position that keeps the viewport center fixed when the scale changes by `scaleRatio`. */
+function zoomPanAroundCenter(
+  prev: { x: number; y: number },
+  rect: { width: number; height: number },
+  scaleRatio: number,
+): { x: number; y: number } {
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  return {
+    x: centerX - (centerX - prev.x) * scaleRatio,
+    y: centerY - (centerY - prev.y) * scaleRatio,
+  };
+}
+
+function isTypingTarget(target: HTMLElement): boolean {
+  return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+}
+
+const HIGHLIGHT_BUTTON_CLASSES: Record<string, string> = {
+  'on-track': 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900',
+  'at-risk': 'bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100 dark:bg-yellow-950 dark:border-yellow-700 dark:text-yellow-400 dark:hover:bg-yellow-900',
+  'off-track': 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100 dark:bg-red-950 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900',
+  'not-started': 'bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200 dark:bg-secondary dark:border-gray-600 dark:text-muted-foreground dark:hover:bg-accent',
+  'completed': 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-900',
+};
+
+interface GoalTypeTabProps {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onSelect: () => void;
+}
+
+function GoalTypeTab({ active, icon, label, onSelect }: GoalTypeTabProps) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={onSelect}
+      className={cn(
+        'group relative flex items-center gap-2 pb-2 text-sm font-medium transition-colors',
+        active
+          ? 'text-foreground'
+          : 'text-muted-foreground hover:text-foreground'
+      )}
+    >
+      {icon}
+      <span>{label}</span>
+      {active && (
+        <span className="absolute -bottom-px left-0 right-0 h-[2px] bg-foreground" />
+      )}
+    </Button>
+  );
+}
+
 interface GoalsCanvasViewProps {
   projectId: string;
   initialGoalsData: GoalsData;
@@ -969,115 +1074,85 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     }
   };
 
+  // Handle panning mouse movement
+  const handlePanMove = (e: React.MouseEvent) => {
+    // Update ref immediately for smooth visual feedback
+    panPositionRef.current = {
+      x: e.clientX - panStart.x,
+      y: e.clientY - panStart.y
+    };
+
+    // Update DOM directly for smooth animation
+    const canvasContent = canvasRef.current?.firstElementChild as HTMLElement;
+    if (canvasContent) {
+      canvasContent.style.transform = `translate(${panPositionRef.current.x}px, ${panPositionRef.current.y}px) scale(${zoom})`;
+    }
+  };
+
+  // Handle goal dragging mouse movement
+  const handleGoalDragMove = (e: React.MouseEvent, draggedElement: HTMLDivElement, draggedGoalId: string) => {
+    // Calculate the mouse movement delta
+    const deltaX = (e.clientX - dragStartMouse.current.x) / zoom;
+    const deltaY = (e.clientY - dragStartMouse.current.y) / zoom;
+
+    // If the mouse moved more than 3 pixels, consider it a drag
+    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+      hasDraggedRef.current = true;
+    }
+
+    // Update position using ref (no state update, no re-render)
+    let newX = dragStartGoal.current.x + deltaX;
+    const newY = dragStartGoal.current.y + deltaY;
+
+    // Snap alignment detection
+    const draggedGoalData = goals.find(g => g.id === draggedGoalId);
+    if (draggedGoalData) {
+      // All other cards to check alignment against (goals + mission)
+      const otherCards: AlignmentRect[] = [
+        ...goals.filter(g => g.id !== draggedGoalId).map(g => ({
+          x: g.x, y: g.y, width: g.width ?? 320, height: g.height ?? 200
+        })),
+        { x: mission.x, y: mission.y, width: mission.width, height: mission.height }
+      ];
+
+      const { snapX, guides } = computeAlignmentSnap(
+        { x: newX, y: newY, width: draggedGoalData.width ?? 320, height: draggedGoalData.height ?? 200 },
+        otherCards,
+      );
+
+      if (snapX !== null) {
+        newX = snapX;
+      }
+
+      // Update guides (batched with the render trigger below)
+      if (rafRef.current === null) {
+        setAlignmentGuides(guides);
+      }
+    }
+
+    dragCurrentPosition.current = { x: newX, y: newY };
+
+    // Calculate snapped delta for DOM transform
+    const snappedDeltaX = newX - dragStartGoal.current.x;
+
+    // Directly update the DOM element for smooth dragging
+    draggedElement.style.transform = `translate(${snappedDeltaX}px, ${deltaY}px)`;
+
+    // Throttle re-renders for connection lines using requestAnimationFrame
+    if (rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(() => {
+        setDragRenderTrigger(prev => prev + 1);
+        rafRef.current = null;
+      });
+    }
+  };
+
   // Handle mouse move
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isPanning) {
-      // Update ref immediately for smooth visual feedback
-      panPositionRef.current = {
-        x: e.clientX - panStart.x,
-        y: e.clientY - panStart.y
-      };
-
-      // Update DOM directly for smooth animation
-      const canvasContent = canvasRef.current?.firstElementChild as HTMLElement;
-      if (canvasContent) {
-        canvasContent.style.transform = `translate(${panPositionRef.current.x}px, ${panPositionRef.current.y}px) scale(${zoom})`;
-      }
+      handlePanMove(e);
     } else if (isDragging && draggedGoal && draggedElementRef.current) {
-      // Calculate the mouse movement delta
-      const deltaX = (e.clientX - dragStartMouse.current.x) / zoom;
-      const deltaY = (e.clientY - dragStartMouse.current.y) / zoom;
-
-      // If the mouse moved more than 3 pixels, consider it a drag
-      if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
-        hasDraggedRef.current = true;
-      }
-
-      // Update position using ref (no state update, no re-render)
-      let newX = dragStartGoal.current.x + deltaX;
-      const newY = dragStartGoal.current.y + deltaY;
-
-      // Snap alignment detection
-      const draggedGoalData = goals.find(g => g.id === draggedGoal);
-      if (draggedGoalData) {
-        const draggedWidth = draggedGoalData.width ?? 320;
-        const draggedHeight = draggedGoalData.height ?? 200;
-        const draggedCenterX = newX + draggedWidth / 2;
-        const draggedLeftX = newX;
-        const draggedRightX = newX + draggedWidth;
-        const draggedTop = newY;
-        const draggedBottom = newY + draggedHeight;
-
-        const guides: AlignmentGuide[] = [];
-        let snapX: number | null = null;
-
-        // All other cards to check alignment against (goals + mission)
-        const otherCards = [
-          ...goals.filter(g => g.id !== draggedGoal).map(g => ({
-            x: g.x, y: g.y, width: g.width ?? 320, height: g.height ?? 200
-          })),
-          { x: mission.x, y: mission.y, width: mission.width, height: mission.height }
-        ];
-
-        for (const card of otherCards) {
-          const cardCenterX = card.x + card.width / 2;
-          const cardLeftX = card.x;
-          const cardRightX = card.x + card.width;
-          const cardTop = card.y;
-          const cardBottom = card.y + card.height;
-
-          const yStart = Math.min(draggedTop, cardTop) + 20;
-          const yEnd = Math.max(draggedBottom, cardBottom) - 20;
-
-          // Check center alignment (snap without guide line)
-          if (Math.abs(draggedCenterX - cardCenterX) < ALIGNMENT_THRESHOLD) {
-            if (snapX === null) {
-              snapX = cardCenterX - draggedWidth / 2;
-            }
-          }
-
-          // Check left edge alignment
-          if (Math.abs(draggedLeftX - cardLeftX) < ALIGNMENT_THRESHOLD) {
-            guides.push({ x: cardLeftX, type: 'left', yStart, yEnd });
-            if (snapX === null) {
-              snapX = cardLeftX;
-            }
-          }
-
-          // Check right edge alignment
-          if (Math.abs(draggedRightX - cardRightX) < ALIGNMENT_THRESHOLD) {
-            guides.push({ x: cardRightX, type: 'right', yStart, yEnd });
-            if (snapX === null) {
-              snapX = cardRightX - draggedWidth;
-            }
-          }
-        }
-
-        if (snapX !== null) {
-          newX = snapX;
-        }
-
-        // Update guides (batched with the render trigger below)
-        if (rafRef.current === null) {
-          setAlignmentGuides(guides);
-        }
-      }
-
-      dragCurrentPosition.current = { x: newX, y: newY };
-
-      // Calculate snapped delta for DOM transform
-      const snappedDeltaX = newX - dragStartGoal.current.x;
-
-      // Directly update the DOM element for smooth dragging
-      draggedElementRef.current.style.transform = `translate(${snappedDeltaX}px, ${deltaY}px)`;
-
-      // Throttle re-renders for connection lines using requestAnimationFrame
-      if (rafRef.current === null) {
-        rafRef.current = requestAnimationFrame(() => {
-          setDragRenderTrigger(prev => prev + 1);
-          rafRef.current = null;
-        });
-      }
+      handleGoalDragMove(e, draggedElementRef.current, draggedGoal);
     }
   };
 
@@ -1181,14 +1256,9 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       // Get the center of the viewport
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
       
       // Adjust pan position so zoom is centered at viewport center
-      setPanPosition(prev => ({
-        x: centerX - (centerX - prev.x) * scaleRatio,
-        y: centerY - (centerY - prev.y) * scaleRatio
-      }));
+      setPanPosition(prev => zoomPanAroundCenter(prev, rect, scaleRatio));
       
       // Update zoom index to nearest level for UI display
       const nearestIndex = zoomLevels.reduce((prev, curr, index) => {
@@ -1212,12 +1282,25 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
 
   // Keyboard shortcuts
   useEffect(() => {
+    // Snap to a discrete zoom level, zooming towards the viewport center
+    const zoomToLevel = (newIndex: number) => {
+      const newScale = zoomLevels[newIndex];
+      const scaleRatio = newScale / zoom;
+
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        setPanPosition(prev => zoomPanAroundCenter(prev, rect, scaleRatio));
+      }
+
+      setZoomIndex(newIndex);
+      setZoom(newScale);
+      setIsZooming(true);
+      setTimeout(() => setIsZooming(false), 250);
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore keyboard shortcuts when typing in an input or textarea
-      const target = e.target as HTMLElement;
-      const isTyping = target.tagName === 'INPUT' ||
-                       target.tagName === 'TEXTAREA' ||
-                       target.isContentEditable;
+      const isTyping = isTypingTarget(e.target as HTMLElement);
 
       // ESC to deselect (works even when typing to close modals)
       if (e.key === 'Escape') {
@@ -1232,63 +1315,21 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
         e.preventDefault();
         setTool('pan');
       }
-      
+
       // Zoom shortcuts - snap to discrete zoom levels
-      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+      const hasModifier = e.ctrlKey || e.metaKey;
+      if (hasModifier && (e.key === '=' || e.key === '+')) {
         e.preventDefault();
-        
         // Use the tracked index directly
         if (zoomIndex < zoomLevels.length - 1) {
-          const newIndex = zoomIndex + 1;
-          const newScale = zoomLevels[newIndex];
-          const scaleRatio = newScale / zoom;
-          
-          // Get viewport center
-          const rect = canvasRef.current?.getBoundingClientRect();
-          if (rect) {
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-            
-            // Adjust pan to zoom towards viewport center
-            setPanPosition(prev => ({
-              x: centerX - (centerX - prev.x) * scaleRatio,
-              y: centerY - (centerY - prev.y) * scaleRatio
-            }));
-          }
-          
-          setZoomIndex(newIndex);
-          setZoom(newScale);
-          setIsZooming(true);
-          setTimeout(() => setIsZooming(false), 250);
+          zoomToLevel(zoomIndex + 1);
         }
-      } else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+      } else if (hasModifier && e.key === '-') {
         e.preventDefault();
-        
-        // Use the tracked index directly
         if (zoomIndex > 0) {
-          const newIndex = zoomIndex - 1;
-          const newScale = zoomLevels[newIndex];
-          const scaleRatio = newScale / zoom;
-          
-          // Get viewport center
-          const rect = canvasRef.current?.getBoundingClientRect();
-          if (rect) {
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-            
-            // Adjust pan to zoom towards viewport center
-            setPanPosition(prev => ({
-              x: centerX - (centerX - prev.x) * scaleRatio,
-              y: centerY - (centerY - prev.y) * scaleRatio
-            }));
-          }
-          
-          setZoomIndex(newIndex);
-          setZoom(newScale);
-          setIsZooming(true);
-          setTimeout(() => setIsZooming(false), 250);
+          zoomToLevel(zoomIndex - 1);
         }
-      } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+      } else if (hasModifier && e.key === '0') {
         e.preventDefault();
         setZoom(1);
         setZoomIndex(8); // Index 8 = 100%
@@ -1300,11 +1341,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
 
     const handleKeyUp = (e: KeyboardEvent) => {
       // Ignore when typing in an input or textarea
-      const target = e.target as HTMLElement;
-      const isTyping = target.tagName === 'INPUT' ||
-                       target.tagName === 'TEXTAREA' ||
-                       target.isContentEditable;
-      if (isTyping) return;
+      if (isTypingTarget(e.target as HTMLElement)) return;
 
       // Release space bar to go back to select tool
       if (e.key === ' ') {
@@ -1704,6 +1741,58 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     );
   };
 
+  // Snap to a discrete zoom level, zooming towards the viewport center
+  const applyZoomLevel = (newIndex: number) => {
+    const newScale = zoomLevels[newIndex];
+    const scaleRatio = newScale / zoom;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) {
+      setPanPosition(prev => zoomPanAroundCenter(prev, rect, scaleRatio));
+    }
+    setZoom(newScale);
+    setZoomIndex(newIndex);
+    setIsZooming(true);
+    setTimeout(() => setIsZooming(false), 250);
+  };
+
+  // Add a goal under the mission (root) or under an existing goal
+  const addGoalUnderParent = (parentId: string, title: string, target: string, linkedTaskId?: string) => {
+    if (parentId === mission.id) {
+      addRootGoal(title, target, linkedTaskId);
+    } else {
+      addChildGoal(parentId, title, target, linkedTaskId);
+    }
+  };
+
+  // Confirm the "add child goal" dialog: create a new goal or link an existing task
+  const handleConfirmAddChild = () => {
+    if (!parentGoalForNewChild) return;
+
+    if (goalCreationType === 'new' && newGoalTitle.trim()) {
+      addGoalUnderParent(parentGoalForNewChild, newGoalTitle, newGoalTarget);
+      setShowAddChildModal(false);
+      setNewGoalTitle('');
+      setNewGoalTarget('');
+      setParentGoalForNewChild(null);
+      setGoalCreationType('existing');
+      return;
+    }
+
+    if (goalCreationType === 'existing' && selectedExistingTask) {
+      const task = existingTasks.find(t => t.id === selectedExistingTask);
+      if (!task) return;
+      addGoalUnderParent(parentGoalForNewChild, task.title, '1', task.id);
+      setShowAddChildModal(false);
+      setSelectedExistingTask(null);
+      setParentGoalForNewChild(null);
+      setGoalCreationType('existing');
+    }
+  };
+
+  const selectedTaskLabel = selectedExistingTask
+    ? existingTasks.find((t) => t.id === selectedExistingTask)?.title ?? st('sweep.weldflow.goalsCanvas.chooseTaskToLink')
+    : st('sweep.weldflow.goalsCanvas.chooseTaskToLink');
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Top Bar */}
@@ -1721,11 +1810,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className={cn(
                 "h-8 shadow-none text-sm text-muted-foreground",
-                highlightStatus === 'on-track' && "bg-green-50 border-green-300 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900",
-                highlightStatus === 'at-risk' && "bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100 dark:bg-yellow-950 dark:border-yellow-700 dark:text-yellow-400 dark:hover:bg-yellow-900",
-                highlightStatus === 'off-track' && "bg-red-50 border-red-300 text-red-700 hover:bg-red-100 dark:bg-red-950 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900",
-                highlightStatus === 'not-started' && "bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200 dark:bg-secondary dark:border-gray-600 dark:text-muted-foreground dark:hover:bg-accent",
-                highlightStatus === 'completed' && "bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-900",
+                HIGHLIGHT_BUTTON_CLASSES[highlightStatus],
               )}>
                 {highlightStatus === 'none' ? st('sweep.weldflow.goalsCanvas.highlight') : {
                   'on-track': st('sweep.weldflow.goalsCanvas.onTrack'),
@@ -1848,22 +1933,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
               onClick={(e) => {
                 e.stopPropagation();
                 if (zoomIndex < zoomLevels.length - 1) {
-                  const newIndex = zoomIndex + 1;
-                  const newScale = zoomLevels[newIndex];
-                  const scaleRatio = newScale / zoom;
-                  const rect = canvasRef.current?.getBoundingClientRect();
-                  if (rect) {
-                    const centerX = rect.width / 2;
-                    const centerY = rect.height / 2;
-                    setPanPosition(prev => ({
-                      x: centerX - (centerX - prev.x) * scaleRatio,
-                      y: centerY - (centerY - prev.y) * scaleRatio
-                    }));
-                  }
-                  setZoom(newScale);
-                  setZoomIndex(newIndex);
-                  setIsZooming(true);
-                  setTimeout(() => setIsZooming(false), 250);
+                  applyZoomLevel(zoomIndex + 1);
                 }
               }}
               className="w-9 h-9 flex items-center justify-center hover:bg-muted transition-colors"
@@ -1877,22 +1947,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
               onClick={(e) => {
                 e.stopPropagation();
                 if (zoomIndex > 0) {
-                  const newIndex = zoomIndex - 1;
-                  const newScale = zoomLevels[newIndex];
-                  const scaleRatio = newScale / zoom;
-                  const rect = canvasRef.current?.getBoundingClientRect();
-                  if (rect) {
-                    const centerX = rect.width / 2;
-                    const centerY = rect.height / 2;
-                    setPanPosition(prev => ({
-                      x: centerX - (centerX - prev.x) * scaleRatio,
-                      y: centerY - (centerY - prev.y) * scaleRatio
-                    }));
-                  }
-                  setZoom(newScale);
-                  setZoomIndex(newIndex);
-                  setIsZooming(true);
-                  setTimeout(() => setIsZooming(false), 250);
+                  applyZoomLevel(zoomIndex - 1);
                 }
               }}
               className="w-9 h-9 flex items-center justify-center hover:bg-muted transition-colors"
@@ -2157,40 +2212,18 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
           </DialogHeader>
 
           <div className="flex items-center gap-6 mt-1 border-b border-border -mx-6 px-6">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setGoalCreationType('existing')}
-              className={cn(
-                'group relative flex items-center gap-2 pb-2 text-sm font-medium transition-colors',
-                goalCreationType === 'existing'
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Link2 className="h-4 w-4" />
-              <span>{st('sweep.weldflow.goalsCanvas.linkExistingTask')}</span>
-              {goalCreationType === 'existing' && (
-                <span className="absolute -bottom-px left-0 right-0 h-[2px] bg-foreground" />
-              )}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setGoalCreationType('new')}
-              className={cn(
-                'group relative flex items-center gap-2 pb-2 text-sm font-medium transition-colors',
-                goalCreationType === 'new'
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Plus className="h-4 w-4" />
-              <span>{st('sweep.weldflow.goalsCanvas.createNew')}</span>
-              {goalCreationType === 'new' && (
-                <span className="absolute -bottom-px left-0 right-0 h-[2px] bg-foreground" />
-              )}
-            </Button>
+            <GoalTypeTab
+              active={goalCreationType === 'existing'}
+              icon={<Link2 className="h-4 w-4" />}
+              label={st('sweep.weldflow.goalsCanvas.linkExistingTask')}
+              onSelect={() => setGoalCreationType('existing')}
+            />
+            <GoalTypeTab
+              active={goalCreationType === 'new'}
+              icon={<Plus className="h-4 w-4" />}
+              label={st('sweep.weldflow.goalsCanvas.createNew')}
+              onSelect={() => setGoalCreationType('new')}
+            />
           </div>
 
           <div className="grid gap-4 py-4">
@@ -2219,9 +2252,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
                       className="justify-between font-normal"
                     >
                       <span className={cn('truncate', !selectedExistingTask && 'text-muted-foreground')}>
-                        {selectedExistingTask
-                          ? existingTasks.find((t) => t.id === selectedExistingTask)?.title ?? st('sweep.weldflow.goalsCanvas.chooseTaskToLink')
-                          : st('sweep.weldflow.goalsCanvas.chooseTaskToLink')}
+                        {selectedTaskLabel}
                       </span>
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
@@ -2284,36 +2315,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
               {st('sweep.weldflow.cancel')}
             </Button>
             <Button
-              onClick={() => {
-                if (parentGoalForNewChild) {
-                  const isRoot = parentGoalForNewChild === mission.id;
-                  if (goalCreationType === 'new' && newGoalTitle.trim()) {
-                    if (isRoot) {
-                      addRootGoal(newGoalTitle, newGoalTarget);
-                    } else {
-                      addChildGoal(parentGoalForNewChild, newGoalTitle, newGoalTarget);
-                    }
-                    setShowAddChildModal(false);
-                    setNewGoalTitle('');
-                    setNewGoalTarget('');
-                    setParentGoalForNewChild(null);
-                    setGoalCreationType('existing');
-                  } else if (goalCreationType === 'existing' && selectedExistingTask) {
-                    const task = existingTasks.find(t => t.id === selectedExistingTask);
-                    if (task) {
-                      if (isRoot) {
-                        addRootGoal(task.title, '1', task.id);
-                      } else {
-                        addChildGoal(parentGoalForNewChild, task.title, '1', task.id);
-                      }
-                      setShowAddChildModal(false);
-                      setSelectedExistingTask(null);
-                      setParentGoalForNewChild(null);
-                      setGoalCreationType('existing');
-                    }
-                  }
-                }
-              }}
+              onClick={handleConfirmAddChild}
               disabled={goalCreationType === 'new' ? !newGoalTitle.trim() : !selectedExistingTask}
             >
               {goalCreationType === 'new' ? st('sweep.weldflow.goalsCanvas.createGoal') : st('sweep.weldflow.goalsCanvas.linkTask')}

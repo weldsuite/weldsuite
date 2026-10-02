@@ -55,6 +55,49 @@ export interface DiscordOAuthTokens {
   guild?: DiscordGuild;
 }
 
+/** Discord snowflake IDs are decimal digit strings (max 20 digits today). */
+const SNOWFLAKE_PATTERN = /^\d{1,25}$/;
+
+/**
+ * Guard for IDs interpolated into a Discord REST path, so a crafted value
+ * can never add path segments (`../`, `?`, `#`) to the request URL.
+ */
+function snowflake(value: string, label: string): string {
+  if (!SNOWFLAKE_PATTERN.test(value)) {
+    throw new Error(`Invalid Discord ${label}`);
+  }
+  return value;
+}
+
+const PRIVATE_IPV4_PATTERN =
+  /^(?:0\.|10\.|127\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/;
+
+/**
+ * Parse a user-supplied avatar URL and accept it only when it is a public
+ * https address: no credentials, no localhost / internal host names and no
+ * private or loopback IP literals.
+ */
+function parsePublicAvatarUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('Invalid avatar URL');
+  }
+  const host = url.hostname.toLowerCase();
+  const isInternalHost =
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host.startsWith('[') ||
+    PRIVATE_IPV4_PATTERN.test(host);
+  if (url.protocol !== 'https:' || url.username || url.password || isInternalHost) {
+    throw new Error('Avatar URL must be a public https URL');
+  }
+  return url;
+}
+
 async function discordFetch<T>(url: string, options: RequestInit): Promise<T> {
   const response = await fetch(url, options);
   if (!response.ok) {
@@ -66,7 +109,7 @@ async function discordFetch<T>(url: string, options: RequestInit): Promise<T> {
 
 /** GET /guilds/{guild_id} — guild info. */
 export async function getGuild(botToken: string, guildId: string): Promise<DiscordGuild> {
-  return discordFetch<DiscordGuild>(`${DISCORD_API_BASE}/guilds/${guildId}`, {
+  return discordFetch<DiscordGuild>(`${DISCORD_API_BASE}/guilds/${snowflake(guildId, 'guild id')}`, {
     headers: { Authorization: `Bot ${botToken}` },
   });
 }
@@ -123,7 +166,7 @@ export async function getBotUser(botToken: string): Promise<DiscordUser> {
 /** GET /guilds/{guild_id}/channels — text channels only (type 0). */
 export async function getGuildChannels(botToken: string, guildId: string): Promise<DiscordChannel[]> {
   const channels = await discordFetch<DiscordChannel[]>(
-    `${DISCORD_API_BASE}/guilds/${guildId}/channels`,
+    `${DISCORD_API_BASE}/guilds/${snowflake(guildId, 'guild id')}/channels`,
     { headers: { Authorization: `Bot ${botToken}` } },
   );
   return channels.filter((ch) => ch.type === 0);
@@ -135,7 +178,7 @@ export async function sendMessage(
   channelId: string,
   content: string,
 ): Promise<DiscordMessage> {
-  return discordFetch<DiscordMessage>(`${DISCORD_API_BASE}/channels/${channelId}/messages`, {
+  return discordFetch<DiscordMessage>(`${DISCORD_API_BASE}/channels/${snowflake(channelId, 'channel id')}/messages`, {
     method: 'POST',
     headers: {
       Authorization: `Bot ${botToken}`,
@@ -155,7 +198,7 @@ export async function sendMessageWithEmbed(
   const body: Record<string, unknown> = { embeds: [embed] };
   if (components) body.components = components;
 
-  return discordFetch<DiscordMessage>(`${DISCORD_API_BASE}/channels/${channelId}/messages`, {
+  return discordFetch<DiscordMessage>(`${DISCORD_API_BASE}/channels/${snowflake(channelId, 'channel id')}/messages`, {
     method: 'POST',
     headers: {
       Authorization: `Bot ${botToken}`,
@@ -174,7 +217,7 @@ export async function setBotGuildNickname(
   guildId: string,
   nickname: string | null,
 ): Promise<void> {
-  const response = await fetch(`${DISCORD_API_BASE}/guilds/${guildId}/members/@me`, {
+  const response = await fetch(`${DISCORD_API_BASE}/guilds/${snowflake(guildId, 'guild id')}/members/@me`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bot ${botToken}`,
@@ -197,7 +240,7 @@ export async function setBotAvatar(botToken: string, avatarUrl: string | null): 
   let avatar: string | null = null;
 
   if (avatarUrl) {
-    const imageResponse = await fetch(avatarUrl);
+    const imageResponse = await fetch(parsePublicAvatarUrl(avatarUrl).toString());
     if (!imageResponse.ok) {
       throw new Error(`Failed to fetch avatar image (${imageResponse.status})`);
     }
