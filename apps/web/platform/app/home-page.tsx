@@ -226,7 +226,7 @@ export default function HomePage() {
           type="button"
           variant="ghost"
           onClick={() => startNewChat(suggestion)}
-          className="flex items-center gap-3 w-full text-left px-2 py-2 text-sm text-gray-700 dark:text-muted-foreground hover:bg-gray-50 dark:hover:bg-background rounded-lg transition-colors"
+          className="flex items-center justify-start gap-3 w-full text-left px-2 py-2 text-sm text-gray-700 dark:text-muted-foreground hover:bg-gray-50 dark:hover:bg-background rounded-lg transition-colors"
         >
           <CornerDownRight className="h-4 w-4 text-gray-400 flex-shrink-0" />
           {suggestion}
