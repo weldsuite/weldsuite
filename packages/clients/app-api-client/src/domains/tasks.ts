@@ -12,6 +12,8 @@ import type { CreateTaskInput, UpdateTaskInput, MoveTaskInput } from '../schemas
 
 export interface TaskRow {
   id: string;
+  /** Workspace-wide sequential number, displayed as TASK-<number>. Null pre-backfill. */
+  number?: number | null;
   title: string;
   description?: string | null;
   projectId?: string | null;
