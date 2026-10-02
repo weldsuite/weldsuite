@@ -46,6 +46,7 @@ import {
 } from '@/components/task-detail';
 import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
+import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { useQuery } from '@tanstack/react-query';
 import { weldchatEntityApi } from '@/lib/api/domains/weldchat-entity';
 import { useAppApi } from '@/lib/api/use-app-api';
@@ -101,6 +102,7 @@ function toCrmTask(
   const primary = assigneesList[0];
   return {
     id: api.id,
+    number: api.number ?? null,
     title: api.title,
     description: api.description ?? undefined,
     status: (api.status as CrmTask['status']) ?? 'todo',
@@ -222,10 +224,12 @@ function TaskTitle({ title, isDone, onSave }: { title: string; isDone: boolean; 
 }
 
 function TaskActions({
+  taskNumber,
   onEdit,
   onDuplicate,
   onDelete,
 }: {
+  taskNumber?: number | null;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -233,6 +237,8 @@ function TaskActions({
   const t = useTranslations();
   return (
     <div className="flex items-center gap-0.5">
+      {/* Human-friendly task id (TASK-<n>), click to copy. */}
+      <TaskNumberBadge number={taskNumber} className="mr-1 flex-shrink-0" />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -663,6 +669,7 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
       titleWrap
       actions={
         <TaskActions
+          taskNumber={task?.number}
           onEdit={handleEdit}
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}

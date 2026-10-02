@@ -9,6 +9,7 @@ import { findOrCreatePersonByEmail } from '@/lib/people';
 import { createGuestSessionToken } from '@/lib/guest-session';
 import { guestJoinInputSchema } from '@/lib/schemas';
 import { invalidInput } from '@/lib/api-response';
+import { effectiveMeetingStatus } from '@/lib/meeting-status';
 
 type TenantDb = Awaited<ReturnType<typeof getTenantDb>>['db'];
 type Meeting = typeof meetings.$inferSelect;
@@ -58,12 +59,13 @@ function checkMeetingAccess(meeting: Meeting, email: string): NextResponse | nul
     return apiError('BAD_REQUEST', 'Meeting is cancelled', 400);
   }
 
-  // The host has closed the meeting (endSession sets status='completed' and
-  // clears activeSessionId). Return a terminal 'ended' status rather than
-  // falling through to the "no active session" → 'waiting' branch below,
-  // which would leave a rejoining guest polling/"Connecting" forever with no
-  // idea the meeting is over.
-  if (meeting.status === 'completed') {
+  // The host has closed a scheduled meeting (endSession sets
+  // status='completed' and clears activeSessionId). Return a terminal 'ended'
+  // status rather than falling through to the "no active session" → 'waiting'
+  // branch below, which would leave a rejoining guest polling/"Connecting"
+  // forever with no idea the meeting is over. Unscheduled meetings are
+  // reusable rooms and never end this way (see effectiveMeetingStatus).
+  if (effectiveMeetingStatus(meeting) === 'completed') {
     return NextResponse.json({
       data: { status: 'ended' as const, meetingId: meeting.id, meetingTitle: meeting.title },
     });

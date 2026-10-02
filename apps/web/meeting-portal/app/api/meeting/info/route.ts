@@ -4,6 +4,7 @@ import { getTenantDb } from '@/lib/db';
 import { meetings, workspaceMembers } from '@weldsuite/db/schema';
 import { meetingInfoQuerySchema } from '@/lib/schemas';
 import { invalidInput } from '@/lib/api-response';
+import { effectiveMeetingStatus } from '@/lib/meeting-status';
 
 /**
  * GET /api/meeting/info?orgId=X&joinCode=Y
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest) {
         scheduledStart: meeting.scheduledStart,
         scheduledEnd: meeting.scheduledEnd,
         meetingType: meeting.meetingType,
-        status: meeting.status,
+        status: effectiveMeetingStatus(meeting),
         accessType: meeting.accessType,
         organizerName,
         hasActiveSession: !!meeting.activeSessionId,
