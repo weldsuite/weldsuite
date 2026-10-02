@@ -61,6 +61,11 @@ export const weldmeet = {
     noMessagesHint: 'No messages were sent in this meeting.',
     loadOlder: 'Load older',
   },
+  leaveMenu: {
+    endForAll: 'End meeting for all',
+    hostEnded: 'The host ended the meeting',
+    endFailed: "Couldn't end the meeting for everyone",
+  },
   pipWidget: {
     turnOnMicrophone: 'Turn on microphone',
     turnOffMicrophone: 'Turn off microphone',
@@ -82,6 +87,40 @@ export const weldmeet = {
     joiningInfoTitle: 'WeldMeet meeting',
     joiningInfoJoin: 'Join',
     joiningInfoMeetingId: 'Meeting ID',
+  },
+  /** Shown when the browser blocks mic / camera access. `{device}` is the
+   *  device name as the browser's site settings show it. */
+  permissionHelp: {
+    microphoneTitle: 'Microphone access blocked',
+    cameraTitle: 'Camera access blocked',
+    microphoneDescription: 'Your browser is blocking microphone access for this site. To fix it:',
+    cameraDescription: 'Your browser is blocking camera access for this site. To fix it:',
+    microphoneBlockedAction: 'Microphone access blocked — click for help',
+    cameraBlockedAction: 'Camera access blocked — click for help',
+    microphoneDevice: 'Microphone',
+    cameraDevice: 'Camera',
+    steps: {
+      chromium: [
+        'Click the lock or tune icon on the left side of the address bar.',
+        'Find "{device}" and switch it to "Allow".',
+        'Reload this page.',
+      ],
+      firefox: [
+        'Click the lock icon in the address bar.',
+        'Remove the "Blocked" entry for {device}.',
+        'Reload this page.',
+      ],
+      safari: [
+        'Open Safari → Settings for This Website…',
+        'Set "{device}" to "Allow".',
+        'Reload this page.',
+      ],
+      other: [
+        "Open your browser's site settings for this page.",
+        'Allow access to "{device}".',
+        'Reload this page.',
+      ],
+    },
   },
   attendeeList: {
     title: 'Attendees',
@@ -181,6 +220,9 @@ export const weldmeet = {
     live: 'Live',
     meetingNotFound: 'Meeting not found',
     meetingNotFoundHint: 'Check the code or link and try again.',
+    meetingInOtherWorkspace: 'This meeting belongs to another workspace',
+    meetingInOtherWorkspaceHint: 'Open the link to join it as a guest.',
+    openLink: 'Open link',
     failedToCreate: 'Failed to create meeting',
     failedToCreateHint: 'Please try again.',
     meetingLinkCopied: 'Meeting link copied',

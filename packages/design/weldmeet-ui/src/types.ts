@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
 import type { VirtualBackgroundType } from './hooks/use-virtual-background';
+import type { PermissionHelpLabels } from './components/permission-help';
 
 export type ViewMode = 'grid' | 'spotlight' | 'speaker' | 'sidebar';
 export type RecordingState = 'IDLE' | 'STARTING' | 'RECORDING' | 'PAUSED' | 'STOPPING';
@@ -65,6 +66,16 @@ export type WaitlistedPeer = Omit<
  * Props for the shared MeetingRoomView. Pure presentational — no Clerk, no
  * workspace context, no query hooks. Everything flows in from the host app.
  */
+/** Label overrides for the call bar's leave button / menu (package has no i18n). */
+export interface LeaveLabels {
+  /** Tooltip / aria label of the leave button. */
+  leave?: string;
+  /** Menu item that only leaves (the session continues for others). */
+  leaveMeeting?: string;
+  /** Destructive menu item that ends the session for everyone. */
+  endForAll?: string;
+}
+
 export interface MeetingRoomViewProps {
   // ── Meeting identity / metadata ────────────────────────────────────────────
   meetingId: string;
@@ -86,6 +97,11 @@ export interface MeetingRoomViewProps {
   // ── Self state ────────────────────────────────────────────────────────────
   isMuted: boolean;
   isVideoOff: boolean;
+  /** The browser blocks microphone / camera access for this site. */
+  micBlocked?: boolean;
+  cameraBlocked?: boolean;
+  /** Copy for the blocked-permission help. English when omitted. */
+  permissionHelpLabels?: PermissionHelpLabels;
   isScreenSharing: boolean;
   handRaised: boolean;
   /** Set of peer ids (participant.id) whose hand is currently raised. Includes self when handRaised is true. */
@@ -103,6 +119,14 @@ export interface MeetingRoomViewProps {
   toggleHandRaise: () => void;
   setViewMode: (mode: ViewMode) => void;
   onLeave: () => void;
+  /**
+   * Optional host-only "end the meeting for everyone" action. When provided the
+   * leave button becomes a menu: "Leave meeting" (`onLeave`) + "End meeting for
+   * all" (this). When omitted the leave button is a single action, as before.
+   */
+  onEndForAll?: () => void;
+  /** Overrides for the leave-button labels (English defaults when omitted). */
+  leaveLabels?: LeaveLabels;
   onToggleFullscreen?: () => void;
   onPictureInPicture?: () => void;
 

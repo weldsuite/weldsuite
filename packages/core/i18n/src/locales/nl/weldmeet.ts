@@ -62,6 +62,11 @@ export const weldmeet = {
     noMessagesHint: 'Er zijn geen berichten verzonden in deze vergadering.',
     loadOlder: 'Oudere laden',
   },
+  leaveMenu: {
+    endForAll: 'Vergadering voor iedereen beëindigen',
+    hostEnded: 'De host heeft de vergadering beëindigd',
+    endFailed: 'Kon de vergadering niet voor iedereen beëindigen',
+  },
   pipWidget: {
     turnOnMicrophone: 'Microfoon inschakelen',
     turnOffMicrophone: 'Microfoon uitschakelen',
@@ -83,6 +88,40 @@ export const weldmeet = {
     joiningInfoTitle: 'WeldMeet-vergadering',
     joiningInfoJoin: 'Deelnemen',
     joiningInfoMeetingId: 'Vergader-ID',
+  },
+  /** Getoond wanneer de browser microfoon / camera blokkeert. `{device}` is de
+   *  apparaatnaam zoals de site-instellingen van de browser die tonen. */
+  permissionHelp: {
+    microphoneTitle: 'Microfoontoegang geblokkeerd',
+    cameraTitle: 'Cameratoegang geblokkeerd',
+    microphoneDescription: 'Je browser blokkeert de toegang tot je microfoon voor deze site. Zo los je het op:',
+    cameraDescription: 'Je browser blokkeert de toegang tot je camera voor deze site. Zo los je het op:',
+    microphoneBlockedAction: 'Microfoontoegang geblokkeerd — klik voor hulp',
+    cameraBlockedAction: 'Cameratoegang geblokkeerd — klik voor hulp',
+    microphoneDevice: 'Microfoon',
+    cameraDevice: 'Camera',
+    steps: {
+      chromium: [
+        'Klik op het slot- of instellingenicoon links in de adresbalk.',
+        'Zoek "{device}" en zet het op "Toestaan".',
+        'Laad deze pagina opnieuw.',
+      ],
+      firefox: [
+        'Klik op het slotje in de adresbalk.',
+        'Verwijder de melding "Geblokkeerd" bij {device}.',
+        'Laad deze pagina opnieuw.',
+      ],
+      safari: [
+        'Open Safari → Instellingen voor deze website…',
+        'Zet "{device}" op "Sta toe".',
+        'Laad deze pagina opnieuw.',
+      ],
+      other: [
+        'Open de site-instellingen van je browser voor deze pagina.',
+        'Sta toegang tot "{device}" toe.',
+        'Laad deze pagina opnieuw.',
+      ],
+    },
   },
   attendeeList: {
     title: 'Deelnemers',
@@ -182,6 +221,9 @@ export const weldmeet = {
     live: 'Live',
     meetingNotFound: 'Vergadering niet gevonden',
     meetingNotFoundHint: 'Controleer de code of link en probeer opnieuw.',
+    meetingInOtherWorkspace: 'Deze vergadering hoort bij een andere werkruimte',
+    meetingInOtherWorkspaceHint: 'Open de link om als gast deel te nemen.',
+    openLink: 'Link openen',
     failedToCreate: 'Vergadering aanmaken mislukt',
     failedToCreateHint: 'Probeer het opnieuw.',
     meetingLinkCopied: 'Vergaderlink gekopieerd',

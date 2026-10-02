@@ -20,6 +20,7 @@
 
 import { createClient } from 'cloudflare/tree-shakable';
 import { APIError } from 'cloudflare/core/error';
+import { BaseActiveSession } from 'cloudflare/resources/realtime-kit/active-session';
 import { BaseMeetings } from 'cloudflare/resources/realtime-kit/meetings';
 import { BasePresets } from 'cloudflare/resources/realtime-kit/presets';
 import { BaseRecordings } from 'cloudflare/resources/realtime-kit/recordings';
@@ -91,7 +92,7 @@ function realtime(env: CloudflareRealtimeEnv) {
       maxRetries: 2,
       timeout: 15_000,
       ...(env.RTK_FETCH ? { fetch: env.RTK_FETCH } : {}),
-      resources: [BaseMeetings, BasePresets, BaseRecordings, BaseSessions, BaseWebhooks],
+      resources: [BaseActiveSession, BaseMeetings, BasePresets, BaseRecordings, BaseSessions, BaseWebhooks],
     }),
   };
 }
@@ -343,6 +344,29 @@ export async function endMeeting(
       status: 'INACTIVE',
     }),
   );
+}
+
+/**
+ * Disconnect every participant currently in the meeting's live session.
+ *
+ * {@link endMeeting} only flips the meeting INACTIVE, which does not drop
+ * people who are already connected: they stay in the room. Call this first
+ * to actually end the call for everyone. Returns how many were kicked.
+ * Throws when there is no live session to kick from; callers that end a
+ * meeting best-effort should catch it.
+ */
+export async function kickAllParticipants(
+  env: CloudflareRealtimeEnv,
+  meetingId: string,
+): Promise<number> {
+  const { client, accountId, appId } = realtime(env);
+  const res = await call('kick all RTK participants', () =>
+    client.realtimeKit.activeSession.kickAllParticipants(meetingId, {
+      account_id: accountId,
+      app_id: appId,
+    }),
+  );
+  return res.data?.kicked_participants_count ?? 0;
 }
 
 export async function removeParticipant(

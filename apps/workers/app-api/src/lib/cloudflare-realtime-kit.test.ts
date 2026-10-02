@@ -25,6 +25,7 @@ import {
   createMeeting,
   endMeeting,
   getRecordings,
+  kickAllParticipants,
   registerWebhook,
   removeParticipant,
   seedPresets,
@@ -115,6 +116,18 @@ describe('meetings', () => {
     expect(calls[0]!.url).toContain('/realtime/kit/app_1/meetings/m1');
     expect(calls[0]!.method).toBe('PATCH');
     expect(calls[0]!.body).toEqual({ status: 'INACTIVE' });
+  });
+
+  it('kicks every live participant on the active-session route', async () => {
+    const { env, calls } = withResponses([
+      { body: ok({ action: 'kick_all', kicked_participants_count: 3 }) },
+    ]);
+
+    const kicked = await kickAllParticipants(env, 'm1');
+
+    expect(calls[0]!.url).toContain('/realtime/kit/app_1/meetings/m1/active-session/kick-all');
+    expect(calls[0]!.method).toBe('POST');
+    expect(kicked).toBe(3);
   });
 
   it('reports a failed call with the status and RealtimeKit detail', async () => {
