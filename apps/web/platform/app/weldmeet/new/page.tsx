@@ -5,7 +5,7 @@ import { useCreateMeeting, useJoinByCode, useUpcomingMeetings, type Meeting } fr
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { setStartHandoff } from '@/lib/weldmeet/start-handoff';
-import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
+import { buildMeetingShareUrl, parseMeetingJoinInput } from '@/lib/weldmeet/share-link';
 import { useWeldMeetCallOptional } from '@/contexts/weldmeet-call-context';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -149,8 +149,27 @@ export default function NewMeetingPage() {
 
   const handleJoin = async () => {
     if (!joinCode.trim()) return;
+    const parsed = parseMeetingJoinInput(joinCode);
+    if (!parsed) {
+      toast.error(t.newMeetingPage.meetingNotFound, {
+        description: t.newMeetingPage.meetingNotFoundHint,
+      });
+      return;
+    }
+    // A portal link of another workspace can't resolve against this tenant;
+    // its guest link still works, so offer that instead of "not found".
+    if (parsed.workspaceId && workspaceId && parsed.workspaceId !== workspaceId) {
+      const guestUrl = parsed.url;
+      toast.error(t.newMeetingPage.meetingInOtherWorkspace, {
+        description: t.newMeetingPage.meetingInOtherWorkspaceHint,
+        action: guestUrl
+          ? { label: t.newMeetingPage.openLink, onClick: () => window.open(guestUrl, '_blank', 'noopener,noreferrer') }
+          : undefined,
+      });
+      return;
+    }
     try {
-      const meeting = await joinByCode.mutateAsync(joinCode.trim());
+      const meeting = await joinByCode.mutateAsync(parsed.joinCode);
       navigate({ to: '/weldmeet/$meetingId/room', params: { meetingId: meeting.id } });
     } catch {
       toast.error(t.newMeetingPage.meetingNotFound, {
