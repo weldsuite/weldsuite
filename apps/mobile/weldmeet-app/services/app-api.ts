@@ -23,11 +23,11 @@ import type { ClientApi, DataResponse, ListResponse } from '@weldsuite/app-api-c
 import { buildQueryString } from '@weldsuite/app-api-client/types';
 // Type-only imports — the weldmeet schemas package is still the canonical
 // type source (app-api itself validates against these same schemas).
+import type { RecordingAccessResult } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
 import type {
   Meeting,
   MeetingSession,
   RecordingSummary,
-  CreateMeetingInput,
   ListMeetingsQuery,
   UpcomingMeetingsQuery,
   StartSessionResult,
@@ -35,6 +35,7 @@ import type {
   CancelMeetingResult,
   OkResult,
 } from '@weldsuite/core-api-client/schemas/weldmeet';
+import type { CreateMeetingInput } from '@weldsuite/core-api-client/schemas/meetings';
 
 /** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
@@ -67,7 +68,7 @@ const client = createClientApi({
 /**
  * WeldMeet domain client against app-api's flat surface:
  *   GET/POST  /api/meetings/*          (list, upcoming, recordings, join code, create, cancel)
- *   GET/POST  /api/meeting-sessions/*  (active, start, join, leave)
+ *   GET/POST  /api/meeting-sessions/*  (active, start, join, leave, recording/access)
  *
  * Method names and signatures mirror the retired core-api weldmeet domain
  * (`@weldsuite/core-api-client/domains/weldmeet`) so hooks and screens keep
@@ -95,6 +96,18 @@ function createWeldmeetAppApi(api: ClientApi) {
 
     listRecordings(): Promise<DataResponse<RecordingSummary[]>> {
       return api.get<DataResponse<RecordingSummary[]>>('/meetings/recordings');
+    },
+
+    /**
+     * Mint short-lived (1 hour) playable URLs for a session's private
+     * recording. Call on demand when the user taps; never persist the result.
+     * Throws ApiError: 403 no recordings:read, 404 nothing recorded, 409 still processing.
+     */
+    getRecordingAccess(sessionId: string): Promise<DataResponse<RecordingAccessResult>> {
+      return api.post<DataResponse<RecordingAccessResult>>(
+        `/meeting-sessions/${encodeURIComponent(sessionId)}/recording/access`,
+        {},
+      );
     },
 
     getMeeting(id: string): Promise<DataResponse<Meeting>> {

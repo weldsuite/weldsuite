@@ -25,6 +25,7 @@ import {
   createMeeting,
   endMeeting,
   getRecordings,
+  kickAllParticipants,
   registerWebhook,
   removeParticipant,
   seedPresets,
@@ -115,6 +116,18 @@ describe('meetings', () => {
     expect(calls[0]!.url).toContain('/realtime/kit/app_1/meetings/m1');
     expect(calls[0]!.method).toBe('PATCH');
     expect(calls[0]!.body).toEqual({ status: 'INACTIVE' });
+  });
+
+  it('kicks every live participant on the active-session route', async () => {
+    const { env, calls } = withResponses([
+      { body: ok({ action: 'kick_all', kicked_participants_count: 3 }) },
+    ]);
+
+    const kicked = await kickAllParticipants(env, 'm1');
+
+    expect(calls[0]!.url).toContain('/realtime/kit/app_1/meetings/m1/active-session/kick-all');
+    expect(calls[0]!.method).toBe('POST');
+    expect(kicked).toBe(3);
   });
 
   it('reports a failed call with the status and RealtimeKit detail', async () => {
@@ -309,6 +322,49 @@ describe('recordings', () => {
       file_size: 1024,
       started_time: '2026-07-26T10:00:00Z',
       stopped_time: '2026-07-26T10:30:00Z',
+    });
+  });
+
+  it('maps the audio file, expiry, duration and session of a recording', async () => {
+    const { env } = withResponses([
+      {
+        body: {
+          success: true,
+          paging: {},
+          data: [
+            {
+              id: 'r2',
+              status: 'UPLOADED',
+              download_url: 'https://example.com/rec.mp4',
+              audio_download_url: 'https://example.com/rec.mp3',
+              download_url_expiry: '2026-07-27T10:30:00Z',
+              file_size: 2048,
+              started_time: '2026-07-26T10:00:00Z',
+              stopped_time: '2026-07-26T10:30:00Z',
+              recording_duration: 1800,
+              invoked_time: '',
+              output_file_name: 'rec.mp4',
+              session_id: 's1',
+            },
+          ],
+        },
+      },
+    ]);
+
+    const [recording] = await getRecordings(env, 'm1');
+
+    expect(recording).toEqual({
+      id: 'r2',
+      status: 'UPLOADED',
+      download_url: 'https://example.com/rec.mp4',
+      audio_download_url: 'https://example.com/rec.mp3',
+      download_url_expiry: '2026-07-27T10:30:00Z',
+      file_size: 2048,
+      started_time: '2026-07-26T10:00:00Z',
+      stopped_time: '2026-07-26T10:30:00Z',
+      recording_duration: 1800,
+      output_file_name: 'rec.mp4',
+      session_id: 's1',
     });
   });
 });

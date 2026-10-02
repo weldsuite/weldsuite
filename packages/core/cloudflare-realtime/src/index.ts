@@ -20,9 +20,11 @@
 
 import { createClient } from 'cloudflare/tree-shakable';
 import { APIError } from 'cloudflare/core/error';
+import { BaseActiveSession } from 'cloudflare/resources/realtime-kit/active-session';
 import { BaseMeetings } from 'cloudflare/resources/realtime-kit/meetings';
 import { BasePresets } from 'cloudflare/resources/realtime-kit/presets';
 import { BaseRecordings } from 'cloudflare/resources/realtime-kit/recordings';
+import { BaseSessions } from 'cloudflare/resources/realtime-kit/sessions';
 import { BaseWebhooks } from 'cloudflare/resources/realtime-kit/webhooks';
 import type { WebhookCreateWebhookParams } from 'cloudflare/resources/realtime-kit/webhooks';
 import type { ClientOptions } from 'cloudflare/client';
@@ -90,7 +92,7 @@ function realtime(env: CloudflareRealtimeEnv) {
       maxRetries: 2,
       timeout: 15_000,
       ...(env.RTK_FETCH ? { fetch: env.RTK_FETCH } : {}),
-      resources: [BaseMeetings, BasePresets, BaseRecordings, BaseWebhooks],
+      resources: [BaseActiveSession, BaseMeetings, BasePresets, BaseRecordings, BaseSessions, BaseWebhooks],
     }),
   };
 }
@@ -135,11 +137,108 @@ export interface RtkParticipant {
  */
 export interface RtkRecording {
   id: string;
+  /** INVOKED | RECORDING | UPLOADING | UPLOADED | ERRORED | PAUSED */
   status: string;
   download_url?: string;
+  /** Audio-only file; present when the meeting was created with `audioExport`. */
+  audio_download_url?: string;
+  /** ISO timestamp after which `download_url` / `audio_download_url` stop working. */
+  download_url_expiry?: string;
   file_size?: number;
   started_time?: string;
   stopped_time?: string;
+  /** Total recording time in seconds. */
+  recording_duration?: number;
+  /** RealtimeKit session the recording belongs to. */
+  session_id?: string;
+  output_file_name?: string;
+}
+
+/**
+ * Language codes RealtimeKit's transcription config accepts (the SDK types it
+ * as this closed union). Anything else must be omitted so RealtimeKit
+ * auto-detects.
+ */
+export type RtkTranscriptionLanguage =
+  | 'en-US'
+  | 'en-IN'
+  | 'de'
+  | 'hi'
+  | 'sv'
+  | 'ru'
+  | 'pl'
+  | 'el'
+  | 'fr'
+  | 'nl';
+
+const RTK_LANGUAGES: ReadonlySet<string> = new Set<RtkTranscriptionLanguage>([
+  'en-US', 'en-IN', 'de', 'hi', 'sv', 'ru', 'pl', 'el', 'fr', 'nl',
+]);
+
+/**
+ * Map a platform / workspace locale (`en`, `nl`, `nl-NL`, `en-GB`, `es`, ...)
+ * to an RTK transcription language, or `undefined` (auto-detect) when RTK has
+ * no matching value. Never casts an unsupported code through.
+ */
+export function mapLocaleToRtkLanguage(
+  locale: string | null | undefined,
+): RtkTranscriptionLanguage | undefined {
+  if (!locale) return undefined;
+  const raw = locale.trim().replace('_', '-');
+  if (!raw) return undefined;
+  const [lang = '', region = ''] = raw.split('-');
+  const l = lang.toLowerCase();
+  if (l === 'en') return region.toUpperCase() === 'IN' ? 'en-IN' : 'en-US';
+  return RTK_LANGUAGES.has(l) ? (l as RtkTranscriptionLanguage) : undefined;
+}
+
+/** Options for {@link createMeeting} / {@link updateMeeting}. All optional. */
+export interface RtkMeetingOptions {
+  /** RealtimeKit starts recording as soon as someone joins. */
+  recordOnStart?: boolean;
+  /**
+   * Also export an audio-only file next to the video (MP3, so the "transcribe
+   * afterwards" path can slice it on frame boundaries). Create-only.
+   */
+  audioExport?: boolean;
+  /** Post-meeting transcript of the whole session (independent of recording). */
+  transcribeOnEnd?: boolean;
+  /** Post-meeting AI summary; RealtimeKit requires the transcript for it. */
+  summarizeOnEnd?: boolean;
+  /** Omit for auto-detect. */
+  transcriptionLanguage?: RtkTranscriptionLanguage;
+  summaryType?:
+    | 'general'
+    | 'team_meeting'
+    | 'sales_call'
+    | 'client_check_in'
+    | 'interview'
+    | 'daily_standup'
+    | 'one_on_one_meeting'
+    | 'lecture'
+    | 'code_review';
+  summaryTextFormat?: 'plain_text' | 'markdown';
+  summaryWordLimit?: number;
+}
+
+/** Build the `ai_config` body fragment, or undefined when nothing is set. */
+function buildAiConfig(opts: RtkMeetingOptions) {
+  const transcription = opts.transcriptionLanguage
+    ? { language: opts.transcriptionLanguage }
+    : undefined;
+  const summarization =
+    opts.summaryType || opts.summaryTextFormat || opts.summaryWordLimit
+      ? {
+          ...(opts.summaryType ? { summary_type: opts.summaryType } : {}),
+          ...(opts.summaryTextFormat ? { text_format: opts.summaryTextFormat } : {}),
+          ...(opts.summaryWordLimit ? { word_limit: opts.summaryWordLimit } : {}),
+        }
+      : undefined;
+  if (!transcription && !summarization) return undefined;
+  return {
+    ...(transcription ? { transcription } : {}),
+    ...(summarization ? { summarization } : {}),
+  };
 }
 
 // ============================================================================
@@ -149,17 +248,52 @@ export interface RtkRecording {
 export async function createMeeting(
   env: CloudflareRealtimeEnv,
   title?: string,
+  opts?: RtkMeetingOptions,
 ): Promise<RtkMeeting> {
   const { client, accountId, appId } = realtime(env);
+  const aiConfig = opts ? buildAiConfig(opts) : undefined;
   const res = await call('create RTK meeting', () =>
     client.realtimeKit.meetings.create(appId, {
       account_id: accountId,
       title: title ?? 'WeldChat Call',
+      // Every field below is opt-in: a call without `opts` (WeldChat calls)
+      // sends exactly the body it always did.
+      ...(opts?.recordOnStart !== undefined ? { record_on_start: opts.recordOnStart } : {}),
+      ...(opts?.audioExport
+        ? { recording_config: { audio_config: { export_file: true, codec: 'MP3' as const } } }
+        : {}),
+      ...(opts?.transcribeOnEnd !== undefined ? { transcribe_on_end: opts.transcribeOnEnd } : {}),
+      ...(opts?.summarizeOnEnd !== undefined ? { summarize_on_end: opts.summarizeOnEnd } : {}),
+      ...(aiConfig ? { ai_config: aiConfig } : {}),
     }),
   );
   const data = res.data;
   if (!data) throw new Error('Failed to create RTK meeting: response carried no meeting');
   return { id: data.id, title: data.title ?? undefined, status: data.status };
+}
+
+/**
+ * Change a live (or future) RTK meeting's recording / AI settings.
+ * RealtimeKit reads `transcribe_on_end` / `summarize_on_end` when the meeting
+ * ends, so call this BEFORE the meeting ends.
+ */
+export async function updateMeeting(
+  env: CloudflareRealtimeEnv,
+  meetingId: string,
+  opts: RtkMeetingOptions,
+): Promise<void> {
+  const { client, accountId, appId } = realtime(env);
+  const aiConfig = buildAiConfig(opts);
+  await call('update RTK meeting', () =>
+    client.realtimeKit.meetings.updateMeetingByID(meetingId, {
+      account_id: accountId,
+      app_id: appId,
+      ...(opts.recordOnStart !== undefined ? { record_on_start: opts.recordOnStart } : {}),
+      ...(opts.transcribeOnEnd !== undefined ? { transcribe_on_end: opts.transcribeOnEnd } : {}),
+      ...(opts.summarizeOnEnd !== undefined ? { summarize_on_end: opts.summarizeOnEnd } : {}),
+      ...(aiConfig ? { ai_config: aiConfig } : {}),
+    }),
+  );
 }
 
 export async function addParticipant(
@@ -208,6 +342,58 @@ export async function endMeeting(
       account_id: accountId,
       app_id: appId,
       status: 'INACTIVE',
+    }),
+  );
+}
+
+/**
+ * Disconnect every participant currently in the meeting's live session.
+ *
+ * {@link endMeeting} only flips the meeting INACTIVE, which does not drop
+ * people who are already connected: they stay in the room. Call this first
+ * to actually end the call for everyone. Returns how many were kicked.
+ * Throws when there is no live session to kick from; callers that end a
+ * meeting best-effort should catch it.
+ */
+export async function kickAllParticipants(
+  env: CloudflareRealtimeEnv,
+  meetingId: string,
+): Promise<number> {
+  const { client, accountId, appId } = realtime(env);
+  const res = await call('kick all RTK participants', () =>
+    client.realtimeKit.activeSession.kickAllParticipants(meetingId, {
+      account_id: accountId,
+      app_id: appId,
+    }),
+  );
+  return res.data?.kicked_participants_count ?? 0;
+}
+
+/**
+ * Disconnect specific participants from the meeting's live session, leaving
+ * everyone else in the room. `participantIds` are the ids returned by
+ * {@link addParticipant}; `customParticipantIds` are the app-controlled ids
+ * passed as `customParticipantId` when the participant was added. Either list
+ * may be empty, but at least one id must be given. Throws when there is no
+ * live session to kick from; callers that kick best-effort should catch it.
+ */
+export async function kickParticipants(
+  env: CloudflareRealtimeEnv,
+  meetingId: string,
+  ids: { participantIds?: string[]; customParticipantIds?: string[] },
+): Promise<void> {
+  const participantIds = ids.participantIds ?? [];
+  const customParticipantIds = ids.customParticipantIds ?? [];
+  if (participantIds.length === 0 && customParticipantIds.length === 0) {
+    throw new Error('kickParticipants requires at least one participant id');
+  }
+  const { client, accountId, appId } = realtime(env);
+  await call('kick RTK participants', () =>
+    client.realtimeKit.activeSession.kickParticipants(meetingId, {
+      account_id: accountId,
+      app_id: appId,
+      participant_ids: participantIds,
+      custom_participant_ids: customParticipantIds,
     }),
   );
 }
@@ -543,6 +729,142 @@ export async function registerWebhook(
   return { id: res.data?.id };
 }
 
+export interface RtkWebhookRegistration {
+  id: string;
+  name: string;
+  url: string;
+  events: RtkWebhookEvent[];
+  enabled: boolean;
+}
+
+/** All webhooks registered for the RealtimeKit app. */
+export async function listWebhooks(env: CloudflareRealtimeEnv): Promise<RtkWebhookRegistration[]> {
+  const { client, accountId, appId } = realtime(env);
+  const res = await call('list RTK webhooks', () =>
+    client.realtimeKit.webhooks.getWebhooks(appId, { account_id: accountId }),
+  );
+  return (res.data ?? []).map((w) => ({
+    id: w.id,
+    name: w.name,
+    url: w.url,
+    events: w.events,
+    enabled: w.enabled,
+  }));
+}
+
+/** Overwrite a webhook's name, URL, events and enabled flag (RealtimeKit PUT). */
+export async function replaceWebhook(
+  env: CloudflareRealtimeEnv,
+  webhookId: string,
+  params: { name: string; url: string; events: RtkWebhookEvent[]; enabled?: boolean },
+): Promise<void> {
+  const { client, accountId, appId } = realtime(env);
+  await call('replace RTK webhook', () =>
+    client.realtimeKit.webhooks.replaceWebhook(webhookId, {
+      account_id: accountId,
+      app_id: appId,
+      name: params.name,
+      url: params.url,
+      events: params.events,
+      enabled: params.enabled ?? true,
+    }),
+  );
+}
+
+/**
+ * Idempotent registration: if a webhook with this URL exists, overwrite its
+ * event list (and delete any further duplicates a re-run of the old
+ * create-only setup left behind); otherwise create one. Safe to re-run.
+ */
+export async function upsertWebhook(
+  env: CloudflareRealtimeEnv,
+  params: { name: string; url: string; events: RtkWebhookEvent[]; enabled?: boolean },
+): Promise<{ id?: string; action: 'created' | 'updated'; removedDuplicates: number }> {
+  const existing = (await listWebhooks(env)).filter((w) => w.url === params.url);
+  const [keep, ...duplicates] = existing;
+  if (!keep) {
+    const created = await registerWebhook(env, params);
+    return { id: created.id, action: 'created', removedDuplicates: 0 };
+  }
+  await replaceWebhook(env, keep.id, params);
+  if (duplicates.length > 0) {
+    const { client, accountId, appId } = realtime(env);
+    for (const dup of duplicates) {
+      await call('delete duplicate RTK webhook', () =>
+        client.realtimeKit.webhooks.deleteWebhook(dup.id, { account_id: accountId, app_id: appId }),
+      );
+    }
+  }
+  return { id: keep.id, action: 'updated', removedDuplicates: duplicates.length };
+}
+
+// ============================================================================
+// Session artifacts (post-meeting transcript / summary)
+// ============================================================================
+
+export type RtkTranscriptFormat = 'SRT' | 'VTT' | 'JSON' | 'CSV';
+
+export interface RtkSessionArtifactUrl {
+  /** Expiring (about 7 days) signed URL; download it right away. */
+  downloadUrl: string;
+  /** ISO timestamp the URL stops working. */
+  expiresAt?: string;
+}
+
+/** Download URL of a session's transcript (available once `meeting.transcript` fired). */
+export async function getSessionTranscript(
+  env: CloudflareRealtimeEnv,
+  rtkSessionId: string,
+  format: RtkTranscriptFormat = 'JSON',
+): Promise<RtkSessionArtifactUrl> {
+  const { client, accountId, appId } = realtime(env);
+  const res = await call('get session transcript', () =>
+    client.realtimeKit.sessions.getSessionTranscripts(rtkSessionId, {
+      account_id: accountId,
+      app_id: appId,
+      format,
+    }),
+  );
+  const data = res.data;
+  if (!data?.transcript_download_url) {
+    throw new Error(`Failed to get session transcript: ${rtkSessionId} has no transcript`);
+  }
+  return { downloadUrl: data.transcript_download_url, expiresAt: data.transcript_download_url_expiry };
+}
+
+/** Download URL of a session's AI summary (available once `meeting.summary` fired). */
+export async function getSessionSummary(
+  env: CloudflareRealtimeEnv,
+  rtkSessionId: string,
+): Promise<RtkSessionArtifactUrl> {
+  const { client, accountId, appId } = realtime(env);
+  const res = await call('get session summary', () =>
+    client.realtimeKit.sessions.getSessionSummary(rtkSessionId, {
+      account_id: accountId,
+      app_id: appId,
+    }),
+  );
+  const data = res.data;
+  if (!data?.summaryDownloadUrl) {
+    throw new Error(`Failed to get session summary: ${rtkSessionId} has no summary`);
+  }
+  return { downloadUrl: data.summaryDownloadUrl, expiresAt: data.summaryDownloadUrlExpiry };
+}
+
+/** Ask RealtimeKit to (re)generate the summary of a session's transcript. */
+export async function generateSessionSummary(
+  env: CloudflareRealtimeEnv,
+  rtkSessionId: string,
+): Promise<void> {
+  const { client, accountId, appId } = realtime(env);
+  await call('generate session summary', () =>
+    client.realtimeKit.sessions.generateSummaryOfTranscripts(rtkSessionId, {
+      account_id: accountId,
+      app_id: appId,
+    }),
+  );
+}
+
 // ============================================================================
 // Recording Management
 // ============================================================================
@@ -551,17 +873,27 @@ function toRecording(r: {
   id: string;
   status: string;
   download_url?: string | null;
+  audio_download_url?: string | null;
+  download_url_expiry?: string | null;
   file_size?: number | null;
   started_time?: string | null;
   stopped_time?: string | null;
+  recording_duration?: number | null;
+  session_id?: string | null;
+  output_file_name?: string | null;
 }): RtkRecording {
   return {
     id: r.id,
     status: r.status,
     download_url: r.download_url ?? undefined,
+    audio_download_url: r.audio_download_url ?? undefined,
+    download_url_expiry: r.download_url_expiry ?? undefined,
     file_size: r.file_size ?? undefined,
     started_time: r.started_time ?? undefined,
     stopped_time: r.stopped_time ?? undefined,
+    recording_duration: r.recording_duration ?? undefined,
+    session_id: r.session_id ?? undefined,
+    output_file_name: r.output_file_name || undefined,
   };
 }
 

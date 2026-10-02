@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Mic, MicOff, VideoOff, MonitorUp, MonitorX, Phone, ChevronUp, Check, Hand, LayoutGrid, GalleryHorizontalEnd, User, PanelRight, Image, Circle, Square, Pause, Play, EllipsisVertical, Maximize, Minimize, PictureInPicture2, Settings, Volume2, VolumeX } from 'lucide-react';
+import { CircleAlert, Mic, MicOff, VideoOff, MonitorUp, MonitorX, Phone, ChevronUp, Check, Hand, LayoutGrid, GalleryHorizontalEnd, User, PanelRight, Image, Circle, Square, Pause, Play, EllipsisVertical, Maximize, Minimize, PictureInPicture2, Settings, Volume2, VolumeX, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
@@ -14,7 +14,14 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
 } from '@weldsuite/ui/components/dropdown-menu';
-import type { ViewMode, RecordingState, MeetingClient } from '../types';
+import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
+import type { ViewMode, RecordingState, MeetingClient, LeaveLabels } from '../types';
+import {
+  DEFAULT_PERMISSION_HELP_LABELS,
+  PermissionHelp,
+  type PermissionHelpLabels,
+  type PermissionKind,
+} from './permission-help';
 import type { VirtualBackgroundType } from '../hooks/use-virtual-background';
 
 // ─── Tooltip ─────────────────────────────────────────────────────────────────
@@ -100,6 +107,23 @@ export interface CallControlsBarProps {
   toggleHandRaise: () => void;
   setViewMode: (mode: ViewMode) => void;
   onLeave: () => void;
+  /**
+   * Optional "end the meeting for everyone" action (host only). When provided
+   * the red leave button becomes a menu with "Leave meeting" (calls `onLeave`)
+   * and a destructive "End meeting for all" (calls this). When omitted the
+   * button is a plain single-action leave button.
+   */
+  onEndForAll?: () => void;
+  /** Overrides for the leave-button labels (English defaults when omitted). */
+  leaveLabels?: LeaveLabels;
+
+  // Browser permission blocked (optional). When true the button renders in
+  // the off state with a warning badge, and clicking it explains how to grant
+  // access instead of toggling (toggling can't succeed while blocked).
+  micBlocked?: boolean;
+  cameraBlocked?: boolean;
+  /** Copy for the blocked tooltip + help popover. English when omitted. */
+  permissionHelpLabels?: PermissionHelpLabels;
 
   // Background effects (optional)
   onToggleEffects?: () => void;
@@ -302,6 +326,44 @@ function useShareScreenAudio(meeting: MeetingClient | null, isScreenSharing: boo
 const OFF_STATE_CLASSES =
   'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400';
 
+/** Mic / camera button while the browser blocks that device: opens the
+ *  permission help instead of toggling. */
+function BlockedMediaButton({
+  kind,
+  labels,
+  children,
+}: {
+  kind: PermissionKind;
+  labels: PermissionHelpLabels;
+  children: React.ReactNode;
+}) {
+  const label = kind === 'microphone' ? labels.microphoneBlockedAction : labels.cameraBlockedAction;
+  return (
+    <Popover>
+      <CallTooltip label={label}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label={label}
+            className={cn("relative h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", OFF_STATE_CLASSES)}
+          >
+            {children}
+            <CircleAlert
+              aria-hidden="true"
+              className="pointer-events-none absolute top-[5px] right-[5px] !h-[14px] !w-[14px] text-amber-500 fill-background"
+              strokeWidth={2.5}
+            />
+          </Button>
+        </PopoverTrigger>
+      </CallTooltip>
+      <PopoverContent side="top" align="center" sideOffset={10} className="w-72 p-4">
+        <PermissionHelp kind={kind} labels={labels} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /** Chevron dropdown listing input devices (microphone / camera). */
 function DeviceMenu({
   tooltip,
@@ -460,10 +522,14 @@ function RecordingMenuSection({
   stopRecording,
   pauseRecording,
   resumeRecording,
+  runAfterClose,
 }: Pick<
   CallControlsBarProps,
   'isRecording' | 'recordingState' | 'startRecording' | 'stopRecording' | 'pauseRecording' | 'resumeRecording'
->) {
+> & {
+  /** Closes the menu, then runs the action on the next frame (see `CallControlsBar`). */
+  runAfterClose: (action: () => void) => void;
+}) {
   if (!startRecording) return null;
   const paused = recordingState === 'PAUSED';
   return (
@@ -489,8 +555,11 @@ function RecordingMenuSection({
           </DropdownMenuItem>
         </>
       ) : (
+        // No "started" toast here: the click only *requests* the recording. The
+        // host app confirms it (toast) once the recorder actually reports
+        // RECORDING, so a failed or slow start never claims success.
         <DropdownMenuItem
-          onClick={() => { startRecording?.(); toast.success('Recording started. All participants will be notified.'); }}
+          onClick={() => runAfterClose(() => startRecording?.())}
           disabled={recordingState === 'STARTING' || recordingState === 'STOPPING'}
         >
           <Circle className="h-4 w-4 mr-0.5 text-red-500 fill-red-500" />
@@ -579,6 +648,11 @@ export function CallControlsBar({
   toggleHandRaise,
   setViewMode,
   onLeave,
+  onEndForAll,
+  leaveLabels,
+  micBlocked = false,
+  cameraBlocked = false,
+  permissionHelpLabels = DEFAULT_PERMISSION_HELP_LABELS,
   onToggleEffects,
   effectsOpen,
   isRecording,
@@ -610,24 +684,43 @@ export function CallControlsBar({
   );
   const { shareScreenAudio, toggleShareScreenAudio } = useShareScreenAudio(meeting, isScreenSharing);
 
+  // The More-options menu is controlled so the items that open a side panel
+  // (Host controls, Background effects, Start recording's dialog) can close it
+  // *first*. Left to Radix, the menu stayed open over the panel it had just
+  // opened: the panel mounts in the same commit that Radix is still restoring
+  // focus to the trigger. Closing, then running the action on the next frame,
+  // keeps the two apart.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const runAfterClose = useCallback((action: () => void) => {
+    setMoreOpen(false);
+    requestAnimationFrame(action);
+  }, []);
+
   return (
     <div className="flex items-center justify-center gap-3 p-4 bg-background/80 backdrop-blur">
       {/* Mic button + device chooser */}
-      <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isMuted ? "ring-red-400/40" : "ring-border")}>
-        <CallTooltip label={isMuted ? 'Turn on microphone' : 'Turn off microphone'}>
-          <Button
-            variant="secondary"
-            size="icon"
-            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isMuted ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
-            onClick={toggleMute}
-          >
-            {isMuted ? <MicOff className="!h-[20px] !w-[20px]" /> : <Mic className="!h-[20px] !w-[20px]" />}
-          </Button>
-        </CallTooltip>
+      <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isMuted || micBlocked ? "ring-red-400/40" : "ring-border")}>
+        {micBlocked ? (
+          <BlockedMediaButton kind="microphone" labels={permissionHelpLabels}>
+            <MicOff className="!h-[20px] !w-[20px]" />
+          </BlockedMediaButton>
+        ) : (
+          <CallTooltip label={isMuted ? 'Turn on microphone' : 'Turn off microphone'}>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label={isMuted ? 'Turn on microphone' : 'Turn off microphone'}
+              className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isMuted ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
+              onClick={toggleMute}
+            >
+              {isMuted ? <MicOff className="!h-[20px] !w-[20px]" /> : <Mic className="!h-[20px] !w-[20px]" />}
+            </Button>
+          </CallTooltip>
+        )}
 
         <DeviceMenu
           tooltip="Microphone options"
-          off={isMuted}
+          off={isMuted || micBlocked}
           devices={audioDevices}
           activeId={activeDeviceId}
           onChange={handleDeviceChange}
@@ -636,38 +729,45 @@ export function CallControlsBar({
       </div>
 
       {/* Camera button + device chooser */}
-      <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isVideoOff ? "ring-red-400/40" : "ring-border")}>
-        <CallTooltip label={isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
-          <Button
-            variant="secondary"
-            size="icon"
-            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isVideoOff ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
-            onClick={toggleVideo}
-          >
-            {isVideoOff ? (
-              <VideoOff className="!h-[20px] !w-[20px]" />
-            ) : (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="!h-[22px] !w-[22px]"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
-                />
-              </svg>
-            )}
-          </Button>
-        </CallTooltip>
+      <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isVideoOff || cameraBlocked ? "ring-red-400/40" : "ring-border")}>
+        {cameraBlocked ? (
+          <BlockedMediaButton kind="camera" labels={permissionHelpLabels}>
+            <VideoOff className="!h-[20px] !w-[20px]" />
+          </BlockedMediaButton>
+        ) : (
+          <CallTooltip label={isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+              className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isVideoOff ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
+              onClick={toggleVideo}
+            >
+              {isVideoOff ? (
+                <VideoOff className="!h-[20px] !w-[20px]" />
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className="!h-[22px] !w-[22px]"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
+                  />
+                </svg>
+              )}
+            </Button>
+          </CallTooltip>
+        )}
         <DeviceMenu
           tooltip="Camera options"
-          off={isVideoOff}
+          off={isVideoOff || cameraBlocked}
           devices={videoDevices}
           activeId={activeVideoDeviceId}
           onChange={handleVideoDeviceChange}
@@ -707,12 +807,13 @@ export function CallControlsBar({
 
       {/* More options */}
       <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
-        <DropdownMenu>
+        <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen}>
           <CallTooltip label="More options">
             <DropdownMenuTrigger asChild>
               <Button
                 variant="secondary"
                 size="icon"
+                aria-label="More options"
                 className="h-12 w-12 rounded-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110"
               >
                 <EllipsisVertical className="!h-[20px] !w-[20px]" />
@@ -727,12 +828,13 @@ export function CallControlsBar({
               stopRecording={stopRecording}
               pauseRecording={pauseRecording}
               resumeRecording={resumeRecording}
+              runAfterClose={runAfterClose}
             />
 
             {/* Background effects */}
             {onToggleEffects && showVirtualBackgrounds && (
               <>
-                <DropdownMenuItem onClick={onToggleEffects}>
+                <DropdownMenuItem onClick={() => runAfterClose(onToggleEffects)}>
                   <Image className="h-4 w-4 mr-0.5" />
                   Background effects
                   {effectsOpen && <Check className="h-4 w-4 ml-auto" />}
@@ -753,7 +855,7 @@ export function CallControlsBar({
             {onOpenSettings && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={onOpenSettings}>
+                <DropdownMenuItem onClick={() => runAfterClose(onOpenSettings)}>
                   <Settings className="h-4 w-4 mr-0.5" />
                   Host controls
                 </DropdownMenuItem>
@@ -764,16 +866,44 @@ export function CallControlsBar({
       </div>
 
       {/* Leave/End */}
-      <CallTooltip label="Leave call">
-        <Button
-          variant="destructive"
-          size="icon"
-          className="h-12 w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
-          onClick={onLeave}
-        >
-          <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
-        </Button>
-      </CallTooltip>
+      {onEndForAll ? (
+        <DropdownMenu>
+          <CallTooltip label={leaveLabels?.leave ?? 'Leave call'}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="destructive"
+                size="icon"
+                aria-label={leaveLabels?.leave ?? 'Leave call'}
+                className="h-12 w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+              >
+                <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
+              </Button>
+            </DropdownMenuTrigger>
+          </CallTooltip>
+          <DropdownMenuContent side="top" align="end" sideOffset={7} className="w-56">
+            <DropdownMenuItem onClick={onLeave}>
+              <LogOut className="h-4 w-4 mr-0.5" />
+              {leaveLabels?.leaveMeeting ?? 'Leave meeting'}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onEndForAll} className="text-red-500 focus:text-red-500">
+              <Phone className="h-4 w-4 mr-0.5 rotate-[135deg]" />
+              {leaveLabels?.endForAll ?? 'End meeting for all'}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <CallTooltip label={leaveLabels?.leave ?? 'Leave call'}>
+          <Button
+            variant="destructive"
+            size="icon"
+            aria-label={leaveLabels?.leave ?? 'Leave call'}
+            className="h-12 w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+            onClick={onLeave}
+          >
+            <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
+          </Button>
+        </CallTooltip>
+      )}
 
       {/* Extra controls slot */}
       {extraControls}

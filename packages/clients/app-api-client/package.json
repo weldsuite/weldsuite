@@ -42,8 +42,8 @@
     "./schemas/mail-threads": "./src/schemas/mail-threads.ts",
     "./schemas/mail-weldmail": "./src/schemas/mail-weldmail.ts",
     "./schemas/mail-ai": "./src/schemas/mail-ai.ts",
-    "./schemas/meeting-bot-sessions": "./src/schemas/meeting-bot-sessions.ts",
     "./schemas/transcriptions": "./src/schemas/transcriptions.ts",
+    "./schemas/weldmeet-recordings": "./src/schemas/weldmeet-recordings.ts",
     "./schemas/call-intelligence": "./src/schemas/call-intelligence.ts",
     "./schemas/customer-statuses": "./src/schemas/customer-statuses.ts",
     "./schemas/custom-fields": "./src/schemas/custom-fields.ts",
@@ -70,6 +70,7 @@
     "./schemas/account": "./src/schemas/account.ts",
     "./schemas/feature-flags": "./src/schemas/feature-flags.ts",
     "./schemas/push-tokens": "./src/schemas/push-tokens.ts",
+    "./schemas/meeting-sessions": "./src/schemas/meeting-sessions.ts",
     "./schemas/weldagent": "./src/schemas/weldagent.ts",
     "./schemas/weldagent-parity": "./src/schemas/weldagent-parity.ts",
     "./schemas/workspace-agents": "./src/schemas/workspace-agents.ts",
@@ -106,6 +107,7 @@
     "./domains/wms-suppliers": "./src/domains/wms-suppliers.ts",
     "./domains/feature-flags": "./src/domains/feature-flags.ts",
     "./domains/push-tokens": "./src/domains/push-tokens.ts",
+    "./domains/meeting-sessions": "./src/domains/meeting-sessions.ts",
     "./domains/workspaces": "./src/domains/workspaces.ts",
     "./domains/mailboxes": "./src/domains/mailboxes.ts",
     "./domains/me": "./src/domains/me.ts",
@@ -130,6 +132,7 @@
     "./domains/search": "./src/domains/search.ts",
     "./domains/access-requests": "./src/domains/access-requests.ts",
     "./domains/weldpass": "./src/domains/weldpass.ts",
+    "./domains/weldmeet-recordings": "./src/domains/weldmeet-recordings.ts",
     "./domains/weldhr": "./src/domains/weldhr.ts"
   },
   "dependencies": {

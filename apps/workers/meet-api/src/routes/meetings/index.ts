@@ -6,21 +6,26 @@
  *
  * Action endpoints (static paths registered BEFORE /:id):
  *   GET  /upcoming          — upcoming meetings for the current user
- *   GET  /recordings        — sessions with a recording URL or pending key
+ *   GET  /recordings        — recorded sessions (state only, never file URLs)
+ *   GET  /ai-pricing        — credits per meeting minute (transcript, summary) + balance
  *   GET  /join/:joinCode    — resolve meeting by join code
  *   POST /start-instant     — create + start + join in a single round-trip
- *   GET  /:id/recording              — recording URL (202 while still processing)
- *   POST /:id/recording/transcribe   — trigger transcription
- *   GET  /:id/recording/transcription        — full transcription + segments
- *   GET  /:id/recording/transcription-status — poll transcription status
+ *   GET  /:id/recording              — ALIAS: latest recorded session's state + fresh tokenized URLs
+ *   POST /:id/recording/transcribe   — ALIAS: Whisper over the latest recorded session (sessions:update)
+ *   GET  /:id/recording/transcription        — ALIAS: session transcript, legacy meeting-keyed fallback
+ *   GET  /:id/recording/transcription-status — ALIAS: poll transcription status
  *   PATCH /:id/cancel                — cancel meeting (sendNotification=true)
+ *
+ * The per-meeting recording routes are thin aliases for the session-scoped ones
+ * in meeting-sessions (services/weldmeet/session-recording.ts is the source of
+ * truth); they resolve the meeting's latest session that has recorder state.
  */
 
 import { Hono } from 'hono';
 import { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, like, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   hasContextPermission,
   requirePermission,
@@ -29,6 +34,9 @@ import {
   createMeetingSchema,
   inviteMeetingAttendeesSchema,
   updateMeetingSchema,
+  type CreateMeetingInput,
+  type MeetingAttendeeWriteInput,
+  type UpdateMeetingInput,
 } from '@weldsuite/core-api-client/schemas/meetings';
 import { hostControlsSchema, DEFAULT_HOST_CONTROLS } from '@weldsuite/core-api-client/schemas/weldmeet';
 import type { Env, Variables } from '../../types';
@@ -36,7 +44,24 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { getRecordings } from '@weldsuite/cloudflare-realtime';
+import {
+  MeetingBillingUnavailableError,
+  getMeetingAiPricing,
+  getMeetingBalance,
+  resolveMeetingMetering,
+} from '@weldsuite/meet-domain/billing';
+import { findSessionTranscription } from '@weldsuite/meet-domain/transcript-store';
+import { transcribeRecordingSchema } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
+import {
+  authorizeSession,
+  buildRecordingInfo,
+  buildTranscriptionPayload,
+  buildTranscriptionStatus,
+  findLatestRecordedSession,
+  isResponse,
+  mintRecordingAccess,
+  transcribeRecording,
+} from '../../services/weldmeet/session-recording';
 import { startInstantMeeting } from '../../services/weldmeet/start-instant';
 import { generateJoinCode } from '../../services/weldmeet/join-code';
 import { publishMeetingUpdated } from '../../services/realtime/weldmeet-publisher';
@@ -47,6 +72,7 @@ import {
   mergeInvitees,
   normalizeInvitees,
   sendInvitationEmail,
+  toMeetingAttendees,
   type ResolvedInvitee,
 } from '../../services/weldmeet/invitations';
 import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
@@ -144,7 +170,143 @@ function buildListFilters(q: Record<string, string>, scope: string | undefined):
       sql`(${t.attendees} @> ${byPerson}::jsonb OR ${t.attendees} @> ${byContact}::jsonb)`,
     );
   }
+  const view = viewCondition(q.view);
+  if (view) conditions.push(view);
   return conditions;
+}
+
+/**
+ * `?view=` presets for the platform's Upcoming / History pages.
+ *
+ * upcoming: not finished yet. Running meetings always count; a scheduled one
+ *   counts until its end (or start + 1h without an end); unscheduled "for
+ *   later" rooms never expire.
+ * history: finished, failed or cancelled meetings, plus any meeting that has
+ *   an ended session. Instant and "for later" meetings go back to 'scheduled'
+ *   when their session ends so the link stays reusable, so the session is
+ *   what puts them in the history.
+ */
+function viewCondition(view: string | undefined): SQL | undefined {
+  if (view === 'upcoming') {
+    return sql`(${t.status} IN ('scheduled', 'in_progress') AND (${t.status} = 'in_progress' OR ${t.scheduledStart} IS NULL OR coalesce(${t.scheduledEnd}, ${t.scheduledStart} + interval '1 hour') >= (now() AT TIME ZONE 'utc')))`;
+  }
+  if (view === 'history') {
+    return sql`(${t.status} IN ('completed', 'failed', 'cancelled') OR EXISTS (SELECT 1 FROM meeting_sessions ms WHERE ms.meeting_id = ${t.id} AND ms.status = 'ended'))`;
+  }
+  return undefined;
+}
+
+type MeetingRow = typeof t.$inferSelect;
+
+interface MeetingOrganizer {
+  userId: string;
+  name: string;
+  avatar: string | null;
+}
+
+interface MeetingLastSession {
+  id: string;
+  status: string;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  /** Seconds. */
+  duration: number | null;
+  recordingStatus: string | null;
+  participants: Array<{
+    userId: string;
+    userName: string;
+    userAvatar?: string;
+    joinedAt: string;
+    leftAt?: string;
+    firstJoinedAt?: string;
+    priorSeconds?: number;
+    stints?: number;
+  }>;
+}
+
+/** Workspace members by user id, for the `organizer` on every list item (one query). */
+async function loadOrganizers(
+  db: Database,
+  organizerIds: string[],
+): Promise<Map<string, MeetingOrganizer>> {
+  const out = new Map<string, MeetingOrganizer>();
+  if (organizerIds.length === 0) return out;
+  const { workspaceMembers } = schema;
+  const members = await db
+    .select({
+      userId: workspaceMembers.userId,
+      name: workspaceMembers.name,
+      email: workspaceMembers.email,
+      avatar: workspaceMembers.picture,
+    })
+    .from(workspaceMembers)
+    .where(inArray(workspaceMembers.userId, organizerIds));
+  for (const m of members) {
+    if (!out.has(m.userId)) {
+      out.set(m.userId, { userId: m.userId, name: m.name || m.email || '', avatar: m.avatar ?? null });
+    }
+  }
+  return out;
+}
+
+/** The newest session (by createdAt) of each meeting, in one query. */
+async function loadLastSessions(
+  db: Database,
+  meetingIds: string[],
+): Promise<Map<string, MeetingLastSession>> {
+  const out = new Map<string, MeetingLastSession>();
+  if (meetingIds.length === 0) return out;
+  const { meetingSessions } = schema;
+  const rows = await db
+    .selectDistinctOn([meetingSessions.meetingId], {
+      meetingId: meetingSessions.meetingId,
+      id: meetingSessions.id,
+      status: meetingSessions.status,
+      startedAt: meetingSessions.startedAt,
+      endedAt: meetingSessions.endedAt,
+      duration: meetingSessions.duration,
+      recordingStatus: meetingSessions.recordingStatus,
+      participants: meetingSessions.participants,
+    })
+    .from(meetingSessions)
+    .where(inArray(meetingSessions.meetingId, meetingIds))
+    .orderBy(meetingSessions.meetingId, desc(meetingSessions.createdAt), desc(meetingSessions.id));
+  for (const r of rows) {
+    out.set(r.meetingId, {
+      id: r.id,
+      status: r.status,
+      startedAt: r.startedAt,
+      endedAt: r.endedAt,
+      duration: r.duration,
+      recordingStatus: r.recordingStatus,
+      participants: (r.participants ?? []).map((p) => ({
+        userId: p.userId,
+        userName: p.userName,
+        userAvatar: p.userAvatar,
+        joinedAt: p.joinedAt,
+        leftAt: p.leftAt,
+        firstJoinedAt: p.firstJoinedAt,
+        priorSeconds: p.priorSeconds,
+        stints: p.stints,
+      })),
+    });
+  }
+  return out;
+}
+
+/** List items: the meeting row plus `organizer` and, with `?include=lastSession`, `lastSession`. */
+async function decorateMeetings(db: Database, rows: MeetingRow[], include: Set<string>) {
+  const [organizers, lastSessions] = await Promise.all([
+    loadOrganizers(db, [...new Set(rows.map((r) => r.organizerId))]),
+    include.has('lastSession')
+      ? loadLastSessions(db, rows.map((r) => r.id))
+      : Promise.resolve(null),
+  ]);
+  return rows.map((row) => ({
+    ...row,
+    organizer: organizers.get(row.organizerId) ?? null,
+    ...(lastSessions ? { lastSession: lastSessions.get(row.id) ?? null } : {}),
+  }));
 }
 
 app.get('/', requirePermission('meetings:read'), async (c) => {
@@ -177,7 +339,9 @@ app.get('/', requirePermission('meetings:read'), async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
+    const include = new Set((q.include ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    const items = await decorateMeetings(db, data, include);
+    return list(c, items, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/meetings] list failed:', err);
     return error.internal(c, 'Failed to list meetings');
@@ -231,9 +395,12 @@ app.get('/upcoming', requirePermission('meetings:read'), async (c) => {
 });
 
 /**
- * GET /recordings - List sessions with a recording URL or pending key.
- * For rows with recordingKey but no recordingUrl, attempts to resolve
- * the URL from Cloudflare RealtimeKit and persists it.
+ * GET /recordings - Recorded sessions the caller may see (own meetings unless
+ * meetings:scope:all), newest first. State only: no RealtimeKit calls and no
+ * file URLs (`recordingUrl` is always null). Call
+ * POST /meeting-sessions/:id/recording/access to play or download one.
+ * Legacy rows that predate the recorder state (recordingStatus null) are still
+ * listed until the backfill gives them a status.
  */
 app.get('/recordings', requirePermission('meetings:read'), async (c) => {
   const orgId = c.get('orgId');
@@ -248,9 +415,13 @@ app.get('/recordings', requirePermission('meetings:read'), async (c) => {
       .select({
         sessionId: meetingSessions.id,
         meetingId: meetingSessions.meetingId,
-        recordingUrl: meetingSessions.recordingUrl,
-        recordingKey: meetingSessions.recordingKey,
         cfAppId: meetingSessions.cfAppId,
+        recordingStatus: meetingSessions.recordingStatus,
+        recordingAudioKey: meetingSessions.recordingAudioKey,
+        recordingDurationSeconds: meetingSessions.recordingDurationSeconds,
+        recordingSizeBytes: meetingSessions.recordingSizeBytes,
+        summaryStatus: meetingSessions.summaryStatus,
+        hasTranscript: sql<boolean>`EXISTS (SELECT 1 FROM crm_transcriptions ct WHERE ct.activity_id = ${meetingSessions.id} AND ct.status = 'completed')`,
         startedAt: meetingSessions.startedAt,
         endedAt: meetingSessions.endedAt,
         duration: meetingSessions.duration,
@@ -263,9 +434,11 @@ app.get('/recordings', requirePermission('meetings:read'), async (c) => {
       .where(
         and(
           or(
-            sql`${meetingSessions.recordingUrl} IS NOT NULL`,
-            sql`${meetingSessions.recordingKey} IS NOT NULL`,
+            isNotNull(meetingSessions.recordingStatus),
+            isNotNull(meetingSessions.recordingUrl),
+            isNotNull(meetingSessions.recordingKey),
           ),
+          or(isNull(meetingSessions.recordingStatus), ne(meetingSessions.recordingStatus, 'deleted')),
           isNull(t.deletedAt),
           // Organizer scope: own recordings only unless meetings:scope:all.
           scope ? eq(t.organizerId, scope) : undefined,
@@ -274,28 +447,40 @@ app.get('/recordings', requirePermission('meetings:read'), async (c) => {
       .orderBy(desc(meetingSessions.startedAt))
       .limit(50);
 
-    // For sessions with a recordingKey but no recordingUrl, try to resolve
-    for (const row of rows) {
-      if (!row.recordingUrl && row.recordingKey) {
-        try {
-          const rtkId = row.cfAppId ?? row.recordingKey;
-          const recs = await getRecordings(c.env, rtkId);
-          const found = recs.find((r: any) => r.download_url);
-          if (found?.download_url) {
-            (row as any).recordingUrl = found.download_url;
-            await db
-              .update(meetingSessions)
-              .set({ recordingUrl: found.download_url, updatedAt: new Date() })
-              .where(eq(meetingSessions.id, row.sessionId));
-          }
-        } catch { /* recording may still be processing */ }
-      }
-    }
-
-    return success(c, rows);
+    return success(
+      c,
+      rows.map(({ recordingAudioKey, summaryStatus, ...row }) => ({
+        ...row,
+        recordingUrl: null,
+        recordingKey: null,
+        hasAudio: Boolean(recordingAudioKey),
+        hasSummary: summaryStatus === 'completed',
+      })),
+    );
   } catch (err) {
-    console.error('[app-api/meetings] recordings failed:', err);
+    console.error('[meet-api/meetings] recordings failed:', err);
     return error.internal(c, 'Failed to list recordings');
+  }
+});
+
+/**
+ * GET /ai-pricing - Credits per MEETING MINUTE for a transcript and a summary
+ * (master system_settings `weldmeet.ai_pricing`, defaults when unset) plus the
+ * workspace balance, for the estimate in the start-recording dialog.
+ */
+app.get('/ai-pricing', requirePermission('meetings:read'), async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+  try {
+    const pricing = await getMeetingAiPricing(c.env);
+    const metering = await resolveMeetingMetering(c.env, orgId, c.get('userId'));
+    return success(c, { ...pricing, balance: await getMeetingBalance(metering) });
+  } catch (err) {
+    if (err instanceof MeetingBillingUnavailableError) {
+      return error.unavailable(c, 'Credit metering is unavailable for this workspace');
+    }
+    console.error('[meet-api/meetings] ai-pricing failed:', err);
+    return error.internal(c, 'Failed to load pricing');
   }
 });
 
@@ -601,307 +786,147 @@ app.post(
 );
 
 /**
- * GET /:id/recording - Recording URL for a meeting.
- * Returns 202 with processing indicator when the URL is not yet ready.
+ * The latest session of a meeting that has recorder state, after the meeting-level
+ * organizer check. Returns the Response to send when there is none / not allowed.
+ * With `legacyOk`, a meeting without such a session yields null instead of a 404
+ * (legacy meeting-keyed transcripts still resolve).
+ */
+async function resolveRecordedSession(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  meetingId: string,
+  { legacyOk = false }: { legacyOk?: boolean } = {},
+) {
+  const access = await canAccessMeetingById(c, meetingId);
+  if (access === 'not-found') return error.notFound(c, 'Meeting', meetingId);
+  if (access === 'denied') return error.forbidden(c, MEETING_DENIED);
+  const session = await findLatestRecordedSession(c.get('tenantDb'), meetingId);
+  if (!session && !legacyOk) return error.notFound(c, 'Recording');
+  return session;
+}
+
+/**
+ * GET /:id/recording - ALIAS for the latest recorded session. The session's
+ * recording state plus, once it is ready, fresh tokenized `url` / `audioUrl`
+ * (valid until `expiresAt`; never store them). Not ready yet: `url` is null and
+ * `status` says why (recording | processing | failed). A meeting that was never
+ * recorded answers 200 with `data: null` (an unknown meeting is still 404, no
+ * access 403), so "no recording" is not an error for the caller.
  */
 app.get('/:id/recording', requirePermission('meetings:read'), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
   const meetingId = c.req.param('id');
-
   try {
-    const db = c.get('tenantDb');
-    const access = await canAccessMeetingById(c, meetingId);
-    if (access === 'not-found') return error.notFound(c, 'Meeting', meetingId);
-    if (access === 'denied') return error.forbidden(c, MEETING_DENIED);
-    const { meetingSessions } = schema;
+    const session = await resolveRecordedSession(c, meetingId, { legacyOk: true });
+    if (session instanceof Response) return session;
+    if (!session) return success(c, null);
 
-    // Find the latest ended session with a recording (URL or pending key)
-    const [session] = await db
-      .select({
-        id: meetingSessions.id,
-        recordingUrl: meetingSessions.recordingUrl,
-        recordingKey: meetingSessions.recordingKey,
-        cfAppId: meetingSessions.cfAppId,
-        duration: meetingSessions.duration,
-      })
-      .from(meetingSessions)
-      .where(
-        and(
-          eq(meetingSessions.meetingId, meetingId),
-          eq(meetingSessions.status, 'ended'),
-          or(
-            sql`${meetingSessions.recordingUrl} IS NOT NULL`,
-            sql`${meetingSessions.recordingKey} IS NOT NULL`,
-          ),
-        ),
-      )
-      .orderBy(desc(meetingSessions.createdAt))
-      .limit(1);
+    const auth = await authorizeSession(c, session.id);
+    if (isResponse(auth)) return auth;
+    const info = await buildRecordingInfo(c.get('tenantDb'), session);
 
-    if (!session) return error.notFound(c, 'Recording');
-
-    if (session.recordingUrl) {
-      return success(c, {
-        url: session.recordingUrl,
-        sessionId: session.id,
-        duration: session.duration,
-      });
+    let access: { url: string; audioUrl: string | null; expiresAt: string } | null = null;
+    if (info.status === 'ready') {
+      const minted = await mintRecordingAccess(c, auth);
+      if (minted instanceof Response) return minted;
+      access = minted;
     }
+    return success(c, {
+      ...info,
+      duration: session.duration,
+      url: access?.url ?? null,
+      audioUrl: access?.audioUrl ?? null,
+      expiresAt: access?.expiresAt ?? null,
+    });
+  } catch (err) {
+    console.error('[meet-api/meetings] recording get failed:', err);
+    return error.internal(c, 'Failed to get recording');
+  }
+});
 
-    // URL not ready — try to fetch from Cloudflare
-    const cfId = session.recordingKey || session.cfAppId;
-    if (!cfId) return error.notFound(c, 'Recording');
+/**
+ * POST /:id/recording/transcribe - ALIAS: Whisper over the latest recorded
+ * session. Spends credits, so it needs sessions:update (not meetings:read).
+ */
+app.post(
+  '/:id/recording/transcribe',
+  requirePermission('sessions:update'),
+  requirePermission('recordings:read'),
+  async (c) => {
+    const orgId = c.get('orgId');
+    if (!orgId) return error.orgRequired(c);
+
+    let body: unknown = {};
+    try { body = await c.req.json(); } catch { /* no body is fine */ }
+    const parsed = transcribeRecordingSchema.safeParse(body);
+    if (!parsed.success) return error.badRequest(c, 'Invalid transcription options', parsed.error.flatten());
 
     try {
-      const recordings = await getRecordings(c.env, cfId);
-      const latest = recordings.find((r: any) => r.download_url);
-      if (latest?.download_url) {
-        await db
-          .update(meetingSessions)
-          .set({ recordingUrl: latest.download_url, updatedAt: new Date() })
-          .where(eq(meetingSessions.id, session.id));
-        return success(c, {
-          url: latest.download_url,
-          sessionId: session.id,
-          duration: session.duration,
-        });
-      }
-    } catch (e) {
-      console.error('[app-api/meetings] CF recording fetch failed:', e);
+      const session = await resolveRecordedSession(c, c.req.param('id'));
+      if (session instanceof Response) return session;
+      if (!session) return error.notFound(c, 'Recording');
+      return await transcribeRecording(c, session.id, parsed.data);
+    } catch (err) {
+      console.error('[meet-api/meetings] transcribe failed:', err);
+      return error.internal(c, 'Failed to trigger transcription');
     }
-
-    // Recording still processing
-    return c.json({ data: null, processing: true }, 202);
-  } catch (err) {
-    console.error('[app-api/meetings] recording get failed:', err);
-    return error.internal(c, 'Failed to get recording URL');
-  }
-});
-
-/** Remove a transcription and its segments (used to retry a failed attempt). */
-async function deleteTranscription(db: Database, transcriptionId: string): Promise<void> {
-  const { crmTranscriptions, crmTranscriptSegments } = schema;
-  await db
-    .delete(crmTranscriptSegments)
-    .where(eq(crmTranscriptSegments.transcriptionId, transcriptionId));
-  await db
-    .delete(crmTranscriptions)
-    .where(eq(crmTranscriptions.id, transcriptionId));
-}
-
-interface TranscribeWorkflowParams {
-  transcriptionId: string;
-  fileKey: string | undefined;
-  fileUrl: string | undefined;
-  language: string | undefined;
-  estimatedMinutes: number;
-  creditRate: number;
-  entityId: string;
-  workspaceId: string;
-}
+  },
+);
 
 /**
- * Dispatch the TRANSCRIBE_RECORDING Cloudflare Workflow. The binding is
- * guarded — if not present in this worker, log a warning.
+ * The transcription row for a meeting: the latest recorded session's first, then
+ * the legacy row keyed by meeting id (AssemblyAI era, read-only).
  */
-async function dispatchTranscribeWorkflow(env: Env, params: TranscribeWorkflowParams): Promise<void> {
-  const transcribeWorkflow = (env as any).TRANSCRIBE_RECORDING as Workflow | undefined;
-  if (!transcribeWorkflow) {
-    console.warn('[app-api/meetings] TRANSCRIBE_RECORDING binding not configured — skipping workflow dispatch');
-    return;
+async function findMeetingTranscription(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  meetingId: string,
+  session: Awaited<ReturnType<typeof findLatestRecordedSession>>,
+) {
+  const db = c.get('tenantDb');
+  if (session) {
+    const own = await findSessionTranscription(db, session.id);
+    if (own) return own;
   }
-  await transcribeWorkflow.create({ id: params.transcriptionId, params });
+  return findSessionTranscription(db, meetingId);
 }
 
 /**
- * POST /:id/recording/transcribe - Trigger transcription for a meeting recording
- */
-app.post('/:id/recording/transcribe', requirePermission('meetings:read'), async (c) => {
-  const orgId = c.get('orgId');
-  if (!orgId) return error.orgRequired(c);
-
-  const meetingId = c.req.param('id');
-  let body: { language?: string } = {};
-  try { body = await c.req.json(); } catch { /* no body is fine */ }
-
-  const DEFAULT_TRANSCRIPTION_CREDIT_RATE = 2; // credits per minute
-
-  try {
-    const db = c.get('tenantDb');
-    const access = await canAccessMeetingById(c, meetingId);
-    if (access === 'not-found') return error.notFound(c, 'Meeting', meetingId);
-    if (access === 'denied') return error.forbidden(c, MEETING_DENIED);
-    const { meetingSessions, crmTranscriptions } = schema;
-
-    // Find the latest ended session with a recording URL
-    const [session] = await db
-      .select({
-        id: meetingSessions.id,
-        recordingUrl: meetingSessions.recordingUrl,
-        recordingKey: meetingSessions.recordingKey,
-        cfAppId: meetingSessions.cfAppId,
-        duration: meetingSessions.duration,
-      })
-      .from(meetingSessions)
-      .where(
-        and(
-          eq(meetingSessions.meetingId, meetingId),
-          eq(meetingSessions.status, 'ended'),
-          or(
-            sql`${meetingSessions.recordingUrl} IS NOT NULL`,
-            sql`${meetingSessions.recordingKey} IS NOT NULL`,
-          ),
-        ),
-      )
-      .orderBy(desc(meetingSessions.createdAt))
-      .limit(1);
-
-    if (!session?.recordingUrl) {
-      return error.badRequest(c, 'No recording found for this meeting');
-    }
-
-    // Check if transcription already exists (keyed by meetingId as activityId)
-    const [existing] = await db
-      .select({ id: crmTranscriptions.id, status: crmTranscriptions.status })
-      .from(crmTranscriptions)
-      .where(eq(crmTranscriptions.activityId, meetingId))
-      .limit(1);
-
-    if (existing && existing.status !== 'failed') {
-      return success(c, {
-        id: existing.id,
-        message: 'Transcription already exists or is in progress',
-      });
-    }
-
-    // Delete a previous failed attempt and retry
-    if (existing?.status === 'failed') await deleteTranscription(db, existing.id);
-
-    const transcriptionId = generateId('trans');
-    const now = new Date();
-
-    await db.insert(crmTranscriptions).values({
-      id: transcriptionId,
-      activityId: meetingId,
-      status: 'pending',
-      language: body.language || 'en',
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Derive R2 file key from the public URL
-    const r2PublicUrl = c.env.R2_PUBLIC_URL || 'https://weldsuite-storage-test.weldsuite.org';
-    const fileKey = session.recordingUrl.startsWith(r2PublicUrl)
-      ? session.recordingUrl.slice(r2PublicUrl.length + 1)
-      : undefined;
-
-    const estimatedMinutes = session.duration ? Math.ceil(session.duration / 60) : 5;
-
-    // Dispatch the TRANSCRIBE_RECORDING Cloudflare Workflow (hosted in this
-    // worker under the transcribe-recording-v2* names since W4).
-    // The binding is guarded — if not present in this worker, log a warning.
-    await dispatchTranscribeWorkflow(c.env, {
-      transcriptionId,
-      fileKey,
-      fileUrl: fileKey ? undefined : session.recordingUrl,
-      language: body.language,
-      estimatedMinutes,
-      creditRate: DEFAULT_TRANSCRIPTION_CREDIT_RATE,
-      entityId: meetingId,
-      workspaceId: orgId,
-    });
-
-    return success(c, { id: transcriptionId, status: 'pending' }, 201);
-  } catch (err) {
-    console.error('[app-api/meetings] transcribe failed:', err);
-    return error.internal(c, 'Failed to trigger transcription');
-  }
-});
-
-/**
- * GET /:id/recording/transcription - Get full transcription with segments
+ * GET /:id/recording/transcription - ALIAS: full transcript + segments (and the
+ * session summary when there is one).
  */
 app.get('/:id/recording/transcription', requirePermission('meetings:read'), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
   const meetingId = c.req.param('id');
-
   try {
-    const db = c.get('tenantDb');
-    const access = await canAccessMeetingById(c, meetingId);
-    if (access === 'not-found') return error.notFound(c, 'Meeting', meetingId);
-    if (access === 'denied') return error.forbidden(c, MEETING_DENIED);
-    const { crmTranscriptions, crmTranscriptSegments } = schema;
-
-    const [transcription] = await db
-      .select()
-      .from(crmTranscriptions)
-      .where(eq(crmTranscriptions.activityId, meetingId))
-      .limit(1);
-
+    const session = await resolveRecordedSession(c, meetingId, { legacyOk: true });
+    if (session instanceof Response) return session;
+    const transcription = await findMeetingTranscription(c, meetingId, session);
     if (!transcription) return error.notFound(c, 'Transcription');
-
-    const segments = await db
-      .select()
-      .from(crmTranscriptSegments)
-      .where(eq(crmTranscriptSegments.transcriptionId, transcription.id))
-      .orderBy(asc(crmTranscriptSegments.sequenceNumber));
-
-    return success(c, {
-      ...transcription,
-      segments: segments.map((seg) => ({
-        ...seg,
-        start: seg.startTime,
-        end: seg.endTime,
-        speaker: seg.speakerLabel,
-      })),
-    });
+    return success(c, await buildTranscriptionPayload(c.get('tenantDb'), transcription, session));
   } catch (err) {
-    console.error('[app-api/meetings] transcription get failed:', err);
+    console.error('[meet-api/meetings] transcription get failed:', err);
     return error.internal(c, 'Failed to fetch transcription');
   }
 });
 
 /**
- * GET /:id/recording/transcription-status - Poll transcription status
+ * GET /:id/recording/transcription-status - ALIAS: poll transcript + summary status.
  */
 app.get('/:id/recording/transcription-status', requirePermission('meetings:read'), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
   const meetingId = c.req.param('id');
-
   try {
-    const db = c.get('tenantDb');
-    const access = await canAccessMeetingById(c, meetingId);
-    if (access === 'not-found') return error.notFound(c, 'Meeting', meetingId);
-    if (access === 'denied') return error.forbidden(c, MEETING_DENIED);
-    const { crmTranscriptions } = schema;
-
-    const [transcription] = await db
-      .select({
-        id: crmTranscriptions.id,
-        status: crmTranscriptions.status,
-        errorMessage: crmTranscriptions.errorMessage,
-        processingStartedAt: crmTranscriptions.processingStartedAt,
-        processingCompletedAt: crmTranscriptions.processingCompletedAt,
-        wordCount: crmTranscriptions.wordCount,
-        speakerCount: crmTranscriptions.speakerCount,
-      })
-      .from(crmTranscriptions)
-      .where(eq(crmTranscriptions.activityId, meetingId))
-      .limit(1);
-
-    if (!transcription) {
-      return success(c, { exists: false });
-    }
-
-    return success(c, { exists: true, ...transcription });
+    const session = await resolveRecordedSession(c, meetingId, { legacyOk: true });
+    if (session instanceof Response) return session;
+    const transcription = await findMeetingTranscription(c, meetingId, session);
+    return success(c, buildTranscriptionStatus(transcription, session));
   } catch (err) {
-    console.error('[app-api/meetings] transcription-status failed:', err);
+    console.error('[meet-api/meetings] transcription-status failed:', err);
     return error.internal(c, 'Failed to fetch transcription status');
   }
 });
@@ -926,34 +951,243 @@ app.get('/:id', requirePermission('meetings:read'), async (c) => {
   }
 });
 
+/** Fields the create / update schemas let a client write, converted to column values. */
+type MeetingWritable = Partial<
+  Pick<
+    typeof t.$inferInsert,
+    | 'title'
+    | 'description'
+    | 'meetingType'
+    | 'accessType'
+    | 'waitingRoom'
+    | 'allowRecording'
+    | 'maxParticipants'
+    | 'attendees'
+    | 'scheduledStart'
+    | 'scheduledEnd'
+    | 'calendarEventId'
+    | 'isRecurring'
+    | 'recurrenceRule'
+    | 'tags'
+  >
+>;
+
+/** ISO string to `Date`; `null` clears the column, `undefined` leaves it out. */
+function toDate(value: string | null | undefined): Date | null | undefined {
+  if (value === undefined || value === null) return value;
+  return new Date(value);
+}
+
+const normalizeEmail = (email: string | undefined): string => (email ?? '').trim().toLowerCase();
+
+/**
+ * Turn the attendees a client sent into the stored shape. The client only
+ * decides WHO is on the meeting (email) and the display bits (name, avatar,
+ * RSVP status). Everything that grants identity or timeline access is
+ * server-owned, because a session end logs a CRM activity on every attendee's
+ * `personId` and `userId` / `source` / `role` feed access checks:
+ *
+ *  - an attendee already stored on the meeting (same email) keeps its stored
+ *    userId, role, source and links, so the platform can PATCH the stored shape
+ *    back without losing them;
+ *  - a new attendee is resolved from the email (workspace member, else an
+ *    existing or auto-created Person), never from client-supplied ids;
+ *  - `role: 'organizer'` can never be asked for: it is only ever set by
+ *    withOrganizerAttendee().
+ */
+async function resolveAttendeeWrites(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  db: Database,
+  inputs: MeetingAttendeeWriteInput[],
+  stored: MeetingAttendee[],
+): Promise<MeetingAttendee[]> {
+  const storedByEmail = new Map<string, MeetingAttendee>();
+  for (const a of stored) storedByEmail.set(normalizeEmail(a.email), a);
+
+  const seen = new Set<string>();
+  const unique: MeetingAttendeeWriteInput[] = [];
+  for (const input of inputs) {
+    const email = normalizeEmail(input.email);
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    unique.push(input);
+  }
+
+  const workspaceKey = c.get('orgId') ?? c.get('workspaceId') ?? '';
+  const resolved = await Promise.all(
+    unique.map(async (input): Promise<Partial<MeetingAttendee> & { email: string }> => {
+      const email = normalizeEmail(input.email);
+      const display = {
+        ...(input.status ? { status: input.status } : {}),
+      };
+      const existing = storedByEmail.get(email);
+      if (existing) {
+        return {
+          ...existing,
+          ...(input.name ? { name: input.name } : {}),
+          ...(input.avatar ? { avatar: input.avatar } : {}),
+          ...display,
+        };
+      }
+      const link = await resolveParticipantLink(db, c.env, workspaceKey, { email, name: input.name });
+      const avatar = input.avatar || link.avatarUrl;
+      return {
+        email,
+        name: input.name || link.displayName,
+        ...(avatar ? { avatar } : {}),
+        ...display,
+        role: 'attendee',
+        ...(link.workspaceMemberId ? { workspaceMemberId: link.workspaceMemberId } : {}),
+        ...(link.personId ? { personId: link.personId } : {}),
+      };
+    }),
+  );
+
+  // Members carry their user id on the attendee (invited-member checks use it).
+  const memberIds = [...new Set(resolved.map((a) => a.workspaceMemberId).filter((v): v is string => !!v))];
+  if (memberIds.length > 0) {
+    const members = await db
+      .select({ id: schema.workspaceMembers.id, userId: schema.workspaceMembers.userId })
+      .from(schema.workspaceMembers)
+      .where(inArray(schema.workspaceMembers.id, memberIds));
+    const userIdByMember = new Map(members.map((m) => [m.id, m.userId]));
+    for (const a of resolved) {
+      if (a.workspaceMemberId && a.userId === undefined) a.userId = userIdByMember.get(a.workspaceMemberId) ?? '';
+    }
+  }
+
+  return toMeetingAttendees(resolved);
+}
+
+/**
+ * The ONLY path from a request body to meeting columns. Builds the write set
+ * field by field, so nothing a client adds to the JSON (id, status, deletedAt,
+ * activeSessionId, joinCode, organizerId, host controls, ...) can reach the
+ * insert / update, whatever the schema lets through. Absent keys stay absent so
+ * PATCH leaves those columns alone. `attendees` are the already server-resolved
+ * list (see resolveAttendeeWrites), never the client's.
+ */
+function pickWritableMeetingFields(
+  data: CreateMeetingInput | UpdateMeetingInput,
+  attendees: MeetingAttendee[] | undefined,
+): MeetingWritable {
+  const candidate: MeetingWritable = {
+    title: data.title,
+    description: data.description,
+    meetingType: data.meetingType,
+    accessType: data.accessType,
+    waitingRoom: data.waitingRoom,
+    allowRecording: data.allowRecording,
+    maxParticipants: data.maxParticipants,
+    attendees,
+    scheduledStart: toDate(data.scheduledStart),
+    scheduledEnd: toDate(data.scheduledEnd),
+    calendarEventId: data.calendarEventId,
+    isRecurring: data.isRecurring,
+    recurrenceRule: data.recurrenceRule,
+    tags: data.tags,
+  };
+  return Object.fromEntries(
+    Object.entries(candidate).filter(([, value]) => value !== undefined),
+  ) as MeetingWritable;
+}
+
+/**
+ * Put the organizer first in the attendee list (role organizer, accepted) unless
+ * they are already on it, resolved from workspace_members the way
+ * start-instant does. Without a member row there is nothing to show, so the
+ * list is left as sent.
+ */
+async function withOrganizerAttendee(
+  db: Database,
+  attendees: MeetingAttendee[],
+  organizerId: string,
+): Promise<MeetingAttendee[]> {
+  const { workspaceMembers } = schema;
+  const [member] = await db
+    .select({
+      id: workspaceMembers.id,
+      name: workspaceMembers.name,
+      email: workspaceMembers.email,
+      picture: workspaceMembers.picture,
+    })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.userId, organizerId))
+    .limit(1);
+  if (!member) return attendees;
+
+  const email = member.email?.trim().toLowerCase() ?? '';
+  const isOrganizer = (a: MeetingAttendee) => a.userId === organizerId || (email !== '' && a.email === email);
+  if (attendees.some(isOrganizer)) {
+    // Clients cannot ask for role 'organizer'; it is granted here, by identity.
+    return attendees.map((a) =>
+      isOrganizer(a) ? { ...a, userId: organizerId, role: 'organizer' as const, status: 'accepted' as const } : a,
+    );
+  }
+
+  const organizer: MeetingAttendee = {
+    userId: organizerId,
+    email,
+    name: member.name || email || 'Organizer',
+    status: 'accepted',
+    role: 'organizer',
+    workspaceMemberId: member.id,
+    ...(member.picture ? { avatar: member.picture } : {}),
+  };
+  return [organizer, ...attendees];
+}
+
 app.post('/', requirePermission('meetings:create'), zValidator('json', createMeetingSchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json');
   const userId = c.get('userId');
   const id = generateId('mtg');
   const now = new Date();
-  // `organizerId` is NOT NULL at the DB; default to the caller when the
-  // body doesn't pass one.
-  const organizerId =
-    typeof data.organizerId === 'string' && data.organizerId.length > 0
-      ? data.organizerId
-      : userId;
+  // `organizerId` is NOT NULL at the DB. Creating on behalf of someone else is
+  // for callers with meetings:scope:all only; everyone else organizes their own.
+  let organizerId = userId;
+  if (data.organizerId && data.organizerId !== userId && (await scopeFor(c)) === undefined) {
+    // The organizer must be a member of this workspace, or the meeting would be
+    // owned by (and its attendee list, CRM activities and host rights granted to)
+    // an arbitrary user id.
+    const [member] = await db
+      .select({ id: schema.workspaceMembers.id })
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.userId, data.organizerId))
+      .limit(1);
+    if (!member) return error.badRequest(c, 'organizerId is not a member of this workspace');
+    organizerId = data.organizerId;
+  }
   // Waiting room defaults ON for every newly created meeting — guests joining
   // via the share link land in the lobby and the host admits them. Callers can
   // still opt out by explicitly passing `waitingRoom: false`.
-  const waitingRoom = typeof data.waitingRoom === 'boolean' ? data.waitingRoom : true;
+  const waitingRoom = data.waitingRoom ?? true;
   // Every meeting needs a join code: it is the identifier in the public share
   // link (`<portal>/<workspace>/<joinCode>`). Generated server-side like the
   // start-instant path; a client-supplied value is not trusted.
   const joinCode = generateJoinCode();
   try {
-    await db.insert(t).values({ id, ...data, joinCode, waitingRoom, organizerId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    const resolvedAttendees = data.attendees ? await resolveAttendeeWrites(c, db, data.attendees, []) : undefined;
+    const writable = pickWritableMeetingFields(data, resolvedAttendees);
+    const attendees = await withOrganizerAttendee(db, writable.attendees ?? [], organizerId);
+    // Server-owned values come last, so no client key can override them.
+    await db.insert(t).values({
+      ...writable,
+      title: data.title,
+      attendees,
+      id,
+      joinCode,
+      waitingRoom,
+      organizerId,
+      createdAt: now,
+      updatedAt: now,
+    });
     publishEntityEvent({
       c,
       entityType: 'meeting',
       entityId: id,
       action: 'created',
-      data: { id, title: data.title, status: data.status, hostId: organizerId },
+      data: { id, title: data.title, status: 'scheduled', hostId: organizerId },
     });
     return success(c, { id, joinCode }, 201);
   } catch (err) {
@@ -965,15 +1199,19 @@ app.post('/', requirePermission('meetings:create'), zValidator('json', createMee
 app.patch('/:id', requirePermission('meetings:update'), zValidator('json', updateMeetingSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json');
   const scope = await scopeFor(c);
-  const conditions: any[] = [eq(t.id, id), isNull(t.deletedAt)];
+  const conditions: SQL[] = [eq(t.id, id), isNull(t.deletedAt)];
   if (scope) conditions.push(eq(t.organizerId, scope));
   try {
     const [existing] = await db.select().from(t).where(and(...conditions)).limit(1);
     if (!existing) return error.notFound(c, 'Meeting', id);
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    // Links on attendees are re-resolved server-side; ones already stored for the
+    // same email are kept, so the platform can PATCH the stored shape back.
+    const resolvedAttendees = data.attendees
+      ? await resolveAttendeeWrites(c, db, data.attendees, (existing.attendees ?? []) as MeetingAttendee[])
+      : undefined;
+    const update = { ...pickWritableMeetingFields(data, resolvedAttendees), updatedAt: new Date() };
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
       c,
@@ -982,8 +1220,8 @@ app.patch('/:id', requirePermission('meetings:update'), zValidator('json', updat
       action: 'updated',
       data: {
         id,
-        title: (update.title as string | null | undefined) ?? existing.title,
-        status: (update.status as string | null | undefined) ?? existing.status,
+        title: update.title ?? existing.title,
+        status: existing.status,
         hostId: existing.organizerId,
       },
     });

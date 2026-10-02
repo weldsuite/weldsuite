@@ -10,7 +10,9 @@
  * - Same activeSessionId invariant: meeting.activeSessionId points at the
  *   inserted session row.
  * - Webhook resolution preserved: writes the same `rtk-meeting:<rtkId>` KV
- *   mapping the legacy `/sessions/start` route does.
+ *   mapping the legacy `/sessions/start` route does, plus the 14-day
+ *   `rtk-session:<rtkId>` one the post-meeting webhooks (recording, transcript,
+ *   summary) resolve through.
  * - First participant is added with the HOST preset.
  *
  * Ported from apps/core-api/src/services/weldmeet/start-instant.ts.
@@ -30,6 +32,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { generateJoinCode } from './join-code';
 import { resolveParticipantLink } from '../../lib/participant-resolver';
+import { RTK_SESSION_MAPPING_TTL_SECONDS, rtkSessionMappingKey } from '../rtk-webhook';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
 
 export interface StartInstantMeetingParams {
@@ -70,7 +73,7 @@ export async function startInstantMeeting(
   const { meetings, meetingSessions } = schema;
   const { userId, orgId, user, input } = params;
 
-  const meetingId = generateId('meet');
+  const meetingId = generateId('mtg');
   const sessionId = generateId('msess');
   const joinCode = generateJoinCode();
   const now = new Date();
@@ -88,7 +91,10 @@ export async function startInstantMeeting(
   // createRtkMeeting (Cloudflare REST roundtrip) and resolveParticipantLink
   // (tenant-DB lookup) are independent — run concurrently.
   const [rtkMeeting, organizerLink] = await Promise.all([
-    createRtkMeeting(env, title),
+    // audioExport: also keep an audio-only MP3 next to any recording (needed for
+    // "transcribe afterwards" and the audio player). Instant meetings never
+    // auto-record (meetings.autoRecord defaults false), so no recordOnStart.
+    createRtkMeeting(env, title, { audioExport: true }),
     resolveParticipantLink(db, env, orgId, {
       userId,
       email: user.email,
@@ -164,13 +170,23 @@ export async function startInstantMeeting(
   });
   timings.dbWrite = Date.now() - t0;
 
-  // KV mapping for inbound webhook resolution — fire and forget.
+  // KV mappings for inbound webhook resolution — fire and forget. `rtk-meeting:`
+  // is the 24 h live mapping (deleted at session end); `rtk-session:` is the 14-day
+  // one that lets recording / transcript / summary webhooks find the session after.
+  const kv = env.WORKSPACE_CACHE as KVNamespace;
   ctx.waitUntil(
-    (env.WORKSPACE_CACHE as KVNamespace).put(
-      `rtk-meeting:${rtkMeeting.id}`,
-      JSON.stringify({ orgId, type: 'session', sessionId, meetingId }),
-      { expirationTtl: 86400 },
-    ).catch((e) => console.warn('[StartInstant] KV write failed (non-fatal):', e)),
+    Promise.all([
+      kv.put(
+        `rtk-meeting:${rtkMeeting.id}`,
+        JSON.stringify({ orgId, type: 'session', sessionId, meetingId }),
+        { expirationTtl: 86400 },
+      ),
+      kv.put(
+        rtkSessionMappingKey(rtkMeeting.id),
+        JSON.stringify({ orgId, sessionId, meetingId }),
+        { expirationTtl: RTK_SESSION_MAPPING_TTL_SECONDS },
+      ),
+    ]).catch((e) => console.warn('[StartInstant] KV write failed (non-fatal):', e)),
   );
 
   timings.total = Date.now() - t0;

@@ -116,6 +116,8 @@ export interface ParticipantTileProps {
    * guests (meeting portal) never get these actions.
    */
   canManageParticipants?: boolean;
+  /** Host app's "Remove from call" handler; falls back to `participant.kick()` when omitted. */
+  onRemoveParticipant?: (participant: MeetingPeer) => void | Promise<void>;
 }
 
 interface TileClassOptions {
@@ -132,8 +134,11 @@ function tileClassName({ showColoredTile, clickable, pinned, isSpeaking, isHandR
     !showColoredTile && 'bg-muted',
     clickable && 'cursor-pointer',
     pinned && 'ring-2 ring-primary ring-offset-1 ring-offset-background !aspect-auto h-full',
-    isSpeaking && !pinned && 'ring-2 ring-green-500 ring-offset-1 ring-offset-background',
-    isHandRaised && !isSpeaking && !pinned && 'ring-2 ring-yellow-500 ring-offset-1 ring-offset-background',
+    isSpeaking && !isHandRaised && !pinned && 'ring-2 ring-green-500 ring-offset-1 ring-offset-background',
+    // A raised hand keeps its ring whatever the audio state; if the person is
+    // also speaking, the speaking colour stays visible as the offset band.
+    isHandRaised && !pinned && 'ring-2 ring-yellow-500 ring-offset-2',
+    isHandRaised && !pinned && (isSpeaking ? 'ring-offset-green-500' : 'ring-offset-background'),
   );
 }
 
@@ -167,7 +172,7 @@ function TileNameTag({ participant, name, isSelf, ringing, localMuted, onClickDe
   );
 }
 
-export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false }: ParticipantTileProps) {
+export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false, onRemoveParticipant }: ParticipantTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [volume, setVolume] = useState(100);
@@ -340,6 +345,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
           onVolumeChange={setVolume}
           onLocalMutedChange={setLocalMuted}
           canManageParticipants={canManageParticipants}
+          onRemoveParticipant={onRemoveParticipant}
         />
       )}
     </div>

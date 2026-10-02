@@ -374,5 +374,66 @@ export async function getTenantDbByWorkspaceId(workspaceId: string) {
   };
 }
 
+/**
+ * Thrown by {@link getExistingTenantDb} when no active workspace matches the
+ * given id. Public, unauthenticated callers (the meeting portal) map it to a
+ * 404 instead of letting an unknown id surface as a 500.
+ */
+export class TenantNotFoundError extends Error {
+  readonly code = 'TENANT_NOT_FOUND' as const;
+  constructor(id: string) {
+    super(`No active workspace found for ${id}`);
+    this.name = 'TenantNotFoundError';
+  }
+}
+
+/** Duck-typed check that also works across duplicated module instances. */
+export function isTenantNotFoundError(err: unknown): err is TenantNotFoundError {
+  return (
+    err instanceof TenantNotFoundError ||
+    (typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'TENANT_NOT_FOUND')
+  );
+}
+
+/**
+ * Resolve a tenant database from a workspace id OR a Clerk org id WITHOUT
+ * ever provisioning anything. Unlike {@link getTenantDb}, an unknown id does
+ * not create a phantom `workspaces` row: it throws {@link TenantNotFoundError}.
+ * Meant for public routes whose id comes from a URL anyone can edit.
+ */
+export async function getExistingTenantDb(id: string) {
+  // Same workspace-info cache the authenticated paths use (`ws:` / `org:` keys;
+  // only fully provisioned, active workspaces are ever stored), so the portal's
+  // polled routes do not hit the master DB on every request.
+  const cached = getCachedWorkspaceInfo(`ws:${id}`) ?? getCachedWorkspaceInfo(`org:${id}`);
+  if (cached?.workspace.isActive && cached.workspace.databaseUrl) {
+    const { workspace, tier } = cached;
+    // Seed the id-keyed entry so getTenantDbByWorkspaceId below is cache-only too.
+    if (!getCachedWorkspaceInfo(`ws:${workspace.id}`)) setCachedWorkspaceInfo(`ws:${workspace.id}`, workspace, tier);
+    const hit = await getTenantDbByWorkspaceId(workspace.id);
+    return { ...hit, clerkOrgId: workspace.clerkOrgId ?? null };
+  }
+
+  let [result] = await fetchWorkspaceInfoById(id);
+  if (!result) [result] = await fetchWorkspaceInfo(id);
+  if (!result?.workspace.isActive) throw new TenantNotFoundError(id);
+
+  // Remember a fully provisioned workspace under its workspace id (read by
+  // getTenantDbByWorkspaceId right below) and its Clerk org id.
+  if (result.workspace.databaseUrl) {
+    const tier = getTierFromPlan(result.plan?.slug);
+    setCachedWorkspaceInfo(`ws:${result.workspace.id}`, result.workspace, tier);
+    if (result.workspace.clerkOrgId) {
+      setCachedWorkspaceInfo(`org:${result.workspace.clerkOrgId}`, result.workspace, tier);
+    }
+  }
+
+  const tenant = await getTenantDbByWorkspaceId(result.workspace.id);
+  return {
+    ...tenant,
+    clerkOrgId: result.workspace.clerkOrgId ?? null,
+  };
+}
+
 // Type for tenant database
 export type TenantDb = Awaited<ReturnType<typeof getTenantDb>>;

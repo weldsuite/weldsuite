@@ -1,7 +1,9 @@
 import { useNavigate } from '@tanstack/react-router';
+import { useAuth } from '@clerk/clerk-react';
 import { useMeetings, useCancelMeeting, useUpdateMeeting, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useState, useMemo, useCallback } from 'react';
 import { CancelMeetingDialog } from '../components/cancel-meeting-dialog';
+import { OrganizerCell, ParticipantsCell } from '../components/meeting-people-cells';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import {
@@ -14,6 +16,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -31,7 +34,6 @@ import { VideoCameraIcon } from '../components/video-camera-icon';
 import { format, isToday, isTomorrow, startOfDay, addDays, isBefore, startOfMonth, addMonths, startOfYear, addYears } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@weldsuite/ui/components/tooltip';
 import {
   EntityList,
   EmptyStateIllustration,
@@ -42,7 +44,10 @@ import {
   type SortState,
 } from '@/components/entity-list';
 import { getTranslations } from '@/lib/i18n';
-import type { MeetingAttendee } from '@/lib/api/domains/weldmeet';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
+import { useWorkspaceId } from '@/contexts/workspace-context';
+import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
+import { getInvitedParticipants, getMeetingOrganizer } from '@/lib/weldmeet/meeting-people';
 
 interface UpcomingDateBoundaries {
   thisWeekEnd: Date;
@@ -86,13 +91,11 @@ function matchesDateBucket(d: Date, value: string, b: UpcomingDateBoundaries): b
 
 /** One predicate per filter field; the `is` / `is not` operator is applied by the caller. */
 const UPCOMING_FILTER_MATCHERS = new Map<string, UpcomingFilterMatcher>([
-  ['organizer', (m, value) => {
-    const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
-    return org?.userId === value;
-  }],
+  ['organizer', (m, value) => getMeetingOrganizer(m)?.userId === value],
   ['meetingType', (m, value) => m.meetingType === value],
-  ['participants', (m, value) => matchesParticipantCount(m.attendees?.length ?? 0, value)],
-  ['date', (m, value, bounds) => matchesDateBucket(new Date(m.scheduledStart ?? m.createdAt), value, bounds)],
+  ['participants', (m, value) => matchesParticipantCount(getInvitedParticipants(m).length, value)],
+  // An unscheduled meeting has no date, so it is in no date bucket.
+  ['date', (m, value, bounds) => !!m.scheduledStart && matchesDateBucket(new Date(m.scheduledStart), value, bounds)],
   ['accessType', (m, value) => m.accessType === value],
 ]);
 
@@ -109,16 +112,25 @@ function applyUpcomingFilters(items: Meeting[], filters: ActiveFilter[]): Meetin
   return result;
 }
 
+/** The scheduled start of a meeting; never `createdAt`, which is not an upcoming date. */
+function getScheduledDate(m: Meeting): Date | null {
+  return m.scheduledStart ? new Date(m.scheduledStart) : null;
+}
+
 export default function UpcomingMeetingsPage() {
   const t = getTranslations('weldmeet');
+  const navLabels = getTranslations('navigation').moduleSidebar.weldmeet;
+  useBreadcrumbs([{ label: navLabels.upcoming }]);
   const navigate = useNavigate();
+  const { orgId } = useAuth();
+  const workspaceId = useWorkspaceId() || orgId;
   const [sortState, setSortState] = useState<SortState | null>(null);
   const [cancelDialogMeetingId, setCancelDialogMeetingId] = useState<string | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const cancelMeeting = useCancelMeeting();
 
-  const { data, isLoading } = useMeetings({ pageSize: 50, status: 'scheduled,in_progress' });
+  const { data, isLoading } = useMeetings({ pageSize: 50, view: 'upcoming', include: 'lastSession' });
   const { mutate: updateMeeting } = useUpdateMeeting();
 
   const handleRename = () => {
@@ -138,8 +150,8 @@ export default function UpcomingMeetingsPage() {
   const organizerOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of meetings) {
-      const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
-      if (org?.userId && org?.name) map.set(org.userId, org.name);
+      const org = getMeetingOrganizer(m);
+      if (org?.userId && org.name) map.set(org.userId, org.name);
     }
     return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
   }, [meetings]);
@@ -201,35 +213,32 @@ export default function UpcomingMeetingsPage() {
     const endOfThisYear = startOfYear(addYears(now, 1));
     const endOfNextYear = startOfYear(addYears(now, 2));
 
-    const getMeetingDate = (m: Meeting) => new Date(m.scheduledStart ?? m.createdAt);
+    // A date group holds the meetings that are scheduled and not live: a live
+    // one is in "Live now", an unscheduled one in "Not scheduled".
+    const inDateGroup = (m: Meeting, test: (d: Date) => boolean): boolean => {
+      if (m.status === 'in_progress') return false;
+      const d = getScheduledDate(m);
+      return !!d && test(d);
+    };
 
     return [
-      { id: 'today', label: t.upcomingPage.filters.today, sortOrder: 1, filter: (m) => isToday(getMeetingDate(m)) },
-      { id: 'tomorrow', label: t.upcomingPage.filters.tomorrow, sortOrder: 2, filter: (m) => isTomorrow(getMeetingDate(m)) },
-      { id: 'this-week', label: t.upcomingPage.filters.thisWeek, sortOrder: 3, filter: (m) => {
-        const d = getMeetingDate(m);
-        return !isToday(d) && !isTomorrow(d) && isBefore(d, endOfThisWeek);
-      }},
-      { id: 'next-week', label: t.upcomingPage.filters.nextWeek, sortOrder: 4, filter: (m) => {
-        const d = getMeetingDate(m);
-        return !isBefore(d, endOfThisWeek) && isBefore(d, endOfNextWeek);
-      }},
-      { id: 'this-month', label: t.upcomingPage.filters.thisMonth, sortOrder: 5, filter: (m) => {
-        const d = getMeetingDate(m);
-        return !isBefore(d, endOfNextWeek) && isBefore(d, endOfThisMonth);
-      }},
-      { id: 'next-month', label: t.upcomingPage.groups.nextMonth, sortOrder: 6, filter: (m) => {
-        const d = getMeetingDate(m);
-        return !isBefore(d, endOfThisMonth) && isBefore(d, endOfNextMonth);
-      }},
-      { id: 'this-year', label: format(now, 'yyyy'), sortOrder: 7, filter: (m) => {
-        const d = getMeetingDate(m);
-        return !isBefore(d, endOfNextMonth) && isBefore(d, endOfThisYear);
-      }},
-      { id: 'next-year', label: format(addYears(now, 1), 'yyyy'), sortOrder: 8, filter: (m) => {
-        const d = getMeetingDate(m);
-        return !isBefore(d, endOfThisYear) && isBefore(d, endOfNextYear);
-      }},
+      { id: 'live-now', label: t.upcomingPage.groups.liveNow, sortOrder: 0, filter: (m) => m.status === 'in_progress' },
+      { id: 'today', label: t.upcomingPage.filters.today, sortOrder: 1, filter: (m) => inDateGroup(m, isToday) },
+      { id: 'tomorrow', label: t.upcomingPage.filters.tomorrow, sortOrder: 2, filter: (m) => inDateGroup(m, isTomorrow) },
+      { id: 'this-week', label: t.upcomingPage.filters.thisWeek, sortOrder: 3, filter: (m) => inDateGroup(m, (d) =>
+        !isToday(d) && !isTomorrow(d) && isBefore(d, endOfThisWeek)) },
+      { id: 'next-week', label: t.upcomingPage.filters.nextWeek, sortOrder: 4, filter: (m) => inDateGroup(m, (d) =>
+        !isBefore(d, endOfThisWeek) && isBefore(d, endOfNextWeek)) },
+      { id: 'this-month', label: t.upcomingPage.filters.thisMonth, sortOrder: 5, filter: (m) => inDateGroup(m, (d) =>
+        !isBefore(d, endOfNextWeek) && isBefore(d, endOfThisMonth)) },
+      { id: 'next-month', label: t.upcomingPage.groups.nextMonth, sortOrder: 6, filter: (m) => inDateGroup(m, (d) =>
+        !isBefore(d, endOfThisMonth) && isBefore(d, endOfNextMonth)) },
+      { id: 'this-year', label: format(now, 'yyyy'), sortOrder: 7, filter: (m) => inDateGroup(m, (d) =>
+        !isBefore(d, endOfNextMonth) && isBefore(d, endOfThisYear)) },
+      { id: 'next-year', label: format(addYears(now, 1), 'yyyy'), sortOrder: 8, filter: (m) => inDateGroup(m, (d) =>
+        !isBefore(d, endOfThisYear) && isBefore(d, endOfNextYear)) },
+      { id: 'not-scheduled', label: t.upcomingPage.groups.notScheduled, sortOrder: 9, filter: (m) =>
+        m.status !== 'in_progress' && !m.scheduledStart },
     ];
   }, [t]);
 
@@ -251,15 +260,19 @@ export default function UpcomingMeetingsPage() {
     return [...meetings].sort((a, b) => {
       switch (columnId) {
         case 'date': {
-          const aTime = a.scheduledStart ? new Date(a.scheduledStart).getTime() : new Date(a.createdAt).getTime();
-          const bTime = b.scheduledStart ? new Date(b.scheduledStart).getTime() : new Date(b.createdAt).getTime();
+          // Unscheduled meetings stay at the end whichever way the date sorts.
+          const aTime = getScheduledDate(a)?.getTime();
+          const bTime = getScheduledDate(b)?.getTime();
+          if (aTime === undefined && bTime === undefined) return 0;
+          if (aTime === undefined) return 1;
+          if (bTime === undefined) return -1;
           return (aTime - bTime) * dir;
         }
         case 'attendees':
-          return ((a.attendees?.length ?? 0) - (b.attendees?.length ?? 0)) * dir;
+          return (getInvitedParticipants(a).length - getInvitedParticipants(b).length) * dir;
         case 'organizer': {
-          const aName = (a.attendees ?? []).find((att: MeetingAttendee) => att.role === 'organizer')?.name ?? '';
-          const bName = (b.attendees ?? []).find((att: MeetingAttendee) => att.role === 'organizer')?.name ?? '';
+          const aName = getMeetingOrganizer(a)?.name ?? '';
+          const bName = getMeetingOrganizer(b)?.name ?? '';
           return aName.localeCompare(bName) * dir;
         }
         default:
@@ -294,17 +307,20 @@ export default function UpcomingMeetingsPage() {
   const renderRow = useCallback((meeting: Meeting) => {
     const type = meetingTypeConfig[meeting.meetingType as keyof typeof meetingTypeConfig] ?? meetingTypeConfig.video;
     const TypeIcon = type.icon;
-    const dateStr = meeting.scheduledStart ?? meeting.createdAt;
+    const scheduled = getScheduledDate(meeting);
+    const shareUrl = buildMeetingShareUrl(workspaceId, meeting.joinCode);
 
     const openMeeting = () => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } });
 
-    let dateLabel: string;
-    if (isToday(new Date(dateStr))) {
-      dateLabel = t.upcomingPage.dateToday.replace('{time}', format(new Date(dateStr), 'h:mm a'));
-    } else if (isTomorrow(new Date(dateStr))) {
-      dateLabel = t.upcomingPage.dateTomorrow.replace('{time}', format(new Date(dateStr), 'h:mm a'));
-    } else {
-      dateLabel = format(new Date(dateStr), 'MMM d, h:mm a');
+    let dateLabel = '—';
+    if (scheduled) {
+      if (isToday(scheduled)) {
+        dateLabel = t.upcomingPage.dateToday.replace('{time}', format(scheduled, 'h:mm a'));
+      } else if (isTomorrow(scheduled)) {
+        dateLabel = t.upcomingPage.dateTomorrow.replace('{time}', format(scheduled, 'h:mm a'));
+      } else {
+        dateLabel = format(scheduled, 'MMM d, h:mm a');
+      }
     }
 
     return (
@@ -322,21 +338,19 @@ export default function UpcomingMeetingsPage() {
         }}
         className="flex items-center gap-6 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
-        {/* Meeting */}
+        {/* Meeting (+ live pill) */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2">
           <TypeIcon className={cn('h-4 w-4 shrink-0', type.color)} />
-          <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
+          <span className="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-foreground">
             {meeting.title}
           </span>
+          {meeting.status === 'in_progress' && (
+            <span className="shrink-0 flex items-center gap-1 px-2 py-[4px] rounded-[6px] text-[12px] font-medium bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
+              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              {t.upcomingPage.live}
+            </span>
+          )}
         </div>
-
-        {/* Live label */}
-        {meeting.status === 'in_progress' && (
-          <span className="flex items-center gap-1 px-2 py-[4px] rounded-[6px] text-[12px] font-medium bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
-            <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            {t.upcomingPage.live}
-          </span>
-        )}
 
         {/* Date */}
         <div className="w-[180px]">
@@ -347,56 +361,15 @@ export default function UpcomingMeetingsPage() {
 
         {/* Organizer */}
         <div className="w-[190px]">
-          {(() => {
-            const organizer = (meeting.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
-            if (!organizer) return <span className="text-sm text-muted-foreground">—</span>;
-            return (
-              <div className="flex items-center gap-2">
-                <div className="w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center shrink-0">
-                  <span className="text-[10px] font-medium text-gray-600 dark:text-muted-foreground">
-                    {organizer.name?.charAt(0)?.toUpperCase() ?? '?'}
-                  </span>
-                </div>
-                <span className="text-sm text-gray-700 dark:text-foreground truncate">{organizer.name}</span>
-              </div>
-            );
-          })()}
+          <OrganizerCell organizer={getMeetingOrganizer(meeting)} />
         </div>
 
-        {/* Participants */}
+        {/* Participants: organizer + attendees */}
         <div className="w-[140px]">
-          <div className="flex items-center gap-2">
-            <div className="flex -space-x-1.5">
-              {(meeting.attendees ?? []).slice(0, 3).map((attendee, i) => (
-                <Tooltip key={attendee.userId ?? i}>
-                  <TooltipTrigger asChild>
-                    <div className="w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center ring-2 ring-white dark:ring-background">
-                      <span className="text-[10px] font-medium text-gray-600 dark:text-muted-foreground">
-                        {attendee.name?.charAt(0)?.toUpperCase() ?? '?'}
-                      </span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" sideOffset={6}>
-                    {attendee.name}
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-              {(meeting.attendees?.length ?? 0) > 3 && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center ring-2 ring-white dark:ring-background">
-                      <span className="text-[11px] font-semibold text-gray-600 dark:text-muted-foreground">
-                        +{meeting.attendees!.length - 3}
-                      </span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" sideOffset={6}>
-                    {t.upcomingPage.participantCount.replace('{count}', String(meeting.attendees!.length))}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          </div>
+          <ParticipantsCell
+            people={getInvitedParticipants(meeting)}
+            countLabel={(count) => t.upcomingPage.participantCount.replace('{count}', String(count))}
+          />
         </div>
 
         {/* Actions */}
@@ -413,20 +386,21 @@ export default function UpcomingMeetingsPage() {
                 {t.upcomingPage.actions.viewDetails}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => {
-                navigator.clipboard.writeText(meeting.joinCode ?? '');
+                void navigator.clipboard.writeText(meeting.joinCode ?? '');
                 toast.success(t.upcomingPage.actions.joinCodeCopied);
               }}>
                 <Copy className="h-3.5 w-3.5 mr-0.5" />
                 {t.upcomingPage.actions.copyJoinCode}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => {
-                const url = `${window.location.origin}/weldmeet/${meeting.id}`;
-                navigator.clipboard.writeText(url);
-                toast.success(t.upcomingPage.actions.meetingLinkCopied);
-              }}>
-                <Link className="h-3.5 w-3.5 mr-0.5" />
-                {t.upcomingPage.actions.copyMeetingLink}
-              </DropdownMenuItem>
+              {shareUrl && (
+                <DropdownMenuItem onClick={() => {
+                  void navigator.clipboard.writeText(shareUrl);
+                  toast.success(t.upcomingPage.actions.meetingLinkCopied);
+                }}>
+                  <Link className="h-3.5 w-3.5 mr-0.5" />
+                  {t.upcomingPage.actions.copyMeetingLink}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => { setRenameId(meeting.id); setRenameDraft(meeting.title); }}>
                 <Pencil className="h-3.5 w-3.5 mr-0.5" />
                 {t.upcomingPage.actions.rename}
@@ -448,7 +422,7 @@ export default function UpcomingMeetingsPage() {
         </div>
       </div>
     );
-  }, [navigate, t, meetingTypeConfig]);
+  }, [navigate, t, meetingTypeConfig, workspaceId]);
 
   return (
     <div className="flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden">
@@ -510,6 +484,7 @@ export default function UpcomingMeetingsPage() {
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{t.upcomingPage.renameMeeting.title}</DialogTitle>
+            <DialogDescription className="sr-only">{t.upcomingPage.renameMeeting.description}</DialogDescription>
           </DialogHeader>
           <Input
             value={renameDraft}

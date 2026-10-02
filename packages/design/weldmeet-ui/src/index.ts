@@ -3,6 +3,8 @@ export type {
   ViewMode,
   RecordingState,
   MeetingRoomViewProps,
+  LeaveLabels,
+  RecordingLabels,
   MeetingClient,
   MeetingPeer,
   WaitlistedPeer,
@@ -26,13 +28,25 @@ export {
 export { ParticipantTile, ScreenShareTile, useIsSpeaking, getPersonTheme, getInitials, type ParticipantTileProps, type ScreenShareTileProps } from './components/participant-tile';
 export { ParticipantContextMenu, type ParticipantContextMenuProps } from './components/participant-context-menu';
 export { CallControlsBar, type CallControlsBarProps } from './components/call-controls-bar';
+export {
+  PermissionHelp,
+  DEFAULT_PERMISSION_HELP_LABELS,
+  type PermissionHelpLabels,
+  type PermissionKind,
+} from './components/permission-help';
 export { MeetingRoomView } from './components/meeting-room-view';
 export { MeetingHeader } from './components/meeting-header';
 export { MeetingRightPanel, type RightPanelKind } from './components/meeting-right-panel';
 export { MeetingToolsPanel, type MeetingToolsPanelProps } from './components/meeting-tools-panel';
 export { ShareLinkCard } from './components/share-link-card';
 export { InvitePopover, type InvitePopoverProps } from './components/invite-popover';
-export { PreviewView, type PreviewViewProps } from './components/preview-view';
+export {
+  PreviewView,
+  DEFAULT_PREVIEW_VIEW_LABELS,
+  type PreviewViewProps,
+  type PreviewViewLabels,
+  type PreviewPermission,
+} from './components/preview-view';
 export { ConnectingView } from './components/connecting-view';
 export { PeoplePanel, type PeoplePanelProps } from './components/people-panel';
 export { PeopleEntityListPanel, type PeopleEntityListPanelProps } from './components/people-entity-list-panel';

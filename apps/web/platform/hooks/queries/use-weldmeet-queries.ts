@@ -5,7 +5,9 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
+import type { RemoveMeetingSessionParticipantInput } from '@weldsuite/app-api-client/schemas/meeting-sessions';
+import type { RecordingStatus } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
 import type {
   HostControls,
   HostControlsInput,
@@ -23,12 +25,58 @@ export type { HostControls, HostControlsInput };
 // Types
 // ============================================================================
 
+/** The meeting's organizer as meet-api resolves it (always on list items). */
+export interface MeetingOrganizer {
+  userId: string;
+  name: string | null;
+  avatar: string | null;
+}
+
+/** One participant of a session. Rejoin stints are merged into one entry per user. */
+export interface MeetingLastSessionParticipant {
+  userId: string;
+  userName: string | null;
+  userAvatar: string | null;
+  joinedAt: string | null;
+  leftAt: string | null;
+  /** First time the user joined, across rejoins. */
+  firstJoinedAt?: string;
+  /** Seconds spent in earlier stints (the current stint is joinedAt..leftAt). */
+  priorSeconds?: number;
+  /** Number of join/leave stints merged into this entry. */
+  stints?: number;
+}
+
+/** Latest session of a meeting; present on list items with `include=lastSession`. */
+export interface MeetingLastSession {
+  id: string;
+  status: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** Seconds. */
+  duration: number | null;
+  recordingStatus: string | null;
+  participants: MeetingLastSessionParticipant[];
+}
+
+/** List filters of `GET /meetings`, on top of the shared client params. */
+export type MeetingListParams = ListMeetingsParams & {
+  /** `upcoming`: not yet ended (past-scheduled ones left out); `history`: ended or ran. */
+  view?: 'upcoming' | 'history';
+  /** `lastSession` adds each meeting's latest session to the list items. */
+  include?: 'lastSession';
+};
+
 export interface Meeting extends Partial<HostControls> {
   id: string;
   title: string;
   description?: string;
   calendarEventId?: string;
   organizerId: string;
+  /** Always present on list items; may be missing on a single-meeting read. */
+  organizer?: MeetingOrganizer | null;
+  /** Only with `include=lastSession`. */
+  lastSession?: MeetingLastSession | null;
   attendees: MeetingAttendee[];
   meetingType: 'video' | 'audio';
   status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
@@ -73,6 +121,12 @@ interface MeetingSessionParticipant {
   userAvatar?: string;
   joinedAt: string;
   leftAt?: string;
+  /** First join across rejoin stints (the session endpoint merges stints per user). */
+  firstJoinedAt?: string;
+  /** Seconds spent in earlier stints. */
+  priorSeconds?: number;
+  /** Number of join/leave stints merged into this entry. */
+  stints?: number;
   cfSessionId: string;
   hasAudio: boolean;
   hasVideo: boolean;
@@ -85,7 +139,7 @@ interface MeetingSessionParticipant {
 
 export const weldmeetKeys = {
   all: ['weldmeet'] as const,
-  meetings: (params?: ListMeetingsParams) => [...weldmeetKeys.all, 'meetings', params] as const,
+  meetings: (params?: MeetingListParams) => [...weldmeetKeys.all, 'meetings', params] as const,
   meeting: (id: string) => [...weldmeetKeys.all, 'meeting', id] as const,
   upcoming: (params?: { days?: number; limit?: number }) => [...weldmeetKeys.all, 'upcoming', params] as const,
   session: (meetingId: string) => [...weldmeetKeys.all, 'session', meetingId] as const,
@@ -97,7 +151,7 @@ export const weldmeetKeys = {
 // Meeting Queries
 // ============================================================================
 
-export function useMeetings(params?: ListMeetingsParams) {
+export function useMeetings(params?: MeetingListParams) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: weldmeetKeys.meetings(params),
@@ -109,6 +163,8 @@ export function useMeetings(params?: ListMeetingsParams) {
       if (params?.status) qs.set('status', params.status);
       if (params?.counterpartyId) qs.set('counterpartyId', params.counterpartyId);
       if (params?.personId) qs.set('personId', params.personId);
+      if (params?.view) qs.set('view', params.view);
+      if (params?.include) qs.set('include', params.include);
       const query = qs.toString();
       const res = await client.get<{ data: Meeting[]; pagination: unknown } | null>(`/meetings${query ? '?' + query : ''}`);
       return res ?? { data: [], pagination: null };
@@ -144,15 +200,26 @@ export function useUpcomingMeetings(params?: { days?: number; limit?: number }) 
     },
   });
 }
-export function useLatestSession(meetingId: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
+/** Options of the latest-session query, shared by the hook and by imperative
+ *  `queryClient.fetchQuery` calls (e.g. the in-call participant resolver). */
+export function latestSessionQueryOptions(
+  getClient: ReturnType<typeof useAppApiClient>['getClient'],
+  meetingId: string,
+) {
+  return {
     queryKey: weldmeetKeys.latestSession(meetingId),
     queryFn: async () => {
       const client = await getClient();
       const res = await client.get<{ data: MeetingSession | null }>(`/meeting-sessions/latest?meetingId=${encodeURIComponent(meetingId)}`);
       return (res.data ?? null) as MeetingSession | null;
     },
+  };
+}
+
+export function useLatestSession(meetingId: string) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    ...latestSessionQueryOptions(getClient, meetingId),
     enabled: !!meetingId,
   });
 }
@@ -171,7 +238,7 @@ export function useCreateMeeting() {
       return res.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -186,8 +253,8 @@ export function useUpdateMeeting() {
       return res.data;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(variables.id) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -228,7 +295,7 @@ export function useInviteToMeeting() {
       queryClient.setQueryData(weldmeetKeys.meeting(meetingId), (prev: Meeting | null | undefined) =>
         prev ? { ...prev, attendees: result.attendees } : prev,
       );
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -242,7 +309,7 @@ export function useDeleteMeeting() {
       await client.delete(`/meetings/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -256,8 +323,8 @@ export function useCancelMeeting() {
       await client.patch(`/meetings/${id}/cancel${sendNotification ? '?sendNotification=true' : ''}`);
     },
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(id) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(id) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -286,28 +353,116 @@ export function useUpdateHostControls() {
       });
     },
   });
-}export function useJoinByCode() {
+}
+
+/** Policy fields the Host Controls panel shows that live on the meeting itself. */
+export type MeetingLevelPolicyInput = Pick<UpdateMeetingRequest, 'waitingRoom' | 'accessType'>;
+export type MeetingPolicyPatch = HostControlsInput & MeetingLevelPolicyInput;
+
+/**
+ * Persist a Host Controls panel change. The panel mixes two kinds of fields:
+ * the narrow host-control policy (`PATCH /meetings/:id/host-controls`, which
+ * strips anything it does not know) and meeting-level fields such as
+ * `waitingRoom` (`PATCH /meetings/:id`). Sending everything to the first
+ * endpoint silently dropped `waitingRoom` and the toggle snapped back, so the
+ * patch is split here and each part goes to the endpoint that persists it.
+ * `controls` is null when the patch held no host-control fields.
+ */
+export function useUpdateMeetingPolicy() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ meetingId, patch }: { meetingId: string; patch: MeetingPolicyPatch }) => {
+      const { waitingRoom, accessType, ...hostPatch } = patch;
+      const meetingPatch: MeetingLevelPolicyInput = {};
+      if (waitingRoom !== undefined) meetingPatch.waitingRoom = waitingRoom;
+      if (accessType !== undefined) meetingPatch.accessType = accessType;
+
+      const client = await getClient();
+      const [controlsRes] = await Promise.all([
+        Object.keys(hostPatch).length > 0
+          ? client.patch<{ data: HostControls }>(`/meetings/${meetingId}/host-controls`, hostPatch)
+          : Promise.resolve(null),
+        Object.keys(meetingPatch).length > 0
+          ? client.patch<{ data: unknown }>(`/meetings/${meetingId}`, meetingPatch)
+          : Promise.resolve(null),
+      ]);
+      return { meetingId, controls: controlsRes?.data ?? null, meetingPatch };
+    },
+    onSuccess: ({ meetingId, controls, meetingPatch }) => {
+      queryClient.setQueryData(weldmeetKeys.meeting(meetingId), (prev: Meeting | null | undefined) => {
+        if (!prev) return prev;
+        return { ...prev, ...(controls ?? {}), ...meetingPatch } as Meeting;
+      });
+      if (Object.keys(meetingPatch).length > 0) {
+        // Lists show waiting-room / access state too.
+        void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      }
+    },
+  });
+}
+
+/**
+ * Host "Remove from call". The API records the removal on the session (a
+ * removed guest cannot rejoin it) and kicks the participant server-side; the
+ * result's `kicked` tells the caller whether RealtimeKit confirmed the kick.
+ */
+export function useRemoveMeetingParticipant() {
+  const { meetingSessions } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      sessionId,
+      participant,
+    }: {
+      sessionId: string;
+      meetingId: string;
+      participant: RemoveMeetingSessionParticipantInput;
+    }) => {
+      const res = await meetingSessions.removeParticipant(sessionId, participant);
+      return res.data;
+    },
+    onSuccess: (_result, { meetingId }) => {
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(meetingId) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.latestSession(meetingId) });
+    },
+  });
+}
+
+export function useJoinByCode() {
   const { getClient } = useAppApiClient();
   return useMutation({
     mutationFn: async (joinCode: string) => {
       const client = await getClient();
-      const res = await client.get<{ data: Meeting }>(`/meetings/join/${joinCode}`);
+      const res = await client.get<{ data: Meeting }>(`/meetings/join/${encodeURIComponent(joinCode)}`);
       return res.data as Meeting;
     },
   });
 }
 
 // ============================================================================
-// Recording Queries
+// Recording list
 // ============================================================================
 
+/**
+ * One recorded session of a meeting, as listed by `GET /meetings/recordings`.
+ * State only: there are no file URLs here. Play / download go through
+ * `POST /meeting-sessions/:id/recording/access` (see use-weldmeet-recording-queries).
+ */
 export interface MeetingRecordingEntry {
   sessionId: string;
   meetingId: string;
-  recordingUrl: string | null;
-  recordingKey: string | null;
+  /** null = a legacy row that predates the recorder state and has not been backfilled yet. */
+  recordingStatus: RecordingStatus | null;
+  recordingDurationSeconds: number | null;
+  recordingSizeBytes: number | null;
+  hasAudio: boolean;
+  hasTranscript: boolean;
+  hasSummary: boolean;
+  summaryStatus: string | null;
   startedAt: string | null;
   endedAt: string | null;
+  /** Session (meeting) duration in seconds. */
   duration: number | null;
   maxParticipants: number;
   meetingTitle: string;
@@ -323,36 +478,10 @@ export function useRecordingsList() {
       const res = await client.get<{ data: MeetingRecordingEntry[] }>('/meetings/recordings');
       return (res.data ?? []) as MeetingRecordingEntry[];
     },
-  });
-}// ============================================================================
-// Meeting Recording + Transcription
-// ============================================================================
-
-export function useMeetingRecordingUrl(meetingId: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: [...weldmeetKeys.all, 'recording-url', meetingId] as const,
-    queryFn: async () => {
-      const client = await getClient();
-      // app-api returns { data: { url, sessionId, duration } } (200) or
-      // { data: null, processing: true } (202) when still processing.
-      const res = await client.get<{ data: { url: string; sessionId: string; duration: number | null } | null }>(`/meetings/${meetingId}/recording`);
-      if (!res.data?.url) return null;
-      return res.data;
-    },
-    enabled: !!meetingId,
-    // Retry every 5s while recording is still processing (returns null)
-    refetchInterval: (query) => query.state.data === null ? 5000 : false,
-  });
-}
-
-export function useTranscribeMeeting() {
-  const { getClient } = useAppApiClient();
-  return useMutation({
-    mutationFn: async ({ meetingId, language }: { meetingId: string; language?: string }) => {
-      const client = await getClient();
-      // app-api returns { data: { id, status } }
-      return client.post<{ data: { id: string; status: string } }>(`/meetings/${meetingId}/recording/transcribe`, { language });
-    },
+    // Rows flip processing -> ready on their own; keep them fresh while any is in flight.
+    refetchInterval: (query) =>
+      query.state.data?.some((r) => r.recordingStatus === 'processing' || r.recordingStatus === 'recording')
+        ? 10_000
+        : false,
   });
 }

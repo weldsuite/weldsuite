@@ -53,6 +53,7 @@ interface TileContext {
   onClickParticipantDetails: MeetingRoomViewProps['onClickParticipantDetails'];
   selfColorSeed: string | undefined;
   isOrganizer: boolean;
+  onRemoveParticipant: MeetingRoomViewProps['onRemoveParticipant'];
 }
 
 /** A camera tile wired to the room's pin / details / hand-raise state. */
@@ -69,6 +70,7 @@ function CameraTile({ ctx, entry, pinned }: { ctx: TileContext; entry: Entry; pi
       onClickDetails={ctx.onClickParticipantDetails}
       colorSeed={isSelf ? ctx.selfColorSeed : undefined}
       canManageParticipants={ctx.isOrganizer}
+      onRemoveParticipant={ctx.onRemoveParticipant}
     />
   );
 }
@@ -581,6 +583,9 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     waitlistedCount = 0,
     isMuted,
     isVideoOff,
+    micBlocked,
+    cameraBlocked,
+    permissionHelpLabels,
     isScreenSharing,
     handRaised,
     handRaisedParticipants,
@@ -595,6 +600,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     toggleHandRaise,
     setViewMode,
     onLeave,
+    onEndForAll,
+    leaveLabels,
     onToggleFullscreen,
     onPictureInPicture,
     onRenameMeeting,
@@ -605,6 +612,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     pauseRecording,
     resumeRecording,
     showControlBarRecording = true,
+    recordingStartElapsedSeconds,
+    recordingLabels,
     onToggleEffects,
     effectsOpen,
     backgroundType,
@@ -619,6 +628,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     hostControlsSlot,
     addPeopleDialogContent,
     onClickParticipantDetails,
+    onRemoveParticipant,
     selfColorSeed,
     externalPanelOpen = false,
     onActivatePanel,
@@ -757,6 +767,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     onClickParticipantDetails,
     selfColorSeed,
     isOrganizer,
+    onRemoveParticipant,
   };
 
   const handleToggleChat = () => {
@@ -782,6 +793,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           duration={duration}
           isRecording={isRecording}
           recordingState={recordingState}
+          recordingStartElapsedSeconds={recordingStartElapsedSeconds}
+          recordingLabels={recordingLabels}
           waitlistedCount={waitlistedCount}
           participantsCount={participants.length}
           rightPanel={rightPanel}
@@ -827,6 +840,9 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           meeting={meeting}
           isMuted={isMuted}
           isVideoOff={isVideoOff}
+          micBlocked={micBlocked}
+          cameraBlocked={cameraBlocked}
+          permissionHelpLabels={permissionHelpLabels}
           isScreenSharing={isScreenSharing}
           handRaised={handRaised}
           viewMode={viewMode}
@@ -837,6 +853,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           toggleHandRaise={toggleHandRaise}
           setViewMode={setViewMode}
           onLeave={onLeave}
+          onEndForAll={onEndForAll}
+          leaveLabels={leaveLabels}
           onToggleEffects={onToggleEffects}
           effectsOpen={effectsOpen}
           backgroundType={backgroundType}
@@ -872,6 +890,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
         isRecording={isRecording}
         recordingState={recordingState}
         {...rightPanelRecording}
+        recordingStartElapsedSeconds={recordingStartElapsedSeconds}
+        recordingLabels={recordingLabels}
         recordingAvailable={isOrganizer}
       />
 

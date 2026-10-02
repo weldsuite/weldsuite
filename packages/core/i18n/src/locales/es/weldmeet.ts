@@ -18,6 +18,7 @@ export const weldmeet = {
     cancel: 'Cancelar',
     save: 'Guardar persona',
     saving: 'Guardando…',
+    existingPerson: 'Este correo ya pertenece a una persona de tu CRM. Abriendo su perfil.',
     errorNoId: 'Persona creada pero no se devolvió ningún id',
     errorGeneric: 'No se pudo crear la persona',
   },
@@ -38,6 +39,7 @@ export const weldmeet = {
   overlay: {
     addPeople: {
       title: 'Añadir personas',
+      description: 'Invita a personas a esta reunión por nombre o dirección de correo electrónico.',
       searchPlaceholder: 'Buscar por nombre o correo...',
       noMembersFound: 'No se encontraron miembros',
       invite: 'Invitar',
@@ -53,6 +55,44 @@ export const weldmeet = {
       invited: 'Invitado',
       unknown: 'Desconocido',
     },
+    removeParticipant: {
+      failed: 'No se pudo eliminar al participante de la llamada',
+    },
+  },
+  inCall: {
+    recording: {
+      started: 'Grabación iniciada. Se notificará a todos los participantes.',
+      startTimedOut: 'La grabación no se inició a tiempo. Inténtalo de nuevo.',
+      startFailed: 'No se pudo iniciar la grabación. Inténtalo de nuevo.',
+      starting: 'Iniciando…',
+      startingHint: 'La grabación se está iniciando',
+      startingTool: 'Iniciando grabación…',
+      pleaseWait: 'Espera un momento…',
+    },
+    preview: {
+      defaultTitle: 'Unirse a la reunión',
+      subtitle: 'Comprueba tu audio y vídeo antes de unirte',
+      cancel: 'Cancelar',
+      join: 'Unirse a la reunión',
+      turnOnMicrophone: 'Activar micrófono',
+      turnOffMicrophone: 'Desactivar micrófono',
+      turnOnCamera: 'Activar cámara',
+      turnOffCamera: 'Desactivar cámara',
+      microphone: 'Micrófono',
+      camera: 'Cámara',
+      microphoneFallback: 'Micrófono',
+      cameraFallback: 'Cámara',
+      noMicrophones: 'No se detectaron micrófonos',
+      noCameras: 'No se detectaron cámaras',
+      permissionRequired: 'Se requiere permiso.',
+      blockedTitle: 'La cámara y el micrófono están bloqueados',
+      blockedDescription:
+        'Puedes unirte igualmente, pero los demás no te verán ni te oirán hasta que permitas el acceso para este sitio.',
+      blockedHint: 'Usa los botones bloqueados de abajo para ver cómo permitir el acceso.',
+    },
+  },
+  joinByCodePage: {
+    joining: 'Uniéndose a la reunión...',
   },
   chatHistory: {
     header: 'Chat',
@@ -60,6 +100,11 @@ export const weldmeet = {
     noMessages: 'No hay mensajes en el chat',
     noMessagesHint: 'No se enviaron mensajes en esta reunión.',
     loadOlder: 'Cargar anteriores',
+  },
+  leaveMenu: {
+    endForAll: 'Finalizar la reunión para todos',
+    hostEnded: 'El anfitrión finalizó la reunión',
+    endFailed: 'No se pudo finalizar la reunión para todos',
   },
   pipWidget: {
     turnOnMicrophone: 'Activar micrófono',
@@ -156,9 +201,11 @@ export const weldmeet = {
       joinCodeCopied: 'Código de acceso copiado',
       meetingLinkCopied: 'Enlace de reunión copiado',
       meetingRenamed: 'Reunión renombrada',
+      meetingDeleteFailed: 'No se pudo eliminar la reunión',
       meetingDeleted: 'Reunión eliminada',
     },
     renameMeeting: {
+      description: 'Elige un nuevo nombre para esta reunión.',
       title: 'Renombrar reunión',
       placeholder: 'Nombre de la reunión',
       cancel: 'Cancelar',
@@ -186,6 +233,11 @@ export const weldmeet = {
     meetingLinkCopied: 'Enlace de reunión copiado',
     meetingLinkUnavailable: 'No se pudo crear el enlace de la reunión',
     meetingLinkUnavailableHint: 'La reunión se creó pero aún no tiene enlace de acceso. Inténtalo de nuevo.',
+    meetingCreateFailed: 'No se pudo crear el enlace de WeldMeet',
+    meetingCreateFailedHint: 'Inténtalo de nuevo.',
+    meetingLinkFailed: 'Evento guardado, pero no se pudo adjuntar el enlace de WeldMeet',
+    meetingLinkFailedHint: 'Abre el evento y vuelve a añadir la videoconferencia.',
+    addPeopleDescription: 'Invita a personas a esta reunión por nombre o correo electrónico.',
     addPeople: 'Añadir personas',
     searchByNameOrEmail: 'Buscar por nombre o correo...',
     noMembersFound: 'No se encontraron miembros',
@@ -241,6 +293,7 @@ export const weldmeet = {
     hideChat: 'Ocultar chat',
     chat: 'Chat',
     renameMeeting: {
+      description: 'Elige un nuevo nombre para esta reunión.',
       title: 'Renombrar reunión',
       placeholder: 'Nombre de la reunión',
       cancel: 'Cancelar',
@@ -250,6 +303,14 @@ export const weldmeet = {
     meetingRenamed: 'Reunión renombrada',
     meetingDeleted: 'Reunión eliminada',
     transcriptExported: 'Transcripción exportada',
+    addPeopleDescription: 'Invita a personas a esta reunión por nombre o correo electrónico.',
+    join: 'Unirse',
+    start: 'Iniciar',
+    hostControls: 'Controles del anfitrión',
+    hostControlsDescription: 'Elige lo que pueden hacer los participantes en esta reunión.',
+    hostControlsUpdateFailed: 'No se pudieron actualizar los controles del anfitrión',
+    notScheduled: 'Sin programar',
+    meetingDeleteFailed: 'No se pudo eliminar la reunión',
     addPeople: 'Añadir personas',
   },
   meetingRoomPage: {
@@ -297,6 +358,8 @@ export const weldmeet = {
       anyoneWithLink: 'Cualquiera con el enlace',
     },
     groups: {
+      liveNow: 'En directo ahora',
+      notScheduled: 'Sin programar',
       nextMonth: 'El mes que viene',
     },
     actions: {
@@ -310,6 +373,7 @@ export const weldmeet = {
       meetingRenamed: 'Reunión renombrada',
     },
     renameMeeting: {
+      description: 'Elige un nuevo nombre para esta reunión.',
       title: 'Renombrar reunión',
       placeholder: 'Nombre de la reunión',
       cancel: 'Cancelar',

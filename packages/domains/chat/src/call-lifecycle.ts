@@ -15,10 +15,13 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { endMeeting as endRtkMeeting } from '@weldsuite/cloudflare-realtime';
+import {
+  endMeeting as endRtkMeeting,
+  kickAllParticipants as kickAllRtkParticipants,
+} from '@weldsuite/cloudflare-realtime';
 import { sendMissedCallNotification } from '@weldsuite/notifications';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
-import type { CloudflareRealtimeEnv } from '@weldsuite/cloudflare-realtime';
+import type { CloudflareRealtimeEnv, RealtimeKvNamespace } from '@weldsuite/cloudflare-realtime';
 import type { NotificationEnv } from '@weldsuite/notifications';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -57,6 +60,41 @@ export function wasAnswered(call: {
   return (call.participants ?? []).some((p) => p.userId !== call.initiatorId && !!p.joinedAt);
 }
 
+/**
+ * Tear down a call's RealtimeKit room: kick everyone, end the meeting, drop the
+ * `rtk-meeting:<id>` KV mapping. Deactivating a meeting alone does not
+ * disconnect live participants, so a caller who stays in the room would keep
+ * talking after the call is over; kick-all first closes that.
+ *
+ * Every step is best effort and independent (the DB row is the source of
+ * truth): a failing kick never skips the end, a failing end never skips the KV
+ * cleanup. Failures are logged with the call id and RTK meeting id. A kick on
+ * an empty or already-inactive room may be rejected, which is expected.
+ */
+export async function teardownRtkMeeting(
+  env: Omit<CloudflareRealtimeEnv, 'WORKSPACE_CACHE'> & {
+    WORKSPACE_CACHE?: RealtimeKvNamespace & { delete(key: string): Promise<unknown> };
+  },
+  cfAppId: string,
+  logCtx: { callId: string },
+): Promise<void> {
+  try {
+    await kickAllRtkParticipants(env, cfAppId);
+  } catch (err) {
+    console.error('[CallLifecycle] RTK kick-all failed', { callId: logCtx.callId, cfAppId, err });
+  }
+  try {
+    await endRtkMeeting(env, cfAppId);
+  } catch (err) {
+    console.error('[CallLifecycle] RTK end meeting failed', { callId: logCtx.callId, cfAppId, err });
+  }
+  try {
+    await env.WORKSPACE_CACHE?.delete(`rtk-meeting:${cfAppId}`);
+  } catch (err) {
+    console.error('[CallLifecycle] KV mapping cleanup failed', { callId: logCtx.callId, cfAppId, err });
+  }
+}
+
 export async function endChatCall(
   db: Database,
   env: CallLifecycleEnv,
@@ -93,14 +131,9 @@ export async function endChatCall(
     updatedAt: now,
   }).where(eq(chatCalls.id, callId));
 
-  // End RTK meeting
+  // Kick everyone, end the RTK meeting, clean up the KV mapping (all best effort)
   if (call.cfAppId) {
-    try { await endRtkMeeting(env, call.cfAppId); } catch { /* best effort */ }
-  }
-
-  // Clean up KV mapping
-  if (call.cfAppId) {
-    await env.WORKSPACE_CACHE.delete(`rtk-meeting:${call.cfAppId}`).catch(() => {});
+    await teardownRtkMeeting(env, call.cfAppId, { callId });
   }
 
   // Post system message

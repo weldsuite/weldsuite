@@ -113,41 +113,14 @@ export type StartInstantMeetingInput = z.infer<typeof startInstantMeetingSchema>
 // Mutations — meeting CRUD
 // ============================================================================
 
-export const createMeetingSchema = z.object({
-  title: z.string().min(1).max(255),
-  description: z.string().optional(),
-  meetingType: z.enum(['video', 'audio']).default('video'),
-  accessType: z.enum(['workspace', 'invited_only', 'anyone_with_link']).default('workspace'),
-  waitingRoom: z.boolean().default(false),
-  allowRecording: z.boolean().default(true),
-  maxParticipants: z.number().int().positive().optional(),
-  attendees: z.array(meetingAttendeeSchema).default([]),
-  scheduledStart: z.string().datetime().optional(),
-  scheduledEnd: z.string().datetime().optional(),
-  isRecurring: z.boolean().default(false),
-  recurrenceRule: z.string().optional(),
-  createCalendarEvent: z.boolean().default(false),
-  tags: z.array(z.string()).optional(),
-}).merge(hostControlsSchema);
-
-export type CreateMeetingInput = z.infer<typeof createMeetingSchema>;
-
-export const updateMeetingSchema = z.object({
-  title: z.string().min(1).max(255).optional(),
-  description: z.string().optional(),
-  meetingType: z.enum(['video', 'audio']).optional(),
-  accessType: z.enum(['workspace', 'invited_only', 'anyone_with_link']).optional(),
-  waitingRoom: z.boolean().optional(),
-  allowRecording: z.boolean().optional(),
-  maxParticipants: z.number().int().positive().nullable().optional(),
-  attendees: z.array(meetingAttendeeSchema).optional(),
-  scheduledStart: z.string().datetime().optional(),
-  scheduledEnd: z.string().datetime().optional(),
-  tags: z.array(z.string()).optional(),
-  sendNotification: z.boolean().default(false),
-}).merge(hostControlsSchema);
-
-export type UpdateMeetingInput = z.infer<typeof updateMeetingSchema>;
+// One definition: the strict allow-list schemas live in ./meetings (they are what
+// POST /meetings and PATCH /meetings/:id validate against).
+export {
+  createMeetingSchema,
+  updateMeetingSchema,
+  type CreateMeetingInput,
+  type UpdateMeetingInput,
+} from './meetings';
 
 export const listMeetingsQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -242,6 +215,15 @@ export interface MeetingSessionParticipant {
   personId?: string;
   /** @deprecated kept for historical rows; new writes target personId. */
   contactId?: string;
+  /**
+   * Rejoin stints. joinedAt / leftAt describe the CURRENT stint; total time in
+   * the meeting = priorSeconds + (leftAt - joinedAt). Absent when never rejoined.
+   */
+  firstJoinedAt?: string;
+  /** Seconds spent in earlier stints. */
+  priorSeconds?: number;
+  /** Number of stints (1 = never rejoined). */
+  stints?: number;
 }
 
 export interface MeetingSession {
@@ -258,8 +240,27 @@ export interface MeetingSession {
   duration: number | null;
   maxParticipants: number | null;
   recordingEnabled: boolean;
+  /** @deprecated Legacy expiring Cloudflare URL. Use the recordings routes (`recording/access`). */
   recordingUrl: string | null;
+  /** @deprecated Legacy marker. */
   recordingKey: string | null;
+  // RealtimeKit recorder state (server-owned, optional so older payloads still type-check).
+  rtkSessionId?: string | null;
+  /** null = never recorded; recording | processing | ready | failed | unavailable | deleted */
+  recordingStatus?: 'recording' | 'processing' | 'ready' | 'failed' | 'unavailable' | 'deleted' | null;
+  recordingDurationSeconds?: number | null;
+  recordingSizeBytes?: number | null;
+  recordingReadyAt?: string | null;
+  recordingError?: string | null;
+  aiTranscribeRequested?: boolean | null;
+  aiSummarizeRequested?: boolean | null;
+  aiLanguage?: string | null;
+  summaryStatus?: 'pending' | 'processing' | 'completed' | 'failed' | null;
+  /** Markdown. */
+  summaryText?: string | null;
+  summarySource?: 'rtk' | 'workers_ai' | null;
+  summaryGeneratedAt?: string | null;
+  summaryError?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -294,9 +295,21 @@ export interface JoinSessionResult {
 export interface RecordingSummary {
   sessionId: string;
   meetingId: string;
+  /**
+   * Always null now: recordings are private. Mint a playable URL with
+   * `POST /meeting-sessions/:sessionId/recording/access`.
+   */
   recordingUrl: string | null;
+  /** @deprecated Legacy marker, always null. */
   recordingKey: string | null;
   cfAppId: string | null;
+  /** null = legacy row that predates the recorder state. */
+  recordingStatus?: 'recording' | 'processing' | 'ready' | 'failed' | 'unavailable' | 'deleted' | null;
+  hasAudio?: boolean;
+  hasTranscript?: boolean;
+  hasSummary?: boolean;
+  recordingDurationSeconds?: number | null;
+  recordingSizeBytes?: number | null;
   startedAt: string | null;
   endedAt: string | null;
   duration: number | null;
@@ -339,6 +352,7 @@ export interface CreateMeetingResult {
 
 export interface StopRecordingResult {
   ok: true;
+  /** @deprecated No longer returned: the recording is copied to private storage after the stop. */
   recordingUrl?: string;
 }
 

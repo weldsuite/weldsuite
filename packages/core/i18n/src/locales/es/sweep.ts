@@ -3326,6 +3326,8 @@ export const sweep = {
       "unknown": "Unknown",
       "organizer": "Organizer",
       "teamMember": "Team member",
+      "sessionsCount": "{count} sesiones",
+      "notScheduled": "Sin programar",
       "contact": "Contact"
     },
     "meetingIntelligenceHeader": {
@@ -3805,6 +3807,7 @@ export const sweep = {
     },
     "activitySection": {
       "noActivitiesYet": "No activities yet",
+      "noActivitiesYetDescriptionPerson": "La actividad con esta persona aparecerá aquí.",
       "noActivitiesYetDescription": "Activity with this customer will appear here.",
       "changeCountSingular": "{count} change",
       "changeCountPlural": "{count} changes"

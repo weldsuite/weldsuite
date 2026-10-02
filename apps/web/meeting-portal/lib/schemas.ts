@@ -94,7 +94,9 @@ export const guestJoinResultSchema = z.object({
   // 'ended' — the meeting is completed (host closed it). Terminal: the guest
   // cannot rejoin, the client shows the "already ended" screen instead of
   // dropping into an infinite waiting/connecting poll.
-  status: z.enum(['joined', 'waiting', 'waitlisted', 'ended']),
+  // 'removed' — the host removed this guest from the running session. Terminal
+  // for that session: the client shows the "removed" screen (no Rejoin).
+  status: z.enum(['joined', 'waiting', 'waitlisted', 'ended', 'removed']),
   sessionId: z.string().optional(),
   authToken: z.string().optional(),
   meetingId: z.string(),

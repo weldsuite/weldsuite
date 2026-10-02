@@ -29,6 +29,17 @@ export function setStartHandoff(value: Omit<StartHandoff, 'expiresAt'>): void {
 }
 
 /**
+ * Whether a live (unexpired) hand-off exists for a meetingId, WITHOUT consuming
+ * it. The room page uses this to tell a fresh instant start (the host just
+ * clicked "Start", already chose their devices, skip the pre-join screen) from a
+ * reload or a scheduled start (show the pre-join screen).
+ */
+export function peekStartHandoff(meetingId: string): boolean {
+  const entry = store.get(meetingId);
+  return !!entry && entry.expiresAt >= Date.now();
+}
+
+/**
  * Read and remove the hand-off for a meetingId. Returns null if missing or
  * expired. Single-use to avoid stale tokens being reused on a reload.
  */

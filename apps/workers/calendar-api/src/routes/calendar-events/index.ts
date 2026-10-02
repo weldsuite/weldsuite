@@ -55,6 +55,12 @@ import {
   sendCalendarEventEmails,
   type AttendeeLike,
 } from '../../services/calendar-mail';
+import {
+  cancelMeetingsForEvent,
+  linkMeetingToEvent,
+  syncMeetingsFromEvent,
+  type MeetingSyncResult,
+} from '../../services/calendar-meeting-sync';
 import { pushCalendarEventToGoogle } from '../../lib/integrations/sync/outbound-calendar-sync';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -101,6 +107,12 @@ const createSchema = z.object({
   contactId: z.string().optional(),
   notes: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  /**
+   * Id of a WeldMeet meeting (created by the caller beforehand) to attach to
+   * this event. Not a column: calendar-api links it (`meetings.calendar_event_id`)
+   * if the caller is the meeting's organizer, then keeps the meeting in sync.
+   */
+  weldMeetingId: z.string().max(30).optional(),
 });
 
 /**
@@ -296,7 +308,7 @@ app.get('/:id', requirePermission('events:read'), async (c) => {
 app.post('/', requirePermission('events:create'), zValidator('json', createSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
-  const data = c.req.valid('json');
+  const { weldMeetingId, ...data } = c.req.valid('json');
   const id = generateId('evt');
   const now = new Date();
 
@@ -350,6 +362,12 @@ app.post('/', requirePermission('events:create'), zValidator('json', createSchem
 
     c.executionCtx.waitUntil(pushCalendarEventToGoogle(db, id, 'created', { id, ...data }, c.env));
 
+    // The meeting was created by the caller with the same schedule and
+    // attendees, so linking is all that is needed here (no sync pass).
+    const weldMeetingLinked = weldMeetingId
+      ? await linkMeeting(c, { meetingId: weldMeetingId, eventId: id, userId })
+      : undefined;
+
     if (data.attendees?.length) {
       const organizer = await getOrganizerInfo(db, userId);
       c.executionCtx.waitUntil(
@@ -369,29 +387,98 @@ app.post('/', requirePermission('events:create'), zValidator('json', createSchem
       );
     }
 
-    return success(c, { id }, 201);
+    return success(c, weldMeetingId ? { id, weldMeetingLinked } : { id }, 201);
   } catch (err) {
     console.error('[app-api/calendar-events] create failed:', err);
     return error.internal(c, 'Failed to create calendar event');
   }
 });
 
-type UpdateEventData = z.infer<typeof updateSchema>;
+type UpdateEventData = Omit<z.infer<typeof updateSchema>, 'weldMeetingId'>;
 type CalendarEventRow = typeof t.$inferSelect;
+type EventContext = Context<{ Bindings: Env; Variables: Variables }>;
 
-/** Column values for a PATCH: skips undefined keys and parses the time fields. */
+/**
+ * Column values for a PATCH: skips undefined keys and parses the time fields.
+ * An empty `meetingUrl` clears the column (that is how the client removes
+ * conferencing from an event).
+ */
 function buildUpdateFields(data: UpdateEventData): Record<string, unknown> {
   const update: Record<string, unknown> = { updatedAt: new Date() };
   for (const [k, v] of Object.entries(data)) {
     if (v === undefined) continue;
-    update[k] = k === 'startTime' || k === 'endTime' ? new Date(v as string) : v;
+    if (k === 'startTime' || k === 'endTime') update[k] = new Date(v as string);
+    else if (k === 'meetingUrl' && v === '') update[k] = null;
+    else update[k] = v;
   }
   return update;
 }
 
+// ── WeldMeet meeting sync ────────────────────────────────────────────────
+//
+// Every helper here is best-effort: a failure is logged and never fails the
+// event request. The event is the source of truth; a meeting that could not be
+// linked is reported to the client (`weldMeetingLinked: false`), one that could
+// not be synced is left as it was.
+
+function publishMeetingChanges(c: EventContext, meetings: MeetingSyncResult[]): void {
+  for (const m of meetings) {
+    publishEntityEvent({
+      c,
+      entityType: 'meeting',
+      entityId: m.id,
+      action: 'updated',
+      data: { id: m.id, title: m.title, status: m.status, startAt: m.startAt, hostId: m.hostId },
+      changes: m.status !== m.oldStatus ? { status: { old: m.oldStatus, new: m.status } } : null,
+    });
+  }
+}
+
+/** Link a meeting to an event; resolves to whether it was linked. */
+async function linkMeeting(
+  c: EventContext,
+  params: { meetingId: string; eventId: string; userId: string },
+): Promise<boolean> {
+  try {
+    const linked = await linkMeetingToEvent(c.get('tenantDb'), params);
+    if (!linked) {
+      console.error(
+        `[calendar-api/calendar-events] weldMeetingId ${params.meetingId} not linked to ${params.eventId}: meeting not found or not owned by caller`,
+      );
+      return false;
+    }
+    publishMeetingChanges(c, [linked]);
+    return true;
+  } catch (err) {
+    console.error('[calendar-api/calendar-events] linking meeting failed:', err);
+    return false;
+  }
+}
+
+/** Re-read the event and push its state onto the meetings linked to it. */
+async function syncLinkedMeetings(c: EventContext, before: CalendarEventRow): Promise<void> {
+  try {
+    const db = c.get('tenantDb');
+    const [after] = await db.select().from(t).where(eq(t.id, before.id)).limit(1);
+    if (!after) return;
+    publishMeetingChanges(c, await syncMeetingsFromEvent(db, { before, after }));
+  } catch (err) {
+    console.error('[calendar-api/calendar-events] meeting sync failed:', err);
+  }
+}
+
+/** Cancel the meetings linked to an event that was deleted or cancelled. */
+async function cancelLinkedMeetings(c: EventContext, eventId: string): Promise<void> {
+  try {
+    publishMeetingChanges(c, await cancelMeetingsForEvent(c.get('tenantDb'), eventId));
+  } catch (err) {
+    console.error('[calendar-api/calendar-events] meeting cancel failed:', err);
+  }
+}
+
 /** Mails newly-added attendees an invite and re-notifies the list on a time change. */
 async function notifyAttendeesOfUpdate(
-  c: Context<{ Bindings: Env; Variables: Variables }>,
+  c: EventContext,
   existing: CalendarEventRow,
   data: UpdateEventData,
 ): Promise<void> {
@@ -454,7 +541,7 @@ app.patch('/:id', requirePermission('events:update'), zValidator('json', updateS
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const id = c.req.param('id');
-  const data = c.req.valid('json');
+  const { weldMeetingId, ...data } = c.req.valid('json');
   const sendNotification = c.req.query('sendNotification') === 'true';
 
   try {
@@ -490,7 +577,13 @@ app.patch('/:id', requirePermission('events:update'), zValidator('json', updateS
 
     if (sendNotification) await notifyAttendeesOfUpdate(c, existing, data);
 
-    return success(c, { id, ...data });
+    // Link first so a meeting attached by this very request is synced too.
+    const weldMeetingLinked = weldMeetingId
+      ? await linkMeeting(c, { meetingId: weldMeetingId, eventId: id, userId })
+      : undefined;
+    await syncLinkedMeetings(c, existing);
+
+    return success(c, weldMeetingId ? { id, ...data, weldMeetingLinked } : { id, ...data });
   } catch (err) {
     console.error('[app-api/calendar-events] update failed:', err);
     return error.internal(c, 'Failed to update calendar event');
@@ -530,6 +623,8 @@ app.delete('/:id', requirePermission('events:delete'), async (c) => {
     });
 
     c.executionCtx.waitUntil(pushCalendarEventToGoogle(db, id, 'deleted', { id }, c.env));
+
+    await cancelLinkedMeetings(c, id);
 
     if (sendNotification && existing.attendees?.length) {
       const organizer = await getOrganizerInfo(db, existing.organizerId);
@@ -597,6 +692,8 @@ app.patch('/:id/cancel', requirePermission('events:update'), async (c) => {
     c.executionCtx.waitUntil(
       pushCalendarEventToGoogle(db, id, 'updated', { id, status: 'cancelled' }, c.env),
     );
+
+    await cancelLinkedMeetings(c, id);
 
     if (existing.attendees?.length) {
       const organizer = await getOrganizerInfo(db, existing.organizerId);
@@ -672,6 +769,8 @@ app.patch('/:id/reschedule', requirePermission('events:update'), zValidator('jso
     });
 
     c.executionCtx.waitUntil(pushCalendarEventToGoogle(db, id, 'updated', { id, ...data }, c.env));
+
+    await syncLinkedMeetings(c, existing);
 
     if (existing.attendees?.length) {
       const organizer = await getOrganizerInfo(db, existing.organizerId);

@@ -7,7 +7,12 @@ import {
 } from '@weldsuite/db/schema';
 import { sql } from 'drizzle-orm';
 import { messagesListQuerySchema, messagesPostInputSchema } from '@/lib/schemas';
-import { guestUnauthorized, invalidInput, notActiveParticipant } from '@/lib/api-response';
+import {
+  guestUnauthorized,
+  invalidInput,
+  notActiveParticipant,
+  tenantNotFoundResponse,
+} from '@/lib/api-response';
 import { authenticateGuest, guestEmailFromClaims, verifyGuestParticipant } from '@/lib/guest-session';
 import { randomToken } from '@/lib/random-id';
 
@@ -157,6 +162,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (err) {
+    const notFound = tenantNotFoundResponse(err);
+    if (notFound) return notFound;
     console.error('[MeetingPortal] Failed to list messages:', err);
     return NextResponse.json(
       { error: { code: 'INTERNAL', message: 'Failed to list messages' } },
@@ -276,6 +283,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ data: { ...message, realtimeDelivered } }, { status: 201 });
   } catch (err) {
+    const notFound = tenantNotFoundResponse(err);
+    if (notFound) return notFound;
     console.error('[MeetingPortal] Failed to send message:', err);
     return NextResponse.json(
       { error: { code: 'INTERNAL', message: 'Failed to send message' } },

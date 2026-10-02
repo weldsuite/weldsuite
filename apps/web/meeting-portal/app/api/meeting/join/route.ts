@@ -3,12 +3,17 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getTenantDb } from '@/lib/db';
 import { meetings, meetingSessions } from '@weldsuite/db/schema';
 import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
-import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
+import {
+  isGuestRemovedFromSession,
+  mergeRejoin,
+  type MeetingSessionParticipant,
+} from '@weldsuite/db/schema/meeting-sessions';
 import { addParticipant, ensurePresets, RTK_PRESETS } from '@/lib/cloudflare-realtime';
 import { findOrCreatePersonByEmail } from '@/lib/people';
 import { createGuestSessionToken } from '@/lib/guest-session';
 import { guestJoinInputSchema } from '@/lib/schemas';
-import { invalidInput } from '@/lib/api-response';
+import { invalidInput, tenantNotFoundResponse } from '@/lib/api-response';
+import { effectiveMeetingStatus } from '@/lib/meeting-status';
 
 type TenantDb = Awaited<ReturnType<typeof getTenantDb>>['db'];
 type Meeting = typeof meetings.$inferSelect;
@@ -26,6 +31,12 @@ function waitingResponse(meeting: Meeting, reason?: string) {
       meetingId: meeting.id,
       meetingTitle: meeting.title,
     },
+  });
+}
+
+function removedResponse(meeting: Meeting) {
+  return NextResponse.json({
+    data: { status: 'removed' as const, meetingId: meeting.id, meetingTitle: meeting.title },
   });
 }
 
@@ -58,12 +69,13 @@ function checkMeetingAccess(meeting: Meeting, email: string): NextResponse | nul
     return apiError('BAD_REQUEST', 'Meeting is cancelled', 400);
   }
 
-  // The host has closed the meeting (endSession sets status='completed' and
-  // clears activeSessionId). Return a terminal 'ended' status rather than
-  // falling through to the "no active session" → 'waiting' branch below,
-  // which would leave a rejoining guest polling/"Connecting" forever with no
-  // idea the meeting is over.
-  if (meeting.status === 'completed') {
+  // The host has closed a scheduled meeting (endSession sets
+  // status='completed' and clears activeSessionId). Return a terminal 'ended'
+  // status rather than falling through to the "no active session" → 'waiting'
+  // branch below, which would leave a rejoining guest polling/"Connecting"
+  // forever with no idea the meeting is over. Unscheduled meetings are
+  // reusable rooms and never end this way (see effectiveMeetingStatus).
+  if (effectiveMeetingStatus(meeting) === 'completed') {
     return NextResponse.json({
       data: { status: 'ended' as const, meetingId: meeting.id, meetingTitle: meeting.title },
     });
@@ -166,8 +178,11 @@ async function saveSessionParticipant(
   participant: MeetingSessionParticipant,
 ): Promise<void> {
   const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
+  // A guest coming back replaces their entry but keeps the first join time and
+  // the time already spent in the call (see mergeRejoin).
+  const previous = participants.find((p) => p.userId === participant.userId);
   const filtered = participants.filter((p) => p.userId !== participant.userId);
-  filtered.push(participant);
+  filtered.push(mergeRejoin(previous, participant));
 
   const now = new Date();
   const updates: Record<string, unknown> = {
@@ -211,6 +226,21 @@ export async function POST(request: NextRequest) {
 
     if (!meeting) return apiError('NOT_FOUND', 'Meeting not found', 404);
 
+    // A guest the host removed from the running session is refused for the rest
+    // of that session: no waiting room, no RTK participant, and none of the
+    // writes below (attendee, session participant). Checked before every other
+    // policy so the guest always lands on the "removed" screen rather than a
+    // lock / host-presence message. The block lives on the session, so a later
+    // session of the same link starts clean, and only a non-ended session counts.
+    const activeSession = await loadActiveSession(db, meeting);
+    if (
+      activeSession &&
+      activeSession.status !== 'ended' &&
+      isGuestRemovedFromSession(activeSession.metadata, email)
+    ) {
+      return removedResponse(meeting);
+    }
+
     const blocked =
       checkMeetingAccess(meeting, email) ??
       (await checkHostPresent(db, meeting)) ??
@@ -233,8 +263,8 @@ export async function POST(request: NextRequest) {
 
     await addGuestAttendee(db, meeting, email, name);
 
-    // Check for active session
-    const session = await loadActiveSession(db, meeting);
+    // Reuse the session loaded above for the removed-guest check.
+    const session = activeSession;
     if (!session || session.status === 'ended') return waitingResponse(meeting);
 
     if (!session.cfAppId) {
@@ -307,6 +337,8 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
+    const notFound = tenantNotFoundResponse(err);
+    if (notFound) return notFound;
     console.error('[MeetingPortal] Failed to join meeting:', err);
     return apiError('INTERNAL', 'Failed to join meeting', 500);
   }

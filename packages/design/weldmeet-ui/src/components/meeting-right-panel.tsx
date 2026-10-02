@@ -6,7 +6,7 @@ import { cn } from '@weldsuite/ui/lib/utils';
 import { PeoplePanel } from './people-panel';
 import { MeetingToolsPanel } from './meeting-tools-panel';
 import { useIsMobile } from '../hooks/use-is-mobile';
-import type { RecordingState } from '../types';
+import type { RecordingLabels, RecordingState } from '../types';
 import type { MeetingClient, MeetingPeer } from '../types';
 
 function formatMeetingDate(iso: string): string {
@@ -65,6 +65,8 @@ export interface MeetingRightPanelProps {
   startRecording?: () => void;
   stopRecording?: () => void;
   recordingAvailable?: boolean;
+  recordingStartElapsedSeconds?: number;
+  recordingLabels?: RecordingLabels;
 }
 
 export function MeetingRightPanel({
@@ -85,6 +87,8 @@ export function MeetingRightPanel({
   startRecording,
   stopRecording,
   recordingAvailable,
+  recordingStartElapsedSeconds,
+  recordingLabels,
 }: MeetingRightPanelProps) {
   const isOpen = panel !== null;
   const isMobile = useIsMobile();
@@ -148,6 +152,8 @@ export function MeetingRightPanel({
               startRecording={startRecording}
               stopRecording={stopRecording}
               recordingAvailable={recordingAvailable}
+              recordingStartElapsedSeconds={recordingStartElapsedSeconds}
+              recordingLabels={recordingLabels}
             />
           )}
         </div>

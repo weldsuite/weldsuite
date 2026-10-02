@@ -226,6 +226,11 @@ export function GuestMeetingRoom({
     attachRemoteScreenShareListeners();
     client.participants?.joined?.on?.('participantJoined', handleParticipantChange);
     client.participants?.joined?.on?.('participantLeft', handleParticipantChange);
+    // Remote mic/camera flips (e.g. the host muting this guest or another
+    // attendee) must refresh the snapshot too, otherwise the mic icon, tile
+    // and audio element stay stale until the next join/leave.
+    client.participants?.joined?.on?.('audioUpdate', updateParticipants);
+    client.participants?.joined?.on?.('videoUpdate', updateParticipants);
 
     const ai = client.ai;
     const onTranscript = (t: RtkTranscript) => {
@@ -290,6 +295,8 @@ export function GuestMeetingRoom({
     return () => {
       client.participants?.joined?.off?.('participantJoined', handleParticipantChange);
       client.participants?.joined?.off?.('participantLeft', handleParticipantChange);
+      client.participants?.joined?.off?.('audioUpdate', updateParticipants);
+      client.participants?.joined?.off?.('videoUpdate', updateParticipants);
       detachRemoteScreenShareListeners();
       client.self?.off?.('audioUpdate', updateParticipants);
       client.self?.off?.('videoUpdate', updateParticipants);

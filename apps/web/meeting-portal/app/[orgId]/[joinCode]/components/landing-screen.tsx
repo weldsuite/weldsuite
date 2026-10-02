@@ -3,7 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormRegister } from 'react-hook-form';
 import { Loader2, Mail, ShieldAlert, User } from 'lucide-react';
-import type { CSSProperties, Ref } from 'react';
+import { useEffect, useState, type CSSProperties, type Ref } from 'react';
 
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -11,6 +11,7 @@ import { cn } from '@weldsuite/ui/lib/utils';
 import { ParticipantAvatar, ParticipantNameTag } from '@weldsuite/weldmeet-ui';
 
 import { PREVIEW_DARK_BG, type PersonTheme } from '@/lib/constants';
+import { clearGuestIdentity, readGuestIdentity } from '@/lib/guest-identity';
 import { guestJoinFormSchema, type GuestJoinFormInput, type MeetingInfo } from '@/lib/schemas';
 
 import { PrejoinMediaControls, type PermState } from './prejoin-media-controls';
@@ -285,7 +286,29 @@ export function LandingScreen({
     defaultValues: { name: '', email: '' },
   });
 
-  const { register, handleSubmit, watch, formState } = form;
+  const { register, handleSubmit, watch, formState, getValues, setValue, reset } = form;
+  // True while the form holds details restored from a previous visit, which
+  // is when the "Not you?" escape hatch is shown.
+  const [prefilled, setPrefilled] = useState(false);
+
+  // Restore the remembered name + email. Read after mount (not in
+  // defaultValues) so the server and first client render match; skipped when
+  // the guest has already started typing.
+  useEffect(() => {
+    const saved = readGuestIdentity();
+    if (!saved) return;
+    const current = getValues();
+    if (current.name || current.email) return;
+    setValue('name', saved.name, { shouldValidate: true });
+    setValue('email', saved.email, { shouldValidate: true });
+    setPrefilled(true);
+  }, [getValues, setValue]);
+
+  const handleNotYou = () => {
+    clearGuestIdentity();
+    reset({ name: '', email: '' });
+    setPrefilled(false);
+  };
   const watchedName = watch('name');
   const isMobile = useIsMobile();
 
@@ -309,9 +332,14 @@ export function LandingScreen({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/weldmeet-logo-dark.svg" alt="WeldMeet" className="h-5 w-auto hidden dark:block" />
       </div>
-      <Button asChild variant="outline" className="absolute top-4 right-4 z-10 rounded-[calc(var(--radius)-1px)]">
-        <a href={`${platformUrl}/weldmeet/join/${joinCode}`}>Sign in</a>
-      </Button>
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+        <Button asChild variant="ghost" className="rounded-[calc(var(--radius)-1px)] text-muted-foreground hover:text-foreground">
+          <a href={`${platformUrl}/auth/register`}>Create account</a>
+        </Button>
+        <Button asChild variant="outline" className="rounded-[calc(var(--radius)-1px)]">
+          <a href={`${platformUrl}/weldmeet/join/${joinCode}`}>Sign in</a>
+        </Button>
+      </div>
       <form
         onSubmit={handleSubmit(onSubmit)}
         className={cn(
@@ -360,6 +388,7 @@ export function LandingScreen({
           <h2 className="text-[24px] font-semibold tracking-tight leading-tight">
             {meetingInfo?.title || 'Join Meeting'}
           </h2>
+          <ScheduleLine scheduledStart={meetingInfo?.scheduledStart} scheduledEnd={meetingInfo?.scheduledEnd} />
           <AttendeesRow meetingInfo={meetingInfo} />
 
           <JoinFields
@@ -369,6 +398,15 @@ export function LandingScreen({
             emailError={emailError}
             displayedError={displayedError}
           />
+          {prefilled && (
+            <button
+              type="button"
+              onClick={handleNotYou}
+              className="mt-2 self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            >
+              Not you?
+            </button>
+          )}
 
           <div className="w-full mt-5 flex flex-col gap-3">
             <Button
@@ -384,6 +422,40 @@ export function LandingScreen({
       </form>
     </div>
   );
+}
+
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** "Thursday, 2 October 2026 · 14:00 – 15:00" in the guest's own locale and time zone. */
+function formatSchedule(start: Date, end: Date | null): string {
+  const dateText = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' }).format(start);
+  const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
+  const startTime = timeFormat.format(start);
+  if (!end) return `${dateText} · ${startTime}`;
+  const sameDay = start.toDateString() === end.toDateString();
+  if (sameDay) return `${dateText} · ${startTime} – ${timeFormat.format(end)}`;
+  const endDateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(end);
+  return `${dateText} · ${startTime} – ${endDateTime}`;
+}
+
+function ScheduleLine({
+  scheduledStart,
+  scheduledEnd,
+}: Readonly<{ scheduledStart?: string | null; scheduledEnd?: string | null }>) {
+  // The guest's time zone is only known in the browser, so format after mount;
+  // rendering during SSR would mismatch on hydration.
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    const start = parseDate(scheduledStart);
+    setText(start ? formatSchedule(start, parseDate(scheduledEnd)) : null);
+  }, [scheduledStart, scheduledEnd]);
+
+  if (!text) return null;
+  return <p className="mt-1.5 text-[13px] text-muted-foreground">{text}</p>;
 }
 
 type AttendeePerson = { name: string; role: string; avatar?: string };

@@ -42,6 +42,7 @@ interface MeetingIntelligenceHeaderProps {
   onScheduleAgain?: () => void;
   onDownloadRecording?: () => void;
   onDeleteRecording?: () => void;
+  deleteRecordingLabel?: string;
   onExportTranscript?: () => void;
   headerActions?: HeaderAction[];
 }
@@ -60,6 +61,8 @@ export function MeetingIntelligenceHeader({
   onCopyLink,
   onScheduleAgain,
   onDownloadRecording,
+  onDeleteRecording,
+  deleteRecordingLabel,
   onExportTranscript,
   headerActions,
 }: MeetingIntelligenceHeaderProps) {
@@ -113,12 +116,14 @@ export function MeetingIntelligenceHeader({
           <Button
             key={i}
             variant={action.variant || 'ghost'}
-            size="icon-sm"
+            size={action.showLabel ? 'sm' : 'icon-sm'}
+            className={action.showLabel ? 'h-8 gap-1.5' : undefined}
             onClick={action.onClick}
             disabled={action.disabled}
             title={action.label}
           >
             {action.icon}
+            {action.showLabel && action.label}
           </Button>
         ))}
         <DropdownMenu>
@@ -162,6 +167,15 @@ export function MeetingIntelligenceHeader({
               <DropdownMenuItem onClick={onExportTranscript}>
                 <FileText className="h-3.5 w-3.5 mr-0.5" />
                 {t('sweep.weldcrm.meetingIntelligenceHeader.exportTranscript')}
+              </DropdownMenuItem>
+            )}
+            {onDeleteRecording && (
+              <DropdownMenuItem
+                className="text-red-500 focus:text-red-500 focus:bg-red-500/10"
+                onClick={onDeleteRecording}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-500" />
+                {deleteRecordingLabel ?? t('sweep.weldcrm.meetingIntelligenceHeader.deleteMeeting')}
               </DropdownMenuItem>
             )}
             {onDelete && (

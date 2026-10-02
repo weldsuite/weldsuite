@@ -119,8 +119,8 @@ export interface Env {
 
   // (WeldBooks' DIGIPOORT_MODE / DIGIPOORT_CERT moved to books-api.)
   // (CF_REALTIME_APP_ID / CF_REALTIME_APP_SECRET, the RealtimeKit credentials
-  // of WeldChat calls, moved to chat-api; CF_REALTIME_WEBHOOK_TOKEN /
-  // MEETINGBAAS_WEBHOOK_TOKEN to meet-api with the WeldMeet webhooks.)
+  // of WeldChat calls, moved to chat-api; CF_REALTIME_WEBHOOK_TOKEN to meet-api
+  // with the WeldMeet webhook.)
 
   // (Project analytics' R2_SQL_API_TOKEN / R2_ANALYTICS_BUCKET moved to
   // flow-api and crm-api.)
@@ -226,7 +226,6 @@ export interface Env {
   /** Resend API key — used by the email channel and internal email.
    *  Optional locally. */
   RESEND_API_KEY?: string;
-  // (ASSEMBLYAI_API_KEY moved to meet-api with the transcription workflow.)
   /** Resend template id for the task-assignment email. When unset, the
    *  helper falls back to a plain-text email. */
   RESEND_TEMPLATE_TASK_ASSIGNED?: string;

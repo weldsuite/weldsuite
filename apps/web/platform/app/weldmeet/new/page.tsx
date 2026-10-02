@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useAuth } from '@clerk/clerk-react';
-import { useCreateMeeting, useJoinByCode, useUpcomingMeetings, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
+import { useCreateMeeting, useJoinByCode, useMeeting, useUpcomingMeetings, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { setStartHandoff } from '@/lib/weldmeet/start-handoff';
-import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
+import { buildMeetingShareUrl, parseMeetingJoinInput } from '@/lib/weldmeet/share-link';
 import { useWeldMeetCallOptional } from '@/contexts/weldmeet-call-context';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -17,7 +18,14 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Video, Plus, Link2, Calendar, Keyboard, Clock, Users, ChevronRight, ClipboardType, Copy, Check, X } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@weldsuite/ui/components/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@weldsuite/ui/components/dialog';
 import { MeetingInvitePicker } from '../components/meeting-invite-picker';
 
 import { QuickCreateCard } from '@/app/weldcalendar/components/calendar-view';
@@ -29,8 +37,15 @@ import { getTranslations } from '@/lib/i18n';
 export default function NewMeetingPage() {
   const t = getTranslations('weldmeet');
   const navigate = useNavigate();
-  const { orgId } = useAuth();
+  const { orgId, userId } = useAuth();
   const workspaceId = useWorkspaceId() || orgId;
+  useBreadcrumbs([{ label: getTranslations('navigation').moduleSidebar.weldmeet.newMeeting }]);
+  // "Schedule again" arrives with the id of the meeting to copy.
+  // This component is mounted by both /weldmeet/ and /weldmeet/new/, so the
+  // search is read non-strictly and `from` is validated here.
+  const search = useSearch({ strict: false }) as { from?: unknown };
+  const scheduleFromId = typeof search.from === 'string' && search.from ? search.from : undefined;
+  const { data: sourceMeeting } = useMeeting(scheduleFromId ?? '');
   const createMeeting = useCreateMeeting();
   const joinByCode = useJoinByCode();
   const { getClient: getAppApiClient } = useAppApiClient();
@@ -46,7 +61,38 @@ export default function NewMeetingPage() {
   const [createdMeetingId, setCreatedMeetingId] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  // The meeting "Schedule again" copies its title, description and guests from.
+  const [scheduleSeed, setScheduleSeed] = useState<Meeting | null>(null);
+  const consumedScheduleFromRef = useRef<string | null>(null);
   const newMeetingRef = useRef<HTMLDivElement>(null);
+
+  // Open the schedule card once, as soon as the meeting to copy has loaded,
+  // then drop `from` from the URL so a reload or "back" starts clean.
+  useEffect(() => {
+    if (!scheduleFromId || !sourceMeeting) return;
+    if (consumedScheduleFromRef.current === scheduleFromId) return;
+    consumedScheduleFromRef.current = scheduleFromId;
+    setScheduleSeed(sourceMeeting);
+    setScheduleOpen(true);
+    void navigate({ to: '.', search: {}, replace: true });
+  }, [scheduleFromId, sourceMeeting, navigate]);
+
+  const closeSchedule = () => {
+    setScheduleOpen(false);
+    setScheduleSeed(null);
+  };
+
+  // Guests of the copied meeting: its invitees, without the organizer and without you.
+  const scheduleDefaultGuests = scheduleSeed
+    ? (scheduleSeed.attendees ?? [])
+        .filter((a) =>
+          !!a.email &&
+          a.role !== 'organizer' &&
+          a.userId !== scheduleSeed.organizerId &&
+          (!userId || a.userId !== userId),
+        )
+        .map((a) => ({ email: a.email, name: a.name || undefined }))
+    : undefined;
 
   const handleInstantMeeting = async () => {
     void prewarmMedia?.();
@@ -149,8 +195,27 @@ export default function NewMeetingPage() {
 
   const handleJoin = async () => {
     if (!joinCode.trim()) return;
+    const parsed = parseMeetingJoinInput(joinCode);
+    if (!parsed) {
+      toast.error(t.newMeetingPage.meetingNotFound, {
+        description: t.newMeetingPage.meetingNotFoundHint,
+      });
+      return;
+    }
+    // A portal link of another workspace can't resolve against this tenant;
+    // its guest link still works, so offer that instead of "not found".
+    if (parsed.workspaceId && workspaceId && parsed.workspaceId !== workspaceId) {
+      const guestUrl = parsed.url;
+      toast.error(t.newMeetingPage.meetingInOtherWorkspace, {
+        description: t.newMeetingPage.meetingInOtherWorkspaceHint,
+        action: guestUrl
+          ? { label: t.newMeetingPage.openLink, onClick: () => window.open(guestUrl, '_blank', 'noopener,noreferrer') }
+          : undefined,
+      });
+      return;
+    }
     try {
-      const meeting = await joinByCode.mutateAsync(joinCode.trim());
+      const meeting = await joinByCode.mutateAsync(parsed.joinCode);
       navigate({ to: '/weldmeet/$meetingId/room', params: { meetingId: meeting.id } });
     } catch {
       toast.error(t.newMeetingPage.meetingNotFound, {
@@ -185,11 +250,11 @@ export default function NewMeetingPage() {
         </div>
 
         {/* Action Row */}
-        <div className="flex items-center gap-3 mt-8 px-6">
-          <div ref={newMeetingRef} className="relative">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-8 px-6 w-full max-w-md sm:max-w-none sm:w-auto">
+          <div ref={newMeetingRef} className="relative w-full sm:w-auto">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="lg" className="gap-2 rounded-lg">
+                <Button size="lg" className="gap-2 rounded-lg w-full sm:w-auto">
                   <Plus className="h-5 w-5" />
                   {t.newMeetingPage.newMeeting}
                 </Button>
@@ -212,7 +277,7 @@ export default function NewMeetingPage() {
 
             {/* Meeting ready card */}
             {meetingLink && (
-              <div className="absolute top-full left-0 mt-2 z-50 w-[340px] bg-popover border rounded-xl shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-200">
+              <div className="absolute top-full left-0 mt-2 z-50 w-[min(340px,calc(100vw-3rem))] bg-popover border rounded-xl shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-200">
                 <div className="p-5 pb-4">
                   <div className="flex items-start justify-between mb-1">
                     <h3 className="text-[15px] font-semibold">{t.newMeetingPage.meetingReady}</h3>
@@ -241,14 +306,14 @@ export default function NewMeetingPage() {
             )}
           </div>
 
-          <div className="relative group/input">
+          <div className="relative group/input w-full sm:w-auto">
             <Keyboard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder={t.newMeetingPage.enterCodePlaceholder}
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
-              className="pl-10 pr-10 w-64 h-10 rounded-lg"
+              className="pl-10 pr-10 w-full sm:w-64 h-10 rounded-lg"
             />
             <Button
               size="icon"
@@ -282,7 +347,7 @@ export default function NewMeetingPage() {
                 variant="ghost"
                 size="sm"
                 className="text-xs"
-                onClick={() => navigate({ to: '/weldmeet' })}
+                onClick={() => navigate({ to: '/weldmeet/upcoming' })}
               >
                 {t.newMeetingPage.viewAll}
                 <ChevronRight className="h-3 w-3 ml-1" />
@@ -338,21 +403,22 @@ export default function NewMeetingPage() {
           <div
             className="fixed inset-0 z-[60]"
             role="presentation"
-            onClick={() => setScheduleOpen(false)}
+            onClick={closeSchedule}
           />
           <div
-            className="absolute z-[70] w-[360px] bg-popover border rounded-lg shadow-lg animate-in fade-in-0 zoom-in-95"
-            style={{
-              top: newMeetingRef.current ? newMeetingRef.current.getBoundingClientRect().top : '50%',
-              left: newMeetingRef.current ? newMeetingRef.current.getBoundingClientRect().left - 360 - 8 : '50%',
-            }}
+            className="absolute z-[70] w-[min(360px,calc(100vw-1rem))] bg-popover border rounded-lg shadow-lg animate-in fade-in-0 zoom-in-95"
+            style={schedulePopoverStyle(newMeetingRef.current)}
           >
             <QuickCreateCard
               defaultType="event"
+              defaultTitle={scheduleSeed?.title}
+              defaultDescription={scheduleSeed?.description}
+              defaultGuests={scheduleDefaultGuests}
+              defaultWeldMeet={!!scheduleSeed}
               calendars={calendars}
               defaultCalendarId={calendars[0]?.id}
-              onClose={() => setScheduleOpen(false)}
-              onMoreOptions={() => setScheduleOpen(false)}
+              onClose={closeSchedule}
+              onMoreOptions={closeSchedule}
               showTypeTabs={false}
             />
           </div>
@@ -360,6 +426,23 @@ export default function NewMeetingPage() {
       )}
     </div>
   );
+}
+
+const SCHEDULE_POPOVER_WIDTH = 360;
+
+/**
+ * Placement of the schedule card: left of the "New meeting" button on wide
+ * screens (never off the left edge), centered under it on small ones.
+ */
+function schedulePopoverStyle(anchor: HTMLElement | null): React.CSSProperties {
+  const top = anchor ? anchor.getBoundingClientRect().top : '50%';
+  if (typeof window !== 'undefined' && window.innerWidth < 640) {
+    return { top, left: '50%', transform: 'translateX(-50%)' };
+  }
+  const left = anchor
+    ? Math.max(8, anchor.getBoundingClientRect().left - SCHEDULE_POPOVER_WIDTH - 8)
+    : '50%';
+  return { top, left };
 }
 
 function MeetingReadyAddPeople({ meetingId }: Readonly<{ meetingId: string }>) {
@@ -375,6 +458,7 @@ function MeetingReadyAddPeople({ meetingId }: Readonly<{ meetingId: string }>) {
       <DialogContent className="sm:max-w-[480px] p-4">
         <DialogHeader>
           <DialogTitle className="text-[17px]">{t.newMeetingPage.addPeople}</DialogTitle>
+          <DialogDescription className="sr-only">{t.newMeetingPage.addPeopleDescription}</DialogDescription>
         </DialogHeader>
         <MeetingInvitePicker meetingId={meetingId} />
       </DialogContent>

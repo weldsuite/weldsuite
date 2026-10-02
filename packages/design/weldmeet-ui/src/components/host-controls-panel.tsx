@@ -162,7 +162,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Hos
         <SettingRow
           icon={Circle}
           label="Auto-record meeting"
-          description="Start recording when the meeting begins."
+          description="Records on the server as soon as the first person joins. Transcript and summary are offered separately."
           checked={controls.autoRecord}
           onCheckedChange={(v) => onChange({ autoRecord: v })}
         />

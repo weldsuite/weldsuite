@@ -55,6 +55,7 @@ function useActivityLiveSync(): void {
 
 export function useActivities(filters?: {
   contactId?: string;
+  personId?: string;
   opportunityId?: string;
   companyId?: string;
   customerId?: string;

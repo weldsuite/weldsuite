@@ -227,6 +227,46 @@ export const host = {
       typeInvalid: 'Type moet local, toll-free of mobile zijn',
     },
 
+    adminMeetAiPricing: {
+      navJumpTo: 'WeldMeet AI-prijzen',
+      navArea: 'WeldMeet AI-prijzen',
+      navGroup: 'WeldMeet',
+      navPage: 'AI-tarieven in credits',
+      cardTitle: 'WeldMeet AI-prijzen',
+      cardDescription: 'Credits per vergaderminuut voor transcripties en samenvattingen',
+      title: 'WeldMeet AI-prijzen',
+      description:
+        'Credits die per vergaderminuut worden gerekend wanneer een workspace een vergadering laat transcriberen of samenvatten. De kosten worden afgeboekt van het vooruitbetaalde creditsaldo zodra het resultaat binnen is.',
+      effectiveHeading: 'Geldende tarieven',
+      sourceCustom: 'Hier opgeslagen eigen tarieven',
+      sourceDefault: 'Standaardwaarden (nog niets opgeslagen)',
+      transcriptionLabel: 'Transcriptie',
+      summaryLabel: 'Samenvatting',
+      perMinuteUnit: 'credits / vergaderminuut',
+      editHeading: 'Tarieven aanpassen',
+      transcriptionInputLabel: 'Transcriptie (credits per vergaderminuut)',
+      summaryInputLabel: 'Samenvatting (credits per vergaderminuut)',
+      inputHelp: 'Een getal groter dan 0, maximaal 2 decimalen, hoogstens {max}.',
+      exampleHeading: 'Voorbeeld',
+      exampleLine:
+        'Een vergadering van {minutes} minuten kost {transcription} credits voor de transcriptie, {summary} voor de samenvatting, samen {total} credits.',
+      exampleInvalid: 'Vul geldige tarieven in om een voorbeeld te zien.',
+      cacheNote:
+        'meet-api onthoudt deze tarieven ongeveer 60 seconden, dus een opgeslagen wijziging kan tot een minuut duren voordat nieuwe afboekingen haar gebruiken.',
+      defaultsNote:
+        'Standaard: {transcription} credits voor de transcriptie, {summary} voor de samenvatting, per vergaderminuut.',
+      resetButton: 'Standaardwaarden herstellen',
+      saveButton: 'Tarieven opslaan',
+      saved: 'WeldMeet AI-prijzen opgeslagen',
+      lastUpdated: 'Laatst bijgewerkt op {at} door {by}',
+      neverUpdated: 'Nog nooit opgeslagen. De standaardwaarden gelden.',
+      unknownAdmin: 'onbekend',
+      invalidRate: 'Vul een getal groter dan 0 in.',
+      rateOutOfRange: 'Tarieven mogen niet hoger zijn dan {max} credits per minuut.',
+      rateDecimals: 'Gebruik maximaal 2 decimalen.',
+      saveFailed: 'De tarieven konden niet worden opgeslagen. Probeer het opnieuw.',
+    },
+
     // Domain availability checker
     availability: {
       enterDomain: 'Voer een domeinnaam in om beschikbaarheid te controleren',

@@ -61,6 +61,8 @@ import { createSearchApi } from '@weldsuite/app-api-client/domains/search';
 import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/access-requests';
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
+import { createMeetingSessionsApi } from '@weldsuite/app-api-client/domains/meeting-sessions';
+import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/weldmeet-recordings';
 import { getApiOriginForPath } from '@/lib/api/public-env';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 
@@ -182,6 +184,11 @@ export function useAppApi() {
       accessRequests: createAccessRequestsApi(lazyClient),
       weldpass: createWeldPassApi(lazyClient),
       weldhr: createWeldHrApi(lazyClient),
+
+      // WeldMeet live-session actions (host "Remove from call").
+      meetingSessions: createMeetingSessionsApi(lazyClient),
+      // WeldMeet recordings, transcripts and summaries (meet-api, session-scoped).
+      weldmeetRecordings: createWeldmeetRecordingsApi(lazyClient),
     }),
     [lazyClient],
   );

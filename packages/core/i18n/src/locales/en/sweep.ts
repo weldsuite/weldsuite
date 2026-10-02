@@ -3347,6 +3347,8 @@ export const sweep = {
       "unknown": "Unknown",
       "organizer": "Organizer",
       "teamMember": "Team member",
+      "sessionsCount": "{count} sessions",
+      "notScheduled": "Not scheduled",
       "contact": "Contact"
     },
     "meetingIntelligenceHeader": {
@@ -3398,7 +3400,9 @@ export const sweep = {
       "autoScrollOff": "Auto-scroll OFF",
       "loading": "Loading...",
       "speakerNumber": "Speaker {number}",
-      "transcribeToSeeConversation": "Transcribe this meeting to see the full conversation."
+      "transcribeToSeeConversation": "Transcribe this meeting to see the full conversation.",
+      "transcriptionFailedDescription": "Something went wrong while transcribing this recording. You can try again.",
+      "tryAgain": "Try again"
     },
     "transcriptionProgress": {
       "transcribingCall": "Transcribing call..."
@@ -3826,6 +3830,7 @@ export const sweep = {
     },
     "activitySection": {
       "noActivitiesYet": "No activities yet",
+      "noActivitiesYetDescriptionPerson": "Activity with this person will appear here.",
       "noActivitiesYetDescription": "Activity with this customer will appear here.",
       "changeCountSingular": "{count} change",
       "changeCountPlural": "{count} changes"

@@ -8,6 +8,10 @@ export function adminPhonePricingCopy() {
   return getTranslations('host').adminPhonePricing;
 }
 
+export function adminMeetAiPricingCopy() {
+  return getTranslations('host').adminMeetAiPricing;
+}
+
 export function fill(template: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(
     (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),

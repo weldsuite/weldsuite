@@ -7,8 +7,10 @@ export interface ParticipantNameTagProps {
   name: string;
   /** When false, a small MicOff icon is rendered before the name. */
   audioEnabled?: boolean;
-  /** When true (and audioEnabled is true), shows a VolumeX icon indicating
-   *  the local viewer has muted this participant for themselves. */
+  /** When true, shows a VolumeX icon indicating the local viewer has muted
+   *  this participant for themselves. Independent of `audioEnabled`: a host
+   *  muting the participant's mic must not hide the viewer's own "muted for
+   *  me" state (both icons show side by side). */
   localMuted?: boolean;
   /** Override the default positioning/spacing. The default mirrors the
    *  weldmeet `ParticipantTile` (bottom-left of the tile). */
@@ -45,7 +47,7 @@ export function ParticipantNameTag({
     >
       {icon}
       {!audioEnabled && <MicOff className="h-3.5 w-3.5" />}
-      {localMuted && audioEnabled && <VolumeX className="h-3.5 w-3.5 text-red-400" />}
+      {localMuted && <VolumeX className="h-3.5 w-3.5 text-red-400" />}
       <span>{name}</span>
     </div>
   );

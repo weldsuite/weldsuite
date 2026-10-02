@@ -16,12 +16,14 @@
  */
 
 import { useNavigate } from '@tanstack/react-router';
+import { useAuth } from '@clerk/clerk-react';
 import { useState, useMemo, useCallback } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -43,11 +45,12 @@ import {
   Link,
   Pencil,
   CalendarPlus,
+  FileText,
+  Sparkles,
 } from 'lucide-react';
 import { VideoCameraIcon } from '../components/video-camera-icon';
 import { format, isToday, isYesterday } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@weldsuite/ui/components/tooltip';
 import { toast } from 'sonner';
 import {
   EntityList,
@@ -59,15 +62,28 @@ import {
   type SortState,
 } from '@/components/entity-list';
 import { getTranslations } from '@/lib/i18n';
+import { usePermissions } from '@weldsuite/permissions/react';
 import {
   useMeetings,
   useDeleteMeeting,
   useUpdateMeeting,
   useRecordingsList,
   type Meeting,
+  type MeetingListParams,
   type MeetingRecordingEntry,
 } from '@/hooks/queries/use-weldmeet-queries';
-import type { ListMeetingsParams, MeetingAttendee } from '@/lib/api/domains/weldmeet';
+import { useWorkspaceId } from '@/contexts/workspace-context';
+import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
+import { getHistoryParticipants, getMeetingOrganizer } from '@/lib/weldmeet/meeting-people';
+import { OrganizerCell, ParticipantsCell } from '../components/meeting-people-cells';
+import { billableRecordingSeconds, isDeletableRecordingStatus } from '@/lib/weldmeet/recording';
+import { RecordingStatusBadge } from '../components/recording-status-badge';
+import {
+  DeleteRecordingDialog,
+  RecordingAiEstimateDialog,
+  type RecordingAiKind,
+} from '../components/recording-dialogs';
+import { useDownloadRecording } from '../components/use-recording-download';
 
 type MeetingWithRecording = Meeting & { recording?: MeetingRecordingEntry };
 
@@ -90,14 +106,38 @@ function formatDurationSeconds(secs: number): string {
   return `${hours}${m}m ${s}s`;
 }
 
-/** Recording duration label, or null when the recording has no usable duration. */
-function formatRecordingDuration(rec: MeetingRecordingEntry | undefined): string | null {
-  if (rec?.duration) return formatDurationSeconds(rec.duration);
+/**
+ * How long the meeting ran, in seconds: the latest session's duration, else the
+ * recording's. 0 when neither is known.
+ */
+function getMeetingDurationSeconds(m: MeetingWithRecording): number {
+  const fromSession = m.lastSession?.duration;
+  if (fromSession && fromSession > 0) return fromSession;
+  const rec = m.recording;
+  if (rec?.duration) return rec.duration;
   if (rec?.startedAt && rec?.endedAt) {
-    const secs = Math.floor((new Date(rec.endedAt).getTime() - new Date(rec.startedAt).getTime()) / 1000);
-    return formatDurationSeconds(secs);
+    return Math.max(0, Math.floor((new Date(rec.endedAt).getTime() - new Date(rec.startedAt).getTime()) / 1000));
   }
-  return null;
+  return 0;
+}
+
+/** When the meeting took place: its session start, else the scheduled slot, else creation. */
+function getHistoryDateString(m: Meeting): string {
+  return m.lastSession?.startedAt ?? m.scheduledStart ?? m.createdAt;
+}
+
+/** The newest session of each meeting wins (the list is not guaranteed to be ordered). */
+function newestRecordingPerMeeting(recordings: MeetingRecordingEntry[]): Map<string, MeetingRecordingEntry> {
+  const stamp = (r: MeetingRecordingEntry): number => {
+    const value = r.startedAt ?? r.endedAt;
+    return value ? new Date(value).getTime() : 0;
+  };
+  const map = new Map<string, MeetingRecordingEntry>();
+  for (const rec of recordings) {
+    const current = map.get(rec.meetingId);
+    if (!current || stamp(rec) >= stamp(current)) map.set(rec.meetingId, rec);
+  }
+  return map;
 }
 
 const DAY_MS = 86400000;
@@ -162,16 +202,13 @@ function matchesDateBucket(time: number, value: string, b: DateBoundaries): bool
 
 /** One predicate per filter field; the `is` / `is not` operator is applied by the caller. */
 const FILTER_MATCHERS = new Map<string, FilterMatcher>([
-  ['organizer', (m, value) => {
-    const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
-    return org?.userId === value;
-  }],
+  ['organizer', (m, value) => getMeetingOrganizer(m)?.userId === value],
   ['meetingType', (m, value) => m.meetingType === value],
   ['recorded', (m, value) => !!m.recording === (value === 'yes')],
-  ['participants', (m, value) => matchesParticipantCount(m.attendees?.length ?? 0, value)],
-  ['duration', (m, value) => matchesDurationBucket(m.recording?.duration ?? 0, value)],
+  ['participants', (m, value) => matchesParticipantCount(getHistoryParticipants(m).length, value)],
+  ['duration', (m, value) => matchesDurationBucket(getMeetingDurationSeconds(m), value)],
   ['date', (m, value, bounds) =>
-    matchesDateBucket(new Date(m.scheduledStart ?? m.createdAt).getTime(), value, bounds)],
+    matchesDateBucket(new Date(getHistoryDateString(m)).getTime(), value, bounds)],
   ['accessType', (m, value) => m.accessType === value],
 ]);
 
@@ -189,9 +226,9 @@ function applyMeetingFilters(items: MeetingWithRecording[], filters: ActiveFilte
 }
 
 export interface MeetingHistoryListProps {
-  /** Server-side scope for the meetings query. Page lists workspace-wide
-      completed/failed/cancelled; the tab scopes to an entity. */
-  filter: ListMeetingsParams;
+  /** Server-side scope for the meetings query. The page lists workspace-wide
+      `view: 'history'` meetings; the tab scopes to an entity. */
+  filter: MeetingListParams;
   /** Outer wrapper className. Defaults to the full-page shell. */
   className?: string;
 }
@@ -202,10 +239,23 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
   const [sortState, setSortState] = useState<SortState | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const { orgId } = useAuth();
+  const workspaceId = useWorkspaceId() || orgId;
+  const [deleteRecordingTarget, setDeleteRecordingTarget] = useState<MeetingRecordingEntry | null>(null);
+  const [aiTarget, setAiTarget] = useState<{ kind: RecordingAiKind; rec: MeetingRecordingEntry } | null>(null);
 
-  const { data, isLoading } = useMeetings(filter);
+  // Fully qualified keys: this list also renders inside CRM object panels.
+  const { can } = usePermissions();
+  const canPlayRecordings = can('weldmeet:recordings:read');
+  const canDeleteRecordings = can('weldmeet:recordings:delete');
+  // Transcribe / summarize spend credits, so they need sessions:update on top of read.
+  const canUseRecordingAi = canPlayRecordings && can('weldmeet:sessions:update');
+  const { download: downloadRecording } = useDownloadRecording();
+
+  const listParams = useMemo<MeetingListParams>(() => ({ ...filter, include: 'lastSession' }), [filter]);
+  const { data, isLoading } = useMeetings(listParams);
   const { data: recordings } = useRecordingsList();
-  const { mutate: deleteMeeting } = useDeleteMeeting();
+  const { mutateAsync: deleteMeeting } = useDeleteMeeting();
   const { mutate: updateMeeting } = useUpdateMeeting();
 
   const handleRename = () => {
@@ -218,13 +268,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
   };
 
   const recordingsByMeetingId = useMemo(() => {
-    const map = new Map<string, MeetingRecordingEntry>();
-    if (recordings) {
-      for (const rec of recordings) {
-        map.set(rec.meetingId, rec);
-      }
-    }
-    return map;
+    return newestRecordingPerMeeting(recordings ?? []);
   }, [recordings]);
 
   const meetings: MeetingWithRecording[] = useMemo(() => {
@@ -238,8 +282,8 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
   const organizerOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of meetings) {
-      const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
-      if (org?.userId && org?.name) map.set(org.userId, org.name);
+      const org = getMeetingOrganizer(m);
+      if (org?.userId && org.name) map.set(org.userId, org.name);
     }
     return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
   }, [meetings]);
@@ -318,7 +362,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
     const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 86400000);
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const getDate = (m: MeetingWithRecording) => new Date(m.scheduledStart ?? m.createdAt).getTime();
+    const getDate = (m: MeetingWithRecording) => new Date(getHistoryDateString(m)).getTime();
 
     return [
       { id: 'today', label: t.historyPage.groups.today, sortOrder: 1, filter: (m) => getDate(m) >= today.getTime() },
@@ -348,22 +392,20 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
     return [...meetings].sort((a, b) => {
       switch (columnId) {
         case 'date': {
-          const aTime = a.scheduledStart ? new Date(a.scheduledStart).getTime() : new Date(a.createdAt).getTime();
-          const bTime = b.scheduledStart ? new Date(b.scheduledStart).getTime() : new Date(b.createdAt).getTime();
+          const aTime = new Date(getHistoryDateString(a)).getTime();
+          const bTime = new Date(getHistoryDateString(b)).getTime();
           return (aTime - bTime) * dir;
         }
         case 'attendees': {
-          return ((a.attendees?.length ?? 0) - (b.attendees?.length ?? 0)) * dir;
+          return (getHistoryParticipants(a).length - getHistoryParticipants(b).length) * dir;
         }
         case 'organizer': {
-          const aName = (a.attendees ?? []).find((att: MeetingAttendee) => att.role === 'organizer')?.name ?? '';
-          const bName = (b.attendees ?? []).find((att: MeetingAttendee) => att.role === 'organizer')?.name ?? '';
+          const aName = getMeetingOrganizer(a)?.name ?? '';
+          const bName = getMeetingOrganizer(b)?.name ?? '';
           return aName.localeCompare(bName) * dir;
         }
         case 'duration': {
-          const aDur = a.recording?.duration ?? 0;
-          const bDur = b.recording?.duration ?? 0;
-          return (aDur - bDur) * dir;
+          return (getMeetingDurationSeconds(a) - getMeetingDurationSeconds(b)) * dir;
         }
         default:
           return 0;
@@ -386,9 +428,11 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
     } as const;
     const type = meetingTypeConfig[meeting.meetingType as keyof typeof meetingTypeConfig] ?? meetingTypeConfig.video;
     const TypeIcon = type.icon;
-    const dateStr = meeting.scheduledStart ?? meeting.createdAt;
+    const dateStr = getHistoryDateString(meeting);
     const rec = meeting.recording;
-    const durationLabel = formatRecordingDuration(rec);
+    const durationSeconds = getMeetingDurationSeconds(meeting);
+    const durationLabel = durationSeconds > 0 ? formatDurationSeconds(durationSeconds) : null;
+    const shareUrl = buildMeetingShareUrl(workspaceId, meeting.joinCode);
     const openMeeting = () => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } });
 
     return (
@@ -409,24 +453,21 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
           meeting.status === 'cancelled' && '[&>*]:opacity-50',
         )}
       >
-        {/* Meeting */}
+        {/* Meeting (+ recording state) */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2">
           <TypeIcon className={cn('h-4 w-4 shrink-0', type.color)} />
           <span className={cn(
-            'text-sm font-medium truncate',
+            'min-w-0 truncate text-sm font-medium',
             meeting.status === 'cancelled' ? 'line-through text-gray-400' : 'text-gray-900 dark:text-foreground',
           )}>
             {meeting.title}
           </span>
+          {rec && (
+            <span className="shrink-0">
+              <RecordingStatusBadge status={rec.recordingStatus} />
+            </span>
+          )}
         </div>
-
-        {/* Recorded label */}
-        {rec?.recordingUrl && (
-          <span className="flex items-center gap-1 px-2 py-[4px] rounded-[6px] text-[12px] font-medium bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400">
-            <div className="h-1.5 w-1.5 rounded-full bg-red-500" />
-            {t.historyPage.recorded}
-          </span>
-        )}
 
         {/* Date */}
         <div className="w-[180px]">
@@ -437,58 +478,15 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
 
         {/* Organizer */}
         <div className="w-[190px]">
-          {(() => {
-            const organizer = (meeting.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
-            if (!organizer) return <span className="text-sm text-muted-foreground">—</span>;
-            return (
-              <div className="flex items-center gap-2">
-                <div className="w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center shrink-0">
-                  <span className="text-[10px] font-medium text-gray-600 dark:text-muted-foreground">
-                    {organizer.name?.charAt(0)?.toUpperCase() ?? '?'}
-                  </span>
-                </div>
-                <span className="text-sm text-gray-700 dark:text-foreground truncate">{organizer.name}</span>
-              </div>
-            );
-          })()}
+          <OrganizerCell organizer={getMeetingOrganizer(meeting)} />
         </div>
 
-        {/* Participants */}
+        {/* Participants: who joined, plus the organizer */}
         <div className="w-[140px]">
-          <div className="flex items-center gap-2">
-            <div className="flex -space-x-1.5">
-              {(meeting.attendees ?? []).slice(0, 3).map((attendee, i) => (
-                <Tooltip key={attendee.userId ?? i}>
-                  <TooltipTrigger asChild>
-                    <div
-                      className="w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center ring-2 ring-white dark:ring-background"
-                    >
-                      <span className="text-[10px] font-medium text-gray-600 dark:text-muted-foreground">
-                        {attendee.name?.charAt(0)?.toUpperCase() ?? '?'}
-                      </span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" sideOffset={6}>
-                    {attendee.name}
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-              {(meeting.attendees?.length ?? 0) > 3 && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center ring-2 ring-white dark:ring-background">
-                      <span className="text-[11px] font-semibold text-gray-600 dark:text-muted-foreground">
-                        +{meeting.attendees!.length - 3}
-                      </span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" sideOffset={6}>
-                    {t.historyPage.participantCount.replace('{count}', String(meeting.attendees!.length))}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          </div>
+          <ParticipantsCell
+            people={getHistoryParticipants(meeting)}
+            countLabel={(count) => t.historyPage.participantCount.replace('{count}', String(count))}
+          />
         </div>
 
         {/* Duration */}
@@ -520,14 +518,15 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
                 <Copy className="h-3.5 w-3.5 mr-0.5" />
                 {t.historyPage.actions.copyJoinCode}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => {
-                const url = `${window.location.origin}/weldmeet/${meeting.id}`;
-                navigator.clipboard.writeText(url);
-                toast.success(t.historyPage.actions.meetingLinkCopied);
-              }}>
-                <Link className="h-3.5 w-3.5 mr-0.5" />
-                {t.historyPage.actions.copyMeetingLink}
-              </DropdownMenuItem>
+              {shareUrl && (
+                <DropdownMenuItem onClick={() => {
+                  void navigator.clipboard.writeText(shareUrl);
+                  toast.success(t.historyPage.actions.meetingLinkCopied);
+                }}>
+                  <Link className="h-3.5 w-3.5 mr-0.5" />
+                  {t.historyPage.actions.copyMeetingLink}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => { setRenameId(meeting.id); setRenameDraft(meeting.title); }}>
                 <Pencil className="h-3.5 w-3.5 mr-0.5" />
                 {t.historyPage.actions.rename}
@@ -538,17 +537,41 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
                 <CalendarPlus className="h-3.5 w-3.5 mr-0.5" />
                 {t.historyPage.actions.scheduleAgain}
               </DropdownMenuItem>
-              {rec?.recordingUrl && (
-                <DropdownMenuItem onClick={() => window.open(rec.recordingUrl!, '_blank')}>
+              {rec?.recordingStatus === 'ready' && canPlayRecordings && (
+                <DropdownMenuItem onClick={() => void downloadRecording(rec.sessionId)}>
                   <Download className="h-3.5 w-3.5 mr-0.5" />
                   {t.historyPage.actions.downloadRecording}
+                </DropdownMenuItem>
+              )}
+              {rec?.recordingStatus === 'ready' && canUseRecordingAi && rec.hasAudio && !rec.hasTranscript && (
+                <DropdownMenuItem onClick={() => setAiTarget({ kind: 'transcribe', rec })}>
+                  <FileText className="h-3.5 w-3.5 mr-0.5" />
+                  {t.recording.actions.transcribe}
+                </DropdownMenuItem>
+              )}
+              {rec?.recordingStatus === 'ready' && canUseRecordingAi && rec.hasTranscript && !rec.hasSummary
+                && rec.summaryStatus !== 'pending' && rec.summaryStatus !== 'processing' && (
+                <DropdownMenuItem onClick={() => setAiTarget({ kind: 'summarize', rec })}>
+                  <Sparkles className="h-3.5 w-3.5 mr-0.5" />
+                  {t.recording.actions.summarize}
+                </DropdownMenuItem>
+              )}
+              {rec && canDeleteRecordings && isDeletableRecordingStatus(rec.recordingStatus) && (
+                <DropdownMenuItem
+                  onClick={() => setDeleteRecordingTarget(rec)}
+                  className="text-red-500 focus:text-red-500 focus:bg-red-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-500" />
+                  {t.recording.actions.delete}
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {
-                  deleteMeeting(meeting.id);
-                  toast.success(t.historyPage.actions.meetingDeleted);
+                  deleteMeeting(meeting.id).then(
+                    () => toast.success(t.historyPage.actions.meetingDeleted),
+                    () => toast.error(t.historyPage.actions.meetingDeleteFailed),
+                  );
                 }}
                 className="text-red-500 focus:text-red-500 focus:bg-red-500/10"
               >
@@ -560,7 +583,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
         </div>
       </div>
     );
-  }, [navigate, t, deleteMeeting]);
+  }, [navigate, t, deleteMeeting, workspaceId, canPlayRecordings, canDeleteRecordings, canUseRecordingAi, downloadRecording]);
 
   return (
     <div className={cn('flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden', className)}>
@@ -609,11 +632,33 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
           }}
         />
       </div>
+      {/* Delete recording */}
+      {deleteRecordingTarget && (
+        <DeleteRecordingDialog
+          open
+          sessionId={deleteRecordingTarget.sessionId}
+          onOpenChange={(open) => { if (!open) setDeleteRecordingTarget(null); }}
+        />
+      )}
+      {/* Transcribe / summarize with a credit estimate */}
+      {aiTarget && (
+        <RecordingAiEstimateDialog
+          open
+          kind={aiTarget.kind}
+          sessionId={aiTarget.rec.sessionId}
+          seconds={billableRecordingSeconds({
+            durationSeconds: aiTarget.rec.recordingDurationSeconds,
+            sessionDurationSeconds: aiTarget.rec.duration,
+          })}
+          onOpenChange={(open) => { if (!open) setAiTarget(null); }}
+        />
+      )}
       {/* Rename dialog */}
       <Dialog open={!!renameId} onOpenChange={(open) => { if (!open) setRenameId(null); }}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{t.historyPage.renameMeeting.title}</DialogTitle>
+            <DialogDescription className="sr-only">{t.historyPage.renameMeeting.description}</DialogDescription>
           </DialogHeader>
           <Input
             value={renameDraft}

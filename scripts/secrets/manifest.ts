@@ -426,13 +426,19 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Workers AI Whisper ("transcribe afterwards") and the summary model, both
+    // through @weldsuite/ai; same Cloudflare token app-api and mail-api carry
+    // (@weldsuite/ai falls back to CLOUDFLARE_API_TOKEN when there is no
+    // AI_GATEWAY_API_TOKEN). The owner syncs the value.
+    "CLOUDFLARE_API_TOKEN",
     // Set by hand on app-api before the split (never in this manifest); moved
     // with the module. `secrets:sync` warns when Doppler does not have one yet.
-    "ASSEMBLYAI_API_KEY",
+    // (ASSEMBLYAI_API_KEY and MEETINGBAAS_WEBHOOK_TOKEN are retired: AssemblyAI and
+    // the MeetingBaas bot were replaced by RealtimeKit's recorder and Whisper.
+    // Retire both in Doppler after the deploy.)
     "CF_REALTIME_APP_ID",
     "CF_REALTIME_APP_SECRET",
     "CF_REALTIME_WEBHOOK_TOKEN",
-    "MEETINGBAAS_WEBHOOK_TOKEN",
     "RESEND_API_KEY",
     "RESEND_TEMPLATE_TASK_ASSIGNED",
   ],

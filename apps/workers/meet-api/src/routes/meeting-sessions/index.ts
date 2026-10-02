@@ -10,18 +10,24 @@
  *   POST /:id/join        — join a session (get RTK auth token)
  *   POST /:id/leave       — leave a session (auto-ends when last participant leaves)
  *   POST /:id/end         — end a session
- *   POST /:id/recording/start  — mark session as recording
- *   POST /:id/recording/stop   — stop recording, persist key for later URL fetch
- *   GET  /:id/recordings       — list recordings for a session (CF RTK + saved URL)
+ *   POST /:id/participants/remove — host removes a participant (persists a guest block, kicks)
+ *   GET  /:id/recordings       — LEGACY list of RealtimeKit recordings for a session (+ saved URL)
+ *
+ * Recording, transcript and summary routes (start/stop, ai-options, access,
+ * delete, transcribe, summarize, transcription) live in ./recording.ts and are
+ * mounted before the generic /:id CRUD below. The recorder state columns are
+ * server-owned: POST / and PATCH /:id never write them.
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createMeetingSessionSchema, updateMeetingSessionSchema } from '@weldsuite/core-api-client/schemas/meeting-sessions';
+import { removeMeetingSessionParticipantSchema } from '@weldsuite/app-api-client/schemas/meeting-sessions';
+import { SERVER_OWNED_MEETING_SESSION_FIELDS } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -32,14 +38,30 @@ import {
   ensurePresets,
   RTK_PRESETS,
   getRecordings,
+  kickParticipants as kickRtkParticipants,
 } from '@weldsuite/cloudflare-realtime';
 import { endMeetingSession, publishSessionStarted, publishMeetingUpdated } from '../../services/weldmeet/meeting-lifecycle';
+import { RTK_SESSION_MAPPING_TTL_SECONDS, rtkSessionMappingKey } from '../../services/rtk-webhook';
+import { meetingSessionRecordingRoutes } from './recording';
 import { resolveParticipantLink, type ResolvedParticipantLink } from '../../lib/participant-resolver';
-import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
+import {
+  guestEmailFromUserId,
+  isGuestRemovedFromSession,
+  mergeRejoin,
+  type MeetingSessionParticipant,
+  type MeetingSessionRemovedGuest,
+} from '@weldsuite/db/schema/meeting-sessions';
 import type { Context } from 'hono';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.meetingSessions;
+
+/** Drop the server-owned columns (recorder, transcript, summary state, ids) from a client body. */
+function stripServerOwned(data: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...data };
+  for (const key of SERVER_OWNED_MEETING_SESSION_FIELDS) delete out[key];
+  return out;
+}
 
 // ============================================================================
 // Helpers
@@ -331,16 +353,31 @@ app.post(
       await ensurePresets(c.env, c.executionCtx);
       timings.presets = Date.now() - t0;
 
-      const rtkMeeting = await createRtkMeeting(c.env, meeting.title);
+      // autoRecord: RealtimeKit itself starts recording when the first person joins
+      // (no client-side effect). audioExport: keep an audio-only MP3 next to any
+      // recording (transcribe afterwards, audio player).
+      const rtkMeeting = await createRtkMeeting(c.env, meeting.title, {
+        recordOnStart: meeting.autoRecord === true && meeting.allowRecording !== false,
+        audioExport: true,
+      });
       timings.rtkCreate = Date.now() - t0;
 
-      // KV mapping for inbound webhook resolution — fire and forget
+      // KV mappings for inbound webhook resolution — fire and forget.
+      // rtk-meeting: 24 h, deleted when the session ends. rtk-session: 14 days and
+      // never deleted at end: recording / transcript / summary webhooks arrive later.
       c.executionCtx.waitUntil(
-        c.env.WORKSPACE_CACHE.put(
-          `rtk-meeting:${rtkMeeting.id}`,
-          JSON.stringify({ orgId, type: 'session', sessionId, meetingId }),
-          { expirationTtl: 86400 },
-        ).catch((e) => console.warn('[meeting-sessions/start] KV write failed (non-fatal):', e)),
+        Promise.all([
+          c.env.WORKSPACE_CACHE.put(
+            `rtk-meeting:${rtkMeeting.id}`,
+            JSON.stringify({ orgId, type: 'session', sessionId, meetingId }),
+            { expirationTtl: 86400 },
+          ),
+          c.env.WORKSPACE_CACHE.put(
+            rtkSessionMappingKey(rtkMeeting.id),
+            JSON.stringify({ orgId, sessionId, meetingId }),
+            { expirationTtl: RTK_SESSION_MAPPING_TTL_SECONDS },
+          ),
+        ]).catch((e) => console.warn('[meeting-sessions/start] KV write failed (non-fatal):', e)),
       );
 
       const isHost = meeting.organizerId === userId;
@@ -487,8 +524,11 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
     const participant = buildSessionParticipant(userId, userName, avatar, link, rtkParticipant.id);
 
     const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
+    // A rejoin replaces the member's entry but keeps their first join time and
+    // the time already spent (see mergeRejoin).
+    const previous = participants.find((p) => p.userId === userId);
     const filtered = participants.filter((p) => p.userId !== userId);
-    filtered.push(participant);
+    filtered.push(mergeRejoin(previous, participant));
 
     const now = new Date();
     const updates: Record<string, unknown> = {
@@ -512,7 +552,9 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
 });
 
 /**
- * POST /:id/leave - Leave a session (auto-ends when last participant leaves)
+ * POST /:id/leave - Leave a session (auto-ends when last participant leaves).
+ * A no-op once the session has ended: when the host ends the call every
+ * kicked client reports a leave, and none of them may re-run the end.
  */
 app.post('/:id/leave', requirePermission('sessions:read'), async (c) => {
   const orgId = c.get('orgId');
@@ -526,6 +568,7 @@ app.post('/:id/leave', requirePermission('sessions:read'), async (c) => {
 
     const [session] = await db.select().from(t).where(eq(t.id, sessionId)).limit(1);
     if (!session) return error.notFound(c, 'Session', sessionId);
+    if (session.status === 'ended') return success(c, { ok: true });
 
     const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
     const idx = participants.findIndex((p) => p.userId === userId);
@@ -552,19 +595,38 @@ app.post('/:id/leave', requirePermission('sessions:read'), async (c) => {
 });
 
 /**
- * POST /:id/end - End a session (organizer / admin action)
+ * POST /:id/end - End a session for everyone (disconnects all participants).
+ *
+ * Allowed for the meeting organizer, or any member holding sessions:update.
+ * The route is gated on sessions:read so an organizer without the update
+ * permission still reaches the handler; the organizer-or-update check runs
+ * inside. Ending an already-ended session is a successful no-op.
  */
-app.post('/:id/end', requirePermission('sessions:update'), async (c) => {
+app.post('/:id/end', requirePermission('sessions:read'), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
+  const userId = c.get('userId');
   const sessionId = c.req.param('id');
 
   try {
     const db = c.get('tenantDb');
+    const { meetings } = schema;
 
     const [session] = await db.select().from(t).where(eq(t.id, sessionId)).limit(1);
     if (!session) return error.notFound(c, 'Session', sessionId);
+
+    const [meeting] = await db
+      .select({ organizerId: meetings.organizerId })
+      .from(meetings)
+      .where(eq(meetings.id, session.meetingId))
+      .limit(1);
+    const isOrganizer = !!meeting?.organizerId && meeting.organizerId === userId;
+    if (!isOrganizer && !(await hasContextPermission(c, 'sessions:update'))) {
+      return error.forbidden(c, 'Only the meeting organizer can end the meeting for everyone.');
+    }
+
+    if (session.status === 'ended') return success(c, { ok: true });
 
     await endMeetingSession(db, c.env, orgId, sessionId, session, session.meetingId);
 
@@ -576,94 +638,155 @@ app.post('/:id/end', requirePermission('sessions:update'), async (c) => {
 });
 
 /**
- * POST /:id/recording/start - Mark session as recording
+ * POST /:id/participants/remove - Host "Remove from call".
+ *
+ * Records the removal on the session, then disconnects that one participant
+ * through RealtimeKit. Allowed for the meeting organizer, or any member
+ * holding sessions:update (same gate as /end).
+ *
+ * `participantId` (peer.id) or `rtkUserId` (peer.userId) is matched against
+ * `participants[].cfSessionId`, the RealtimeKit REST participant id; the
+ * client SDK doesn't document which of the two carries it. `customParticipantId` is an
+ * optional fallback matched against the stored `userId` (workspace members
+ * join with customParticipantId === Clerk userId).
+ *
+ * A removed guest (userId `guest:<email>`) is blocked from rejoining THIS
+ * session: the email lands in `metadata.removedGuests`, which the meeting
+ * portal's join route checks. Removed workspace members are only kicked.
+ * The kick is best-effort once the removal is persisted: a RealtimeKit
+ * failure is logged and reported as `kicked: false`.
+ *
+ * Removing an already-removed or already-left participant is a no-op, as is
+ * removing from an ended session (matching /end and /leave).
  */
-app.post('/:id/recording/start', requirePermission('sessions:update'), async (c) => {
-  const sessionId = c.req.param('id');
-  const userId = c.get('userId');
+app.post(
+  '/:id/participants/remove',
+  requirePermission('sessions:read'),
+  zValidator('json', removeMeetingSessionParticipantSchema),
+  async (c) => {
+    const orgId = c.get('orgId');
+    if (!orgId) return error.orgRequired(c);
 
-  try {
-    const db = c.get('tenantDb');
-    const { meetings } = schema;
+    const userId = c.get('userId');
+    const sessionId = c.req.param('id');
+    const { participantId, rtkUserId, customParticipantId } = c.req.valid('json');
 
-    const [session] = await db
-      .select({ meetingId: t.meetingId })
-      .from(t)
-      .where(eq(t.id, sessionId))
-      .limit(1);
-    if (!session) return error.notFound(c, 'Session', sessionId);
+    try {
+      const db = c.get('tenantDb');
+      const { meetings } = schema;
 
-    const [meeting] = await db
-      .select({ organizerId: meetings.organizerId, allowParticipantRecord: meetings.allowParticipantRecord })
-      .from(meetings)
-      .where(eq(meetings.id, session.meetingId))
-      .limit(1);
+      const [session] = await db.select().from(t).where(eq(t.id, sessionId)).limit(1);
+      if (!session) return error.notFound(c, 'Session', sessionId);
 
-    if (meeting && meeting.organizerId !== userId && !meeting.allowParticipantRecord) {
-      return error.forbidden(c, 'Only the meeting organizer can start a recording.');
-    }
-
-    await db
-      .update(t)
-      .set({ recordingEnabled: true, updatedAt: new Date() })
-      .where(eq(t.id, sessionId));
-
-    return success(c, { ok: true });
-  } catch (err) {
-    console.error('[app-api/meeting-sessions] recording/start failed:', err);
-    return error.internal(c, 'Failed to start recording');
-  }
-});
-
-/**
- * POST /:id/recording/stop - Stop recording, persist cfAppId as key for URL fetch
- */
-app.post('/:id/recording/stop', requirePermission('sessions:update'), async (c) => {
-  const sessionId = c.req.param('id');
-
-  try {
-    const db = c.get('tenantDb');
-
-    const [session] = await db
-      .select({ cfAppId: t.cfAppId })
-      .from(t)
-      .where(eq(t.id, sessionId))
-      .limit(1);
-    if (!session) return error.notFound(c, 'Session', sessionId);
-
-    await db
-      .update(t)
-      .set({
-        recordingEnabled: false,
-        recordingKey: session.cfAppId ?? undefined,
-        updatedAt: new Date(),
-      })
-      .where(eq(t.id, sessionId));
-
-    // Try to fetch the recording URL right away (may not be ready yet)
-    let recordingUrl: string | undefined;
-    if (session.cfAppId) {
-      try {
-        const recordings = await getRecordings(c.env, session.cfAppId);
-        const latest = recordings.find((r: any) => r.download_url);
-        if (latest?.download_url) {
-          recordingUrl = latest.download_url;
-          await db
-            .update(t)
-            .set({ recordingUrl, updatedAt: new Date() })
-            .where(eq(t.id, sessionId));
-        }
-      } catch (e) {
-        console.error('[app-api/meeting-sessions] recording URL not ready yet:', e);
+      const [meeting] = await db
+        .select({ organizerId: meetings.organizerId })
+        .from(meetings)
+        .where(eq(meetings.id, session.meetingId))
+        .limit(1);
+      const isOrganizer = !!meeting?.organizerId && meeting.organizerId === userId;
+      if (!isOrganizer && !(await hasContextPermission(c, 'sessions:update'))) {
+        return error.forbidden(c, 'Only the meeting organizer can remove participants.');
       }
-    }
 
-    return success(c, { ok: true, recordingUrl });
-  } catch (err) {
-    console.error('[app-api/meeting-sessions] recording/stop failed:', err);
-    return error.internal(c, 'Failed to stop recording');
-  }
-});
+      if (session.status === 'ended') {
+        return success(c, { ok: true, kicked: false, blocked: false });
+      }
+
+      const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
+      // Prefer a live entry: the same person can appear twice after a rejoin.
+      const matches = (p: MeetingSessionParticipant) =>
+        p.cfSessionId === participantId ||
+        (!!rtkUserId && p.cfSessionId === rtkUserId) ||
+        (!!customParticipantId && p.userId === customParticipantId);
+      const idx = participants.findIndex((p) => !p.leftAt && matches(p));
+      const index = idx >= 0 ? idx : participants.findIndex(matches);
+      if (index < 0) return error.notFound(c, 'Participant', participantId);
+
+      const target = participants[index];
+      if (target.userId === userId) {
+        return error.badRequest(c, 'You cannot remove yourself from the call. Leave the call instead.');
+      }
+      if (meeting?.organizerId && target.userId === meeting.organizerId) {
+        return error.badRequest(c, 'The meeting organizer cannot be removed from the call.');
+      }
+
+      const guestEmail = guestEmailFromUserId(target.userId);
+      const alreadyBlocked = !!guestEmail && isGuestRemovedFromSession(session.metadata, guestEmail);
+      const needsKick = !target.leftAt;
+      const needsBlock = !!guestEmail && !alreadyBlocked;
+      if (!needsKick && !needsBlock) {
+        return success(c, { ok: true, kicked: false, blocked: !!guestEmail });
+      }
+
+      const now = new Date();
+      if (needsKick) participants[index] = { ...target, leftAt: now.toISOString() };
+
+      // Merged in SQL so a concurrent metadata writer (the meeting bot) is
+      // never overwritten; an existing entry for the email keeps winning.
+      const removedGuestJson = guestEmail
+        ? JSON.stringify({
+            [guestEmail]: {
+              removedAt: now.toISOString(),
+              removedBy: userId,
+              name: target.userName,
+            } satisfies MeetingSessionRemovedGuest,
+          })
+        : null;
+
+      await db
+        .update(t)
+        .set({
+          updatedAt: now,
+          ...(needsKick ? { participants } : {}),
+          ...(removedGuestJson && needsBlock
+            ? {
+                metadata: sql`coalesce(${t.metadata}, '{}'::jsonb) || jsonb_build_object('removedGuests', ${removedGuestJson}::jsonb || coalesce(${t.metadata}->'removedGuests', '{}'::jsonb))`,
+              }
+            : {}),
+        })
+        .where(eq(t.id, sessionId));
+
+      let kicked = false;
+      if (needsKick && session.cfAppId) {
+        try {
+          await kickRtkParticipants(c.env, session.cfAppId, { participantIds: [target.cfSessionId] });
+          kicked = true;
+        } catch (err) {
+          console.error('[meeting-sessions] RTK kick participant failed', {
+            sessionId,
+            cfAppId: session.cfAppId,
+            err,
+          });
+        }
+      }
+
+      publishEntityEvent({
+        c,
+        entityType: 'meeting_session',
+        entityId: sessionId,
+        action: 'updated',
+        data: {
+          id: sessionId,
+          meetingId: session.meetingId,
+          status: session.status,
+          removedParticipantId: target.cfSessionId,
+          removedBy: userId,
+          blocked: !!guestEmail,
+        },
+      });
+
+      return success(c, { ok: true, kicked, blocked: !!guestEmail });
+    } catch (err) {
+      console.error('[meeting-sessions] remove participant failed:', err);
+      return error.internal(c, 'Failed to remove participant');
+    }
+  },
+);
+
+// Recording start/stop, ai-options, access, delete, transcribe, summarize and the
+// session transcription reads: see ./recording.ts (static + /:id/recording paths,
+// registered before the generic /:id CRUD below).
+app.route('/', meetingSessionRecordingRoutes);
 
 /**
  * GET /:id/recordings - List recordings for a session (CF RTK + saved URL)
@@ -752,7 +875,9 @@ app.get('/:id', requirePermission('sessions:read'), async (c) => {
 
 app.post('/', requirePermission('sessions:create'), zValidator('json', createMeetingSessionSchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
+  // meetingId is the one server-owned field a create legitimately sets.
+  const body = c.req.valid('json') as Record<string, any>;
+  const data = { ...stripServerOwned(body), ...(body.meetingId !== undefined ? { meetingId: body.meetingId } : {}) } as Record<string, any>;
   const id = generateId('msn');
   const now = new Date();
   try {
@@ -779,7 +904,8 @@ app.post('/', requirePermission('sessions:create'), zValidator('json', createMee
 app.patch('/:id', requirePermission('sessions:update'), zValidator('json', updateMeetingSessionSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const data = c.req.valid('json') as Record<string, any>;
+  // Recorder / transcript / summary state and ids are server-owned: strip them.
+  const data = stripServerOwned(c.req.valid('json') as Record<string, unknown>);
   try {
     const [existing] = await db.select().from(t).where(eq(t.id, id)).limit(1);
     if (!existing) return error.notFound(c, 'Meeting session', id);

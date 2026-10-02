@@ -5,6 +5,7 @@ import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
 import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useAuth } from '@clerk/clerk-react';
 import { getTranslations } from '@/lib/i18n';
+import { peekStartHandoff } from '@/lib/weldmeet/start-handoff';
 // Lazy + dynamic-only: app-shell also dynamically imports meeting-overlay
 // (for MeetingOverlay). Importing InlineMeetingView statically here made the
 // module a mixed static+dynamic import, which the CI build folds into a route
@@ -18,28 +19,43 @@ export default function MeetingRoomPage() {
   const t = getTranslations('weldmeet');
   const { meetingId } = useParams({ from: '/weldmeet/$meetingId/room' });
   const navigate = useNavigate();
-  const { status, joinMeeting } = useWeldMeetCall();
+  const { status, joinMeeting, cancelPreview, meetingId: callMeetingId } = useWeldMeetCall();
   const { data: meeting } = useMeeting(meetingId);
   const { userId } = useAuth();
-  const hasJoined = useRef(false);
+  // The meeting this page already started joining. The router reuses this
+  // component when only `$meetingId` changes, so a boolean would block the
+  // auto-join of the second room.
+  const joinedMeetingId = useRef<string | null>(null);
+
+  // A pre-join preview left over from another meeting would keep the camera
+  // on and block the auto-join below (it needs status 'idle'): drop it.
+  useEffect(() => {
+    if (status === 'preview' && callMeetingId && callMeetingId !== meetingId) {
+      cancelPreview();
+    }
+  }, [status, callMeetingId, meetingId, cancelPreview]);
 
   // Auto-join on mount / reload
   useEffect(() => {
-    if (status === 'idle' && meeting && !hasJoined.current) {
-      hasJoined.current = true;
+    if (status === 'idle' && meeting && meeting.id === meetingId && joinedMeetingId.current !== meetingId) {
+      joinedMeetingId.current = meetingId;
       const isOrganizer = meeting.organizerId === userId;
-      joinMeeting(meetingId, {
+      void joinMeeting(meetingId, {
         meetingType: meeting.meetingType as 'video' | 'audio',
         title: meeting.title,
         isOrganizer,
-        skipPreview: isOrganizer,
+        // The host gets the pre-join screen like everyone else (check mic /
+        // camera, pick devices), except right after "Start an instant meeting":
+        // that flow already holds a start hand-off and the host is expected to
+        // land in the room straight away.
+        skipPreview: isOrganizer && peekStartHandoff(meetingId),
       });
     }
   }, [status, meeting, meetingId, joinMeeting, userId]);
 
   // Navigate away when meeting ends
   useEffect(() => {
-    if (status === 'idle' && hasJoined.current) {
+    if (status === 'idle' && joinedMeetingId.current === meetingId) {
       navigate({ to: '/weldmeet/$meetingId', params: { meetingId } });
     }
   }, [status, navigate, meetingId]);

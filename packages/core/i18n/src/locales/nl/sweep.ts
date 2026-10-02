@@ -3347,6 +3347,8 @@ export const sweep = {
       "unknown": "Onbekend",
       "organizer": "Organisator",
       "teamMember": "Teamlid",
+      "sessionsCount": "{count} sessies",
+      "notScheduled": "Niet gepland",
       "contact": "Contact"
     },
     "meetingIntelligenceHeader": {
@@ -3398,7 +3400,9 @@ export const sweep = {
       "autoScrollOff": "Automatisch scrollen UIT",
       "loading": "Bezig met laden...",
       "speakerNumber": "Spreker {number}",
-      "transcribeToSeeConversation": "Maak een transcript van deze vergadering om het hele gesprek te bekijken."
+      "transcribeToSeeConversation": "Maak een transcript van deze vergadering om het hele gesprek te bekijken.",
+      "transcriptionFailedDescription": "Er ging iets mis bij het maken van het transcript van deze opname. Je kunt het opnieuw proberen.",
+      "tryAgain": "Opnieuw proberen"
     },
     "transcriptionProgress": {
       "transcribingCall": "Gesprek wordt getranscribeerd..."
@@ -3826,6 +3830,7 @@ export const sweep = {
     },
     "activitySection": {
       "noActivitiesYet": "Nog geen activiteiten",
+      "noActivitiesYetDescriptionPerson": "Activiteit met deze persoon verschijnt hier.",
       "noActivitiesYetDescription": "Activiteit met deze klant verschijnt hier.",
       "changeCountSingular": "{count} wijziging",
       "changeCountPlural": "{count} wijzigingen"

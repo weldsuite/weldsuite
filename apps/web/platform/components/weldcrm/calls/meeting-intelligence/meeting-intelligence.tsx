@@ -7,6 +7,7 @@ import { Tabs, TabsContent } from '@weldsuite/ui/components/tabs';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   Captions,
+  Sparkles,
   Users,
   Video,
 } from 'lucide-react';
@@ -24,7 +25,7 @@ import { TranscriptTabContent } from './transcript-tab';
 import { SpeakersTabContent } from './speakers-tab';
 import { MeetingDetailsTab } from './meeting-details-tab';
 import { getSpeakerHex } from './speaker-colors';
-import { parseSpeakerId } from './utils';
+import { parseSpeakerId, isTranscriptionInProgress, usableTranscription } from './utils';
 import { useActiveWord } from './use-active-word';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type {
@@ -37,6 +38,8 @@ import type {
 export function MeetingIntelligence({
   call,
   recordingUrl,
+  recordingUrlExpiresAt,
+  onRefreshRecordingUrl,
   mediaType = 'video',
   initialTranscription,
   fetchTranscriptionOnMount = false,
@@ -44,6 +47,7 @@ export function MeetingIntelligence({
   enableFloatingVideo = false,
   enableWeldAgent = false,
   onDelete,
+  deleteSuccessMessage,
   deleteRedirectUrl,
   backUrl,
   breadcrumbs,
@@ -51,6 +55,12 @@ export function MeetingIntelligence({
   renderSidebar,
   headerActions,
   headerMenuActions,
+  tabLabels,
+  renderSummary,
+  mediaSlot,
+  transcriptionPending = false,
+  transcriptionRefreshKey,
+  transcriptEmptyHint,
 }: MeetingIntelligenceProps) {
   const t = useTranslations();
   const router = useRouter();
@@ -79,8 +89,19 @@ export function MeetingIntelligence({
     stableRecordingUrl.current = recordingUrl;
   }
 
+  // Short-lived playback URLs (private recordings): renew the one in use before
+  // it expires, or when the media element fails, and resume where it was.
+  const [activeExpiresAt, setActiveExpiresAt] = useState<string | null>(null);
+  const [, setSourceVersion] = useState(0);
+  const expirySeededRef = useRef(false);
+  const refreshingRef = useRef(false);
+  const lastRefreshAtRef = useRef(0);
+  const refreshCallbackRef = useRef(onRefreshRecordingUrl);
+  refreshCallbackRef.current = onRefreshRecordingUrl;
+
   // Transcription state
-  const [transcription, setTranscription] = useState<TranscriptionData | null>(initialTranscription || null);
+  const [transcription, setTranscription] = useState<TranscriptionData | null>(usableTranscription(initialTranscription));
+  const [transcriptionFailed, setTranscriptionFailed] = useState(initialTranscription?.status === 'failed');
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isLoadingTranscription, setIsLoadingTranscription] = useState(fetchTranscriptionOnMount);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
@@ -242,15 +263,21 @@ export function MeetingIntelligence({
   }, []);
 
   // Fetch transcription on mount
-  const fetchTranscription = useCallback(async () => {
-    if (!transcriptionActions?.onFetchTranscription) return;
+  // Resolves to the fetched row's status, so the mount effect can resume
+  // polling for a transcription that is still running.
+  const fetchTranscription = useCallback(async (): Promise<string | undefined> => {
+    if (!transcriptionActions?.onFetchTranscription) return undefined;
     try {
       const result = await transcriptionActions.onFetchTranscription(call.id);
-      if (result.success && result.transcription) {
-        setTranscription(result.transcription);
+      const data = result.success ? result.transcription : null;
+      if (data) {
+        setTranscriptionFailed(data.status === 'failed');
+        setTranscription(usableTranscription(data));
       }
-      setIsLoadingTranscription(false);
+      return data?.status;
     } catch {
+      return undefined;
+    } finally {
       setIsLoadingTranscription(false);
     }
   }, [call.id, transcriptionActions]);
@@ -300,12 +327,16 @@ export function MeetingIntelligence({
       setTimeout(finishTranscribing, 500);
     };
 
-    const handleFailed = (errorMessage: string | undefined) => {
+    // The stored errorMessage is the pipeline's internal error (provider HTTP
+    // bodies, missing config), so it stays out of the UI.
+    const handleFailed = () => {
       stopPolling();
-      const errorMsg = errorMessage || t('sweep.weldcrm.meetingIntelligence.transcriptionFailed');
       if (showToasts) {
-        toast.error(t('sweep.weldcrm.meetingIntelligence.transcriptionFailed'), { description: errorMsg });
+        toast.error(t('sweep.weldcrm.meetingIntelligence.transcriptionFailed'), {
+          description: t('sweep.weldcrm.transcriptTab.transcriptionFailedDescription'),
+        });
       }
+      setTranscriptionFailed(true);
       finishTranscribing();
     };
 
@@ -326,7 +357,7 @@ export function MeetingIntelligence({
         if (status === 'completed') {
           await handleCompleted();
         } else if (status === 'failed') {
-          handleFailed(statusResult.status?.errorMessage);
+          handleFailed();
         }
       } catch {
         // Don't stop polling on transient errors
@@ -346,7 +377,7 @@ export function MeetingIntelligence({
 
   // Auto-poll if initial transcription arrived with 'processing' status
   useEffect(() => {
-    if (initialTranscription?.status === 'processing' && transcriptionActions?.onPollStatus) {
+    if (isTranscriptionInProgress(initialTranscription?.status) && transcriptionActions?.onPollStatus) {
       setIsTranscribing(true);
       startPolling(true);
     }
@@ -360,6 +391,14 @@ export function MeetingIntelligence({
       setTranscriptionProgress(0);
 
       const result = await transcriptionActions.onTranscribe(call.id);
+
+      // The user backed out of a confirmation: nothing started, nothing to report.
+      if (result.cancelled) {
+        setIsTranscribing(false);
+        setTranscriptionProgress(0);
+        return;
+      }
+      setTranscriptionFailed(false);
 
       if (!result.success) {
         if (result.error === 'insufficient_credits') {
@@ -399,9 +438,13 @@ export function MeetingIntelligence({
         return;
       }
 
-      toast.success(t('sweep.weldcrm.meetingIntelligence.callDeleted'), {
-        description: t('sweep.weldcrm.meetingIntelligence.callDeletedDescription'),
-      });
+      if (deleteSuccessMessage) {
+        toast.success(deleteSuccessMessage);
+      } else {
+        toast.success(t('sweep.weldcrm.meetingIntelligence.callDeleted'), {
+          description: t('sweep.weldcrm.meetingIntelligence.callDeletedDescription'),
+        });
+      }
 
       router.push(deleteRedirectUrl || '/weldcrm/calls');
     } catch (error: unknown) {
@@ -411,14 +454,30 @@ export function MeetingIntelligence({
     } finally {
       setShowDeleteDialog(false);
     }
-  }, [call.id, onDelete, deleteRedirectUrl, router, t]);
+  }, [call.id, onDelete, deleteSuccessMessage, deleteRedirectUrl, router, t]);
 
-  // Fetch transcription on mount
+  // Fetch transcription on mount. A transcription still running after a reload resumes polling, so the user
+  // sees it finish (or fail) instead of an empty Transcript tab.
   useEffect(() => {
-    if (fetchTranscriptionOnMount) {
-      fetchTranscription();
-    }
+    if (!fetchTranscriptionOnMount) return;
+    let cancelled = false;
+    fetchTranscription().then((status) => {
+      if (cancelled || !isTranscriptionInProgress(status) || !transcriptionActions?.onPollStatus) return;
+      setIsTranscribing(true);
+      startPolling(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [call.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The host page says the transcript or summary changed (it finished after the
+  // meeting, or a summary was written): load it again.
+  useEffect(() => {
+    if (transcriptionRefreshKey === undefined) return;
+    if (!transcription) setIsLoadingTranscription(true);
+    fetchTranscription();
+  }, [transcriptionRefreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // WeldAgent context
   useEffect(() => {
@@ -560,6 +619,62 @@ ${transcriptionText}
     };
   }, [isMinimized, mediaRef]);
 
+  // The expiry that belongs to the URL actually in use. A later prop value
+  // belongs to a newer token the player never adopted, so it is ignored.
+  useEffect(() => {
+    if (expirySeededRef.current || !stableRecordingUrl.current) return;
+    expirySeededRef.current = true;
+    setActiveExpiresAt(recordingUrlExpiresAt ?? null);
+  }, [recordingUrl, recordingUrlExpiresAt]);
+
+  const refreshPlaybackUrl = useCallback(async () => {
+    const refresh = refreshCallbackRef.current;
+    if (!refresh || refreshingRef.current) return;
+    // A source that fails for another reason must not loop on renewals.
+    if (Date.now() - lastRefreshAtRef.current < 15_000) return;
+    refreshingRef.current = true;
+    lastRefreshAtRef.current = Date.now();
+    try {
+      const fresh = await refresh();
+      if (!fresh?.url || fresh.url === stableRecordingUrl.current) return;
+      const media = mediaRef.current;
+      if (media) {
+        // loadedmetadata of the new source restores position and play state.
+        pendingRestoreRef.current = {
+          currentTime: media.currentTime,
+          isPlaying: !media.paused && !media.ended,
+        };
+      }
+      stableRecordingUrl.current = fresh.url;
+      setActiveExpiresAt(fresh.expiresAt ?? null);
+      setSourceVersion((v) => v + 1);
+    } catch {
+      // Keep the current source; the next error or the user's retry renews again.
+    } finally {
+      refreshingRef.current = false;
+    }
+  }, [mediaRef]);
+
+  // Renew about two minutes before the token expires.
+  const canRefreshUrl = !!onRefreshRecordingUrl;
+  useEffect(() => {
+    if (!canRefreshUrl || !activeExpiresAt) return;
+    const expiresAtMs = Date.parse(activeExpiresAt);
+    if (Number.isNaN(expiresAtMs)) return;
+    const delay = Math.max(expiresAtMs - Date.now() - 2 * 60_000, 0);
+    const timer = setTimeout(() => void refreshPlaybackUrl(), delay);
+    return () => clearTimeout(timer);
+  }, [canRefreshUrl, activeExpiresAt, refreshPlaybackUrl]);
+
+  // An expired token answers 404: the element errors, and we renew.
+  useEffect(() => {
+    const media = mediaRef.current;
+    if (!media || !canRefreshUrl) return;
+    const onError = () => void refreshPlaybackUrl();
+    media.addEventListener('error', onError);
+    return () => media.removeEventListener('error', onError);
+  }, [isMinimized, mediaRef, canRefreshUrl, refreshPlaybackUrl]);
+
   // Smooth 60fps time tracking
   useEffect(() => {
     const tick = () => {
@@ -634,10 +749,13 @@ ${transcriptionText}
   const activeWordIndex = useActiveWord(transcription?.segments, activeSegmentId, smoothTime);
 
   const hasTranscription = !!transcription;
+  // Progress state while we poll after a Transcribe click, or while the host page
+  // knows one is being produced (e.g. a transcript that arrives after the meeting).
+  const showTranscribing = isTranscribing || (transcriptionPending && !hasTranscription);
 
   const headerMinimizeHandler = enableFloatingVideo && stableRecordingUrl.current && floatingCallCtx ? handleMinimize : undefined;
   const playerMinimizeHandler = enableFloatingVideo && floatingVideoCtx && stableRecordingUrl.current ? handleVideoMinimize : undefined;
-  const transcribeHandler = transcriptionActions ? handleTranscribe : undefined;
+  const transcribeHandler = transcriptionActions?.onTranscribe ? handleTranscribe : undefined;
 
   // Full-width layout (for call detail pages)
   return (
@@ -648,7 +766,7 @@ ${transcriptionText}
           call={call}
           mediaType={mediaType}
           videoDuration={duration}
-          isTranscribing={isTranscribing}
+          isTranscribing={showTranscribing}
           hasTranscription={hasTranscription}
           isLoadingTranscription={isLoadingTranscription}
           onBack={() => backUrl ? router.push(backUrl) : router.push('/weldcrm/calls')}
@@ -660,6 +778,7 @@ ${transcriptionText}
           onScheduleAgain={headerMenuActions?.onScheduleAgain}
           onDownloadRecording={headerMenuActions?.onDownloadRecording}
           onDeleteRecording={headerMenuActions?.onDeleteRecording}
+          deleteRecordingLabel={headerMenuActions?.deleteRecordingLabel}
           onExportTranscript={headerMenuActions?.onExportTranscript}
           headerActions={headerActions}
         />
@@ -709,6 +828,8 @@ ${transcriptionText}
               />
             )}
 
+            {!isMinimized && mediaType === 'none' && mediaSlot}
+
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="pb-4">
               <div className="sticky top-0 z-10 bg-white dark:bg-background px-4 pt-[10px] overflow-hidden">
@@ -717,9 +838,10 @@ ${transcriptionText}
                     {tabs.map((tab, tabIndex) => {
                       const isFirst = tabIndex === 0;
                       const tabConfig = {
-                        transcript: { icon: Captions, label: t('sweep.weldcrm.meetingIntelligence.tabTranscript') },
-                        speakers: { icon: Users, label: t('sweep.weldcrm.meetingIntelligence.tabSpeakers') },
-                        meeting: { icon: Video, label: isAudio ? t('sweep.weldcrm.meetingIntelligence.tabDetails') : t('sweep.weldcrm.meetingIntelligence.tabMeeting') },
+                        transcript: { icon: Captions, label: tabLabels?.transcript ?? t('sweep.weldcrm.meetingIntelligence.tabTranscript') },
+                        summary: { icon: Sparkles, label: tabLabels?.summary ?? 'Summary' },
+                        speakers: { icon: Users, label: tabLabels?.speakers ?? t('sweep.weldcrm.meetingIntelligence.tabSpeakers') },
+                        meeting: { icon: Video, label: tabLabels?.meeting ?? (isAudio ? t('sweep.weldcrm.meetingIntelligence.tabDetails') : t('sweep.weldcrm.meetingIntelligence.tabMeeting')) },
                       }[tab];
                       if (!tabConfig) return null;
                       const TabIcon = tabConfig.icon;
@@ -773,7 +895,8 @@ ${transcriptionText}
                     <TranscriptTabContent
                       segments={transcription?.segments}
                       isLoading={isLoadingTranscription}
-                      isTranscribing={isTranscribing}
+                      isTranscribing={showTranscribing}
+                      transcriptionFailed={transcriptionFailed}
                       transcriptionProgress={transcriptionProgress}
                       hasTranscription={hasTranscription}
                       activeSegmentId={activeSegmentId}
@@ -782,9 +905,16 @@ ${transcriptionText}
                       onSeekToSegment={seekToSegment}
                       onSeekToTime={seekToSegment}
                       onTranscribe={transcribeHandler}
+                      emptyHint={transcriptEmptyHint}
                       segmentRefs={segmentRefs}
                     />
                   </div>
+                </TabsContent>
+              )}
+
+              {tabs.includes('summary') && (
+                <TabsContent value="summary" className="mt-0 px-4">
+                  {renderSummary?.()}
                 </TabsContent>
               )}
 
@@ -796,7 +926,7 @@ ${transcriptionText}
                     transcriptionTotalDuration={transcriptionTotalDuration}
                     smoothTime={smoothTime}
                     hasTranscription={hasTranscription}
-                    isTranscribing={isTranscribing}
+                    isTranscribing={showTranscribing}
                     onSeekToSegment={seekToSegment}
                     onTranscribe={transcribeHandler}
                   />

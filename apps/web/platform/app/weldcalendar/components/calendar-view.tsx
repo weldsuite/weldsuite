@@ -79,6 +79,8 @@ import {
   useUnpinCalendarEvent,
   useUserCalendars,
   type CalendarEvent,
+  type CalendarEventInput,
+  type CalendarEventSaveResult,
   type UserCalendar,
 } from '@/hooks/queries/use-calendar-queries';
 import { EVENT_TYPE_COLORS, EVENT_TYPE_OPTIONS, EVENT_PRIORITY_OPTIONS } from '../lib/event-form-schema';
@@ -91,8 +93,12 @@ import { useObjectPanel } from '@/components/object-panel';
 import { WeekDayHeader, TimeLabelColumn, TODAY_BLUE } from './calendar-shared';
 import { getActiveCalendarIds } from './calendar-sidebar-section';
 import { useSlotDrag } from '../hooks/use-slot-drag';
-import { useAutoCreateWeldMeeting } from '@/hooks/use-auto-create-weld-meeting';
-import { useUpdateMeeting } from '@/hooks/queries/use-weldmeet-queries';
+import {
+  useAutoCreateWeldMeeting,
+  WeldMeetCreateError,
+  DEFAULT_WELDMEET_SETTINGS,
+  type WeldMeetSettings,
+} from '@/hooks/use-auto-create-weld-meeting';
 import { EventNotificationDialog } from './event-notification-dialog';
 import { useEventDrag } from '../hooks/use-event-drag';
 import { useEventResize } from '../hooks/use-event-resize';
@@ -1246,11 +1252,7 @@ function CalendarBody({
 
 type GuestEntry = { id: string; name: string; email: string };
 
-interface MeetingSettings {
-  accessType: 'workspace' | 'invited_only' | 'anyone_with_link';
-  waitingRoom: boolean;
-  allowRecording: boolean;
-}
+type MeetingSettings = WeldMeetSettings;
 
 /** Initial form values: the event being edited wins over the caller's defaults. */
 function getQuickCreateInitialValues(
@@ -1621,37 +1623,42 @@ function EventTimeRow({
   );
 }
 
-/** WeldMeet row: add link, creating spinner, or the link with copy / settings / remove actions. */
+/**
+ * WeldMeet row: "add" button, the "link is created when you save" state, or the
+ * link of an already-saved meeting. The meeting itself is only created when the
+ * event is saved, so a pending row has a settings popover but no link to copy.
+ */
 function MeetingRow({
   meetingUrl,
-  isCreating,
+  pending,
   linkCopied,
   settings,
-  onCreate,
+  onAdd,
   onCopyLink,
   onUpdateSetting,
   onRemove,
 }: {
   meetingUrl: string;
-  isCreating: boolean;
+  /** WeldMeet was added but the meeting is created on save. */
+  pending: boolean;
   linkCopied: boolean;
   settings: MeetingSettings;
-  onCreate: () => void;
+  onAdd: () => void;
   onCopyLink: () => void;
   onUpdateSetting: (patch: Partial<MeetingSettings>) => void;
   onRemove: () => void;
 }) {
   const t = getTranslations('weldcalendar');
-  const canCreate = !isCreating && !meetingUrl;
+  const hasMeeting = pending || !!meetingUrl;
   // The row is only a button while it still offers "add WeldMeet".
-  const buttonProps = canCreate
-    ? { role: 'button', tabIndex: 0, onClick: onCreate, onKeyDown: activateOnKey(onCreate) }
-    : {};
+  const buttonProps = hasMeeting
+    ? {}
+    : { role: 'button', tabIndex: 0, onClick: onAdd, onKeyDown: activateOnKey(onAdd) };
   return (
     <div
       className={cn(
         'group flex items-center gap-3 px-4 py-[10px]',
-        canCreate && 'cursor-pointer hover:bg-accent/50 transition-colors',
+        !hasMeeting && 'cursor-pointer hover:bg-accent/50 transition-colors',
       )}
       {...buttonProps}
     >
@@ -1670,101 +1677,105 @@ function MeetingRow({
           d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
         />
       </svg>
-      {isCreating && (
-        <div className="flex items-center gap-2 h-7">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">{t.quickCreate.creatingMeetingLink}</span>
-        </div>
-      )}
-      {!isCreating && meetingUrl && (
+      {hasMeeting && (
         <div className="flex items-center justify-between flex-1 h-7 min-w-0 gap-2">
-          <span className="text-sm text-primary truncate">{meetingUrl}</span>
+          {meetingUrl ? (
+            <span className="text-sm text-primary truncate">{meetingUrl}</span>
+          ) : (
+            <span className="text-sm text-muted-foreground truncate">{t.quickCreate.meetingLinkPending}</span>
+          )}
           <div className="flex items-center gap-0.5 shrink-0">
-            {/* Copy link — revealed on row hover */}
-            <Button
-              variant="ghost"
-              size="icon"
-              type="button"
-              title={t.quickCreate.copyMeetingLink}
-              aria-label={t.quickCreate.copyMeetingLink}
-              className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCopyLink();
-              }}
-            >
-              {linkCopied ? (
-                <Check className="h-3.5 w-3.5 text-green-600" />
-              ) : (
-                <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-              )}
-            </Button>
+            {/* Copy link: only once a real link exists */}
+            {meetingUrl && (
+              <Button
+                variant="ghost"
+                size="icon"
+                type="button"
+                title={t.quickCreate.copyMeetingLink}
+                aria-label={t.quickCreate.copyMeetingLink}
+                className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCopyLink();
+                }}
+              >
+                {linkCopied ? (
+                  <Check className="h-3.5 w-3.5 text-green-600" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </Button>
+            )}
 
-            {/* Meeting settings — revealed on row hover, opens a popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  type="button"
-                  title={t.quickCreate.meetingSettings}
-                  aria-label={t.quickCreate.meetingSettings}
-                  className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center data-[state=open]:bg-muted"
+            {/* Meeting settings: applied when the meeting is created on save */}
+            {pending && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    type="button"
+                    title={t.quickCreate.meetingSettings}
+                    aria-label={t.quickCreate.meetingSettings}
+                    className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center data-[state=open]:bg-muted"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Settings className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  className="w-72 p-3"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <Settings className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="w-72 p-3"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <p className="text-sm font-medium mb-3">{t.quickCreate.meetingSettings}</p>
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-muted-foreground">{t.quickCreate.meetingAccess}</label>
-                    <Select
-                      value={settings.accessType}
-                      onValueChange={(v) =>
-                        onUpdateSetting({ accessType: v as MeetingSettings['accessType'] })
-                      }
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="anyone_with_link">{t.quickCreate.meetingAccessAnyone}</SelectItem>
-                        <SelectItem value="workspace">{t.quickCreate.meetingAccessWorkspace}</SelectItem>
-                        <SelectItem value="invited_only">{t.quickCreate.meetingAccessInvited}</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <p className="text-sm font-medium mb-3">{t.quickCreate.meetingSettings}</p>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-muted-foreground">{t.quickCreate.meetingAccess}</label>
+                      <Select
+                        value={settings.accessType}
+                        onValueChange={(v) =>
+                          onUpdateSetting({ accessType: v as MeetingSettings['accessType'] })
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="anyone_with_link">{t.quickCreate.meetingAccessAnyone}</SelectItem>
+                          <SelectItem value="workspace">{t.quickCreate.meetingAccessWorkspace}</SelectItem>
+                          <SelectItem value="invited_only">{t.quickCreate.meetingAccessInvited}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="weldmeet-waiting-room" className="text-sm">{t.quickCreate.meetingWaitingRoom}</label>
+                      <Switch
+                        id="weldmeet-waiting-room"
+                        checked={settings.waitingRoom}
+                        onCheckedChange={(c) => onUpdateSetting({ waitingRoom: c })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="weldmeet-allow-recording" className="text-sm">{t.quickCreate.meetingAllowRecording}</label>
+                      <Switch
+                        id="weldmeet-allow-recording"
+                        checked={settings.allowRecording}
+                        onCheckedChange={(c) => onUpdateSetting({ allowRecording: c })}
+                      />
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <label htmlFor="weldmeet-waiting-room" className="text-sm">{t.quickCreate.meetingWaitingRoom}</label>
-                    <Switch
-                      id="weldmeet-waiting-room"
-                      checked={settings.waitingRoom}
-                      onCheckedChange={(c) => onUpdateSetting({ waitingRoom: c })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <label htmlFor="weldmeet-allow-recording" className="text-sm">{t.quickCreate.meetingAllowRecording}</label>
-                    <Switch
-                      id="weldmeet-allow-recording"
-                      checked={settings.allowRecording}
-                      onCheckedChange={(c) => onUpdateSetting({ allowRecording: c })}
-                    />
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
+                </PopoverContent>
+              </Popover>
+            )}
 
             {/* Remove meeting link */}
             <Button
               variant="ghost"
               size="icon"
               type="button"
+              title={t.quickCreate.removeMeeting}
+              aria-label={t.quickCreate.removeMeeting}
               className="h-6 w-6 rounded-[5.5px] hover:bg-muted flex items-center justify-center"
               onClick={(e) => {
                 e.stopPropagation();
@@ -1776,7 +1787,7 @@ function MeetingRow({
           </div>
         </div>
       )}
-      {canCreate && (
+      {!hasMeeting && (
         <span className="text-sm text-foreground h-7 flex items-center">
           {t.quickCreate.addWeldMeet}
         </span>
@@ -1901,6 +1912,8 @@ export function QuickCreateCard({
   // card has no "more options" trigger of its own.
   showTypeTabs = true,
   editEvent,
+  defaultGuests,
+  defaultWeldMeet = false,
 }: {
   defaultType: string;
   defaultStart?: Date;
@@ -1917,6 +1930,10 @@ export function QuickCreateCard({
   showTypeTabs?: boolean;
   onMoreOptions: () => void;
   editEvent?: CalendarEvent | null;
+  /** Pre-fill the guest list when creating a new event (e.g. "Schedule again"). */
+  defaultGuests?: Array<{ email: string; name?: string }>;
+  /** Start with "Add WeldMeet" switched on when creating a new event. */
+  defaultWeldMeet?: boolean;
 }) {
   const t = getTranslations('weldcalendar');
   const [initial] = useState(() =>
@@ -1957,15 +1974,15 @@ export function QuickCreateCard({
   const [location, setLocation] = useState(initial.location);
   const [description, setDescription] = useState(initial.description);
   const [meetingUrl, setMeetingUrl] = useState(initial.meetingUrl);
-  // Id + settings of the WeldMeet meeting created from this form, so the
-  // hover actions (copy link / adjust settings) on the meeting row can act on it.
-  const [meetingId, setMeetingId] = useState('');
+  // "Add WeldMeet" only marks the event: the meeting (with the event's times,
+  // guests and these settings) is created when the event is saved, so closing
+  // the card without saving leaves no orphan meeting behind.
+  const [weldMeetPending, setWeldMeetPending] = useState(() => !editEvent && defaultWeldMeet);
   const [meetingLinkCopied, setMeetingLinkCopied] = useState(false);
-  const [meetingSettings, setMeetingSettings] = useState<MeetingSettings>({
-    accessType: 'anyone_with_link',
-    waitingRoom: true,
-    allowRecording: false,
-  });
+  const [meetingSettings, setMeetingSettings] = useState<MeetingSettings>(DEFAULT_WELDMEET_SETTINGS);
+  // Enter in the title input and the Save button can both fire a save.
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
   const [guestSearch, setGuestSearch] = useState('');
   const [selectedGuests, setSelectedGuests] = useState<GuestEntry[]>(() => {
     if (editEvent?.attendees?.length) {
@@ -1973,6 +1990,13 @@ export function QuickCreateCard({
         id: `attendee-${i}`,
         name: a.name || a.email,
         email: a.email,
+      }));
+    }
+    if (!editEvent && defaultGuests?.length) {
+      return defaultGuests.map((g, i) => ({
+        id: `default-guest-${i}`,
+        name: g.name || g.email,
+        email: g.email,
       }));
     }
     return [];
@@ -2007,8 +2031,7 @@ export function QuickCreateCard({
   const createEvent = useCreateCalendarEvent();
   const updateEvent = useUpdateCalendarEvent();
   const createTask = useCreateTask();
-  const { createMeetingAndGetUrl, isPending: isCreatingMeeting } = useAutoCreateWeldMeeting();
-  const updateMeeting = useUpdateMeeting();
+  const { saveEventWithWeldMeet } = useAutoCreateWeldMeeting();
 
   const handleCopyMeetingLink = useCallback(async () => {
     if (!meetingUrl) return;
@@ -2023,21 +2046,13 @@ export function QuickCreateCard({
     }
   }, [meetingUrl, t.quickCreate.meetingLinkCopied]);
 
-  const updateMeetingSetting = useCallback(
-    (patch: Partial<MeetingSettings>) => {
-      setMeetingSettings((prev) => {
-        const next = { ...prev, ...patch };
-        if (meetingId) {
-          updateMeeting.mutate({ id: meetingId, data: patch });
-        }
-        return next;
-      });
-    },
-    [meetingId, updateMeeting],
-  );
+  // The meeting does not exist yet, so settings are only local state.
+  const updateMeetingSetting = useCallback((patch: Partial<MeetingSettings>) => {
+    setMeetingSettings((prev) => ({ ...prev, ...patch }));
+  }, []);
 
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
-  const [pendingEventData, setPendingEventData] = useState<Partial<CalendarEvent> | null>(null);
+  const [pendingEventData, setPendingEventData] = useState<CalendarEventInput | null>(null);
   const [selectedCalendarId, setSelectedCalendarId] = useState(initial.calendarId);
   const isEditMode = !!editEvent?.id;
   const isTask = type === 'reminder';
@@ -2059,14 +2074,6 @@ export function QuickCreateCard({
     high: t.quickCreate.priorityHigh,
   };
 
-  const handleCreateMeeting = async () => {
-    const result = await createMeetingAndGetUrl(title || 'Meeting');
-    if (result) {
-      setMeetingUrl(result.url);
-      setMeetingId(result.meetingId);
-    }
-  };
-
   const saveTask = async (finalTitle: string) => {
     await createTask.mutateAsync({
       title: finalTitle,
@@ -2081,9 +2088,15 @@ export function QuickCreateCard({
     });
   };
 
-  const buildEventData = (finalTitle: string) => {
-    const start = allDay ? new Date(`${startDate}T00:00:00`) : new Date(`${startDate}T${startTimeVal}`);
-    const end = allDay ? new Date(`${endDate}T23:59:59`) : new Date(`${endDate}T${endTimeVal}`);
+  const getEventTimes = () => ({
+    start: allDay ? new Date(`${startDate}T00:00:00`) : new Date(`${startDate}T${startTimeVal}`),
+    end: allDay ? new Date(`${endDate}T23:59:59`) : new Date(`${endDate}T${endTimeVal}`),
+  });
+
+  const buildEventData = (finalTitle: string): CalendarEventInput => {
+    const { start, end } = getEventTimes();
+    const url = meetingUrl.trim();
+    const guests = selectedGuests.map((g) => ({ email: g.email, name: g.name }));
     return {
       calendarId: selectedCalendarId,
       title: finalTitle,
@@ -2095,45 +2108,103 @@ export function QuickCreateCard({
       priority: 'normal' as const,
       location: location.trim() || undefined,
       description: description.trim() || undefined,
-      isVirtual: !!meetingUrl.trim(),
-      meetingUrl: meetingUrl.trim() || undefined,
-      attendees: selectedGuests.length > 0 ? selectedGuests.map((g) => ({ email: g.email, name: g.name })) : undefined,
+      isVirtual: weldMeetPending || !!url,
+      // Editing: '' (not undefined) is what clears a link the user removed.
+      meetingUrl: url || (isEditMode && editEvent?.meetingUrl ? '' : undefined),
+      // Same for guests: [] clears them once the last one was removed.
+      attendees: guests.length > 0 ? guests : isEditMode && editEvent?.attendees?.length ? [] : undefined,
     };
   };
 
-  /** Returns false when saving waits on the notification dialog (don't close yet). */
+  /**
+   * Saves the event through `save`. With a pending WeldMeet the meeting is
+   * created first (title, times, guests and settings of this form) and linked to
+   * the event by the same request; see `saveEventWithWeldMeet`.
+   */
+  const persistEvent = async (
+    eventData: CalendarEventInput,
+    save: (data: CalendarEventInput) => Promise<CalendarEventSaveResult>,
+  ): Promise<void> => {
+    if (!weldMeetPending) {
+      await save(eventData);
+      return;
+    }
+    const { start, end } = getEventTimes();
+    await saveEventWithWeldMeet({
+      title: eventData.title ?? '',
+      start,
+      end,
+      attendees: eventData.attendees?.map((a) => ({ email: a.email, name: a.name })),
+      settings: meetingSettings,
+      saveEvent: (url, weldMeetingId) => save({ ...eventData, meetingUrl: url, isVirtual: true, weldMeetingId }),
+    });
+  };
+
+  /** A meeting that could not be created was already reported; anything else gets the generic toast. */
+  const reportEventSaveError = (err: unknown) => {
+    if (!(err instanceof WeldMeetCreateError)) toast.error(t.quickCreate.saveFailed);
+  };
+
+  /** Returns false when the event is not saved yet (waiting on the notification dialog, or it failed): don't close. */
   const saveEvent = async (finalTitle: string): Promise<boolean> => {
     const eventData = buildEventData(finalTitle);
-    if (!isEditMode || !editEvent?.id) {
-      await createEvent.mutateAsync(eventData);
+    try {
+      if (!isEditMode || !editEvent?.id) {
+        await persistEvent(eventData, async (data) => (await createEvent.mutateAsync(data)).data);
+        return true;
+      }
+      if (editEvent.attendees?.length) {
+        // The meeting is created after the notify dialog is answered, not before.
+        setPendingEventData(eventData);
+        setShowUpdateDialog(true);
+        return false;
+      }
+      const eventId = editEvent.id;
+      await persistEvent(eventData, async (data) => (await updateEvent.mutateAsync({ id: eventId, data })).data);
       return true;
-    }
-    if (editEvent.attendees?.length) {
-      setPendingEventData(eventData);
-      setShowUpdateDialog(true);
+    } catch (err) {
+      reportEventSaveError(err);
       return false;
     }
-    await updateEvent.mutateAsync({ id: editEvent.id, data: eventData });
-    return true;
   };
 
   const handleSave = async () => {
-    const finalTitle = title.trim() || defaultTitles[type] || t.calendarView.untitled;
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      const finalTitle = title.trim() || defaultTitles[type] || t.calendarView.untitled;
 
-    if (isTask) {
-      await saveTask(finalTitle);
-    } else if (!(await saveEvent(finalTitle))) {
-      return; // don't close yet — wait for dialog
+      if (isTask) {
+        await saveTask(finalTitle);
+      } else if (!(await saveEvent(finalTitle))) {
+        return; // don't close yet — dialog pending or save failed
+      }
+      onClose();
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
-    onClose();
   };
 
   const handleUpdateConfirm = async (sendNotification: boolean) => {
-    if (editEvent?.id && pendingEventData) {
-      await updateEvent.mutateAsync({ id: editEvent.id, data: pendingEventData, sendNotification });
+    if (!editEvent?.id || !pendingEventData || savingRef.current) return;
+    const eventId = editEvent.id;
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      await persistEvent(
+        pendingEventData,
+        async (data) => (await updateEvent.mutateAsync({ id: eventId, data, sendNotification })).data,
+      );
       setPendingEventData(null);
       setShowUpdateDialog(false);
       onClose();
+    } catch (err) {
+      reportEventSaveError(err);
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
   };
 
@@ -2299,15 +2370,15 @@ export function QuickCreateCard({
             {/* Event: WeldMeet row */}
             <MeetingRow
               meetingUrl={meetingUrl}
-              isCreating={isCreatingMeeting}
+              pending={weldMeetPending}
               linkCopied={meetingLinkCopied}
               settings={meetingSettings}
-              onCreate={handleCreateMeeting}
+              onAdd={() => setWeldMeetPending(true)}
               onCopyLink={handleCopyMeetingLink}
               onUpdateSetting={updateMeetingSetting}
               onRemove={() => {
                 setMeetingUrl('');
-                setMeetingId('');
+                setWeldMeetPending(false);
               }}
             />
 
@@ -2354,7 +2425,7 @@ export function QuickCreateCard({
             variant="default"
             size="sm"
             onClick={handleSave}
-            disabled={createEvent.isPending || createTask.isPending}
+            disabled={createEvent.isPending || createTask.isPending || isSaving}
           >
             {t.quickCreate.save}
           </Button>
@@ -2365,7 +2436,7 @@ export function QuickCreateCard({
         open={showUpdateDialog}
         onOpenChange={(open) => { if (!open) { setShowUpdateDialog(false); setPendingEventData(null); } }}
         onConfirm={handleUpdateConfirm}
-        isPending={updateEvent.isPending}
+        isPending={updateEvent.isPending || isSaving}
         variant="update"
       />
     </div>

@@ -48,7 +48,7 @@ export function meetingInfo(overrides: Partial<MeetingInfo> = {}): MeetingInfo {
 }
 
 export type JoinResult = {
-  status: 'joined' | 'waiting' | 'waitlisted' | 'ended';
+  status: 'joined' | 'waiting' | 'waitlisted' | 'ended' | 'removed';
   sessionId?: string;
   authToken?: string;
   meetingId: string;
@@ -99,6 +99,7 @@ export async function mockJoin(
     calls += 1;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: result }) });
   });
+  return { callCount: () => calls };
 }
 
 /**

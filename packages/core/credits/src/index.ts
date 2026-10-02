@@ -49,7 +49,9 @@ export type CreditServiceType =
   | 'sms'
   | 'voip_call'
   | 'data_enrichment'
-  | 'social_post';
+  | 'social_post'
+  | 'meeting_transcription'
+  | 'meeting_summary';
 
 export type CreditGrantType = 'purchase' | 'refund' | 'adjustment' | 'monthly_allocation';
 
@@ -79,6 +81,14 @@ export const SERVICE_CREDIT_RATES = {
   parcelLabel: 10,
   /** Credits per started minute of meeting bot recording. */
   meetingBotPerMinute: 2,
+  /**
+   * Credits per meeting minute of a WeldMeet transcript (RealtimeKit or Whisper).
+   * Default only: the live price is the master `system_settings` row
+   * `weldmeet.ai_pricing` (see @weldsuite/meet-domain/billing).
+   */
+  meetingTranscriptionPerMinute: 2,
+  /** Credits per meeting minute of a WeldMeet AI summary (same override as above). */
+  meetingSummaryPerMinute: 1,
 } as const;
 
 export interface CreditTransactionMetadata {

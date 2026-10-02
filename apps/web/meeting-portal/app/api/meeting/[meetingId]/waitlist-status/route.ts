@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getTenantDb } from '@/lib/db';
 import { meetingSessionWaitlist } from '@weldsuite/db/schema';
 import { waitlistStatusQuerySchema } from '@/lib/schemas';
-import { invalidInput } from '@/lib/api-response';
+import { invalidInput, tenantNotFoundResponse } from '@/lib/api-response';
 
 /**
  * GET /api/meeting/[meetingId]/waitlist-status?orgId=X&waitlistId=Y
@@ -44,6 +44,8 @@ export async function GET(
       data: { status: row.status as 'pending' | 'admitted' | 'denied' },
     });
   } catch (err) {
+    const notFound = tenantNotFoundResponse(err);
+    if (notFound) return notFound;
     console.error('[MeetingPortal] waitlist-status failed:', err);
     return NextResponse.json(
       { error: { code: 'INTERNAL', message: 'Failed to fetch waitlist status' } },

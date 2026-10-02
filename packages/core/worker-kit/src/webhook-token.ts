@@ -1,8 +1,8 @@
 /**
  * Shared-token webhook authentication.
  *
- * For providers without a usable signature scheme (currently MeetingBaas and
- * Realtime Register) we secure the receiver by registering the webhook URL
+ * For providers without a usable signature scheme (currently Realtime
+ * Register, and the operator-only RealtimeKit /setup route) we secure the receiver by registering the webhook URL
  * with a `?token=<secret>` value that only we and the provider know, then
  * requiring an exact, constant-time match on every inbound request.
  *
