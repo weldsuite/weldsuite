@@ -13,6 +13,29 @@ import { labelFor } from './present';
 const NAME_RESOLUTION_LIMIT = 5;
 
 /**
+ * Human-quotable identifiers a user reads off a screen ("TASK-1042", a ticket
+ * reference, a SKU). An exact hit on one of these beats any label match: a
+ * search for "TASK-734" also returns tasks whose description merely mentions
+ * it, and none of their titles equal the number, so without this the lookup
+ * would always come back ambiguous.
+ */
+const REFERENCE_FIELDS = ['number', 'reference', 'code', 'sku', 'slug'];
+
+/** "#734" → "734", "TASK-734" → "734", so a bare number still matches exactly. */
+function referenceCore(value: string): string {
+  return value.trim().toLowerCase().replace(/^#/, '').replace(/^[a-z]+-(?=\d)/, '');
+}
+
+function matchesReference(row: Record<string, unknown>, wanted: string): boolean {
+  return REFERENCE_FIELDS.some((field) => {
+    const value = row[field];
+    if (typeof value !== 'string' && typeof value !== 'number') return false;
+    const ref = String(value).trim().toLowerCase();
+    return ref === wanted || referenceCore(ref) === referenceCore(wanted);
+  });
+}
+
+/**
  * Look up a record by name within a collection.
  *
  * Only ever called after a request has already come back 404, so it costs
@@ -63,7 +86,11 @@ async function resolveIdByName(
   // Prefer an exact, case-insensitive label match — searching for "Acme" should
   // land on "Acme" rather than being blocked by "Acme Industries".
   const wanted = name.trim().toLowerCase();
-  const exact = rows.filter((row) => labelFor(row)?.trim().toLowerCase() === wanted);
+  const byReference = rows.filter((row) => matchesReference(row, wanted));
+  const exact =
+    byReference.length > 0
+      ? byReference
+      : rows.filter((row) => labelFor(row)?.trim().toLowerCase() === wanted);
   const shortlist = exact.length > 0 ? exact : rows;
 
   if (shortlist.length === 1) {
