@@ -227,6 +227,46 @@ export const host = {
       typeInvalid: 'Type must be local, toll-free, or mobile',
     },
 
+    adminMeetAiPricing: {
+      navJumpTo: 'WeldMeet AI pricing',
+      navArea: 'WeldMeet AI pricing',
+      navGroup: 'WeldMeet',
+      navPage: 'AI credit rates',
+      cardTitle: 'WeldMeet AI pricing',
+      cardDescription: 'Credits per meeting minute for transcripts and summaries',
+      title: 'WeldMeet AI pricing',
+      description:
+        'Credits charged per meeting minute when a workspace transcribes or summarizes a meeting. The charge is booked once the result arrives, from the prepaid credit wallet.',
+      effectiveHeading: 'Effective rates',
+      sourceCustom: 'Custom rates saved here',
+      sourceDefault: 'Built-in defaults (nothing saved yet)',
+      transcriptionLabel: 'Transcript',
+      summaryLabel: 'Summary',
+      perMinuteUnit: 'credits / meeting minute',
+      editHeading: 'Edit rates',
+      transcriptionInputLabel: 'Transcript (credits per meeting minute)',
+      summaryInputLabel: 'Summary (credits per meeting minute)',
+      inputHelp: 'A number above 0, up to 2 decimals, at most {max}.',
+      exampleHeading: 'Example',
+      exampleLine:
+        'A {minutes}-minute meeting costs {transcription} credits for the transcript, {summary} for the summary, {total} credits in total.',
+      exampleInvalid: 'Enter valid rates to see an example.',
+      cacheNote:
+        'meet-api caches these rates for about 60 seconds, so a saved change can take up to a minute to apply to new charges.',
+      defaultsNote:
+        'Defaults: {transcription} credits for the transcript, {summary} for the summary, per meeting minute.',
+      resetButton: 'Reset to defaults',
+      saveButton: 'Save rates',
+      saved: 'WeldMeet AI pricing saved',
+      lastUpdated: 'Last updated {at} by {by}',
+      neverUpdated: 'Never saved. The built-in defaults apply.',
+      unknownAdmin: 'unknown',
+      invalidRate: 'Enter a number above 0.',
+      rateOutOfRange: 'Rates cannot be higher than {max} credits per minute.',
+      rateDecimals: 'Use at most 2 decimals.',
+      saveFailed: 'Could not save the rates. Try again.',
+    },
+
     // Domain availability checker
     availability: {
       enterDomain: 'Enter a domain name to check availability',

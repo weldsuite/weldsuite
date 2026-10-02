@@ -7,6 +7,7 @@ import { Tabs, TabsContent } from '@weldsuite/ui/components/tabs';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   Captions,
+  Sparkles,
   Users,
   Video,
 } from 'lucide-react';
@@ -37,6 +38,8 @@ import type {
 export function MeetingIntelligence({
   call,
   recordingUrl,
+  recordingUrlExpiresAt,
+  onRefreshRecordingUrl,
   mediaType = 'video',
   initialTranscription,
   fetchTranscriptionOnMount = false,
@@ -51,6 +54,12 @@ export function MeetingIntelligence({
   renderSidebar,
   headerActions,
   headerMenuActions,
+  tabLabels,
+  renderSummary,
+  mediaSlot,
+  transcriptionPending = false,
+  transcriptionRefreshKey,
+  transcriptEmptyHint,
 }: MeetingIntelligenceProps) {
   const t = useTranslations();
   const router = useRouter();
@@ -78,6 +87,16 @@ export function MeetingIntelligence({
   if (recordingUrl && !stableRecordingUrl.current) {
     stableRecordingUrl.current = recordingUrl;
   }
+
+  // Short-lived playback URLs (private recordings): renew the one in use before
+  // it expires, or when the media element fails, and resume where it was.
+  const [activeExpiresAt, setActiveExpiresAt] = useState<string | null>(null);
+  const [, setSourceVersion] = useState(0);
+  const expirySeededRef = useRef(false);
+  const refreshingRef = useRef(false);
+  const lastRefreshAtRef = useRef(0);
+  const refreshCallbackRef = useRef(onRefreshRecordingUrl);
+  refreshCallbackRef.current = onRefreshRecordingUrl;
 
   // Transcription state
   const [transcription, setTranscription] = useState<TranscriptionData | null>(initialTranscription || null);
@@ -361,6 +380,13 @@ export function MeetingIntelligence({
 
       const result = await transcriptionActions.onTranscribe(call.id);
 
+      // The user backed out of a confirmation: nothing started, nothing to report.
+      if (result.cancelled) {
+        setIsTranscribing(false);
+        setTranscriptionProgress(0);
+        return;
+      }
+
       if (!result.success) {
         if (result.error === 'insufficient_credits') {
           toast.error(t('sweep.weldcrm.meetingIntelligence.insufficientCredits'), {
@@ -419,6 +445,14 @@ export function MeetingIntelligence({
       fetchTranscription();
     }
   }, [call.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The host page says the transcript or summary changed (it finished after the
+  // meeting, or a summary was written): load it again.
+  useEffect(() => {
+    if (transcriptionRefreshKey === undefined) return;
+    if (!transcription) setIsLoadingTranscription(true);
+    fetchTranscription();
+  }, [transcriptionRefreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // WeldAgent context
   useEffect(() => {
@@ -560,6 +594,62 @@ ${transcriptionText}
     };
   }, [isMinimized, mediaRef]);
 
+  // The expiry that belongs to the URL actually in use. A later prop value
+  // belongs to a newer token the player never adopted, so it is ignored.
+  useEffect(() => {
+    if (expirySeededRef.current || !stableRecordingUrl.current) return;
+    expirySeededRef.current = true;
+    setActiveExpiresAt(recordingUrlExpiresAt ?? null);
+  }, [recordingUrl, recordingUrlExpiresAt]);
+
+  const refreshPlaybackUrl = useCallback(async () => {
+    const refresh = refreshCallbackRef.current;
+    if (!refresh || refreshingRef.current) return;
+    // A source that fails for another reason must not loop on renewals.
+    if (Date.now() - lastRefreshAtRef.current < 15_000) return;
+    refreshingRef.current = true;
+    lastRefreshAtRef.current = Date.now();
+    try {
+      const fresh = await refresh();
+      if (!fresh?.url || fresh.url === stableRecordingUrl.current) return;
+      const media = mediaRef.current;
+      if (media) {
+        // loadedmetadata of the new source restores position and play state.
+        pendingRestoreRef.current = {
+          currentTime: media.currentTime,
+          isPlaying: !media.paused && !media.ended,
+        };
+      }
+      stableRecordingUrl.current = fresh.url;
+      setActiveExpiresAt(fresh.expiresAt ?? null);
+      setSourceVersion((v) => v + 1);
+    } catch {
+      // Keep the current source; the next error or the user's retry renews again.
+    } finally {
+      refreshingRef.current = false;
+    }
+  }, [mediaRef]);
+
+  // Renew about two minutes before the token expires.
+  const canRefreshUrl = !!onRefreshRecordingUrl;
+  useEffect(() => {
+    if (!canRefreshUrl || !activeExpiresAt) return;
+    const expiresAtMs = Date.parse(activeExpiresAt);
+    if (Number.isNaN(expiresAtMs)) return;
+    const delay = Math.max(expiresAtMs - Date.now() - 2 * 60_000, 0);
+    const timer = setTimeout(() => void refreshPlaybackUrl(), delay);
+    return () => clearTimeout(timer);
+  }, [canRefreshUrl, activeExpiresAt, refreshPlaybackUrl]);
+
+  // An expired token answers 404: the element errors, and we renew.
+  useEffect(() => {
+    const media = mediaRef.current;
+    if (!media || !canRefreshUrl) return;
+    const onError = () => void refreshPlaybackUrl();
+    media.addEventListener('error', onError);
+    return () => media.removeEventListener('error', onError);
+  }, [isMinimized, mediaRef, canRefreshUrl, refreshPlaybackUrl]);
+
   // Smooth 60fps time tracking
   useEffect(() => {
     const tick = () => {
@@ -634,10 +724,13 @@ ${transcriptionText}
   const activeWordIndex = useActiveWord(transcription?.segments, activeSegmentId, smoothTime);
 
   const hasTranscription = !!transcription;
+  // Progress state while we poll after a Transcribe click, or while the host page
+  // knows one is being produced (e.g. a transcript that arrives after the meeting).
+  const showTranscribing = isTranscribing || (transcriptionPending && !hasTranscription);
 
   const headerMinimizeHandler = enableFloatingVideo && stableRecordingUrl.current && floatingCallCtx ? handleMinimize : undefined;
   const playerMinimizeHandler = enableFloatingVideo && floatingVideoCtx && stableRecordingUrl.current ? handleVideoMinimize : undefined;
-  const transcribeHandler = transcriptionActions ? handleTranscribe : undefined;
+  const transcribeHandler = transcriptionActions?.onTranscribe ? handleTranscribe : undefined;
 
   // Full-width layout (for call detail pages)
   return (
@@ -648,7 +741,7 @@ ${transcriptionText}
           call={call}
           mediaType={mediaType}
           videoDuration={duration}
-          isTranscribing={isTranscribing}
+          isTranscribing={showTranscribing}
           hasTranscription={hasTranscription}
           isLoadingTranscription={isLoadingTranscription}
           onBack={() => backUrl ? router.push(backUrl) : router.push('/weldcrm/calls')}
@@ -660,6 +753,7 @@ ${transcriptionText}
           onScheduleAgain={headerMenuActions?.onScheduleAgain}
           onDownloadRecording={headerMenuActions?.onDownloadRecording}
           onDeleteRecording={headerMenuActions?.onDeleteRecording}
+          deleteRecordingLabel={headerMenuActions?.deleteRecordingLabel}
           onExportTranscript={headerMenuActions?.onExportTranscript}
           headerActions={headerActions}
         />
@@ -709,6 +803,8 @@ ${transcriptionText}
               />
             )}
 
+            {!isMinimized && mediaType === 'none' && mediaSlot}
+
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="pb-4">
               <div className="sticky top-0 z-10 bg-white dark:bg-background px-4 pt-[10px] overflow-hidden">
@@ -717,9 +813,10 @@ ${transcriptionText}
                     {tabs.map((tab, tabIndex) => {
                       const isFirst = tabIndex === 0;
                       const tabConfig = {
-                        transcript: { icon: Captions, label: t('sweep.weldcrm.meetingIntelligence.tabTranscript') },
-                        speakers: { icon: Users, label: t('sweep.weldcrm.meetingIntelligence.tabSpeakers') },
-                        meeting: { icon: Video, label: isAudio ? t('sweep.weldcrm.meetingIntelligence.tabDetails') : t('sweep.weldcrm.meetingIntelligence.tabMeeting') },
+                        transcript: { icon: Captions, label: tabLabels?.transcript ?? t('sweep.weldcrm.meetingIntelligence.tabTranscript') },
+                        summary: { icon: Sparkles, label: tabLabels?.summary ?? 'Summary' },
+                        speakers: { icon: Users, label: tabLabels?.speakers ?? t('sweep.weldcrm.meetingIntelligence.tabSpeakers') },
+                        meeting: { icon: Video, label: tabLabels?.meeting ?? (isAudio ? t('sweep.weldcrm.meetingIntelligence.tabDetails') : t('sweep.weldcrm.meetingIntelligence.tabMeeting')) },
                       }[tab];
                       if (!tabConfig) return null;
                       const TabIcon = tabConfig.icon;
@@ -773,7 +870,7 @@ ${transcriptionText}
                     <TranscriptTabContent
                       segments={transcription?.segments}
                       isLoading={isLoadingTranscription}
-                      isTranscribing={isTranscribing}
+                      isTranscribing={showTranscribing}
                       transcriptionProgress={transcriptionProgress}
                       hasTranscription={hasTranscription}
                       activeSegmentId={activeSegmentId}
@@ -782,9 +879,16 @@ ${transcriptionText}
                       onSeekToSegment={seekToSegment}
                       onSeekToTime={seekToSegment}
                       onTranscribe={transcribeHandler}
+                      emptyHint={transcriptEmptyHint}
                       segmentRefs={segmentRefs}
                     />
                   </div>
+                </TabsContent>
+              )}
+
+              {tabs.includes('summary') && (
+                <TabsContent value="summary" className="mt-0 px-4">
+                  {renderSummary?.()}
                 </TabsContent>
               )}
 
@@ -796,7 +900,7 @@ ${transcriptionText}
                     transcriptionTotalDuration={transcriptionTotalDuration}
                     smoothTime={smoothTime}
                     hasTranscription={hasTranscription}
-                    isTranscribing={isTranscribing}
+                    isTranscribing={showTranscribing}
                     onSeekToSegment={seekToSegment}
                     onTranscribe={transcribeHandler}
                   />

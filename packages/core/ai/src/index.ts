@@ -126,6 +126,20 @@ export {
   type JevScoreQuestion,
 } from './evaluate.js';
 
+// Speech-to-text (Whisper large v3 turbo on Workers AI) — not a chat model, so it
+// bypasses the AI SDK provider; see transcribe.ts.
+export {
+  transcribeAudio,
+  isTranscribeConfigured,
+  parseTranscribeResponse,
+  resolveTranscribeRequest,
+  bytesToBase64,
+  WHISPER_MODEL_ID,
+  type TranscribeAudioInput,
+  type TranscribeAudioResult,
+  type TranscribedSegment,
+} from './transcribe.js';
+
 // Shared AI credit pricing (rate table + pure cost math) — see billing-rates.ts
 // header for why this lives here instead of duplicated in every consumer.
 export {

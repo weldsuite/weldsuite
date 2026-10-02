@@ -43,6 +43,8 @@ import {
   Link,
   Pencil,
   CalendarPlus,
+  FileText,
+  Sparkles,
 } from 'lucide-react';
 import { VideoCameraIcon } from '../components/video-camera-icon';
 import { format, isToday, isYesterday } from 'date-fns';
@@ -59,6 +61,7 @@ import {
   type SortState,
 } from '@/components/entity-list';
 import { getTranslations } from '@/lib/i18n';
+import { usePermissions } from '@weldsuite/permissions/react';
 import {
   useMeetings,
   useDeleteMeeting,
@@ -68,6 +71,14 @@ import {
   type MeetingRecordingEntry,
 } from '@/hooks/queries/use-weldmeet-queries';
 import type { ListMeetingsParams, MeetingAttendee } from '@/lib/api/domains/weldmeet';
+import { billableRecordingSeconds, isDeletableRecordingStatus } from '@/lib/weldmeet/recording';
+import { RecordingStatusBadge } from '../components/recording-status-badge';
+import {
+  DeleteRecordingDialog,
+  RecordingAiEstimateDialog,
+  type RecordingAiKind,
+} from '../components/recording-dialogs';
+import { useDownloadRecording } from '../components/use-recording-download';
 
 type MeetingWithRecording = Meeting & { recording?: MeetingRecordingEntry };
 
@@ -202,6 +213,16 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
   const [sortState, setSortState] = useState<SortState | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [deleteRecordingTarget, setDeleteRecordingTarget] = useState<MeetingRecordingEntry | null>(null);
+  const [aiTarget, setAiTarget] = useState<{ kind: RecordingAiKind; rec: MeetingRecordingEntry } | null>(null);
+
+  // Fully qualified keys: this list also renders inside CRM object panels.
+  const { can } = usePermissions();
+  const canPlayRecordings = can('weldmeet:recordings:read');
+  const canDeleteRecordings = can('weldmeet:recordings:delete');
+  // Transcribe / summarize spend credits, so they need sessions:update on top of read.
+  const canUseRecordingAi = canPlayRecordings && can('weldmeet:sessions:update');
+  const { download: downloadRecording } = useDownloadRecording();
 
   const { data, isLoading } = useMeetings(filter);
   const { data: recordings } = useRecordingsList();
@@ -420,13 +441,8 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
           </span>
         </div>
 
-        {/* Recorded label */}
-        {rec?.recordingUrl && (
-          <span className="flex items-center gap-1 px-2 py-[4px] rounded-[6px] text-[12px] font-medium bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400">
-            <div className="h-1.5 w-1.5 rounded-full bg-red-500" />
-            {t.historyPage.recorded}
-          </span>
-        )}
+        {/* Recording state */}
+        {rec && <RecordingStatusBadge status={rec.recordingStatus} />}
 
         {/* Date */}
         <div className="w-[180px]">
@@ -538,10 +554,32 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
                 <CalendarPlus className="h-3.5 w-3.5 mr-0.5" />
                 {t.historyPage.actions.scheduleAgain}
               </DropdownMenuItem>
-              {rec?.recordingUrl && (
-                <DropdownMenuItem onClick={() => window.open(rec.recordingUrl!, '_blank')}>
+              {rec?.recordingStatus === 'ready' && canPlayRecordings && (
+                <DropdownMenuItem onClick={() => void downloadRecording(rec.sessionId)}>
                   <Download className="h-3.5 w-3.5 mr-0.5" />
                   {t.historyPage.actions.downloadRecording}
+                </DropdownMenuItem>
+              )}
+              {rec?.recordingStatus === 'ready' && canUseRecordingAi && rec.hasAudio && !rec.hasTranscript && (
+                <DropdownMenuItem onClick={() => setAiTarget({ kind: 'transcribe', rec })}>
+                  <FileText className="h-3.5 w-3.5 mr-0.5" />
+                  {t.recording.actions.transcribe}
+                </DropdownMenuItem>
+              )}
+              {rec?.recordingStatus === 'ready' && canUseRecordingAi && rec.hasTranscript && !rec.hasSummary
+                && rec.summaryStatus !== 'pending' && rec.summaryStatus !== 'processing' && (
+                <DropdownMenuItem onClick={() => setAiTarget({ kind: 'summarize', rec })}>
+                  <Sparkles className="h-3.5 w-3.5 mr-0.5" />
+                  {t.recording.actions.summarize}
+                </DropdownMenuItem>
+              )}
+              {rec && canDeleteRecordings && isDeletableRecordingStatus(rec.recordingStatus) && (
+                <DropdownMenuItem
+                  onClick={() => setDeleteRecordingTarget(rec)}
+                  className="text-red-500 focus:text-red-500 focus:bg-red-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-500" />
+                  {t.recording.actions.delete}
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
@@ -560,7 +598,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
         </div>
       </div>
     );
-  }, [navigate, t, deleteMeeting]);
+  }, [navigate, t, deleteMeeting, canPlayRecordings, canDeleteRecordings, canUseRecordingAi, downloadRecording]);
 
   return (
     <div className={cn('flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden', className)}>
@@ -609,6 +647,27 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
           }}
         />
       </div>
+      {/* Delete recording */}
+      {deleteRecordingTarget && (
+        <DeleteRecordingDialog
+          open
+          sessionId={deleteRecordingTarget.sessionId}
+          onOpenChange={(open) => { if (!open) setDeleteRecordingTarget(null); }}
+        />
+      )}
+      {/* Transcribe / summarize with a credit estimate */}
+      {aiTarget && (
+        <RecordingAiEstimateDialog
+          open
+          kind={aiTarget.kind}
+          sessionId={aiTarget.rec.sessionId}
+          seconds={billableRecordingSeconds({
+            durationSeconds: aiTarget.rec.recordingDurationSeconds,
+            sessionDurationSeconds: aiTarget.rec.duration,
+          })}
+          onOpenChange={(open) => { if (!open) setAiTarget(null); }}
+        />
+      )}
       {/* Rename dialog */}
       <Dialog open={!!renameId} onOpenChange={(open) => { if (!open) setRenameId(null); }}>
         <DialogContent className="sm:max-w-[400px]">

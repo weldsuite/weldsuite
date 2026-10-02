@@ -72,7 +72,13 @@ export interface TranscriptionData {
 }
 
 export interface TranscriptionActions {
-  onTranscribe: (id: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  /**
+   * Starts a transcription. Omit it to hide every "Transcribe" button (no
+   * permission, a transcript is already on its way, ...). Resolve with
+   * `cancelled: true` when the user backed out of a confirmation: nothing was
+   * started and nothing is reported.
+   */
+  onTranscribe?: (id: string) => Promise<{ success: boolean; error?: string; message?: string; cancelled?: boolean }>;
   onFetchTranscription: (id: string) => Promise<{ success: boolean; transcription?: TranscriptionData | null }>;
   onPollStatus: (id: string) => Promise<{ status?: { status?: string; errorMessage?: string } }>;
 }
@@ -109,9 +115,19 @@ export interface FlatTimelineSegment {
   speakerId: number;
 }
 
+export type MeetingIntelligenceTab = 'transcript' | 'speakers' | 'meeting' | 'summary';
+
 export interface MeetingIntelligenceProps {
   call: MeetingIntelligenceCall;
   recordingUrl?: string;
+  /** When `recordingUrl` stops working (ISO). Used to renew it shortly before. */
+  recordingUrlExpiresAt?: string | null;
+  /**
+   * Returns a fresh playback URL. Called when the media element errors, and a
+   * couple of minutes before `recordingUrlExpiresAt`; the player swaps the
+   * source and resumes at the same position. Omit for URLs that never expire.
+   */
+  onRefreshRecordingUrl?: () => Promise<{ url: string; expiresAt?: string | null } | null>;
   mediaType?: 'video' | 'audio' | 'none';
   initialTranscription?: TranscriptionData | null;
   fetchTranscriptionOnMount?: boolean;
@@ -122,7 +138,22 @@ export interface MeetingIntelligenceProps {
   deleteRedirectUrl?: string;
   backUrl?: string;
   breadcrumbs?: Array<{ label: string; href?: string }>;
-  tabs?: ('transcript' | 'speakers' | 'meeting')[];
+  tabs?: MeetingIntelligenceTab[];
+  /** Override a tab's label (the summary tab has no built-in one). */
+  tabLabels?: Partial<Record<MeetingIntelligenceTab, string>>;
+  /** Content of the `summary` tab. */
+  renderSummary?: () => ReactNode;
+  /** Shown in place of the player when there is no media to play (still processing, expired, ...). */
+  mediaSlot?: ReactNode;
+  /** A transcript is being produced elsewhere (e.g. after the meeting): show the progress state. */
+  transcriptionPending?: boolean;
+  /**
+   * Refetch the transcript whenever this value changes (and once when it first
+   * has a value). Lets the host page signal "the transcript or summary changed".
+   */
+  transcriptionRefreshKey?: string;
+  /** Replaces the "transcribe to see the conversation" hint in the empty transcript state. */
+  transcriptEmptyHint?: string;
   layout?: 'full-width' | 'grid';
   renderSidebar?: (props: { transcription: TranscriptionData | null }) => ReactNode;
   headerActions?: HeaderAction[];
@@ -133,6 +164,8 @@ export interface MeetingIntelligenceProps {
     onScheduleAgain?: () => void;
     onDownloadRecording?: () => void;
     onDeleteRecording?: () => void;
+    /** Menu label for `onDeleteRecording`. */
+    deleteRecordingLabel?: string;
     onExportTranscript?: () => void;
   };
 }

@@ -5,15 +5,28 @@ import {
 } from '@weldsuite/cloudflare-realtime/webhook-signature';
 
 vi.mock('../../services/rtk-webhook', () => ({
+  POST_MEETING_EVENTS: new Set(['recording.statusUpdate', 'meeting.transcript', 'meeting.summary']),
   handleMeetingEnded: vi.fn(async () => {}),
   handleParticipantLeft: vi.fn(async () => {}),
+  handleRecordingStatus: vi.fn(async () => {}),
+  handleMeetingTranscript: vi.fn(async () => {}),
+  handleMeetingSummary: vi.fn(async () => {}),
+  logPayloadShapeOnce: vi.fn(),
+  resolvePostMeetingMapping: vi.fn(async () => null),
 }));
 vi.mock('@weldsuite/cloudflare-realtime', () => ({
-  registerWebhook: vi.fn(async () => ({ id: 'wh_1' })),
+  upsertWebhook: vi.fn(async () => ({ id: 'wh_1', action: 'created', removedDuplicates: 0 })),
 }));
 
-const { handleMeetingEnded, handleParticipantLeft } = await import('../../services/rtk-webhook');
-const { registerWebhook } = await import('@weldsuite/cloudflare-realtime');
+const {
+  handleMeetingEnded,
+  handleParticipantLeft,
+  handleRecordingStatus,
+  handleMeetingTranscript,
+  handleMeetingSummary,
+  resolvePostMeetingMapping,
+} = await import('../../services/rtk-webhook');
+const { upsertWebhook } = await import('@weldsuite/cloudflare-realtime');
 const { webhooksCloudflareRealtimeRoutes: app } = await import('./index');
 
 let signingKey: CryptoKey;
@@ -81,7 +94,11 @@ beforeEach(() => {
   resetRtkWebhookKeyCache();
   vi.mocked(handleMeetingEnded).mockClear();
   vi.mocked(handleParticipantLeft).mockClear();
-  vi.mocked(registerWebhook).mockClear();
+  vi.mocked(upsertWebhook).mockClear();
+  vi.mocked(handleRecordingStatus).mockClear();
+  vi.mocked(handleMeetingTranscript).mockClear();
+  vi.mocked(handleMeetingSummary).mockClear();
+  vi.mocked(resolvePostMeetingMapping).mockReset().mockResolvedValue(null);
   kv = makeKv();
   kv.store.set('rtk-meeting:rtk-meeting-1', JSON.stringify(MAPPING));
   fetchMock = vi.fn(async (url: string) => {
@@ -159,6 +176,45 @@ describe('POST /api/webhooks/cloudflare-realtime', () => {
     );
   });
 
+  describe('post-meeting events (recorder, transcript, summary)', () => {
+    const SESSION_MAPPING = { orgId: 'org_1', type: 'session' as const, sessionId: 'msess_1', meetingId: 'mtg_1' };
+
+    const cases = [
+      ['recording.statusUpdate', () => handleRecordingStatus, { recording: { id: 'rec_1', status: 'UPLOADED', meetingId: 'rtk-meeting-1' } }],
+      ['meeting.transcript', () => handleMeetingTranscript, { transcriptDownloadUrl: 'https://rtk.example/t.csv' }],
+      ['meeting.summary', () => handleMeetingSummary, { summaryDownloadUrl: 'https://rtk.example/s.md' }],
+    ] as const;
+
+    it.each(cases)('routes a signed %s through the long-lived session mapping', async (event, handler, extra) => {
+      vi.mocked(resolvePostMeetingMapping).mockResolvedValue(SESSION_MAPPING);
+      // The 24 h mapping is already gone, as it is after the meeting ended.
+      kv.store.delete('rtk-meeting:rtk-meeting-1');
+      const body = JSON.stringify({ event, meeting: { id: 'rtk-meeting-1', sessionId: 'rtk-session-1' }, ...extra });
+
+      const res = await post(body, { 'rtk-signature': await sign(body), 'rtk-uuid': `post-${event.replace('.', '-')}` });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      expect(handler()).toHaveBeenCalledWith(expect.anything(), SESSION_MAPPING, expect.objectContaining({ event }));
+      expect(handleMeetingEnded).not.toHaveBeenCalled();
+      expect(kv.store.get(`rtk-webhook-delivery:post-${event.replace('.', '-')}`)).toBe('1');
+    });
+
+    it.each(cases)('acknowledges %s for an unmapped meeting without calling a handler', async (event, handler, extra) => {
+      const body = JSON.stringify({ event, meeting: { id: 'rtk-unknown' }, ...extra });
+      const res = await post(body, { 'rtk-signature': await sign(body) });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      expect(handler()).not.toHaveBeenCalled();
+    });
+
+    it('reads the meeting id from recording.meetingId when the payload has no meeting block', async () => {
+      const body = JSON.stringify({ event: 'recording.statusUpdate', recording: { id: 'rec_1', status: 'RECORDING', meetingId: 'rtk-meeting-1' } });
+      await post(body, { 'rtk-signature': await sign(body) });
+      expect(resolvePostMeetingMapping).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('drops a repeated delivery (same rtk-uuid)', async () => {
     const headers = { 'rtk-signature': await sign(ENDED), 'rtk-uuid': 'delivery-dup' };
     expect((await post(ENDED, headers)).status).toBe(200);
@@ -194,7 +250,7 @@ describe('POST /api/webhooks/cloudflare-realtime/setup', () => {
   it('refuses without the operator bearer token', async () => {
     const res = await app.request('/setup', { method: 'POST' }, env as never);
     expect(res.status).toBe(401);
-    expect(registerWebhook).not.toHaveBeenCalled();
+    expect(upsertWebhook).not.toHaveBeenCalled();
   });
 
   it('refuses when the operator token is not configured', async () => {
@@ -204,7 +260,7 @@ describe('POST /api/webhooks/cloudflare-realtime/setup', () => {
       { ...env, CF_REALTIME_WEBHOOK_TOKEN: undefined } as never,
     );
     expect(res.status).toBe(401);
-    expect(registerWebhook).not.toHaveBeenCalled();
+    expect(upsertWebhook).not.toHaveBeenCalled();
   });
 
   it('registers a URL that carries no secret and never echoes the token', async () => {
@@ -216,7 +272,15 @@ describe('POST /api/webhooks/cloudflare-realtime/setup', () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).not.toContain('setup-token');
-    const url = vi.mocked(registerWebhook).mock.calls[0][1].url;
-    expect(url).toMatch(/^https:\/\/[a-z-]+\.weldsuite\.org\/api\/webhooks\/cloudflare-realtime$/);
+    const params = vi.mocked(upsertWebhook).mock.calls[0][1];
+    expect(params.url).toMatch(/^https:\/\/[a-z-]+\.weldsuite\.org\/api\/webhooks\/cloudflare-realtime$/);
+    // Every event the receiver handles, so a re-run of /setup never drops one.
+    expect(params.events).toEqual([
+      'meeting.ended',
+      'meeting.participantLeft',
+      'recording.statusUpdate',
+      'meeting.transcript',
+      'meeting.summary',
+    ]);
   });
 });

@@ -1,4 +1,7 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import type { MeetingAiParams } from '@weldsuite/meet-domain/workflows/meeting-ai';
+import type { BackfillLegacyRecordingsParams } from '@weldsuite/meet-domain/workflows/backfill-legacy-recordings';
+import type { CopyMeetingRecordingParams } from '@weldsuite/meet-domain/workflows/copy-meeting-recording';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 
 /**
@@ -28,32 +31,39 @@ export interface Env extends KitEnv {
    * the receiver itself are authenticated by their `rtk-signature`, not this.
    */
   CF_REALTIME_WEBHOOK_TOKEN?: string;
-  /**
-   * Shared token guarding the MeetingBaas webhook receiver: inbound
-   * `/api/webhooks/meeting-bot` requests must carry a matching `?token=`
-   * (append it to the URL registered with MeetingBaas). Unset = every
-   * request is rejected.
-   */
-  MEETINGBAAS_WEBHOOK_TOKEN?: string;
 
-  /** CF Workflow that transcribes a meeting recording. Hosted in this worker
-   *  (class re-exported from src/index.ts, @weldsuite/meet-domain) under the
-   *  `transcribe-recording-v3*` workflow names — app-api's old
-   *  `transcribe-recording-v2*` names keep draining
-   *  (docs/plans/app-api-module-split.md). Dispatched by
-   *  POST /api/meetings/:id/recording/transcribe. */
-  TRANSCRIBE_RECORDING?: Workflow<{
-    transcriptionId: string;
-    fileKey?: string;
-    fileUrl?: string;
-    language?: string;
-    estimatedMinutes: number;
-    creditRate: number;
-    entityId: string;
-    workspaceId: string;
-  }>;
-  /** AssemblyAI API key — used by TranscribeRecordingWorkflow. */
-  ASSEMBLYAI_API_KEY?: string;
+  // --- Recordings, transcripts, summaries (@weldsuite/meet-domain) ----------
+  /**
+   * PRIVATE R2 bucket for meeting recordings, raw transcripts and nothing else:
+   * `weldsuite-meeting-recordings` (dev + production) /
+   * `weldsuite-meeting-recordings-test`. It has no public domain; objects are
+   * only served by `GET /public/meeting-recordings/:token` below. Keys are
+   * `{orgId}/{sessionId}/{rtkRecordingId}.{mp4|mp3}`. Do NOT use STORAGE here.
+   */
+  MEETING_RECORDINGS?: R2Bucket;
+  /** Copies a finished RealtimeKit recording into MEETING_RECORDINGS. Hosted here
+   *  (class re-exported from src/index.ts), dispatched by the `recording.statusUpdate`
+   *  webhook with instance id `rec-{rtkRecordingId}`. */
+  MEETING_RECORDING_COPY?: Workflow<CopyMeetingRecordingParams>;
+  /** Post-meeting AI: ingest RealtimeKit's transcript/summary, Whisper over the
+   *  stored audio, summarize. Hosted here, dispatched by the webhook and the
+   *  `recording/transcribe|summarize` routes. */
+  MEETING_AI?: Workflow<MeetingAiParams>;
+  /** One-off, operator-started: moves legacy (pre-RealtimeKit-recorder) recordings still
+   *  inside RealtimeKit's 7-day window into MEETING_RECORDINGS and marks the rest
+   *  `unavailable`. Dispatched per workspace by POST
+   *  /api/webhooks/cloudflare-realtime/backfill-recordings. */
+  MEETING_RECORDING_BACKFILL?: Workflow<BackfillLegacyRecordingsParams>;
+  /**
+   * Cloudflare API token. `@weldsuite/ai` uses it (Workers AI Whisper REST +
+   * summary model through the AI Gateway) when there is no `AI_GATEWAY_API_TOKEN`.
+   * Needs Workers AI + AI Gateway Run. Same value as app-api / mail-api.
+   */
+  CLOUDFLARE_API_TOKEN?: string;
+  /** Optional dedicated AI Gateway token; wins over CLOUDFLARE_API_TOKEN in @weldsuite/ai. */
+  AI_GATEWAY_API_TOKEN?: string;
+  /** Optional AI Gateway id (`cf-aig-gateway-id`); omit for the account default. */
+  CF_AI_GATEWAY?: string;
 
   // --- WeldChat call end from the RTK webhook (@weldsuite/chat-domain) ------
   // endChatCall sends the missed-call notification (@weldsuite/notifications).
