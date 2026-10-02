@@ -22,6 +22,9 @@ export {
   getTenantInfo,
   getTenantDb,
   getTenantDbByWorkspaceId,
+  getExistingTenantDb,
+  TenantNotFoundError,
+  isTenantNotFoundError,
   type TenantDb,
 } from './tenant';
 

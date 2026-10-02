@@ -116,12 +116,14 @@ export function MeetingIntelligenceHeader({
           <Button
             key={i}
             variant={action.variant || 'ghost'}
-            size="icon-sm"
+            size={action.showLabel ? 'sm' : 'icon-sm'}
+            className={action.showLabel ? 'h-8 gap-1.5' : undefined}
             onClick={action.onClick}
             disabled={action.disabled}
             title={action.label}
           >
             {action.icon}
+            {action.showLabel && action.label}
           </Button>
         ))}
         <DropdownMenu>

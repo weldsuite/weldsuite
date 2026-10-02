@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
+import { useAuth } from '@clerk/clerk-react';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { useMeeting, useUpdateMeeting, useDeleteMeeting, useLatestSession, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
+import { HostControlsPanel, type HostControlsValue } from '@weldsuite/weldmeet-ui';
+import {
+  useMeeting,
+  useUpdateMeeting,
+  useDeleteMeeting,
+  useLatestSession,
+  useUpdateMeetingPolicy,
+  type Meeting,
+} from '@/hooks/queries/use-weldmeet-queries';
+import { useWorkspaceId } from '@/contexts/workspace-context';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
+import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 import { useMeetingRecording, useRecordingAccess, useSessionRecording } from '@/hooks/queries/use-weldmeet-recording-queries';
 import type { MeetingAttendee } from '@/lib/api/domains/weldmeet';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -21,8 +33,15 @@ import { DeleteRecordingDialog, RecordingAiEstimateDialog, type RecordingAiKind 
 import { useDownloadRecording } from '../components/use-recording-download';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { X, MessageSquare, Loader2, UserPlus } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@weldsuite/ui/components/dialog';
+import { X, MessageSquare, Loader2, UserPlus, Video, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 
@@ -35,33 +54,63 @@ type TranscribeResult = { success: boolean; error?: string; message?: string; ca
 type LatestSession = ReturnType<typeof useLatestSession>['data'];
 type WeldmeetStrings = ReturnType<typeof getTranslations<'weldmeet'>>;
 
+/**
+ * Organizer first, then the invitees. A meeting created before the organizer
+ * became an attendee has no organizer row: add one from `meeting.organizer`.
+ */
+function buildAttendeeDetails(meeting: Meeting): NonNullable<MeetingIntelligenceCall['attendeeDetails']> {
+  const rows = (meeting.attendees ?? []).map((a: MeetingAttendeeWithLinks) => ({
+    name: a.name,
+    email: a.email,
+    avatar: a.avatar,
+    role: a.role,
+    workspaceMemberId: a.workspaceMemberId,
+    contactId: a.contactId,
+  }));
+  const organizer = meeting.organizer;
+  const hasOrganizerRow = (meeting.attendees ?? []).some(
+    (a) => a.role === 'organizer' || (!!organizer && a.userId === organizer.userId),
+  );
+  if (organizer && !hasOrganizerRow) {
+    return [{ name: organizer.name ?? undefined, avatar: organizer.avatar ?? undefined, role: 'organizer' as const }, ...rows];
+  }
+  return rows;
+}
+
 function buildNormalizedCall(
   meeting: Meeting,
   meetingId: string,
   latestSession: LatestSession,
   recordingDuration: number | null | undefined,
+  options: { meetingUrl: string | undefined; notScheduledLabel: string },
 ): MeetingIntelligenceCall {
+  // Meetings that ran show when they ran; a scheduled one shows its slot.
+  // createdAt is never a meeting date: with neither, say so.
+  const ranAt = latestSession?.startedAt ?? undefined;
+  const date =
+    meeting.status === 'scheduled'
+      ? (meeting.scheduledStart ?? ranAt)
+      : (ranAt ?? meeting.scheduledStart);
+  const attendeeDetails = buildAttendeeDetails(meeting);
   return {
     id: meetingId,
     subject: meeting.title,
     description: meeting.description,
-    date: meeting.scheduledStart || meeting.createdAt,
+    date: date ?? meeting.createdAt,
+    dateLabel: date ? undefined : options.notScheduledLabel,
+    meetingUrl: options.meetingUrl,
     duration: recordingDuration ?? undefined,
-    attendees: meeting.attendees?.map((a: MeetingAttendeeWithLinks) => a.name) ?? [],
-    attendeeDetails: meeting.attendees?.map((a: MeetingAttendeeWithLinks) => ({
-      name: a.name,
-      email: a.email,
-      avatar: a.avatar,
-      role: a.role,
-      workspaceMemberId: a.workspaceMemberId,
-      contactId: a.contactId,
-    })) ?? [],
+    attendees: attendeeDetails.map((a) => a.name ?? a.email ?? ''),
+    attendeeDetails,
     sessionParticipants: latestSession?.participants?.map((p) => ({
       userId: p.userId,
       userName: p.userName,
       userAvatar: p.userAvatar,
       joinedAt: p.joinedAt,
       leftAt: p.leftAt,
+      firstJoinedAt: p.firstJoinedAt,
+      priorSeconds: p.priorSeconds,
+      stints: p.stints,
     })),
     sessionDuration: latestSession?.duration ?? undefined,
     sessionStartedAt: latestSession?.startedAt ?? undefined,
@@ -132,7 +181,7 @@ function buildTranscriptionActions(
 
 function buildHeaderMenuActions({
   t,
-  meetingId,
+  shareUrl,
   onDownloadRecording,
   onDeleteRecording,
   hasRecording,
@@ -140,7 +189,8 @@ function buildHeaderMenuActions({
   onScheduleAgain,
 }: {
   t: WeldmeetStrings;
-  meetingId: string;
+  /** Guest link; the copy action is left out when there is no working link. */
+  shareUrl: string | null;
   onDownloadRecording: (() => void) | undefined;
   onDeleteRecording: (() => void) | undefined;
   hasRecording: boolean;
@@ -148,10 +198,12 @@ function buildHeaderMenuActions({
   onScheduleAgain: () => void;
 }): MeetingIntelligenceProps['headerMenuActions'] {
   return {
-    onCopyLink: () => {
-      navigator.clipboard.writeText(`${window.location.origin}/weldmeet/${meetingId}`);
-      toast.success(t.meetingDetailPage.meetingLinkCopied);
-    },
+    onCopyLink: shareUrl
+      ? () => {
+          void navigator.clipboard.writeText(shareUrl);
+          toast.success(t.meetingDetailPage.meetingLinkCopied);
+        }
+      : undefined,
     onRename,
     onScheduleAgain,
     onDownloadRecording,
@@ -214,6 +266,7 @@ function RenameMeetingDialog({
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle>{t.meetingDetailPage.renameMeeting.title}</DialogTitle>
+          <DialogDescription className="sr-only">{t.meetingDetailPage.renameMeeting.description}</DialogDescription>
         </DialogHeader>
         <Input
           value={draft}
@@ -242,6 +295,9 @@ export default function MeetingDetailPage() {
   const { data: latestSession } = useLatestSession(meetingId);
   const { getClient } = useAppApiClient();
   const navigate = useNavigate();
+  const { userId, orgId } = useAuth();
+  const workspaceId = useWorkspaceId() || orgId;
+  const navLabels = getTranslations('navigation').moduleSidebar.weldmeet;
 
   // Recorder, transcript and summary. The alias resolves the meeting to its
   // recorded session (and hands back a fresh playback token once ready); the
@@ -294,7 +350,21 @@ export default function MeetingDetailPage() {
   const [renameDraft, setRenameDraft] = useState('');
   const [addPeopleOpen, setAddPeopleOpen] = useState(false);
   const { mutate: updateMeeting } = useUpdateMeeting();
-  const { mutate: deleteMeeting } = useDeleteMeeting();
+  const { mutateAsync: deleteMeeting } = useDeleteMeeting();
+  const { mutate: updateMeetingPolicy } = useUpdateMeetingPolicy();
+  const [hostControlsOpen, setHostControlsOpen] = useState(false);
+
+  // Upcoming meetings come from (and go back to) Upcoming; the rest to History.
+  const isUpcoming = meeting?.status === 'scheduled' || meeting?.status === 'in_progress';
+  const listUrl = isUpcoming ? '/weldmeet/upcoming' : '/weldmeet/history';
+  useBreadcrumbs(
+    meeting
+      ? [
+          { label: isUpcoming ? navLabels.upcoming : navLabels.history, href: listUrl },
+          { label: meeting.title },
+        ]
+      : [],
+  );
 
   if (isLoading) {
     return (
@@ -350,7 +420,48 @@ export default function MeetingDetailPage() {
 
   // People can be invited until the meeting is over; invitations need its join link.
   const canInvite = !!meeting.joinCode && (meetingStatus === 'scheduled' || meetingStatus === 'in_progress');
+  const shareUrl = buildMeetingShareUrl(workspaceId, meeting.joinCode);
+  const isOrganizer = !!userId && meeting.organizerId === userId;
+  const canJoin = isUpcoming && can('weldmeet:sessions:create');
+  const canEditHostControls = isUpcoming && isOrganizer && can('weldmeet:meetings:update');
+  const hostControlsValue: HostControlsValue = {
+    hostManagement: meeting.hostManagement ?? true,
+    allowScreenShare: meeting.allowScreenShare ?? true,
+    allowMicrophone: meeting.allowMicrophone ?? true,
+    allowVideo: meeting.allowVideo ?? true,
+    allowHandRaise: meeting.allowHandRaise ?? true,
+    allowReactions: meeting.allowReactions ?? true,
+    allowAnnotations: meeting.allowAnnotations ?? true,
+    allowVirtualBackgrounds: meeting.allowVirtualBackgrounds ?? true,
+    allowParticipantRecord: meeting.allowParticipantRecord ?? false,
+    allowThirdPartyAccess: meeting.allowThirdPartyAccess ?? true,
+    noiseCancellation: meeting.noiseCancellation ?? true,
+    autoRecord: meeting.autoRecord ?? false,
+    enableCaptions: meeting.enableCaptions ?? false,
+    waitingRoom: meeting.waitingRoom ?? false,
+    hostMustJoinFirst: meeting.hostMustJoinFirst ?? false,
+    lockAfterStart: meeting.lockAfterStart ?? false,
+    autoEndOnInactivity: meeting.autoEndOnInactivity ?? true,
+    accessType: meeting.accessType ?? 'workspace',
+  };
   const headerActions: HeaderAction[] = [
+    ...(canJoin
+      ? [{
+          label: meeting.activeSessionId ? t.meetingDetailPage.join : t.meetingDetailPage.start,
+          icon: <Video className="h-4 w-4" />,
+          onClick: () => void navigate({ to: '/weldmeet/$meetingId/room', params: { meetingId } }),
+          variant: 'default' as const,
+          showLabel: true,
+        }]
+      : []),
+    ...(canEditHostControls
+      ? [{
+          label: t.meetingDetailPage.hostControls,
+          icon: <SlidersHorizontal className="h-4 w-4" />,
+          onClick: () => setHostControlsOpen(true),
+          variant: 'ghost' as const,
+        }]
+      : []),
     ...(canInvite
       ? [{
           label: t.meetingDetailPage.addPeople,
@@ -362,7 +473,10 @@ export default function MeetingDetailPage() {
     ...(hasChat ? [buildChatToggleAction(t, showChat, () => setShowChat(v => !v))] : []),
   ];
 
-  const normalizedCall = buildNormalizedCall(meeting, meetingId, latestSession, recordingDuration);
+  const normalizedCall = buildNormalizedCall(meeting, meetingId, latestSession, recordingDuration, {
+    meetingUrl: isUpcoming ? (shareUrl ?? undefined) : undefined,
+    notScheduledLabel: t.meetingDetailPage.notScheduled,
+  });
 
   const handleTranscribeRequest = canOfferTranscribe
     ? () =>
@@ -421,19 +535,26 @@ export default function MeetingDetailPage() {
       enableWeldAgent
       layout="full-width"
       onDelete={async (id) => {
-        deleteMeeting(id);
-        toast.success(t.meetingDetailPage.meetingDeleted);
-        return { success: true };
+        try {
+          await deleteMeeting(id);
+          return { success: true };
+        } catch (err) {
+          return {
+            success: false,
+            error: err instanceof Error && err.message ? err.message : t.meetingDetailPage.meetingDeleteFailed,
+          };
+        }
       }}
-      deleteRedirectUrl="/weldmeet/history"
-      backUrl="/weldmeet/history"
+      deleteSuccessMessage={t.meetingDetailPage.meetingDeleted}
+      deleteRedirectUrl={listUrl}
+      backUrl={listUrl}
       breadcrumbs={[
-        { label: t.meetingDetailPage.breadcrumbMeetings, href: '/weldmeet/history' },
+        { label: isUpcoming ? navLabels.upcoming : navLabels.history, href: listUrl },
         { label: meeting.title },
       ]}
       headerMenuActions={buildHeaderMenuActions({
         t,
-        meetingId,
+        shareUrl,
         onDownloadRecording:
           canViewRecording && recordingStatus === 'ready' && recordingSessionId
             ? () => void downloadRecording(recordingSessionId)
@@ -448,7 +569,7 @@ export default function MeetingDetailPage() {
           setRenameOpen(true);
         },
         onScheduleAgain: () => {
-          navigate({ to: '/weldmeet/new' });
+          void navigate({ to: '/weldmeet/new', search: { from: meetingId } });
         },
       })}
       headerActions={headerActions.length > 0 ? headerActions : undefined}
@@ -463,8 +584,33 @@ export default function MeetingDetailPage() {
         <DialogContent className="sm:max-w-[480px] p-4">
           <DialogHeader>
             <DialogTitle className="text-[17px]">{t.meetingDetailPage.addPeople}</DialogTitle>
+            <DialogDescription className="sr-only">{t.meetingDetailPage.addPeopleDescription}</DialogDescription>
           </DialogHeader>
           <MeetingInvitePicker meetingId={meetingId} />
+        </DialogContent>
+      </Dialog>
+    )}
+
+    {/* Host controls (organizer only, before and during the meeting) */}
+    {canEditHostControls && (
+      <Dialog open={hostControlsOpen} onOpenChange={setHostControlsOpen}>
+        <DialogContent className="sm:max-w-[480px] p-4">
+          <DialogHeader>
+            <DialogTitle className="text-[17px]">{t.meetingDetailPage.hostControls}</DialogTitle>
+            <DialogDescription className="sr-only">{t.meetingDetailPage.hostControlsDescription}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[70vh] overflow-y-auto">
+            <HostControlsPanel
+              meeting={null}
+              controls={hostControlsValue}
+              onChange={(patch) => {
+                updateMeetingPolicy(
+                  { meetingId, patch },
+                  { onError: () => toast.error(t.meetingDetailPage.hostControlsUpdateFailed) },
+                );
+              }}
+            />
+          </div>
         </DialogContent>
       </Dialog>
     )}

@@ -187,7 +187,13 @@ interface DayBucket {
   entries: ActivityItem[];
 }
 
-export function ActivitySection({ activities }: Readonly<ActivitySectionProps>) {
+export function ActivitySection({
+  activities,
+  emptyDescription,
+}: Readonly<ActivitySectionProps & {
+  /** Replaces the default empty-state copy (which speaks of "this customer"). */
+  emptyDescription?: string;
+}>) {
   const t = useTranslations();
   const { data: membersResult } = useWorkspaceMembers(1, 100);
 
@@ -225,7 +231,7 @@ export function ActivitySection({ activities }: Readonly<ActivitySectionProps>) 
           <SquareActivity className="h-5 w-5" />
         </div>
         <h3 className="text-sm font-medium text-foreground">{t('sweep.weldcrm.activitySection.noActivitiesYet')}</h3>
-        <p className="text-xs text-muted-foreground max-w-[260px]">{t('sweep.weldcrm.activitySection.noActivitiesYetDescription')}</p>
+        <p className="text-xs text-muted-foreground max-w-[260px]">{emptyDescription ?? t('sweep.weldcrm.activitySection.noActivitiesYetDescription')}</p>
       </div>
     );
   }

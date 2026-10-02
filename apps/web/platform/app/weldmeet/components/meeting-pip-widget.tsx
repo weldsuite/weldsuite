@@ -83,12 +83,18 @@ function useMeetingRenderTick(meeting: RealtimeKitClient | null, forceUpdate: (f
     const tick = () => forceUpdate(n => n + 1);
     meeting.participants?.joined?.on?.('participantJoined', tick);
     meeting.participants?.joined?.on?.('participantLeft', tick);
+    // Remote mic / camera changes too (e.g. the host muting the focused peer),
+    // otherwise the muted indicator waits for an unrelated re-render.
+    meeting.participants?.joined?.on?.('audioUpdate', tick);
+    meeting.participants?.joined?.on?.('videoUpdate', tick);
     meeting.self?.on?.('videoUpdate', tick);
     meeting.self?.on?.('audioUpdate', tick);
     return () => {
       try {
         meeting.participants?.joined?.removeListener?.('participantJoined', tick);
         meeting.participants?.joined?.removeListener?.('participantLeft', tick);
+        meeting.participants?.joined?.removeListener?.('audioUpdate', tick);
+        meeting.participants?.joined?.removeListener?.('videoUpdate', tick);
         meeting.self?.removeListener?.('videoUpdate', tick);
         meeting.self?.removeListener?.('audioUpdate', tick);
       } catch { /* ignore */ }

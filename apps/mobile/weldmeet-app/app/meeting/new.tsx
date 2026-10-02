@@ -43,11 +43,6 @@ export default function NewMeetingScreen() {
         allowRecording: recording,
         waitingRoom,
         accessType: 'workspace',
-        // Defaulted by Zod, but listed explicitly so the type matches the
-        // schema's required (post-default) shape.
-        attendees: [],
-        isRecurring: false,
-        createCalendarEvent: false,
       });
       router.replace(`/meeting/${res.data.id}`);
     } catch (err) {

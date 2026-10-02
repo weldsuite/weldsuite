@@ -13,12 +13,16 @@ import {
   Loader2,
 } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
-import type { RecordingState } from '../types';
+import type { RecordingLabels, RecordingState } from '../types';
 
 export interface MeetingToolsPanelProps {
   /** Forwarded from MeetingRoomView so the Record tool can drive RTK. */
   isRecording?: boolean;
   recordingState?: RecordingState;
+  /** Whole seconds since the recorder was asked to start (shown while STARTING). */
+  recordingStartElapsedSeconds?: number;
+  /** Copy for the recording-start feedback. English when omitted. */
+  recordingLabels?: RecordingLabels;
   startRecording?: () => void;
   stopRecording?: () => void;
   /** When true, the Record tool is rendered in the active list; otherwise
@@ -40,14 +44,27 @@ interface ToolItem {
   busy?: boolean;
 }
 
-function recordToolLabel(isRecording: boolean, recordingState?: RecordingState): string {
-  if (recordingState === 'STARTING') return 'Starting recording…';
+function recordToolLabel(
+  isRecording: boolean,
+  recordingState?: RecordingState,
+  labels?: RecordingLabels,
+): string {
+  if (recordingState === 'STARTING') return labels?.startingTool ?? 'Starting recording…';
   if (recordingState === 'STOPPING') return 'Stopping recording…';
   return isRecording ? 'Stop recording' : 'Record';
 }
 
-function recordToolDescription(isRecording: boolean, recordingBusy: boolean): string {
-  if (recordingBusy) return 'Please wait…';
+function recordToolDescription(
+  isRecording: boolean,
+  recordingBusy: boolean,
+  startElapsedSeconds?: number,
+  labels?: RecordingLabels,
+): string {
+  if (recordingBusy) {
+    const wait = labels?.pleaseWait ?? 'Please wait…';
+    // The elapsed counter only applies to the start; stopping has no timer.
+    return typeof startElapsedSeconds === 'number' ? `${wait} ${startElapsedSeconds}s` : wait;
+  }
   return isRecording ? 'Recording in progress' : 'Capture the meeting';
 }
 
@@ -71,8 +88,19 @@ function buildRecordTool({
   recordingState,
   startRecording,
   stopRecording,
-}: Pick<MeetingToolsPanelProps, 'isRecording' | 'recordingState' | 'startRecording' | 'stopRecording'>): ToolItem {
+  recordingStartElapsedSeconds,
+  recordingLabels,
+}: Pick<
+  MeetingToolsPanelProps,
+  | 'isRecording'
+  | 'recordingState'
+  | 'startRecording'
+  | 'stopRecording'
+  | 'recordingStartElapsedSeconds'
+  | 'recordingLabels'
+>): ToolItem {
   const recordingBusy = recordingState === 'STARTING' || recordingState === 'STOPPING';
+  const startElapsed = recordingState === 'STARTING' ? recordingStartElapsedSeconds : undefined;
 
   const handleRecord = () => {
     if (recordingBusy) return;
@@ -82,8 +110,8 @@ function buildRecordTool({
 
   return {
     key: 'record',
-    label: recordToolLabel(isRecording, recordingState),
-    description: recordToolDescription(isRecording, recordingBusy),
+    label: recordToolLabel(isRecording, recordingState, recordingLabels),
+    description: recordToolDescription(isRecording, recordingBusy, startElapsed, recordingLabels),
     icon: isRecording ? Square : Circle,
     onClick: handleRecord,
     busy: recordingBusy,
@@ -97,11 +125,22 @@ export function MeetingToolsPanel({
   startRecording,
   stopRecording,
   recordingAvailable,
+  recordingStartElapsedSeconds,
+  recordingLabels,
 }: MeetingToolsPanelProps) {
   const activeTools: ToolItem[] = [];
 
   if (recordingAvailable && (startRecording || stopRecording)) {
-    activeTools.push(buildRecordTool({ isRecording, recordingState, startRecording, stopRecording }));
+    activeTools.push(
+      buildRecordTool({
+        isRecording,
+        recordingState,
+        startRecording,
+        stopRecording,
+        recordingStartElapsedSeconds,
+        recordingLabels,
+      }),
+    );
   }
 
   const unavailableTools: ToolItem[] = [

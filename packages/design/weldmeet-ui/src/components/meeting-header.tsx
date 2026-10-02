@@ -3,7 +3,7 @@ import { Info, MessageSquare, Users, LayoutGrid } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { useIsMobile } from '../hooks/use-is-mobile';
-import type { RecordingState } from '../types';
+import type { RecordingLabels, RecordingState } from '../types';
 import type { RightPanelKind } from './meeting-right-panel';
 
 export interface MeetingHeaderProps {
@@ -11,6 +11,10 @@ export interface MeetingHeaderProps {
   duration: number;
   isRecording?: boolean;
   recordingState?: RecordingState;
+  /** Whole seconds since the recorder was asked to start (shown while STARTING). */
+  recordingStartElapsedSeconds?: number;
+  /** Copy for the recording-start cue. English when omitted. */
+  recordingLabels?: RecordingLabels;
   waitlistedCount?: number;
   /** Number of people currently in the call — rendered inline on the People button. */
   participantsCount?: number;
@@ -39,6 +43,8 @@ export function MeetingHeader({
   duration,
   isRecording,
   recordingState,
+  recordingStartElapsedSeconds,
+  recordingLabels,
   waitlistedCount = 0,
   participantsCount,
   rightPanel,
@@ -69,10 +75,13 @@ export function MeetingHeader({
         {!isRecording && recordingState === 'STARTING' && (
           <span
             className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
-            title="Recording is starting"
+            title={recordingLabels?.startingHint ?? 'Recording is starting'}
           >
             <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-            Starting…
+            {recordingLabels?.starting ?? 'Starting…'}
+            {typeof recordingStartElapsedSeconds === 'number' && (
+              <span className="tabular-nums">{recordingStartElapsedSeconds}s</span>
+            )}
           </span>
         )}
         {isRecording && (

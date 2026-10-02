@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { getTenantDb } from '@/lib/db';
-import { meetings, meetingSessions } from '@weldsuite/db/schema';
+import { meetingSessions } from '@weldsuite/db/schema';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
+import { endMeetingSession } from '@weldsuite/meet-domain/meeting-lifecycle';
 import { guestLeaveInputSchema } from '@/lib/schemas';
-import { guestUnauthorized, invalidInput } from '@/lib/api-response';
+import { guestUnauthorized, invalidInput, tenantNotFoundResponse } from '@/lib/api-response';
 import { authenticateGuest, isTokenParticipant } from '@/lib/guest-session';
-import { isMeetingPast } from '@/lib/meeting-status';
+import { meetingLifecycleEnv } from '@/lib/meeting-lifecycle-env';
 
 /**
  * POST /api/meeting/leave
  * Authorization: Bearer <guest session token from /api/meeting/join>
  * Body: { orgId, meetingId }
- * Marks the token's guest as left in the session the token was issued for.
+ * Marks the token's guest as left in the session the token was issued for. When
+ * nobody is left in the room the session is ended through the shared
+ * `endMeetingSession` (the same code the platform's leave / end routes and the
+ * RealtimeKit webhook run): participants stamped as left, meeting released,
+ * RealtimeKit room torn down, CRM activity logged, platform notified.
  */
 export async function POST(request: NextRequest) {
   let raw: unknown;
@@ -34,7 +39,7 @@ export async function POST(request: NextRequest) {
   const { sessionId } = claims;
 
   try {
-    const { db } = await getTenantDb(orgId);
+    const { db, clerkOrgId } = await getTenantDb(orgId);
 
     const [session] = await db
       .select()
@@ -49,6 +54,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Already ended (the host ended it, or another guest was last out): the
+    // end has run, and every kicked guest's leave lands here. Nothing to do.
+    if (session.status === 'ended') {
+      return NextResponse.json({ data: { ok: true } });
+    }
+
     const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
     // Match on the RTK participant too, so a stale token from an earlier join
     // cannot mark a newer connection of the same guest as left.
@@ -60,42 +71,35 @@ export async function POST(request: NextRequest) {
 
     const activeParticipants = participants.filter((p) => !p.leftAt);
 
-    await db.update(meetingSessions).set({
-      participants,
-      updatedAt: new Date(),
-    }).where(eq(meetingSessions.id, sessionId));
+    // Conditional on the session still being open: if the host (or the RTK
+    // webhook) ended it since the read above, this stale snapshot must not
+    // overwrite the ended row's participants (the end stamped everyone's leftAt).
+    const updated = await db
+      .update(meetingSessions)
+      .set({ participants, updatedAt: new Date() })
+      .where(and(eq(meetingSessions.id, sessionId), ne(meetingSessions.status, 'ended')))
+      .returning({ id: meetingSessions.id });
+    if (updated.length === 0) {
+      return NextResponse.json({ data: { ok: true } });
+    }
 
-    // Auto-end if no participants remain
+    // Auto-end if no participants remain.
     if (activeParticipants.length === 0) {
-      const now = new Date();
-      const duration = session.startedAt
-        ? Math.round((now.getTime() - new Date(session.startedAt).getTime()) / 1000)
-        : 0;
-
-      await db.update(meetingSessions).set({
-        status: 'ended',
-        endedAt: now,
-        duration,
-        updatedAt: now,
-      }).where(eq(meetingSessions.id, sessionId));
-
-      const [meeting] = await db
-        .select({ scheduledEnd: meetings.scheduledEnd, scheduledStart: meetings.scheduledStart })
-        .from(meetings)
-        .where(eq(meetings.id, meetingId))
-        .limit(1);
-
-      const isPast = isMeetingPast(meeting, now);
-
-      await db.update(meetings).set({
-        activeSessionId: null,
-        status: isPast ? 'completed' : 'scheduled',
-        updatedAt: now,
-      }).where(eq(meetings.id, meetingId));
+      await endMeetingSession(
+        db,
+        meetingLifecycleEnv(),
+        // The realtime hub is keyed by the Clerk org id, which is not always the URL's id.
+        clerkOrgId ?? orgId,
+        sessionId,
+        session,
+        meetingId,
+      );
     }
 
     return NextResponse.json({ data: { ok: true } });
   } catch (err) {
+    const notFound = tenantNotFoundResponse(err);
+    if (notFound) return notFound;
     console.error('[MeetingPortal] Failed to leave session:', err);
     return NextResponse.json(
       { error: { code: 'INTERNAL', message: 'Failed to leave session' } },

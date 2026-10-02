@@ -1,6 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@weldsuite/df3-noise-suppression', '@weldsuite/cloudflare-realtime'],
+  transpilePackages: [
+    '@weldsuite/df3-noise-suppression',
+    '@weldsuite/cloudflare-realtime',
+    // Guest leave ends the session through the shared lifecycle (TS sources).
+    '@weldsuite/meet-domain',
+    '@weldsuite/realtime',
+    '@weldsuite/worker-kit',
+  ],
   typescript: {
     ignoreBuildErrors: true,
   },

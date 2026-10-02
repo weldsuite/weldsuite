@@ -20,7 +20,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { createMeeting, addParticipant, endMeeting } from '@weldsuite/cloudflare-realtime';
+import { createMeeting, addParticipant } from '@weldsuite/cloudflare-realtime';
 import { sendMissedCallNotification, sendIncomingCallNotification } from '@weldsuite/notifications';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
 import type { Env, Variables } from '../../types';
@@ -36,7 +36,12 @@ import {
   publishChatCallIncoming,
   broadcastChatCallToMembers,
 } from '@weldsuite/chat-domain/realtime/weldchat-call-publisher';
-import { endChatCall, scheduleRingTimeout, wasAnswered } from '@weldsuite/chat-domain/call-lifecycle';
+import {
+  endChatCall,
+  scheduleRingTimeout,
+  teardownRtkMeeting,
+  wasAnswered,
+} from '@weldsuite/chat-domain/call-lifecycle';
 import { canAccessChannel } from '../../services/chat/channel-access';
 import {
   dedupeParticipants,
@@ -823,9 +828,9 @@ app.post('/:callId/decline', requirePermission('channels:read'), async (c) => {
       updatedAt: now,
     }).where(eq(chatCalls.id, callId));
 
-    // End the RTK meeting
+    // Kick the caller out of the room, end the RTK meeting, drop the KV mapping
     if (call.cfAppId) {
-      try { await endMeeting(c.env, call.cfAppId); } catch { /* best effort */ }
+      await teardownRtkMeeting(c.env, call.cfAppId, { callId });
     }
 
     const msgId = generateId('msg');

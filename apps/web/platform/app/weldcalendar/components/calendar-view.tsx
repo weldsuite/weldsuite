@@ -1912,6 +1912,8 @@ export function QuickCreateCard({
   // card has no "more options" trigger of its own.
   showTypeTabs = true,
   editEvent,
+  defaultGuests,
+  defaultWeldMeet = false,
 }: {
   defaultType: string;
   defaultStart?: Date;
@@ -1928,6 +1930,10 @@ export function QuickCreateCard({
   showTypeTabs?: boolean;
   onMoreOptions: () => void;
   editEvent?: CalendarEvent | null;
+  /** Pre-fill the guest list when creating a new event (e.g. "Schedule again"). */
+  defaultGuests?: Array<{ email: string; name?: string }>;
+  /** Start with "Add WeldMeet" switched on when creating a new event. */
+  defaultWeldMeet?: boolean;
 }) {
   const t = getTranslations('weldcalendar');
   const [initial] = useState(() =>
@@ -1971,7 +1977,7 @@ export function QuickCreateCard({
   // "Add WeldMeet" only marks the event: the meeting (with the event's times,
   // guests and these settings) is created when the event is saved, so closing
   // the card without saving leaves no orphan meeting behind.
-  const [weldMeetPending, setWeldMeetPending] = useState(false);
+  const [weldMeetPending, setWeldMeetPending] = useState(() => !editEvent && defaultWeldMeet);
   const [meetingLinkCopied, setMeetingLinkCopied] = useState(false);
   const [meetingSettings, setMeetingSettings] = useState<MeetingSettings>(DEFAULT_WELDMEET_SETTINGS);
   // Enter in the title input and the Save button can both fire a save.
@@ -1984,6 +1990,13 @@ export function QuickCreateCard({
         id: `attendee-${i}`,
         name: a.name || a.email,
         email: a.email,
+      }));
+    }
+    if (!editEvent && defaultGuests?.length) {
+      return defaultGuests.map((g, i) => ({
+        id: `default-guest-${i}`,
+        name: g.name || g.email,
+        email: g.email,
       }));
     }
     return [];

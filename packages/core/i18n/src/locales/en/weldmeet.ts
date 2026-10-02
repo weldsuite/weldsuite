@@ -18,6 +18,7 @@ export const weldmeet = {
     cancel: 'Cancel',
     save: 'Save person',
     saving: 'Saving…',
+    existingPerson: 'This email already belongs to a person in your CRM. Opening their profile.',
     errorNoId: 'Person created but no id returned',
     errorGeneric: 'Failed to create person',
   },
@@ -38,6 +39,7 @@ export const weldmeet = {
   overlay: {
     addPeople: {
       title: 'Add people',
+      description: 'Invite people to this meeting by name or email address.',
       searchPlaceholder: 'Search by name or email...',
       noMembersFound: 'No members found',
       invite: 'Invite',
@@ -56,6 +58,41 @@ export const weldmeet = {
     removeParticipant: {
       failed: "Couldn't remove the participant from the call",
     },
+  },
+  inCall: {
+    recording: {
+      started: 'Recording started. All participants will be notified.',
+      startTimedOut: "The recording didn't start in time. Please try again.",
+      startFailed: "Couldn't start the recording. Please try again.",
+      starting: 'Starting…',
+      startingHint: 'Recording is starting',
+      startingTool: 'Starting recording…',
+      pleaseWait: 'Please wait…',
+    },
+    preview: {
+      defaultTitle: 'Join meeting',
+      subtitle: 'Check your audio and video before joining',
+      cancel: 'Cancel',
+      join: 'Join meeting',
+      turnOnMicrophone: 'Turn on microphone',
+      turnOffMicrophone: 'Turn off microphone',
+      turnOnCamera: 'Turn on camera',
+      turnOffCamera: 'Turn off camera',
+      microphone: 'Microphone',
+      camera: 'Camera',
+      microphoneFallback: 'Microphone',
+      cameraFallback: 'Camera',
+      noMicrophones: 'No microphones detected',
+      noCameras: 'No cameras detected',
+      permissionRequired: 'Permission required.',
+      blockedTitle: 'Camera and microphone are blocked',
+      blockedDescription:
+        "You can still join, but others won't see or hear you until you allow access for this site.",
+      blockedHint: 'Use the blocked buttons below to see how to allow access.',
+    },
+  },
+  joinByCodePage: {
+    joining: 'Joining meeting...',
   },
   chatHistory: {
     header: 'Chat',
@@ -198,9 +235,11 @@ export const weldmeet = {
       joinCodeCopied: 'Join code copied',
       meetingLinkCopied: 'Meeting link copied',
       meetingRenamed: 'Meeting renamed',
+      meetingDeleteFailed: 'Failed to delete meeting',
       meetingDeleted: 'Meeting deleted',
     },
     renameMeeting: {
+      description: 'Choose a new name for this meeting.',
       title: 'Rename meeting',
       placeholder: 'Meeting name',
       cancel: 'Cancel',
@@ -235,6 +274,7 @@ export const weldmeet = {
     meetingCreateFailedHint: 'Please try again.',
     meetingLinkFailed: 'Event saved, but the WeldMeet link could not be attached',
     meetingLinkFailedHint: 'Open the event and add the video conferencing again.',
+    addPeopleDescription: 'Invite people to this meeting by name or email.',
     addPeople: 'Add people',
     searchByNameOrEmail: 'Search by name or email...',
     noMembersFound: 'No members found',
@@ -290,6 +330,7 @@ export const weldmeet = {
     hideChat: 'Hide chat',
     chat: 'Chat',
     renameMeeting: {
+      description: 'Choose a new name for this meeting.',
       title: 'Rename meeting',
       placeholder: 'Meeting name',
       cancel: 'Cancel',
@@ -299,6 +340,14 @@ export const weldmeet = {
     meetingRenamed: 'Meeting renamed',
     meetingDeleted: 'Meeting deleted',
     transcriptExported: 'Transcript exported',
+    addPeopleDescription: 'Invite people to this meeting by name or email.',
+    join: 'Join',
+    start: 'Start',
+    hostControls: 'Host controls',
+    hostControlsDescription: 'Choose what participants can do in this meeting.',
+    hostControlsUpdateFailed: 'Could not update host controls',
+    notScheduled: 'Not scheduled',
+    meetingDeleteFailed: 'Failed to delete meeting',
     addPeople: 'Add people',
   },
   meetingRoomPage: {
@@ -459,6 +508,8 @@ export const weldmeet = {
       anyoneWithLink: 'Anyone with link',
     },
     groups: {
+      liveNow: 'Live now',
+      notScheduled: 'Not scheduled',
       nextMonth: 'Next month',
     },
     actions: {
@@ -472,6 +523,7 @@ export const weldmeet = {
       meetingRenamed: 'Meeting renamed',
     },
     renameMeeting: {
+      description: 'Choose a new name for this meeting.',
       title: 'Rename meeting',
       placeholder: 'Meeting name',
       cancel: 'Cancel',

@@ -7,8 +7,9 @@
  * is presentational — we just need to fetch the activities for the
  * current entity and pass them in.
  *
- * `useActivities` already maps `customerId` (companies) and `contactId`
- * (persons) to the right wire param. The `customer` prop is only required
+ * `useActivities` already maps `customerId` (companies) to the right wire
+ * param; persons are queried by `personId` (the column meeting activities and
+ * person-linked activities are logged with). The `customer` prop is only required
  * by the section's TypeScript signature — it doesn't dereference any
  * fields on it for rendering, so a `{ id }`-only shim is safe.
  */
@@ -25,7 +26,7 @@ interface ActivityTabProps {
 
 export function ActivityTab({ entityId, entityKind }: ActivityTabProps) {
   const t = useTranslations();
-  const filter = entityKind === 'company' ? { customerId: entityId } : { contactId: entityId };
+  const filter = entityKind === 'company' ? { customerId: entityId } : { personId: entityId };
   const { data, isLoading } = useActivities(filter);
 
   if (isLoading) {
@@ -44,6 +45,9 @@ export function ActivityTab({ entityId, entityKind }: ActivityTabProps) {
       customer={{ id: entityId } as Customer}
       activities={activities}
       totalCount={totalCount}
+      emptyDescription={
+        entityKind === 'person' ? t('sweep.weldcrm.activitySection.noActivitiesYetDescriptionPerson') : undefined
+      }
     />
   );
 }

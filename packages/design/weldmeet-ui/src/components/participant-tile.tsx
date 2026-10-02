@@ -134,8 +134,11 @@ function tileClassName({ showColoredTile, clickable, pinned, isSpeaking, isHandR
     !showColoredTile && 'bg-muted',
     clickable && 'cursor-pointer',
     pinned && 'ring-2 ring-primary ring-offset-1 ring-offset-background !aspect-auto h-full',
-    isSpeaking && !pinned && 'ring-2 ring-green-500 ring-offset-1 ring-offset-background',
-    isHandRaised && !isSpeaking && !pinned && 'ring-2 ring-yellow-500 ring-offset-1 ring-offset-background',
+    isSpeaking && !isHandRaised && !pinned && 'ring-2 ring-green-500 ring-offset-1 ring-offset-background',
+    // A raised hand keeps its ring whatever the audio state; if the person is
+    // also speaking, the speaking colour stays visible as the offset band.
+    isHandRaised && !pinned && 'ring-2 ring-yellow-500 ring-offset-2',
+    isHandRaised && !pinned && (isSpeaking ? 'ring-offset-green-500' : 'ring-offset-background'),
   );
 }
 

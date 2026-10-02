@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { PageLoader } from '@/components/page-loader';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
+import { getTranslations } from '@/lib/i18n';
 import {
   EntityGrid,
   type EntityGridActions,
@@ -18,6 +20,8 @@ import {
 const pageSize = 50;
 
 export default function MeetPeoplePage() {
+  const navLabels = getTranslations('navigation').moduleSidebar.weldmeet;
+  useBreadcrumbs([{ label: navLabels.people }]);
   const {
     data: infiniteData,
     isLoading,

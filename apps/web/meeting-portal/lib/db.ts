@@ -1,13 +1,19 @@
-import { getTenantDbByWorkspaceId, getTenantDb as getTenantDbByClerkOrgId } from '@weldsuite/db';
+import { getExistingTenantDb, isTenantNotFoundError } from '@weldsuite/db';
+
+export { isTenantNotFoundError };
 
 /**
  * Resolve a tenant database from a workspace ID or Clerk org ID.
- * Tries workspace ID first, falls back to Clerk org ID lookup.
+ *
+ * The id comes straight from a public URL, so this never provisions anything:
+ * the old `getTenantDb(clerkOrgId)` auto-created a phantom `workspaces` row for
+ * every unknown id before failing. An unknown (or inactive) workspace throws
+ * `TenantNotFoundError`, which the API routes turn into a 404 via
+ * `tenantNotFoundResponse()`.
+ *
+ * Besides the database, the result carries the workspace's `clerkOrgId`: the
+ * realtime hub is keyed by it, not by the workspace id.
  */
 export async function getTenantDb(id: string) {
-  try {
-    return await getTenantDbByWorkspaceId(id);
-  } catch {
-    return await getTenantDbByClerkOrgId(id);
-  }
+  return getExistingTenantDb(id);
 }

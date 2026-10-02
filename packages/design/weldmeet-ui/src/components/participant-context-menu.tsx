@@ -12,6 +12,7 @@
 
 'use client';
 
+import { useEffect, useRef } from 'react';
 import {
   Mic,
   MicOff,
@@ -62,6 +63,11 @@ export interface ParticipantContextMenuProps {
   onLocalMutedChange?: (muted: boolean) => void;
 }
 
+const MENU_ITEM_CLASS =
+  'relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground transition-colors';
+
+const MENU_ITEM_SELECTOR = '[role="menuitem"]:not([disabled])';
+
 export function ParticipantContextMenu({
   participant,
   isSelf,
@@ -82,10 +88,47 @@ export function ParticipantContextMenu({
   const name = participant?.name || 'Participant';
   const showLocalPlayback =
     !isSelf && typeof volume === 'number' && !!onVolumeChange && !!onLocalMutedChange;
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Keyboard: Escape closes (captured and stopped so it doesn't also exit
+  // fullscreen / close a panel underneath), and focus lands on the first item
+  // so arrow keys work straight away.
+  // `onClose` is usually an inline arrow, so it is read through a ref: the
+  // listener and the initial focus must not re-run on every parent render.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      e.preventDefault();
+      onCloseRef.current();
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    menuRef.current?.querySelector<HTMLElement>(MENU_ITEM_SELECTOR)?.focus();
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, []);
+
+  const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR) ?? []);
+    if (items.length === 0) return;
+    e.preventDefault();
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    let next: number;
+    if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = items.length - 1;
+    else if (e.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length;
+    else next = current <= 0 ? items.length - 1 : current - 1;
+    items[next]?.focus();
+  };
 
   return (
     <>
       <div
+        aria-hidden="true"
         className="fixed inset-0 z-30"
         onClick={(e) => {
           // Stop the click bubbling to the tile beneath, which would otherwise
@@ -100,9 +143,13 @@ export function ParticipantContextMenu({
         }}
       />
       <div
+        ref={menuRef}
+        role="menu"
+        aria-label={name}
         className="fixed z-40 bg-popover border border-border rounded-md shadow-md min-w-[200px] animate-in fade-in-0 zoom-in-95 duration-100 overflow-hidden"
         style={{ top: position.y, left: position.x }}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={onMenuKeyDown}
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-2 py-2.5">
@@ -162,7 +209,8 @@ export function ParticipantContextMenu({
                   else void meeting?.self?.enableAudio();
                   onClose();
                 }}
-                className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
+                role="menuitem"
+                className={MENU_ITEM_CLASS}
               >
                 {participant.audioEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4 text-red-500" />}
                 {participant.audioEnabled ? 'Mute' : 'Unmute'}
@@ -173,7 +221,8 @@ export function ParticipantContextMenu({
                   else void meeting?.self?.enableVideo();
                   onClose();
                 }}
-                className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
+                role="menuitem"
+                className={MENU_ITEM_CLASS}
               >
                 {participant.videoEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4 text-red-500" />}
                 {participant.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
@@ -187,7 +236,8 @@ export function ParticipantContextMenu({
                 onLocalMutedChange!(!localMuted);
                 onClose();
               }}
-              className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
+              role="menuitem"
+              className={MENU_ITEM_CLASS}
             >
               {localMuted ? <VolumeX className="h-4 w-4 text-red-500" /> : <Volume2 className="h-4 w-4" />}
               {localMuted ? 'Unmute for me' : 'Mute for me'}
@@ -200,7 +250,8 @@ export function ParticipantContextMenu({
               onClose();
               (!pinned ? participant.pin?.() : participant.unpin?.())?.catch((err: unknown) => console.warn('Pin failed:', err));
             }}
-            className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
+            role="menuitem"
+            className={MENU_ITEM_CLASS}
           >
             <Pin className={cn('h-4 w-4', pinned && 'text-primary fill-primary')} />
             {pinned ? 'Unpin' : 'Pin'}
@@ -212,7 +263,8 @@ export function ParticipantContextMenu({
               onClose();
               participant.pin?.()?.catch((err: unknown) => console.warn('Spotlight failed:', err));
             }}
-            className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
+            role="menuitem"
+            className={MENU_ITEM_CLASS}
           >
             <Maximize className="h-4 w-4" />
             Spotlight
@@ -224,7 +276,8 @@ export function ParticipantContextMenu({
                 onSendMessage(participant);
                 onClose();
               }}
-              className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
+              role="menuitem"
+              className={MENU_ITEM_CLASS}
             >
               <MessageSquare className="h-4 w-4" />
               Send message
@@ -237,7 +290,8 @@ export function ParticipantContextMenu({
                 onClickDetails(participant);
                 onClose();
               }}
-              className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
+              role="menuitem"
+              className={MENU_ITEM_CLASS}
             >
               <UserCircle2 className="h-4 w-4" />
               View profile
@@ -302,6 +356,7 @@ function DestructiveActions({
               void meeting?.leave?.();
               onClose();
             }}
+            role="menuitem"
             className={MENU_BUTTON_BASE}
           >
             <PhoneOff className="h-4 w-4" />
@@ -312,6 +367,7 @@ function DestructiveActions({
             <button
               onClick={() => runAndClose(() => participant.disableAudio?.(), 'Mute for everyone failed:', onClose)}
               disabled={!participant.audioEnabled}
+              role="menuitem"
               className={cn(MENU_BUTTON_BASE, !participant.audioEnabled && 'opacity-40 pointer-events-none')}
             >
               <MicOff className="h-4 w-4" />
@@ -320,6 +376,7 @@ function DestructiveActions({
             <button
               onClick={() => runAndClose(() => participant.disableVideo?.(), 'Disable video failed:', onClose)}
               disabled={!participant.videoEnabled}
+              role="menuitem"
               className={cn(MENU_BUTTON_BASE, !participant.videoEnabled && 'opacity-40 pointer-events-none')}
             >
               <VideoOff className="h-4 w-4" />
@@ -333,6 +390,7 @@ function DestructiveActions({
                   onClose,
                 )
               }
+              role="menuitem"
               className={MENU_BUTTON_BASE}
             >
               <UserX className="h-4 w-4" />

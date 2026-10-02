@@ -103,6 +103,15 @@ import { WaitlistedScreen } from './components/waitlisted-screen';
 
 type GuestJoinBody = Parameters<typeof guestJoinMeeting>[1];
 
+const MEETING_NOT_FOUND_MESSAGE =
+  'This meeting link is invalid or no longer exists. Check the link with the person who invited you.';
+
+/** A 404 from the meeting API (or its "Meeting not found" message) means the link is dead. */
+function isMeetingNotFoundError(err: unknown): boolean {
+  if ((err as { status?: number } | null)?.status === 404) return true;
+  return err instanceof Error && err.message === 'Meeting not found';
+}
+
 type PageState =
   | 'loading'
   | 'landing'
@@ -123,6 +132,8 @@ export default function GuestJoinClient() {
 
   const [state, setState] = useState<PageState>('loading');
   const [errorMsg, setErrorMsg] = useState('');
+  // True when the meeting info lookup says the link points at nothing (404).
+  const [meetingNotFound, setMeetingNotFound] = useState(false);
   const [meetingInfo, setMeetingInfo] = useState<MeetingInfo | null>(null);
   // Host-control policy — initialised from /api/meeting/info and updated live
   // via RTK 'call:host-controls-updated' broadcasts from the platform host.
@@ -217,7 +228,12 @@ export default function GuestJoinClient() {
       } catch (err: unknown) {
         if (cancelled) return;
         setState('error');
-        setErrorMsg(err instanceof Error ? err.message : 'Failed to load meeting information.');
+        if (isMeetingNotFoundError(err)) {
+          setMeetingNotFound(true);
+          setErrorMsg(MEETING_NOT_FOUND_MESSAGE);
+        } else {
+          setErrorMsg(err instanceof Error ? err.message : 'Failed to load meeting information.');
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -925,7 +941,13 @@ export default function GuestJoinClient() {
   // ── Render ──
 
   if (state === 'loading') return <LoadingScreen />;
-  if (state === 'error') return <ErrorScreen message={errorMsg} joinCode={joinCode} />;
+  if (state === 'error') {
+    return meetingNotFound ? (
+      <ErrorScreen joinCode={joinCode} title="Meeting not found" message={errorMsg} hint="" />
+    ) : (
+      <ErrorScreen message={errorMsg} joinCode={joinCode} />
+    );
+  }
   if (state === 'ended' || state === 'hostEnded' || state === 'removed') {
     const endedVariant = state === 'ended' ? 'left' : state;
     return (

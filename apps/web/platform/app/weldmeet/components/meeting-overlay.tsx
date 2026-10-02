@@ -2,10 +2,21 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@clerk/clerk-react';
-import { DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
+import { DialogDescription, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
+import { useQueryClient } from '@tanstack/react-query';
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
 import { toast } from 'sonner';
-import { useMeeting, useUpdateMeeting, useLatestSession, useUpdateHostControls, useRemoveMeetingParticipant, type MeetingSession } from '@/hooks/queries/use-weldmeet-queries';
+import {
+  useMeeting,
+  useUpdateMeeting,
+  useLatestSession,
+  useUpdateMeetingPolicy,
+  useRemoveMeetingParticipant,
+  latestSessionQueryOptions,
+  weldmeetKeys,
+  type MeetingSession,
+} from '@/hooks/queries/use-weldmeet-queries';
+import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useSessionRecording } from '@/hooks/queries/use-weldmeet-recording-queries';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { RecordingAiOptionsInput } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
@@ -17,6 +28,14 @@ import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { MeetingChatPanel } from '@/components/call/meeting-chat-panel';
 import { BackgroundEffectsPanel } from '@/components/virtual-background-picker';
 import { GuestCreatePersonDialog, type GuestCreatePersonTarget } from './guest-create-person-dialog';
+import {
+  buildParticipantLookup,
+  findGuestEmail,
+  findParticipantLink,
+  guestEmailFromUserId,
+  type ParticipantLookup,
+} from './participant-links';
+import { useResolvePersonByEmail } from './use-resolve-person-by-email';
 import { PeopleEntityListPanel } from './people-entity-panel';
 import { useObjectPanel } from '@/components/object-panel';
 import {
@@ -34,6 +53,9 @@ import { MeetingInvitePicker } from './meeting-invite-picker';
 import { StartRecordingDialog } from './start-recording-dialog';
 import { RecordingAiPrompt } from './recording-ai-prompt';
 import type { RecordingAiChoice } from './recording-ai-options';
+
+/** Wait this long after a participant joins before refreshing the session links. */
+const LATEST_SESSION_REFRESH_DEBOUNCE_MS = 750;
 
 /** Remember a dismissed auto-record prompt for this session only (per tab). */
 function promptDismissedKey(sessionId: string): string {
@@ -90,6 +112,7 @@ function AddPeopleDialogContent({ meetingId }: Readonly<{ meetingId: string }>) 
     <>
       <DialogHeader>
         <DialogTitle className="text-[17px]">{t.overlay.addPeople.title}</DialogTitle>
+        <DialogDescription className="sr-only">{t.overlay.addPeople.description}</DialogDescription>
       </DialogHeader>
       <MeetingInvitePicker meetingId={meetingId} />
     </>
@@ -148,6 +171,7 @@ function MeetingRoomAdapter() {
     endMeeting,
     isRecording,
     recordingState,
+    recordingStartRequestedAt,
     startRecording,
     stopRecording,
     pauseRecording,
@@ -165,7 +189,7 @@ function MeetingRoomAdapter() {
   const workspaceId = useWorkspaceId() || orgId;
   const { data: meetingData } = useMeeting(activeMeetingId ?? '');
   const { mutate: updateMeeting } = useUpdateMeeting();
-  const { mutate: updateHostControls } = useUpdateHostControls();
+  const { mutate: updateMeetingPolicy } = useUpdateMeetingPolicy();
   const { mutateAsync: removeMeetingParticipant } = useRemoveMeetingParticipant();
   const [showWeldAgent, setShowWeldAgent] = useWeldAgentDrawerOpen();
   const [, setMeetingPanelOpen] = useMeetingPanelOpen();
@@ -222,60 +246,91 @@ function MeetingRoomAdapter() {
 
   const { open: openObjectPanel } = useObjectPanel();
 
-  // { workspaceMemberId, personId, contactId } indexed by every identifier we
-  // know for the persisted participant. Platform-side joins set
-  //   sp.userId === sp.customParticipantId === Clerk userId
-  // so a single key would suffice. Meeting-portal guests use a colorSeed UUID
-  // as customParticipantId but `guest:<email>` as userId, so the map needs
-  // both — plus `cfSessionId` as a final fallback that always matches the
-  // RTK-assigned `p.id`. `contactId` is kept for backwards-compat on historical
-  // session rows; new writes target `personId`.
-  const participantLinks = useMemo(() => {
-    const map = new Map<string, { workspaceMemberId?: string; personId?: string; contactId?: string }>();
-    const sessionParticipants = (latestSession?.participants ?? []) as SessionParticipantWithLinks[];
-    for (const sp of sessionParticipants) {
-      const entry = {
-        workspaceMemberId: sp?.workspaceMemberId,
-        personId: sp?.personId,
-        contactId: sp?.contactId,
-      };
-      if (!entry.workspaceMemberId && !entry.personId && !entry.contactId) continue;
-      for (const key of [sp?.userId, sp?.customParticipantId, sp?.cfSessionId] as Array<string | undefined>) {
-        if (key && !map.has(key)) map.set(key, entry);
+  // Identifier -> { workspaceMemberId, personId, contactId } (and guest email)
+  // for every persisted participant; see `buildParticipantLookup` for the key
+  // rules. Rebuilt whenever the latest session is refetched.
+  const participantLookup = useMemo(
+    () => buildParticipantLookup((latestSession?.participants ?? []) as SessionParticipantWithLinks[]),
+    [latestSession],
+  );
+
+  const queryClient = useQueryClient();
+  const { getClient } = useAppApiClient();
+  const resolvePersonByEmail = useResolvePersonByEmail();
+
+  // Opens the record a live participant belongs to; falls back to the "Save as
+  // CRM person" dialog only when there is genuinely nobody to open.
+  const openParticipantDetails = useCallback(async (p: ParticipantDetailsTarget) => {
+    // RTK doesn't expose a single canonical identifier — try every key the
+    // lookup might be indexed by until one hits.
+    const candidates = [p?.customParticipantId, p?.userId, p?.id];
+
+    const openFromLookup = (lookup: ParticipantLookup): boolean => {
+      const link = findParticipantLink(lookup, candidates);
+      if (link?.workspaceMemberId && p?.userId) {
+        // Team member — the object panel is keyed by Clerk userId so the
+        // app-api /team-members/:userId endpoint resolves directly.
+        openObjectPanel({ type: 'team-member', id: p.userId });
+        return true;
+      }
+      if (link?.personId) {
+        openObjectPanel({ type: 'person', id: link.personId });
+        return true;
+      }
+      if (link?.contactId) {
+        // Historical row from before the people cutover.
+        openObjectPanel({ type: 'contact', id: link.contactId });
+        return true;
+      }
+      return false;
+    };
+
+    if (openFromLookup(participantLookup)) return;
+
+    // Miss. The cached session was fetched before this participant joined (or
+    // before the server linked them), so it can't be trusted to say "unlinked".
+    // Ask the server for the current session and look again before giving up;
+    // otherwise a guest who is already a person gets offered "Save as CRM
+    // person" and ends up duplicated.
+    let lookup = participantLookup;
+    if (activeMeetingId) {
+      try {
+        const fresh = await queryClient.fetchQuery({
+          ...latestSessionQueryOptions(getClient, activeMeetingId),
+          staleTime: 0,
+        });
+        lookup = buildParticipantLookup((fresh?.participants ?? []) as SessionParticipantWithLinks[]);
+        if (openFromLookup(lookup)) return;
+      } catch {
+        // Offline / API error: carry on with what we have.
       }
     }
-    return map;
-  }, [latestSession]);
+
+    // Still unlinked. A portal guest joined with an email, so the person may
+    // exist anyway (created by another route, or not yet written to the session).
+    const email =
+      findGuestEmail(lookup, candidates) ??
+      guestEmailFromUserId(p?.customParticipantId) ??
+      guestEmailFromUserId(p?.userId);
+    if (email) {
+      try {
+        const personId = await resolvePersonByEmail(email);
+        if (personId) {
+          openObjectPanel({ type: 'person', id: personId });
+          return;
+        }
+      } catch {
+        // Fall through to the dialog, which looks the email up again on save.
+      }
+    }
+
+    // Truly unlinked guest — offer to save as a person.
+    setGuestTarget({ name: p?.name, picture: p?.picture ?? undefined, email });
+  }, [participantLookup, activeMeetingId, queryClient, getClient, resolvePersonByEmail, openObjectPanel]);
 
   const handleClickParticipantDetails = useCallback((p: ParticipantDetailsTarget) => {
-    // RTK doesn't expose a single canonical identifier — try every key the
-    // map might be indexed by until one hits.
-    const candidates = [p?.customParticipantId, p?.userId, p?.id] as Array<string | undefined>;
-    let link: { workspaceMemberId?: string; personId?: string; contactId?: string } | undefined;
-    for (const key of candidates) {
-      if (!key) continue;
-      const hit = participantLinks.get(key);
-      if (hit) { link = hit; break; }
-    }
-
-    if (link?.workspaceMemberId && p?.userId) {
-      // Team member — the object panel is keyed by Clerk userId so the
-      // app-api /team-members/:userId endpoint resolves directly.
-      openObjectPanel({ type: 'team-member', id: p.userId });
-      return;
-    }
-    if (link?.personId) {
-      openObjectPanel({ type: 'person', id: link.personId });
-      return;
-    }
-    if (link?.contactId) {
-      // Historical row from before the people cutover.
-      openObjectPanel({ type: 'contact', id: link.contactId });
-      return;
-    }
-    // Unlinked guest — offer to save as a person.
-    setGuestTarget({ name: p?.name, picture: p?.picture ?? undefined });
-  }, [participantLinks, openObjectPanel]);
+    void openParticipantDetails(p);
+  }, [openParticipantDetails]);
 
   // Host "Remove from call". The API records the removal on the session (so a
   // removed guest can't simply reload and rejoin) and kicks them server-side.
@@ -304,6 +359,19 @@ function MeetingRoomAdapter() {
       await kickLocally();
     }
   }, [activeSessionId, activeMeetingId, removeMeetingParticipant, t]);
+
+  // Seconds the recorder has been starting. The call context re-renders this
+  // adapter every second (call duration), so reading the clock here ticks.
+  const recordingStartElapsedSeconds =
+    recordingState === 'STARTING' && recordingStartRequestedAt !== null
+      ? Math.max(0, Math.floor((Date.now() - recordingStartRequestedAt) / 1000))
+      : undefined;
+  const recordingLabels = {
+    starting: t.inCall.recording.starting,
+    startingHint: t.inCall.recording.startingHint,
+    startingTool: t.inCall.recording.startingTool,
+    pleaseWait: t.inCall.recording.pleaseWait,
+  };
 
   const joinCode = meetingData?.joinCode ?? '';
   const shareUrl = buildMeetingShareUrl(workspaceId, joinCode) ?? '';
@@ -351,10 +419,35 @@ function MeetingRoomAdapter() {
       videoTrack: meeting.self?.screenShareTracks?.video ?? null,
     });
 
+    // The latest-session query is what links a live participant to a person /
+    // team member, and it is fetched once. Refresh it shortly after someone joins
+    // (debounced: a burst of joins, e.g. a reconnect, costs one request) so a
+    // late guest is already linked by the time the host clicks their profile.
+    let latestSessionTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleLatestSessionRefresh = () => {
+      if (!activeMeetingId) return;
+      if (latestSessionTimer) clearTimeout(latestSessionTimer);
+      latestSessionTimer = setTimeout(() => {
+        latestSessionTimer = null;
+        void queryClient.invalidateQueries({ queryKey: weldmeetKeys.latestSession(activeMeetingId) });
+      }, LATEST_SESSION_REFRESH_DEBOUNCE_MS);
+    };
+    const onParticipantJoined = () => {
+      updateParticipants();
+      scheduleLatestSessionRefresh();
+    };
+
     updateParticipants();
     updateWaitlisted();
-    meeting.participants?.joined?.on?.('participantJoined', updateParticipants);
+    meeting.participants?.joined?.on?.('participantJoined', onParticipantJoined);
     meeting.participants?.joined?.on?.('participantLeft', updateParticipants);
+    // Remote mute / camera / share changes. `participants.joined` re-emits each
+    // participant's own events, but we only re-snapshotted on join/leave and on
+    // OUR OWN audio/video updates, so when the host muted someone the roster and
+    // tiles kept showing the stale mic state until something else re-rendered.
+    meeting.participants?.joined?.on?.('audioUpdate', updateParticipants);
+    meeting.participants?.joined?.on?.('videoUpdate', updateParticipants);
+    meeting.participants?.joined?.on?.('screenShareUpdate', updateParticipants);
     meeting.participants?.waitlisted?.on?.('participantJoined', updateWaitlisted);
     meeting.participants?.waitlisted?.on?.('participantLeft', updateWaitlisted);
     meeting.self?.on?.('audioUpdate', updateParticipants);
@@ -365,15 +458,19 @@ function MeetingRoomAdapter() {
 
     return () => {
       clearInterval(pollInterval);
-      meeting.participants?.joined?.off?.('participantJoined', updateParticipants);
+      if (latestSessionTimer) clearTimeout(latestSessionTimer);
+      meeting.participants?.joined?.off?.('participantJoined', onParticipantJoined);
       meeting.participants?.joined?.off?.('participantLeft', updateParticipants);
+      meeting.participants?.joined?.off?.('audioUpdate', updateParticipants);
+      meeting.participants?.joined?.off?.('videoUpdate', updateParticipants);
+      meeting.participants?.joined?.off?.('screenShareUpdate', updateParticipants);
       meeting.participants?.waitlisted?.off?.('participantJoined', updateWaitlisted);
       meeting.participants?.waitlisted?.off?.('participantLeft', updateWaitlisted);
       meeting.self?.off?.('audioUpdate', updateParticipants);
       meeting.self?.off?.('videoUpdate', updateParticipants);
       meeting.self?.off?.('screenShareUpdate', onSelfScreenShareUpdate);
     };
-  }, [meeting]);
+  }, [meeting, activeMeetingId, queryClient]);
 
   const handleRename = useCallback((newTitle: string) => {
     if (activeMeetingId) {
@@ -505,10 +602,13 @@ function MeetingRoomAdapter() {
 
   const handleHostControlsChange = useCallback((patch: Partial<HostControlsValue>) => {
     if (!activeMeetingId || !isOrganizer) return;
-    updateHostControls(
+    updateMeetingPolicy(
       { meetingId: activeMeetingId, patch },
       {
         onSuccess: ({ controls }) => {
+          // Only host-control fields are broadcast; a waiting-room / access
+          // change is a meeting-level field with no RTK policy message.
+          if (!controls) return;
           // Push to every other participant over RTK so they apply the new
           // policy without polling. RTK's broadcast payload requires primitive
           // values per key — stringify the controls object so the receiver
@@ -524,7 +624,7 @@ function MeetingRoomAdapter() {
         },
       },
     );
-  }, [activeMeetingId, isOrganizer, updateHostControls, meeting]);
+  }, [activeMeetingId, isOrganizer, updateMeetingPolicy, meeting]);
 
   const hostControlsSlot = activeMeetingId ? (
     <HostControlsPanel
@@ -658,6 +758,8 @@ function MeetingRoomAdapter() {
       pauseRecording={pauseRecording}
       resumeRecording={resumeRecording}
       showControlBarRecording={false}
+      recordingStartElapsedSeconds={recordingStartElapsedSeconds}
+      recordingLabels={recordingLabels}
       onRenameMeeting={handleRename}
       onToggleEffects={() => setShowEffects(v => !v)}
       effectsOpen={showEffects}
@@ -723,7 +825,16 @@ function PreviewAdapter() {
     cancelPreview,
     meetingTitle,
     meetingType,
+    previewAudioInputs,
+    previewVideoInputs,
+    previewAudioDeviceId,
+    previewVideoDeviceId,
+    previewAudioPermission,
+    previewVideoPermission,
+    changePreviewAudioDevice,
+    changePreviewVideoDevice,
   } = useWeldMeetCall();
+  const t = getTranslations('weldmeet');
 
   return (
     <PreviewView
@@ -736,6 +847,16 @@ function PreviewAdapter() {
       togglePreviewVideo={togglePreviewVideo}
       confirmJoinFromPreview={confirmJoinFromPreview}
       cancelPreview={cancelPreview}
+      audioInputs={previewAudioInputs}
+      videoInputs={previewVideoInputs}
+      selectedAudioInputId={previewAudioDeviceId}
+      selectedVideoInputId={previewVideoDeviceId}
+      onChangeAudioInput={(id) => { void changePreviewAudioDevice(id); }}
+      onChangeVideoInput={(id) => { void changePreviewVideoDevice(id); }}
+      audioPermission={previewAudioPermission}
+      videoPermission={previewVideoPermission}
+      permissionHelpLabels={t.permissionHelp}
+      labels={t.inCall.preview}
     />
   );
 }
@@ -746,7 +867,12 @@ function PreviewAdapter() {
 
 /** Inline meeting view — renders within the page content area */
 export function InlineMeetingView() {
-  const { status } = useWeldMeetCall();
+  const { status, isFullscreen } = useWeldMeetCall();
+
+  // In fullscreen the global <MeetingOverlay /> owns the room. Rendering it here
+  // too would mount a second MeetingRoomView (a second set of <audio> elements,
+  // so everyone is heard twice) underneath the overlay.
+  if (isFullscreen) return null;
 
   if (status === 'preview') return <PreviewAdapter />;
   if (status === 'connecting') return <ConnectingView />;

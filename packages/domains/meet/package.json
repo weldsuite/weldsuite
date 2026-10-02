@@ -8,6 +8,7 @@
     "./audio/mp3": "./src/audio/mp3.ts",
     "./billing": "./src/billing.ts",
     "./env": "./src/env.ts",
+    "./meeting-lifecycle": "./src/meeting-lifecycle.ts",
     "./r2-copy": "./src/r2-copy.ts",
     "./recordings": "./src/recordings.ts",
     "./rtk-transcript": "./src/rtk-transcript.ts",
@@ -30,6 +31,7 @@
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/realtime": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },

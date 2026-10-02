@@ -138,8 +138,58 @@ test.describe('ParticipantContextMenu · host controls', () => {
     );
 
     await expect(
-      comp.getByRole('button', { name: /mute for everyone/i }),
+      comp.getByRole('menuitem', { name: /mute for everyone/i }),
     ).toBeDisabled();
+  });
+});
+
+test.describe('ParticipantContextMenu · keyboard + semantics', () => {
+  test('is a labelled menu whose actions are menu items', async ({ mount, page }) => {
+    await mount(
+      <ParticipantContextMenu
+        participant={makeParticipant()}
+        isSelf={false}
+        meeting={{}}
+        position={POSITION}
+        onClose={() => {}}
+        canManageParticipants={true}
+      />,
+    );
+
+    await expect(page.getByRole('menu', { name: 'Alice Example' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Remove from call' })).toBeVisible();
+  });
+
+  test('focuses the first item on mount', async ({ mount, page }) => {
+    await mount(
+      <ParticipantContextMenu
+        participant={makeParticipant()}
+        isSelf={false}
+        meeting={{}}
+        position={POSITION}
+        onClose={() => {}}
+      />,
+    );
+
+    await expect(page.getByRole('menuitem').first()).toBeFocused();
+  });
+
+  test('Escape closes the menu', async ({ mount, page }) => {
+    let closed = 0;
+    await mount(
+      <ParticipantContextMenu
+        participant={makeParticipant()}
+        isSelf={false}
+        meeting={{}}
+        position={POSITION}
+        onClose={() => {
+          closed += 1;
+        }}
+      />,
+    );
+
+    await page.keyboard.press('Escape');
+    await expect.poll(() => closed).toBe(1);
   });
 });
 

@@ -5,13 +5,14 @@ import { meetings, meetingSessions } from '@weldsuite/db/schema';
 import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
 import {
   isGuestRemovedFromSession,
+  mergeRejoin,
   type MeetingSessionParticipant,
 } from '@weldsuite/db/schema/meeting-sessions';
 import { addParticipant, ensurePresets, RTK_PRESETS } from '@/lib/cloudflare-realtime';
 import { findOrCreatePersonByEmail } from '@/lib/people';
 import { createGuestSessionToken } from '@/lib/guest-session';
 import { guestJoinInputSchema } from '@/lib/schemas';
-import { invalidInput } from '@/lib/api-response';
+import { invalidInput, tenantNotFoundResponse } from '@/lib/api-response';
 import { effectiveMeetingStatus } from '@/lib/meeting-status';
 
 type TenantDb = Awaited<ReturnType<typeof getTenantDb>>['db'];
@@ -177,8 +178,11 @@ async function saveSessionParticipant(
   participant: MeetingSessionParticipant,
 ): Promise<void> {
   const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
+  // A guest coming back replaces their entry but keeps the first join time and
+  // the time already spent in the call (see mergeRejoin).
+  const previous = participants.find((p) => p.userId === participant.userId);
   const filtered = participants.filter((p) => p.userId !== participant.userId);
-  filtered.push(participant);
+  filtered.push(mergeRejoin(previous, participant));
 
   const now = new Date();
   const updates: Record<string, unknown> = {
@@ -333,6 +337,8 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
+    const notFound = tenantNotFoundResponse(err);
+    if (notFound) return notFound;
     console.error('[MeetingPortal] Failed to join meeting:', err);
     return apiError('INTERNAL', 'Failed to join meeting', 500);
   }

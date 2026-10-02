@@ -44,6 +44,54 @@ export interface MeetingSessionParticipant {
    * `personId` instead.
    */
   contactId?: string;
+  /**
+   * Rejoin tracking. A participant has one entry per session; coming back after
+   * leaving replaces it (see {@link mergeRejoin}). `joinedAt` / `leftAt` always
+   * describe the CURRENT stint, `firstJoinedAt` the first one, `priorSeconds`
+   * the time spent in earlier stints and `stints` how many there were. Total
+   * time in the meeting = `priorSeconds` + (`leftAt` - `joinedAt`). Absent on
+   * entries that never rejoined.
+   */
+  firstJoinedAt?: string;
+  priorSeconds?: number;
+  stints?: number;
+}
+
+/**
+ * Fold a participant's previous entry into the entry written for their new
+ * join, so a rejoin keeps the first join time and the time already spent.
+ *
+ * - No previous entry: the new one is returned untouched.
+ * - Previous entry already left: a new stint starts. `joinedAt` is the new
+ *   join, the previous stint's length is added to `priorSeconds`.
+ * - Previous entry never left (reconnect before the leave was recorded): it is
+ *   the same stint, so the original `joinedAt` is kept and nothing is added.
+ */
+export function mergeRejoin(
+  prev: MeetingSessionParticipant | undefined,
+  next: MeetingSessionParticipant,
+): MeetingSessionParticipant {
+  if (!prev) return next;
+  const firstJoinedAt = prev.firstJoinedAt ?? prev.joinedAt;
+
+  if (!prev.leftAt) {
+    return {
+      ...next,
+      joinedAt: prev.joinedAt,
+      firstJoinedAt,
+      ...(prev.priorSeconds !== undefined ? { priorSeconds: prev.priorSeconds } : {}),
+      ...(prev.stints !== undefined ? { stints: prev.stints } : {}),
+    };
+  }
+
+  const stintMs = new Date(prev.leftAt).getTime() - new Date(prev.joinedAt).getTime();
+  const stintSeconds = Number.isFinite(stintMs) && stintMs > 0 ? Math.round(stintMs / 1000) : 0;
+  return {
+    ...next,
+    firstJoinedAt,
+    priorSeconds: (prev.priorSeconds ?? 0) + stintSeconds,
+    stints: (prev.stints ?? 1) + 1,
+  };
 }
 
 /**

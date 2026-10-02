@@ -94,6 +94,31 @@ function isPermissionBlocked(permission: string | undefined): boolean {
   return permission === 'DENIED' || permission === 'SYSTEM_DENIED';
 }
 
+/**
+ * Switches the joined meeting to the microphone / camera picked on the pre-join
+ * screen. RTK acquires its own tracks on join (its default devices), so the
+ * choice is applied right after. Failures are logged and never block the call.
+ */
+async function applyPreferredDevices(meeting: RealtimeKitClient, ids: PreviewDeviceIds): Promise<void> {
+  try {
+    const all = (await meeting.self.getAllDevices()) ?? [];
+    const current = meeting.self.getCurrentDevices?.();
+    const find = (kind: MediaDeviceKind, id: string | undefined, currentId: string | undefined) => {
+      if (!id || id === currentId) return undefined;
+      return all.find((d) => d.kind === kind && d.deviceId === id);
+    };
+    const targets = [
+      find('audioinput', ids.audioDeviceId, current?.audio?.deviceId),
+      find('videoinput', ids.videoDeviceId, current?.video?.deviceId),
+    ];
+    for (const device of targets) {
+      if (device) await meeting.self.setDevice(device);
+    }
+  } catch (err) {
+    console.warn('[WeldMeet] applying the pre-join device choice failed:', err);
+  }
+}
+
 interface CallBroadcastMessage {
   type: string;
   payload: Record<string, unknown>;
@@ -162,6 +187,18 @@ export type MeetingCallStatus = 'idle' | 'preview' | 'connecting' | 'connected' 
 
 export type RecordingState = 'IDLE' | 'STARTING' | 'RECORDING' | 'PAUSED' | 'STOPPING';
 
+/** Browser permission state of one pre-join device kind. */
+export type PreviewPermission = 'granted' | 'denied' | 'prompt' | 'unknown';
+
+/** Devices the user picked on the pre-join screen, applied once the meeting is joined. */
+export interface PreviewDeviceIds {
+  audioDeviceId?: string;
+  videoDeviceId?: string;
+}
+
+/** How long the recorder may stay `STARTING` before we give up and tell the host. */
+const RECORDING_START_TIMEOUT_MS = 60_000;
+
 export interface CallCaption {
   id: string;
   peerId: string;
@@ -189,6 +226,13 @@ interface WeldMeetCallState {
   previewStream: MediaStream | null;
   previewAudioEnabled: boolean;
   previewVideoEnabled: boolean;
+  /** Pre-join device pickers: what the browser offers + what is selected. */
+  previewAudioInputs: MediaDeviceInfo[];
+  previewVideoInputs: MediaDeviceInfo[];
+  previewAudioDeviceId: string;
+  previewVideoDeviceId: string;
+  previewAudioPermission: PreviewPermission;
+  previewVideoPermission: PreviewPermission;
   isFullscreen: boolean;
   isPiP: boolean;
   /** Pinned participant id (or `<id>-screen` for a pinned screen share).
@@ -200,6 +244,9 @@ interface WeldMeetCallState {
   meetingTitle: string;
   isRecording: boolean;
   recordingState: RecordingState;
+  /** Epoch ms when the host asked the recorder to start; non-null only while
+   *  `recordingState === 'STARTING'`. Drives the "Starting… 12s" feedback. */
+  recordingStartRequestedAt: number | null;
   backgroundType: VirtualBackgroundType;
   backgroundValue: string | null;
   isBackgroundLoading: boolean;
@@ -217,6 +264,9 @@ interface WeldMeetCallActions {
   cancelPreview: () => void;
   togglePreviewAudio: () => void;
   togglePreviewVideo: () => void;
+  /** Switch the pre-join microphone / camera to another device. */
+  changePreviewAudioDevice: (deviceId: string) => Promise<void>;
+  changePreviewVideoDevice: (deviceId: string) => Promise<void>;
   leaveMeeting: () => Promise<void>;
   endMeeting: () => Promise<void>;
   toggleMute: () => void;
@@ -308,6 +358,12 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [previewAudioEnabled, setPreviewAudioEnabled] = useState(true);
   const [previewVideoEnabled, setPreviewVideoEnabled] = useState(true);
+  const [previewAudioInputs, setPreviewAudioInputs] = useState<MediaDeviceInfo[]>([]);
+  const [previewVideoInputs, setPreviewVideoInputs] = useState<MediaDeviceInfo[]>([]);
+  const [previewAudioDeviceId, setPreviewAudioDeviceId] = useState('');
+  const [previewVideoDeviceId, setPreviewVideoDeviceId] = useState('');
+  const [previewAudioPermission, setPreviewAudioPermission] = useState<PreviewPermission>('unknown');
+  const [previewVideoPermission, setPreviewVideoPermission] = useState<PreviewPermission>('unknown');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
@@ -315,6 +371,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   const [isOrganizer, setIsOrganizer] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingState, setRecordingState] = useState<RecordingState>('IDLE');
+  const [recordingStartRequestedAt, setRecordingStartRequestedAt] = useState<number | null>(null);
   const [meetingTitle, setMeetingTitle] = useState('');
   /**
    * Most recent caption entries from RTK transcription. Kept as a small
@@ -348,6 +405,26 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   // apart from the host ending the meeting under us (toast), and to skip the
   // redundant /leave that would follow our own /end.
   const exitIntentRef = useRef<'leave' | 'end' | null>(null);
+
+  // Recording-start bookkeeping. `startPendingRef` is true from the moment THIS
+  // client asks the recorder to start until RTK reports RECORDING (success
+  // toast), reports another state, the call fails, or the watchdog fires.
+  const recordingWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingStartPendingRef = useRef(false);
+  const clearRecordingWatchdog = useCallback(() => {
+    if (recordingWatchdogRef.current) {
+      clearTimeout(recordingWatchdogRef.current);
+      recordingWatchdogRef.current = null;
+    }
+  }, []);
+
+  // Pre-join preview: the stream is mirrored into a ref so device switches can
+  // read the live stream, and `previewRunRef` invalidates an in-flight
+  // `startPreview` when the preview is cancelled/confirmed before it resolves.
+  const previewStreamRef = useRef<MediaStream | null>(null);
+  const previewRunRef = useRef(0);
+  // Per-kind sequence: only the latest device pick of a kind may update the stream.
+  const previewDeviceSeqRef = useRef({ audio: 0, video: 0 });
 
   // Keep refs in sync
   useEffect(() => { meetingIdRef.current = meetingId; }, [meetingId]);
@@ -682,43 +759,179 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     setMeetingTitle('');
     setIsRecording(false);
     setRecordingState('IDLE');
+    clearRecordingWatchdog();
+    recordingStartPendingRef.current = false;
+    setRecordingStartRequestedAt(null);
     setCaptions([]);
-  }, [meeting]);
+  }, [meeting, clearRecordingWatchdog]);
+
+  /**
+   * The single writer of the preview stream. The ref is updated synchronously
+   * (not in an effect), so two device picks in quick succession each read the
+   * stream the previous one produced instead of a stale one.
+   */
+  const commitPreviewStream = useCallback((next: MediaStream | null) => {
+    const prev = previewStreamRef.current;
+    // Never leave a track running that is no longer part of the stream.
+    prev?.getTracks().forEach((t) => {
+      if (!next || !next.getTracks().includes(t)) t.stop();
+    });
+    previewStreamRef.current = next;
+    setPreviewStream(next);
+  }, []);
 
   const stopPreviewStream = useCallback(() => {
-    setPreviewStream((prev) => {
-      prev?.getTracks().forEach((t) => t.stop());
-      return null;
-    });
+    // Anything still acquiring devices must not resurrect a closed preview.
+    previewRunRef.current += 1;
+    commitPreviewStream(null);
+  }, [commitPreviewStream]);
+
+  /** Lists the microphones / cameras the browser currently offers. */
+  const refreshPreviewDevices = useCallback(async () => {
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      // Before permission the browser returns one nameless entry with an empty
+      // id per kind — not a real device the user can choose.
+      setPreviewAudioInputs(all.filter((d) => d.kind === 'audioinput' && d.deviceId !== ''));
+      setPreviewVideoInputs(all.filter((d) => d.kind === 'videoinput' && d.deviceId !== ''));
+    } catch { /* enumerateDevices unavailable */ }
   }, []);
 
-  const startPreview = useCallback(async (type: 'video' | 'audio') => {
+  /**
+   * Acquires one device kind on its own. Audio and video are requested
+   * SEPARATELY: a combined request fails wholesale when either device is
+   * missing or blocked, which used to leave a user with a working mic but no
+   * camera with neither. The preferred device is `ideal`, so a device that has
+   * since been unplugged falls back to the default instead of failing.
+   */
+  const acquirePreviewKind = useCallback(async (
+    kind: 'audio' | 'video',
+    deviceId?: string,
+  ): Promise<MediaStream | null> => {
+    const setPermission = kind === 'audio' ? setPreviewAudioPermission : setPreviewVideoPermission;
+    const constraint: MediaTrackConstraints | true = deviceId ? { deviceId: { ideal: deviceId } } : true;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      setPreviewStream(stream);
-      setPreviewAudioEnabled(true);
-      if (type === 'audio') {
-        stream.getVideoTracks().forEach((t) => { t.enabled = false; });
-        setPreviewVideoEnabled(false);
+      const stream = await navigator.mediaDevices.getUserMedia(
+        kind === 'audio' ? { audio: constraint } : { video: constraint },
+      );
+      setPermission('granted');
+      return stream;
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : '';
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        setPermission('denied');
+      } else if (name === 'NotFoundError') {
+        // Permission is not the problem; there is simply no such device.
+        setPermission('granted');
       } else {
-        setPreviewVideoEnabled(true);
+        setPermission((prev) => (prev === 'unknown' ? 'prompt' : prev));
       }
-    } catch {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setPreviewStream(stream);
-      } catch { /* no devices */ }
-      setPreviewAudioEnabled(true);
-      setPreviewVideoEnabled(false);
+      return null;
     }
   }, []);
+
+  const startPreview = useCallback(async (type: 'video' | 'audio', deviceIds?: PreviewDeviceIds) => {
+    const run = ++previewRunRef.current;
+    const [audio, video] = await Promise.all([
+      acquirePreviewKind('audio', deviceIds?.audioDeviceId),
+      acquirePreviewKind('video', deviceIds?.videoDeviceId),
+    ]);
+
+    if (run !== previewRunRef.current) {
+      // Cancelled or confirmed while the browser was still prompting.
+      audio?.getTracks().forEach((t) => t.stop());
+      video?.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    const stream = new MediaStream();
+    audio?.getAudioTracks().forEach((t) => stream.addTrack(t));
+    video?.getVideoTracks().forEach((t) => stream.addTrack(t));
+
+    const wantVideo = type === 'video' && !!video;
+    if (!wantVideo) stream.getVideoTracks().forEach((t) => { t.enabled = false; });
+
+    commitPreviewStream(stream.getTracks().length > 0 ? stream : null);
+    setPreviewAudioEnabled(!!audio);
+    setPreviewVideoEnabled(wantVideo);
+    setPreviewAudioDeviceId(stream.getAudioTracks()[0]?.getSettings().deviceId ?? '');
+    setPreviewVideoDeviceId(stream.getVideoTracks()[0]?.getSettings().deviceId ?? '');
+    // Labels and ids only appear once permission is granted, so list afterwards.
+    await refreshPreviewDevices();
+  }, [acquirePreviewKind, refreshPreviewDevices, commitPreviewStream]);
+
+  /** Re-acquires ONE kind on the chosen device, leaving the other track running. */
+  const changePreviewDevice = useCallback(async (kind: 'audio' | 'video', deviceId: string) => {
+    if (!deviceId) return;
+    const run = previewRunRef.current;
+    // A newer pick of the same kind supersedes this one while it is in flight.
+    const seq = ++previewDeviceSeqRef.current[kind];
+    const next = await acquirePreviewKind(kind, deviceId);
+    if (run !== previewRunRef.current || seq !== previewDeviceSeqRef.current[kind]) {
+      // The preview was closed, or a newer device pick won, while the browser
+      // was switching devices: this result must not reach the stream.
+      next?.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const track = kind === 'audio' ? next?.getAudioTracks()[0] : next?.getVideoTracks()[0];
+    if (!track) {
+      next?.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    // Read the live stream only now, after the await: the ref is committed
+    // synchronously, so this includes every swap that finished meanwhile.
+    const current = previewStreamRef.current;
+    const previous = current?.getTracks().find((t) => t.kind === kind);
+    // Keep the toggle as the user left it; a device that had no track before
+    // (nothing plugged in, now chosen) starts enabled.
+    track.enabled = previous ? previous.enabled : true;
+
+    const combined = new MediaStream();
+    current?.getTracks().forEach((t) => {
+      if (t.kind !== kind) combined.addTrack(t);
+    });
+    combined.addTrack(track);
+    // Stops the replaced track of this kind (it is not in `combined`).
+    commitPreviewStream(combined);
+
+    const chosen = track.getSettings().deviceId ?? deviceId;
+    if (kind === 'audio') {
+      setPreviewAudioDeviceId(chosen);
+      if (!previous) setPreviewAudioEnabled(true);
+    } else {
+      setPreviewVideoDeviceId(chosen);
+      if (!previous) setPreviewVideoEnabled(true);
+    }
+    await refreshPreviewDevices();
+  }, [acquirePreviewKind, refreshPreviewDevices, commitPreviewStream]);
+
+  const changePreviewAudioDevice = useCallback(
+    (deviceId: string) => changePreviewDevice('audio', deviceId),
+    [changePreviewDevice],
+  );
+  const changePreviewVideoDevice = useCallback(
+    (deviceId: string) => changePreviewDevice('video', deviceId),
+    [changePreviewDevice],
+  );
+
+  // Keep the pickers fresh while the pre-join screen is open: a headset plugged
+  // in, or a virtual camera started, shows up without reopening the preview.
+  useEffect(() => {
+    if (status !== 'preview') return;
+    const devices = navigator.mediaDevices;
+    if (!devices?.addEventListener) return;
+    const onChange = () => { void refreshPreviewDevices(); };
+    devices.addEventListener('devicechange', onChange);
+    return () => devices.removeEventListener('devicechange', onChange);
+  }, [status, refreshPreviewDevices]);
 
   const initMeeting = useCallback(async (
     authToken: string,
     type: 'video' | 'audio',
     audioOn = true,
     videoOn?: boolean,
-    options?: { noiseCancellation?: boolean },
+    options?: { noiseCancellation?: boolean; deviceIds?: PreviewDeviceIds },
   ) => {
     // Hand off the pre-warmed SelfMedia (if any) to RTK so it reuses the
     // already-running camera/mic tracks instead of re-acquiring the devices.
@@ -800,16 +1013,34 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     m.recording?.on?.('recordingUpdate', (state: RecordingState) => {
       setRecordingState(state);
       setIsRecording(state === 'RECORDING' || state === 'PAUSED');
+      // Any report other than "still starting" settles the pending start.
+      if (state === 'STARTING') return;
+      clearRecordingWatchdog();
+      setRecordingStartRequestedAt(null);
+      if (!recordingStartPendingRef.current) return;
+      recordingStartPendingRef.current = false;
+      // Only now is it true: the click merely requested the recording.
+      if (state === 'RECORDING') {
+        toast.success(getTranslations('weldmeet').inCall.recording.started);
+      }
     });
 
     await m.join();
     setMeeting(m);
+    // The device the user picked before joining; RTK started on its defaults.
+    if (options?.deviceIds) void applyPreferredDevices(m, options.deviceIds);
     return m;
-  }, [cleanup, fireLeaveRequest]);
+  }, [cleanup, fireLeaveRequest, clearRecordingWatchdog]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  const connectToMeeting = useCallback(async (mId: string, type: 'video' | 'audio', audioOn: boolean, videoOn: boolean) => {
+  const connectToMeeting = useCallback(async (
+    mId: string,
+    type: 'video' | 'audio',
+    audioOn: boolean,
+    videoOn: boolean,
+    deviceIds?: PreviewDeviceIds,
+  ) => {
     setStatus('connecting');
 
     // Read host-policy from the cached meeting (populated when the user
@@ -819,7 +1050,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       | { noiseCancellation?: boolean }
       | null
       | undefined;
-    const initOpts = { noiseCancellation: cachedMeeting?.noiseCancellation !== false };
+    const initOpts = { noiseCancellation: cachedMeeting?.noiseCancellation !== false, deviceIds };
 
     try {
       // Fast path: if /weldmeet/new just called start-instant for this
@@ -893,9 +1124,23 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     const videoOn = previewVideoEnabled;
     setIsMuted(!audioOn);
     setIsVideoOff(!videoOn);
+    // Read before the stream is torn down: the devices the user picked.
+    const deviceIds: PreviewDeviceIds = {
+      audioDeviceId: previewAudioDeviceId || undefined,
+      videoDeviceId: previewVideoDeviceId || undefined,
+    };
     stopPreviewStream();
-    await connectToMeeting(meetingId, meetingType, audioOn, videoOn);
-  }, [stopPreviewStream, previewAudioEnabled, previewVideoEnabled, connectToMeeting, meetingId, meetingType]);
+    await connectToMeeting(meetingId, meetingType, audioOn, videoOn, deviceIds);
+  }, [
+    stopPreviewStream,
+    previewAudioEnabled,
+    previewVideoEnabled,
+    previewAudioDeviceId,
+    previewVideoDeviceId,
+    connectToMeeting,
+    meetingId,
+    meetingType,
+  ]);
 
   const cancelPreview = useCallback(() => {
     stopPreviewStream();
@@ -904,6 +1149,17 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     setMeetingTitle('');
     setIsOrganizer(false);
   }, [stopPreviewStream]);
+
+  // The pre-join screen only lives on /weldmeet/$id/room. Leaving that route
+  // while still previewing (sidebar click, back button, another meeting's
+  // link) must release the camera/mic and reset the status, otherwise the next
+  // room would find a stale 'preview' and never auto-join. Only 'preview' is
+  // cancelled: confirming the join moves the status to 'connecting' first.
+  useEffect(() => {
+    if (status !== 'preview' || !meetingId) return;
+    const onThisRoom = !!pathname && pathname.startsWith(`/weldmeet/${meetingId}/room`);
+    if (!onThisRoom) cancelPreview();
+  }, [status, meetingId, pathname, cancelPreview]);
 
   const togglePreviewAudio = useCallback(() => {
     if (previewStream) {
@@ -1188,6 +1444,14 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     // its `recordingUpdate` event arrives. The event reconciles the real state;
     // on failure we fall back to IDLE.
     setRecordingState('STARTING');
+    setRecordingStartRequestedAt(Date.now());
+    recordingStartPendingRef.current = true;
+    const abandonStart = () => {
+      clearRecordingWatchdog();
+      recordingStartPendingRef.current = false;
+      setRecordingStartRequestedAt(null);
+      setRecordingState('IDLE');
+    };
 
     // Transcript / summary choice goes first: it checks the wallet (402) and
     // switches them on for the live RealtimeKit meeting. If it fails we have not
@@ -1198,10 +1462,24 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
         const client = await getClient();
         await createWeldmeetRecordingsApi(client).setAiOptions(preparedSessionId, aiOptions);
       } catch (e) {
-        setRecordingState('IDLE');
+        abandonStart();
         throw e;
       }
     }
+
+    // Watchdog: RTK provisions the recorder server-side and normally reports
+    // within seconds. If it never does, the host would stare at "Starting…"
+    // forever, so after a minute reset and say so. Any `recordingUpdate` (or a
+    // failure below) clears it first.
+    clearRecordingWatchdog();
+    recordingWatchdogRef.current = setTimeout(() => {
+      recordingWatchdogRef.current = null;
+      if (!recordingStartPendingRef.current) return;
+      recordingStartPendingRef.current = false;
+      setRecordingStartRequestedAt(null);
+      setRecordingState((prev) => (prev === 'STARTING' ? 'IDLE' : prev));
+      toast.error(getTranslations('weldmeet').inCall.recording.startTimedOut);
+    }, RECORDING_START_TIMEOUT_MS);
 
     try {
       await meeting.recording.start();
@@ -1214,9 +1492,10 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       }
     } catch (e) {
       console.error('[WeldMeetCall] Failed to start recording:', e);
-      setRecordingState('IDLE');
+      abandonStart();
+      toast.error(getTranslations('weldmeet').inCall.recording.startFailed);
     }
-  }, [meeting, getClient]);
+  }, [meeting, getClient, clearRecordingWatchdog]);
 
   const stopRecording = useCallback(async () => {
     if (!meeting) return;
@@ -1273,6 +1552,12 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     previewStream,
     previewAudioEnabled,
     previewVideoEnabled,
+    previewAudioInputs,
+    previewVideoInputs,
+    previewAudioDeviceId,
+    previewVideoDeviceId,
+    previewAudioPermission,
+    previewVideoPermission,
     isFullscreen,
     isPiP,
     pinnedId,
@@ -1281,6 +1566,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     meetingTitle,
     isRecording,
     recordingState,
+    recordingStartRequestedAt,
     backgroundType: virtualBackground.backgroundType,
     backgroundValue: virtualBackground.backgroundValue,
     isBackgroundLoading: virtualBackground.isLoading,
@@ -1291,6 +1577,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     cancelPreview,
     togglePreviewAudio,
     togglePreviewVideo,
+    changePreviewAudioDevice,
+    changePreviewVideoDevice,
     leaveMeeting,
     endMeeting: endMeetingAction,
     toggleMute,
