@@ -15,11 +15,13 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
 import type { Env } from '../../types';
 import { meetingSessionsRoutes } from './index';
-import { endMeeting, kickAllParticipants } from '@weldsuite/cloudflare-realtime';
+import { endMeeting, kickAllParticipants, kickParticipants } from '@weldsuite/cloudflare-realtime';
+import { isGuestRemovedFromSession } from '@weldsuite/db/schema/meeting-sessions';
 
 vi.mock('@weldsuite/cloudflare-realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/cloudflare-realtime')>()),
   kickAllParticipants: vi.fn(),
+  kickParticipants: vi.fn(),
   endMeeting: vi.fn(),
 }));
 
@@ -36,6 +38,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.mocked(kickAllParticipants).mockReset().mockResolvedValue(2);
+  vi.mocked(kickParticipants).mockReset().mockResolvedValue(undefined);
   vi.mocked(endMeeting).mockReset().mockResolvedValue(undefined);
 });
 
@@ -56,7 +59,10 @@ function participant(userId: string, extra: Partial<MeetingSessionParticipant> =
   };
 }
 
-async function seed(participants: MeetingSessionParticipant[]) {
+async function seed(
+  participants: MeetingSessionParticipant[],
+  opts: { status?: 'active' | 'ended'; metadata?: Record<string, unknown> } = {},
+) {
   const meetingId = generateId('mtg');
   const sessionId = generateId('msess');
   const startedAt = new Date(Date.now() - 5 * 60_000);
@@ -70,12 +76,13 @@ async function seed(participants: MeetingSessionParticipant[]) {
   await db.insert(schema.meetingSessions).values({
     id: sessionId,
     meetingId,
-    status: 'active',
+    status: opts.status ?? 'active',
     cfAppId: CF_APP_ID,
     startedBy: ORGANIZER,
     startedByName: 'Organizer',
     participants,
     startedAt,
+    ...(opts.metadata ? { metadata: opts.metadata } : {}),
   });
   await db
     .update(schema.meetings)
@@ -97,6 +104,13 @@ function appFor(userId: string, ...perms: string[]) {
 
 const post = (request: ReturnType<typeof appFor>['request'], path: string) =>
   request(path, { method: 'POST' });
+
+const postJson = (request: ReturnType<typeof appFor>['request'], path: string, body: unknown) =>
+  request(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
 async function loadSession(sessionId: string) {
   const [row] = await db
@@ -295,5 +309,230 @@ describe('POST /api/meeting-sessions/:id/leave', () => {
     expect(session.participants?.every((p) => !!p.leftAt)).toBe(true);
     expect((await loadMeeting(meetingId)).activeSessionId).toBeNull();
     expect(endMeeting).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('POST /api/meeting-sessions/:id/participants/remove', () => {
+  const GUEST_EMAIL = 'jane@example.com';
+  const GUEST_USER_ID = `guest:${GUEST_EMAIL}`;
+  const removePath = (sessionId: string) => `/api/meeting-sessions/${sessionId}/participants/remove`;
+
+  const guestParticipant = () =>
+    participant(GUEST_USER_ID, { userName: 'Jane', cfSessionId: 'cf_guest_jane', personId: 'prs_jane' });
+
+  it('lets the organizer remove a guest: kicks that one participant, stamps leftAt and records the block', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), guestParticipant(), participant(GUEST)]);
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { ok: true, kicked: true, blocked: true } });
+    expect(kickParticipants).toHaveBeenCalledTimes(1);
+    expect(kickParticipants).toHaveBeenCalledWith(expect.anything(), CF_APP_ID, {
+      participantIds: ['cf_guest_jane'],
+    });
+
+    const session = await loadSession(sessionId);
+    expect(session.status).toBe('active');
+    expect(session.participants?.find((p) => p.userId === GUEST_USER_ID)?.leftAt).toBeTruthy();
+    // Everyone else stays in the call.
+    expect(session.participants?.find((p) => p.userId === ORGANIZER)?.leftAt).toBeUndefined();
+    expect(session.participants?.find((p) => p.userId === GUEST)?.leftAt).toBeUndefined();
+    expect(isGuestRemovedFromSession(session.metadata, GUEST_EMAIL)).toBe(true);
+    expect(isGuestRemovedFromSession(session.metadata, 'JANE@Example.com')).toBe(true);
+    expect(session.metadata?.removedGuests).toEqual({
+      [GUEST_EMAIL]: { removedAt: expect.any(String), removedBy: ORGANIZER, name: 'Jane' },
+    });
+  });
+
+  it('matches the participant by rtkUserId when peer.id is the per-connection peer id', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), guestParticipant()]);
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), {
+      participantId: 'rtk_peer_unknown',
+      rtkUserId: 'cf_guest_jane',
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { ok: true, kicked: true, blocked: true } });
+    expect(kickParticipants).toHaveBeenCalledWith(expect.anything(), CF_APP_ID, {
+      participantIds: ['cf_guest_jane'],
+    });
+  });
+
+  it('merges into existing metadata instead of overwriting it', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), guestParticipant()], {
+      metadata: {
+        botId: 'bot_1',
+        removedGuests: { 'other@example.com': { removedAt: '2026-10-02T09:00:00.000Z', removedBy: 'user_x' } },
+      },
+    });
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
+
+    expect(res.status).toBe(200);
+    const { metadata } = await loadSession(sessionId);
+    expect(metadata?.botId).toBe('bot_1');
+    expect(Object.keys(metadata?.removedGuests as Record<string, unknown>).sort()).toEqual([
+      'jane@example.com',
+      'other@example.com',
+    ]);
+  });
+
+  it('allows a non-organizer with sessions:update', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), guestParticipant(), participant(GUEST)]);
+    const { request } = appFor(GUEST, 'sessions:read', 'sessions:update');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
+
+    expect(res.status).toBe(200);
+    expect(kickParticipants).toHaveBeenCalledTimes(1);
+  });
+
+  it('forbids a non-organizer without sessions:update and changes nothing', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), guestParticipant(), participant(GUEST)]);
+    const { request } = appFor(GUEST, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
+
+    expect(res.status).toBe(403);
+    expect(kickParticipants).not.toHaveBeenCalled();
+    const session = await loadSession(sessionId);
+    expect(session.metadata).toBeNull();
+    expect(session.participants?.find((p) => p.userId === GUEST_USER_ID)?.leftAt).toBeUndefined();
+  });
+
+  it('is idempotent: a repeat keeps the original removal and does not kick again', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), guestParticipant()]);
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
+    const first = await loadSession(sessionId);
+    const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { ok: true, kicked: false, blocked: true } });
+    expect(kickParticipants).toHaveBeenCalledTimes(1);
+    const second = await loadSession(sessionId);
+    expect(second.metadata).toEqual(first.metadata);
+    expect(second.participants).toEqual(first.participants);
+  });
+
+  it('blocks a guest who already left when the host removes them, without kicking', async () => {
+    const { sessionId } = await seed([
+      participant(ORGANIZER),
+      { ...guestParticipant(), leftAt: new Date().toISOString() },
+    ]);
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { ok: true, kicked: false, blocked: true } });
+    expect(kickParticipants).not.toHaveBeenCalled();
+    expect(isGuestRemovedFromSession((await loadSession(sessionId)).metadata, GUEST_EMAIL)).toBe(true);
+  });
+
+  it('is a no-op on an ended session', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), guestParticipant()], { status: 'ended' });
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { ok: true, kicked: false, blocked: false } });
+    expect(kickParticipants).not.toHaveBeenCalled();
+    expect((await loadSession(sessionId)).metadata).toBeNull();
+  });
+
+  it('refuses to remove the organizer', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), participant(GUEST)]);
+    const { request } = appFor(GUEST, 'sessions:read', 'sessions:update');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: `cf_${ORGANIZER}` });
+
+    expect(res.status).toBe(400);
+    expect(kickParticipants).not.toHaveBeenCalled();
+    expect((await loadSession(sessionId)).participants?.every((p) => !p.leftAt)).toBe(true);
+  });
+
+  it('refuses to remove yourself', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), participant(GUEST)]);
+    const { request } = appFor(GUEST, 'sessions:read', 'sessions:update');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: `cf_${GUEST}` });
+
+    expect(res.status).toBe(400);
+    expect(kickParticipants).not.toHaveBeenCalled();
+  });
+
+  it('kicks a workspace member and stamps leftAt without recording a block', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), participant(GUEST)]);
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: `cf_${GUEST}` });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { ok: true, kicked: true, blocked: false } });
+    expect(kickParticipants).toHaveBeenCalledWith(expect.anything(), CF_APP_ID, {
+      participantIds: [`cf_${GUEST}`],
+    });
+    const session = await loadSession(sessionId);
+    expect(session.participants?.find((p) => p.userId === GUEST)?.leftAt).toBeTruthy();
+    expect(session.metadata).toBeNull();
+  });
+
+  it('falls back to customParticipantId matched against the stored userId', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER), participant(GUEST)]);
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), {
+      participantId: 'peer_not_stored',
+      customParticipantId: GUEST,
+    });
+
+    expect(res.status).toBe(200);
+    expect(kickParticipants).toHaveBeenCalledWith(expect.anything(), CF_APP_ID, {
+      participantIds: [`cf_${GUEST}`],
+    });
+  });
+
+  it('persists the removal and still succeeds when the RTK kick fails', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(kickParticipants).mockRejectedValue(new Error('Failed to kick RTK participants: 404'));
+    const { sessionId } = await seed([participant(ORGANIZER), guestParticipant()]);
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), { participantId: 'cf_guest_jane' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { ok: true, kicked: false, blocked: true } });
+    const session = await loadSession(sessionId);
+    expect(isGuestRemovedFromSession(session.metadata, GUEST_EMAIL)).toBe(true);
+    expect(session.participants?.find((p) => p.userId === GUEST_USER_ID)?.leftAt).toBeTruthy();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[meeting-sessions] RTK kick participant failed',
+      expect.objectContaining({ sessionId, cfAppId: CF_APP_ID, err: expect.any(Error) }),
+    );
+  });
+
+  it('returns 404 for an unknown participant and an unknown session', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER)]);
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    expect((await postJson(request, removePath(sessionId), { participantId: 'cf_nobody' })).status).toBe(404);
+    expect((await postJson(request, removePath('msess_missing'), { participantId: 'cf_x' })).status).toBe(404);
+  });
+
+  it('rejects a body without participantId', async () => {
+    const { sessionId } = await seed([participant(ORGANIZER)]);
+    const { request } = appFor(ORGANIZER, 'sessions:read');
+
+    const res = await postJson(request, removePath(sessionId), {});
+
+    expect(res.status).toBe(400);
   });
 });

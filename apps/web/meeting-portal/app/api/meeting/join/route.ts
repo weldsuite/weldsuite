@@ -3,7 +3,10 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getTenantDb } from '@/lib/db';
 import { meetings, meetingSessions } from '@weldsuite/db/schema';
 import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
-import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
+import {
+  isGuestRemovedFromSession,
+  type MeetingSessionParticipant,
+} from '@weldsuite/db/schema/meeting-sessions';
 import { addParticipant, ensurePresets, RTK_PRESETS } from '@/lib/cloudflare-realtime';
 import { findOrCreatePersonByEmail } from '@/lib/people';
 import { createGuestSessionToken } from '@/lib/guest-session';
@@ -27,6 +30,12 @@ function waitingResponse(meeting: Meeting, reason?: string) {
       meetingId: meeting.id,
       meetingTitle: meeting.title,
     },
+  });
+}
+
+function removedResponse(meeting: Meeting) {
+  return NextResponse.json({
+    data: { status: 'removed' as const, meetingId: meeting.id, meetingTitle: meeting.title },
   });
 }
 
@@ -213,6 +222,21 @@ export async function POST(request: NextRequest) {
 
     if (!meeting) return apiError('NOT_FOUND', 'Meeting not found', 404);
 
+    // A guest the host removed from the running session is refused for the rest
+    // of that session: no waiting room, no RTK participant, and none of the
+    // writes below (attendee, session participant). Checked before every other
+    // policy so the guest always lands on the "removed" screen rather than a
+    // lock / host-presence message. The block lives on the session, so a later
+    // session of the same link starts clean, and only a non-ended session counts.
+    const activeSession = await loadActiveSession(db, meeting);
+    if (
+      activeSession &&
+      activeSession.status !== 'ended' &&
+      isGuestRemovedFromSession(activeSession.metadata, email)
+    ) {
+      return removedResponse(meeting);
+    }
+
     const blocked =
       checkMeetingAccess(meeting, email) ??
       (await checkHostPresent(db, meeting)) ??
@@ -235,8 +259,8 @@ export async function POST(request: NextRequest) {
 
     await addGuestAttendee(db, meeting, email, name);
 
-    // Check for active session
-    const session = await loadActiveSession(db, meeting);
+    // Reuse the session loaded above for the removed-guest check.
+    const session = activeSession;
     if (!session || session.status === 'ended') return waitingResponse(meeting);
 
     if (!session.cfAppId) {

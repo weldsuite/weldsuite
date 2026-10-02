@@ -5,7 +5,8 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
+import type { RemoveMeetingSessionParticipantInput } from '@weldsuite/app-api-client/schemas/meeting-sessions';
 import type {
   HostControls,
   HostControlsInput,
@@ -286,7 +287,36 @@ export function useUpdateHostControls() {
       });
     },
   });
-}export function useJoinByCode() {
+}
+
+/**
+ * Host "Remove from call". The API records the removal on the session (a
+ * removed guest cannot rejoin it) and kicks the participant server-side; the
+ * result's `kicked` tells the caller whether RealtimeKit confirmed the kick.
+ */
+export function useRemoveMeetingParticipant() {
+  const { meetingSessions } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      sessionId,
+      participant,
+    }: {
+      sessionId: string;
+      meetingId: string;
+      participant: RemoveMeetingSessionParticipantInput;
+    }) => {
+      const res = await meetingSessions.removeParticipant(sessionId, participant);
+      return res.data;
+    },
+    onSuccess: (_result, { meetingId }) => {
+      queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(meetingId) });
+      queryClient.invalidateQueries({ queryKey: weldmeetKeys.latestSession(meetingId) });
+    },
+  });
+}
+
+export function useJoinByCode() {
   const { getClient } = useAppApiClient();
   return useMutation({
     mutationFn: async (joinCode: string) => {

@@ -57,6 +57,8 @@ export * from './domains/mail-ai';
 // Mobile-consolidation surfaces — workspaces switcher + push tokens.
 export * from './schemas/push-tokens';
 export * from './domains/push-tokens';
+export * from './schemas/meeting-sessions';
+export * from './domains/meeting-sessions';
 export * from './domains/workspaces';
 export * from './domains/mailboxes';
 

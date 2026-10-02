@@ -53,6 +53,7 @@ interface TileContext {
   onClickParticipantDetails: MeetingRoomViewProps['onClickParticipantDetails'];
   selfColorSeed: string | undefined;
   isOrganizer: boolean;
+  onRemoveParticipant: MeetingRoomViewProps['onRemoveParticipant'];
 }
 
 /** A camera tile wired to the room's pin / details / hand-raise state. */
@@ -69,6 +70,7 @@ function CameraTile({ ctx, entry, pinned }: { ctx: TileContext; entry: Entry; pi
       onClickDetails={ctx.onClickParticipantDetails}
       colorSeed={isSelf ? ctx.selfColorSeed : undefined}
       canManageParticipants={ctx.isOrganizer}
+      onRemoveParticipant={ctx.onRemoveParticipant}
     />
   );
 }
@@ -624,6 +626,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     hostControlsSlot,
     addPeopleDialogContent,
     onClickParticipantDetails,
+    onRemoveParticipant,
     selfColorSeed,
     externalPanelOpen = false,
     onActivatePanel,
@@ -762,6 +765,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     onClickParticipantDetails,
     selfColorSeed,
     isOrganizer,
+    onRemoveParticipant,
   };
 
   const handleToggleChat = () => {

@@ -12,8 +12,8 @@ server-driven guest journey is deterministic with no backend:
 | Spec | Covers |
 | --- | --- |
 | `specs/meeting-info.spec.ts` | loading state; cancelled / completed / failed-load error screens |
-| `specs/landing.spec.ts` | meeting title + organizer + sign-in link; editable name/email; Join button validity gating |
-| `specs/join-flow.spec.ts` | `waiting`, `host_must_join_first`, waiting-room `waitlisted` → admitted / denied, `ended`, `joined` → connecting |
+| `specs/landing.spec.ts` | meeting title + organizer + sign-in link; editable name/email; Join button validity gating; remembered name/email prefill + "Not you?" |
+| `specs/join-flow.spec.ts` | `waiting`, `host_must_join_first`, waiting-room `waitlisted` → admitted / denied, `ended`, `removed` (terminal, no Rejoin, no polling), `joined` → connecting |
 
 The pre-join camera preview calls `getUserMedia`, so the config grants
 camera/mic permissions and launches Chromium with fake media devices.

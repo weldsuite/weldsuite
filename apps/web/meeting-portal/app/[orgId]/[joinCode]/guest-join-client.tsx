@@ -21,6 +21,7 @@ import {
   type NoiseSuppressor,
 } from '@weldsuite/df3-noise-suppression';
 import { useVirtualBackground, type ViewMode } from '@weldsuite/weldmeet-ui';
+import { writeGuestIdentity } from '@/lib/guest-identity';
 import { randomToken } from '@/lib/random-id';
 
 /**
@@ -62,6 +63,20 @@ function stopLocalMediaTracks(client: RealtimeKitClient | null) {
   stop(() => self?.rawAudioTrack);
   stop(() => self?.screenShareTracks?.video);
   stop(() => self?.screenShareTracks?.audio);
+}
+
+/** How long the kicked-state check may take before we fall back to a generic screen. */
+const KICK_RESOLVE_TIMEOUT_MS = 8000;
+
+/** Reject if `promise` has not settled within `ms` (the result is then ignored). */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timed out')), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err: unknown) => { clearTimeout(timer); reject(err); },
+    );
+  });
 }
 
 import { POLLING_INTERVAL_MS, getPersonTheme } from '@/lib/constants';
@@ -168,6 +183,14 @@ export default function GuestJoinClient() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The RTK client the page currently owns. Event handlers compare against it
+  // so a late event from a client the guest already left (or replaced) cannot
+  // drive the UI, e.g. flip a fresh landing form back to "Connecting...".
+  const activeRtkRef = useRef<RealtimeKitClient | null>(null);
+  const rtkListenersCleanupRef = useRef<(() => void) | null>(null);
+  // Bumped whenever a new join attempt starts or the guest leaves the
+  // removed/ended screens, so an in-flight kicked-state check is discarded.
+  const kickResolveSeqRef = useRef(0);
   const durationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Fetch meeting info on mount ──
@@ -218,6 +241,10 @@ export default function GuestJoinClient() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
       if (durationRef.current) clearInterval(durationRef.current);
+      rtkListenersCleanupRef.current?.();
+      rtkListenersCleanupRef.current = null;
+      activeRtkRef.current = null;
+      kickResolveSeqRef.current += 1;
     };
   }, []);
 
@@ -506,7 +533,27 @@ export default function GuestJoinClient() {
 
   // ── Connect to RTK ──
 
+  // Detach the current client's listeners and stop treating it as the active
+  // client. Anything it emits afterwards is ignored.
+  const detachRtkClient = useCallback(() => {
+    rtkListenersCleanupRef.current?.();
+    rtkListenersCleanupRef.current = null;
+    activeRtkRef.current = null;
+  }, []);
+
+  const releaseNoiseSuppression = useCallback(() => {
+    try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
+    suppressorRestoreRef.current = null;
+    const sup = suppressorRef.current;
+    suppressorRef.current = null;
+    sup?.dispose().catch((err) => console.warn('[noise] dispose error:', err));
+  }, []);
+
   const connectToRtk = useCallback(async (authToken: string) => {
+    // A new attempt supersedes any previous client and any pending
+    // kicked-state check.
+    detachRtkClient();
+    kickResolveSeqRef.current += 1;
     setState('connecting');
     try {
       const meetingType = meetingInfo?.meetingType ?? 'video';
@@ -561,12 +608,25 @@ export default function GuestJoinClient() {
         throw initErr;
       }
 
+      // From here on `m` is the page's current client. Every handler below
+      // checks this first, so events from a client the guest already left or
+      // replaced (RTK can emit roomLeft more than once, or late) are no-ops.
+      const isCurrent = () => activeRtkRef.current === m;
+      activeRtkRef.current = m;
+
       const resolveKickedState = async () => {
-        // Hold on the connecting screen while we check, so the guest never
-        // sees a wrong message flash before the final one.
-        setState('connecting');
+        // Both "host ended the meeting for all" and "host removed this guest"
+        // arrive as 'kicked'. Show a neutral loading screen (never
+        // 'connecting': nothing is connecting, and a stale 'connecting' is
+        // how a screen can end up spinning with no join call) while a fresh
+        // info read tells the two apart, so the guest never sees a wrong
+        // message flash.
+        const seq = (kickResolveSeqRef.current += 1);
+        const isStale = () => kickResolveSeqRef.current !== seq;
+        setState('loading');
         try {
-          const info = await getGuestMeetingInfo(orgId, joinCode);
+          const info = await withTimeout(getGuestMeetingInfo(orgId, joinCode), KICK_RESOLVE_TIMEOUT_MS);
+          if (isStale()) return;
           setMeetingInfo(info);
           if (info.status === 'completed' || !info.hasActiveSession) {
             setState('hostEnded');
@@ -574,22 +634,27 @@ export default function GuestJoinClient() {
             setState('removed');
           }
         } catch {
+          if (isStale()) return;
           // Couldn't tell which it was; fall back to the generic ended screen.
           setState('ended');
         }
       };
 
-      m.self.on('roomJoined', () => setState('connected'));
-      m.self.on('waitlisted', () => setState('waitlisted'));
-      m.self.on('roomLeft', ({ state }: { state?: string }) => {
+      const onRoomJoined = () => {
+        if (isCurrent()) setState('connected');
+      };
+      const onWaitlisted = () => {
+        if (isCurrent()) setState('waitlisted');
+      };
+      const onRoomLeft = ({ state }: { state?: string }) => {
+        if (!isCurrent()) return;
+        // This client is done: handle its first roomLeft only, and drop its
+        // listeners so nothing it emits later can touch the UI again.
+        detachRtkClient();
         // Release the camera/mic — RTK doesn't reliably stop them on its own.
         stopLocalMediaTracks(m);
         setRtkClient(null);
-        try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
-        suppressorRestoreRef.current = null;
-        const sup = suppressorRef.current;
-        suppressorRef.current = null;
-        sup?.dispose().catch((err) => console.warn('[noise] dispose error:', err));
+        releaseNoiseSuppression();
 
         if (state === 'rejected') {
           setState('rejected');
@@ -603,9 +668,21 @@ export default function GuestJoinClient() {
         } else {
           setState('ended');
         }
-      });
+      };
+
+      m.self.on('roomJoined', onRoomJoined);
+      m.self.on('waitlisted', onWaitlisted);
+      m.self.on('roomLeft', onRoomLeft);
+      rtkListenersCleanupRef.current = () => {
+        m.self.off('roomJoined', onRoomJoined);
+        m.self.off('waitlisted', onWaitlisted);
+        m.self.off('roomLeft', onRoomLeft);
+      };
 
       await m.join();
+      // roomLeft can fire during join() (e.g. the host denied entry). That
+      // handler already moved the UI on; don't resurrect the client.
+      if (!isCurrent()) return;
       setRtkClient(m);
       setIsMuted(!wantAudio);
       setIsVideoOff(!wantVideo);
@@ -625,10 +702,11 @@ export default function GuestJoinClient() {
       }
     } catch (err) {
       console.error('[GuestJoin] RTK connection failed:', err);
+      detachRtkClient();
       setState('error');
       setErrorMsg('Failed to connect to the meeting. Please try again.');
     }
-  }, [orgId, joinCode, meetingInfo, previewStream, previewAudioEnabled, previewVideoEnabled, hostControls]);
+  }, [orgId, joinCode, meetingInfo, previewStream, previewAudioEnabled, previewVideoEnabled, hostControls, detachRtkClient, releaseNoiseSuppression]);
 
   // ── Join handler ──
 
@@ -639,13 +717,22 @@ export default function GuestJoinClient() {
     }
   }, []);
 
-  // Applies the outcome of a (re-)join attempt made while polling: ended stops
-  // the poll with an error screen, joined stops it and connects to RTK.
+  // Applies the outcome of a (re-)join attempt made while polling: ended and
+  // removed stop the poll with a terminal screen, joined stops it and connects
+  // to RTK. A response that lands after polling already stopped (an earlier
+  // tick still in flight) is ignored so it cannot start a second connection or
+  // override the screen the guest is on.
   const applyPolledJoinResult = useCallback(async (retry: GuestJoinResult) => {
+    if (!pollRef.current) return;
     if (retry.status === 'ended') {
       stopPolling();
       setState('error');
       setErrorMsg('This meeting has already ended.');
+      return;
+    }
+    if (retry.status === 'removed') {
+      stopPolling();
+      setState('removed');
       return;
     }
     if (retry.status === 'joined' && retry.authToken && retry.sessionId) {
@@ -687,6 +774,13 @@ export default function GuestJoinClient() {
       setErrorMsg('This meeting has already ended.');
       return;
     }
+    if (result.status === 'removed') {
+      // The host removed this guest from the running session; refused for the
+      // rest of it. No polling, no Rejoin.
+      stopPolling();
+      setState('removed');
+      return;
+    }
     if (result.status === 'waiting') {
       setState('waiting');
       pollRef.current = setInterval(() => { void retryJoin(body); }, POLLING_INTERVAL_MS.waitingForSession);
@@ -708,17 +802,25 @@ export default function GuestJoinClient() {
       setGuestToken(result.guestToken ?? '');
       await connectToRtk(result.authToken);
     }
-  }, [retryJoin, pollWaitlist, connectToRtk]);
+  }, [retryJoin, pollWaitlist, connectToRtk, stopPolling]);
 
   const handleJoin = useCallback(async ({ name, email }: GuestJoinFormInput) => {
     setSubmitError(null);
     setGuestName(name);
     setGuestEmail(email);
     setJoining(true);
+    // A fresh attempt supersedes any earlier polling or kicked-state check.
+    stopPolling();
+    kickResolveSeqRef.current += 1;
 
     try {
       const body: GuestJoinBody = { joinCode, name, email, colorSeed };
       const result = await guestJoinMeeting(orgId, body);
+
+      // Remember the details for next time (prefills the landing form).
+      if (result.status !== 'removed' && result.status !== 'ended') {
+        writeGuestIdentity({ name, email });
+      }
 
       setMeetingId(result.meetingId);
       setMeetingTitle(result.meetingTitle);
@@ -728,11 +830,14 @@ export default function GuestJoinClient() {
       setSubmitError(err instanceof Error ? err.message : 'Failed to join meeting.');
       setJoining(false);
     }
-  }, [orgId, joinCode, colorSeed, applyJoinResult]);
+  }, [orgId, joinCode, colorSeed, applyJoinResult, stopPolling]);
 
   // ── Leave handler ──
 
   const handleLeave = useCallback(async () => {
+    // We are leaving on purpose: stop listening to this client so its own
+    // roomLeft (or a late one) cannot overwrite whatever screen comes next.
+    detachRtkClient();
     if (rtkClient) {
       // Stop the local hardware tracks first — RTK's leave() does not reliably
       // release the camera/mic, so the device indicator would otherwise stay on.
@@ -742,11 +847,7 @@ export default function GuestJoinClient() {
         .catch(() => { /* ignore */ });
     }
     setRtkClient(null);
-    try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
-    suppressorRestoreRef.current = null;
-    const sup = suppressorRef.current;
-    suppressorRef.current = null;
-    sup?.dispose().catch((err) => console.warn('[noise] dispose error:', err));
+    releaseNoiseSuppression();
 
     if (meetingId && guestToken) {
       try {
@@ -755,7 +856,7 @@ export default function GuestJoinClient() {
     }
 
     setState('ended');
-  }, [rtkClient, orgId, meetingId, guestToken]);
+  }, [rtkClient, orgId, meetingId, guestToken, detachRtkClient, releaseNoiseSuppression]);
 
   // ── Media controls (connected room) ──
 
@@ -814,11 +915,14 @@ export default function GuestJoinClient() {
   // Waitlisted "Leave" button — releases preview tracks and exits RTK without
   // hitting /api/meeting/leave (the guest is not yet in the active session).
   const handleWaitlistedLeave = useCallback(() => {
+    detachRtkClient();
     previewStream?.getTracks().forEach(t => t.stop());
     stopLocalMediaTracks(rtkClient);
     rtkClient?.leave();
+    setRtkClient(null);
+    releaseNoiseSuppression();
     setState('ended');
-  }, [previewStream, rtkClient]);
+  }, [previewStream, rtkClient, detachRtkClient, releaseNoiseSuppression]);
 
   // ── Render ──
 
@@ -833,6 +937,14 @@ export default function GuestJoinClient() {
           window.location.href = 'https://www.weldsuite.org/';
         }}
         onRejoin={async () => {
+          // Back to a clean slate. `joining` stays true after a successful
+          // join (the landing form is unmounted, not reset), so without this
+          // the landing screen reopens in its "Connecting..." overlay with the
+          // form hidden and never sends a /join: the Rejoin hang.
+          kickResolveSeqRef.current += 1;
+          stopPolling();
+          setJoining(false);
+          setSubmitError(null);
           // Re-check the meeting before sending the guest back to the landing
           // form. If the host has closed the meeting in the meantime, surface
           // the "already ended" screen instead of letting them re-enter their

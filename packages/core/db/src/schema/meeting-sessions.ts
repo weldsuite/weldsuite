@@ -45,6 +45,54 @@ export interface MeetingSessionParticipant {
   contactId?: string;
 }
 
+/**
+ * A guest the host removed from this session, keyed by lowercased email in
+ * `meeting_sessions.metadata.removedGuests`. The block is scoped to the
+ * session: a later session of the same meeting starts with a clean list.
+ */
+export interface MeetingSessionRemovedGuest {
+  /** ISO timestamp of the removal. */
+  removedAt: string;
+  /** Clerk user id of the host who removed the guest. */
+  removedBy: string;
+  /** Display name the guest joined with. */
+  name?: string;
+}
+
+export type MeetingSessionRemovedGuests = Record<string, MeetingSessionRemovedGuest>;
+
+/** Prefix of the `userId` stored on session participants who joined as guests. */
+export const MEETING_GUEST_USER_ID_PREFIX = 'guest:';
+
+/** Lowercased email of a guest participant `userId` (`guest:<email>`), or null for members. */
+export function guestEmailFromUserId(userId: string): string | null {
+  if (!userId.startsWith(MEETING_GUEST_USER_ID_PREFIX)) return null;
+  const email = userId.slice(MEETING_GUEST_USER_ID_PREFIX.length).trim().toLowerCase();
+  return email.length > 0 ? email : null;
+}
+
+/** Read `metadata.removedGuests`, tolerating missing or malformed metadata. */
+export function getRemovedGuests(
+  metadata: Record<string, unknown> | null | undefined,
+): MeetingSessionRemovedGuests {
+  const raw = metadata?.removedGuests;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return raw as MeetingSessionRemovedGuests;
+}
+
+/**
+ * True when the host removed the guest with this email from the session.
+ * Case-insensitive; shared by the meeting-portal join route and meet-api.
+ */
+export function isGuestRemovedFromSession(
+  metadata: Record<string, unknown> | null | undefined,
+  email: string,
+): boolean {
+  const key = email.trim().toLowerCase();
+  if (key.length === 0) return false;
+  return Object.prototype.hasOwnProperty.call(getRemovedGuests(metadata), key);
+}
+
 export const meetingSessions = pgTable('meeting_sessions', {
   // BaseEntity fields
   id: varchar('id', { length: 30 }).primaryKey(),

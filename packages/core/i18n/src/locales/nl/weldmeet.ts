@@ -54,6 +54,9 @@ export const weldmeet = {
       invited: 'Uitgenodigd',
       unknown: 'Onbekend',
     },
+    removeParticipant: {
+      failed: 'Kon de deelnemer niet uit het gesprek verwijderen',
+    },
   },
   chatHistory: {
     header: 'Chat',

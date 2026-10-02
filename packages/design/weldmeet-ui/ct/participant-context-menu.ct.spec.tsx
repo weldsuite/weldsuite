@@ -143,6 +143,57 @@ test.describe('ParticipantContextMenu · host controls', () => {
   });
 });
 
+test.describe('ParticipantContextMenu · "Remove from call" routing', () => {
+  test('calls onRemoveParticipant (not kick) when the host app provides it', async ({ mount }) => {
+    const removed: string[] = [];
+    let kicked = 0;
+    const comp = await mount(
+      <ParticipantContextMenu
+        participant={makeParticipant({
+          kick: () => {
+            kicked += 1;
+            return Promise.resolve();
+          },
+        })}
+        isSelf={false}
+        meeting={{}}
+        position={POSITION}
+        onClose={() => {}}
+        canManageParticipants={true}
+        onRemoveParticipant={(p: { id: string }) => {
+          removed.push(p.id);
+        }}
+      />,
+    );
+
+    await comp.getByText('Remove from call', { exact: true }).click();
+    await expect.poll(() => removed).toEqual(['p_alice']);
+    expect(kicked).toBe(0);
+  });
+
+  test('falls back to participant.kick() when onRemoveParticipant is omitted', async ({ mount }) => {
+    let kicked = 0;
+    const comp = await mount(
+      <ParticipantContextMenu
+        participant={makeParticipant({
+          kick: () => {
+            kicked += 1;
+            return Promise.resolve();
+          },
+        })}
+        isSelf={false}
+        meeting={{}}
+        position={POSITION}
+        onClose={() => {}}
+        canManageParticipants={true}
+      />,
+    );
+
+    await comp.getByText('Remove from call', { exact: true }).click();
+    await expect.poll(() => kicked).toBe(1);
+  });
+});
+
 test.describe('ParticipantContextMenu · local playback ("Mute for me")', () => {
   test('a guest still gets the local "Mute for me" control (not host-gated)', async ({ mount }) => {
     const comp = await mount(

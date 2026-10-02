@@ -10,6 +10,7 @@
  *   POST /:id/join        — join a session (get RTK auth token)
  *   POST /:id/leave       — leave a session (auto-ends when last participant leaves)
  *   POST /:id/end         — end a session
+ *   POST /:id/participants/remove — host removes a participant (persists a guest block, kicks)
  *   POST /:id/recording/start  — mark session as recording
  *   POST /:id/recording/stop   — stop recording, persist key for later URL fetch
  *   GET  /:id/recordings       — list recordings for a session (CF RTK + saved URL)
@@ -22,6 +23,7 @@ import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createMeetingSessionSchema, updateMeetingSessionSchema } from '@weldsuite/core-api-client/schemas/meeting-sessions';
+import { removeMeetingSessionParticipantSchema } from '@weldsuite/app-api-client/schemas/meeting-sessions';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -32,10 +34,16 @@ import {
   ensurePresets,
   RTK_PRESETS,
   getRecordings,
+  kickParticipants as kickRtkParticipants,
 } from '@weldsuite/cloudflare-realtime';
 import { endMeetingSession, publishSessionStarted, publishMeetingUpdated } from '../../services/weldmeet/meeting-lifecycle';
 import { resolveParticipantLink, type ResolvedParticipantLink } from '../../lib/participant-resolver';
-import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
+import {
+  guestEmailFromUserId,
+  isGuestRemovedFromSession,
+  type MeetingSessionParticipant,
+  type MeetingSessionRemovedGuest,
+} from '@weldsuite/db/schema/meeting-sessions';
 import type { Context } from 'hono';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -596,6 +604,152 @@ app.post('/:id/end', requirePermission('sessions:read'), async (c) => {
     return error.internal(c, 'Failed to end session');
   }
 });
+
+/**
+ * POST /:id/participants/remove - Host "Remove from call".
+ *
+ * Records the removal on the session, then disconnects that one participant
+ * through RealtimeKit. Allowed for the meeting organizer, or any member
+ * holding sessions:update (same gate as /end).
+ *
+ * `participantId` (peer.id) or `rtkUserId` (peer.userId) is matched against
+ * `participants[].cfSessionId`, the RealtimeKit REST participant id; the
+ * client SDK doesn't document which of the two carries it. `customParticipantId` is an
+ * optional fallback matched against the stored `userId` (workspace members
+ * join with customParticipantId === Clerk userId).
+ *
+ * A removed guest (userId `guest:<email>`) is blocked from rejoining THIS
+ * session: the email lands in `metadata.removedGuests`, which the meeting
+ * portal's join route checks. Removed workspace members are only kicked.
+ * The kick is best-effort once the removal is persisted: a RealtimeKit
+ * failure is logged and reported as `kicked: false`.
+ *
+ * Removing an already-removed or already-left participant is a no-op, as is
+ * removing from an ended session (matching /end and /leave).
+ */
+app.post(
+  '/:id/participants/remove',
+  requirePermission('sessions:read'),
+  zValidator('json', removeMeetingSessionParticipantSchema),
+  async (c) => {
+    const orgId = c.get('orgId');
+    if (!orgId) return error.orgRequired(c);
+
+    const userId = c.get('userId');
+    const sessionId = c.req.param('id');
+    const { participantId, rtkUserId, customParticipantId } = c.req.valid('json');
+
+    try {
+      const db = c.get('tenantDb');
+      const { meetings } = schema;
+
+      const [session] = await db.select().from(t).where(eq(t.id, sessionId)).limit(1);
+      if (!session) return error.notFound(c, 'Session', sessionId);
+
+      const [meeting] = await db
+        .select({ organizerId: meetings.organizerId })
+        .from(meetings)
+        .where(eq(meetings.id, session.meetingId))
+        .limit(1);
+      const isOrganizer = !!meeting?.organizerId && meeting.organizerId === userId;
+      if (!isOrganizer && !(await hasContextPermission(c, 'sessions:update'))) {
+        return error.forbidden(c, 'Only the meeting organizer can remove participants.');
+      }
+
+      if (session.status === 'ended') {
+        return success(c, { ok: true, kicked: false, blocked: false });
+      }
+
+      const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
+      // Prefer a live entry: the same person can appear twice after a rejoin.
+      const matches = (p: MeetingSessionParticipant) =>
+        p.cfSessionId === participantId ||
+        (!!rtkUserId && p.cfSessionId === rtkUserId) ||
+        (!!customParticipantId && p.userId === customParticipantId);
+      const idx = participants.findIndex((p) => !p.leftAt && matches(p));
+      const index = idx >= 0 ? idx : participants.findIndex(matches);
+      if (index < 0) return error.notFound(c, 'Participant', participantId);
+
+      const target = participants[index];
+      if (target.userId === userId) {
+        return error.badRequest(c, 'You cannot remove yourself from the call. Leave the call instead.');
+      }
+      if (meeting?.organizerId && target.userId === meeting.organizerId) {
+        return error.badRequest(c, 'The meeting organizer cannot be removed from the call.');
+      }
+
+      const guestEmail = guestEmailFromUserId(target.userId);
+      const alreadyBlocked = !!guestEmail && isGuestRemovedFromSession(session.metadata, guestEmail);
+      const needsKick = !target.leftAt;
+      const needsBlock = !!guestEmail && !alreadyBlocked;
+      if (!needsKick && !needsBlock) {
+        return success(c, { ok: true, kicked: false, blocked: !!guestEmail });
+      }
+
+      const now = new Date();
+      if (needsKick) participants[index] = { ...target, leftAt: now.toISOString() };
+
+      // Merged in SQL so a concurrent metadata writer (the meeting bot) is
+      // never overwritten; an existing entry for the email keeps winning.
+      const removedGuestJson = guestEmail
+        ? JSON.stringify({
+            [guestEmail]: {
+              removedAt: now.toISOString(),
+              removedBy: userId,
+              name: target.userName,
+            } satisfies MeetingSessionRemovedGuest,
+          })
+        : null;
+
+      await db
+        .update(t)
+        .set({
+          updatedAt: now,
+          ...(needsKick ? { participants } : {}),
+          ...(removedGuestJson && needsBlock
+            ? {
+                metadata: sql`coalesce(${t.metadata}, '{}'::jsonb) || jsonb_build_object('removedGuests', ${removedGuestJson}::jsonb || coalesce(${t.metadata}->'removedGuests', '{}'::jsonb))`,
+              }
+            : {}),
+        })
+        .where(eq(t.id, sessionId));
+
+      let kicked = false;
+      if (needsKick && session.cfAppId) {
+        try {
+          await kickRtkParticipants(c.env, session.cfAppId, { participantIds: [target.cfSessionId] });
+          kicked = true;
+        } catch (err) {
+          console.error('[meeting-sessions] RTK kick participant failed', {
+            sessionId,
+            cfAppId: session.cfAppId,
+            err,
+          });
+        }
+      }
+
+      publishEntityEvent({
+        c,
+        entityType: 'meeting_session',
+        entityId: sessionId,
+        action: 'updated',
+        data: {
+          id: sessionId,
+          meetingId: session.meetingId,
+          status: session.status,
+          removedParticipantId: target.cfSessionId,
+          removedBy: userId,
+          blocked: !!guestEmail,
+        },
+      });
+
+      return success(c, { ok: true, kicked, blocked: !!guestEmail });
+    } catch (err) {
+      console.error('[meeting-sessions] remove participant failed:', err);
+      return error.internal(c, 'Failed to remove participant');
+    }
+  },
+);
 
 /**
  * POST /:id/recording/start - Mark session as recording

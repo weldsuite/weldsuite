@@ -3,7 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormRegister } from 'react-hook-form';
 import { Loader2, Mail, ShieldAlert, User } from 'lucide-react';
-import type { CSSProperties, Ref } from 'react';
+import { useEffect, useState, type CSSProperties, type Ref } from 'react';
 
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -11,6 +11,7 @@ import { cn } from '@weldsuite/ui/lib/utils';
 import { ParticipantAvatar, ParticipantNameTag } from '@weldsuite/weldmeet-ui';
 
 import { PREVIEW_DARK_BG, type PersonTheme } from '@/lib/constants';
+import { clearGuestIdentity, readGuestIdentity } from '@/lib/guest-identity';
 import { guestJoinFormSchema, type GuestJoinFormInput, type MeetingInfo } from '@/lib/schemas';
 
 import { PrejoinMediaControls, type PermState } from './prejoin-media-controls';
@@ -285,7 +286,29 @@ export function LandingScreen({
     defaultValues: { name: '', email: '' },
   });
 
-  const { register, handleSubmit, watch, formState } = form;
+  const { register, handleSubmit, watch, formState, getValues, setValue, reset } = form;
+  // True while the form holds details restored from a previous visit, which
+  // is when the "Not you?" escape hatch is shown.
+  const [prefilled, setPrefilled] = useState(false);
+
+  // Restore the remembered name + email. Read after mount (not in
+  // defaultValues) so the server and first client render match; skipped when
+  // the guest has already started typing.
+  useEffect(() => {
+    const saved = readGuestIdentity();
+    if (!saved) return;
+    const current = getValues();
+    if (current.name || current.email) return;
+    setValue('name', saved.name, { shouldValidate: true });
+    setValue('email', saved.email, { shouldValidate: true });
+    setPrefilled(true);
+  }, [getValues, setValue]);
+
+  const handleNotYou = () => {
+    clearGuestIdentity();
+    reset({ name: '', email: '' });
+    setPrefilled(false);
+  };
   const watchedName = watch('name');
   const isMobile = useIsMobile();
 
@@ -369,6 +392,15 @@ export function LandingScreen({
             emailError={emailError}
             displayedError={displayedError}
           />
+          {prefilled && (
+            <button
+              type="button"
+              onClick={handleNotYou}
+              className="mt-2 self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            >
+              Not you?
+            </button>
+          )}
 
           <div className="w-full mt-5 flex flex-col gap-3">
             <Button

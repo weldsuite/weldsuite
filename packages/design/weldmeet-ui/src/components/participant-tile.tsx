@@ -116,6 +116,8 @@ export interface ParticipantTileProps {
    * guests (meeting portal) never get these actions.
    */
   canManageParticipants?: boolean;
+  /** Host app's "Remove from call" handler; falls back to `participant.kick()` when omitted. */
+  onRemoveParticipant?: (participant: MeetingPeer) => void | Promise<void>;
 }
 
 interface TileClassOptions {
@@ -167,7 +169,7 @@ function TileNameTag({ participant, name, isSelf, ringing, localMuted, onClickDe
   );
 }
 
-export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false }: ParticipantTileProps) {
+export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false, onRemoveParticipant }: ParticipantTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [volume, setVolume] = useState(100);
@@ -340,6 +342,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
           onVolumeChange={setVolume}
           onLocalMutedChange={setLocalMuted}
           canManageParticipants={canManageParticipants}
+          onRemoveParticipant={onRemoveParticipant}
         />
       )}
     </div>

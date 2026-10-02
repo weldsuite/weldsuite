@@ -41,6 +41,13 @@ export interface ParticipantContextMenuProps {
    * (e.g. the meeting portal, which passes isOrganizer=false) never see these.
    */
   canManageParticipants?: boolean;
+  /**
+   * Host app's "Remove from call" handler. When provided it is called instead of
+   * the peer's own `kick()` (the platform uses it to also record the removal
+   * server-side so a removed guest cannot rejoin). When omitted the menu keeps
+   * calling `participant.kick?.()` (meeting portal / mobile).
+   */
+  onRemoveParticipant?: (participant: MeetingPeer) => void | Promise<void>;
   /** Viewport coordinates for the top-left of the menu. */
   position: { x: number; y: number };
   onClose: () => void;
@@ -70,6 +77,7 @@ export function ParticipantContextMenu({
   onVolumeChange,
   onLocalMutedChange,
   canManageParticipants = false,
+  onRemoveParticipant,
 }: ParticipantContextMenuProps) {
   const name = participant?.name || 'Participant';
   const showLocalPlayback =
@@ -247,6 +255,7 @@ export function ParticipantContextMenu({
             isSelf={isSelf}
             meeting={meeting}
             onClose={onClose}
+            onRemoveParticipant={onRemoveParticipant}
           />
         )}
       </div>
@@ -256,7 +265,7 @@ export function ParticipantContextMenu({
 
 /** Runs a participant-level RTK action, logging (not throwing) on failure, then closes the menu. */
 async function runAndClose(
-  action: (() => Promise<unknown> | undefined) | undefined,
+  action: (() => Promise<unknown> | void | undefined) | undefined,
   failureMessage: string,
   onClose: () => void,
 ) {
@@ -277,7 +286,11 @@ function DestructiveActions({
   isSelf,
   meeting,
   onClose,
-}: Pick<ParticipantContextMenuProps, 'participant' | 'isSelf' | 'meeting' | 'onClose'>) {
+  onRemoveParticipant,
+}: Pick<
+  ParticipantContextMenuProps,
+  'participant' | 'isSelf' | 'meeting' | 'onClose' | 'onRemoveParticipant'
+>) {
   return (
     <>
       <div className="-mx-px h-px bg-border" />
@@ -313,7 +326,13 @@ function DestructiveActions({
               Turn off video
             </button>
             <button
-              onClick={() => runAndClose(() => participant.kick?.(), 'Kick failed:', onClose)}
+              onClick={() =>
+                runAndClose(
+                  () => (onRemoveParticipant ? onRemoveParticipant(participant) : participant.kick?.()),
+                  'Remove from call failed:',
+                  onClose,
+                )
+              }
               className={MENU_BUTTON_BASE}
             >
               <UserX className="h-4 w-4" />
