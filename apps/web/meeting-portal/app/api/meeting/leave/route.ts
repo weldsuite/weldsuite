@@ -4,7 +4,8 @@ import { getTenantDb } from '@/lib/db';
 import { meetings, meetingSessions } from '@weldsuite/db/schema';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
 import { guestLeaveInputSchema } from '@/lib/schemas';
-import { invalidInput } from '@/lib/api-response';
+import { guestUnauthorized, invalidInput } from '@/lib/api-response';
+import { authenticateGuest, isTokenParticipant } from '@/lib/guest-session';
 
 /** A meeting is past once its end (or, without one, start + 1h) has elapsed; undated meetings count as past. */
 function isMeetingPast(
@@ -18,7 +19,9 @@ function isMeetingPast(
 
 /**
  * POST /api/meeting/leave
- * Guest leaves a meeting session.
+ * Authorization: Bearer <guest session token from /api/meeting/join>
+ * Body: { orgId, meetingId }
+ * Marks the token's guest as left in the session the token was issued for.
  */
 export async function POST(request: NextRequest) {
   let raw: unknown;
@@ -33,7 +36,11 @@ export async function POST(request: NextRequest) {
 
   const parsed = guestLeaveInputSchema.safeParse(raw);
   if (!parsed.success) return invalidInput(parsed.error);
-  const { orgId, meetingId, sessionId, email } = parsed.data;
+  const { orgId, meetingId } = parsed.data;
+
+  const claims = authenticateGuest(request.headers, orgId, meetingId);
+  if (!claims) return guestUnauthorized();
+  const { sessionId } = claims;
 
   try {
     const { db } = await getTenantDb(orgId);
@@ -44,19 +51,21 @@ export async function POST(request: NextRequest) {
       .where(eq(meetingSessions.id, sessionId))
       .limit(1);
 
-    if (!session) {
+    if (!session || session.meetingId !== meetingId) {
       return NextResponse.json(
         { error: { code: 'NOT_FOUND', message: 'Session not found' } },
         { status: 404 },
       );
     }
 
-    const guestUserId = `guest:${email}`;
     const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
-    const idx = participants.findIndex((p) => p.userId === guestUserId);
-    if (idx >= 0) {
-      participants[idx] = { ...participants[idx], leftAt: new Date().toISOString() };
+    // Match on the RTK participant too, so a stale token from an earlier join
+    // cannot mark a newer connection of the same guest as left.
+    const idx = participants.findIndex((p) => isTokenParticipant(p, claims));
+    if (idx < 0 || participants[idx].leftAt) {
+      return NextResponse.json({ data: { ok: true } });
     }
+    participants[idx] = { ...participants[idx], leftAt: new Date().toISOString() };
 
     const activeParticipants = participants.filter((p) => !p.leftAt);
 

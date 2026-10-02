@@ -6,6 +6,7 @@ import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
 import { addParticipant, ensurePresets, RTK_PRESETS } from '@/lib/cloudflare-realtime';
 import { findOrCreatePersonByEmail } from '@/lib/people';
+import { createGuestSessionToken } from '@/lib/guest-session';
 import { guestJoinInputSchema } from '@/lib/schemas';
 import { invalidInput } from '@/lib/api-response';
 
@@ -285,11 +286,22 @@ export async function POST(request: NextRequest) {
       personId,
     });
 
+    // Chat, upload and leave authenticate the guest with this token, bound
+    // to the RTK participant created above, instead of trusting an email.
+    const guestToken = createGuestSessionToken({
+      org: orgId,
+      meetingId: meeting.id,
+      sessionId: session.id,
+      guestUserId,
+      cfSessionId: rtkParticipant.id,
+    });
+
     return NextResponse.json({
       data: {
         status: 'joined' as const,
         sessionId: session.id,
         authToken: rtkParticipant.token,
+        guestToken,
         meetingId: meeting.id,
         meetingTitle: meeting.title,
       },

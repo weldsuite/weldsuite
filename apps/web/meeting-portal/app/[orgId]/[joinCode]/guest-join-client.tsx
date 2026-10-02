@@ -119,7 +119,8 @@ export default function GuestJoinClient() {
 
   // Session
   const [meetingId, setMeetingId] = useState('');
-  const [sessionId, setSessionId] = useState('');
+  // Signed guest session token from /join; authenticates chat, upload, leave.
+  const [guestToken, setGuestToken] = useState('');
   const [meetingTitle, setMeetingTitle] = useState('');
 
   // RTK
@@ -254,20 +255,15 @@ export default function GuestJoinClient() {
 
   useEffect(() => {
     const handler = () => {
-      if (meetingId && sessionId && guestEmail) {
+      if (meetingId && guestToken) {
         try {
-          fetch('/api/meeting/leave', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orgId, meetingId, sessionId, email: guestEmail }),
-            keepalive: true,
-          }).catch(() => {});
+          guestLeaveMeeting(orgId, { meetingId, guestToken }, { keepalive: true }).catch(() => {});
         } catch { /* best effort */ }
       }
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  }, [orgId, meetingId, sessionId, guestEmail]);
+  }, [orgId, meetingId, guestToken]);
 
   // ── Camera preview ──
 
@@ -622,7 +618,7 @@ export default function GuestJoinClient() {
     }
     if (retry.status === 'joined' && retry.authToken && retry.sessionId) {
       stopPolling();
-      setSessionId(retry.sessionId);
+      setGuestToken(retry.guestToken ?? '');
       await connectToRtk(retry.authToken);
     }
   }, [stopPolling, connectToRtk]);
@@ -677,7 +673,7 @@ export default function GuestJoinClient() {
       return;
     }
     if (result.status === 'joined' && result.authToken && result.sessionId) {
-      setSessionId(result.sessionId);
+      setGuestToken(result.guestToken ?? '');
       await connectToRtk(result.authToken);
     }
   }, [retryJoin, pollWaitlist, connectToRtk]);
@@ -720,14 +716,14 @@ export default function GuestJoinClient() {
     suppressorRef.current = null;
     sup?.dispose().catch((err) => console.warn('[noise] dispose error:', err));
 
-    if (meetingId && sessionId && guestEmail) {
+    if (meetingId && guestToken) {
       try {
-        await guestLeaveMeeting(orgId, { meetingId, sessionId, email: guestEmail });
+        await guestLeaveMeeting(orgId, { meetingId, guestToken });
       } catch { /* best effort */ }
     }
 
     setState('ended');
-  }, [rtkClient, orgId, meetingId, sessionId, guestEmail]);
+  }, [rtkClient, orgId, meetingId, guestToken]);
 
   // ── Media controls (connected room) ──
 
@@ -916,6 +912,7 @@ export default function GuestJoinClient() {
       orgId={orgId}
       guestName={guestName}
       guestEmail={guestEmail}
+      guestToken={guestToken}
       hostControls={hostControls}
       onHostControlsBroadcast={setHostControls}
     />

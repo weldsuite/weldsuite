@@ -12,3 +12,19 @@ export function invalidInput(error: ZodError, message = 'Invalid request') {
     { status: 400 },
   );
 }
+
+/** Missing, invalid or expired guest session token. */
+export function guestUnauthorized() {
+  return NextResponse.json(
+    { error: { code: 'UNAUTHORIZED', message: 'Missing or invalid guest session' } },
+    { status: 401 },
+  );
+}
+
+/** Valid token, but the guest is no longer an active participant. */
+export function notActiveParticipant() {
+  return NextResponse.json(
+    { error: { code: 'FORBIDDEN', message: 'Not an active meeting participant' } },
+    { status: 403 },
+  );
+}

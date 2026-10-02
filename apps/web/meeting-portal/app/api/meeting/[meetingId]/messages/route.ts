@@ -7,8 +7,8 @@ import {
 } from '@weldsuite/db/schema';
 import { sql } from 'drizzle-orm';
 import { messagesListQuerySchema, messagesPostInputSchema } from '@/lib/schemas';
-import { invalidInput } from '@/lib/api-response';
-import { verifyGuestParticipant } from '@/lib/meeting-guest';
+import { guestUnauthorized, invalidInput, notActiveParticipant } from '@/lib/api-response';
+import { authenticateGuest, guestEmailFromClaims, verifyGuestParticipant } from '@/lib/guest-session';
 import { randomToken } from '@/lib/random-id';
 
 interface RouteContext {
@@ -92,7 +92,8 @@ async function publishGuestMessage(meetingId: string, frame: Record<string, unkn
 }
 
 /**
- * GET /api/meeting/[meetingId]/messages?orgId=X&email=Y&before=Z&limit=N
+ * GET /api/meeting/[meetingId]/messages?orgId=X&before=Z&limit=N
+ * Authorization: Bearer <guest session token from /api/meeting/join>
  * List meeting chat messages (newest first, cursor pagination via `before` message id).
  */
 export async function GET(request: NextRequest, context: RouteContext) {
@@ -100,23 +101,20 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const url = request.nextUrl;
   const parsed = messagesListQuerySchema.safeParse({
     orgId: url.searchParams.get('orgId'),
-    email: url.searchParams.get('email'),
     before: url.searchParams.get('before') ?? undefined,
     limit: url.searchParams.get('limit') ?? undefined,
   });
   if (!parsed.success) return invalidInput(parsed.error);
-  const { orgId, email, before, limit } = parsed.data;
+  const { orgId, before, limit } = parsed.data;
+
+  const claims = authenticateGuest(request.headers, orgId, meetingId);
+  if (!claims) return guestUnauthorized();
 
   try {
     const { db } = await getTenantDb(orgId);
 
-    const participant = await verifyGuestParticipant(db, meetingId, email);
-    if (!participant) {
-      return NextResponse.json(
-        { error: { code: 'FORBIDDEN', message: 'Not an active meeting participant' } },
-        { status: 403 },
-      );
-    }
+    const participant = await verifyGuestParticipant(db, claims);
+    if (!participant) return notActiveParticipant();
 
     const conditions = [
       eq(meetingMessages.meetingId, meetingId),
@@ -169,9 +167,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
 /**
  * POST /api/meeting/[meetingId]/messages
- * Body: { orgId, email, name, content }
- * Send a chat message as a meeting guest. Persists to DB and broadcasts via
- * the realtime-worker so platform participants see it live.
+ * Authorization: Bearer <guest session token from /api/meeting/join>
+ * Body: { orgId, content, htmlContent?, attachments? }
+ * Send a chat message as a meeting guest. The author is the token's guest,
+ * named as they joined. Persists to DB and broadcasts via the realtime-worker
+ * so platform participants see it live.
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   const { meetingId } = await context.params;
@@ -188,22 +188,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const parsed = messagesPostInputSchema.safeParse(raw);
   if (!parsed.success) return invalidInput(parsed.error);
-  const { orgId, email, name, content: trimmed, attachments, htmlContent } = parsed.data;
+  const { orgId, content: trimmed, attachments, htmlContent } = parsed.data;
   const hasAttachments = (attachments?.length ?? 0) > 0;
   // Rich-text HTML is stored in metadata (no dedicated column) and surfaced at
   // the top level in responses + the realtime payload.
   const metadata = htmlContent ? { htmlContent } : null;
 
+  const claims = authenticateGuest(request.headers, orgId, meetingId);
+  if (!claims) return guestUnauthorized();
+
   try {
     const { db } = await getTenantDb(orgId);
 
-    const participant = await verifyGuestParticipant(db, meetingId, email);
-    if (!participant) {
-      return NextResponse.json(
-        { error: { code: 'FORBIDDEN', message: 'Not an active meeting participant' } },
-        { status: 403 },
-      );
-    }
+    const participant = await verifyGuestParticipant(db, claims);
+    if (!participant) return notActiveParticipant();
+
+    const email = guestEmailFromClaims(claims);
+    const name = participant.userName;
 
     // Resolve avatar from the people table (matches what /join does via
     // findOrCreatePersonByEmail). Renamed from `contacts` after the Companies
