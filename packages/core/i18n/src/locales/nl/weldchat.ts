@@ -149,7 +149,8 @@ export const weldchat = {
       veryBeginning: 'Dit is het allereerste begin van het',
       channel: 'kanaal.',
       groupConversationBeginning: 'Dit is het allereerste begin van je groepsgesprek.',
-      privateConversation: 'Alles wat je hier deelt blijft privé tussen jullie tweeën.',
+      dmStarted: 'heeft dit privégesprek gestart',
+      dmStartedNoAuthor: 'Dit privégesprek is gestart',
     },
     pinnedMessages: {
       title: 'Vastgezette berichten',
@@ -284,6 +285,9 @@ export const weldchat = {
     dmCreate: {
       title: 'Nieuw bericht',
       searchPeople: 'Personen zoeken...',
+      noResults: 'Geen personen gevonden.',
+      people: 'Personen',
+      navigate: 'Navigeren',
       cancel: 'Annuleren',
       startConversation: 'Gesprek starten',
       creating: 'Aanmaken...',

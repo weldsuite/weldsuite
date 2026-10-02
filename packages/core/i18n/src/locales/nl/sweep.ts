@@ -406,7 +406,6 @@ export const sweep = {
     },
     "channelEmptyState": {
       "directMessageFallback": "Direct bericht",
-      "dmConversationPrefix": "Dit gesprek is alleen tussen u en",
       "groupFallback": "Groep",
       "memberFallback": "Lid"
     },
