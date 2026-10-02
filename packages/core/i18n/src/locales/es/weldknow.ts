@@ -1,5 +1,6 @@
 export const weldknow = {
   sidebar: {
+    home: 'Inicio',
     favorites: 'Favoritos',
     spaces: 'Espacios',
     newSpace: 'Nuevo espacio',

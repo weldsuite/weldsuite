@@ -17,20 +17,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@weldsuite/ui/components/breadcrumb';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useCan } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
 import { PageLoader } from '@/components/page-loader';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { BlockEditor, type BlockNoteEditorInstance } from '@/components/block-editor/block-editor';
 import type { Block, PartialBlock } from '@blocknote/core';
 import {
@@ -124,6 +117,15 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     }
     return chain;
   }, [page, allNodes, t]);
+
+  useBreadcrumbs(
+    [
+      { label: t.breadcrumb.home, href: '/weldknow' },
+      ...breadcrumbAncestors.map((a) => ({ label: a.title, href: `/weldknow/page/${a.id}` })),
+      { label: title || t.page.untitled },
+    ],
+    { enabled: !!page },
+  );
 
   const flushTitleSave = useCallback(
     (nextTitle: string) => {
@@ -232,35 +234,8 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header: breadcrumb + actions */}
-      <div className="flex items-center justify-between gap-2 border-b px-6 py-2.5">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink onClick={() => router.push('/weldknow')} className="cursor-pointer">
-                {t.breadcrumb.home}
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            {breadcrumbAncestors.map((ancestor) => (
-              <span key={ancestor.id} className="contents">
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbLink
-                    onClick={() => router.push(`/weldknow/page/${ancestor.id}`)}
-                    className="cursor-pointer"
-                  >
-                    {ancestor.title}
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-              </span>
-            ))}
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>{title || t.page.untitled}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-
+      {/* Page actions — breadcrumbs live in the shared AppHeader */}
+      <div className="flex items-center justify-end gap-2 px-6 py-2">
         <div className="flex items-center gap-2 shrink-0">
           {page.isLocked && (
             <Badge variant="secondary" className="gap-1">

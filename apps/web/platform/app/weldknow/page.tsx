@@ -5,6 +5,7 @@ import { useCan } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
 import { useKnowledgePageTree, useKnowledgeSpaces } from '@/hooks/queries/use-knowledge-queries';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { CreateSpaceDialog } from './components/create-space-dialog';
 
 /**
@@ -19,6 +20,7 @@ export default function WeldKnowIndexPage() {
   const { data: spacesData, isLoading: spacesLoading } = useKnowledgeSpaces();
   const { data: treeData } = useKnowledgePageTree();
   const [showCreateSpace, setShowCreateSpace] = useState(false);
+  useBreadcrumbs([{ label: t.breadcrumb.home, href: '/weldknow' }]);
 
   const spaces = spacesData?.data ?? [];
   const recentPages = useMemo(() => {
