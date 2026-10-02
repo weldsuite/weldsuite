@@ -100,7 +100,8 @@ export function ProjectPermissionProvider({ projectId, children }: Readonly<Proj
     canRead: isLoading ? true : (permissions?.canRead ?? false),
     canWrite: isLoading ? true : (permissions?.canWrite ?? false),
     isAdmin: isLoading ? true : (permissions?.isAdmin ?? false),
-    isViewer: !isLoading && permissions?.role === 'viewer',
+    // A workspace admin can hold a 'viewer' member row and still write.
+    isViewer: !isLoading && permissions?.role === 'viewer' && !permissions.canWrite,
     role: permissions?.role ?? null,
   }), [permissions, isLoading, error, fetchPermissions]);
 
