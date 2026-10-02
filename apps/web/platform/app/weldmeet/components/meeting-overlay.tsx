@@ -86,6 +86,7 @@ function InvitePopoverContent({ meetingId }: Readonly<{ meetingId: string }>) {
 // ============================================================================
 
 function MeetingRoomAdapter() {
+  const t = getTranslations('weldmeet');
   const {
     meeting,
     meetingId: activeMeetingId,
@@ -128,7 +129,6 @@ function MeetingRoomAdapter() {
     removeBackground,
     captions,
   } = useWeldMeetCall();
-  const t = getTranslations('weldmeet');
 
   const { orgId } = useAuth();
   const workspaceId = useWorkspaceId() || orgId;
@@ -537,7 +537,10 @@ function MeetingRoomAdapter() {
       stopScreenShare={stopScreenShare}
       toggleHandRaise={toggleHandRaise}
       setViewMode={setViewMode}
-      onLeave={isOrganizer ? endMeeting : leaveMeeting}
+      // Organizers get a Leave / End-for-all menu; everyone else a single leave button.
+      onLeave={leaveMeeting}
+      onEndForAll={isOrganizer ? endMeeting : undefined}
+      leaveLabels={{ leaveMeeting: t.pipWidget.leaveMeeting, endForAll: t.leaveMenu.endForAll }}
       onToggleFullscreen={toggleFullscreen}
       // Picture-in-picture: open the OUT-OF-BROWSER PiP window (Document PiP,
       // with a native single-video fallback). requestPopOut must run inside this

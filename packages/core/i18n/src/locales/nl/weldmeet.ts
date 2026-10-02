@@ -62,6 +62,11 @@ export const weldmeet = {
     noMessagesHint: 'Er zijn geen berichten verzonden in deze vergadering.',
     loadOlder: 'Oudere laden',
   },
+  leaveMenu: {
+    endForAll: 'Vergadering voor iedereen beëindigen',
+    hostEnded: 'De host heeft de vergadering beëindigd',
+    endFailed: 'Kon de vergadering niet voor iedereen beëindigen',
+  },
   pipWidget: {
     turnOnMicrophone: 'Microfoon inschakelen',
     turnOffMicrophone: 'Microfoon uitschakelen',

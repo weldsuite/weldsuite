@@ -19,7 +19,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createMeetingSessionSchema, updateMeetingSessionSchema } from '@weldsuite/core-api-client/schemas/meeting-sessions';
 import type { Env, Variables } from '../../types';
@@ -512,7 +512,9 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
 });
 
 /**
- * POST /:id/leave - Leave a session (auto-ends when last participant leaves)
+ * POST /:id/leave - Leave a session (auto-ends when last participant leaves).
+ * A no-op once the session has ended: when the host ends the call every
+ * kicked client reports a leave, and none of them may re-run the end.
  */
 app.post('/:id/leave', requirePermission('sessions:read'), async (c) => {
   const orgId = c.get('orgId');
@@ -526,6 +528,7 @@ app.post('/:id/leave', requirePermission('sessions:read'), async (c) => {
 
     const [session] = await db.select().from(t).where(eq(t.id, sessionId)).limit(1);
     if (!session) return error.notFound(c, 'Session', sessionId);
+    if (session.status === 'ended') return success(c, { ok: true });
 
     const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
     const idx = participants.findIndex((p) => p.userId === userId);
@@ -552,19 +555,38 @@ app.post('/:id/leave', requirePermission('sessions:read'), async (c) => {
 });
 
 /**
- * POST /:id/end - End a session (organizer / admin action)
+ * POST /:id/end - End a session for everyone (disconnects all participants).
+ *
+ * Allowed for the meeting organizer, or any member holding sessions:update.
+ * The route is gated on sessions:read so an organizer without the update
+ * permission still reaches the handler; the organizer-or-update check runs
+ * inside. Ending an already-ended session is a successful no-op.
  */
-app.post('/:id/end', requirePermission('sessions:update'), async (c) => {
+app.post('/:id/end', requirePermission('sessions:read'), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
+  const userId = c.get('userId');
   const sessionId = c.req.param('id');
 
   try {
     const db = c.get('tenantDb');
+    const { meetings } = schema;
 
     const [session] = await db.select().from(t).where(eq(t.id, sessionId)).limit(1);
     if (!session) return error.notFound(c, 'Session', sessionId);
+
+    const [meeting] = await db
+      .select({ organizerId: meetings.organizerId })
+      .from(meetings)
+      .where(eq(meetings.id, session.meetingId))
+      .limit(1);
+    const isOrganizer = !!meeting?.organizerId && meeting.organizerId === userId;
+    if (!isOrganizer && !(await hasContextPermission(c, 'sessions:update'))) {
+      return error.forbidden(c, 'Only the meeting organizer can end the meeting for everyone.');
+    }
+
+    if (session.status === 'ended') return success(c, { ok: true });
 
     await endMeetingSession(db, c.env, orgId, sessionId, session, session.meetingId);
 

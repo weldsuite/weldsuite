@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleAlert, Mic, MicOff, VideoOff, MonitorUp, MonitorX, Phone, ChevronUp, Check, Hand, LayoutGrid, GalleryHorizontalEnd, User, PanelRight, Image, Circle, Square, Pause, Play, EllipsisVertical, Maximize, Minimize, PictureInPicture2, Settings, Volume2, VolumeX } from 'lucide-react';
+import { CircleAlert, Mic, MicOff, VideoOff, MonitorUp, MonitorX, Phone, ChevronUp, Check, Hand, LayoutGrid, GalleryHorizontalEnd, User, PanelRight, Image, Circle, Square, Pause, Play, EllipsisVertical, Maximize, Minimize, PictureInPicture2, Settings, Volume2, VolumeX, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
@@ -15,7 +15,7 @@ import {
   DropdownMenuLabel,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
-import type { ViewMode, RecordingState, MeetingClient } from '../types';
+import type { ViewMode, RecordingState, MeetingClient, LeaveLabels } from '../types';
 import {
   DEFAULT_PERMISSION_HELP_LABELS,
   PermissionHelp,
@@ -107,6 +107,15 @@ export interface CallControlsBarProps {
   toggleHandRaise: () => void;
   setViewMode: (mode: ViewMode) => void;
   onLeave: () => void;
+  /**
+   * Optional "end the meeting for everyone" action (host only). When provided
+   * the red leave button becomes a menu with "Leave meeting" (calls `onLeave`)
+   * and a destructive "End meeting for all" (calls this). When omitted the
+   * button is a plain single-action leave button.
+   */
+  onEndForAll?: () => void;
+  /** Overrides for the leave-button labels (English defaults when omitted). */
+  leaveLabels?: LeaveLabels;
 
   // Browser permission blocked (optional). When true the button renders in
   // the off state with a warning badge, and clicking it explains how to grant
@@ -632,6 +641,8 @@ export function CallControlsBar({
   toggleHandRaise,
   setViewMode,
   onLeave,
+  onEndForAll,
+  leaveLabels,
   micBlocked = false,
   cameraBlocked = false,
   permissionHelpLabels = DEFAULT_PERMISSION_HELP_LABELS,
@@ -834,16 +845,44 @@ export function CallControlsBar({
       </div>
 
       {/* Leave/End */}
-      <CallTooltip label="Leave call">
-        <Button
-          variant="destructive"
-          size="icon"
-          className="h-12 w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
-          onClick={onLeave}
-        >
-          <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
-        </Button>
-      </CallTooltip>
+      {onEndForAll ? (
+        <DropdownMenu>
+          <CallTooltip label={leaveLabels?.leave ?? 'Leave call'}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="destructive"
+                size="icon"
+                aria-label={leaveLabels?.leave ?? 'Leave call'}
+                className="h-12 w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+              >
+                <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
+              </Button>
+            </DropdownMenuTrigger>
+          </CallTooltip>
+          <DropdownMenuContent side="top" align="end" sideOffset={7} className="w-56">
+            <DropdownMenuItem onClick={onLeave}>
+              <LogOut className="h-4 w-4 mr-0.5" />
+              {leaveLabels?.leaveMeeting ?? 'Leave meeting'}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onEndForAll} className="text-red-500 focus:text-red-500">
+              <Phone className="h-4 w-4 mr-0.5 rotate-[135deg]" />
+              {leaveLabels?.endForAll ?? 'End meeting for all'}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <CallTooltip label={leaveLabels?.leave ?? 'Leave call'}>
+          <Button
+            variant="destructive"
+            size="icon"
+            aria-label={leaveLabels?.leave ?? 'Leave call'}
+            className="h-12 w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+            onClick={onLeave}
+          >
+            <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
+          </Button>
+        </CallTooltip>
+      )}
 
       {/* Extra controls slot */}
       {extraControls}

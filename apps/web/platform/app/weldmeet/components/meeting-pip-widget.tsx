@@ -5,7 +5,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { usePathname } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
-import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, PictureInPicture2, Copy } from 'lucide-react';
+import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, PictureInPicture2, Copy, LogOut } from 'lucide-react';
 import { useWeldMeetCall, type MeetingCallStatus } from '@/contexts/weldmeet-call-context';
 import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useWorkspaceId } from '@/contexts/workspace-context';
@@ -602,7 +602,8 @@ interface PipControlsBarProps {
   onToggleHandRaise: () => void;
   onExpand: () => void;
   onCopyJoiningInfo: () => void;
-  onEnd: () => void;
+  onLeave: () => void;
+  onEndForAll: () => void;
 }
 
 /** Controls bar — same button style as the main CallControlsBar. */
@@ -619,7 +620,8 @@ function PipControlsBar({
   onToggleHandRaise,
   onExpand,
   onCopyJoiningInfo,
-  onEnd,
+  onLeave,
+  onEndForAll,
 }: PipControlsBarProps) {
   return (
     <div className="flex items-center justify-center gap-2 px-1 pt-2.5 pb-1">
@@ -635,16 +637,44 @@ function PipControlsBar({
       />
 
       {/* Hangup — same destructive pill + rotated phone icon as the
-          maximized meeting's CallControlsBar leave button. */}
-      <Button
-        variant="destructive"
-        size="icon"
-        className="h-11 w-14 rounded-[14px] transition-all [&]:hover:brightness-90"
-        onClick={onEnd}
-        title={isOrganizer ? t.pipWidget.endMeeting : t.pipWidget.leaveMeeting}
-      >
-        <Phone className="!h-[19px] !w-[19px] rotate-[135deg] fill-current" />
-      </Button>
+          maximized meeting's CallControlsBar leave button. Organizers get a
+          Leave / End-for-all menu (same labels as the main bar); everyone else
+          a single leave button. */}
+      {isOrganizer ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="destructive"
+              size="icon"
+              className="h-11 w-14 rounded-[14px] transition-all [&]:hover:brightness-90"
+              title={t.pipWidget.leaveMeeting}
+              aria-label={t.pipWidget.leaveMeeting}
+            >
+              <Phone className="!h-[19px] !w-[19px] rotate-[135deg] fill-current" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="end" sideOffset={6} className="w-56 z-[10000]">
+            <DropdownMenuItem onClick={onLeave}>
+              <LogOut className="h-4 w-4 mr-0.5" />
+              {t.pipWidget.leaveMeeting}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onEndForAll} className="text-red-500 focus:text-red-500">
+              <Phone className="h-4 w-4 mr-0.5 rotate-[135deg]" />
+              {t.leaveMenu.endForAll}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <Button
+          variant="destructive"
+          size="icon"
+          className="h-11 w-14 rounded-[14px] transition-all [&]:hover:brightness-90"
+          onClick={onLeave}
+          title={t.pipWidget.leaveMeeting}
+        >
+          <Phone className="!h-[19px] !w-[19px] rotate-[135deg] fill-current" />
+        </Button>
+      )}
     </div>
   );
 }
@@ -958,10 +988,13 @@ export function MeetingPiPWidget() {
     }
   }, [expandFromPiP, navigate, meetingId, pipDrag.didDragRef]);
 
-  const handleEnd = useCallback(() => {
-    if (isOrganizer) endMeeting();
-    else leaveMeeting();
-  }, [isOrganizer, endMeeting, leaveMeeting]);
+  const handleLeave = useCallback(() => {
+    leaveMeeting();
+  }, [leaveMeeting]);
+
+  const handleEndForAll = useCallback(() => {
+    endMeeting();
+  }, [endMeeting]);
 
   const handleScreenShare = useCallback(() => {
     if (isScreenSharing) stopScreenShare();
@@ -1082,7 +1115,8 @@ export function MeetingPiPWidget() {
         onToggleHandRaise={toggleHandRaise}
         onExpand={handleExpand}
         onCopyJoiningInfo={handleCopyJoiningInfo}
-        onEnd={handleEnd}
+        onLeave={handleLeave}
+        onEndForAll={handleEndForAll}
       />
 
       {/* Hidden duration tracker — exposed for screen readers; not shown in this design */}

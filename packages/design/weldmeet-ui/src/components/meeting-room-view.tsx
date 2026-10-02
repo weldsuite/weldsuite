@@ -598,6 +598,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     toggleHandRaise,
     setViewMode,
     onLeave,
+    onEndForAll,
+    leaveLabels,
     onToggleFullscreen,
     onPictureInPicture,
     onRenameMeeting,
@@ -843,6 +845,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           toggleHandRaise={toggleHandRaise}
           setViewMode={setViewMode}
           onLeave={onLeave}
+          onEndForAll={onEndForAll}
+          leaveLabels={leaveLabels}
           onToggleEffects={onToggleEffects}
           effectsOpen={effectsOpen}
           backgroundType={backgroundType}
