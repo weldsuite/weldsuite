@@ -54,7 +54,13 @@ export async function publishMeetingUpdated(
 // End session
 // ============================================================================
 
-function isMeetingPast(
+/**
+ * A scheduled meeting is past once its end (or, without one, start + 1h) has
+ * elapsed. Unscheduled meetings ("Create a meeting for later", instant
+ * meetings) are reusable rooms: they are never past, so ending a session
+ * returns them to 'scheduled' and the same link can start a new session.
+ */
+export function isMeetingPast(
   meeting: { scheduledEnd: Date | null; scheduledStart: Date | null } | undefined,
   now: Date,
 ): boolean {
@@ -62,7 +68,7 @@ function isMeetingPast(
   if (meeting?.scheduledStart) {
     return new Date(meeting.scheduledStart).getTime() < now.getTime() - 60 * 60_000;
   }
-  return true;
+  return false;
 }
 
 export async function endMeetingSession(
