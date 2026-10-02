@@ -47,6 +47,7 @@ import {
   mergeInvitees,
   normalizeInvitees,
   sendInvitationEmail,
+  toMeetingAttendees,
   type ResolvedInvitee,
 } from '../../services/weldmeet/invitations';
 import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
@@ -926,6 +927,20 @@ app.get('/:id', requirePermission('meetings:read'), async (c) => {
   }
 });
 
+/**
+ * The create/update schemas accept schedule times as ISO strings, but the
+ * timestamp columns need a `Date`. `null` clears the column; absent keys are
+ * left out so PATCH does not touch them.
+ */
+function withScheduleDates(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  for (const key of ['scheduledStart', 'scheduledEnd'] as const) {
+    const value = out[key];
+    if (typeof value === 'string') out[key] = new Date(value);
+  }
+  return out;
+}
+
 app.post('/', requirePermission('meetings:create'), zValidator('json', createMeetingSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json') as Record<string, any>;
@@ -947,7 +962,9 @@ app.post('/', requirePermission('meetings:create'), zValidator('json', createMee
   // start-instant path; a client-supplied value is not trusted.
   const joinCode = generateJoinCode();
   try {
-    await db.insert(t).values({ id, ...data, joinCode, waitingRoom, organizerId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    const values = withScheduleDates(data);
+    if (Array.isArray(data.attendees)) values.attendees = toMeetingAttendees(data.attendees);
+    await db.insert(t).values({ id, ...values, joinCode, waitingRoom, organizerId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
     publishEntityEvent({
       c,
       entityType: 'meeting',
@@ -973,7 +990,7 @@ app.patch('/:id', requirePermission('meetings:update'), zValidator('json', updat
     const [existing] = await db.select().from(t).where(and(...conditions)).limit(1);
     if (!existing) return error.notFound(c, 'Meeting', id);
     const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    for (const [k, v] of Object.entries(withScheduleDates(data))) if (v !== undefined) update[k] = v;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
       c,
