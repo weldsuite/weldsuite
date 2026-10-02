@@ -49,6 +49,8 @@ interface TranscriptTabProps {
   segments: TranscriptionSegment[] | undefined;
   isLoading: boolean;
   isTranscribing: boolean;
+  /** The last transcription attempt failed; the empty state offers a retry. */
+  transcriptionFailed?: boolean;
   transcriptionProgress: number;
   hasTranscription: boolean;
   activeSegmentId: string | null;
@@ -62,6 +64,7 @@ export function TranscriptTabContent({
   segments,
   isLoading,
   isTranscribing,
+  transcriptionFailed = false,
   transcriptionProgress,
   activeSegmentId,
   activeWordIndex = -1,
@@ -202,8 +205,16 @@ export function TranscriptTabContent({
           <rect x="28" y="106" width="56" height="2.5" rx="1.25" className="fill-gray-100 dark:fill-white/10" />
         </svg>
       </EmptyStateIllustration>
-      <p className="text-sm font-medium text-foreground mb-1">{t('sweep.weldcrm.globalFloatingCall.noTranscriptAvailable')}</p>
-      <p className="text-xs text-muted-foreground mb-4">{t('sweep.weldcrm.transcriptTab.transcribeToSeeConversation')}</p>
+      <p className="text-sm font-medium text-foreground mb-1">
+        {transcriptionFailed
+          ? t('sweep.weldcrm.meetingIntelligence.transcriptionFailed')
+          : t('sweep.weldcrm.globalFloatingCall.noTranscriptAvailable')}
+      </p>
+      <p className="text-xs text-muted-foreground mb-4">
+        {transcriptionFailed
+          ? t('sweep.weldcrm.transcriptTab.transcriptionFailedDescription')
+          : t('sweep.weldcrm.transcriptTab.transcribeToSeeConversation')}
+      </p>
       {onTranscribe && (
         <Button
           variant="outline"
@@ -211,7 +222,9 @@ export function TranscriptTabContent({
           className="h-[34px]"
           onClick={onTranscribe}
         >
-          {t('sweep.weldcrm.meetingIntelligenceHeader.transcribe')}
+          {transcriptionFailed
+            ? t('sweep.weldcrm.transcriptTab.tryAgain')
+            : t('sweep.weldcrm.meetingIntelligenceHeader.transcribe')}
         </Button>
       )}
     </div>

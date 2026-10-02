@@ -3398,7 +3398,9 @@ export const sweep = {
       "autoScrollOff": "Auto-scroll OFF",
       "loading": "Loading...",
       "speakerNumber": "Speaker {number}",
-      "transcribeToSeeConversation": "Transcribe this meeting to see the full conversation."
+      "transcribeToSeeConversation": "Transcribe this meeting to see the full conversation.",
+      "transcriptionFailedDescription": "Something went wrong while transcribing this recording. You can try again.",
+      "tryAgain": "Try again"
     },
     "transcriptionProgress": {
       "transcribingCall": "Transcribing call..."
