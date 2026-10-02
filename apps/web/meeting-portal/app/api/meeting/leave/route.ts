@@ -6,16 +6,7 @@ import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-ses
 import { guestLeaveInputSchema } from '@/lib/schemas';
 import { guestUnauthorized, invalidInput } from '@/lib/api-response';
 import { authenticateGuest, isTokenParticipant } from '@/lib/guest-session';
-
-/** A meeting is past once its end (or, without one, start + 1h) has elapsed; undated meetings count as past. */
-function isMeetingPast(
-  meeting: { scheduledEnd: Date | string | null; scheduledStart: Date | string | null } | undefined,
-  now: Date,
-): boolean {
-  if (meeting?.scheduledEnd) return new Date(meeting.scheduledEnd).getTime() < now.getTime();
-  if (meeting?.scheduledStart) return new Date(meeting.scheduledStart).getTime() < now.getTime() - 60 * 60_000;
-  return true;
-}
+import { isMeetingPast } from '@/lib/meeting-status';
 
 /**
  * POST /api/meeting/leave

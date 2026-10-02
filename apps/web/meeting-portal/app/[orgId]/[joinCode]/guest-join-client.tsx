@@ -791,7 +791,7 @@ export default function GuestJoinClient() {
   // ── Render ──
 
   if (state === 'loading') return <LoadingScreen />;
-  if (state === 'error') return <ErrorScreen message={errorMsg} />;
+  if (state === 'error') return <ErrorScreen message={errorMsg} joinCode={joinCode} />;
   if (state === 'ended') {
     return (
       <EndedScreen
