@@ -11,6 +11,7 @@ import {
   Phone,
   Receipt,
   Users,
+  Video,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -50,6 +51,7 @@ export interface NavArea {
 export function getNavAreas(): NavArea[] {
   const pricing = getTranslations('host').adminPricing;
   const phonePricing = getTranslations('host').adminPhonePricing;
+  const meetAiPricing = getTranslations('host').adminMeetAiPricing;
   return [
   {
     key: 'overview',
@@ -70,6 +72,7 @@ export function getNavAreas(): NavArea[] {
           { title: 'AI Costs', href: '/ai-costs', icon: Coins },
           { title: pricing.navJumpTo, href: '/domain-pricing', icon: Globe },
           { title: phonePricing.navJumpTo, href: '/phone-pricing', icon: Phone },
+          { title: meetAiPricing.navJumpTo, href: '/weldmeet-ai-pricing', icon: Video },
         ],
       },
     ],
@@ -146,6 +149,18 @@ export function getNavAreas(): NavArea[] {
       {
         group: phonePricing.navGroup,
         items: [{ title: phonePricing.navCatalog, href: '/phone-pricing', icon: Phone }],
+      },
+    ],
+  },
+  {
+    key: 'weldmeet-ai-pricing',
+    name: meetAiPricing.navArea,
+    icon: Video,
+    href: '/weldmeet-ai-pricing',
+    groups: [
+      {
+        group: meetAiPricing.navGroup,
+        items: [{ title: meetAiPricing.navPage, href: '/weldmeet-ai-pricing', icon: Video }],
       },
     ],
   },

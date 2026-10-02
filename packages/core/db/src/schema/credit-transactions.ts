@@ -52,7 +52,9 @@ export type CreditServiceType =
   | 'call_transcription'
   | 'sms'
   | 'voip_call'
-  | 'data_enrichment';
+  | 'data_enrichment'
+  | 'meeting_transcription'
+  | 'meeting_summary';
 
 /**
  * Credit transaction metadata for different service types

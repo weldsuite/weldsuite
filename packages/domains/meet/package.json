@@ -5,7 +5,17 @@
   "type": "module",
   "private": true,
   "exports": {
+    "./audio/mp3": "./src/audio/mp3.ts",
+    "./billing": "./src/billing.ts",
+    "./env": "./src/env.ts",
+    "./r2-copy": "./src/r2-copy.ts",
+    "./recordings": "./src/recordings.ts",
+    "./rtk-transcript": "./src/rtk-transcript.ts",
     "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
+    "./transcript-store": "./src/transcript-store.ts",
+    "./workflows/backfill-legacy-recordings": "./src/workflows/backfill-legacy-recordings.ts",
+    "./workflows/copy-meeting-recording": "./src/workflows/copy-meeting-recording.ts",
+    "./workflows/meeting-ai": "./src/workflows/meeting-ai.ts",
     "./workflows/transcribe-recording": "./src/workflows/transcribe-recording.ts"
   },
   "scripts": {
@@ -15,7 +25,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@weldsuite/ai": "workspace:*",
+    "@weldsuite/cloudflare-realtime": "workspace:*",
+    "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },

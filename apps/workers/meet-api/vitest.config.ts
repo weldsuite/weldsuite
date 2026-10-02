@@ -20,8 +20,9 @@ export default defineConfig({
         __dirname,
         '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
       ),
-      // Workers-only module; src/index.ts re-exports the TranscribeRecording
-      // workflow class (@weldsuite/meet-domain), which extends WorkflowEntrypoint.
+      // Workers-only module; src/index.ts re-exports the meet-domain workflow
+      // classes (CopyMeetingRecording, MeetingAi, the retired TranscribeRecording
+      // stub), which extend WorkflowEntrypoint.
       'cloudflare:workers': path.resolve(
         __dirname,
         '../../../packages/domains/meet/src/testing/cloudflare-workers-stub.ts',

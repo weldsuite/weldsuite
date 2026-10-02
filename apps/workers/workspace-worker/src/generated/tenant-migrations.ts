@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit manually.
  * Run `pnpm bundle-migrations` to regenerate.
  *
- * Contains 193 tenant database migrations bundled for Cloudflare Workers.
+ * Contains 197 tenant database migrations bundled for Cloudflare Workers.
  * Generated from: packages/core/db/drizzle/tenant-migrations/
  */
 
@@ -200,6 +200,10 @@ export const MIGRATION_JOURNAL = [
   { idx: 190, tag: "0190_mail_domain_catch_all", when: 1788000000000 },
   { idx: 191, tag: "0191_mail_subscriptions", when: 1788100000000 },
   { idx: 192, tag: "0192_weldhr_employee_operations", when: 1788200000000 },
+  { idx: 193, tag: "0193_member_permission_denies", when: 1788300000000 },
+  { idx: 194, tag: "0194_weldagent_parity", when: 1788400000000 },
+  { idx: 195, tag: "0195_commerce_portal_and_schema_drift", when: 1788500000000 },
+  { idx: 196, tag: "0196_burly_the_twelve", when: 1790961019143 },
 ] as const;
 
 export const MIGRATION_SQL: Record<string, string> = {
@@ -11056,6 +11060,196 @@ CREATE INDEX IF NOT EXISTS "hr_portal_access_company_idx" ON "hr_portal_access" 
 CREATE UNIQUE INDEX IF NOT EXISTS "hr_portal_access_kind_email_company_uidx" ON "hr_portal_access" USING btree ("kind","email","company_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "hr_shifts_employee_start_idx" ON "hr_shifts" USING btree ("employee_id","starts_at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "hr_shifts_start_idx" ON "hr_shifts" USING btree ("starts_at");`,
+  "0193_member_permission_denies": `-- Per-app permissions: explicit per-member denies (e.g. \`weldbooks:companies:read\`).
+-- A deny always wins over a grant from the member's role or their own extras.
+-- Additive with an empty default, so existing members are unaffected.
+ALTER TABLE "workspace_members" ADD COLUMN IF NOT EXISTS "permission_denies" jsonb DEFAULT '[]'::jsonb;`,
+  "0194_weldagent_parity": `CREATE TABLE "weldagent_agent_skills" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"agent_id" varchar(30) NOT NULL,
+	"skill_id" varchar(30) NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "weldagent_approvals" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"agent_id" varchar(30) NOT NULL,
+	"conversation_id" varchar(30),
+	"tool_name" varchar(100) NOT NULL,
+	"args" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"risk_level" varchar(20) DEFAULT 'high' NOT NULL,
+	"status" varchar(20) DEFAULT 'pending' NOT NULL,
+	"reason" text,
+	"decided_by" varchar(255),
+	"decided_at" timestamp with time zone,
+	"created_by" varchar(255),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "weldagent_memories" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"agent_id" varchar(30) NOT NULL,
+	"kind" varchar(20) DEFAULT 'fact' NOT NULL,
+	"content" text NOT NULL,
+	"source" varchar(100),
+	"created_by" varchar(255),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"deleted_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE "weldagent_routine_runs" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"routine_id" varchar(30) NOT NULL,
+	"agent_id" varchar(30) NOT NULL,
+	"status" varchar(20) DEFAULT 'queued' NOT NULL,
+	"trigger" varchar(40) DEFAULT 'schedule' NOT NULL,
+	"summary" text,
+	"error" text,
+	"agent_run_id" varchar(30),
+	"started_at" timestamp with time zone,
+	"completed_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "weldagent_routines" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"agent_id" varchar(30) NOT NULL,
+	"name" varchar(255) NOT NULL,
+	"instructions" text NOT NULL,
+	"skill_id" varchar(30),
+	"schedule_kind" varchar(20) DEFAULT 'cron' NOT NULL,
+	"cron_expr" varchar(100),
+	"timezone" varchar(64) DEFAULT 'UTC' NOT NULL,
+	"event_key" varchar(100),
+	"connector_config" jsonb,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"require_approval" boolean DEFAULT false NOT NULL,
+	"last_run_at" timestamp with time zone,
+	"next_run_at" timestamp with time zone,
+	"created_by" varchar(255),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"deleted_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE "weldagent_skills" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"name" varchar(255) NOT NULL,
+	"description" text,
+	"instructions" text NOT NULL,
+	"status" varchar(20) DEFAULT 'draft' NOT NULL,
+	"steps" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"created_by" varchar(255),
+	"source_agent_id" varchar(30),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"deleted_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE "weldagent_teach_sessions" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"agent_id" varchar(30) NOT NULL,
+	"title" varchar(255) NOT NULL,
+	"status" varchar(20) DEFAULT 'recording' NOT NULL,
+	"steps" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"skill_id" varchar(30),
+	"started_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"stopped_at" timestamp with time zone,
+	"created_by" varchar(255),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "weldagent_templates" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"name" varchar(255) NOT NULL,
+	"description" text,
+	"payload" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"is_public" boolean DEFAULT false NOT NULL,
+	"share_token" varchar(64),
+	"source_agent_id" varchar(30),
+	"created_by" varchar(255),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"deleted_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX "weldagent_agent_skills_unique" ON "weldagent_agent_skills" USING btree ("agent_id","skill_id");--> statement-breakpoint
+CREATE INDEX "weldagent_agent_skills_agent_idx" ON "weldagent_agent_skills" USING btree ("agent_id");--> statement-breakpoint
+CREATE INDEX "weldagent_approvals_agent_idx" ON "weldagent_approvals" USING btree ("agent_id");--> statement-breakpoint
+CREATE INDEX "weldagent_approvals_status_idx" ON "weldagent_approvals" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "weldagent_memories_agent_idx" ON "weldagent_memories" USING btree ("agent_id");--> statement-breakpoint
+CREATE INDEX "weldagent_memories_kind_idx" ON "weldagent_memories" USING btree ("kind");--> statement-breakpoint
+CREATE INDEX "weldagent_routine_runs_routine_idx" ON "weldagent_routine_runs" USING btree ("routine_id");--> statement-breakpoint
+CREATE INDEX "weldagent_routine_runs_created_idx" ON "weldagent_routine_runs" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "weldagent_routines_agent_idx" ON "weldagent_routines" USING btree ("agent_id");--> statement-breakpoint
+CREATE INDEX "weldagent_routines_next_run_idx" ON "weldagent_routines" USING btree ("next_run_at");--> statement-breakpoint
+CREATE INDEX "weldagent_routines_enabled_idx" ON "weldagent_routines" USING btree ("enabled");--> statement-breakpoint
+CREATE INDEX "weldagent_skills_status_idx" ON "weldagent_skills" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "weldagent_skills_deleted_at_idx" ON "weldagent_skills" USING btree ("deleted_at");--> statement-breakpoint
+CREATE INDEX "weldagent_teach_sessions_agent_idx" ON "weldagent_teach_sessions" USING btree ("agent_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "weldagent_templates_share_token_idx" ON "weldagent_templates" USING btree ("share_token");--> statement-breakpoint
+CREATE INDEX "weldagent_templates_public_idx" ON "weldagent_templates" USING btree ("is_public");`,
+  "0195_commerce_portal_and_schema_drift": `CREATE TABLE "commerce_portal_access" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"person_id" varchar(30) NOT NULL,
+	"company_id" varchar(30) NOT NULL,
+	"email" varchar(255) NOT NULL,
+	"status" varchar(20) DEFAULT 'invited' NOT NULL,
+	"invited_by" varchar(255),
+	"invited_at" timestamp,
+	"last_login_at" timestamp
+);
+--> statement-breakpoint
+CREATE TABLE "commerce_portal_settings" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"is_enabled" integer DEFAULT 0 NOT NULL,
+	"display_name" varchar(255),
+	"logo" varchar(500),
+	"primary_color" varchar(20),
+	"accent_color" varchar(20),
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"deleted_at" timestamp
+);
+--> statement-breakpoint
+ALTER TABLE "weldagent_agents" ALTER COLUMN "model_id" SET DEFAULT '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+--> statement-breakpoint
+CREATE UNIQUE INDEX "commerce_portal_access_person_company_uidx" ON "commerce_portal_access" USING btree ("person_id","company_id");
+--> statement-breakpoint
+CREATE INDEX "commerce_portal_access_email_idx" ON "commerce_portal_access" USING btree ("email");
+--> statement-breakpoint
+CREATE INDEX "commerce_portal_access_company_idx" ON "commerce_portal_access" USING btree ("company_id");
+--> statement-breakpoint
+CREATE INDEX "commerce_portal_access_status_idx" ON "commerce_portal_access" USING btree ("status");
+--> statement-breakpoint
+CREATE INDEX "commerce_portal_settings_enabled_idx" ON "commerce_portal_settings" USING btree ("is_enabled");`,
+  "0196_burly_the_twelve": `ALTER TABLE "meeting_sessions" ADD COLUMN "rtk_session_id" varchar(100);--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "recording_status" varchar(20);--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "recording_rtk_id" varchar(100);--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "recording_video_key" varchar(500);--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "recording_audio_key" varchar(500);--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "recording_size_bytes" bigint;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "recording_duration_seconds" integer;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "recording_ready_at" timestamp;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "recording_error" text;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "recording_parts" jsonb;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "ai_transcribe_requested" boolean DEFAULT false;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "ai_summarize_requested" boolean DEFAULT false;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "ai_language" varchar(10);--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "transcription_credits_charged" integer;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "summary_status" varchar(20);--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "summary_text" text;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "summary_format" varchar(20);--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "summary_source" varchar(20);--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "summary_generated_at" timestamp;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "summary_error" text;--> statement-breakpoint
+ALTER TABLE "meeting_sessions" ADD COLUMN "summary_credits_charged" integer;--> statement-breakpoint
+CREATE INDEX "meeting_sessions_recording_status_idx" ON "meeting_sessions" USING btree ("recording_status");`,
 };
 
 export const MIGRATION_HASHES: Record<string, string> = {
@@ -11251,5 +11445,9 @@ export const MIGRATION_HASHES: Record<string, string> = {
   "0189_weldpass_secret_vaults": "9722e862b90ccc29ccb47e000ede48024de2565cfcbdef45c8caf481b4e475f7",
   "0190_mail_domain_catch_all": "21fa8ed9fd9f6a6c619c9c59390317af029d647bb8c693a16a7da04c7e8acaeb",
   "0191_mail_subscriptions": "d47be30d24f9672b762a46a39b288dd20187bf9763fd27778683799aee6ffb32",
-  "0192_weldhr_employee_operations": "d39525de44afe06b24e9f98e3db292e6a7aae7309cd913380f29cf4d6e198be9",
+  "0192_weldhr_employee_operations": "7fef7908aba055d59b91f11ba7f530d11b597a546b1f0c42ef18d289724c6581",
+  "0193_member_permission_denies": "7672a5d6bb92a57b768b7a905348d6300aa5dfa12afacbb59607290ee93c09ba",
+  "0194_weldagent_parity": "6f7b5ad8a20ed5aa1a4d1187e5a98ca35a8dffdfbca7aae740c33f997b08e585",
+  "0195_commerce_portal_and_schema_drift": "684d4dfeb3561c297ccf2c6db5f236c239524294358fceea061b94d0c5137dd4",
+  "0196_burly_the_twelve": "ba98c4b2f3c89b864437514426ad7328715dda7bca5fd430db2f60096e8f0f3e",
 };

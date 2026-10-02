@@ -21,7 +21,7 @@ import {
 } from '@weldsuite/worker-kit/testing/sweeps';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
-import { meetingBotSessionsRoutes } from './meeting-bot-sessions';
+import { meetingSessionsRoutes } from './meeting-sessions';
 import { meetingsRoutes } from './meetings';
 
 const ROUTES_DIR = __dirname;
@@ -31,17 +31,16 @@ const EXEMPT_ROUTES = new Set<string>([
   // Inbound webhook RECEIVERS — they ingest external provider events; they are
   // not entity CRUD and have nothing to fan out over the entity-event bus.
   'webhooks-cloudflare-realtime',
-  'webhooks-meeting-bot',
 ]);
 
 const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/meetings', router: meetingsRoutes, prefix: 'meetings' },
-  { mount: '/api/meeting-bot-sessions', router: meetingBotSessionsRoutes, prefix: 'activities' },
+  { mount: '/api/meeting-sessions', router: meetingSessionsRoutes, prefix: 'sessions' },
 ];
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/meetings', router: meetingsRoutes, permission: 'meetings:read' },
-  { mount: '/api/meeting-bot-sessions', router: meetingBotSessionsRoutes, permission: 'activities:read' },
+  { mount: '/api/meeting-sessions', router: meetingSessionsRoutes, permission: 'sessions:read' },
 ];
 
 describe('entity-event coverage', () => {

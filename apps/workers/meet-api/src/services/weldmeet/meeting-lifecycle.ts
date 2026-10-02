@@ -92,8 +92,7 @@ export async function endMeetingSession(
     .select({
       status: meetingSessions.status,
       participants: meetingSessions.participants,
-      recordingEnabled: meetingSessions.recordingEnabled,
-      recordingKey: meetingSessions.recordingKey,
+      recordingStatus: meetingSessions.recordingStatus,
     })
     .from(meetingSessions)
     .where(eq(meetingSessions.id, sessionId))
@@ -105,10 +104,10 @@ export async function endMeetingSession(
     ? Math.round((now.getTime() - new Date(session.startedAt).getTime()) / 1000)
     : 0;
 
-  // Preserve the recording link when a meeting ends while still recording.
-  // cfAppId is the RTK meeting id that getRecordings() resolves the URL from.
-  const linkRecording =
-    !!current?.recordingEnabled && !current?.recordingKey && !!session.cfAppId;
+  // A meeting that ends while still recording: RealtimeKit stops the recorder and
+  // follows with recording.statusUpdate UPLOADING / UPLOADED, which drives the rest
+  // (copy into the private bucket, status 'ready'). Until then the recording is
+  // "processing". Nothing about the recording is linked here any more.
 
   // Everyone still in the room leaves with the session.
   const participants = (current?.participants ?? []).map((p) =>
@@ -122,7 +121,9 @@ export async function endMeetingSession(
       endedAt: now,
       duration,
       participants,
-      ...(linkRecording ? { recordingKey: session.cfAppId, recordingEnabled: false } : {}),
+      ...(current?.recordingStatus === 'recording'
+        ? { recordingStatus: 'processing', recordingEnabled: false }
+        : {}),
       updatedAt: now,
     })
     .where(eq(meetingSessions.id, sessionId));
@@ -167,7 +168,9 @@ export async function endMeetingSession(
     }
   }
 
-  // Clean up KV mapping (best effort — missing binding logs/noop, never throws)
+  // Clean up the 24 h KV mapping (best effort — missing binding logs/noop, never
+  // throws). The 14-day `rtk-session:` mapping is deliberately LEFT: recording,
+  // transcript and summary webhooks arrive after the meeting ends.
   if (session.cfAppId) {
     try {
       await env.WORKSPACE_CACHE.delete(`rtk-meeting:${session.cfAppId}`);

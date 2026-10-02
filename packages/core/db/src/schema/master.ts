@@ -825,7 +825,9 @@ export type CreditServiceType =
   | 'sms'
   | 'voip_call'
   | 'data_enrichment'
-  | 'social_post';
+  | 'social_post'
+  | 'meeting_transcription'
+  | 'meeting_summary';
 
 /**
  * Credit transaction metadata for different service types

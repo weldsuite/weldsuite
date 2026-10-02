@@ -58,6 +58,8 @@ interface TranscriptTabProps {
   onAutoScrollChange: (value: boolean) => void;
   onSeekToSegment: (startTime: number) => void;
   onTranscribe?: () => void;
+  /** Replaces the "transcribe to see the conversation" line of the empty state. */
+  emptyHint?: string;
   segmentRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
 }
 export function TranscriptTabContent({
@@ -72,6 +74,7 @@ export function TranscriptTabContent({
   onSeekToSegment,
   onSeekToTime,
   onTranscribe,
+  emptyHint,
   segmentRefs,
 }: Omit<TranscriptTabProps, 'autoScroll' | 'onAutoScrollChange'> & {
   searchQuery: string;
@@ -210,10 +213,10 @@ export function TranscriptTabContent({
           ? t('sweep.weldcrm.meetingIntelligence.transcriptionFailed')
           : t('sweep.weldcrm.globalFloatingCall.noTranscriptAvailable')}
       </p>
-      <p className="text-xs text-muted-foreground mb-4">
+      <p className="text-xs text-muted-foreground mb-4 max-w-sm">
         {transcriptionFailed
           ? t('sweep.weldcrm.transcriptTab.transcriptionFailedDescription')
-          : t('sweep.weldcrm.transcriptTab.transcribeToSeeConversation')}
+          : (emptyHint ?? t('sweep.weldcrm.transcriptTab.transcribeToSeeConversation'))}
       </p>
       {onTranscribe && (
         <Button
