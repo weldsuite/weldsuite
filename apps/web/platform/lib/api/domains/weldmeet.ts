@@ -23,6 +23,12 @@ export interface MeetingAttendee {
   role: 'organizer' | 'attendee';
 }
 
+/** An attendee on create: an email is enough, the API resolves the rest. */
+export interface CreateMeetingAttendee {
+  email: string;
+  name?: string;
+}
+
 export interface CreateMeetingRequest {
   title: string;
   description?: string;
@@ -31,12 +37,15 @@ export interface CreateMeetingRequest {
   waitingRoom?: boolean;
   allowRecording?: boolean;
   maxParticipants?: number;
-  attendees?: MeetingAttendee[];
+  attendees?: CreateMeetingAttendee[];
+  /** ISO-8601, as produced by `Date.toISOString()`. */
   scheduledStart?: string;
   scheduledEnd?: string;
   isRecurring?: boolean;
   recurrenceRule?: string;
   createCalendarEvent?: boolean;
+  /** Id of the calendar event this meeting belongs to. */
+  calendarEventId?: string;
   tags?: string[];
 }
 

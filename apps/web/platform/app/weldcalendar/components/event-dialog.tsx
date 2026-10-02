@@ -1,8 +1,9 @@
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Trash2, Loader2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -29,6 +30,8 @@ import {
   useUpdateCalendarEvent,
   useDeleteCalendarEvent,
   type CalendarEvent,
+  type CalendarEventInput,
+  type CalendarEventSaveResult,
   type UserCalendar,
 } from '@/hooks/queries/use-calendar-queries';
 import {
@@ -39,7 +42,11 @@ import {
   EVENT_PRIORITY_OPTIONS,
   EVENT_STATUS_OPTIONS,
 } from '../lib/event-form-schema';
-import { useAutoCreateWeldMeeting } from '@/hooks/use-auto-create-weld-meeting';
+import {
+  useAutoCreateWeldMeeting,
+  WeldMeetCreateError,
+  DEFAULT_WELDMEET_SETTINGS,
+} from '@/hooks/use-auto-create-weld-meeting';
 import { EventNotificationDialog } from './event-notification-dialog';
 
 interface EventDialogProps {
@@ -69,10 +76,15 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   const createEvent = useCreateCalendarEvent();
   const updateEvent = useUpdateCalendarEvent();
   const deleteEvent = useDeleteCalendarEvent();
-  const { createMeetingAndGetUrl, isPending: isCreatingMeeting } = useAutoCreateWeldMeeting();
+  const { saveEventWithWeldMeet } = useAutoCreateWeldMeeting();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
-  const [pendingPayload, setPendingPayload] = useState<Partial<CalendarEvent> | null>(null);
+  const [pendingPayload, setPendingPayload] = useState<CalendarEventInput | null>(null);
+  // The virtual-meeting switch only marks the event as WeldMeet: the meeting
+  // is created when the form is submitted, so cancelling leaves no orphan.
+  const [addWeldMeet, setAddWeldMeet] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
 
   // Calendars the user can create events in (own + edit/manage shared)
   const writableCalendars = (calendars || []).filter((c) => c.isOwn || c.permission === 'edit' || c.permission === 'manage');
@@ -99,6 +111,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
 
   // Reset form when event changes
   useEffect(() => {
+    setAddWeldMeet(false);
     if (event) {
       form.reset({
         calendarId: event.calendarId || defaultCalendarId || '',
@@ -140,13 +153,54 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
 
   const hasAttendees = !!(isEdit && event?.attendees?.length);
 
+  /**
+   * Saves the event through `save`. With WeldMeet added the meeting is created
+   * first and linked to the event by the same request (see
+   * `saveEventWithWeldMeet`).
+   */
+  const persistEvent = async (
+    payload: CalendarEventInput,
+    save: (data: CalendarEventInput) => Promise<CalendarEventSaveResult>,
+  ): Promise<void> => {
+    if (!addWeldMeet || payload.meetingUrl || !payload.startTime) {
+      await save(payload);
+      return;
+    }
+    await saveEventWithWeldMeet({
+      title: payload.title ?? '',
+      start: payload.startTime,
+      end: payload.endTime,
+      attendees: payload.attendees?.map((a) => ({ email: a.email, name: a.name })),
+      settings: DEFAULT_WELDMEET_SETTINGS,
+      saveEvent: (url, weldMeetingId) => save({ ...payload, meetingUrl: url, isVirtual: true, weldMeetingId }),
+    });
+  };
+
+  /** Runs one save with the double-submit guard; a meeting that failed to create was already reported. */
+  const runSave = async (action: () => Promise<void>): Promise<boolean> => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      await action();
+      return true;
+    } catch (err) {
+      if (!(err instanceof WeldMeetCreateError)) toast.error(t.eventDialog.saveFailed);
+      return false;
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  };
+
   const onSubmit = async (values: EventFormValues) => {
-    const payload = {
+    const payload: CalendarEventInput = {
       ...values,
       calendarId: values.calendarId || defaultCalendarId,
       startTime: values.startTime.toISOString(),
       endTime: values.endTime ? values.endTime.toISOString() : undefined,
-      meetingUrl: values.meetingUrl || undefined,
+      // Editing: '' (not undefined) is what clears a link the user switched off.
+      meetingUrl: values.meetingUrl || (isEdit && event?.meetingUrl ? '' : undefined),
       location: values.location || undefined,
       description: values.description || undefined,
       notes: values.notes || undefined,
@@ -155,21 +209,32 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
 
     if (isEdit && event?.id) {
       if (hasAttendees) {
+        // The meeting is created after the notify dialog is answered, not before.
         setPendingPayload(payload);
         setShowUpdateDialog(true);
-      } else {
-        await updateEvent.mutateAsync({ id: event.id, data: payload });
-        onOpenChange(false);
+        return;
       }
+      const eventId = event.id;
+      const saved = await runSave(() =>
+        persistEvent(payload, async (data) => (await updateEvent.mutateAsync({ id: eventId, data })).data),
+      );
+      if (saved) onOpenChange(false);
     } else {
-      await createEvent.mutateAsync(payload);
-      onOpenChange(false);
+      const saved = await runSave(() =>
+        persistEvent(payload, async (data) => (await createEvent.mutateAsync(data)).data),
+      );
+      if (saved) onOpenChange(false);
     }
   };
 
   const handleUpdateConfirm = async (sendNotification: boolean) => {
-    if (event?.id && pendingPayload) {
-      await updateEvent.mutateAsync({ id: event.id, data: pendingPayload, sendNotification });
+    if (!event?.id || !pendingPayload) return;
+    const eventId = event.id;
+    const payload = pendingPayload;
+    const saved = await runSave(() =>
+      persistEvent(payload, async (data) => (await updateEvent.mutateAsync({ id: eventId, data, sendNotification })).data),
+    );
+    if (saved) {
       setPendingPayload(null);
       setShowUpdateDialog(false);
       onOpenChange(false);
@@ -183,7 +248,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
     }
   };
 
-  const isLoading = createEvent.isPending || updateEvent.isPending || deleteEvent.isPending || isCreatingMeeting;
+  const isLoading = createEvent.isPending || updateEvent.isPending || deleteEvent.isPending || isSaving;
 
   let submitLabel: string;
   if (isLoading) {
@@ -322,20 +387,16 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
           <div className="flex items-center gap-2">
             <Switch
               checked={form.watch('isVirtual')}
-              onCheckedChange={async (v) => {
+              onCheckedChange={(v) => {
                 form.setValue('isVirtual', v);
-                if (v && !form.watch('meetingUrl')) {
-                  const result = await createMeetingAndGetUrl(form.watch('title') || 'Meeting');
-                  if (result) {
-                    form.setValue('meetingUrl', result.url);
-                  } else {
-                    form.setValue('isVirtual', false);
-                  }
-                } else if (!v) {
+                if (v) {
+                  // No meeting is created here: it is created when the form is submitted.
+                  if (!form.watch('meetingUrl')) setAddWeldMeet(true);
+                } else {
                   form.setValue('meetingUrl', '');
+                  setAddWeldMeet(false);
                 }
               }}
-              disabled={isCreatingMeeting}
             />
             <Label>{t.eventDialog.virtualLabel}</Label>
           </div>
@@ -343,10 +404,9 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
           {form.watch('isVirtual') && (
             <div className="space-y-2">
               <Label htmlFor="meetingUrl">{t.eventDialog.meetingUrlLabel}</Label>
-              {isCreatingMeeting ? (
-                <div className="flex items-center gap-2 h-9 px-3 rounded-md border bg-muted/50">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">{t.eventDialog.creatingMeetingLink}</span>
+              {addWeldMeet && !form.watch('meetingUrl') ? (
+                <div className="flex items-center h-9 px-3 rounded-md border bg-muted/50">
+                  <span className="text-sm text-muted-foreground">{t.eventDialog.meetingLinkPending}</span>
                 </div>
               ) : (
                 <Input

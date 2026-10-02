@@ -22,6 +22,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
 
 // ── Calendar (per-user calendar container) ──────────────────────────────
 
@@ -80,6 +81,22 @@ export interface CalendarEvent {
   autoScheduled?: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/**
+ * Request body for creating / updating an event. `weldMeetingId` is not part of
+ * the event itself: calendar-api uses it to link that WeldMeet meeting to the
+ * event atomically, so it must never end up in a cached `CalendarEvent`.
+ */
+export type CalendarEventInput = Partial<CalendarEvent> & { weldMeetingId?: string };
+
+/**
+ * `weldMeetingLinked` is only present when a `weldMeetingId` was sent;
+ * `false` means the event saved but the meeting could not be linked to it.
+ */
+export interface CalendarEventSaveResult {
+  id?: string;
+  weldMeetingLinked?: boolean;
 }
 
 export interface BookingPage {
@@ -217,9 +234,9 @@ export function useCreateCalendarEvent() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (event: Partial<CalendarEvent>) => {
+    mutationFn: async (event: CalendarEventInput) => {
       const client = await getClient();
-      return client.post<{ data: { id: string } }>('/calendar-events', event);
+      return client.post<{ data: CalendarEventSaveResult & { id: string } }>('/calendar-events', event);
     },
     // Optimistic insert: drop the new event into every cached events-range
     // query immediately so it takes the place of the inline-preview card the
@@ -229,8 +246,11 @@ export function useCreateCalendarEvent() {
     onMutate: async (event) => {
       await qc.cancelQueries({ queryKey: [...calendarKeys.all, 'events-range'] });
       const optimisticId = `optimistic-${Date.now()}`;
+      // `weldMeetingId` is request-only, keep it out of the cached event.
+      const eventFields: CalendarEventInput = { ...event };
+      delete eventFields.weldMeetingId;
       const optimisticEvent: CalendarEvent = {
-        ...(event as CalendarEvent),
+        ...(eventFields as CalendarEvent),
         id: optimisticId,
         startTime: event.startTime as string,
         endTime: event.endTime as string | undefined,
@@ -263,16 +283,18 @@ export function useUpdateCalendarEvent() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data, sendNotification }: { id: string; data: Partial<CalendarEvent>; sendNotification?: boolean }) => {
+    mutationFn: async ({ id, data, sendNotification }: { id: string; data: CalendarEventInput; sendNotification?: boolean }) => {
       const client = await getClient();
       // `sendNotification=true` is what drives the attendee mail server-side —
       // it is the "notify attendees?" dialog's answer.
       const qs = sendNotification ? '?sendNotification=true' : '';
       // app-api patches events; the legacy worker used PUT.
-      return client.patch<{ data: unknown }>(`/calendar-events/${id}${qs}`, data);
+      return client.patch<{ data: CalendarEventSaveResult }>(`/calendar-events/${id}${qs}`, data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: calendarKeys.all });
+      // The server syncs / cancels the linked WeldMeet meeting on update.
+      qc.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -288,6 +310,8 @@ export function useDeleteCalendarEvent() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: calendarKeys.all });
+      // The server cancels the linked WeldMeet meeting on delete.
+      qc.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -343,6 +367,8 @@ export function useRescheduleCalendarEvent() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: calendarKeys.all });
+      // The server moves the linked WeldMeet meeting along with the event.
+      qc.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
