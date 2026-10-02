@@ -33,10 +33,11 @@ export function createRnnoiseSuppressor(options: CreateRnnoiseSuppressorOptions)
  * Returns a restore() that puts the original back. Call restore() on
  * call cleanup BEFORE disposing the suppressor.
  *
- * Known limitation: each intercepted call constructs a fresh pipeline.
- * If RTK or the host app calls getUserMedia multiple times during a
- * single call (device switches, etc.), the previous pipeline leaks until
- * dispose(). Track and fix when we wire up `changeAudioDevice`.
+ * Each intercepted call gets its own pipeline, freed when the returned audio
+ * track is stopped (see NoiseSuppressor). The processed track reports the raw
+ * mic's deviceId, groupId and label: RTK checks the track's deviceId against
+ * its device list, and an unknown one (the WebAudio destination's) made it
+ * stop the track and re-acquire the mic on every join.
  */
 export function installGetUserMediaPatch(suppressor: NoiseSuppressor): () => void {
   const mediaDevices = navigator.mediaDevices;
@@ -68,7 +69,7 @@ export function installGetUserMediaPatch(suppressor: NoiseSuppressor): () => voi
     // the user can diagnose, but the call still works without noise suppression.
     let processed: MediaStream;
     try {
-      processed = await suppressor.process(raw);
+      processed = await suppressor.process(new MediaStream(raw.getAudioTracks()));
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn('[noise] suppressor failed to init, falling back to raw mic:', err);
@@ -80,6 +81,9 @@ export function installGetUserMediaPatch(suppressor: NoiseSuppressor): () => voi
       console.warn('[noise] suppressor returned no audio track, falling back to raw mic');
       return raw;
     }
+
+    const rawAudio = raw.getAudioTracks()[0];
+    if (rawAudio) mirrorDeviceIdentity(processedAudio, rawAudio);
 
     const out = new MediaStream();
     out.addTrack(processedAudio);
@@ -100,4 +104,16 @@ export function installGetUserMediaPatch(suppressor: NoiseSuppressor): () => voi
       value: original,
     });
   };
+}
+
+/**
+ * Makes the processed track describe itself as the microphone it came from,
+ * so device lookups (RTK's preferred-device check, the active-device marker in
+ * the mic menu) see the real input instead of a synthetic WebAudio device.
+ */
+function mirrorDeviceIdentity(processed: MediaStreamTrack, raw: MediaStreamTrack): void {
+  const { deviceId, groupId } = raw.getSettings();
+  const getProcessedSettings = processed.getSettings.bind(processed);
+  processed.getSettings = () => ({ ...getProcessedSettings(), deviceId, groupId });
+  Object.defineProperty(processed, 'label', { configurable: true, value: raw.label });
 }

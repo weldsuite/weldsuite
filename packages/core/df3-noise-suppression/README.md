@@ -70,6 +70,10 @@ await suppressor.dispose();
 
 For manual stream wiring, `suppressor.process(rawStream)` returns the processed
 `MediaStream`, and `suppressor.setBypass(true|false)` toggles passthrough.
+Each `process()` call builds its own pipeline, which is freed (raw mic
+included) when its processed track is stopped; `dispose()` frees the rest.
+Never tear one pipeline down from another: RTK acquires the mic several times
+per join and keeps whichever track it settled on.
 
 ## Consumer plumbing
 
