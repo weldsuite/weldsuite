@@ -581,6 +581,9 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     waitlistedCount = 0,
     isMuted,
     isVideoOff,
+    micBlocked,
+    cameraBlocked,
+    permissionHelpLabels,
     isScreenSharing,
     handRaised,
     handRaisedParticipants,
@@ -827,6 +830,9 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           meeting={meeting}
           isMuted={isMuted}
           isVideoOff={isVideoOff}
+          micBlocked={micBlocked}
+          cameraBlocked={cameraBlocked}
+          permissionHelpLabels={permissionHelpLabels}
           isScreenSharing={isScreenSharing}
           handRaised={handRaised}
           viewMode={viewMode}

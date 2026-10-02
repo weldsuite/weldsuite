@@ -91,6 +91,8 @@ function MeetingRoomAdapter() {
     meetingId: activeMeetingId,
     isMuted,
     isVideoOff,
+    micBlocked,
+    cameraBlocked,
     isScreenSharing,
     duration,
     handRaised,
@@ -126,6 +128,7 @@ function MeetingRoomAdapter() {
     removeBackground,
     captions,
   } = useWeldMeetCall();
+  const t = getTranslations('weldmeet');
 
   const { orgId } = useAuth();
   const workspaceId = useWorkspaceId() || orgId;
@@ -516,6 +519,9 @@ function MeetingRoomAdapter() {
       waitlistedCount={waitlistedCount}
       isMuted={isMuted}
       isVideoOff={isVideoOff}
+      micBlocked={micBlocked}
+      cameraBlocked={cameraBlocked}
+      permissionHelpLabels={t.permissionHelp}
       isScreenSharing={isScreenSharing}
       handRaised={handRaised}
       handRaisedParticipants={handRaisedParticipants}
