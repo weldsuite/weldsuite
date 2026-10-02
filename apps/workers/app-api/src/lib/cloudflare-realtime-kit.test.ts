@@ -324,6 +324,49 @@ describe('recordings', () => {
       stopped_time: '2026-07-26T10:30:00Z',
     });
   });
+
+  it('maps the audio file, expiry, duration and session of a recording', async () => {
+    const { env } = withResponses([
+      {
+        body: {
+          success: true,
+          paging: {},
+          data: [
+            {
+              id: 'r2',
+              status: 'UPLOADED',
+              download_url: 'https://example.com/rec.mp4',
+              audio_download_url: 'https://example.com/rec.mp3',
+              download_url_expiry: '2026-07-27T10:30:00Z',
+              file_size: 2048,
+              started_time: '2026-07-26T10:00:00Z',
+              stopped_time: '2026-07-26T10:30:00Z',
+              recording_duration: 1800,
+              invoked_time: '',
+              output_file_name: 'rec.mp4',
+              session_id: 's1',
+            },
+          ],
+        },
+      },
+    ]);
+
+    const [recording] = await getRecordings(env, 'm1');
+
+    expect(recording).toEqual({
+      id: 'r2',
+      status: 'UPLOADED',
+      download_url: 'https://example.com/rec.mp4',
+      audio_download_url: 'https://example.com/rec.mp3',
+      download_url_expiry: '2026-07-27T10:30:00Z',
+      file_size: 2048,
+      started_time: '2026-07-26T10:00:00Z',
+      stopped_time: '2026-07-26T10:30:00Z',
+      recording_duration: 1800,
+      output_file_name: 'rec.mp4',
+      session_id: 's1',
+    });
+  });
 });
 
 describe('webhooks', () => {

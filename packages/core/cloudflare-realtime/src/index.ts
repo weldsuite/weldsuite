@@ -864,7 +864,7 @@ function toRecording(r: {
     stopped_time: r.stopped_time ?? undefined,
     recording_duration: r.recording_duration ?? undefined,
     session_id: r.session_id ?? undefined,
-    output_file_name: r.output_file_name ?? undefined,
+    output_file_name: r.output_file_name || undefined,
   };
 }
 
