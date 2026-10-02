@@ -66,4 +66,44 @@ describe('/api/projects · pglite integration', () => {
     const res = await request('/api/projects/prj_missing');
     expect(res.status).toBe(404);
   });
+
+  describe('GET /:id/permissions', () => {
+    let projectId: string;
+
+    beforeAll(async () => {
+      // Managed by someone else; the test caller has no member row.
+      projectId = 'prj_perm_test';
+      await db.insert(schema.projects).values({
+        id: projectId,
+        name: 'Someone else\'s project',
+        projectManagerId: 'user_other',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    });
+
+    it('grants a workspace admin (projects:scope:all) full rights without a member row', async () => {
+      const { request } = createTestApp('/api/projects', projectsRoutes, {
+        context: { permissions: permissions('projects:read', 'projects:scope:all'), tenantDb: db },
+      });
+      const res = await request(`/api/projects/${projectId}/permissions`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        data: { role: string | null; canRead: boolean; canWrite: boolean; isAdmin: boolean };
+      };
+      expect(body.data).toMatchObject({ canRead: true, canWrite: true, isAdmin: true });
+    });
+
+    it('grants nothing to a non-member without projects:scope:all', async () => {
+      const { request } = createTestApp('/api/projects', projectsRoutes, {
+        context: { permissions: permissions('projects:read'), tenantDb: db },
+      });
+      const res = await request(`/api/projects/${projectId}/permissions`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        data: { role: string | null; canRead: boolean; canWrite: boolean; isAdmin: boolean };
+      };
+      expect(body.data).toEqual({ role: null, canRead: false, canWrite: false, isAdmin: false });
+    });
+  });
 });

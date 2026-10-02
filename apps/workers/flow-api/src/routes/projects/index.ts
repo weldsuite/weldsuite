@@ -301,6 +301,9 @@ app.get('/search', requirePermission('projects:read'), async (c) => {
 // ============================================================================
 // GET /:id/permissions — derive current user's role + flags for one project.
 // Project manager (creator) is treated as owner even without a member row.
+// Workspace owners/admins (`projects:scope:all`) get full rights on every
+// project, matching the canAccessProject / canManageProject guards the write
+// routes enforce — otherwise the UI hides actions the API would allow.
 // ============================================================================
 
 app.get('/:id/permissions', requirePermission('projects:read'), async (c) => {
@@ -311,7 +314,7 @@ app.get('/:id/permissions', requirePermission('projects:read'), async (c) => {
 
   try {
     const { projects, projectMembers } = schema;
-    const [[member], [project]] = await Promise.all([
+    const [[member], [project], scopeAll] = await Promise.all([
       db
         .select({ role: projectMembers.role })
         .from(projectMembers)
@@ -329,12 +332,13 @@ app.get('/:id/permissions', requirePermission('projects:read'), async (c) => {
         .from(projects)
         .where(eq(projects.id, projectId))
         .limit(1),
+      hasContextPermission(c, 'projects:scope:all'),
     ]);
 
     const isProjectManager = !!project && project.projectManagerId === userId;
     const projectRole = (member?.role ?? '').toLowerCase() || null;
     const role = projectRole ?? (isProjectManager ? 'owner' : null);
-    const isAdmin = isProjectManager || role === 'owner' || role === 'admin';
+    const isAdmin = scopeAll || isProjectManager || role === 'owner' || role === 'admin';
     const canWrite = isAdmin || role === 'member';
     const canRead = canWrite || role === 'viewer';
 
