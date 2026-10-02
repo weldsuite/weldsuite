@@ -115,7 +115,7 @@ export function SettingsClient({
                     variant="ghost"
                     onClick={() => handleSelect(tab.id)}
                     className={cn(
-                      'py-2 px-3 text-left text-sm border-none rounded-lg cursor-pointer transition-all -ml-3 mr-3',
+                      'justify-start py-2 px-3 text-left text-sm border-none rounded-lg cursor-pointer transition-all -ml-3 mr-3',
                       isActive
                         ? 'bg-accent text-foreground font-medium'
                         : 'text-muted-foreground font-normal hover:bg-accent hover:text-foreground',
