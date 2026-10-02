@@ -17,10 +17,11 @@
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   CF_REALTIME_APP_ID + CF_REALTIME_APP_SECRET (Cloudflare RealtimeKit:
 #     meeting sessions, recordings, ending chat calls from the RTK webhook)
-#   CF_REALTIME_WEBHOOK_TOKEN (optional ?token= gate on
-#     /api/webhooks/cloudflare-realtime; unset = legacy no-check)
-#   MEETINGBAAS_WEBHOOK_TOKEN (optional ?token= gate on
-#     /api/webhooks/meeting-bot; unset = legacy no-check)
+#   CF_REALTIME_WEBHOOK_TOKEN (bearer token for the operator-only
+#     /api/webhooks/cloudflare-realtime/setup; unset = /setup refuses. The
+#     receiver itself verifies RealtimeKit's rtk-signature instead)
+#   MEETINGBAAS_WEBHOOK_TOKEN (?token= gate on /api/webhooks/meeting-bot;
+#     unset = every request is rejected)
 #   ASSEMBLYAI_API_KEY (TranscribeRecordingWorkflow)
 #   RESEND_API_KEY (+ optional RESEND_TEMPLATE_TASK_ASSIGNED, PUBLIC_APP_URL):
 #     the missed-call notification endChatCall sends (@weldsuite/notifications)

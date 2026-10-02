@@ -31,12 +31,21 @@ import { endChatCall } from '@weldsuite/chat-domain/call-lifecycle';
 
 export interface RtkWebhookEvent {
   event: string;
-  meetingId: string;
+  /** Documented payloads nest the RTK meeting under `meeting`. */
+  meeting?: {
+    id?: string;
+    sessionId?: string;
+  };
+  /** Legacy flat shape. */
+  meetingId?: string;
   sessionId?: string;
   participant?: {
     id?: string;
+    peerId?: string;
     customParticipantId?: string;
     name?: string;
+    joinedAt?: string;
+    leftAt?: string;
   };
   [key: string]: unknown;
 }
@@ -55,6 +64,8 @@ type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
 interface LeftParticipantIds {
   cfSessionId: string | undefined;
   customId: string | undefined;
+  /** When RTK says the participant left (signed, part of the payload). */
+  leftAt: string | undefined;
 }
 
 // ============================================================================
@@ -109,6 +120,23 @@ function matchesParticipant(
   return Boolean((cfSessionId && p.cfSessionId === cfSessionId) || (customId && p.userId === customId));
 }
 
+/**
+ * Index of the still-present participant this leave applies to, or -1.
+ * A leave stamped before that participant (re)joined belongs to an earlier
+ * stint — a late retry or a replayed delivery — and must not evict them.
+ */
+export function findLeavingParticipant(
+  participants: Array<{ cfSessionId?: string; userId?: string; joinedAt?: string; leftAt?: string }>,
+  ids: LeftParticipantIds,
+): number {
+  const idx = participants.findIndex((p) => !p.leftAt && matchesParticipant(p, ids));
+  if (idx < 0) return -1;
+  const leftAt = ids.leftAt ? Date.parse(ids.leftAt) : Number.NaN;
+  const joinedAt = participants[idx].joinedAt ? Date.parse(participants[idx].joinedAt) : Number.NaN;
+  if (!Number.isNaN(leftAt) && !Number.isNaN(joinedAt) && leftAt < joinedAt) return -1;
+  return idx;
+}
+
 async function handleSessionParticipantLeft(
   env: Env,
   db: TenantDb,
@@ -126,8 +154,8 @@ async function handleSessionParticipantLeft(
   if (!session || session.status === 'ended') return;
 
   const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
-  const idx = participants.findIndex((p) => matchesParticipant(p, ids));
-  if (idx < 0 || participants[idx].leftAt) return;
+  const idx = findLeavingParticipant(participants, ids);
+  if (idx < 0) return;
 
   participants[idx] = { ...participants[idx], leftAt: new Date().toISOString() };
   await db.update(meetingSessions).set({
@@ -172,8 +200,8 @@ async function handleCallParticipantLeft(
   if (!call || call.status === 'ended') return;
 
   const participants: ChatCallParticipant[] = [...(call.participants ?? [])];
-  const idx = participants.findIndex((p) => matchesParticipant(p, ids));
-  if (idx < 0 || participants[idx].leftAt) return;
+  const idx = findLeavingParticipant(participants, ids);
+  if (idx < 0) return;
 
   participants[idx] = { ...participants[idx], leftAt: new Date().toISOString() };
   await db.update(chatCalls).set({
@@ -215,6 +243,7 @@ export async function handleParticipantLeft(
   const ids: LeftParticipantIds = {
     cfSessionId: event.participant?.id,
     customId: event.participant?.customParticipantId,
+    leftAt: event.participant?.leftAt,
   };
 
   if (!ids.cfSessionId && !ids.customId) {
