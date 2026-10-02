@@ -24,7 +24,7 @@ import { TranscriptTabContent } from './transcript-tab';
 import { SpeakersTabContent } from './speakers-tab';
 import { MeetingDetailsTab } from './meeting-details-tab';
 import { getSpeakerHex } from './speaker-colors';
-import { parseSpeakerId } from './utils';
+import { parseSpeakerId, isTranscriptionInProgress, usableTranscription } from './utils';
 import { useActiveWord } from './use-active-word';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type {
@@ -80,7 +80,8 @@ export function MeetingIntelligence({
   }
 
   // Transcription state
-  const [transcription, setTranscription] = useState<TranscriptionData | null>(initialTranscription || null);
+  const [transcription, setTranscription] = useState<TranscriptionData | null>(usableTranscription(initialTranscription));
+  const [transcriptionFailed, setTranscriptionFailed] = useState(initialTranscription?.status === 'failed');
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isLoadingTranscription, setIsLoadingTranscription] = useState(fetchTranscriptionOnMount);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
@@ -242,15 +243,21 @@ export function MeetingIntelligence({
   }, []);
 
   // Fetch transcription on mount
-  const fetchTranscription = useCallback(async () => {
-    if (!transcriptionActions?.onFetchTranscription) return;
+  // Resolves to the fetched row's status, so the mount effect can resume
+  // polling for a transcription that is still running.
+  const fetchTranscription = useCallback(async (): Promise<string | undefined> => {
+    if (!transcriptionActions?.onFetchTranscription) return undefined;
     try {
       const result = await transcriptionActions.onFetchTranscription(call.id);
-      if (result.success && result.transcription) {
-        setTranscription(result.transcription);
+      const data = result.success ? result.transcription : null;
+      if (data) {
+        setTranscriptionFailed(data.status === 'failed');
+        setTranscription(usableTranscription(data));
       }
-      setIsLoadingTranscription(false);
+      return data?.status;
     } catch {
+      return undefined;
+    } finally {
       setIsLoadingTranscription(false);
     }
   }, [call.id, transcriptionActions]);
@@ -300,12 +307,16 @@ export function MeetingIntelligence({
       setTimeout(finishTranscribing, 500);
     };
 
-    const handleFailed = (errorMessage: string | undefined) => {
+    // The stored errorMessage is the pipeline's internal error (provider HTTP
+    // bodies, missing config), so it stays out of the UI.
+    const handleFailed = () => {
       stopPolling();
-      const errorMsg = errorMessage || t('sweep.weldcrm.meetingIntelligence.transcriptionFailed');
       if (showToasts) {
-        toast.error(t('sweep.weldcrm.meetingIntelligence.transcriptionFailed'), { description: errorMsg });
+        toast.error(t('sweep.weldcrm.meetingIntelligence.transcriptionFailed'), {
+          description: t('sweep.weldcrm.transcriptTab.transcriptionFailedDescription'),
+        });
       }
+      setTranscriptionFailed(true);
       finishTranscribing();
     };
 
@@ -326,7 +337,7 @@ export function MeetingIntelligence({
         if (status === 'completed') {
           await handleCompleted();
         } else if (status === 'failed') {
-          handleFailed(statusResult.status?.errorMessage);
+          handleFailed();
         }
       } catch {
         // Don't stop polling on transient errors
@@ -346,7 +357,7 @@ export function MeetingIntelligence({
 
   // Auto-poll if initial transcription arrived with 'processing' status
   useEffect(() => {
-    if (initialTranscription?.status === 'processing' && transcriptionActions?.onPollStatus) {
+    if (isTranscriptionInProgress(initialTranscription?.status) && transcriptionActions?.onPollStatus) {
       setIsTranscribing(true);
       startPolling(true);
     }
@@ -357,6 +368,7 @@ export function MeetingIntelligence({
     if (!transcriptionActions?.onTranscribe) return;
     try {
       setIsTranscribing(true);
+      setTranscriptionFailed(false);
       setTranscriptionProgress(0);
 
       const result = await transcriptionActions.onTranscribe(call.id);
@@ -413,11 +425,19 @@ export function MeetingIntelligence({
     }
   }, [call.id, onDelete, deleteRedirectUrl, router, t]);
 
-  // Fetch transcription on mount
+  // Fetch transcription on mount. A transcription still running after a reload resumes polling, so the user
+  // sees it finish (or fail) instead of an empty Transcript tab.
   useEffect(() => {
-    if (fetchTranscriptionOnMount) {
-      fetchTranscription();
-    }
+    if (!fetchTranscriptionOnMount) return;
+    let cancelled = false;
+    fetchTranscription().then((status) => {
+      if (cancelled || !isTranscriptionInProgress(status) || !transcriptionActions?.onPollStatus) return;
+      setIsTranscribing(true);
+      startPolling(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [call.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // WeldAgent context
@@ -774,6 +794,7 @@ ${transcriptionText}
                       segments={transcription?.segments}
                       isLoading={isLoadingTranscription}
                       isTranscribing={isTranscribing}
+                      transcriptionFailed={transcriptionFailed}
                       transcriptionProgress={transcriptionProgress}
                       hasTranscription={hasTranscription}
                       activeSegmentId={activeSegmentId}

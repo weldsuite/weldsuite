@@ -1,4 +1,19 @@
-import type { FlatTimelineSegment } from './types';
+import type { FlatTimelineSegment, TranscriptionData } from './types';
+
+/** True while a transcription row is still being produced (pending / processing). */
+export function isTranscriptionInProgress(status: string | undefined): boolean {
+  return status === 'pending' || status === 'processing';
+}
+
+/**
+ * A failed or still-running transcription row has no content to show, so it
+ * must not count as "has a transcription" (that would hide the Transcribe
+ * button and the failed state).
+ */
+export function usableTranscription(data: TranscriptionData | null | undefined): TranscriptionData | null {
+  if (!data || data.status === 'failed' || isTranscriptionInProgress(data.status)) return null;
+  return data;
+}
 
 
 export function formatDuration(seconds: number): string {
