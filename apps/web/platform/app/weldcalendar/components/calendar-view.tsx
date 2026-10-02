@@ -21,6 +21,7 @@ import {
   isYesterday,
   isThisWeek,
 } from 'date-fns';
+import { defaultQuickCreateRange, shiftEndDate } from './quick-create-dates';
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Paperclip, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import {
@@ -1948,28 +1949,16 @@ export function QuickCreateCard({
   const [type, setType] = useState(initial.type);
   const [title, setTitle] = useState(initial.title);
   const [allDay, setAllDay] = useState(initial.allDay);
-  const [startDate, setStartDate] = useState(() => {
-    const d = defaultStart || new Date();
-    return format(d, 'yyyy-MM-dd');
-  });
-  const [endDate, setEndDate] = useState(() => {
-    const d = defaultEnd || defaultStart || new Date();
-    return format(d, 'yyyy-MM-dd');
-  });
-  const [startTimeVal, setStartTimeVal] = useState(() => {
-    if (defaultStart) return format(defaultStart, 'HH:mm');
-    const d = new Date();
-    d.setMinutes(0, 0, 0);
-    d.setHours(d.getHours() + 1);
-    return format(d, 'HH:mm');
-  });
-  const [endTimeVal, setEndTimeVal] = useState(() => {
-    if (defaultEnd) return format(defaultEnd, 'HH:mm');
-    const d = new Date();
-    d.setMinutes(0, 0, 0);
-    d.setHours(d.getHours() + 2);
-    return format(d, 'HH:mm');
-  });
+  const [initialRange] = useState(() => defaultQuickCreateRange(defaultStart, defaultEnd));
+  const [startDate, setStartDate] = useState(initialRange.startDate);
+  const [endDate, setEndDate] = useState(initialRange.endDate);
+  const [startTimeVal, setStartTimeVal] = useState(initialRange.startTime);
+  const [endTimeVal, setEndTimeVal] = useState(initialRange.endTime);
+  // Moving the start date moves the end date along, so the event keeps its length.
+  const handleStartDateChange = (next: string) => {
+    setEndDate((end) => shiftEndDate(startDate, next, end));
+    setStartDate(next);
+  };
 
   const [location, setLocation] = useState(initial.location);
   const [description, setDescription] = useState(initial.description);
@@ -2345,7 +2334,7 @@ export function QuickCreateCard({
               endDate={endDate}
               startTime={startTimeVal}
               endTime={endTimeVal}
-              onStartDateChange={setStartDate}
+              onStartDateChange={handleStartDateChange}
               onEndDateChange={setEndDate}
               onStartTimeChange={setStartTimeVal}
               onEndTimeChange={setEndTimeVal}

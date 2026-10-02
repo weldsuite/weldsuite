@@ -7,10 +7,12 @@
 
 import type RealtimeKitClient from '@cloudflare/realtimekit';
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
+import { X } from 'lucide-react';
 
 import {
   MeetingRoomView,
   PeopleEntityListPanel,
+  type RecordingState,
   type ViewMode,
   type MeetingPeer,
 } from '@weldsuite/weldmeet-ui';
@@ -125,6 +127,59 @@ function pickIdeal(v: unknown): number | undefined {
   return undefined;
 }
 
+/**
+ * RealtimeKit's recorder state for everyone in the room, so a guest can always
+ * tell the meeting is being recorded. `notice` counts the starts: it goes up
+ * each time a recording begins (or is already running when the guest joins),
+ * so a new recording shows the notice again after an earlier one was dismissed.
+ */
+function useRecordingState(rtkClient: RealtimeKitClient | null) {
+  const [state, setState] = useState<RecordingState>('IDLE');
+  const [notice, setNotice] = useState(0);
+
+  useEffect(() => {
+    const recording = rtkClient?.recording;
+    if (!recording) return;
+    let current: RecordingState = 'IDLE';
+    const apply = (next: RecordingState) => {
+      const wasRecording = current === 'RECORDING' || current === 'PAUSED';
+      current = next;
+      setState(next);
+      if (next === 'RECORDING' && !wasRecording) setNotice((n) => n + 1);
+    };
+    apply(recording.recordingState ?? 'IDLE');
+    try { recording.on?.('recordingUpdate', apply); } catch { /* ignore */ }
+    return () => {
+      try { recording.off?.('recordingUpdate', apply); } catch { /* ignore */ }
+    };
+  }, [rtkClient]);
+
+  return { state, isRecording: state === 'RECORDING' || state === 'PAUSED', notice };
+}
+
+/** "This meeting is being recorded" banner over the stage, dismissable. */
+function RecordingNotice({ onDismiss }: Readonly<{ onDismiss: () => void }>) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[61px] z-20 flex justify-center px-4">
+      <div
+        role="alert"
+        className="pointer-events-auto flex items-center gap-2 rounded-lg border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg"
+      >
+        <span className="h-2 w-2 flex-shrink-0 rounded-full bg-red-500" />
+        <span>This meeting is being recorded.</span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Applies the picked screen-share resolution / framerate once the track is live. */
 async function applyScreenshareConstraints(
   client: RealtimeKitClient,
@@ -187,6 +242,8 @@ export function GuestMeetingRoom({
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const recording = useRecordingState(rtkClient);
+  const [dismissedNotice, setDismissedNotice] = useState(0);
 
   useEffect(() => {
     if (!rtkClient) return;
@@ -451,6 +508,10 @@ export function GuestMeetingRoom({
         viewMode={viewMode}
         isFullscreen={isFullscreen}
         hostControls={hostControls}
+        isRecording={recording.isRecording}
+        recordingState={recording.state}
+        // Guests only see that the meeting is recorded; they can't control it.
+        showControlBarRecording={false}
         captions={captions}
         toggleMute={handleToggleMute}
         toggleVideo={handleToggleVideo}
@@ -484,6 +545,9 @@ export function GuestMeetingRoom({
             : undefined
         }
       />
+      {recording.isRecording && recording.notice > dismissedNotice && (
+        <RecordingNotice onDismiss={() => setDismissedNotice(recording.notice)} />
+      )}
       {pipNode}
     </div>
   );

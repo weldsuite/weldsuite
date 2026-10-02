@@ -44,7 +44,7 @@ describe('RecordingAiOptionsFields', () => {
     render(<Harness />);
     expect(choice()).toMatchObject({ transcribe: false, summarize: false });
     expect(screen.getByText('2 credits per meeting minute')).toBeTruthy();
-    expect(screen.getByText('1 credits per meeting minute')).toBeTruthy();
+    expect(screen.getByText('1 credit per meeting minute')).toBeTruthy();
     expect(screen.getByText('Credit balance: 100')).toBeTruthy();
   });
 

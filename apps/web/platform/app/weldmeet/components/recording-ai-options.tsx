@@ -158,7 +158,11 @@ export function RecordingAiOptionsFields({
     onChange({ ...value, summarize: checked, transcribe: checked ? true : value.transcribe });
 
   const rate = (credits: number | undefined) =>
-    credits === undefined ? null : fillTemplate(t.recording.ai.perMinute, { credits: formatCredits(credits) });
+    credits === undefined
+      ? null
+      : fillTemplate(credits === 1 ? t.recording.ai.perMinuteOne : t.recording.ai.perMinute, {
+          credits: formatCredits(credits),
+        });
 
   return (
     <div className="space-y-3">

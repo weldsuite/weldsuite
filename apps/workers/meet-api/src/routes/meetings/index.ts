@@ -62,6 +62,7 @@ import {
   mintRecordingAccess,
   transcribeRecording,
 } from '../../services/weldmeet/session-recording';
+import { reconcileRecordingFromRtk } from '../../services/weldmeet/recording-reconcile';
 import { startInstantMeeting } from '../../services/weldmeet/start-instant';
 import { generateJoinCode } from '../../services/weldmeet/join-code';
 import { publishMeetingUpdated } from '../../services/realtime/weldmeet-publisher';
@@ -824,11 +825,13 @@ app.get('/:id/recording', requirePermission('meetings:read'), async (c) => {
 
     const auth = await authorizeSession(c, session.id);
     if (isResponse(auth)) return auth;
-    const info = await buildRecordingInfo(c.get('tenantDb'), session);
+    // No webhook for a while: ask RealtimeKit directly (throttled).
+    const current = await reconcileRecordingFromRtk(c.env, c.get('tenantDb'), orgId, auth.session);
+    const info = await buildRecordingInfo(c.get('tenantDb'), current);
 
     let access: { url: string; audioUrl: string | null; expiresAt: string } | null = null;
     if (info.status === 'ready') {
-      const minted = await mintRecordingAccess(c, auth);
+      const minted = await mintRecordingAccess(c, { ...auth, session: current });
       if (minted instanceof Response) return minted;
       access = minted;
     }
