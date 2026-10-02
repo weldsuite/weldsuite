@@ -20,6 +20,7 @@ import {
   type ChatParticipant,
 } from '@weldsuite/weldmeet-ui';
 import { randomToken } from '@/lib/random-id';
+import { guestAuthHeaders } from '@/lib/meeting-api-client';
 
 // ============================================================================
 // Types
@@ -57,7 +58,8 @@ interface GuestChatPanelProps {
   meetingId: string;
   orgId: string;
   guestName: string;
-  guestEmail: string;
+  /** Signed guest session token from /api/meeting/join. */
+  guestToken: string;
   guestUserId: string;
   isOpen: boolean;
   onClose: () => void;
@@ -130,7 +132,7 @@ export function GuestChatPanel({
   meetingId,
   orgId,
   guestName,
-  guestEmail,
+  guestToken,
   guestUserId,
   isOpen,
   onClose,
@@ -149,8 +151,10 @@ export function GuestChatPanel({
 
     (async () => {
       try {
-        const params = new URLSearchParams({ orgId, email: guestEmail });
-        const res = await fetch(`/api/meeting/${meetingId}/messages?${params.toString()}`);
+        const params = new URLSearchParams({ orgId });
+        const res = await fetch(`/api/meeting/${meetingId}/messages?${params.toString()}`, {
+          headers: guestAuthHeaders(guestToken),
+        });
         if (!res.ok) throw new Error(`Failed to load (${res.status})`);
         const json = await res.json();
         if (cancelled) return;
@@ -181,7 +185,7 @@ export function GuestChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, meetingId, orgId, guestEmail]);
+  }, [isOpen, meetingId, orgId, guestToken]);
 
   // ── Realtime WebSocket subscription ──────────────────────────────────────
   // Stays connected for the whole meeting (not gated on `isOpen`) so incoming
@@ -261,10 +265,10 @@ export function GuestChatPanel({
       try {
         const fd = new FormData();
         fd.append('orgId', orgId);
-        fd.append('email', guestEmail);
         fd.append('file', file);
         const res = await fetch(`/api/meeting/${meetingId}/upload`, {
           method: 'POST',
+          headers: guestAuthHeaders(guestToken),
           body: fd,
         });
         if (!res.ok) throw new Error(`Upload failed (${res.status})`);
@@ -283,7 +287,7 @@ export function GuestChatPanel({
         return null;
       }
     },
-    [meetingId, orgId, guestEmail],
+    [meetingId, orgId, guestToken],
   );
 
   // ── Send handler ─────────────────────────────────────────────────────────
@@ -311,11 +315,9 @@ export function GuestChatPanel({
       try {
         const res = await fetch(`/api/meeting/${meetingId}/messages`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...guestAuthHeaders(guestToken) },
           body: JSON.stringify({
             orgId,
-            email: guestEmail,
-            name: guestName,
             content,
             htmlContent: html,
             attachments:
@@ -352,7 +354,7 @@ export function GuestChatPanel({
         throw err;
       }
     },
-    [meetingId, orgId, guestEmail, guestName, guestUserId],
+    [meetingId, orgId, guestToken, guestName, guestUserId],
   );
 
   // ── Render ────────────────────────────────────────────────────────────────

@@ -49,6 +49,7 @@ interface GuestChatSlotOptions {
   orgId: string;
   guestName: string;
   guestEmail: string;
+  guestToken: string;
   participants: ComponentProps<typeof GuestChatPanel>['participants'];
 }
 
@@ -57,14 +58,14 @@ interface GuestChatSlotOptions {
  * the room component) so the slot renderer is not a component defined during
  * another component's render.
  */
-function createGuestChatSlot({ meetingId, orgId, guestName, guestEmail, participants }: GuestChatSlotOptions) {
+function createGuestChatSlot({ meetingId, orgId, guestName, guestEmail, guestToken, participants }: GuestChatSlotOptions) {
   return function renderGuestChat({ isOpen, onClose, onOpen, notificationHost }: GuestChatSlotArgs) {
     return (
       <GuestChatPanel
         meetingId={meetingId}
         orgId={orgId}
         guestName={guestName}
-        guestEmail={guestEmail}
+        guestToken={guestToken}
         guestUserId={`guest:${guestEmail.toLowerCase()}`}
         isOpen={isOpen}
         onClose={onClose}
@@ -91,6 +92,7 @@ interface GuestMeetingRoomProps {
   orgId: string;
   guestName: string;
   guestEmail: string;
+  guestToken: string;
   hostControls: GuestHostControls;
   onHostControlsBroadcast: React.Dispatch<React.SetStateAction<GuestHostControls>>;
 }
@@ -172,6 +174,7 @@ export function GuestMeetingRoom({
   orgId,
   guestName,
   guestEmail,
+  guestToken,
   hostControls,
   onHostControlsBroadcast,
 }: Readonly<GuestMeetingRoomProps>) {
@@ -462,12 +465,13 @@ export function GuestMeetingRoom({
           />
         }
         chatPanelSlot={
-          meetingId && guestEmail
+          meetingId && guestEmail && guestToken
             ? createGuestChatSlot({
                 meetingId,
                 orgId,
                 guestName,
                 guestEmail,
+                guestToken,
                 participants: mentionParticipants,
               })
             : undefined
