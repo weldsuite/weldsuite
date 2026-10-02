@@ -48,6 +48,8 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+# Meeting portal behind the join links in invitation emails (default https://meet.weldsuite.org).
+MEETING_PORTAL_URL = "http://localhost:3020"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 
@@ -144,6 +146,7 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+MEETING_PORTAL_URL = "https://meet.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 

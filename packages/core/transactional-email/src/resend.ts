@@ -20,6 +20,7 @@ export interface SendEmailParams {
   text?: string;
   cc?: string[];
   bcc?: string[];
+  reply_to?: string | string[];
   headers?: Record<string, string>;
   attachments?: EmailAttachment[];
 }

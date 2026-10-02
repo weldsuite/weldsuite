@@ -254,4 +254,119 @@ describe('/api/meetings · pglite integration', () => {
     });
     expect(res.status).toBe(403);
   });
+
+  // ── TASK-717: invite external guests by email ─────────────────────────────
+
+  describe('POST /:id/invitations', () => {
+    const organizerId = 'user_invite_org';
+
+    async function seedMeeting(extra: Record<string, unknown> = {}) {
+      const { request } = createTestApp('/api/meetings', meetingsRoutes, {
+        context: { permissions: permissions('meetings:create'), userId: organizerId, tenantDb: db },
+      });
+      const res = await request('/api/meetings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Invite test', accessType: 'anyone_with_link', ...extra }),
+      });
+      return ((await res.json()) as { data: { id: string } }).data.id;
+    }
+
+    function invite(meetingId: string, body: unknown, userId = organizerId) {
+      const { request } = createTestApp('/api/meetings', meetingsRoutes, {
+        context: { permissions: permissions('meetings:update'), userId, tenantDb: db },
+      });
+      return request(`/api/meetings/${meetingId}/invitations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    async function attendeesOf(meetingId: string) {
+      const [row] = await db
+        .select({ attendees: schema.meetings.attendees })
+        .from(schema.meetings)
+        .where(eq(schema.meetings.id, meetingId))
+        .limit(1);
+      return row?.attendees ?? [];
+    }
+
+    it('adds an external email as a pending attendee linked to a Person', async () => {
+      const meetingId = await seedMeeting();
+      const res = await invite(meetingId, { invitees: [{ email: 'WeldHost@Gmail.com' }] });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        data: { invited: { email: string; emailSent: boolean }[]; alreadyInvited: string[] };
+      };
+      // No RESEND_API_KEY in tests, so nothing is sent.
+      expect(body.data.invited).toEqual([
+        expect.objectContaining({ email: 'weldhost@gmail.com', emailSent: false }),
+      ]);
+
+      const attendees = await attendeesOf(meetingId);
+      expect(attendees).toHaveLength(1);
+      expect(attendees[0]).toMatchObject({
+        email: 'weldhost@gmail.com',
+        role: 'attendee',
+        status: 'pending',
+        userId: '',
+      });
+      expect(attendees[0]?.personId).toMatch(/^per/);
+    });
+
+    it('links a workspace member by email and sets their user id', async () => {
+      await db.insert(schema.workspaceMembers).values({
+        id: 'wm_invite_member',
+        userId: 'user_invite_member',
+        email: 'member@acme.com',
+        name: 'Member Person',
+      });
+      const meetingId = await seedMeeting();
+      const res = await invite(meetingId, { invitees: [{ email: 'member@acme.com' }] });
+      expect(res.status).toBe(200);
+      const [attendee] = await attendeesOf(meetingId);
+      expect(attendee).toMatchObject({
+        userId: 'user_invite_member',
+        workspaceMemberId: 'wm_invite_member',
+        name: 'Member Person',
+      });
+    });
+
+    it('does not duplicate or reset an attendee who is invited twice', async () => {
+      const meetingId = await seedMeeting();
+      await invite(meetingId, { invitees: [{ email: 'twice@example.com' }] });
+      const res = await invite(meetingId, { invitees: [{ email: 'twice@example.com' }] });
+      const body = (await res.json()) as { data: { invited: unknown[]; alreadyInvited: string[] } };
+      expect(body.data.invited).toEqual([]);
+      expect(body.data.alreadyInvited).toEqual(['twice@example.com']);
+      expect(await attendeesOf(meetingId)).toHaveLength(1);
+    });
+
+    it('rejects an invalid email', async () => {
+      const meetingId = await seedMeeting();
+      const res = await invite(meetingId, { invitees: [{ email: 'not-an-email' }] });
+      expect(res.status).toBe(400);
+    });
+
+    it("refuses a non-organizer who isn't on the meeting", async () => {
+      const meetingId = await seedMeeting();
+      const res = await invite(meetingId, { invitees: [{ email: 'x@example.com' }] }, 'user_invite_stranger');
+      expect(res.status).toBe(403);
+    });
+
+    it('lets an invited member invite others (in-room Add people)', async () => {
+      const meetingId = await seedMeeting();
+      await invite(meetingId, { invitees: [{ email: 'member@acme.com' }] });
+      const res = await invite(meetingId, { invitees: [{ email: 'friend@example.com' }] }, 'user_invite_member');
+      expect(res.status).toBe(200);
+      expect(await attendeesOf(meetingId)).toHaveLength(2);
+    });
+
+    it('refuses to invite to a cancelled meeting', async () => {
+      const meetingId = await seedMeeting({ status: 'cancelled' });
+      const res = await invite(meetingId, { invitees: [{ email: 'x@example.com' }] });
+      expect(res.status).toBe(400);
+    });
+  });
 });

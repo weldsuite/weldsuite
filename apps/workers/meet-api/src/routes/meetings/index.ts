@@ -25,7 +25,11 @@ import {
   hasContextPermission,
   requirePermission,
 } from '@weldsuite/permissions/server';
-import { createMeetingSchema, updateMeetingSchema } from '@weldsuite/core-api-client/schemas/meetings';
+import {
+  createMeetingSchema,
+  inviteMeetingAttendeesSchema,
+  updateMeetingSchema,
+} from '@weldsuite/core-api-client/schemas/meetings';
 import { hostControlsSchema, DEFAULT_HOST_CONTROLS } from '@weldsuite/core-api-client/schemas/weldmeet';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -36,6 +40,16 @@ import { getRecordings } from '@weldsuite/cloudflare-realtime';
 import { startInstantMeeting } from '../../services/weldmeet/start-instant';
 import { generateJoinCode } from '../../services/weldmeet/join-code';
 import { publishMeetingUpdated } from '../../services/realtime/weldmeet-publisher';
+import { resolveParticipantLink } from '../../lib/participant-resolver';
+import {
+  buildMeetingJoinUrl,
+  getMeetingPortalUrl,
+  mergeInvitees,
+  normalizeInvitees,
+  sendInvitationEmail,
+  type ResolvedInvitee,
+} from '../../services/weldmeet/invitations';
+import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.meetings;
@@ -445,6 +459,146 @@ app.patch('/:id/cancel', requirePermission('meetings:update'), async (c) => {
     return error.internal(c, 'Failed to cancel meeting');
   }
 });
+
+/**
+ * POST /:id/invitations - Invite people to a meeting (TASK-717).
+ *
+ * Invitees are workspace members, CRM people or any email address. Each new
+ * invitee is added to `attendees` (role attendee, status pending) and, unless
+ * `sendEmail: false`, emailed the public join link (+ .ics when scheduled).
+ * Re-inviting an existing attendee leaves them untouched.
+ *
+ * Allowed for the organizer, `meetings:scope:all` holders, and members who
+ * are already an invited attendee (the in-room "Add people").
+ */
+app.post(
+  '/:id/invitations',
+  requirePermission('meetings:update'),
+  zValidator('json', inviteMeetingAttendeesSchema),
+  async (c) => {
+    const orgId = c.get('orgId');
+    if (!orgId) return error.orgRequired(c);
+    const db = c.get('tenantDb');
+    const userId = c.get('userId');
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+
+    try {
+      const [existing] = await db
+        .select()
+        .from(t)
+        .where(and(eq(t.id, id), isNull(t.deletedAt)))
+        .limit(1);
+      if (!existing) return error.notFound(c, 'Meeting', id);
+
+      const currentAttendees = (existing.attendees ?? []) as MeetingAttendee[];
+      const isInvitedMember = currentAttendees.some(
+        (a) => a.userId === userId && a.source !== 'walk_in',
+      );
+      if (existing.organizerId !== userId && !isInvitedMember) {
+        const scope = await scopeFor(c);
+        if (scope) return error.forbidden(c, MEETING_DENIED);
+      }
+      if (existing.status === 'cancelled' || existing.status === 'completed') {
+        return error.badRequest(c, 'Cannot invite people to a meeting that has ended or was cancelled');
+      }
+      if (!existing.joinCode) {
+        return error.badRequest(c, 'Meeting has no join link');
+      }
+
+      const env = c.env;
+      const invitees: ResolvedInvitee[] = [];
+      for (const invitee of normalizeInvitees(body.invitees)) {
+        const link = await resolveParticipantLink(db, env, orgId, {
+          email: invitee.email,
+          name: invitee.name,
+        });
+        let memberUserId = '';
+        if (link.workspaceMemberId) {
+          const [member] = await db
+            .select({ userId: schema.workspaceMembers.userId })
+            .from(schema.workspaceMembers)
+            .where(eq(schema.workspaceMembers.id, link.workspaceMemberId))
+            .limit(1);
+          memberUserId = member?.userId ?? '';
+        }
+        invitees.push({
+          email: invitee.email,
+          name: link.displayName || invitee.name || invitee.email,
+          userId: memberUserId,
+          avatar: link.avatarUrl,
+          workspaceMemberId: link.workspaceMemberId,
+          personId: link.personId,
+        });
+      }
+
+      const { attendees, added, alreadyInvited } = mergeInvitees(currentAttendees, invitees);
+
+      if (added.length > 0) {
+        await db
+          .update(t)
+          .set({ attendees, updatedAt: new Date() })
+          .where(and(eq(t.id, id), isNull(t.deletedAt)));
+
+        publishEntityEvent({
+          c,
+          entityType: 'meeting',
+          entityId: id,
+          action: 'updated',
+          data: { id, title: existing.title, status: existing.status, hostId: existing.organizerId },
+        });
+        try {
+          await publishMeetingUpdated(env, orgId, { meetingId: id, title: existing.title });
+        } catch (e) {
+          console.error('[meet-api/meetings] invitations realtime publish failed:', e);
+        }
+      }
+
+      // Inviter (for the email copy) and organizer (for the .ics ORGANIZER).
+      const people = await db
+        .select({
+          userId: schema.workspaceMembers.userId,
+          name: schema.workspaceMembers.name,
+          email: schema.workspaceMembers.email,
+        })
+        .from(schema.workspaceMembers)
+        .where(inArray(schema.workspaceMembers.userId, [userId, existing.organizerId]));
+      const inviter = people.find((p) => p.userId === userId);
+      const organizer = people.find((p) => p.userId === existing.organizerId) ?? inviter;
+
+      const joinUrl = buildMeetingJoinUrl(
+        getMeetingPortalUrl(env.MEETING_PORTAL_URL),
+        orgId,
+        existing.joinCode,
+      );
+      const sendEmail = body.sendEmail !== false;
+      const sent = await Promise.all(
+        added.map((attendee) =>
+          sendEmail
+            ? sendInvitationEmail(env.RESEND_API_KEY, {
+                meeting: existing,
+                organizer: {
+                  name: inviter?.name || organizer?.name || 'Someone',
+                  email: organizer?.email ?? '',
+                },
+                joinUrl,
+                attendee: { email: attendee.email, name: attendee.name },
+              })
+            : Promise.resolve(false),
+        ),
+      );
+
+      return success(c, {
+        attendees,
+        invited: added.map((a, i) => ({ email: a.email, name: a.name, emailSent: sent[i] })),
+        alreadyInvited,
+      });
+    } catch (err) {
+      console.error('[meet-api/meetings] invitations failed:', err);
+      return error.internal(c, 'Failed to invite people');
+    }
+  },
+);
 
 /**
  * GET /:id/recording - Recording URL for a meeting.
