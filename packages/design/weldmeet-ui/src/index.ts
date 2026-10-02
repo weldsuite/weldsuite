@@ -3,6 +3,7 @@ export type {
   ViewMode,
   RecordingState,
   MeetingRoomViewProps,
+  LeaveLabels,
   MeetingClient,
   MeetingPeer,
   WaitlistedPeer,

@@ -61,6 +61,11 @@ export const weldmeet = {
     noMessagesHint: 'No se enviaron mensajes en esta reunión.',
     loadOlder: 'Cargar anteriores',
   },
+  leaveMenu: {
+    endForAll: 'Finalizar la reunión para todos',
+    hostEnded: 'El anfitrión finalizó la reunión',
+    endFailed: 'No se pudo finalizar la reunión para todos',
+  },
   pipWidget: {
     turnOnMicrophone: 'Activar micrófono',
     turnOffMicrophone: 'Desactivar micrófono',

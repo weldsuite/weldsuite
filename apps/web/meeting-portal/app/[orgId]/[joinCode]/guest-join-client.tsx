@@ -96,6 +96,8 @@ type PageState =
   | 'waitlisted'
   | 'connected'
   | 'ended'
+  | 'hostEnded'
+  | 'removed'
   | 'rejected'
   | 'error';
 
@@ -559,6 +561,24 @@ export default function GuestJoinClient() {
         throw initErr;
       }
 
+      const resolveKickedState = async () => {
+        // Hold on the connecting screen while we check, so the guest never
+        // sees a wrong message flash before the final one.
+        setState('connecting');
+        try {
+          const info = await getGuestMeetingInfo(orgId, joinCode);
+          setMeetingInfo(info);
+          if (info.status === 'completed' || !info.hasActiveSession) {
+            setState('hostEnded');
+          } else {
+            setState('removed');
+          }
+        } catch {
+          // Couldn't tell which it was; fall back to the generic ended screen.
+          setState('ended');
+        }
+      };
+
       m.self.on('roomJoined', () => setState('connected'));
       m.self.on('waitlisted', () => setState('waitlisted'));
       m.self.on('roomLeft', ({ state }: { state?: string }) => {
@@ -570,7 +590,19 @@ export default function GuestJoinClient() {
         const sup = suppressorRef.current;
         suppressorRef.current = null;
         sup?.dispose().catch((err) => console.warn('[noise] dispose error:', err));
-        setState(state === 'rejected' ? 'rejected' : 'ended');
+
+        if (state === 'rejected') {
+          setState('rejected');
+        } else if (state === 'ended') {
+          setState('hostEnded');
+        } else if (state === 'kicked') {
+          // Both "host ended the meeting for all" and "host removed this guest"
+          // surface as 'kicked'. The backend clears the active session before
+          // kicking, so a fresh meeting-info read tells the two apart.
+          void resolveKickedState();
+        } else {
+          setState('ended');
+        }
       });
 
       await m.join();
@@ -596,7 +628,7 @@ export default function GuestJoinClient() {
       setState('error');
       setErrorMsg('Failed to connect to the meeting. Please try again.');
     }
-  }, [meetingInfo, previewStream, previewAudioEnabled, previewVideoEnabled, hostControls]);
+  }, [orgId, joinCode, meetingInfo, previewStream, previewAudioEnabled, previewVideoEnabled, hostControls]);
 
   // ── Join handler ──
 
@@ -792,9 +824,11 @@ export default function GuestJoinClient() {
 
   if (state === 'loading') return <LoadingScreen />;
   if (state === 'error') return <ErrorScreen message={errorMsg} />;
-  if (state === 'ended') {
+  if (state === 'ended' || state === 'hostEnded' || state === 'removed') {
+    const endedVariant = state === 'ended' ? 'left' : state;
     return (
       <EndedScreen
+        variant={endedVariant}
         onReturnHome={() => {
           window.location.href = 'https://www.weldsuite.org/';
         }}

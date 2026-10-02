@@ -19,6 +19,8 @@ import { apiUrl } from '@/lib/api/public-env';
 import { consumeStartHandoff } from '@/lib/weldmeet/start-handoff';
 import { usePathname } from '@/lib/router';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { getTranslations } from '@/lib/i18n';
 import { useAuth } from '@clerk/clerk-react';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
 import { useVirtualBackground, type VirtualBackgroundType } from '@/hooks/use-virtual-background';
@@ -323,6 +325,11 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   const meetingIdRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const authTokenRef = useRef<string | null>(null);
+  // Set the moment THIS client initiates leaving ('leave') or ending the meeting
+  // for everyone ('end'). The RTK roomLeft handler uses it to tell a local exit
+  // apart from the host ending the meeting under us (toast), and to skip the
+  // redundant /leave that would follow our own /end.
+  const exitIntentRef = useRef<'leave' | 'end' | null>(null);
 
   // Keep refs in sync
   useEffect(() => { meetingIdRef.current = meetingId; }, [meetingId]);
@@ -665,6 +672,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       suppressorRestoreRef.current = installGetUserMediaPatch(suppressor);
     }
 
+    exitIntentRef.current = null;
+
     const { default: RTK } = await import('@cloudflare/realtimekit');
     let m: RealtimeKitClient;
     try {
@@ -693,10 +702,18 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       playCallJoinSound();
     });
 
-    m.self.on('roomLeft', () => {
+    m.self.on('roomLeft', ({ state }) => {
+      const intent = exitIntentRef.current;
       const mId = meetingIdRef.current;
       const sId = sessionIdRef.current;
-      if (mId && sId) fireLeaveRequest(mId, sId);
+      // Our own End-for-all already told the backend; a /leave on top is noise.
+      if (mId && sId && intent !== 'end') fireLeaveRequest(mId, sId);
+      // 'ended' / 'kicked' without a local leave/end means the host ended the
+      // meeting for everyone. RTK reports an individual removal as 'kicked'
+      // too, so that case shows the same message.
+      if ((state === 'ended' || state === 'kicked') && intent === null) {
+        toast.info(getTranslations('weldmeet').leaveMenu.hostEnded);
+      }
       cleanup();
     });
 
@@ -833,6 +850,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     if (!meetingId || !sessionId) return;
     const mId = meetingId;
     const sId = sessionId;
+    exitIntentRef.current = 'leave';
     playCallLeaveSound();
     const client = await getClient();
     try {
@@ -849,17 +867,23 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     if (!meetingId || !sessionId) return;
     const mId = meetingId;
     const sId = sessionId;
+    exitIntentRef.current = 'end';
     playCallLeaveSound();
     const client = await getClient();
     try {
       await client.post(`/meeting-sessions/${sId}/end`);
-    } catch { /* best effort */ }
+    } catch {
+      // Local teardown still proceeds, but tell the host the others may still
+      // be in the session, and at least record our own leave.
+      toast.error(getTranslations('weldmeet').leaveMenu.endFailed);
+      fireLeaveRequest(mId, sId);
+    }
     meetingIdRef.current = null;
     sessionIdRef.current = null;
     cleanup();
     queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
     queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
-  }, [meetingId, sessionId, getClient, cleanup, queryClient]);
+  }, [meetingId, sessionId, getClient, cleanup, queryClient, fireLeaveRequest]);
 
   const toggleMute = useCallback(() => {
     if (!meeting) return;

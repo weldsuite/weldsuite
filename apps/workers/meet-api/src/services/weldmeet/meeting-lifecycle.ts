@@ -9,7 +9,10 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { endMeeting as endRtkMeeting } from '@weldsuite/cloudflare-realtime';
+import {
+  endMeeting as endRtkMeeting,
+  kickAllParticipants as kickAllRtkParticipants,
+} from '@weldsuite/cloudflare-realtime';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -75,6 +78,22 @@ export async function endMeetingSession(
 ): Promise<void> {
   const { meetingSessions, meetings } = schema;
 
+  // Re-read the row: callers pass a snapshot that may be stale, and several
+  // clients (host end, every kicked guest's /leave, the RTK webhook) race to
+  // end the same session. The first one wins; the rest are no-ops so they
+  // cannot overwrite endedAt / duration.
+  const [current] = await db
+    .select({
+      status: meetingSessions.status,
+      participants: meetingSessions.participants,
+      recordingEnabled: meetingSessions.recordingEnabled,
+      recordingKey: meetingSessions.recordingKey,
+    })
+    .from(meetingSessions)
+    .where(eq(meetingSessions.id, sessionId))
+    .limit(1);
+  if (current?.status === 'ended') return;
+
   const now = new Date();
   const duration = session.startedAt
     ? Math.round((now.getTime() - new Date(session.startedAt).getTime()) / 1000)
@@ -82,17 +101,13 @@ export async function endMeetingSession(
 
   // Preserve the recording link when a meeting ends while still recording.
   // cfAppId is the RTK meeting id that getRecordings() resolves the URL from.
-  const [recInfo] = await db
-    .select({
-      recordingEnabled: meetingSessions.recordingEnabled,
-      recordingKey: meetingSessions.recordingKey,
-    })
-    .from(meetingSessions)
-    .where(eq(meetingSessions.id, sessionId))
-    .limit(1);
-
   const linkRecording =
-    !!recInfo?.recordingEnabled && !recInfo?.recordingKey && !!session.cfAppId;
+    !!current?.recordingEnabled && !current?.recordingKey && !!session.cfAppId;
+
+  // Everyone still in the room leaves with the session.
+  const participants = (current?.participants ?? []).map((p) =>
+    p.leftAt ? p : { ...p, leftAt: now.toISOString() },
+  );
 
   await db
     .update(meetingSessions)
@@ -100,19 +115,13 @@ export async function endMeetingSession(
       status: 'ended',
       endedAt: now,
       duration,
+      participants,
       ...(linkRecording ? { recordingKey: session.cfAppId, recordingEnabled: false } : {}),
       updatedAt: now,
     })
     .where(eq(meetingSessions.id, sessionId));
 
-  // End RTK meeting (best effort)
-  if (session.cfAppId) {
-    try {
-      await endRtkMeeting(env, session.cfAppId);
-    } catch { /* best effort */ }
-  }
-
-  // Update meeting — clear active session, set back to scheduled or completed
+  // Update meeting: clear active session, set back to scheduled or completed
   const [meeting] = await db
     .select({
       scheduledEnd: meetings.scheduledEnd,
@@ -132,6 +141,25 @@ export async function endMeetingSession(
       updatedAt: now,
     })
     .where(eq(meetings.id, meetingId));
+
+  // Tear down the RTK room (best effort, DB is already the source of truth).
+  // Deactivating the meeting alone does not disconnect live participants, so
+  // kick them first; the two calls are independent so one failing never
+  // skips the other. A kick on an empty or already-inactive room may be
+  // rejected, which is expected and only logged.
+  if (session.cfAppId) {
+    const cfAppId = session.cfAppId;
+    try {
+      await kickAllRtkParticipants(env, cfAppId);
+    } catch (err) {
+      console.error('[MeetingLifecycle] RTK kick-all failed', { sessionId, cfAppId, err });
+    }
+    try {
+      await endRtkMeeting(env, cfAppId);
+    } catch (err) {
+      console.error('[MeetingLifecycle] RTK end meeting failed', { sessionId, cfAppId, err });
+    }
+  }
 
   // Clean up KV mapping (best effort — missing binding logs/noop, never throws)
   if (session.cfAppId) {
