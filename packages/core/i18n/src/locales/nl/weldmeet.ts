@@ -22,6 +22,20 @@ export const weldmeet = {
     errorNoId: 'Persoon aangemaakt maar geen id ontvangen',
     errorGeneric: 'Persoon aanmaken mislukt',
   },
+  invitePeople: {
+    searchPlaceholder: 'Zoek mensen of typ een e-mailadres...',
+    members: 'Leden',
+    crmPeople: 'CRM-personen',
+    inviteEmail: '{email} uitnodigen',
+    invite: 'Uitnodigen',
+    invited: 'Uitgenodigd',
+    unknown: 'Onbekend',
+    noResults: 'Geen mensen gevonden. Typ een volledig e-mailadres om iemand van buiten je werkruimte uit te nodigen.',
+    invitationSent: 'Uitnodiging verstuurd naar {email}',
+    addedNoEmail: '{email} is aan de vergadering toegevoegd, maar de uitnodigingsmail kon niet worden verstuurd. Deel de vergaderlink met deze persoon.',
+    alreadyInvited: '{email} is al uitgenodigd',
+    failed: '{email} kon niet worden uitgenodigd',
+  },
   overlay: {
     addPeople: {
       title: 'Mensen toevoegen',
@@ -237,6 +251,7 @@ export const weldmeet = {
     meetingRenamed: 'Vergadering hernoemd',
     meetingDeleted: 'Vergadering verwijderd',
     transcriptExported: 'Transcript geëxporteerd',
+    addPeople: 'Mensen toevoegen',
   },
   meetingRoomPage: {
     preparingRoom: 'Vergaderruimte voorbereiden...',

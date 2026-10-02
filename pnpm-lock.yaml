@@ -5434,6 +5434,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/transactional-email':
+        specifier: workspace:*
+        version: link:../../../packages/core/transactional-email
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../../packages/core/worker-kit

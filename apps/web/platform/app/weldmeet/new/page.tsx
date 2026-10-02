@@ -16,10 +16,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { Video, Plus, Link2, Calendar, Keyboard, Clock, Users, ChevronRight, ClipboardType, Copy, Check, X, Search } from 'lucide-react';
+import { Video, Plus, Link2, Calendar, Keyboard, Clock, Users, ChevronRight, ClipboardType, Copy, Check, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@weldsuite/ui/components/dialog';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
-import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
+import { MeetingInvitePicker } from '../components/meeting-invite-picker';
 
 import { QuickCreateCard } from '@/app/weldcalendar/components/calendar-view';
 import { useUserCalendars } from '@/hooks/queries/use-calendar-queries';
@@ -44,6 +43,7 @@ export default function NewMeetingPage() {
 
   const [joinCode, setJoinCode] = useState('');
   const [meetingLink, setMeetingLink] = useState<string | null>(null);
+  const [createdMeetingId, setCreatedMeetingId] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const newMeetingRef = useRef<HTMLDivElement>(null);
@@ -114,6 +114,7 @@ export default function NewMeetingPage() {
         });
         return;
       }
+      setCreatedMeetingId(created.id);
       setMeetingLink(url);
     } catch (err) {
       toast.error(t.newMeetingPage.failedToCreate, {
@@ -134,7 +135,11 @@ export default function NewMeetingPage() {
   useEffect(() => {
     if (!meetingLink) return;
     const handler = (e: MouseEvent) => {
-      if (newMeetingRef.current && !newMeetingRef.current.contains(e.target as Node)) {
+      const target = e.target as Element;
+      // The Add people dialog and its toasts are portaled outside the card;
+      // interacting with them must not close it.
+      if (target.closest?.('[role="dialog"], [data-sonner-toaster]')) return;
+      if (newMeetingRef.current && !newMeetingRef.current.contains(target)) {
         setMeetingLink(null);
       }
     };
@@ -230,7 +235,7 @@ export default function NewMeetingPage() {
                 </div>
 
                 <div className="px-5 pb-5 -mt-1">
-                  <MeetingReadyAddPeople meetingLink={meetingLink} />
+                  {createdMeetingId && <MeetingReadyAddPeople meetingId={createdMeetingId} />}
                 </div>
               </div>
             )}
@@ -357,29 +362,8 @@ export default function NewMeetingPage() {
   );
 }
 
-interface WorkspaceMemberOption {
-  userId: string;
-  name?: string | null;
-  email?: string | null;
-}
-
-function MeetingReadyAddPeople({ meetingLink }: Readonly<{ meetingLink: string }>) {
+function MeetingReadyAddPeople({ meetingId }: Readonly<{ meetingId: string }>) {
   const t = getTranslations('weldmeet');
-  const { data: membersData } = useWorkspaceMembers(1, 50);
-  const [search, setSearch] = useState('');
-  const [invited, setInvited] = useState<Set<string>>(new Set());
-
-  const members = (membersData?.data ?? []).filter((m: WorkspaceMemberOption) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q));
-  });
-
-  const handleInvite = (member: WorkspaceMemberOption) => {
-    setInvited(prev => new Set(prev).add(member.userId));
-    navigator.clipboard?.writeText(meetingLink).catch(() => { /* ignore */ });
-  };
-
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -392,52 +376,7 @@ function MeetingReadyAddPeople({ meetingLink }: Readonly<{ meetingLink: string }
         <DialogHeader>
           <DialogTitle className="text-[17px]">{t.newMeetingPage.addPeople}</DialogTitle>
         </DialogHeader>
-
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder={t.newMeetingPage.searchByNameOrEmail}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-[35px] text-xs pl-8"
-            autoFocus
-          />
-        </div>
-
-        <div className="max-h-[300px] overflow-y-auto -mx-4 px-4 -mt-2">
-          {members.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-6">{t.newMeetingPage.noMembersFound}</p>
-          )}
-          {members.map((m: WorkspaceMemberOption) => {
-            const isInvited = invited.has(m.userId);
-            return (
-              <div key={m.userId} className="flex items-center gap-3 py-2.5">
-                <Avatar className="h-7 w-7 !rounded-[8px]">
-                  <AvatarFallback className="text-[10px] !rounded-[8px]">
-                    {(m.name ?? m.email ?? '?').charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{m.name ?? t.newMeetingPage.unknown}</p>
-                  {m.email && <p className="text-xs text-muted-foreground truncate">{m.email}</p>}
-                </div>
-                <Button
-                  size="sm"
-                  variant={isInvited ? 'ghost' : 'outline'}
-                  className="shrink-0"
-                  onClick={() => handleInvite(m)}
-                  disabled={isInvited}
-                >
-                  {isInvited ? (
-                    <><Check className="h-3.5 w-3.5" /> {t.newMeetingPage.invited}</>
-                  ) : (
-                    t.newMeetingPage.invite
-                  )}
-                </Button>
-              </div>
-            );
-          })}
-        </div>
+        <MeetingInvitePicker meetingId={meetingId} />
       </DialogContent>
     </Dialog>
   );

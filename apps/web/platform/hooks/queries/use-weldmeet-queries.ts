@@ -192,6 +192,47 @@ export function useUpdateMeeting() {
   });
 }
 
+export interface InviteToMeetingResult {
+  attendees: MeetingAttendee[];
+  /** Attendees added by this call; `emailSent` is false when no invitation email went out. */
+  invited: { email: string; name: string; emailSent: boolean }[];
+  /** Emails that were already on the meeting (left untouched). */
+  alreadyInvited: string[];
+}
+
+/**
+ * Invite people to a meeting by email: workspace members, CRM people or any
+ * address. meet-api adds them to `attendees` (pending) and emails the join link.
+ */
+export function useInviteToMeeting() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      meetingId,
+      invitees,
+      sendEmail,
+    }: {
+      meetingId: string;
+      invitees: { email: string; name?: string }[];
+      sendEmail?: boolean;
+    }) => {
+      const client = await getClient();
+      const res = await client.post<{ data: InviteToMeetingResult }>(
+        `/meetings/${meetingId}/invitations`,
+        { invitees, sendEmail },
+      );
+      return res.data;
+    },
+    onSuccess: (result, { meetingId }) => {
+      queryClient.setQueryData(weldmeetKeys.meeting(meetingId), (prev: Meeting | null | undefined) =>
+        prev ? { ...prev, attendees: result.attendees } : prev,
+      );
+      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+    },
+  });
+}
+
 export function useDeleteMeeting() {
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();

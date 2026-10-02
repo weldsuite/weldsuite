@@ -151,6 +151,24 @@ export function useWorkspaceMembers(page?: number, pageSize?: number) {
   });
 }
 /**
+ * Server-side search over workspace members (name or email). Unlike
+ * `useWorkspaceMembers(1, 50)` it is not capped to the first page, so every
+ * member is findable. Disabled while `search` is empty.
+ */
+export function useWorkspaceMemberSearch(search: string, limit = 20) {
+  const { getClient } = useAppApiClient();
+  const term = search.trim();
+  return useQuery({
+    queryKey: settingsKeys.members({ search: term, limit }),
+    queryFn: async () => {
+      const client = await getClient();
+      const query = buildQueryString({ search: term, limit, memberType: 'all' });
+      return client.get<{ data: WorkspaceMember[] }>(`/team-members${query}`);
+    },
+    enabled: term.length > 0,
+  });
+}
+/**
  * Workspace-wide API keys — app-api `GET /api/workspace-api-keys` (was
  * api-worker `GET /settings/workspace-api-keys`).
  *

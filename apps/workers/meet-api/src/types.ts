@@ -61,6 +61,9 @@ export interface Env extends KitEnv {
   RESEND_API_KEY?: string;
   /** Resend template id for the task-assignment email (NotificationEnv). */
   RESEND_TEMPLATE_TASK_ASSIGNED?: string;
+  /** Public meeting portal (`apps/web/meeting-portal`) that the join links in
+   *  meeting invitation emails point at. Defaults to https://meet.weldsuite.org. */
+  MEETING_PORTAL_URL?: string;
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;

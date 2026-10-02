@@ -7,10 +7,11 @@ import { MeetingIntelligence } from '@/components/weldcrm/calls/meeting-intellig
 import type { TranscriptionActions, MeetingIntelligenceCall, TranscriptionData } from '@/components/weldcrm/calls/meeting-intelligence';
 import type { HeaderAction, MeetingIntelligenceProps } from '@/components/weldcrm/calls/meeting-intelligence/types';
 import { MeetingChatHistory } from '../components/meeting-chat-history';
+import { MeetingInvitePicker } from '../components/meeting-invite-picker';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { X, MessageSquare, Loader2 } from 'lucide-react';
+import { X, MessageSquare, Loader2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 
@@ -199,6 +200,7 @@ export default function MeetingDetailPage() {
   const [showChat, setShowChat] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
+  const [addPeopleOpen, setAddPeopleOpen] = useState(false);
   const { mutate: updateMeeting } = useUpdateMeeting();
   const { mutate: deleteMeeting } = useDeleteMeeting();
 
@@ -226,6 +228,20 @@ export default function MeetingDetailPage() {
   // not yet reflected in the shared Meeting client type.
   const meetingStatus = meeting.status as Meeting['status'] | 'failed';
   const hasChat = meetingStatus === 'completed' || meetingStatus === 'failed';
+
+  // People can be invited until the meeting is over; invitations need its join link.
+  const canInvite = !!meeting.joinCode && (meetingStatus === 'scheduled' || meetingStatus === 'in_progress');
+  const headerActions: HeaderAction[] = [
+    ...(canInvite
+      ? [{
+          label: t.meetingDetailPage.addPeople,
+          icon: <UserPlus className="h-4 w-4" />,
+          onClick: () => setAddPeopleOpen(true),
+          variant: 'outline' as const,
+        }]
+      : []),
+    ...(hasChat ? [buildChatToggleAction(t, showChat, () => setShowChat(v => !v))] : []),
+  ];
 
   const normalizedCall = buildNormalizedCall(meeting, meetingId, latestSession, recordingDuration);
 
@@ -268,11 +284,23 @@ export default function MeetingDetailPage() {
           navigate({ to: '/weldmeet/new' });
         },
       })}
-      headerActions={hasChat ? [buildChatToggleAction(t, showChat, () => setShowChat(v => !v))] : undefined}
+      headerActions={headerActions.length > 0 ? headerActions : undefined}
       renderSidebar={hasChat && showChat ? () => (
         <ChatHistorySidebar t={t} meetingId={meetingId} onClose={() => setShowChat(false)} />
       ) : undefined}
     />
+
+    {/* Add people dialog */}
+    {canInvite && (
+      <Dialog open={addPeopleOpen} onOpenChange={setAddPeopleOpen}>
+        <DialogContent className="sm:max-w-[480px] p-4">
+          <DialogHeader>
+            <DialogTitle className="text-[17px]">{t.meetingDetailPage.addPeople}</DialogTitle>
+          </DialogHeader>
+          <MeetingInvitePicker meetingId={meetingId} />
+        </DialogContent>
+      </Dialog>
+    )}
 
     {/* Rename dialog */}
     <RenameMeetingDialog

@@ -21,6 +21,20 @@ export const weldmeet = {
     errorNoId: 'Persona creada pero no se devolvió ningún id',
     errorGeneric: 'No se pudo crear la persona',
   },
+  invitePeople: {
+    searchPlaceholder: 'Busca personas o escribe un correo...',
+    members: 'Miembros',
+    crmPeople: 'Personas del CRM',
+    inviteEmail: 'Invitar a {email}',
+    invite: 'Invitar',
+    invited: 'Invitado',
+    unknown: 'Desconocido',
+    noResults: 'No se encontraron personas. Escribe un correo completo para invitar a alguien de fuera de tu espacio de trabajo.',
+    invitationSent: 'Invitación enviada a {email}',
+    addedNoEmail: '{email} se añadió a la reunión, pero no se pudo enviar el correo de invitación. Comparte el enlace de la reunión.',
+    alreadyInvited: '{email} ya está invitado',
+    failed: 'No se pudo invitar a {email}',
+  },
   overlay: {
     addPeople: {
       title: 'Añadir personas',
@@ -236,6 +250,7 @@ export const weldmeet = {
     meetingRenamed: 'Reunión renombrada',
     meetingDeleted: 'Reunión eliminada',
     transcriptExported: 'Transcripción exportada',
+    addPeople: 'Añadir personas',
   },
   meetingRoomPage: {
     preparingRoom: 'Preparando sala de reunión...',
