@@ -179,7 +179,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                     variant="ghost"
                     onClick={() => scrollToCategory(category)}
                     className={cn(
-                      'py-2 px-3 text-left text-sm border-none rounded-lg cursor-pointer transition-all -ml-3 mr-3',
+                      'justify-start py-2 px-3 text-left text-sm border-none rounded-lg cursor-pointer transition-all -ml-3 mr-3',
                       'hover:bg-accent hover:text-foreground',
                       'text-muted-foreground font-normal'
                     )}
