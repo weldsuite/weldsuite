@@ -28,9 +28,23 @@ function waitingResponse(meeting: Meeting, reason?: string) {
   });
 }
 
-function hasAttendee(attendees: MeetingAttendee[] | null | undefined, email: string): boolean {
+function findAttendee(
+  attendees: MeetingAttendee[] | null | undefined,
+  email: string,
+): MeetingAttendee | undefined {
   const wanted = email.toLowerCase();
-  return (attendees ?? []).some((a) => a.email.toLowerCase() === wanted);
+  return (attendees ?? []).find((a) => a.email.toLowerCase() === wanted);
+}
+
+/**
+ * True only for attendees the organizer invited. Walk-up guests are written
+ * to the attendees list on their first join attempt (see addGuestAttendee),
+ * so they must not count here, or a single join attempt would let them skip
+ * the waiting room / "Lock after start" on every later attempt.
+ */
+function isInvitedAttendee(attendees: MeetingAttendee[] | null | undefined, email: string): boolean {
+  const attendee = findAttendee(attendees, email);
+  return !!attendee && attendee.source !== 'walk_in';
 }
 
 /**
@@ -58,7 +72,7 @@ function checkMeetingAccess(meeting: Meeting, email: string): NextResponse | nul
     return apiError('FORBIDDEN', 'This meeting is restricted to workspace members', 403);
   }
 
-  if (meeting.accessType === 'invited_only' && !hasAttendee(meeting.attendees, email)) {
+  if (meeting.accessType === 'invited_only' && !isInvitedAttendee(meeting.attendees, email)) {
     return apiError('FORBIDDEN', 'You are not invited to this meeting', 403);
   }
 
@@ -102,20 +116,23 @@ async function checkLockAfterStart(
     ? await db.select().from(meetingSessions).where(eq(meetingSessions.id, meeting.activeSessionId)).limit(1)
     : [null];
   const sessionIsActive = !!activeSession && activeSession.status === 'active';
-  if (sessionIsActive && !hasAttendee(meeting.attendees, email)) {
+  if (sessionIsActive && !isInvitedAttendee(meeting.attendees, email)) {
     return apiError('FORBIDDEN', 'This meeting is locked. New participants are not allowed.', 403);
   }
   return null;
 }
 
-/** Add the guest to the meeting attendees if not already present. */
+/**
+ * Add the guest to the meeting attendees (for display and history) if not
+ * already present, marked as a walk-in so it never counts as an invitation.
+ */
 async function addGuestAttendee(
   db: TenantDb,
   meeting: Meeting,
   email: string,
   name: string,
 ): Promise<void> {
-  if (hasAttendee(meeting.attendees, email)) return;
+  if (findAttendee(meeting.attendees, email)) return;
 
   const guest: MeetingAttendee = {
     userId: '',
@@ -123,6 +140,7 @@ async function addGuestAttendee(
     name,
     status: 'accepted',
     role: 'attendee',
+    source: 'walk_in',
   };
   await db.update(meetings).set({
     attendees: [...(meeting.attendees ?? []), guest],
@@ -205,8 +223,10 @@ export async function POST(request: NextRequest) {
     // denies via acceptWaitingRoomRequest / rejectWaitingRoomRequest; the guest
     // portal reacts to the RTK `waitlisted` / `roomJoined` / `roomLeft(rejected)`
     // events. Pre-invited attendees are trusted on the attendees list already
-    // and skip straight in with the standard GUEST preset.
-    const isPreInvited = hasAttendee(meeting.attendees, email);
+    // and skip straight in with the standard GUEST preset; walk-up guests
+    // recorded by an earlier join attempt do not, so a refresh or a guest the
+    // host denied still lands back in the waiting room.
+    const isPreInvited = isInvitedAttendee(meeting.attendees, email);
     const guestPreset =
       meeting.waitingRoom && !isPreInvited ? RTK_PRESETS.GUEST_WAITING : RTK_PRESETS.GUEST;
 
