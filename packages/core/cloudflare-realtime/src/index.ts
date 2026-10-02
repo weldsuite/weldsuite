@@ -369,6 +369,35 @@ export async function kickAllParticipants(
   return res.data?.kicked_participants_count ?? 0;
 }
 
+/**
+ * Disconnect specific participants from the meeting's live session, leaving
+ * everyone else in the room. `participantIds` are the ids returned by
+ * {@link addParticipant}; `customParticipantIds` are the app-controlled ids
+ * passed as `customParticipantId` when the participant was added. Either list
+ * may be empty, but at least one id must be given. Throws when there is no
+ * live session to kick from; callers that kick best-effort should catch it.
+ */
+export async function kickParticipants(
+  env: CloudflareRealtimeEnv,
+  meetingId: string,
+  ids: { participantIds?: string[]; customParticipantIds?: string[] },
+): Promise<void> {
+  const participantIds = ids.participantIds ?? [];
+  const customParticipantIds = ids.customParticipantIds ?? [];
+  if (participantIds.length === 0 && customParticipantIds.length === 0) {
+    throw new Error('kickParticipants requires at least one participant id');
+  }
+  const { client, accountId, appId } = realtime(env);
+  await call('kick RTK participants', () =>
+    client.realtimeKit.activeSession.kickParticipants(meetingId, {
+      account_id: accountId,
+      app_id: appId,
+      participant_ids: participantIds,
+      custom_participant_ids: customParticipantIds,
+    }),
+  );
+}
+
 export async function removeParticipant(
   env: CloudflareRealtimeEnv,
   meetingId: string,

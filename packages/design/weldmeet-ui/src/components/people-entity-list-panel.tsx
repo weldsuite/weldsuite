@@ -52,6 +52,8 @@ export interface PeopleEntityListPanelProps {
    * detail panel. Self + waiting rows are never clickable.
    */
   onClickPerson?: (participant: MeetingPeer) => void;
+  /** Host app's "Remove from call" handler; falls back to `participant.kick()` when omitted. */
+  onRemoveParticipant?: (participant: MeetingPeer) => void | Promise<void>;
 }
 
 /** Keeps the context menu (220x340) inside the viewport when opened at the pointer. */
@@ -206,6 +208,7 @@ export function PeopleEntityListPanel({
   selfIsHost = true,
   addPeopleDialogContent,
   onClickPerson,
+  onRemoveParticipant,
 }: PeopleEntityListPanelProps) {
   const [waitlisted, setWaitlisted] = useState<WaitlistedPeer[]>([]);
   const [groupBy, setGroupBy] = useState<'status' | 'audio' | 'video' | 'none'>('status');
@@ -453,6 +456,7 @@ export function PeopleEntityListPanel({
           onClose={() => setMenuRow(null)}
           onClickDetails={onClickPerson}
           canManageParticipants={selfIsHost}
+          onRemoveParticipant={onRemoveParticipant}
         />
       )}
     </div>

@@ -7,9 +7,14 @@ import { test, expect } from '@playwright/test';
 import {
   MEETING_PATH,
   meetingInfo,
+  joinResult,
   mockMeetingInfo,
+  mockJoin,
+  mockLeave,
   fillGuestForm,
 } from '../helpers/mock-meeting-api';
+
+const IDENTITY_KEY = 'weldmeet:guest-identity';
 
 test.describe('Meeting portal · landing', () => {
   test.beforeEach(async ({ page }) => {
@@ -60,5 +65,65 @@ test.describe('Meeting portal · landing', () => {
 
     await page.locator('#guest-email').fill('');
     await expect(join).toBeDisabled();
+  });
+});
+
+test.describe('Meeting portal · landing · remembered identity', () => {
+  test('prefills name + email from a previous visit and "Not you?" clears them', async ({ page }) => {
+    await mockMeetingInfo(page, meetingInfo());
+    await page.addInitScript(
+      ([key, value]) => window.localStorage.setItem(key, value),
+      [IDENTITY_KEY, JSON.stringify({ name: 'Casey Guest', email: 'casey@example.com' })],
+    );
+    await page.goto(MEETING_PATH);
+
+    await expect(page.locator('#guest-name')).toHaveValue('Casey Guest', { timeout: 15_000 });
+    await expect(page.locator('#guest-email')).toHaveValue('casey@example.com');
+    // The restored details are valid, so the guest can join straight away.
+    await expect(page.getByRole('button', { name: /join now/i })).toBeEnabled();
+
+    await page.getByRole('button', { name: /not you?/i }).click();
+
+    await expect(page.locator('#guest-name')).toHaveValue('');
+    await expect(page.locator('#guest-email')).toHaveValue('');
+    await expect(page.getByRole('button', { name: /not you?/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /join now/i })).toBeDisabled();
+    expect(await page.evaluate((key) => window.localStorage.getItem(key), IDENTITY_KEY)).toBeNull();
+  });
+
+  test('a fresh visitor sees an empty form and no "Not you?" link', async ({ page }) => {
+    await mockMeetingInfo(page, meetingInfo());
+    await page.goto(MEETING_PATH);
+
+    await expect(page.locator('#guest-name')).toHaveValue('', { timeout: 15_000 });
+    await expect(page.getByRole('button', { name: /not you?/i })).toHaveCount(0);
+  });
+
+  test('ignores a malformed stored identity', async ({ page }) => {
+    await mockMeetingInfo(page, meetingInfo());
+    await page.addInitScript(
+      ([key, value]) => window.localStorage.setItem(key, value),
+      [IDENTITY_KEY, '{"name": 42'],
+    );
+    await page.goto(MEETING_PATH);
+
+    await expect(page.locator('#guest-name')).toHaveValue('', { timeout: 15_000 });
+    await expect(page.getByRole('button', { name: /not you?/i })).toHaveCount(0);
+  });
+
+  test('submitting the join form remembers the details for next time', async ({ page }) => {
+    await mockMeetingInfo(page, meetingInfo({ hasActiveSession: false }));
+    await mockJoin(page, joinResult({ status: 'waiting' }));
+    await mockLeave(page);
+    await page.goto(MEETING_PATH);
+
+    await fillGuestForm(page, 'Casey Guest', 'casey@example.com');
+    const join = page.getByRole('button', { name: /join now/i });
+    await expect(join).toBeEnabled({ timeout: 15_000 });
+    await join.click();
+    await expect(page.getByText(/waiting for the host to start/i)).toBeVisible({ timeout: 15_000 });
+
+    const stored = await page.evaluate((key) => window.localStorage.getItem(key), IDENTITY_KEY);
+    expect(JSON.parse(stored ?? 'null')).toEqual({ name: 'Casey Guest', email: 'casey@example.com' });
   });
 });

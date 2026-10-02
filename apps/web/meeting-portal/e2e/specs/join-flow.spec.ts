@@ -8,6 +8,7 @@
  *   waitlisted → denied   → "Entry denied"
  *   host_must_join_first  → waiting
  *   ended                 → "You left the meeting" (terminal)
+ *   removed               → "You were removed from the meeting" (terminal, no Rejoin)
  *   joined                → leaves the form and attempts to connect
  */
 
@@ -96,6 +97,46 @@ test.describe('Meeting portal · join flow', () => {
 
     await expect(page.getByText('Unable to join')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/this meeting has already ended/i)).toBeVisible();
+  });
+
+  test('status "removed" shows the removed screen with no Rejoin and stops polling', async ({ page }) => {
+    await mockMeetingInfo(page, meetingInfo());
+    const join = await mockJoin(page, joinResult({ status: 'removed' }));
+    await mockLeave(page);
+
+    await landAndSubmit(page);
+
+    await expect(page.getByText('You were removed from the meeting')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/the host removed you from this call/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /rejoin/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /return to home screen/i })).toBeVisible();
+
+    // Terminal: nothing keeps hitting /join (the waiting screen polls every few
+    // seconds), so the count stays at the single submit.
+    const callsAfterScreen = join.callCount();
+    await page.waitForTimeout(3_000);
+    expect(join.callCount()).toBe(callsAfterScreen);
+    expect(callsAfterScreen).toBe(1);
+  });
+
+  test('a polled re-join that comes back "removed" stops polling on the removed screen', async ({ page }) => {
+    await mockMeetingInfo(page, meetingInfo({ hasActiveSession: false }));
+    // First attempt waits for the host; the host removes the guest before the
+    // session starts being joinable, so the next poll is refused.
+    const join = await mockJoin(page, (call) =>
+      call === 0 ? joinResult({ status: 'waiting' }) : joinResult({ status: 'removed' }),
+    );
+    await mockLeave(page);
+
+    await landAndSubmit(page);
+
+    await expect(page.getByText(/waiting for the host to start/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('You were removed from the meeting')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('button', { name: /rejoin/i })).toHaveCount(0);
+
+    const callsAfterScreen = join.callCount();
+    await page.waitForTimeout(6_000);
+    expect(join.callCount()).toBe(callsAfterScreen);
   });
 
   test('status "joined" leaves the form and attempts to connect', async ({ page }) => {

@@ -235,6 +235,15 @@ export interface MeetingRoomViewProps {
    */
   onClickParticipantDetails?: (participant: MeetingPeer) => void;
 
+  // ── Host "Remove from call" (omit to fall back to `participant.kick()`) ───
+  /**
+   * Called instead of the peer's own `kick()` when the host picks "Remove from
+   * call" on a tile. The platform uses it to also record the removal
+   * server-side so a removed guest cannot rejoin. The meeting portal and mobile
+   * omit it and keep the plain RTK kick.
+   */
+  onRemoveParticipant?: (participant: MeetingPeer) => void | Promise<void>;
+
   // ── Host-app right-edge reservation (fullscreen only) ─────────────────────
   /**
    * Pixels reserved on the right edge of the fullscreen meeting wrapper so a

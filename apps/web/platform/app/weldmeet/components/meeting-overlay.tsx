@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
-import { useMeeting, useUpdateMeeting, useLatestSession, useUpdateHostControls, type MeetingSession } from '@/hooks/queries/use-weldmeet-queries';
+import { toast } from 'sonner';
+import { useMeeting, useUpdateMeeting, useLatestSession, useUpdateHostControls, useRemoveMeetingParticipant, type MeetingSession } from '@/hooks/queries/use-weldmeet-queries';
 import { useSessionRecording } from '@/hooks/queries/use-weldmeet-recording-queries';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { RecordingAiOptionsInput } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
@@ -25,6 +26,7 @@ import {
   InvitePopover,
   HostControlsPanel,
   type HostControlsValue,
+  type MeetingPeer,
 } from '@weldsuite/weldmeet-ui';
 import { getTranslations } from '@/lib/i18n';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
@@ -164,6 +166,7 @@ function MeetingRoomAdapter() {
   const { data: meetingData } = useMeeting(activeMeetingId ?? '');
   const { mutate: updateMeeting } = useUpdateMeeting();
   const { mutate: updateHostControls } = useUpdateHostControls();
+  const { mutateAsync: removeMeetingParticipant } = useRemoveMeetingParticipant();
   const [showWeldAgent, setShowWeldAgent] = useWeldAgentDrawerOpen();
   const [, setMeetingPanelOpen] = useMeetingPanelOpen();
   const mobileNav = useMobileNavOptional();
@@ -273,6 +276,34 @@ function MeetingRoomAdapter() {
     // Unlinked guest — offer to save as a person.
     setGuestTarget({ name: p?.name, picture: p?.picture ?? undefined });
   }, [participantLinks, openObjectPanel]);
+
+  // Host "Remove from call". The API records the removal on the session (so a
+  // removed guest can't simply reload and rejoin) and kicks them server-side.
+  // If that call fails, or the server couldn't confirm the kick, fall back to
+  // the RTK kick so the peer is disconnected either way.
+  const handleRemoveParticipant = useCallback(async (peer: MeetingPeer) => {
+    const kickLocally = () => peer.kick?.().catch(() => undefined);
+    if (!activeSessionId || !activeMeetingId) {
+      toast.error(t.overlay.removeParticipant.failed);
+      await kickLocally();
+      return;
+    }
+    try {
+      const result = await removeMeetingParticipant({
+        sessionId: activeSessionId,
+        meetingId: activeMeetingId,
+        participant: {
+          participantId: peer.id,
+          ...(peer.userId ? { rtkUserId: peer.userId } : {}),
+          ...(peer.customParticipantId ? { customParticipantId: peer.customParticipantId } : {}),
+        },
+      });
+      if (!result.kicked) await kickLocally();
+    } catch {
+      toast.error(t.overlay.removeParticipant.failed);
+      await kickLocally();
+    }
+  }, [activeSessionId, activeMeetingId, removeMeetingParticipant, t]);
 
   const joinCode = meetingData?.joinCode ?? '';
   const shareUrl = buildMeetingShareUrl(workspaceId, joinCode) ?? '';
@@ -483,7 +514,7 @@ function MeetingRoomAdapter() {
           // values per key — stringify the controls object so the receiver
           // gets one flat string field that parses back to the full snapshot.
           try {
-            meeting?.participants?.broadcastMessage?.('call:host-controls-updated', {
+            void meeting?.participants?.broadcastMessage?.('call:host-controls-updated', {
               meetingId: activeMeetingId ?? '',
               controlsJson: JSON.stringify(controls),
             });
@@ -511,6 +542,7 @@ function MeetingRoomAdapter() {
       selfIsHost={isOrganizer}
       addPeopleDialogContent={shareUrl && activeMeetingId ? <AddPeopleDialogContent meetingId={activeMeetingId} /> : undefined}
       onClickPerson={handleClickParticipantDetails}
+      onRemoveParticipant={handleRemoveParticipant}
     />
   );
 
@@ -637,6 +669,7 @@ function MeetingRoomAdapter() {
       hostControlsSlot={hostControlsSlot}
       addPeopleDialogContent={shareUrl && activeMeetingId ? <AddPeopleDialogContent meetingId={activeMeetingId} /> : undefined}
       onClickParticipantDetails={handleClickParticipantDetails}
+      onRemoveParticipant={handleRemoveParticipant}
       // Treat the object detail panel as an external panel too: when it opens
       // (objectPanelWidth > 0) MeetingRoomView closes its internal panels
       // instantly (skipTransition) — one panel at a time, no switch animation.

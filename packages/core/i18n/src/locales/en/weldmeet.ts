@@ -53,6 +53,9 @@ export const weldmeet = {
       invited: 'Invited',
       unknown: 'Unknown',
     },
+    removeParticipant: {
+      failed: "Couldn't remove the participant from the call",
+    },
   },
   chatHistory: {
     header: 'Chat',

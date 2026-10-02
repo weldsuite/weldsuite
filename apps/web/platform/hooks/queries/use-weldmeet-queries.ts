@@ -5,7 +5,8 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
+import type { RemoveMeetingSessionParticipantInput } from '@weldsuite/app-api-client/schemas/meeting-sessions';
 import type { RecordingStatus } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
 import type {
   HostControls,
@@ -172,7 +173,7 @@ export function useCreateMeeting() {
       return res.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -187,8 +188,8 @@ export function useUpdateMeeting() {
       return res.data;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(variables.id) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -229,7 +230,7 @@ export function useInviteToMeeting() {
       queryClient.setQueryData(weldmeetKeys.meeting(meetingId), (prev: Meeting | null | undefined) =>
         prev ? { ...prev, attendees: result.attendees } : prev,
       );
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -243,7 +244,7 @@ export function useDeleteMeeting() {
       await client.delete(`/meetings/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -257,8 +258,8 @@ export function useCancelMeeting() {
       await client.patch(`/meetings/${id}/cancel${sendNotification ? '?sendNotification=true' : ''}`);
     },
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(id) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(id) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -287,7 +288,36 @@ export function useUpdateHostControls() {
       });
     },
   });
-}export function useJoinByCode() {
+}
+
+/**
+ * Host "Remove from call". The API records the removal on the session (a
+ * removed guest cannot rejoin it) and kicks the participant server-side; the
+ * result's `kicked` tells the caller whether RealtimeKit confirmed the kick.
+ */
+export function useRemoveMeetingParticipant() {
+  const { meetingSessions } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      sessionId,
+      participant,
+    }: {
+      sessionId: string;
+      meetingId: string;
+      participant: RemoveMeetingSessionParticipantInput;
+    }) => {
+      const res = await meetingSessions.removeParticipant(sessionId, participant);
+      return res.data;
+    },
+    onSuccess: (_result, { meetingId }) => {
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(meetingId) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.latestSession(meetingId) });
+    },
+  });
+}
+
+export function useJoinByCode() {
   const { getClient } = useAppApiClient();
   return useMutation({
     mutationFn: async (joinCode: string) => {
