@@ -73,7 +73,7 @@ export async function startInstantMeeting(
   const { meetings, meetingSessions } = schema;
   const { userId, orgId, user, input } = params;
 
-  const meetingId = generateId('meet');
+  const meetingId = generateId('mtg');
   const sessionId = generateId('msess');
   const joinCode = generateJoinCode();
   const now = new Date();

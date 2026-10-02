@@ -60,6 +60,12 @@ function buildListFilters(q: Record<string, string>, scope: string | undefined):
     const value = q[param];
     if (value) conditions.push(eq(column, value));
   }
+  // Person timelines: meeting activities are logged with `person_id`, while the
+  // platform writes manually logged person activities with `contact_id` = the
+  // person id, so a person filter has to match either column.
+  if (q.personId) {
+    conditions.push(or(eq(t.personId, q.personId), eq(t.contactId, q.personId))!);
+  }
   if (q.search) {
     const term = `%${q.search}%`;
     conditions.push(or(like(t.subject, term), like(t.description, term))!);

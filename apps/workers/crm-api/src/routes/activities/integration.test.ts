@@ -208,4 +208,46 @@ describe('/api/activities · pglite integration', () => {
     const ids = body.data.map((r) => r.id);
     expect(ids).toContain(myId);
   });
+
+  it('GET / ?personId= returns only activities of that person', async () => {
+    const now = new Date();
+    const mk = (personId: string | null, contactId: string | null = null) => {
+      const id = generateId('act');
+      return db
+        .insert(schema.crmActivities)
+        .values({
+          id,
+          type: 'meeting',
+          subject: 'Person filter',
+          assignedToId: 'user_person_filter',
+          status: 'completed',
+          personId,
+          contactId,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .then(() => id);
+    };
+    const [forA, forB, forNone] = [await mk('per_filter_a'), await mk('per_filter_b'), await mk(null)];
+    // The platform logs person activities with contactId = personId (no person_id column set).
+    const forAViaContact = await mk(null, 'per_filter_a');
+    const forOtherContact = await mk(null, 'con_filter_other');
+
+    const { request } = createTestApp('/api/activities', activitiesRoutes, {
+      context: {
+        userId: 'user_person_filter',
+        permissions: permissions('activities:read'),
+        tenantDb: db,
+      },
+    });
+    const res = await request('/api/activities?personId=per_filter_a');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ id: string }> };
+    const ids = body.data.map((r) => r.id);
+    expect(ids).toContain(forA);
+    expect(ids).toContain(forAViaContact);
+    expect(ids).not.toContain(forB);
+    expect(ids).not.toContain(forNone);
+    expect(ids).not.toContain(forOtherContact);
+  });
 });

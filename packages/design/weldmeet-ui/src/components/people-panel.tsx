@@ -255,10 +255,12 @@ function ParticipantRow({
           {p.picture && <AvatarImage src={p.picture} className="!rounded-[8px]" />}
           <AvatarFallback className="text-[10px] font-medium !rounded-[8px]">{initials}</AvatarFallback>
         </Avatar>
-        <div className={cn(
-          'absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background',
-          p.audioEnabled && p.videoEnabled ? 'bg-emerald-500' : 'bg-muted-foreground/40',
-        )} />
+        {/* Presence = "is in the call". Mic / camera state has its own badges on
+            the right, so muting (e.g. by the host) must not grey this out. */}
+        <div
+          className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background bg-emerald-500"
+          title="In call"
+        />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[13px] font-medium leading-tight truncate">

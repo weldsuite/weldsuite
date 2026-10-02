@@ -17,12 +17,33 @@ import {
 } from './schemas';
 
 interface ApiError {
-  error?: { message?: string };
+  error?: { code?: string; message?: string };
 }
 
-async function readError(res: Response, fallback: string): Promise<string> {
+/**
+ * An API call that came back non-2xx. A normal `Error` (message = the server's
+ * message), plus the HTTP `status` and the error `code`, so the UI can show
+ * friendly copy for a 404 ("meeting not found") without parsing messages.
+ */
+export class MeetingApiError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'MeetingApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function readError(res: Response, fallback: string): Promise<MeetingApiError> {
   const body = (await res.json().catch(() => ({}))) as ApiError;
-  return body?.error?.message || `${fallback} (${res.status})`;
+  return new MeetingApiError(
+    body?.error?.message || `${fallback} (${res.status})`,
+    res.status,
+    body?.error?.code,
+  );
 }
 
 /** Authorization header for the guest chat, upload and leave routes. */
@@ -38,7 +59,7 @@ export async function getGuestMeetingInfo(
     `/api/meeting/info?orgId=${encodeURIComponent(orgId)}&joinCode=${encodeURIComponent(joinCode)}`,
   );
   if (!res.ok) {
-    throw new Error(await readError(res, 'Failed to get meeting info'));
+    throw await readError(res, 'Failed to get meeting info');
   }
   const json = (await res.json()) as { data: unknown };
   return meetingInfoSchema.parse(json.data);
@@ -54,7 +75,7 @@ export async function guestJoinMeeting(
     body: JSON.stringify({ orgId, ...body }),
   });
   if (!res.ok) {
-    throw new Error(await readError(res, 'Failed to join meeting'));
+    throw await readError(res, 'Failed to join meeting');
   }
   const json = (await res.json()) as { data: unknown };
   return guestJoinResultSchema.parse(json.data);
@@ -83,7 +104,7 @@ export async function getGuestWaitlistStatus(
     + `&waitlistId=${encodeURIComponent(waitlistId)}`;
   const res = await fetch(url);
   if (!res.ok) {
-    throw new Error(await readError(res, 'Failed to fetch waitlist status'));
+    throw await readError(res, 'Failed to fetch waitlist status');
   }
   const json = (await res.json()) as { data: unknown };
   return waitlistStatusResponseSchema.parse(json.data).status;

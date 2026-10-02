@@ -13,15 +13,19 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useCreatePerson } from '@/hooks/queries/use-people-queries';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
+import { useResolvePersonByEmail } from './use-resolve-person-by-email';
 
 export interface GuestCreatePersonTarget {
   name?: string;
   picture?: string;
+  /** Known email (portal guests join as `guest:<email>`); prefilled in the form. */
+  email?: string;
 }
 
 interface Props {
   target: GuestCreatePersonTarget | null;
   onOpenChange: (open: boolean) => void;
+  /** Called with the new person's id, or the existing person's id when the email already had one. */
   onCreated: (personId: string) => void;
 }
 
@@ -39,19 +43,43 @@ export function GuestCreatePersonDialog({ target, onOpenChange, onCreated }: Rea
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const createPerson = useCreatePerson();
+  const resolvePersonByEmail = useResolvePersonByEmail();
+  const [resolving, setResolving] = useState(false);
 
   useEffect(() => {
     if (target) {
       const { firstName: f, lastName: l } = splitName(target.name);
       setFirstName(f || 'Guest');
       setLastName(l);
-      setEmail('');
+      setEmail(target.email ?? '');
     }
   }, [target]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim()) return;
+
+    // The email may already belong to a person (a guest who was linked after
+    // this dialog's data went stale, or a CRM contact added by someone else).
+    // Open that person instead of creating a duplicate.
+    const typedEmail = email.trim();
+    if (typedEmail) {
+      setResolving(true);
+      try {
+        const existingId = await resolvePersonByEmail(typedEmail);
+        if (existingId) {
+          toast.info(t.guestCreatePerson.existingPerson);
+          onCreated(existingId);
+          return;
+        }
+      } catch {
+        // The lookup is a safety net; if it fails, creating the person (which
+        // the server still validates) is better than blocking the host.
+      } finally {
+        setResolving(false);
+      }
+    }
+
     try {
       const res = await createPerson.mutateAsync({
         firstName: firstName.trim(),
@@ -116,12 +144,12 @@ export function GuestCreatePersonDialog({ target, onOpenChange, onCreated }: Rea
               type="button"
               variant="ghost"
               onClick={() => onOpenChange(false)}
-              disabled={createPerson.isPending}
+              disabled={createPerson.isPending || resolving}
             >
               {t.guestCreatePerson.cancel}
             </Button>
-            <Button type="submit" disabled={createPerson.isPending || !firstName.trim()}>
-              {createPerson.isPending ? t.guestCreatePerson.saving : t.guestCreatePerson.save}
+            <Button type="submit" disabled={createPerson.isPending || resolving || !firstName.trim()}>
+              {createPerson.isPending || resolving ? t.guestCreatePerson.saving : t.guestCreatePerson.save}
             </Button>
           </DialogFooter>
         </form>

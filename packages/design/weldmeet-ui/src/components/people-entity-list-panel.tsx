@@ -89,19 +89,16 @@ function MediaStateBadge({
 }
 
 /**
- * Everyone in the call has a real presence status. Fully-active (mic + camera
- * on) reads as "active" (green); otherwise they're "busy — in a call" (solid
- * amber) rather than a faint/transparent dot that looks like a missing status.
+ * Presence dot for an in-call row. Presence means "connected to the call", so
+ * it is green regardless of mic / camera state: those have their own badges on
+ * the right of the row. (It used to turn amber unless mic AND camera were on,
+ * so a host muting someone made their presence indicator change colour.)
  */
-function PresenceDot({ row }: { row: PersonRow }) {
-  const active = row.audioEnabled && row.videoEnabled;
+function PresenceDot() {
   return (
     <div
-      className={cn(
-        'absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background',
-        active ? 'bg-emerald-500' : 'bg-amber-500',
-      )}
-      title={active ? 'Active' : 'Busy — in a call'}
+      className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background bg-emerald-500"
+      title="In call"
     />
   );
 }
@@ -145,7 +142,7 @@ function PersonListRow({ row, onClickPerson, onOpenMenu, onAdmit, onReject }: Pe
             {initials}
           </AvatarFallback>
         </Avatar>
-        {!isWaiting && <PresenceDot row={row} />}
+        {!isWaiting && <PresenceDot />}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate text-gray-900 dark:text-foreground">

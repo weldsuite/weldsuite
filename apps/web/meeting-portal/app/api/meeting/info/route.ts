@@ -3,7 +3,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getTenantDb } from '@/lib/db';
 import { meetings, workspaceMembers } from '@weldsuite/db/schema';
 import { meetingInfoQuerySchema } from '@/lib/schemas';
-import { invalidInput } from '@/lib/api-response';
+import { invalidInput, tenantNotFoundResponse } from '@/lib/api-response';
 import { effectiveMeetingStatus } from '@/lib/meeting-status';
 
 /**
@@ -94,6 +94,8 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
+    const notFound = tenantNotFoundResponse(err);
+    if (notFound) return notFound;
     console.error('[MeetingPortal] Failed to get meeting info:', err);
     return NextResponse.json(
       { error: { code: 'INTERNAL', message: 'Failed to get meeting info' } },

@@ -6,6 +6,12 @@ interface SessionParticipantInfo {
   userAvatar?: string;
   joinedAt: string;
   leftAt?: string;
+  /** First join across rejoin stints; shown as "Joined" when it differs from `joinedAt`. */
+  firstJoinedAt?: string;
+  /** Seconds spent in earlier stints; the current stint is `joinedAt`..`leftAt`. */
+  priorSeconds?: number;
+  /** Number of join/leave stints merged into this entry. */
+  stints?: number;
 }
 
 /** A meeting attendee with optional links to a team member or CRM contact. */
@@ -25,6 +31,11 @@ export interface MeetingIntelligenceCall {
   subject: string;
   description?: string;
   date: string;
+  /**
+   * Shown in place of `date` (and its time) when the meeting has no real date,
+   * e.g. "Not scheduled".
+   */
+  dateLabel?: string;
   duration?: number;
   attendees?: string[];
   /** Rich attendee data with profile links; preferred over `attendees` for the participants list. */
@@ -89,6 +100,8 @@ export interface HeaderAction {
   onClick: () => void;
   variant?: 'default' | 'outline' | 'ghost' | 'destructive';
   disabled?: boolean;
+  /** Render the label next to the icon (default: icon only, label as tooltip). */
+  showLabel?: boolean;
 }
 
 export interface SpeakerInfo {
@@ -135,6 +148,8 @@ export interface MeetingIntelligenceProps {
   enableFloatingVideo?: boolean;
   enableWeldAgent?: boolean;
   onDelete?: (id: string) => Promise<{ success: boolean; error?: string }>;
+  /** Toast title after a successful delete (default: "Call deleted"). */
+  deleteSuccessMessage?: string;
   deleteRedirectUrl?: string;
   backUrl?: string;
   breadcrumbs?: Array<{ label: string; href?: string }>;

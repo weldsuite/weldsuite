@@ -7,6 +7,8 @@ import { detectPlatform, formatDuration } from './utils';
 import type { MeetingIntelligenceCall, MeetingAttendeeDetail } from './types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
+type SessionParticipant = NonNullable<MeetingIntelligenceCall['sessionParticipants']>[number];
+
 interface MeetingDetailsTabProps {
   call: MeetingIntelligenceCall;
   mediaType?: 'video' | 'audio' | 'none';
@@ -26,11 +28,24 @@ function formatSessionDuration(seconds: number): string {
   return `${secs}s`;
 }
 
-function formatParticipantDuration(joinedAt: string, leftAt?: string): string {
-  const start = new Date(joinedAt).getTime();
-  const end = leftAt ? new Date(leftAt).getTime() : Date.now();
-  const seconds = Math.floor((end - start) / 1000);
-  return formatSessionDuration(seconds);
+/**
+ * Time a participant spent in the session: earlier stints plus the current one.
+ * The current stint is clamped to the session (a stale join/leave outside it
+ * must not inflate the total) and only runs up to "now" while the session is live.
+ */
+function formatParticipantDuration(
+  participant: SessionParticipant,
+  sessionStartedAt?: string,
+  sessionEndedAt?: string,
+): string {
+  const sessionStart = sessionStartedAt ? new Date(sessionStartedAt).getTime() : null;
+  const sessionEnd = sessionEndedAt ? new Date(sessionEndedAt).getTime() : null;
+  let start = new Date(participant.joinedAt).getTime();
+  if (sessionStart !== null && start < sessionStart) start = sessionStart;
+  let end = participant.leftAt ? new Date(participant.leftAt).getTime() : (sessionEnd ?? Date.now());
+  if (sessionEnd !== null && end > sessionEnd) end = sessionEnd;
+  const currentStint = Math.max(0, Math.floor((end - start) / 1000));
+  return formatSessionDuration((participant.priorSeconds ?? 0) + currentStint);
 }
 
 export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: MeetingDetailsTabProps) {
@@ -60,8 +75,14 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
             )}
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium text-gray-900 dark:text-foreground">{format(callDate, 'EEEE, MMMM d, yyyy')}</p>
-            <p className="text-xs text-gray-500 dark:text-muted-foreground">{format(callDate, 'h:mm a')}</p>
+            {call.dateLabel ? (
+              <p className="text-sm font-medium text-gray-900 dark:text-foreground">{call.dateLabel}</p>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-gray-900 dark:text-foreground">{format(callDate, 'EEEE, MMMM d, yyyy')}</p>
+                <p className="text-xs text-gray-500 dark:text-muted-foreground">{format(callDate, 'h:mm a')}</p>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {callDuration > 0 ? (
@@ -159,16 +180,23 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{participant.userName}</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
+                        {participant.userName}
+                        {(participant.stints ?? 1) > 1 && (
+                          <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-muted-foreground">
+                            {t('sweep.weldcrm.meetingDetailsTab.sessionsCount', { count: participant.stints })}
+                          </span>
+                        )}
+                      </p>
                     </div>
                     <span className="text-xs font-mono px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border text-gray-500 dark:text-muted-foreground flex-shrink-0">
-                      {formatParticipantDuration(participant.joinedAt, participant.leftAt)}
+                      {formatParticipantDuration(participant, call.sessionStartedAt, call.sessionEndedAt)}
                     </span>
                   </div>
                   <div className="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <LogIn className="h-3 w-3 text-emerald-500" />
-                      {t('sweep.weldcrm.meetingDetailsTab.joinedAt', { time: format(new Date(participant.joinedAt), 'h:mm:ss a') })}
+                      {t('sweep.weldcrm.meetingDetailsTab.joinedAt', { time: format(new Date(participant.firstJoinedAt ?? participant.joinedAt), 'h:mm:ss a') })}
                     </span>
                     {participant.leftAt && (
                       <span className="flex items-center gap-1">

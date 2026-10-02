@@ -612,6 +612,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     pauseRecording,
     resumeRecording,
     showControlBarRecording = true,
+    recordingStartElapsedSeconds,
+    recordingLabels,
     onToggleEffects,
     effectsOpen,
     backgroundType,
@@ -791,6 +793,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           duration={duration}
           isRecording={isRecording}
           recordingState={recordingState}
+          recordingStartElapsedSeconds={recordingStartElapsedSeconds}
+          recordingLabels={recordingLabels}
           waitlistedCount={waitlistedCount}
           participantsCount={participants.length}
           rightPanel={rightPanel}
@@ -886,6 +890,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
         isRecording={isRecording}
         recordingState={recordingState}
         {...rightPanelRecording}
+        recordingStartElapsedSeconds={recordingStartElapsedSeconds}
+        recordingLabels={recordingLabels}
         recordingAvailable={isOrganizer}
       />
 

@@ -20,7 +20,7 @@ import {
   type RtkParticipant,
 } from '@weldsuite/cloudflare-realtime';
 
-function realtimeEnv(): CloudflareRealtimeEnv {
+export function realtimeEnv(): CloudflareRealtimeEnv {
   return {
     CF_ACCOUNT_ID: process.env.CF_ACCOUNT_ID,
     CF_REALTIME_APP_ID: process.env.CF_REALTIME_APP_ID,

@@ -113,41 +113,14 @@ export type StartInstantMeetingInput = z.infer<typeof startInstantMeetingSchema>
 // Mutations — meeting CRUD
 // ============================================================================
 
-export const createMeetingSchema = z.object({
-  title: z.string().min(1).max(255),
-  description: z.string().optional(),
-  meetingType: z.enum(['video', 'audio']).default('video'),
-  accessType: z.enum(['workspace', 'invited_only', 'anyone_with_link']).default('workspace'),
-  waitingRoom: z.boolean().default(false),
-  allowRecording: z.boolean().default(true),
-  maxParticipants: z.number().int().positive().optional(),
-  attendees: z.array(meetingAttendeeSchema).default([]),
-  scheduledStart: z.string().datetime().optional(),
-  scheduledEnd: z.string().datetime().optional(),
-  isRecurring: z.boolean().default(false),
-  recurrenceRule: z.string().optional(),
-  createCalendarEvent: z.boolean().default(false),
-  tags: z.array(z.string()).optional(),
-}).merge(hostControlsSchema);
-
-export type CreateMeetingInput = z.infer<typeof createMeetingSchema>;
-
-export const updateMeetingSchema = z.object({
-  title: z.string().min(1).max(255).optional(),
-  description: z.string().optional(),
-  meetingType: z.enum(['video', 'audio']).optional(),
-  accessType: z.enum(['workspace', 'invited_only', 'anyone_with_link']).optional(),
-  waitingRoom: z.boolean().optional(),
-  allowRecording: z.boolean().optional(),
-  maxParticipants: z.number().int().positive().nullable().optional(),
-  attendees: z.array(meetingAttendeeSchema).optional(),
-  scheduledStart: z.string().datetime().optional(),
-  scheduledEnd: z.string().datetime().optional(),
-  tags: z.array(z.string()).optional(),
-  sendNotification: z.boolean().default(false),
-}).merge(hostControlsSchema);
-
-export type UpdateMeetingInput = z.infer<typeof updateMeetingSchema>;
+// One definition: the strict allow-list schemas live in ./meetings (they are what
+// POST /meetings and PATCH /meetings/:id validate against).
+export {
+  createMeetingSchema,
+  updateMeetingSchema,
+  type CreateMeetingInput,
+  type UpdateMeetingInput,
+} from './meetings';
 
 export const listMeetingsQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -242,6 +215,15 @@ export interface MeetingSessionParticipant {
   personId?: string;
   /** @deprecated kept for historical rows; new writes target personId. */
   contactId?: string;
+  /**
+   * Rejoin stints. joinedAt / leftAt describe the CURRENT stint; total time in
+   * the meeting = priorSeconds + (leftAt - joinedAt). Absent when never rejoined.
+   */
+  firstJoinedAt?: string;
+  /** Seconds spent in earlier stints. */
+  priorSeconds?: number;
+  /** Number of stints (1 = never rejoined). */
+  stints?: number;
 }
 
 export interface MeetingSession {

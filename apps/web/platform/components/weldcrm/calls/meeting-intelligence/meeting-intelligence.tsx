@@ -47,6 +47,7 @@ export function MeetingIntelligence({
   enableFloatingVideo = false,
   enableWeldAgent = false,
   onDelete,
+  deleteSuccessMessage,
   deleteRedirectUrl,
   backUrl,
   breadcrumbs,
@@ -437,9 +438,13 @@ export function MeetingIntelligence({
         return;
       }
 
-      toast.success(t('sweep.weldcrm.meetingIntelligence.callDeleted'), {
-        description: t('sweep.weldcrm.meetingIntelligence.callDeletedDescription'),
-      });
+      if (deleteSuccessMessage) {
+        toast.success(deleteSuccessMessage);
+      } else {
+        toast.success(t('sweep.weldcrm.meetingIntelligence.callDeleted'), {
+          description: t('sweep.weldcrm.meetingIntelligence.callDeletedDescription'),
+        });
+      }
 
       router.push(deleteRedirectUrl || '/weldcrm/calls');
     } catch (error: unknown) {
@@ -449,7 +454,7 @@ export function MeetingIntelligence({
     } finally {
       setShowDeleteDialog(false);
     }
-  }, [call.id, onDelete, deleteRedirectUrl, router, t]);
+  }, [call.id, onDelete, deleteSuccessMessage, deleteRedirectUrl, router, t]);
 
   // Fetch transcription on mount. A transcription still running after a reload resumes polling, so the user
   // sees it finish (or fail) instead of an empty Transcript tab.

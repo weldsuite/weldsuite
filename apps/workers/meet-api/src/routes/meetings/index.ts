@@ -34,13 +34,16 @@ import {
   createMeetingSchema,
   inviteMeetingAttendeesSchema,
   updateMeetingSchema,
+  type CreateMeetingInput,
+  type MeetingAttendeeWriteInput,
+  type UpdateMeetingInput,
 } from '@weldsuite/core-api-client/schemas/meetings';
 import { hostControlsSchema, DEFAULT_HOST_CONTROLS } from '@weldsuite/core-api-client/schemas/weldmeet';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   MeetingBillingUnavailableError,
   getMeetingAiPricing,
@@ -167,7 +170,143 @@ function buildListFilters(q: Record<string, string>, scope: string | undefined):
       sql`(${t.attendees} @> ${byPerson}::jsonb OR ${t.attendees} @> ${byContact}::jsonb)`,
     );
   }
+  const view = viewCondition(q.view);
+  if (view) conditions.push(view);
   return conditions;
+}
+
+/**
+ * `?view=` presets for the platform's Upcoming / History pages.
+ *
+ * upcoming: not finished yet. Running meetings always count; a scheduled one
+ *   counts until its end (or start + 1h without an end); unscheduled "for
+ *   later" rooms never expire.
+ * history: finished, failed or cancelled meetings, plus any meeting that has
+ *   an ended session. Instant and "for later" meetings go back to 'scheduled'
+ *   when their session ends so the link stays reusable, so the session is
+ *   what puts them in the history.
+ */
+function viewCondition(view: string | undefined): SQL | undefined {
+  if (view === 'upcoming') {
+    return sql`(${t.status} IN ('scheduled', 'in_progress') AND (${t.status} = 'in_progress' OR ${t.scheduledStart} IS NULL OR coalesce(${t.scheduledEnd}, ${t.scheduledStart} + interval '1 hour') >= (now() AT TIME ZONE 'utc')))`;
+  }
+  if (view === 'history') {
+    return sql`(${t.status} IN ('completed', 'failed', 'cancelled') OR EXISTS (SELECT 1 FROM meeting_sessions ms WHERE ms.meeting_id = ${t.id} AND ms.status = 'ended'))`;
+  }
+  return undefined;
+}
+
+type MeetingRow = typeof t.$inferSelect;
+
+interface MeetingOrganizer {
+  userId: string;
+  name: string;
+  avatar: string | null;
+}
+
+interface MeetingLastSession {
+  id: string;
+  status: string;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  /** Seconds. */
+  duration: number | null;
+  recordingStatus: string | null;
+  participants: Array<{
+    userId: string;
+    userName: string;
+    userAvatar?: string;
+    joinedAt: string;
+    leftAt?: string;
+    firstJoinedAt?: string;
+    priorSeconds?: number;
+    stints?: number;
+  }>;
+}
+
+/** Workspace members by user id, for the `organizer` on every list item (one query). */
+async function loadOrganizers(
+  db: Database,
+  organizerIds: string[],
+): Promise<Map<string, MeetingOrganizer>> {
+  const out = new Map<string, MeetingOrganizer>();
+  if (organizerIds.length === 0) return out;
+  const { workspaceMembers } = schema;
+  const members = await db
+    .select({
+      userId: workspaceMembers.userId,
+      name: workspaceMembers.name,
+      email: workspaceMembers.email,
+      avatar: workspaceMembers.picture,
+    })
+    .from(workspaceMembers)
+    .where(inArray(workspaceMembers.userId, organizerIds));
+  for (const m of members) {
+    if (!out.has(m.userId)) {
+      out.set(m.userId, { userId: m.userId, name: m.name || m.email || '', avatar: m.avatar ?? null });
+    }
+  }
+  return out;
+}
+
+/** The newest session (by createdAt) of each meeting, in one query. */
+async function loadLastSessions(
+  db: Database,
+  meetingIds: string[],
+): Promise<Map<string, MeetingLastSession>> {
+  const out = new Map<string, MeetingLastSession>();
+  if (meetingIds.length === 0) return out;
+  const { meetingSessions } = schema;
+  const rows = await db
+    .selectDistinctOn([meetingSessions.meetingId], {
+      meetingId: meetingSessions.meetingId,
+      id: meetingSessions.id,
+      status: meetingSessions.status,
+      startedAt: meetingSessions.startedAt,
+      endedAt: meetingSessions.endedAt,
+      duration: meetingSessions.duration,
+      recordingStatus: meetingSessions.recordingStatus,
+      participants: meetingSessions.participants,
+    })
+    .from(meetingSessions)
+    .where(inArray(meetingSessions.meetingId, meetingIds))
+    .orderBy(meetingSessions.meetingId, desc(meetingSessions.createdAt), desc(meetingSessions.id));
+  for (const r of rows) {
+    out.set(r.meetingId, {
+      id: r.id,
+      status: r.status,
+      startedAt: r.startedAt,
+      endedAt: r.endedAt,
+      duration: r.duration,
+      recordingStatus: r.recordingStatus,
+      participants: (r.participants ?? []).map((p) => ({
+        userId: p.userId,
+        userName: p.userName,
+        userAvatar: p.userAvatar,
+        joinedAt: p.joinedAt,
+        leftAt: p.leftAt,
+        firstJoinedAt: p.firstJoinedAt,
+        priorSeconds: p.priorSeconds,
+        stints: p.stints,
+      })),
+    });
+  }
+  return out;
+}
+
+/** List items: the meeting row plus `organizer` and, with `?include=lastSession`, `lastSession`. */
+async function decorateMeetings(db: Database, rows: MeetingRow[], include: Set<string>) {
+  const [organizers, lastSessions] = await Promise.all([
+    loadOrganizers(db, [...new Set(rows.map((r) => r.organizerId))]),
+    include.has('lastSession')
+      ? loadLastSessions(db, rows.map((r) => r.id))
+      : Promise.resolve(null),
+  ]);
+  return rows.map((row) => ({
+    ...row,
+    organizer: organizers.get(row.organizerId) ?? null,
+    ...(lastSessions ? { lastSession: lastSessions.get(row.id) ?? null } : {}),
+  }));
 }
 
 app.get('/', requirePermission('meetings:read'), async (c) => {
@@ -200,7 +339,9 @@ app.get('/', requirePermission('meetings:read'), async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
+    const include = new Set((q.include ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    const items = await decorateMeetings(db, data, include);
+    return list(c, items, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/meetings] list failed:', err);
     return error.internal(c, 'Failed to list meetings');
@@ -667,7 +808,9 @@ async function resolveRecordedSession(
  * GET /:id/recording - ALIAS for the latest recorded session. The session's
  * recording state plus, once it is ready, fresh tokenized `url` / `audioUrl`
  * (valid until `expiresAt`; never store them). Not ready yet: `url` is null and
- * `status` says why (recording | processing | failed).
+ * `status` says why (recording | processing | failed). A meeting that was never
+ * recorded answers 200 with `data: null` (an unknown meeting is still 404, no
+ * access 403), so "no recording" is not an error for the caller.
  */
 app.get('/:id/recording', requirePermission('meetings:read'), async (c) => {
   const orgId = c.get('orgId');
@@ -675,9 +818,9 @@ app.get('/:id/recording', requirePermission('meetings:read'), async (c) => {
 
   const meetingId = c.req.param('id');
   try {
-    const session = await resolveRecordedSession(c, meetingId);
+    const session = await resolveRecordedSession(c, meetingId, { legacyOk: true });
     if (session instanceof Response) return session;
-    if (!session) return error.notFound(c, 'Recording');
+    if (!session) return success(c, null);
 
     const auth = await authorizeSession(c, session.id);
     if (isResponse(auth)) return auth;
@@ -808,50 +951,243 @@ app.get('/:id', requirePermission('meetings:read'), async (c) => {
   }
 });
 
+/** Fields the create / update schemas let a client write, converted to column values. */
+type MeetingWritable = Partial<
+  Pick<
+    typeof t.$inferInsert,
+    | 'title'
+    | 'description'
+    | 'meetingType'
+    | 'accessType'
+    | 'waitingRoom'
+    | 'allowRecording'
+    | 'maxParticipants'
+    | 'attendees'
+    | 'scheduledStart'
+    | 'scheduledEnd'
+    | 'calendarEventId'
+    | 'isRecurring'
+    | 'recurrenceRule'
+    | 'tags'
+  >
+>;
+
+/** ISO string to `Date`; `null` clears the column, `undefined` leaves it out. */
+function toDate(value: string | null | undefined): Date | null | undefined {
+  if (value === undefined || value === null) return value;
+  return new Date(value);
+}
+
+const normalizeEmail = (email: string | undefined): string => (email ?? '').trim().toLowerCase();
+
 /**
- * The create/update schemas accept schedule times as ISO strings, but the
- * timestamp columns need a `Date`. `null` clears the column; absent keys are
- * left out so PATCH does not touch them.
+ * Turn the attendees a client sent into the stored shape. The client only
+ * decides WHO is on the meeting (email) and the display bits (name, avatar,
+ * RSVP status). Everything that grants identity or timeline access is
+ * server-owned, because a session end logs a CRM activity on every attendee's
+ * `personId` and `userId` / `source` / `role` feed access checks:
+ *
+ *  - an attendee already stored on the meeting (same email) keeps its stored
+ *    userId, role, source and links, so the platform can PATCH the stored shape
+ *    back without losing them;
+ *  - a new attendee is resolved from the email (workspace member, else an
+ *    existing or auto-created Person), never from client-supplied ids;
+ *  - `role: 'organizer'` can never be asked for: it is only ever set by
+ *    withOrganizerAttendee().
  */
-function withScheduleDates(data: Record<string, unknown>): Record<string, unknown> {
-  const out = { ...data };
-  for (const key of ['scheduledStart', 'scheduledEnd'] as const) {
-    const value = out[key];
-    if (typeof value === 'string') out[key] = new Date(value);
+async function resolveAttendeeWrites(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  db: Database,
+  inputs: MeetingAttendeeWriteInput[],
+  stored: MeetingAttendee[],
+): Promise<MeetingAttendee[]> {
+  const storedByEmail = new Map<string, MeetingAttendee>();
+  for (const a of stored) storedByEmail.set(normalizeEmail(a.email), a);
+
+  const seen = new Set<string>();
+  const unique: MeetingAttendeeWriteInput[] = [];
+  for (const input of inputs) {
+    const email = normalizeEmail(input.email);
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    unique.push(input);
   }
-  return out;
+
+  const workspaceKey = c.get('orgId') ?? c.get('workspaceId') ?? '';
+  const resolved = await Promise.all(
+    unique.map(async (input): Promise<Partial<MeetingAttendee> & { email: string }> => {
+      const email = normalizeEmail(input.email);
+      const display = {
+        ...(input.status ? { status: input.status } : {}),
+      };
+      const existing = storedByEmail.get(email);
+      if (existing) {
+        return {
+          ...existing,
+          ...(input.name ? { name: input.name } : {}),
+          ...(input.avatar ? { avatar: input.avatar } : {}),
+          ...display,
+        };
+      }
+      const link = await resolveParticipantLink(db, c.env, workspaceKey, { email, name: input.name });
+      const avatar = input.avatar || link.avatarUrl;
+      return {
+        email,
+        name: input.name || link.displayName,
+        ...(avatar ? { avatar } : {}),
+        ...display,
+        role: 'attendee',
+        ...(link.workspaceMemberId ? { workspaceMemberId: link.workspaceMemberId } : {}),
+        ...(link.personId ? { personId: link.personId } : {}),
+      };
+    }),
+  );
+
+  // Members carry their user id on the attendee (invited-member checks use it).
+  const memberIds = [...new Set(resolved.map((a) => a.workspaceMemberId).filter((v): v is string => !!v))];
+  if (memberIds.length > 0) {
+    const members = await db
+      .select({ id: schema.workspaceMembers.id, userId: schema.workspaceMembers.userId })
+      .from(schema.workspaceMembers)
+      .where(inArray(schema.workspaceMembers.id, memberIds));
+    const userIdByMember = new Map(members.map((m) => [m.id, m.userId]));
+    for (const a of resolved) {
+      if (a.workspaceMemberId && a.userId === undefined) a.userId = userIdByMember.get(a.workspaceMemberId) ?? '';
+    }
+  }
+
+  return toMeetingAttendees(resolved);
+}
+
+/**
+ * The ONLY path from a request body to meeting columns. Builds the write set
+ * field by field, so nothing a client adds to the JSON (id, status, deletedAt,
+ * activeSessionId, joinCode, organizerId, host controls, ...) can reach the
+ * insert / update, whatever the schema lets through. Absent keys stay absent so
+ * PATCH leaves those columns alone. `attendees` are the already server-resolved
+ * list (see resolveAttendeeWrites), never the client's.
+ */
+function pickWritableMeetingFields(
+  data: CreateMeetingInput | UpdateMeetingInput,
+  attendees: MeetingAttendee[] | undefined,
+): MeetingWritable {
+  const candidate: MeetingWritable = {
+    title: data.title,
+    description: data.description,
+    meetingType: data.meetingType,
+    accessType: data.accessType,
+    waitingRoom: data.waitingRoom,
+    allowRecording: data.allowRecording,
+    maxParticipants: data.maxParticipants,
+    attendees,
+    scheduledStart: toDate(data.scheduledStart),
+    scheduledEnd: toDate(data.scheduledEnd),
+    calendarEventId: data.calendarEventId,
+    isRecurring: data.isRecurring,
+    recurrenceRule: data.recurrenceRule,
+    tags: data.tags,
+  };
+  return Object.fromEntries(
+    Object.entries(candidate).filter(([, value]) => value !== undefined),
+  ) as MeetingWritable;
+}
+
+/**
+ * Put the organizer first in the attendee list (role organizer, accepted) unless
+ * they are already on it, resolved from workspace_members the way
+ * start-instant does. Without a member row there is nothing to show, so the
+ * list is left as sent.
+ */
+async function withOrganizerAttendee(
+  db: Database,
+  attendees: MeetingAttendee[],
+  organizerId: string,
+): Promise<MeetingAttendee[]> {
+  const { workspaceMembers } = schema;
+  const [member] = await db
+    .select({
+      id: workspaceMembers.id,
+      name: workspaceMembers.name,
+      email: workspaceMembers.email,
+      picture: workspaceMembers.picture,
+    })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.userId, organizerId))
+    .limit(1);
+  if (!member) return attendees;
+
+  const email = member.email?.trim().toLowerCase() ?? '';
+  const isOrganizer = (a: MeetingAttendee) => a.userId === organizerId || (email !== '' && a.email === email);
+  if (attendees.some(isOrganizer)) {
+    // Clients cannot ask for role 'organizer'; it is granted here, by identity.
+    return attendees.map((a) =>
+      isOrganizer(a) ? { ...a, userId: organizerId, role: 'organizer' as const, status: 'accepted' as const } : a,
+    );
+  }
+
+  const organizer: MeetingAttendee = {
+    userId: organizerId,
+    email,
+    name: member.name || email || 'Organizer',
+    status: 'accepted',
+    role: 'organizer',
+    workspaceMemberId: member.id,
+    ...(member.picture ? { avatar: member.picture } : {}),
+  };
+  return [organizer, ...attendees];
 }
 
 app.post('/', requirePermission('meetings:create'), zValidator('json', createMeetingSchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json');
   const userId = c.get('userId');
   const id = generateId('mtg');
   const now = new Date();
-  // `organizerId` is NOT NULL at the DB; default to the caller when the
-  // body doesn't pass one.
-  const organizerId =
-    typeof data.organizerId === 'string' && data.organizerId.length > 0
-      ? data.organizerId
-      : userId;
+  // `organizerId` is NOT NULL at the DB. Creating on behalf of someone else is
+  // for callers with meetings:scope:all only; everyone else organizes their own.
+  let organizerId = userId;
+  if (data.organizerId && data.organizerId !== userId && (await scopeFor(c)) === undefined) {
+    // The organizer must be a member of this workspace, or the meeting would be
+    // owned by (and its attendee list, CRM activities and host rights granted to)
+    // an arbitrary user id.
+    const [member] = await db
+      .select({ id: schema.workspaceMembers.id })
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.userId, data.organizerId))
+      .limit(1);
+    if (!member) return error.badRequest(c, 'organizerId is not a member of this workspace');
+    organizerId = data.organizerId;
+  }
   // Waiting room defaults ON for every newly created meeting — guests joining
   // via the share link land in the lobby and the host admits them. Callers can
   // still opt out by explicitly passing `waitingRoom: false`.
-  const waitingRoom = typeof data.waitingRoom === 'boolean' ? data.waitingRoom : true;
+  const waitingRoom = data.waitingRoom ?? true;
   // Every meeting needs a join code: it is the identifier in the public share
   // link (`<portal>/<workspace>/<joinCode>`). Generated server-side like the
   // start-instant path; a client-supplied value is not trusted.
   const joinCode = generateJoinCode();
   try {
-    const values = withScheduleDates(data);
-    if (Array.isArray(data.attendees)) values.attendees = toMeetingAttendees(data.attendees);
-    await db.insert(t).values({ id, ...values, joinCode, waitingRoom, organizerId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    const resolvedAttendees = data.attendees ? await resolveAttendeeWrites(c, db, data.attendees, []) : undefined;
+    const writable = pickWritableMeetingFields(data, resolvedAttendees);
+    const attendees = await withOrganizerAttendee(db, writable.attendees ?? [], organizerId);
+    // Server-owned values come last, so no client key can override them.
+    await db.insert(t).values({
+      ...writable,
+      title: data.title,
+      attendees,
+      id,
+      joinCode,
+      waitingRoom,
+      organizerId,
+      createdAt: now,
+      updatedAt: now,
+    });
     publishEntityEvent({
       c,
       entityType: 'meeting',
       entityId: id,
       action: 'created',
-      data: { id, title: data.title, status: data.status, hostId: organizerId },
+      data: { id, title: data.title, status: 'scheduled', hostId: organizerId },
     });
     return success(c, { id, joinCode }, 201);
   } catch (err) {
@@ -863,15 +1199,19 @@ app.post('/', requirePermission('meetings:create'), zValidator('json', createMee
 app.patch('/:id', requirePermission('meetings:update'), zValidator('json', updateMeetingSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json');
   const scope = await scopeFor(c);
-  const conditions: any[] = [eq(t.id, id), isNull(t.deletedAt)];
+  const conditions: SQL[] = [eq(t.id, id), isNull(t.deletedAt)];
   if (scope) conditions.push(eq(t.organizerId, scope));
   try {
     const [existing] = await db.select().from(t).where(and(...conditions)).limit(1);
     if (!existing) return error.notFound(c, 'Meeting', id);
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(withScheduleDates(data))) if (v !== undefined) update[k] = v;
+    // Links on attendees are re-resolved server-side; ones already stored for the
+    // same email are kept, so the platform can PATCH the stored shape back.
+    const resolvedAttendees = data.attendees
+      ? await resolveAttendeeWrites(c, db, data.attendees, (existing.attendees ?? []) as MeetingAttendee[])
+      : undefined;
+    const update = { ...pickWritableMeetingFields(data, resolvedAttendees), updatedAt: new Date() };
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
       c,
@@ -880,8 +1220,8 @@ app.patch('/:id', requirePermission('meetings:update'), zValidator('json', updat
       action: 'updated',
       data: {
         id,
-        title: (update.title as string | null | undefined) ?? existing.title,
-        status: (update.status as string | null | undefined) ?? existing.status,
+        title: update.title ?? existing.title,
+        status: existing.status,
         hostId: existing.organizerId,
       },
     });

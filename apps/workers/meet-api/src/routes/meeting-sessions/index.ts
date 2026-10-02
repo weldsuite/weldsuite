@@ -47,6 +47,7 @@ import { resolveParticipantLink, type ResolvedParticipantLink } from '../../lib/
 import {
   guestEmailFromUserId,
   isGuestRemovedFromSession,
+  mergeRejoin,
   type MeetingSessionParticipant,
   type MeetingSessionRemovedGuest,
 } from '@weldsuite/db/schema/meeting-sessions';
@@ -523,8 +524,11 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
     const participant = buildSessionParticipant(userId, userName, avatar, link, rtkParticipant.id);
 
     const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
+    // A rejoin replaces the member's entry but keeps their first join time and
+    // the time already spent (see mergeRejoin).
+    const previous = participants.find((p) => p.userId === userId);
     const filtered = participants.filter((p) => p.userId !== userId);
-    filtered.push(participant);
+    filtered.push(mergeRejoin(previous, participant));
 
     const now = new Date();
     const updates: Record<string, unknown> = {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantDb } from '@/lib/db';
 import { uploadToR2, isR2Configured } from '@/lib/storage/r2';
-import { guestUnauthorized, notActiveParticipant } from '@/lib/api-response';
+import { guestUnauthorized, notActiveParticipant, tenantNotFoundResponse } from '@/lib/api-response';
 import { authenticateGuest, verifyGuestParticipant } from '@/lib/guest-session';
 
 interface RouteContext {
@@ -102,6 +102,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       { status: 201 },
     );
   } catch (err) {
+    const notFound = tenantNotFoundResponse(err);
+    if (notFound) return notFound;
     console.error('[MeetingPortal] Failed to upload attachment:', err);
     return NextResponse.json(
       { error: { code: 'INTERNAL', message: 'Failed to upload file' } },

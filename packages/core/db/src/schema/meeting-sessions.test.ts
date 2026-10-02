@@ -3,6 +3,8 @@ import {
   getRemovedGuests,
   guestEmailFromUserId,
   isGuestRemovedFromSession,
+  mergeRejoin,
+  type MeetingSessionParticipant,
 } from './meeting-sessions';
 
 describe('isGuestRemovedFromSession', () => {
@@ -44,5 +46,70 @@ describe('guestEmailFromUserId', () => {
   it('returns null for members and empty guest ids', () => {
     expect(guestEmailFromUserId('user_2abc')).toBeNull();
     expect(guestEmailFromUserId('guest:')).toBeNull();
+  });
+});
+
+const base: MeetingSessionParticipant = {
+  userId: 'user_1',
+  userName: 'Ada',
+  joinedAt: '2026-10-02T10:00:00.000Z',
+  cfSessionId: 'cf_1',
+  hasAudio: false,
+  hasVideo: false,
+  hasScreenShare: false,
+};
+
+const rejoin = (over: Partial<MeetingSessionParticipant> = {}): MeetingSessionParticipant => ({
+  ...base,
+  joinedAt: '2026-10-02T10:30:00.000Z',
+  cfSessionId: 'cf_2',
+  ...over,
+});
+
+describe('mergeRejoin', () => {
+  it('returns the new entry untouched when there is no previous one', () => {
+    const next = rejoin();
+    expect(mergeRejoin(undefined, next)).toBe(next);
+  });
+
+  it('starts a second stint after a leave: keeps the first join and adds the time spent', () => {
+    const prev = { ...base, leftAt: '2026-10-02T10:10:00.000Z' };
+    const merged = mergeRejoin(prev, rejoin());
+    expect(merged).toMatchObject({
+      joinedAt: '2026-10-02T10:30:00.000Z',
+      cfSessionId: 'cf_2',
+      firstJoinedAt: '2026-10-02T10:00:00.000Z',
+      priorSeconds: 600,
+      stints: 2,
+    });
+    expect(merged.leftAt).toBeUndefined();
+  });
+
+  it('accumulates over several rejoins', () => {
+    const second = mergeRejoin({ ...base, leftAt: '2026-10-02T10:10:00.000Z' }, rejoin());
+    const left = { ...second, leftAt: '2026-10-02T10:35:00.000Z' };
+    const third = mergeRejoin(left, rejoin({ joinedAt: '2026-10-02T11:00:00.000Z', cfSessionId: 'cf_3' }));
+    expect(third).toMatchObject({
+      firstJoinedAt: '2026-10-02T10:00:00.000Z',
+      joinedAt: '2026-10-02T11:00:00.000Z',
+      priorSeconds: 600 + 300,
+      stints: 3,
+    });
+  });
+
+  it('treats a rejoin without a recorded leave as the same stint', () => {
+    const merged = mergeRejoin(base, rejoin());
+    expect(merged).toMatchObject({
+      joinedAt: '2026-10-02T10:00:00.000Z',
+      firstJoinedAt: '2026-10-02T10:00:00.000Z',
+      cfSessionId: 'cf_2',
+    });
+    expect(merged.priorSeconds).toBeUndefined();
+    expect(merged.stints).toBeUndefined();
+  });
+
+  it('never adds a negative stint', () => {
+    const prev = { ...base, leftAt: '2026-10-02T09:00:00.000Z' };
+    expect(mergeRejoin(prev, rejoin()).priorSeconds).toBe(0);
   });
 });

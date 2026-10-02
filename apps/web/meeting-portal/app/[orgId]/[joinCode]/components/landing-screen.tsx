@@ -332,9 +332,14 @@ export function LandingScreen({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/weldmeet-logo-dark.svg" alt="WeldMeet" className="h-5 w-auto hidden dark:block" />
       </div>
-      <Button asChild variant="outline" className="absolute top-4 right-4 z-10 rounded-[calc(var(--radius)-1px)]">
-        <a href={`${platformUrl}/weldmeet/join/${joinCode}`}>Sign in</a>
-      </Button>
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+        <Button asChild variant="ghost" className="rounded-[calc(var(--radius)-1px)] text-muted-foreground hover:text-foreground">
+          <a href={`${platformUrl}/auth/register`}>Create account</a>
+        </Button>
+        <Button asChild variant="outline" className="rounded-[calc(var(--radius)-1px)]">
+          <a href={`${platformUrl}/weldmeet/join/${joinCode}`}>Sign in</a>
+        </Button>
+      </div>
       <form
         onSubmit={handleSubmit(onSubmit)}
         className={cn(
@@ -383,6 +388,7 @@ export function LandingScreen({
           <h2 className="text-[24px] font-semibold tracking-tight leading-tight">
             {meetingInfo?.title || 'Join Meeting'}
           </h2>
+          <ScheduleLine scheduledStart={meetingInfo?.scheduledStart} scheduledEnd={meetingInfo?.scheduledEnd} />
           <AttendeesRow meetingInfo={meetingInfo} />
 
           <JoinFields
@@ -416,6 +422,40 @@ export function LandingScreen({
       </form>
     </div>
   );
+}
+
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** "Thursday, 2 October 2026 · 14:00 – 15:00" in the guest's own locale and time zone. */
+function formatSchedule(start: Date, end: Date | null): string {
+  const dateText = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' }).format(start);
+  const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
+  const startTime = timeFormat.format(start);
+  if (!end) return `${dateText} · ${startTime}`;
+  const sameDay = start.toDateString() === end.toDateString();
+  if (sameDay) return `${dateText} · ${startTime} – ${timeFormat.format(end)}`;
+  const endDateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(end);
+  return `${dateText} · ${startTime} – ${endDateTime}`;
+}
+
+function ScheduleLine({
+  scheduledStart,
+  scheduledEnd,
+}: Readonly<{ scheduledStart?: string | null; scheduledEnd?: string | null }>) {
+  // The guest's time zone is only known in the browser, so format after mount;
+  // rendering during SSR would mismatch on hydration.
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    const start = parseDate(scheduledStart);
+    setText(start ? formatSchedule(start, parseDate(scheduledEnd)) : null);
+  }, [scheduledStart, scheduledEnd]);
+
+  if (!text) return null;
+  return <p className="mt-1.5 text-[13px] text-muted-foreground">{text}</p>;
 }
 
 type AttendeePerson = { name: string; role: string; avatar?: string };

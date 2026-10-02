@@ -28,7 +28,6 @@ import type {
   Meeting,
   MeetingSession,
   RecordingSummary,
-  CreateMeetingInput,
   ListMeetingsQuery,
   UpcomingMeetingsQuery,
   StartSessionResult,
@@ -36,6 +35,7 @@ import type {
   CancelMeetingResult,
   OkResult,
 } from '@weldsuite/core-api-client/schemas/weldmeet';
+import type { CreateMeetingInput } from '@weldsuite/core-api-client/schemas/meetings';
 
 /** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';

@@ -4,36 +4,55 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { PhoneOff, VideoOff } from 'lucide-react';
 
+const HOME_URL = 'https://www.weldsuite.org/';
+
+function BrandLogo() {
+  return (
+    <div className="absolute top-6 left-6 z-10">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/weldmeet-logo-light.svg" alt="WeldMeet" className="h-5 w-auto block dark:hidden" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/weldmeet-logo-dark.svg" alt="WeldMeet" className="h-5 w-auto hidden dark:block" />
+    </div>
+  );
+}
+
 interface ErrorScreenProps {
   message: string;
   joinCode: string;
+  /** Heading override; defaults to "Unable to join". */
+  title?: string;
+  /** Replaces the default hint under the message. Pass an empty string to hide it. */
+  hint?: string;
 }
 
-export function ErrorScreen({ message, joinCode }: Readonly<ErrorScreenProps>) {
+export function ErrorScreen({ message, joinCode, title, hint }: Readonly<ErrorScreenProps>) {
   const platformUrl = process.env.NEXT_PUBLIC_PLATFORM_URL || 'https://app.weldsuite.org';
   const signInHref = `${platformUrl}/weldmeet/join/${joinCode}`;
 
   return (
     <div className="relative flex items-center justify-center min-h-screen bg-background">
-      <div className="absolute top-6 left-6 z-10">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/weldmeet-logo-light.svg" alt="WeldMeet" className="h-5 w-auto block dark:hidden" />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/weldmeet-logo-dark.svg" alt="WeldMeet" className="h-5 w-auto hidden dark:block" />
-      </div>
+      <BrandLogo />
       <Card className="w-full max-w-md mx-4">
         <CardContent className="pt-6 text-center">
           <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
             <VideoOff className="h-6 w-6 text-destructive" />
           </div>
-          <h2 className="text-lg font-semibold mb-2">Unable to join</h2>
+          <h2 className="text-lg font-semibold mb-2">{title ?? 'Unable to join'}</h2>
           <p className="text-sm text-muted-foreground">{message}</p>
-          <p className="text-sm text-muted-foreground mt-4">
-            Ask the host for a new link, or sign in if you are a member of this workspace.
-          </p>
-          <Button asChild variant="outline" className="mt-4 rounded-[var(--radius)]">
-            <a href={signInHref}>Sign in</a>
-          </Button>
+          {hint !== '' && (
+            <p className="text-sm text-muted-foreground mt-4">
+              {hint ?? 'Ask the host for a new link, or sign in if you are a member of this workspace.'}
+            </p>
+          )}
+          <div className="mt-4 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-center gap-3">
+            <Button asChild variant="outline" className="rounded-[var(--radius)]">
+              <a href={signInHref}>Sign in</a>
+            </Button>
+            <Button asChild className="rounded-[var(--radius)]">
+              <a href={HOME_URL}>Go to weldsuite.org</a>
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -63,7 +82,8 @@ interface EndedScreenProps {
 export function EndedScreen({ variant = 'left', onRejoin, onReturnHome }: Readonly<EndedScreenProps>) {
   const { heading, subtext } = ENDED_COPY[variant];
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background px-6">
+    <div className="relative flex flex-col items-center justify-center min-h-screen bg-background px-6">
+      <BrandLogo />
       <h1
         className={`text-3xl sm:text-4xl font-medium tracking-tight text-foreground text-center ${
           subtext ? 'mb-3' : 'mb-8'
@@ -88,7 +108,8 @@ export function EndedScreen({ variant = 'left', onRejoin, onReturnHome }: Readon
 
 export function RejectedScreen() {
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
+    <div className="relative flex items-center justify-center min-h-screen bg-background">
+      <BrandLogo />
       <Card className="w-full max-w-md mx-4">
         <CardContent className="pt-6 text-center">
           <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">

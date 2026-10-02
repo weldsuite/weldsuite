@@ -522,10 +522,14 @@ function RecordingMenuSection({
   stopRecording,
   pauseRecording,
   resumeRecording,
+  runAfterClose,
 }: Pick<
   CallControlsBarProps,
   'isRecording' | 'recordingState' | 'startRecording' | 'stopRecording' | 'pauseRecording' | 'resumeRecording'
->) {
+> & {
+  /** Closes the menu, then runs the action on the next frame (see `CallControlsBar`). */
+  runAfterClose: (action: () => void) => void;
+}) {
   if (!startRecording) return null;
   const paused = recordingState === 'PAUSED';
   return (
@@ -551,8 +555,11 @@ function RecordingMenuSection({
           </DropdownMenuItem>
         </>
       ) : (
+        // No "started" toast here: the click only *requests* the recording. The
+        // host app confirms it (toast) once the recorder actually reports
+        // RECORDING, so a failed or slow start never claims success.
         <DropdownMenuItem
-          onClick={() => { startRecording?.(); toast.success('Recording started. All participants will be notified.'); }}
+          onClick={() => runAfterClose(() => startRecording?.())}
           disabled={recordingState === 'STARTING' || recordingState === 'STOPPING'}
         >
           <Circle className="h-4 w-4 mr-0.5 text-red-500 fill-red-500" />
@@ -677,6 +684,18 @@ export function CallControlsBar({
   );
   const { shareScreenAudio, toggleShareScreenAudio } = useShareScreenAudio(meeting, isScreenSharing);
 
+  // The More-options menu is controlled so the items that open a side panel
+  // (Host controls, Background effects, Start recording's dialog) can close it
+  // *first*. Left to Radix, the menu stayed open over the panel it had just
+  // opened: the panel mounts in the same commit that Radix is still restoring
+  // focus to the trigger. Closing, then running the action on the next frame,
+  // keeps the two apart.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const runAfterClose = useCallback((action: () => void) => {
+    setMoreOpen(false);
+    requestAnimationFrame(action);
+  }, []);
+
   return (
     <div className="flex items-center justify-center gap-3 p-4 bg-background/80 backdrop-blur">
       {/* Mic button + device chooser */}
@@ -788,12 +807,13 @@ export function CallControlsBar({
 
       {/* More options */}
       <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
-        <DropdownMenu>
+        <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen}>
           <CallTooltip label="More options">
             <DropdownMenuTrigger asChild>
               <Button
                 variant="secondary"
                 size="icon"
+                aria-label="More options"
                 className="h-12 w-12 rounded-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110"
               >
                 <EllipsisVertical className="!h-[20px] !w-[20px]" />
@@ -808,12 +828,13 @@ export function CallControlsBar({
               stopRecording={stopRecording}
               pauseRecording={pauseRecording}
               resumeRecording={resumeRecording}
+              runAfterClose={runAfterClose}
             />
 
             {/* Background effects */}
             {onToggleEffects && showVirtualBackgrounds && (
               <>
-                <DropdownMenuItem onClick={onToggleEffects}>
+                <DropdownMenuItem onClick={() => runAfterClose(onToggleEffects)}>
                   <Image className="h-4 w-4 mr-0.5" />
                   Background effects
                   {effectsOpen && <Check className="h-4 w-4 ml-auto" />}
@@ -834,7 +855,7 @@ export function CallControlsBar({
             {onOpenSettings && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={onOpenSettings}>
+                <DropdownMenuItem onClick={() => runAfterClose(onOpenSettings)}>
                   <Settings className="h-4 w-4 mr-0.5" />
                   Host controls
                 </DropdownMenuItem>

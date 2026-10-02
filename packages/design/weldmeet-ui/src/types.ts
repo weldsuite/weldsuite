@@ -76,6 +76,18 @@ export interface LeaveLabels {
   endForAll?: string;
 }
 
+/** Label overrides for the "recorder is starting" feedback (package has no i18n). */
+export interface RecordingLabels {
+  /** Short inline label in the header while the recorder spins up. Default "Starting…". */
+  starting?: string;
+  /** Header tooltip while the recorder spins up. Default "Recording is starting". */
+  startingHint?: string;
+  /** Meeting-tools row title while the recorder spins up. Default "Starting recording…". */
+  startingTool?: string;
+  /** Meeting-tools row description while busy. Default "Please wait…". */
+  pleaseWait?: string;
+}
+
 export interface MeetingRoomViewProps {
   // ── Meeting identity / metadata ────────────────────────────────────────────
   meetingId: string;
@@ -146,6 +158,14 @@ export interface MeetingRoomViewProps {
    * surfacing it in the Meeting tools panel (the platform weldmeet experience).
    */
   showControlBarRecording?: boolean;
+  /**
+   * Whole seconds since the host asked for the recording to start, while the
+   * recorder is still `STARTING`. Shown next to the "Starting…" feedback so a
+   * slow start reads as progress rather than a hang. Omit to hide.
+   */
+  recordingStartElapsedSeconds?: number;
+  /** Copy for the recording-start feedback. English when omitted. */
+  recordingLabels?: RecordingLabels;
 
   // ── Background effects (omit to hide) ─────────────────────────────────────
   onToggleEffects?: () => void;
