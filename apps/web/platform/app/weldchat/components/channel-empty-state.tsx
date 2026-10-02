@@ -30,14 +30,53 @@ function formatCreationDate(iso: string | null | undefined): string {
   }
 }
 
+interface Creator {
+  userId: string;
+  name: string;
+  picture?: string;
+}
+
+/** Inline avatar + name chip for whoever created the channel/DM; opens their profile. */
+function CreatorChip({ creator }: Readonly<{ creator: Creator }>) {
+  const { openUserProfile } = useChatContext();
+  return (
+    <Button
+      variant="ghost"
+      type="button"
+      onClick={() => openUserProfile(creator.userId)}
+      className="inline-flex items-center gap-1.5 h-auto p-2 -ml-2 align-middle cursor-pointer focus-visible:outline-none"
+    >
+      <Avatar className="h-4 w-4 rounded-[5.5px]">
+        {creator.picture && (
+          <AvatarImage src={creator.picture} alt={creator.name} className="rounded-[5.5px]" />
+        )}
+        <AvatarFallback className="rounded-[5.5px] text-[8px] font-medium">
+          {creator.name[0]!.toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <span className="font-medium leading-4 text-foreground hover:underline">{creator.name}</span>
+    </Button>
+  );
+}
+
 export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const { data: membersData } = useWorkspaceMembers();
-  const { openUserProfile } = useChatContext();
   const isPrivate = channel?.type === 'private';
   const isDm = channel?.type === 'dm';
   const isGroupDm = channel?.type === 'group' || (channel?.otherMembers?.length ?? 0) > 1;
+  const creator = ((): Creator | null => {
+    if (!channel?.createdBy) return null;
+    const members = membersData?.data ?? [];
+    const m = members.find((mm) => mm.userId === channel.createdBy);
+    if (!m) return null;
+    const name = m.name || m.email || null;
+    if (!name) return null;
+    return { userId: m.userId as string, name, picture: m.picture as string | undefined };
+  })();
+  const dateStr = formatCreationDate(channel?.createdAt);
+  const onDate = dateStr ? ` ${t.weldchat.channelEmptyState.channelCreatedOn} ${dateStr}` : '';
 
   // DM empty state — friendlier, no channel-style cards.
   if (isDm || channel?.type === 'group') {
@@ -75,7 +114,14 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
             <>{t.weldchat.channelEmptyState.groupConversationBeginning}</>
           ) : (
             <>
-              {st('sweep.weldchat.channelEmptyState.dmConversationPrefix')} <strong>{displayName}</strong>. {t.weldchat.channelEmptyState.privateConversation}
+              {creator ? (
+                <>
+                  <CreatorChip creator={creator} /> {t.weldchat.channelEmptyState.dmStarted}
+                </>
+              ) : (
+                t.weldchat.channelEmptyState.dmStartedNoAuthor
+              )}
+              {onDate}.
             </>
           )}
         </p>
@@ -85,16 +131,6 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
 
   // Channel empty state
   const Icon = isPrivate ? Lock : Hash;
-  const creator = (() => {
-    if (!channel?.createdBy) return null;
-    const members = membersData?.data ?? [];
-    const m = members.find((mm) => mm.userId === channel.createdBy);
-    if (!m) return null;
-    const name = m.name || m.email || null;
-    if (!name) return null;
-    return { userId: m.userId as string, name, picture: m.picture as string | undefined };
-  })();
-  const dateStr = formatCreationDate(channel?.createdAt);
 
   return (
     <div className="px-6 pt-10 pb-6">
@@ -105,28 +141,12 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
       <p className="text-sm text-muted-foreground leading-relaxed">
         {creator ? (
           <>
-            <Button
-              variant="ghost"
-              type="button"
-              onClick={() => openUserProfile(creator.userId)}
-              className="inline-flex items-center gap-1.5 align-middle cursor-pointer focus-visible:outline-none"
-            >
-              <Avatar className="h-4 w-4 rounded-[5.5px] -translate-y-px">
-                {creator.picture && (
-                  <AvatarImage src={creator.picture} alt={creator.name} className="rounded-[5.5px]" />
-                )}
-                <AvatarFallback className="rounded-[5.5px] text-[8px] font-medium">
-                  {creator.name[0]!.toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <span className="font-medium text-foreground hover:underline">{creator.name}</span>
-            </Button>{' '}
-            {t.weldchat.channelEmptyState.channelCreated}
+            <CreatorChip creator={creator} /> {t.weldchat.channelEmptyState.channelCreated}
           </>
         ) : (
           <>{t.weldchat.channelEmptyState.channelCreatedNoAuthor}</>
         )}
-        {dateStr ? ` ${t.weldchat.channelEmptyState.channelCreatedOn} ${dateStr}` : ''}. {t.weldchat.channelEmptyState.veryBeginning}{' '}
+        {onDate}. {t.weldchat.channelEmptyState.veryBeginning}{' '}
         <strong className="font-medium text-foreground">
           {isPrivate ? '🔒' : '#'}
           {channel?.name}

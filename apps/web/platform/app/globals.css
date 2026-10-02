@@ -109,14 +109,13 @@
 }
 
 /* Sidebar hover-only scrollbar.
-   `scrollbar-gutter: stable` keeps a fixed gutter on the right edge so the
-   content width stays constant whether the scrollbar is visible or not.
-   The scrollbar thumb is transparent by default and only fades in while
-   the user hovers anywhere inside the sidebar. WebKit `width:10px` is set
-   always (matches the reserved gutter) so the thumb can appear/disappear
-   without layout shift. */
+   No gutter is reserved: when the content doesn't overflow there is no
+   scrollbar space at all, so the active item's left/right insets match.
+   When it does overflow, AppSidebarLayout drops the groups' right padding so
+   content sits flush against the scrollbar. The thumb is transparent by
+   default and only fades in while hovering the sidebar; only its color
+   changes, so showing/hiding it causes no layout shift. */
 .sidebar-hover-scrollbar {
-  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
   transition: scrollbar-color 150ms ease;

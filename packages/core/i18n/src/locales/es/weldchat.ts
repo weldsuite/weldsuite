@@ -144,7 +144,8 @@ export const weldchat = {
       veryBeginning: 'Este es el inicio absoluto del canal',
       channel: 'canal.',
       groupConversationBeginning: 'Este es el inicio absoluto de tu conversación grupal.',
-      privateConversation: 'Todo lo que compartas aquí es privado entre los dos.',
+      dmStarted: 'inició esta conversación privada',
+      dmStartedNoAuthor: 'Esta conversación privada se inició',
     },
     pinnedMessages: {
       title: 'Mensajes anclados',
@@ -278,6 +279,9 @@ export const weldchat = {
     dmCreate: {
       title: 'Nuevo mensaje',
       searchPeople: 'Buscar personas...',
+      noResults: 'No se encontraron personas.',
+      people: 'Personas',
+      navigate: 'Navegar',
       cancel: 'Cancelar',
       startConversation: 'Iniciar conversación',
       creating: 'Creando...',
