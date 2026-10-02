@@ -6,12 +6,14 @@ import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
 import { useKnowledgeTrash, useRestoreKnowledgePage } from '@/hooks/queries/use-knowledge-queries';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 
 export default function TrashPage() {
   const t = getTranslations('weldknow');
   const router = useRouter();
   const { data, isLoading } = useKnowledgeTrash();
   const restorePage = useRestoreKnowledgePage();
+  useBreadcrumbs([{ label: t.breadcrumb.home, href: '/weldknow' }, { label: t.trash.title }]);
 
   const items = data?.data ?? [];
 

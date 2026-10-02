@@ -305,6 +305,12 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
+  weldknow: {
+    appName: 'WeldKnow',
+    appIcon: BookOpen,
+    appLogo: getAppLogoConfig('weldknow'),
+    getMenuItems: () => [],
+  },
   weldchat: {
     appName: 'WeldChat',
     appIcon: MessagesSquare,

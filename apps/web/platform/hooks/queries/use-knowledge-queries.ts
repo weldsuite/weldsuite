@@ -116,7 +116,7 @@ const knowledgeKeys = {
 // Queries — Spaces
 // =============================================================================
 
-export function useKnowledgeSpaces() {
+export function useKnowledgeSpaces(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: knowledgeKeys.spaces(),
@@ -124,6 +124,7 @@ export function useKnowledgeSpaces() {
       const client = await getClient();
       return client.get<{ data: KnowledgeSpace[] }>('/knowledge/spaces');
     },
+    enabled,
   });
 }
 
@@ -131,7 +132,7 @@ export function useKnowledgeSpaces() {
 // Queries — Pages
 // =============================================================================
 
-export function useKnowledgePageTree(spaceId?: string) {
+export function useKnowledgePageTree(spaceId?: string, enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: knowledgeKeys.tree(spaceId),
@@ -140,6 +141,7 @@ export function useKnowledgePageTree(spaceId?: string) {
       const query = spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : '';
       return client.get<{ data: KnowledgePageTreeNode[] }>(`/knowledge/pages/tree${query}`);
     },
+    enabled,
   });
 }
 
@@ -185,7 +187,7 @@ export function useKnowledgePageVersions(pageId: string, enabled = true) {
 // Queries — Favorites
 // =============================================================================
 
-export function useKnowledgeFavorites() {
+export function useKnowledgeFavorites(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: knowledgeKeys.favorites(),
@@ -193,6 +195,7 @@ export function useKnowledgeFavorites() {
       const client = await getClient();
       return client.get<{ data: KnowledgeFavorite[] }>('/knowledge/favorites');
     },
+    enabled,
   });
 }
 

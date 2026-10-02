@@ -18,6 +18,7 @@ import { useCalendarSidebarItems } from '@/app/weldcalendar/hooks/use-calendar-s
 import { useHomeSidebarItems } from '@/app/use-home-sidebar-items';
 import { useAgentsSidebarItems } from '@/app/agents/hooks/use-agents-sidebar-items';
 import { useWeldconnectSidebarItems } from '@/app/weldconnect/hooks/use-weldconnect-sidebar-items';
+import { useWeldknowSidebarItems } from '@/app/weldknow/hooks/use-weldknow-sidebar-items';
 
 interface UnifiedModuleSidebarProps {
   user?: UserInfo;
@@ -82,6 +83,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
   const homeItems = useHomeSidebarItems(moduleKey === 'home');
   const agentsItems = useAgentsSidebarItems(moduleKey === 'agents');
   const weldconnectItems = useWeldconnectSidebarItems(moduleKey === 'weldconnect');
+  const weldknowItems = useWeldknowSidebarItems(moduleKey === 'weldknow');
 
   const config = userAppConfig ?? (moduleKey && !userAppCode ? MODULE_CONFIGS[moduleKey] : null);
   if (!config) return null;
@@ -122,6 +124,9 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
       break;
     case 'weldconnect':
       menuItems = weldconnectItems.menuGroups;
+      break;
+    case 'weldknow':
+      menuItems = weldknowItems.menuGroups;
       break;
     default:
       menuItems = staticItems;
@@ -176,6 +181,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
       {moduleKey === 'weldchat' && weldchatItems.dialogs}
       {moduleKey === 'weldcalendar' && calendarItems.dialogs}
       {moduleKey === 'home' && homeItems.dialogs}
+      {moduleKey === 'weldknow' && weldknowItems.dialogs}
       <CreateWorkspaceDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />
     </>
   );
