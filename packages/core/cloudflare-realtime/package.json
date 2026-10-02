@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./webhook-signature": "./src/webhook-signature.ts"
   },
   "dependencies": {
     "cloudflare": "^7.0.0"

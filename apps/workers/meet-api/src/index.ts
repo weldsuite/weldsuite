@@ -25,16 +25,10 @@ const app = createModuleApi<Env, Variables>({ service: 'meet-api' });
 // MeetingBaas meeting-bot webhook — PUBLIC (server-to-server, no Clerk).
 app.route('/api/webhooks/meeting-bot', webhooksMeetingBotRoutes);
 
-// Cloudflare Realtime (RTK) webhook — PUBLIC. POST /setup (re-)registers the
-// webhook with Cloudflare per env.
-//
-// ⚠ POST / does NOT verify any RTK signature — there is no authenticity or
-// replay control on the receiver. Its only gate is the `rtk-meeting:{id}` KV
-// lookup, so anyone who learns a live cfMeetingId can forge a meeting.ended /
-// meeting.participantLeft for that tenant. This is faithful parity with the
-// api-worker original (the gap is inherited, not introduced by the port) and
-// is an OPEN item for the W6 hardening pass — do not read this mount as
-// evidence that the endpoint is authenticated.
+// Cloudflare Realtime (RTK) webhook — PUBLIC. POST / verifies each delivery's
+// `rtk-signature` (RSA-SHA256, RealtimeKit's published key) and drops repeats
+// by `rtk-uuid`. POST /setup (re-)registers the webhook with Cloudflare per env
+// and is operator-only (bearer CF_REALTIME_WEBHOOK_TOKEN).
 app.route('/api/webhooks/cloudflare-realtime', webhooksCloudflareRealtimeRoutes);
 
 // Auth + tenant DB + feature flags for everything under /api/*
