@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
 import { toast } from 'sonner';
 import { useMeeting, useUpdateMeeting, useLatestSession, useUpdateHostControls, useRemoveMeetingParticipant, type MeetingSession } from '@/hooks/queries/use-weldmeet-queries';
+import { useSessionRecording } from '@/hooks/queries/use-weldmeet-recording-queries';
+import { usePermissions } from '@weldsuite/permissions/react';
+import type { RecordingAiOptionsInput } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
 import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
@@ -28,6 +31,31 @@ import {
 import { getTranslations } from '@/lib/i18n';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 import { MeetingInvitePicker } from './meeting-invite-picker';
+import { StartRecordingDialog } from './start-recording-dialog';
+import { RecordingAiPrompt } from './recording-ai-prompt';
+import type { RecordingAiChoice } from './recording-ai-options';
+
+/** Remember a dismissed auto-record prompt for this session only (per tab). */
+function promptDismissedKey(sessionId: string): string {
+  return `weldmeet:recording-ai-prompt-dismissed:${sessionId}`;
+}
+
+function readPromptDismissed(sessionId: string | null): boolean {
+  if (!sessionId) return false;
+  try {
+    return window.sessionStorage.getItem(promptDismissedKey(sessionId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writePromptDismissed(sessionId: string): void {
+  try {
+    window.sessionStorage.setItem(promptDismissedKey(sessionId), '1');
+  } catch {
+    // Storage can be blocked (private window); the prompt then reappears next mount.
+  }
+}
 
 // ============================================================================
 // Platform-specific bits the shared component takes as slots
@@ -145,6 +173,24 @@ function MeetingRoomAdapter() {
   // Latest session carries the workspaceMemberId / personId link for each
   // participant — we need it to open the right details sheet on click.
   const { data: latestSession } = useLatestSession(activeMeetingId ?? '');
+
+  // Transcript and AI summary are opt-in and spend credits, so only the host
+  // (or a workspace admin with meetings:scope:all) with sessions:update may
+  // choose them; the API enforces the same rule. Fully qualified keys because
+  // this view also renders as an overlay outside the WeldMeet module.
+  const { can } = usePermissions();
+  const canSetAiOptions =
+    (isOrganizer || can('weldmeet:meetings:scope:all')) && can('weldmeet:sessions:update');
+  const { data: recordingInfo } = useSessionRecording(activeSessionId, { poll: false });
+  const [startDialogOpen, setStartDialogOpen] = useState(false);
+  // Set once the host has seen the start dialog, so the auto-record prompt never
+  // follows a recording they just started and configured themselves.
+  const [startedManually, setStartedManually] = useState(false);
+  const [promptDismissed, setPromptDismissed] = useState(() => readPromptDismissed(activeSessionId));
+  useEffect(() => {
+    setPromptDismissed(readPromptDismissed(activeSessionId));
+    setStartedManually(false);
+  }, [activeSessionId]);
 
   const [participants, setParticipants] = useState<RtkPerson[]>([]);
   const [waitlistedCount, setWaitlistedCount] = useState(0);
@@ -335,24 +381,45 @@ function MeetingRoomAdapter() {
     }
   }, [activeMeetingId, updateMeeting]);
 
-  // Auto-record on join when the meeting has `autoRecord` set and the local
-  // viewer is the organizer. Idempotent — bails when already recording.
-  const autoRecordedRef = useRef(false);
-  useEffect(() => {
-    if (autoRecordedRef.current) return;
-    if (!meeting || !isOrganizer) return;
-    if (!meetingData?.autoRecord) return;
-    if (isRecording || recordingState !== 'IDLE') return;
-    autoRecordedRef.current = true;
-    startRecording().catch((err: unknown) => {
-      console.error('[WeldMeet] auto-record start failed:', err);
-    });
-  }, [meeting, isOrganizer, meetingData?.autoRecord, isRecording, recordingState, startRecording]);
+  // Recording: the server records on its own when the meeting has `autoRecord`
+  // (RealtimeKit `record_on_start`), so the client never starts it for the host.
+  // The Record tool opens the start dialog (transcript / summary opt-in) for
+  // anyone who may choose them, and records straight away for everyone else.
+  const handleRecordRequest = useCallback(() => {
+    if (canSetAiOptions) setStartDialogOpen(true);
+    else void startRecording();
+  }, [canSetAiOptions, startRecording]);
 
-  // Reset the auto-record latch when the meeting changes.
-  useEffect(() => {
-    autoRecordedRef.current = false;
-  }, [activeMeetingId]);
+  const handleStartRecording = useCallback(async (choice: RecordingAiChoice) => {
+    const aiOptions: RecordingAiOptionsInput = {
+      transcribe: choice.transcribe,
+      summarize: choice.summarize,
+      language: choice.language,
+    };
+    const previous = recordingInfo?.ai;
+    // Nothing to tell the server when it already has the same (empty) choice.
+    const unchanged = !aiOptions.transcribe && !aiOptions.summarize && !previous?.transcribe && !previous?.summarize;
+    setStartedManually(true);
+    await startRecording(unchanged ? undefined : aiOptions);
+  }, [recordingInfo?.ai, startRecording]);
+
+  // Auto-record started a recording nobody was asked about: offer the host the
+  // transcript / summary once. Off by default; dismissing keeps a plain recording.
+  const showAutoRecordPrompt =
+    canSetAiOptions &&
+    !!activeSessionId &&
+    !!meetingData?.autoRecord &&
+    recordingState === 'RECORDING' &&
+    !startedManually &&
+    !promptDismissed &&
+    !!recordingInfo &&
+    !recordingInfo.ai.transcribe &&
+    !recordingInfo.ai.summarize;
+
+  const dismissAutoRecordPrompt = useCallback(() => {
+    if (activeSessionId) writePromptDismissed(activeSessionId);
+    setPromptDismissed(true);
+  }, [activeSessionId]);
 
   const invitePopoverSlot = useMemo(
     () => shareUrl && activeMeetingId
@@ -586,7 +653,7 @@ function MeetingRoomAdapter() {
       // showControlBarRecording={false}.
       isRecording={isRecording}
       recordingState={recordingState}
-      startRecording={startRecording}
+      startRecording={handleRecordRequest}
       stopRecording={stopRecording}
       pauseRecording={pauseRecording}
       resumeRecording={resumeRecording}
@@ -620,6 +687,15 @@ function MeetingRoomAdapter() {
       pinnedId={pinnedId}
       onTogglePin={togglePin}
     />
+    <StartRecordingDialog
+      open={startDialogOpen}
+      onOpenChange={setStartDialogOpen}
+      initial={recordingInfo?.ai ?? null}
+      onConfirm={handleStartRecording}
+    />
+    {showAutoRecordPrompt && activeSessionId && (
+      <RecordingAiPrompt sessionId={activeSessionId} onDismiss={dismissAutoRecordPrompt} />
+    )}
     <GuestCreatePersonDialog
       target={guestTarget}
       onOpenChange={(open) => { if (!open) setGuestTarget(null); }}

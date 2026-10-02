@@ -255,6 +255,133 @@ describe('/api/meetings · pglite integration', () => {
     expect(res.status).toBe(403);
   });
 
+  // ── TASK-724: create / update a scheduled meeting (calendar link) ─────────
+
+  describe('scheduled meetings', () => {
+    const organizerId = 'user_sched_org';
+
+    function app(perms: string[]) {
+      return createTestApp('/api/meetings', meetingsRoutes, {
+        context: { permissions: permissions(...perms), userId: organizerId, tenantDb: db },
+      });
+    }
+
+    function post(body: unknown) {
+      return app(['meetings:create']).request('/api/meetings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    async function rowOf(id: string) {
+      const [row] = await db.select().from(schema.meetings).where(eq(schema.meetings.id, id)).limit(1);
+      return row;
+    }
+
+    it('POST / stores ISO schedule times as dates, normalised attendees, settings and the calendar link', async () => {
+      const start = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const res = await post({
+        title: 'Planning',
+        meetingType: 'audio',
+        accessType: 'anyone_with_link',
+        waitingRoom: false,
+        allowRecording: false,
+        scheduledStart: start.toISOString(),
+        scheduledEnd: end.toISOString(),
+        calendarEventId: 'cev_test_link',
+        attendees: [
+          { email: 'Guest@Example.com', name: 'Guest One' },
+          { email: 'guest@example.com' },
+          { email: 'bare@example.com' },
+        ],
+      });
+      expect(res.status).toBe(201);
+      const { data } = (await res.json()) as { data: { id: string } };
+
+      const row = await rowOf(data.id);
+      expect(row?.scheduledStart).toBeInstanceOf(Date);
+      expect(row?.scheduledStart?.toISOString()).toBe(start.toISOString());
+      expect(row?.scheduledEnd?.toISOString()).toBe(end.toISOString());
+      expect(row?.calendarEventId).toBe('cev_test_link');
+      expect(row?.status).toBe('scheduled');
+      expect(row?.meetingType).toBe('audio');
+      expect(row?.accessType).toBe('anyone_with_link');
+      expect(row?.waitingRoom).toBe(false);
+      expect(row?.allowRecording).toBe(false);
+      expect(row?.attendees).toEqual([
+        { userId: '', email: 'guest@example.com', name: 'Guest One', status: 'pending', role: 'attendee' },
+        { userId: '', email: 'bare@example.com', name: 'bare@example.com', status: 'pending', role: 'attendee' },
+      ]);
+
+      const upcoming = await app(['meetings:read']).request('/api/meetings/upcoming');
+      expect(upcoming.status).toBe(200);
+      const list = (await upcoming.json()) as { data: { id: string }[] };
+      expect(list.data.map((m) => m.id)).toContain(data.id);
+    });
+
+    it('POST / still works without a schedule', async () => {
+      const res = await post({ title: 'Instant-ish' });
+      expect(res.status).toBe(201);
+      const { data } = (await res.json()) as { data: { id: string } };
+      const row = await rowOf(data.id);
+      expect(row?.scheduledStart).toBeNull();
+      expect(row?.scheduledEnd).toBeNull();
+      expect(row?.calendarEventId).toBeNull();
+      expect(row?.status).toBe('scheduled');
+    });
+
+    it('POST / rejects a malformed schedule time', async () => {
+      const res = await post({ title: 'Bad time', scheduledStart: 'next tuesday' });
+      expect(res.status).toBe(400);
+    });
+
+    it('PATCH /:id converts schedule times to dates and null clears them', async () => {
+      const created = await post({ title: 'Move me' });
+      const { data } = (await created.json()) as { data: { id: string } };
+      const start = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+
+      const patch = (body: unknown) =>
+        app(['meetings:update']).request(`/api/meetings/${data.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+      const res = await patch({ scheduledStart: start.toISOString(), scheduledEnd: new Date(start.getTime() + 1800_000).toISOString() });
+      expect(res.status).toBe(200);
+      const row = await rowOf(data.id);
+      expect(row?.scheduledStart?.toISOString()).toBe(start.toISOString());
+      expect(row?.scheduledEnd?.getTime()).toBe(start.getTime() + 1800_000);
+
+      const cleared = await patch({ scheduledStart: null, scheduledEnd: null });
+      expect(cleared.status).toBe(200);
+      const after = await rowOf(data.id);
+      expect(after?.scheduledStart).toBeNull();
+      expect(after?.scheduledEnd).toBeNull();
+    });
+
+    it('PATCH /:id still accepts the full attendee shape', async () => {
+      const created = await post({ title: 'Roster' });
+      const { data } = (await created.json()) as { data: { id: string } };
+      const attendee = {
+        userId: 'user_x',
+        email: 'x@example.com',
+        name: 'X',
+        status: 'accepted',
+        role: 'organizer',
+      };
+      const res = await app(['meetings:update']).request(`/api/meetings/${data.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attendees: [attendee] }),
+      });
+      expect(res.status).toBe(200);
+      expect((await rowOf(data.id))?.attendees).toEqual([attendee]);
+    });
+  });
+
   // ── TASK-717: invite external guests by email ─────────────────────────────
 
   describe('POST /:id/invitations', () => {

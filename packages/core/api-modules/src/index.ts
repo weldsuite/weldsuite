@@ -289,14 +289,15 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/working-hours',
   ]),
   mod('meet', 8810, [
-    '/api/meeting-bot-sessions',
     '/api/meeting-messages',
     '/api/meeting-sessions',
     '/api/meeting-waitlist',
     '/api/meetings',
     '/api/transcriptions',
     '/api/webhooks/cloudflare-realtime',
-    '/api/webhooks/meeting-bot',
+    // Token-gated streaming of private recordings (Range). Public: the KV token
+    // minted by POST /api/meeting-sessions/:id/recording/access is the credential.
+    '/public/meeting-recordings',
   ]),
   mod('chat', 8811, [
     '/api/channel-members',

@@ -55,6 +55,34 @@ export function normalizeInvitees(invitees: InviteeInput[]): InviteeInput[] {
   return out;
 }
 
+/**
+ * Turn attendees sent on meeting create ({ email, name? } or the full stored
+ * shape) into full `MeetingAttendee` rows. Emails are trimmed, lowercased and
+ * de-duplicated (first wins); fields the caller did send (userId, role, RSVP
+ * status, member/person links) are kept. No resolver, no emails: this only
+ * shapes data.
+ */
+export function toMeetingAttendees(
+  input: Array<{ email: string; name?: string } & Partial<MeetingAttendee>>,
+): MeetingAttendee[] {
+  const seen = new Set<string>();
+  const out: MeetingAttendee[] = [];
+  for (const raw of input) {
+    const email = raw.email.trim().toLowerCase();
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    out.push({
+      ...raw,
+      userId: raw.userId ?? '',
+      email,
+      name: raw.name?.trim() || email,
+      status: raw.status ?? 'pending',
+      role: raw.role ?? 'attendee',
+    });
+  }
+  return out;
+}
+
 export interface MergeResult {
   attendees: MeetingAttendee[];
   /** Attendees that were added by this call. */

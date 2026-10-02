@@ -258,8 +258,27 @@ export interface MeetingSession {
   duration: number | null;
   maxParticipants: number | null;
   recordingEnabled: boolean;
+  /** @deprecated Legacy expiring Cloudflare URL. Use the recordings routes (`recording/access`). */
   recordingUrl: string | null;
+  /** @deprecated Legacy marker. */
   recordingKey: string | null;
+  // RealtimeKit recorder state (server-owned, optional so older payloads still type-check).
+  rtkSessionId?: string | null;
+  /** null = never recorded; recording | processing | ready | failed | unavailable | deleted */
+  recordingStatus?: 'recording' | 'processing' | 'ready' | 'failed' | 'unavailable' | 'deleted' | null;
+  recordingDurationSeconds?: number | null;
+  recordingSizeBytes?: number | null;
+  recordingReadyAt?: string | null;
+  recordingError?: string | null;
+  aiTranscribeRequested?: boolean | null;
+  aiSummarizeRequested?: boolean | null;
+  aiLanguage?: string | null;
+  summaryStatus?: 'pending' | 'processing' | 'completed' | 'failed' | null;
+  /** Markdown. */
+  summaryText?: string | null;
+  summarySource?: 'rtk' | 'workers_ai' | null;
+  summaryGeneratedAt?: string | null;
+  summaryError?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -294,9 +313,21 @@ export interface JoinSessionResult {
 export interface RecordingSummary {
   sessionId: string;
   meetingId: string;
+  /**
+   * Always null now: recordings are private. Mint a playable URL with
+   * `POST /meeting-sessions/:sessionId/recording/access`.
+   */
   recordingUrl: string | null;
+  /** @deprecated Legacy marker, always null. */
   recordingKey: string | null;
   cfAppId: string | null;
+  /** null = legacy row that predates the recorder state. */
+  recordingStatus?: 'recording' | 'processing' | 'ready' | 'failed' | 'unavailable' | 'deleted' | null;
+  hasAudio?: boolean;
+  hasTranscript?: boolean;
+  hasSummary?: boolean;
+  recordingDurationSeconds?: number | null;
+  recordingSizeBytes?: number | null;
   startedAt: string | null;
   endedAt: string | null;
   duration: number | null;
@@ -339,6 +370,7 @@ export interface CreateMeetingResult {
 
 export interface StopRecordingResult {
   ok: true;
+  /** @deprecated No longer returned: the recording is copied to private storage after the stop. */
   recordingUrl?: string;
 }
 

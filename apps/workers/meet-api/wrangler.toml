@@ -9,7 +9,26 @@
 # Secrets (scripts/secrets/manifest.ts → "meet-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
 #   CLERK_SECRET_KEY, CLERK_JWT_KEY
-#   (DATABASE_URL_MASTER also backs the TranscribeRecording credit deduction)
+#   (DATABASE_URL_MASTER also backs the credit wallet + the WeldMeet AI price list,
+#   master system_settings key `weldmeet.ai_pricing`)
+#
+# Recordings (RealtimeKit's own recorder; no third-party bot):
+#   MEETING_RECORDINGS is a PRIVATE R2 bucket (no public domain, never STORAGE).
+#   Create it BEFORE the first deploy of each env:
+#     weldsuite-meeting-recordings        (dev + production)
+#     weldsuite-meeting-recordings-test   (test)
+#   Objects are served only by GET /public/meeting-recordings/:token (KV token,
+#   Range support). RealtimeKit keeps its own copy about 7 days; the
+#   `meeting-recording-copy-v1*` workflow moves it into this bucket on
+#   recording.statusUpdate UPLOADED, `meeting-ai-v1*` ingests RealtimeKit's
+#   transcript/summary and runs Whisper afterwards.
+#   Legacy recordings (pre-recorder rows with an expiring Cloudflare URL): right
+#   after the first deploy of each env run POST
+#   /api/webhooks/cloudflare-realtime/backfill-recordings (operator bearer, same as
+#   /setup; body {"dryRun":true} first). RealtimeKit only keeps recordings ~7 days.
+#   After deploying, re-run POST /api/webhooks/cloudflare-realtime/setup once per
+#   env: it now registers recording.statusUpdate, meeting.transcript and
+#   meeting.summary too (idempotent, replaces the event list).
 #
 # Secrets beyond the base set (same values as app-api). The hand-set ones are in
 # scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
@@ -20,9 +39,10 @@
 #   CF_REALTIME_WEBHOOK_TOKEN (bearer token for the operator-only
 #     /api/webhooks/cloudflare-realtime/setup; unset = /setup refuses. The
 #     receiver itself verifies RealtimeKit's rtk-signature instead)
-#   MEETINGBAAS_WEBHOOK_TOKEN (?token= gate on /api/webhooks/meeting-bot;
-#     unset = every request is rejected)
-#   ASSEMBLYAI_API_KEY (TranscribeRecordingWorkflow)
+#   CLOUDFLARE_API_TOKEN (Workers AI Whisper for "transcribe afterwards" and the
+#     summary model, both through @weldsuite/ai / AI Gateway; same value as
+#     app-api and mail-api. Needs Workers AI + AI Gateway Run permissions.
+#     Optional overrides: AI_GATEWAY_API_TOKEN, CF_AI_GATEWAY)
 #   RESEND_API_KEY (+ optional RESEND_TEMPLATE_TASK_ASSIGNED, PUBLIC_APP_URL):
 #     the missed-call notification endChatCall sends (@weldsuite/notifications)
 #
@@ -72,15 +92,35 @@ remote = true
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
-# Meeting recording transcription — Cloudflare Workflow hosted in THIS worker
-# (class re-exported from src/index.ts, @weldsuite/meet-domain). New name
-# (-v3): app-api keeps `transcribe-recording-v2*` while its in-flight
-# instances drain. Self-hosted (no script_name), so it also works under plain
-# `wrangler dev`. Needs ASSEMBLYAI_API_KEY.
+# PRIVATE bucket for meeting recordings, raw transcripts (see header). The same
+# bucket serves dev and production; test has its own.
+[[r2_buckets]]
+binding = "MEETING_RECORDINGS"
+bucket_name = "weldsuite-meeting-recordings"
+
+# Recording + AI workflows — Cloudflare Workflows hosted in THIS worker
+# (classes re-exported from src/index.ts, @weldsuite/meet-domain). Self-hosted
+# (no script_name), so they also work under plain `wrangler dev`.
 [[workflows]]
-name = "transcribe-recording-v3-dev"
-binding = "TRANSCRIBE_RECORDING"
-class_name = "TranscribeRecordingWorkflow"
+name = "meeting-recording-copy-v1-dev"
+binding = "MEETING_RECORDING_COPY"
+class_name = "CopyMeetingRecordingWorkflow"
+
+[[workflows]]
+name = "meeting-ai-v1-dev"
+binding = "MEETING_AI"
+class_name = "MeetingAiWorkflow"
+
+# One-off legacy recording backfill (operator route, see header).
+[[workflows]]
+name = "meeting-recording-backfill-v1-dev"
+binding = "MEETING_RECORDING_BACKFILL"
+class_name = "BackfillLegacyRecordingsWorkflow"
+
+# RETIRED: the AssemblyAI transcription workflow. The registered workflow
+# `transcribe-recording-v3*` still points at the (now stub) class exported from
+# src/index.ts, so its binding is gone but the class stays for one release.
+# Next release: drop the export and `wrangler workflows delete` the registration.
 
 # DEFERRED_NOTIFICATION_EMAIL (app-api's workflow, used by the missed-call
 # notification of endChatCall) is bound cross-script in test/production only,
@@ -120,10 +160,25 @@ service = "weldsuite-realtime-test"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
 
+# PRIVATE recordings bucket (no public domain). Create it before the first deploy.
+[[env.test.r2_buckets]]
+binding = "MEETING_RECORDINGS"
+bucket_name = "weldsuite-meeting-recordings-test"
+
 [[env.test.workflows]]
-name = "transcribe-recording-v3-test"
-binding = "TRANSCRIBE_RECORDING"
-class_name = "TranscribeRecordingWorkflow"
+name = "meeting-recording-copy-v1-test"
+binding = "MEETING_RECORDING_COPY"
+class_name = "CopyMeetingRecordingWorkflow"
+
+[[env.test.workflows]]
+name = "meeting-ai-v1-test"
+binding = "MEETING_AI"
+class_name = "MeetingAiWorkflow"
+
+[[env.test.workflows]]
+name = "meeting-recording-backfill-v1-test"
+binding = "MEETING_RECORDING_BACKFILL"
+class_name = "BackfillLegacyRecordingsWorkflow"
 
 # Notification email defer window — class hosted in app-api.
 [[env.test.workflows]]
@@ -170,12 +225,26 @@ service = "weldsuite-realtime-production"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
-# Meeting recording transcription — hosted in this worker, no script_name.
-# New name (-v3): app-api's `transcribe-recording-v2` keeps draining.
+# PRIVATE recordings bucket (no public domain). Create it before the first deploy.
+[[env.production.r2_buckets]]
+binding = "MEETING_RECORDINGS"
+bucket_name = "weldsuite-meeting-recordings"
+
+# Recording + AI workflows — hosted in this worker, no script_name.
 [[env.production.workflows]]
-name = "transcribe-recording-v3"
-binding = "TRANSCRIBE_RECORDING"
-class_name = "TranscribeRecordingWorkflow"
+name = "meeting-recording-copy-v1"
+binding = "MEETING_RECORDING_COPY"
+class_name = "CopyMeetingRecordingWorkflow"
+
+[[env.production.workflows]]
+name = "meeting-ai-v1"
+binding = "MEETING_AI"
+class_name = "MeetingAiWorkflow"
+
+[[env.production.workflows]]
+name = "meeting-recording-backfill-v1"
+binding = "MEETING_RECORDING_BACKFILL"
+class_name = "BackfillLegacyRecordingsWorkflow"
 
 # Notification email defer window — class hosted in app-api.
 [[env.production.workflows]]

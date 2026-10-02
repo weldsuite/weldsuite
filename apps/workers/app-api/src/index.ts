@@ -149,8 +149,8 @@ app.route('/api/internal', internalRoutes);
 // WeldConnect; the kit's forwarder (first middleware) hands them over
 // CONNECT_API.
 
-// The MeetingBaas (/api/webhooks/meeting-bot) and Cloudflare Realtime
-// (/api/webhooks/cloudflare-realtime) webhooks moved to meet-api with WeldMeet;
+// The Cloudflare Realtime webhook (/api/webhooks/cloudflare-realtime) moved to
+// meet-api with WeldMeet;
 // the kit's forwarder (first middleware) hands them over MEET_API.
 
 // The helpdesk Discord/Slack OAuth callbacks (/api/integrations/helpdesk) moved

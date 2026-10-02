@@ -1,10 +1,10 @@
 /**
  * Call-intelligence hooks — app-api `/api/call-intelligence`, `/api/activities`,
- * `/api/meeting-bot-sessions`, `/api/telephony`.
+ * `/api/telephony`.
  *
  * W5 repoint. Most of this file had already rotted: api-worker deleted
- * `/crm/activities` (42ff1442a) and never had `/crm/calls/meeting-bot/{join,leave,:id,...}`
- * or `/settings/telephony-rates`, so those hooks were 404ing. Only
+ * `/crm/activities` (42ff1442a) and never had `/settings/telephony-rates`, so those
+ * hooks were 404ing. (The MeetingBaas meeting-bot surface is gone entirely.) Only
  * `useFetchVoiceToken` is exported and reachable (via `global-call-panel.tsx`).
  *
  * The recording upload/download surface has no app-api home — see the
@@ -18,9 +18,6 @@ const callIntelligenceKeys = {
   calls: (filters?: Record<string, unknown>) => [...callIntelligenceKeys.all, 'calls', filters] as const,
   voiceToken: () => [...callIntelligenceKeys.all, 'voice-token'] as const,
   telephonyRates: () => ['settings', 'telephony-rates'] as const,
-  meetingBot: () => [...callIntelligenceKeys.all, 'meeting-bot'] as const,
-  meetingSession: (id: string) => [...callIntelligenceKeys.meetingBot(), 'session', id] as const,
-  meetingTranscription: (id: string) => [...callIntelligenceKeys.meetingBot(), 'transcription', id] as const,
 };export function useFetchVoiceToken() {
   const { getClient } = useAppApiClient();
   return useMutation({
@@ -53,5 +50,4 @@ const callRecordingKeys = {
   all: ['crm', 'call-recordings'] as const,
   transcription: (activityId: string) => [...callRecordingKeys.all, activityId, 'transcription'] as const,
   transcriptionStatus: (activityId: string) => [...callRecordingKeys.all, activityId, 'transcription-status'] as const,
-  meetingBotTranscriptionStatus: (sessionId: string) => [...callIntelligenceKeys.meetingBot(), sessionId, 'transcription-status'] as const,
 };

@@ -1,9 +1,9 @@
 import Link from 'next/link';
-import { ArrowRight, Building2, Coins, Globe, Headphones, Package, Phone } from 'lucide-react';
+import { ArrowRight, Building2, Coins, Globe, Headphones, Package, Phone, Video } from 'lucide-react';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { requireAdmin } from '@/lib/auth';
 import { getAppStats } from '@/lib/apps-data';
-import { adminPhonePricingCopy, adminPricingCopy } from '@/lib/i18n';
+import { adminMeetAiPricingCopy, adminPhonePricingCopy, adminPricingCopy } from '@/lib/i18n';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 
 export const dynamic = 'force-dynamic';
@@ -15,6 +15,7 @@ export default async function DashboardPage() {
   const greetingName = admin.name?.split(' ')[0] || admin.email.split('@')[0];
   const pricing = adminPricingCopy();
   const phonePricing = adminPhonePricingCopy();
+  const meetAiPricing = adminMeetAiPricingCopy();
 
   const cards = [
     {
@@ -57,6 +58,13 @@ export default async function DashboardPage() {
       icon: Phone,
       title: phonePricing.cardTitle,
       description: phonePricing.cardDescription,
+      stat: null as string | null,
+    },
+    {
+      href: '/weldmeet-ai-pricing',
+      icon: Video,
+      title: meetAiPricing.cardTitle,
+      description: meetAiPricing.cardDescription,
       stat: null as string | null,
     },
   ];

@@ -1,12 +1,11 @@
 /**
  * Transcription routes — flat /api/transcriptions/* surface backed by
  * `crmTranscriptions` + `crmTranscriptSegments`. Transcriptions are linked to
- * CRM activities (calls, meeting bot sessions) via `activityId`.
+ * CRM activities (calls, WeldMeet sessions, historical meeting-bot sessions) via `activityId`.
  *
  * Formerly mounted under /activities/:activityId/transcription in api-worker.
  * This flat surface lets callers manage transcriptions by transcription ID
- * directly. The activity-lookup sub-routes live on /api/activities/:id/
- * and /api/meeting-bot-sessions/:id/ respectively.
+ * directly. The activity-lookup sub-routes live on /api/activities/:id/.
  *
  * PII note: transcript text (fullText, segment text) is PII-sensitive.
  *
@@ -42,7 +41,9 @@ async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Pr
 
 /**
  * A transcription's activityId is polymorphic — it references a voip call, a
- * meeting-bot session, or a CRM activity. Resolve the owner across all three.
+ * meeting-bot session (historical), a WeldMeet session (the organizer of its
+ * meeting), a meeting (legacy AssemblyAI rows were keyed by meeting id) or a CRM
+ * activity. Resolve the owner across all of them.
  */
 async function resolveActivityOwner(
   c: Context<{ Bindings: Env; Variables: Variables }>,
@@ -61,6 +62,21 @@ async function resolveActivityOwner(
     .where(eq(schema.meetingBotSessions.id, activityId))
     .limit(1);
   if (session) return session.u;
+  // WeldMeet: a session id resolves to its meeting's organizer.
+  const [meetingSession] = await db
+    .select({ u: schema.meetings.organizerId })
+    .from(schema.meetingSessions)
+    .innerJoin(schema.meetings, eq(schema.meetingSessions.meetingId, schema.meetings.id))
+    .where(eq(schema.meetingSessions.id, activityId))
+    .limit(1);
+  if (meetingSession) return meetingSession.u;
+  // Legacy meeting-keyed transcript.
+  const [meeting] = await db
+    .select({ u: schema.meetings.organizerId })
+    .from(schema.meetings)
+    .where(eq(schema.meetings.id, activityId))
+    .limit(1);
+  if (meeting) return meeting.u;
   const [activity] = await db
     .select({ u: schema.crmActivities.assignedToId })
     .from(schema.crmActivities)

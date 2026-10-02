@@ -46,7 +46,6 @@
     "@weldsuite/ui": "workspace:*",
     "@weldsuite/weldmeet-ui": "workspace:*",
     "@xyflow/react": "^12.10.0",
-    "assemblyai": "^4.23.0",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",

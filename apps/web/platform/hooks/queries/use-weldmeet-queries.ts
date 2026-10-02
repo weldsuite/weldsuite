@@ -7,6 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
 import type { RemoveMeetingSessionParticipantInput } from '@weldsuite/app-api-client/schemas/meeting-sessions';
+import type { RecordingStatus } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
 import type {
   HostControls,
   HostControlsInput,
@@ -328,16 +329,28 @@ export function useJoinByCode() {
 }
 
 // ============================================================================
-// Recording Queries
+// Recording list
 // ============================================================================
 
+/**
+ * One recorded session of a meeting, as listed by `GET /meetings/recordings`.
+ * State only: there are no file URLs here. Play / download go through
+ * `POST /meeting-sessions/:id/recording/access` (see use-weldmeet-recording-queries).
+ */
 export interface MeetingRecordingEntry {
   sessionId: string;
   meetingId: string;
-  recordingUrl: string | null;
-  recordingKey: string | null;
+  /** null = a legacy row that predates the recorder state and has not been backfilled yet. */
+  recordingStatus: RecordingStatus | null;
+  recordingDurationSeconds: number | null;
+  recordingSizeBytes: number | null;
+  hasAudio: boolean;
+  hasTranscript: boolean;
+  hasSummary: boolean;
+  summaryStatus: string | null;
   startedAt: string | null;
   endedAt: string | null;
+  /** Session (meeting) duration in seconds. */
   duration: number | null;
   maxParticipants: number;
   meetingTitle: string;
@@ -353,36 +366,10 @@ export function useRecordingsList() {
       const res = await client.get<{ data: MeetingRecordingEntry[] }>('/meetings/recordings');
       return (res.data ?? []) as MeetingRecordingEntry[];
     },
-  });
-}// ============================================================================
-// Meeting Recording + Transcription
-// ============================================================================
-
-export function useMeetingRecordingUrl(meetingId: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: [...weldmeetKeys.all, 'recording-url', meetingId] as const,
-    queryFn: async () => {
-      const client = await getClient();
-      // app-api returns { data: { url, sessionId, duration } } (200) or
-      // { data: null, processing: true } (202) when still processing.
-      const res = await client.get<{ data: { url: string; sessionId: string; duration: number | null } | null }>(`/meetings/${meetingId}/recording`);
-      if (!res.data?.url) return null;
-      return res.data;
-    },
-    enabled: !!meetingId,
-    // Retry every 5s while recording is still processing (returns null)
-    refetchInterval: (query) => query.state.data === null ? 5000 : false,
-  });
-}
-
-export function useTranscribeMeeting() {
-  const { getClient } = useAppApiClient();
-  return useMutation({
-    mutationFn: async ({ meetingId, language }: { meetingId: string; language?: string }) => {
-      const client = await getClient();
-      // app-api returns { data: { id, status } }
-      return client.post<{ data: { id: string; status: string } }>(`/meetings/${meetingId}/recording/transcribe`, { language });
-    },
+    // Rows flip processing -> ready on their own; keep them fresh while any is in flight.
+    refetchInterval: (query) =>
+      query.state.data?.some((r) => r.recordingStatus === 'processing' || r.recordingStatus === 'recording')
+        ? 10_000
+        : false,
   });
 }

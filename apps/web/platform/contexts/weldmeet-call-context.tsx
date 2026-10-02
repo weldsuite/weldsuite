@@ -15,6 +15,8 @@ import {
 } from '@weldsuite/df3-noise-suppression';
 import rnnoiseWorkerUrl from '@weldsuite/df3-noise-suppression/rnnoise-worker?worker&url';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/weldmeet-recordings';
+import type { RecordingAiOptionsInput } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
 import { apiUrl } from '@/lib/api/public-env';
 import { consumeStartHandoff } from '@/lib/weldmeet/start-handoff';
 import { usePathname } from '@/lib/router';
@@ -238,7 +240,13 @@ interface WeldMeetCallActions {
   /** Internal: the PiP widget registers its pop-out implementation here. */
   registerPopOut: (fn: () => void) => void;
   setViewMode: (mode: 'grid' | 'spotlight' | 'speaker' | 'sidebar') => void;
-  startRecording: () => Promise<void>;
+  /**
+   * Start the RealtimeKit recorder. With `aiOptions` (transcript / summary,
+   * chosen in the start-recording dialog) they are applied first, which is
+   * wallet-gated: a 402 or any other failure there REJECTS and nothing is
+   * recorded, so the dialog can show it. Without options it never rejects.
+   */
+  startRecording: (aiOptions?: RecordingAiOptionsInput) => Promise<void>;
   stopRecording: () => Promise<void>;
   pauseRecording: () => Promise<void>;
   resumeRecording: () => Promise<void>;
@@ -1173,13 +1181,28 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     setPinnedId((prev) => (prev === id ? null : id));
   }, []);
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(async (aiOptions?: RecordingAiOptionsInput) => {
     if (!meeting) return;
     // Optimistic state so the UI shows a "Starting…" spinner immediately —
     // RTK provisions the recorder server-side and can take a few seconds before
     // its `recordingUpdate` event arrives. The event reconciles the real state;
     // on failure we fall back to IDLE.
     setRecordingState('STARTING');
+
+    // Transcript / summary choice goes first: it checks the wallet (402) and
+    // switches them on for the live RealtimeKit meeting. If it fails we have not
+    // started recording, and the caller shows why.
+    const preparedSessionId = sessionIdRef.current;
+    if (aiOptions && preparedSessionId) {
+      try {
+        const client = await getClient();
+        await createWeldmeetRecordingsApi(client).setAiOptions(preparedSessionId, aiOptions);
+      } catch (e) {
+        setRecordingState('IDLE');
+        throw e;
+      }
+    }
+
     try {
       await meeting.recording.start();
       // Notify backend
@@ -1200,7 +1223,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     setRecordingState('STOPPING');
     try {
       await meeting.recording.stop();
-      // Notify backend to fetch and save the recording URL
+      // Tell the backend the recorder stopped. The file itself is saved from
+      // RealtimeKit's recording webhook, so there is no URL to pick up here.
       const mId = meetingIdRef.current;
       const sId = sessionIdRef.current;
       if (mId && sId) {

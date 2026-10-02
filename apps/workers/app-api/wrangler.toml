@@ -80,7 +80,6 @@ head_sampling_rate = 1
 # - (ATTIO_*, HUBSPOT_*, MONEYBIRD_*, GOOGLE_CALENDAR_* — the integration and
 #   connector OAuth apps — and the GITHUB_APP_* secrets moved to connect-api
 #   with WeldConnect.)
-# - (ASSEMBLYAI_API_KEY moved to meet-api with the transcription workflow.)
 # - RESEND_API_KEY (notifications + internal email. The task digest moved to
 #   flow-api and the calendar attendee mails to calendar-api, together with
 #   their RESEND_MEETING_*_TEMPLATE_ID vars.)
