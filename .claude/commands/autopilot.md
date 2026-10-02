@@ -9,13 +9,20 @@ Interpret `$ARGUMENTS`:
 - `--max N` → cap at N iterations (default: 5). Prevents runaway sessions.
 - Anything else → pass-through to downstream agents.
 
+## WeldSuite MCP tool names
+
+The WeldSuite MCP may be registered as `mcp__weldsuite__*` or under a connector
+id such as `mcp__2abe9674-…__*`. Match tools by their suffix: `search_tasks`, `update_task`. Load them
+with `ToolSearch` (`+search_tasks`, …) if deferred.
+Task ids are task numbers like `TASK-734` (the task's `Number` field), not internal `tsk_xxx` ids.
+
 ## The loop
 
 Repeat up to `--max` iterations OR until no eligible tasks remain OR the user cancels:
 
 ### 1. Pick next task
 
-Call `mcp__weldsuite__search_tasks` to list open tasks. Rank by:
+Call `search_tasks` to list open tasks. Rank by:
 1. Priority: `critical` > `high` > `medium` > `low` > `none`
 2. Type: `bug` before `feature`/`story`/`task` at same priority
 3. Due date: earliest first at same priority + type
@@ -74,7 +81,7 @@ Wait for the answer. Per CLAUDE.md, migrations are never auto-generated.
 
 Run the full Definition of Done in bash:
 ```bash
-cd /sessions/focused-inspiring-franklin/mnt/weldsuite
+cd "$(git rev-parse --show-toplevel)"
 pnpm --filter '<touched-workspaces>' lint
 pnpm --filter '<touched-apps>' build
 git status --porcelain

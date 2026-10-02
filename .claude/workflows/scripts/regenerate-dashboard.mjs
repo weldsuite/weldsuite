@@ -9,7 +9,8 @@
  *
  * How it works:
  *   1. Spawns `claude -p <prompt>` headlessly. The prompt asks Claude to call
- *      mcp__weldsuite__search_tasks across all open statuses and emit JSON
+ *      the WeldSuite MCP search_tasks tool (matched by suffix: it may be
+ *      registered as mcp__weldsuite__* or under a connector id) across all open statuses and emit JSON
  *      between <DATA>...</DATA> markers.
  *   2. Parses the JSON.
  *   3. Merges with the curated bundles in ./bundle-config.mjs. Unbundled tasks
@@ -37,7 +38,7 @@ const USER_ID =
 // ---------- prompt ----------
 const PROMPT = `You are a data fetcher. Do NOT interview me. Do NOT write any code. Do NOT explain.
 
-Task: call the mcp__weldsuite__search_tasks tool repeatedly to gather ALL open tasks for assigneeId="${USER_ID}".
+Task: call the WeldSuite MCP search_tasks tool repeatedly (it may be registered as mcp__weldsuite__search_tasks or under a connector id such as mcp__2abe9674-...__search_tasks; match it by its suffix and load it with ToolSearch if deferred) to gather ALL open tasks for assigneeId="${USER_ID}".
 
 You MUST call the tool with each of these status filters and combine the results (limit=50 each):
   - status: "todo"

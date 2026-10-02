@@ -4,7 +4,7 @@
 
 `regenerate-dashboard.mjs` refreshes the task data in `../dashboard.html` from live WeldSuite state.
 
-It works by spawning `claude -p` (Claude Code's headless mode) which has the `mcp__weldsuite__*` tools available. The script asks Claude to fetch every open task assigned to you, emit it as JSON, and parses it back. Then it merges the result with the curated bundles in `./bundle-config.mjs` and patches the `<DATA>` block in `dashboard.html`.
+It works by spawning `claude -p` (Claude Code's headless mode) which has the WeldSuite MCP tools available (registered as `mcp__weldsuite__*` or under a connector id such as `mcp__2abe9674-…__*`; the prompt matches `search_tasks` by suffix). The script asks Claude to fetch every open task assigned to you, emit it as JSON, and parses it back. Then it merges the result with the curated bundles in `./bundle-config.mjs` and patches the `<DATA>` block in `dashboard.html`.
 
 No DB credentials, no direct API tokens, it reuses whatever auth your `claude` CLI is already using.
 
