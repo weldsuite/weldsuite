@@ -285,9 +285,7 @@ export default function GuestJoinClient() {
   useEffect(() => {
     const handler = () => {
       if (meetingId && guestToken) {
-        try {
-          guestLeaveMeeting(orgId, { meetingId, guestToken }, { keepalive: true }).catch(() => {});
-        } catch { /* best effort */ }
+        guestLeaveMeeting(orgId, { meetingId, guestToken }, { keepalive: true }).catch(() => {});
       }
     };
     window.addEventListener('beforeunload', handler);
@@ -419,10 +417,10 @@ export default function GuestJoinClient() {
       // Once RTK owns the mic, toggle via the SDK and set the explicit state
       // (no `v => !v` flip — the SDK is the source of truth, not React state).
       if (rtkClient.self.audioEnabled) {
-        rtkClient.self.disableAudio();
+        void rtkClient.self.disableAudio();
         setPreviewAudioEnabled(false);
       } else {
-        rtkClient.self.enableAudio();
+        void rtkClient.self.enableAudio();
         setPreviewAudioEnabled(true);
       }
       return;
@@ -436,10 +434,10 @@ export default function GuestJoinClient() {
   const togglePreviewVideo = useCallback(() => {
     if (rtkClient?.self) {
       if (rtkClient.self.videoEnabled) {
-        rtkClient.self.disableVideo();
+        void rtkClient.self.disableVideo();
         setPreviewVideoEnabled(false);
       } else {
-        rtkClient.self.enableVideo();
+        void rtkClient.self.enableVideo();
         setPreviewVideoEnabled(true);
       }
       return;
@@ -863,10 +861,10 @@ export default function GuestJoinClient() {
   const toggleMute = useCallback(() => {
     if (!rtkClient) return;
     if (rtkClient.self.audioEnabled) {
-      rtkClient.self.disableAudio();
+      void rtkClient.self.disableAudio();
       setIsMuted(true);
     } else {
-      rtkClient.self.enableAudio();
+      void rtkClient.self.enableAudio();
       setIsMuted(false);
     }
   }, [rtkClient]);
@@ -918,7 +916,7 @@ export default function GuestJoinClient() {
     detachRtkClient();
     previewStream?.getTracks().forEach(t => t.stop());
     stopLocalMediaTracks(rtkClient);
-    rtkClient?.leave();
+    void rtkClient?.leave();
     setRtkClient(null);
     releaseNoiseSuppression();
     setState('ended');

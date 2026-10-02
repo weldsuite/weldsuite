@@ -158,8 +158,8 @@ export function ParticipantContextMenu({
             <>
               <button
                 onClick={() => {
-                  if (meeting?.self?.audioEnabled) meeting.self.disableAudio();
-                  else meeting?.self?.enableAudio();
+                  if (meeting?.self?.audioEnabled) void meeting.self.disableAudio();
+                  else void meeting?.self?.enableAudio();
                   onClose();
                 }}
                 className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
@@ -169,8 +169,8 @@ export function ParticipantContextMenu({
               </button>
               <button
                 onClick={() => {
-                  if (meeting?.self?.videoEnabled) meeting.self.disableVideo();
-                  else meeting?.self?.enableVideo();
+                  if (meeting?.self?.videoEnabled) void meeting.self.disableVideo();
+                  else void meeting?.self?.enableVideo();
                   onClose();
                 }}
                 className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
@@ -299,7 +299,7 @@ function DestructiveActions({
         {isSelf ? (
           <button
             onClick={() => {
-              meeting?.leave?.();
+              void meeting?.leave?.();
               onClose();
             }}
             className={MENU_BUTTON_BASE}

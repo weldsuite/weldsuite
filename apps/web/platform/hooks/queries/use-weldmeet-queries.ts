@@ -173,7 +173,7 @@ export function useCreateMeeting() {
       return res.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -188,8 +188,8 @@ export function useUpdateMeeting() {
       return res.data;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(variables.id) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(variables.id) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -230,7 +230,7 @@ export function useInviteToMeeting() {
       queryClient.setQueryData(weldmeetKeys.meeting(meetingId), (prev: Meeting | null | undefined) =>
         prev ? { ...prev, attendees: result.attendees } : prev,
       );
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -244,7 +244,7 @@ export function useDeleteMeeting() {
       await client.delete(`/meetings/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -258,8 +258,8 @@ export function useCancelMeeting() {
       await client.patch(`/meetings/${id}/cancel${sendNotification ? '?sendNotification=true' : ''}`);
     },
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(id) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(id) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
@@ -311,8 +311,8 @@ export function useRemoveMeetingParticipant() {
       return res.data;
     },
     onSuccess: (_result, { meetingId }) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(meetingId) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.latestSession(meetingId) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(meetingId) });
+      void queryClient.invalidateQueries({ queryKey: weldmeetKeys.latestSession(meetingId) });
     },
   });
 }

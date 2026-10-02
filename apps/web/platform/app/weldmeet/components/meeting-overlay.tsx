@@ -514,7 +514,7 @@ function MeetingRoomAdapter() {
           // values per key — stringify the controls object so the receiver
           // gets one flat string field that parses back to the full snapshot.
           try {
-            meeting?.participants?.broadcastMessage?.('call:host-controls-updated', {
+            void meeting?.participants?.broadcastMessage?.('call:host-controls-updated', {
               meetingId: activeMeetingId ?? '',
               controlsJson: JSON.stringify(controls),
             });
