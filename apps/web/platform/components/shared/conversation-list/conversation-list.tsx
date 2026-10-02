@@ -145,7 +145,7 @@ export function ConversationList({
                   <div className="relative -mt-px flex items-center gap-2 px-3 md:px-4 h-8 bg-background border-t border-b border-border/70">
                     <div className="absolute inset-0 bg-muted/50 pointer-events-none" />
                     <span className="relative text-xs font-medium text-muted-foreground">{dateLabel}</span>
-                    <span className="relative text-[10px] font-mono text-muted-foreground bg-muted border border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px] -translate-y-px">
+                    <span className="relative text-[10px] font-mono text-muted-foreground bg-muted border border-border min-w-[16px] px-[3px] h-[16px] flex items-center justify-center rounded-[5px] -translate-y-px">
                       <span className="translate-y-[1px]">{group.length}</span>
                     </span>
                   </div>
