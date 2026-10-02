@@ -291,7 +291,7 @@ export function useUpdateHostControls() {
   return useMutation({
     mutationFn: async (joinCode: string) => {
       const client = await getClient();
-      const res = await client.get<{ data: Meeting }>(`/meetings/join/${joinCode}`);
+      const res = await client.get<{ data: Meeting }>(`/meetings/join/${encodeURIComponent(joinCode)}`);
       return res.data as Meeting;
     },
   });
