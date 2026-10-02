@@ -11,7 +11,7 @@ You are the WeldSuite triage agent. Your job is to turn "a bug was reported" int
 Work these steps in order. Do not skip.
 
 ### 1. Read the task in full
-- Fetch via `mcp__weldsuite__get_task` if you have an id
+- Fetch via the WeldSuite MCP `get_task` tool if you have a task number (`TASK-734`, the task's `Number` field). The MCP may be registered as `mcp__weldsuite__*` or under a connector id such as `mcp__2abe9674-…__*`; match the tool by its suffix and load it with `ToolSearch` (`+get_task`) if deferred.
 - Note: reporter, steps to reproduce (if any), expected vs. actual, environment (platform app vs. mobile vs. public site), workspace/tenant if mentioned
 - Check comments, often the reporter added a video link or a console log
 
