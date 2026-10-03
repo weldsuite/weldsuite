@@ -371,6 +371,8 @@ function MeetingRoomAdapter() {
     startingHint: t.inCall.recording.startingHint,
     startingTool: t.inCall.recording.startingTool,
     pleaseWait: t.inCall.recording.pleaseWait,
+    active: t.inCall.recording.active,
+    paused: t.inCall.recording.paused,
   };
 
   const joinCode = meetingData?.joinCode ?? '';

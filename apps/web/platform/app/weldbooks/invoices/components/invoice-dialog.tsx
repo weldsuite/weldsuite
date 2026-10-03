@@ -107,7 +107,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
       search: query,
       pageSize: 50,
     });
-    return (res?.data ?? []).map(toContactOption);
+    return (res?.data ?? []).map((c) => toContactOption(c));
   };
 
   const defaultValues: InvoiceFormValues = useMemo(

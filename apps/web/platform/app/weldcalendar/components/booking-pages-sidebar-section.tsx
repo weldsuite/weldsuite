@@ -18,6 +18,7 @@ import { useDeleteBookingPage } from '@/hooks/queries/use-calendar-queries';
 import { usePathname } from '@/lib/router';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
+import { buildBookingPageUrl } from '@/lib/weldcalendar/booking-portal-url';
 
 export interface BookingPageSidebarItem {
   id: string;
@@ -39,10 +40,10 @@ export function BookingPagesSidebarSection({ bookingPages, onAdd }: Readonly<Boo
   const t = getTranslations('weldcalendar');
 
   const orgSlug = organization?.slug || organization?.id || '';
-  const bookingPortalUrl = import.meta.env.VITE_BOOKING_PORTAL_URL || window.location.origin;
 
   const copyLink = (slug: string) => {
-    const url = `${bookingPortalUrl}/${orgSlug}/${slug}`;
+    // The public booking portal link, never the platform origin (which needs a login).
+    const url = buildBookingPageUrl(orgSlug, slug);
     navigator.clipboard.writeText(url);
     toast.success(t.toast.bookingLinkCopied);
   };

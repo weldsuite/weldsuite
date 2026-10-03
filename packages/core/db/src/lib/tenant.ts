@@ -417,6 +417,11 @@ export async function getExistingTenantDb(id: string) {
   let [result] = await fetchWorkspaceInfoById(id);
   if (!result) [result] = await fetchWorkspaceInfo(id);
   if (!result?.workspace.isActive) throw new TenantNotFoundError(id);
+  // No tenant database (never provisioned, or a phantom row the old
+  // auto-provisioning `getTenantDb` created for a made-up org id): nothing a
+  // public caller can reach, so it is "not found" rather than a 500.
+  const { neonProjectId, neonBranchId, neonRoleName } = result.workspace;
+  if (!neonProjectId || !neonBranchId || !neonRoleName) throw new TenantNotFoundError(id);
 
   // Remember a fully provisioned workspace under its workspace id (read by
   // getTenantDbByWorkspaceId right below) and its Clerk org id.

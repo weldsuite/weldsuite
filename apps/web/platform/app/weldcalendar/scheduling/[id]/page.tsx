@@ -22,7 +22,8 @@ import {
 } from '@weldsuite/ui/components/select';
 import { useParams } from '@/lib/router';
 import { useUser, useOrganization } from '@clerk/clerk-react';
-import { useBookingPage, useUpdateBookingPage, useCreateBookingPage, type BookingPage } from '@/hooks/queries/use-calendar-queries';
+import { useBookingPage, useUpdateBookingPage, useCreateBookingPage, type BookingPage, type BookingQuestion } from '@/hooks/queries/use-calendar-queries';
+import { getBookingPortalUrl } from '@/lib/weldcalendar/booking-portal-url';
 import { useSetAtom } from 'jotai';
 import { draftBookingPageTitleAtom } from '../../lib/draft-booking-page';
 import { LOCATION_TYPE_OPTIONS } from '../../types';
@@ -31,17 +32,56 @@ import { getTranslations } from '@/lib/i18n';
 
 type BookingFormError = 'errorAddressRequired' | 'errorSlugEmpty';
 
+type CustomFieldType = BookingQuestion['type'];
+
 interface CustomField {
   id: string;
   label: string;
   required: boolean;
+  type: CustomFieldType;
+  options?: string[];
 }
 
-const createCustomField = (label: string, required: boolean): CustomField => ({
+/** Stable id of the built-in phone number field (it is a plain text question). */
+const PHONE_FIELD_ID = 'phone';
+
+const createCustomField = (
+  label: string,
+  required: boolean,
+  type: CustomFieldType = 'text',
+  options?: string[],
+): CustomField => ({
   id: crypto.randomUUID(),
   label,
   required,
+  type,
+  ...(type === 'select' && options ? { options } : {}),
 });
+
+/** Editor fields -> the `questions` column the public booking form renders. */
+function toQuestions(fields: CustomField[]): BookingQuestion[] {
+  return fields.map((field) => ({
+    id: field.id,
+    label: field.label,
+    type: field.type,
+    required: field.required,
+    ...(field.type === 'select' && field.options ? { options: field.options } : {}),
+  }));
+}
+
+function fromQuestions(questions: BookingQuestion[] | null | undefined): CustomField[] {
+  return (questions ?? []).map((q) => ({
+    id: q.id,
+    label: q.label,
+    required: q.required,
+    type: q.type,
+    ...(q.type === 'select' && q.options ? { options: q.options } : {}),
+  }));
+}
+
+/** One option per line; blank lines and duplicates dropped. */
+const parseOptions = (raw: string): string[] =>
+  Array.from(new Set(raw.split('\n').map((line) => line.trim()).filter(Boolean)));
 
 const sanitizeSlug = (raw: string) =>
   raw
@@ -135,7 +175,8 @@ export default function BookingPageDetailPage() {
   const [draftStub] = useState<Partial<BookingPage> | null>(() => (id === '__draft__' ? loadDraftStub() : null));
   const bookingPage = data?.data ?? draftStub;
   const orgSlug = organization?.slug || organization?.id || '';
-  const bookingPortalUrl = import.meta.env.VITE_BOOKING_PORTAL_URL || window.location.origin;
+  // Guests book through the public booking portal, never through the platform origin.
+  const bookingPortalUrl = getBookingPortalUrl();
   const userName = user?.fullName || user?.firstName || 'User';
   const userAvatar = user?.imageUrl;
 
@@ -150,7 +191,8 @@ export default function BookingPageDetailPage() {
       isSameValue(locationType, bookingPage.locationType) &&
       isSameValue(locationValue, bookingPage.locationValue) &&
       isSameValue(confirmationMessage, bookingPage.confirmationMessage) &&
-      isSameValue(timezone, bookingPage.timezone, browserTz)
+      isSameValue(timezone, bookingPage.timezone, browserTz) &&
+      JSON.stringify(toQuestions(customFields)) === JSON.stringify(bookingPage.questions ?? [])
     );
   };
 
@@ -177,14 +219,43 @@ export default function BookingPageDetailPage() {
   const [locationType, setLocationType] = useState('');
   const [locationValue, setLocationValue] = useState('');
   const [confirmationMessage, setConfirmationMessage] = useState('');
-  const [calendarInvite, setCalendarInvite] = useState(true);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
-  const [allowGuests, setAllowGuests] = useState(true);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [addItemType, setAddItemType] = useState<'select' | 'phone' | 'custom'>('select');
   const [newItemLabel, setNewItemLabel] = useState('');
   const [newItemRequired, setNewItemRequired] = useState(false);
-  const hasPhoneField = customFields.some((f) => f.label === 'Phone number');
+  const [newItemAnswerType, setNewItemAnswerType] = useState<CustomFieldType>('text');
+  const [newItemOptions, setNewItemOptions] = useState('');
+  const hasPhoneField = customFields.some((f) => f.id === PHONE_FIELD_ID);
+  const newItemOptionList = parseOptions(newItemOptions);
+  const canAddCustomItem =
+    newItemLabel.trim().length > 0 && (newItemAnswerType !== 'select' || newItemOptionList.length > 0);
+
+  const resetAddItem = () => {
+    setAddItemType('select');
+    setNewItemLabel('');
+    setNewItemRequired(false);
+    setNewItemAnswerType('text');
+    setNewItemOptions('');
+  };
+
+  const addCustomItem = () => {
+    setCustomFields((prev) => [
+      ...prev,
+      createCustomField(newItemLabel.trim(), newItemRequired, newItemAnswerType, newItemOptionList),
+    ]);
+    setAddItemOpen(false);
+    resetAddItem();
+  };
+
+  const addPhoneItem = () => {
+    setCustomFields((prev) => [
+      ...prev,
+      { id: PHONE_FIELD_ID, label: tc.bookingDetail.fieldPhoneNumber, required: true, type: 'text' },
+    ]);
+    setAddItemOpen(false);
+    resetAddItem();
+  };
   const browserTz = getBrowserTimezone();
   const [timezone, setTimezone] = useState(browserTz);
   const [tzOpen, setTzOpen] = useState(false);
@@ -236,6 +307,7 @@ export default function BookingPageDetailPage() {
       setLocationValue(bookingPage.locationValue || '');
       setConfirmationMessage(bookingPage.confirmationMessage || '');
       setTimezone(resolveTimezone(bookingPage.timezone, browserTz));
+      setCustomFields(fromQuestions(bookingPage.questions));
     }
   }, [bookingPage, id, isDraft, browserTz]);
 
@@ -256,6 +328,7 @@ export default function BookingPageDetailPage() {
       locationValue: locationValue || undefined,
       confirmationMessage: confirmationMessage || undefined,
       timezone,
+      questions: toQuestions(customFields),
     });
     sessionStorage.removeItem('booking-new-draft');
     const newId = result?.data?.id || null;
@@ -297,6 +370,7 @@ export default function BookingPageDetailPage() {
         locationValue: locationValue || undefined,
         confirmationMessage: confirmationMessage || undefined,
         timezone,
+        questions: toQuestions(customFields),
       },
     });
     sessionStorage.removeItem(`booking-edit-${id}`);
@@ -499,7 +573,24 @@ export default function BookingPageDetailPage() {
                   <Label className="text-sm font-semibold">
                     {field.label} {field.required && <span className="text-destructive">*</span>}
                   </Label>
-                  <Input placeholder={field.label} className="shadow-none" disabled />
+                  {field.type === 'textarea' && (
+                    <Textarea placeholder={field.label} className="min-h-[80px] shadow-none" disabled />
+                  )}
+                  {field.type === 'select' && (
+                    <Select disabled>
+                      <SelectTrigger className="w-full shadow-none">
+                        <SelectValue placeholder={tc.bookingDetail.fieldSelectPlaceholder} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(field.options ?? []).map((option) => (
+                          <SelectItem key={option} value={option}>{option}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {field.type === 'text' && (
+                    <Input placeholder={field.label} className="shadow-none" disabled />
+                  )}
                 </div>
               ))}
 
@@ -512,7 +603,6 @@ export default function BookingPageDetailPage() {
                 />
               </div>
 
-              {allowGuests && (
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">{tc.bookingDetail.guestsLabel}</Label>
                 <div className="flex gap-2">
@@ -522,7 +612,6 @@ export default function BookingPageDetailPage() {
                   </Button>
                 </div>
               </div>
-              )}
             </div>
 
             <div className="h-px bg-gray-100 dark:bg-border my-4" />
@@ -685,10 +774,7 @@ export default function BookingPageDetailPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <span className="inline-flex items-center px-3 py-1.5 text-sm border rounded-md bg-muted/30">
-                  {tc.bookingDetail.fieldFirstName}<span className="text-destructive ml-0.5">*</span>
-                </span>
-                <span className="inline-flex items-center px-3 py-1.5 text-sm border rounded-md bg-muted/30">
-                  {tc.bookingDetail.fieldLastName}<span className="text-destructive ml-0.5">*</span>
+                  {tc.bookingDetail.yourName}<span className="text-destructive ml-0.5">*</span>
                 </span>
                 <span className="inline-flex items-center px-3 py-1.5 text-sm border rounded-md bg-muted/30">
                   {tc.bookingDetail.fieldEmail}<span className="text-destructive ml-0.5">*</span>
@@ -711,7 +797,7 @@ export default function BookingPageDetailPage() {
                 {tc.bookingDetail.addItem}
               </Button>
 
-              <Dialog open={addItemOpen} onOpenChange={(open) => { setAddItemOpen(open); if (!open) { setAddItemType('select'); setNewItemLabel(''); setNewItemRequired(false); } }}>
+              <Dialog open={addItemOpen} onOpenChange={(open) => { setAddItemOpen(open); if (!open) resetAddItem(); }}>
                 <DialogContent className="sm:max-w-[400px]">
                   <DialogHeader>
                     <DialogTitle>{tc.bookingDetail.addFormField}</DialogTitle>
@@ -725,7 +811,7 @@ export default function BookingPageDetailPage() {
                         onValueChange={(v) => {
                           if (v === 'phone') {
                             setAddItemType('select');
-                            setNewItemLabel('Phone number');
+                            setNewItemLabel(tc.bookingDetail.fieldPhoneNumber);
                             setNewItemRequired(true);
                           } else {
                             setAddItemType('custom');
@@ -755,14 +841,40 @@ export default function BookingPageDetailPage() {
                           placeholder={tc.bookingDetail.fieldLabelPlaceholder}
                           autoFocus
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && newItemLabel.trim()) {
-                              setCustomFields((prev) => [...prev, createCustomField(newItemLabel.trim(), newItemRequired)]);
-                              setNewItemLabel('');
-                              setNewItemRequired(false);
-                              setAddItemOpen(false);
-                            }
+                            if (e.key === 'Enter' && canAddCustomItem) addCustomItem();
                           }}
                         />
+                      </div>
+                    )}
+
+                    {addItemType === 'custom' && (
+                      <div className="space-y-2">
+                        <Label>{tc.bookingDetail.fieldAnswerTypeLabel}</Label>
+                        <Select value={newItemAnswerType} onValueChange={(v) => setNewItemAnswerType(v as CustomFieldType)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="text">{tc.bookingDetail.fieldAnswerTypeText}</SelectItem>
+                            <SelectItem value="textarea">{tc.bookingDetail.fieldAnswerTypeTextarea}</SelectItem>
+                            <SelectItem value="select">{tc.bookingDetail.fieldAnswerTypeSelect}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {addItemType === 'custom' && newItemAnswerType === 'select' && (
+                      <div className="space-y-2">
+                        <Label>{tc.bookingDetail.fieldOptionsLabel}</Label>
+                        <Textarea
+                          value={newItemOptions}
+                          onChange={(e) => setNewItemOptions(e.target.value)}
+                          placeholder={tc.bookingDetail.fieldOptionsPlaceholder}
+                          rows={4}
+                        />
+                        {newItemOptionList.length === 0 && (
+                          <p className="text-xs text-muted-foreground">{tc.bookingDetail.fieldOptionsHint}</p>
+                        )}
                       </div>
                     )}
 
@@ -778,18 +890,12 @@ export default function BookingPageDetailPage() {
                   </div>
 
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => { setAddItemOpen(false); setNewItemLabel(''); setNewItemRequired(false); }}>{tc.bookingDetail.cancelButton}</Button>
+                    <Button variant="outline" onClick={() => { setAddItemOpen(false); resetAddItem(); }}>{tc.bookingDetail.cancelButton}</Button>
                     <Button
-                      disabled={addItemType === 'custom' && !newItemLabel.trim()}
+                      disabled={addItemType === 'custom' && !canAddCustomItem}
                       onClick={() => {
-                        if (addItemType === 'custom') {
-                          setCustomFields((prev) => [...prev, createCustomField(newItemLabel.trim(), newItemRequired)]);
-                        } else {
-                          setCustomFields((prev) => [...prev, createCustomField('Phone number', true)]);
-                        }
-                        setNewItemLabel('');
-                        setNewItemRequired(false);
-                        setAddItemOpen(false);
+                        if (addItemType === 'custom') addCustomItem();
+                        else addPhoneItem();
                       }}
                     >
                       {tc.bookingDetail.addButton}
@@ -798,33 +904,6 @@ export default function BookingPageDetailPage() {
                 </DialogContent>
               </Dialog>
             </div>
-
-            {/* Guest permissions */}
-            <div className="px-5 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{tc.bookingDetail.guestPermissionsTitle}</p>
-                  <p className="text-xs text-muted-foreground">{tc.bookingDetail.guestPermissionsHint}</p>
-                </div>
-                <Switch checked={allowGuests} onCheckedChange={setAllowGuests} className="[&_[data-slot=switch-thumb]]:translate-y-[0.5px]" />
-              </div>
-            </div>
-
-            {/* Booking confirmations and reminders */}
-            <div className="px-5 py-4 space-y-3">
-              <div>
-                <p className="text-sm font-medium">{tc.bookingDetail.confirmationsTitle}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{tc.bookingDetail.calendarInviteTitle}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{tc.bookingDetail.calendarInviteHint}</p>
-                </div>
-                <Switch checked={calendarInvite} onCheckedChange={setCalendarInvite} className="shrink-0 ml-4 [&_[data-slot=switch-thumb]]:translate-y-[0.5px]" />
-              </div>
-            </div>
-
-
           </div>
         </div>
 

@@ -2,6 +2,8 @@
 import { usePathname } from '@/lib/router';
 import { BreadcrumbHeader, type BreadcrumbSegment } from '@/components/breadcrumb-header';
 import { getTranslations } from '@/lib/i18n';
+import { useBookingPage } from '@/hooks/queries/use-calendar-queries';
+import { buildCalendarBreadcrumbs, schedulingPageIdFromPath } from '../lib/calendar-breadcrumbs';
 
 interface CalendarHeaderProps {
   onWeldAgentToggle?: (isOpen: boolean) => void;
@@ -13,19 +15,20 @@ export function CalendarHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
   const t = getTranslations('weldcalendar');
   const pathname = usePathname();
 
-  const segments: BreadcrumbSegment[] = [
-    { label: t.calendarSidebar.breadcrumb, href: '/weldcalendar' }
-  ];
+  // Booking page routes show the page's name, not its id (cached by the page itself).
+  const { data: bookingPageData } = useBookingPage(schedulingPageIdFromPath(pathname) ?? '');
 
-  const pathParts = pathname.split('/').filter(Boolean);
-  if (pathParts.length > 1) {
-    for (let i = 1; i < pathParts.length; i++) {
-      const part = pathParts[i];
-      const label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
-      const href = '/' + pathParts.slice(0, i + 1).join('/');
-      segments.push({ label, href });
-    }
-  }
+  const segments: BreadcrumbSegment[] = buildCalendarBreadcrumbs(pathname, {
+    bookingPageName: bookingPageData?.data?.name,
+    labels: {
+      root: t.calendarSidebar.breadcrumb,
+      scheduling: t.scheduling.title,
+      newBookingPage: t.misc.newBookingPage,
+      bookingPage: t.misc.defaultBookingPage,
+      details: t.bookingEditor.tabDetails,
+      edit: t.bookingView.edit,
+    },
+  });
 
   return (
     <BreadcrumbHeader

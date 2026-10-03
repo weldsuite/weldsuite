@@ -1,14 +1,13 @@
 'use server';
 
 import { eq, and, isNull, gte, lte, desc, ne } from 'drizzle-orm';
-import { fromZonedTime, toZonedTime } from 'date-fns-tz';
+import { fromZonedTime } from 'date-fns-tz';
 import { buildIcsInvite } from '@weldsuite/transactional-email';
 import {
   calendarBookingPages,
   calendarBookings,
   calendarEvents,
   calendars,
-  workspaceMembers,
 } from '@weldsuite/db/schema';
 
 import { getTenantDbBySlug } from '@/lib/db';
@@ -19,7 +18,17 @@ import {
   sendBookingRescheduledEmail,
   sendGuestInviteEmail,
 } from '@/lib/booking-emails';
-import { BOOKING_FROM_ADDRESS, DAY_NAMES, type DayName } from '@/lib/constants';
+import { BOOKING_FROM_ADDRESS } from '@/lib/constants';
+import { sanitizeAvailability, weekdayOfDate } from '@/lib/availability';
+import {
+  buildManageUrls,
+  createManageToken,
+  formatAnswerLines,
+  getHostInfo,
+  isValidManageToken,
+  parseQuestions,
+  resolveAnswers,
+} from '@/lib/booking-server';
 import {
   cancelBookingInputSchema,
   createBookingInputSchema,
@@ -47,6 +56,8 @@ export type BookingResult =
   | {
       success: true;
       bookingId: string;
+      /** Signed token that authorises cancelling / rescheduling this booking. */
+      manageToken: string;
       emailDelivery: 'sent' | 'failed' | 'partial';
     }
   | { success: false; error: string };
@@ -92,12 +103,13 @@ export async function getAvailableSlots(
     );
     return [];
   }
-  const availability = availabilityParse.data;
+  const availability = sanitizeAvailability(availabilityParse.data);
 
-  // Resolve the weekday **in the owner's timezone**, not server-local.
-  const midnightUtc = new Date(`${date}T00:00:00Z`);
-  const dayInTz = toZonedTime(midnightUtc, tz);
-  const dayName = DAY_NAMES[dayInTz.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6] satisfies DayName;
+  // `date` is already a calendar date in the owner's timezone: read its weekday
+  // directly (shifting UTC midnight into a negative-offset zone would land on
+  // the previous day).
+  const dayName = weekdayOfDate(date);
+  if (!dayName) return [];
   const daySlots = availability[dayName] ?? [];
 
   if (daySlots.length === 0) return [];
@@ -199,6 +211,14 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
     const tz = bookingPage.timezone || 'UTC';
     const guests = data.guests ?? [];
 
+    // Custom form fields: only the page's own questions, required ones enforced.
+    const questions = parseQuestions(bookingPage.questions);
+    const answerResult = resolveAnswers(questions, data.answers);
+    if (!answerResult.ok) {
+      return { success: false, error: 'Please answer all required questions and try again.' };
+    }
+    const answers = answerResult.answers;
+
     // Find owner's default calendar — outside the tx so a missing calendar
     // doesn't poison the connection.
     const [ownerCalendar] = await db
@@ -215,7 +235,14 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
     const now = new Date();
     const bookingId = generateId('bkg');
     const eventId = generateId('evt');
+    // Signed before anything is written so a missing secret cannot leave a
+    // booking the guest can never manage.
+    const manageToken = await createManageToken(bookingId);
     const startDate = new Date(data.startTime);
+    const descriptionLines = [
+      data.notes || `Booked via ${bookingPage.name}`,
+      ...formatAnswerLines(questions, answers),
+    ];
     const endDate = new Date(data.endTime);
 
     const attendees = [
@@ -242,7 +269,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
         id: eventId,
         calendarId: ownerCalendar.id,
         title: `Meeting with ${data.bookerName}`,
-        description: data.notes || `Booked via ${bookingPage.name}`,
+        description: descriptionLines.join('\n'),
         type: 'meeting',
         startTime: startDate,
         endTime: endDate,
@@ -267,7 +294,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
         startTime: startDate,
         endTime: endDate,
         status: 'confirmed',
-        answers: data.answers,
+        answers,
         notes: data.notes,
         guests: guests.length > 0 ? guests : null,
         timezone: tz,
@@ -282,22 +309,27 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
       return { success: false, error: SLOT_TAKEN_ERROR };
     }
 
-    // Look up organizer email/name so the ICS has a real RSVP target
-    const [organizer] = await db
-      .select({ email: workspaceMembers.email, name: workspaceMembers.name })
-      .from(workspaceMembers)
-      .where(eq(workspaceMembers.userId, bookingPage.ownerId))
-      .limit(1);
+    // The host is the member who owns the page. Their email is the ICS RSVP
+    // target and the reply-to of every mail; their name is what guests see.
+    const host = await getHostInfo(db, bookingPage.ownerId, tenant.workspace.name);
+    const manageUrls = await buildManageUrls({
+      workspaceSlug: data.workspaceSlug,
+      pageSlug: bookingPage.slug,
+      bookingId,
+      token: manageToken,
+    });
 
-    const organizerEmail = organizer?.email ?? BOOKING_FROM_ADDRESS;
-    const organizerName = organizer?.name ?? tenant.workspace.name;
+    const organizerEmail = host.email ?? BOOKING_FROM_ADDRESS;
+    const organizerName = host.name;
 
     const ics = buildIcsInvite({
       uid: `${eventId}@weldsuite`,
       method: 'REQUEST',
       summary: `${bookingPage.name} with ${data.bookerName}`,
-      description:
+      description: [
         data.notes || bookingPage.confirmationMessage || `Booked via ${bookingPage.name}`,
+        ...formatAnswerLines(questions, answers),
+      ].join('\n'),
       location: bookingPage.locationValue,
       startTime: data.startTime,
       endTime: data.endTime,
@@ -325,6 +357,10 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
         confirmationMessage: bookingPage.confirmationMessage,
         timezone: tz,
         ics,
+        hostName: host.name,
+        hostEmail: host.email,
+        rescheduleUrl: manageUrls?.rescheduleUrl,
+        cancelUrl: manageUrls?.cancelUrl,
       }),
       ...guests.map((guest) =>
         sendGuestInviteEmail({
@@ -338,6 +374,8 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
           workspaceName: tenant.workspace.name,
           timezone: tz,
           ics,
+          hostName: host.name,
+          hostEmail: host.email,
         }),
       ),
     ];
@@ -350,7 +388,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
 
     const emailDelivery = summarizeEmailDelivery(failures.length, results.length);
 
-    return { success: true, bookingId, emailDelivery };
+    return { success: true, bookingId, manageToken, emailDelivery };
   } catch (err) {
     console.error('[booking-portal] Failed to create booking:', err);
     return { success: false, error: 'Something went wrong. Please try again.' };
@@ -367,6 +405,10 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
     return { success: false, error: 'Unable to cancel this booking.' };
   }
   const data = parsed.data;
+
+  if (!(await isValidManageToken(data.bookingId, data.token))) {
+    return { success: false, error: 'This link is no longer valid.' };
+  }
 
   try {
     const tenant = await getTenantDbBySlug(data.workspaceSlug);
@@ -414,11 +456,7 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
     const pageName = bookingPage?.name ?? 'your meeting';
     const guests = booking.guests ?? [];
 
-    const [organizer] = await db
-      .select({ email: workspaceMembers.email, name: workspaceMembers.name })
-      .from(workspaceMembers)
-      .where(eq(workspaceMembers.userId, bookingPage?.ownerId ?? ''))
-      .limit(1);
+    const host = await getHostInfo(db, bookingPage?.ownerId ?? '', tenant.workspace.name);
 
     const ics = buildIcsInvite({
       uid: `${booking.calendarEventId ?? booking.id}@weldsuite`,
@@ -430,10 +468,7 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
       location: bookingPage?.locationValue ?? null,
       startTime: startIso,
       endTime: endIso,
-      organizer: {
-        email: organizer?.email ?? BOOKING_FROM_ADDRESS,
-        name: organizer?.name ?? tenant.workspace.name,
-      },
+      organizer: { email: host.email ?? BOOKING_FROM_ADDRESS, name: host.name },
       attendees: [
         { email: booking.bookerEmail, name: booking.bookerName, role: 'REQ-PARTICIPANT' },
         ...guests.map((g) => ({ email: g.email, name: g.name, role: 'OPT-PARTICIPANT' as const })),
@@ -453,6 +488,8 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
         confirmationMessage: null,
         timezone: tz,
         ics,
+        hostName: host.name,
+        hostEmail: host.email,
       }),
       ...guests.map((guest) =>
         sendBookingCancellationEmail({
@@ -467,6 +504,8 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
           confirmationMessage: null,
           timezone: tz,
           ics,
+          hostName: host.name,
+          hostEmail: host.email,
         }),
       ),
     ];
@@ -495,6 +534,10 @@ export async function rescheduleBooking(
     return { success: false, error: 'Please pick a valid time and try again.' };
   }
   const data = parsed.data;
+
+  if (!(await isValidManageToken(data.bookingId, data.token))) {
+    return { success: false, error: 'This link is no longer valid.' };
+  }
 
   try {
     const tenant = await getTenantDbBySlug(data.workspaceSlug);
@@ -566,11 +609,14 @@ export async function rescheduleBooking(
       return { success: false, error: SLOT_TAKEN_ERROR };
     }
 
-    const [organizer] = await db
-      .select({ email: workspaceMembers.email, name: workspaceMembers.name })
-      .from(workspaceMembers)
-      .where(eq(workspaceMembers.userId, bookingPage.ownerId))
-      .limit(1);
+    const host = await getHostInfo(db, bookingPage.ownerId, tenant.workspace.name);
+    const manageToken = data.token;
+    const manageUrls = await buildManageUrls({
+      workspaceSlug: data.workspaceSlug,
+      pageSlug: bookingPage.slug,
+      bookingId: booking.id,
+      token: manageToken,
+    });
 
     const ics = buildIcsInvite({
       uid: `${booking.calendarEventId ?? booking.id}@weldsuite`,
@@ -581,10 +627,7 @@ export async function rescheduleBooking(
       location: bookingPage.locationValue,
       startTime: data.startTime,
       endTime: data.endTime,
-      organizer: {
-        email: organizer?.email ?? BOOKING_FROM_ADDRESS,
-        name: organizer?.name ?? tenant.workspace.name,
-      },
+      organizer: { email: host.email ?? BOOKING_FROM_ADDRESS, name: host.name },
       attendees: [
         { email: booking.bookerEmail, name: booking.bookerName, role: 'REQ-PARTICIPANT' },
         ...guests.map((g) => ({ email: g.email, name: g.name, role: 'OPT-PARTICIPANT' as const })),
@@ -604,6 +647,10 @@ export async function rescheduleBooking(
         confirmationMessage: bookingPage.confirmationMessage,
         timezone: tz,
         ics,
+        hostName: host.name,
+        hostEmail: host.email,
+        rescheduleUrl: manageUrls?.rescheduleUrl,
+        cancelUrl: manageUrls?.cancelUrl,
       }),
       ...guests.map((guest) =>
         sendGuestInviteEmail({
@@ -617,6 +664,8 @@ export async function rescheduleBooking(
           workspaceName: tenant.workspace.name,
           timezone: tz,
           ics,
+          hostName: host.name,
+          hostEmail: host.email,
         }),
       ),
     ];
@@ -633,7 +682,7 @@ export async function rescheduleBooking(
 
     const emailDelivery = summarizeEmailDelivery(failures.length, results.length);
 
-    return { success: true, bookingId: booking.id, emailDelivery };
+    return { success: true, bookingId: booking.id, manageToken, emailDelivery };
   } catch (err) {
     console.error('[booking-portal] Failed to reschedule booking:', err);
     return { success: false, error: 'Something went wrong. Please try again.' };

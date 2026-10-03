@@ -6,6 +6,7 @@ import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useAuth } from '@clerk/clerk-react';
 import { getTranslations } from '@/lib/i18n';
 import { peekStartHandoff } from '@/lib/weldmeet/start-handoff';
+import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
 // Lazy + dynamic-only: app-shell also dynamically imports meeting-overlay
 // (for MeetingOverlay). Importing InlineMeetingView statically here made the
 // module a mixed static+dynamic import, which the CI build folds into a route
@@ -22,10 +23,18 @@ export default function MeetingRoomPage() {
   const { status, joinMeeting, cancelPreview, meetingId: callMeetingId } = useWeldMeetCall();
   const { data: meeting } = useMeeting(meetingId);
   const { userId } = useAuth();
+  // The page we came from (e.g. "New Meeting") must not stay in the header.
+  useOptionalBreadcrumbs(meeting ? [{ label: meeting.title }] : []);
   // The meeting this page already started joining. The router reuses this
   // component when only `$meetingId` changes, so a boolean would block the
   // auto-join of the second room.
   const joinedMeetingId = useRef<string | null>(null);
+  // The meeting whose call actually left 'idle' (preview, connecting, …).
+  // `joinMeeting` only moves the status on a later render, so "idle after we
+  // asked to join" is not the end of the call: when the meeting is already
+  // cached (Start/Join on the detail page) the auto-join and the navigate-away
+  // effects run in the same commit, and the page bounced straight back.
+  const activeMeetingId = useRef<string | null>(null);
 
   // A pre-join preview left over from another meeting would keep the camera
   // on and block the auto-join below (it needs status 'idle'): drop it.
@@ -53,9 +62,16 @@ export default function MeetingRoomPage() {
     }
   }, [status, meeting, meetingId, joinMeeting, userId]);
 
-  // Navigate away when meeting ends
   useEffect(() => {
-    if (status === 'idle' && joinedMeetingId.current === meetingId) {
+    if (status !== 'idle' && callMeetingId === meetingId) {
+      activeMeetingId.current = meetingId;
+    }
+  }, [status, callMeetingId, meetingId]);
+
+  // Navigate away when the call ends (left, ended, cancelled or failed)
+  useEffect(() => {
+    if (status === 'idle' && activeMeetingId.current === meetingId) {
+      activeMeetingId.current = null;
       navigate({ to: '/weldmeet/$meetingId', params: { meetingId } });
     }
   }, [status, navigate, meetingId]);

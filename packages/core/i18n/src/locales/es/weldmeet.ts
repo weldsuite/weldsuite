@@ -29,6 +29,7 @@ export const weldmeet = {
     inviteEmail: 'Invitar a {email}',
     invite: 'Invitar',
     invited: 'Invitado',
+    organizer: 'Organizador',
     unknown: 'Desconocido',
     noResults: 'No se encontraron personas. Escribe un correo completo para invitar a alguien de fuera de tu espacio de trabajo.',
     invitationSent: 'Invitación enviada a {email}',
@@ -68,6 +69,8 @@ export const weldmeet = {
       startingHint: 'La grabación se está iniciando',
       startingTool: 'Iniciando grabación…',
       pleaseWait: 'Espera un momento…',
+      active: 'Grabando',
+      paused: 'Grabación en pausa',
     },
     preview: {
       defaultTitle: 'Unirse a la reunión',

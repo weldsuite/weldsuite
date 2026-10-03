@@ -16,8 +16,8 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import type { UserCalendar } from '@/hooks/queries/use-calendar-queries';
-import { useDeleteUserCalendar } from '@/hooks/queries/use-calendar-queries';
 import { CreateCalendarDialog } from './create-calendar-dialog';
+import { DeleteCalendarDialog } from './delete-calendar-dialog';
 import { ShareCalendarDialog } from './share-calendar-dialog';
 
 // Stored in localStorage to remember which calendars are visible
@@ -43,6 +43,22 @@ export function getActiveCalendarIds(calendars: UserCalendar[]): string[] {
   return calendars.filter((c) => visible.has(c.id)).map((c) => c.id);
 }
 
+// The row menu shows on hover, while anything in the row has keyboard focus,
+// while it is open, and always on touch screens (no hover), so it is never
+// reachable by mouse only (TASK-745 / TASK-758).
+const ROW_MENU_CLASS = [
+  'absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5',
+  'opacity-0 pointer-events-none',
+  'group-hover/cal:opacity-100 group-hover/cal:pointer-events-auto',
+  'group-focus-within/cal:opacity-100 group-focus-within/cal:pointer-events-auto',
+  'has-[[data-state=open]]:opacity-100 has-[[data-state=open]]:pointer-events-auto',
+  '[@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto',
+].join(' ');
+
+/** Room for the menu button next to the name, whenever the menu is visible. */
+const ROW_MENU_PADDING_CLASS =
+  'group-hover/cal:pr-8 group-focus-within/cal:pr-8 [@media(hover:none)]:pr-8';
+
 interface CalendarSidebarSectionProps {
   calendars: UserCalendar[];
 }
@@ -55,9 +71,9 @@ export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSe
     return stored.size === 0 ? new Set(calendars.map((c) => c.id)) : stored;
   });
   const [createOpen, setCreateOpen] = useState(false);
-  const [shareCalendarId, setShareCalendarId] = useState<string | null>(null);
+  const [shareCalendar, setShareCalendar] = useState<UserCalendar | null>(null);
   const [editCalendar, setEditCalendar] = useState<UserCalendar | null>(null);
-  const deleteCalendar = useDeleteUserCalendar();
+  const [deleteCalendar, setDeleteCalendar] = useState<UserCalendar | null>(null);
 
   // Calendars known on first render. Anything that shows up later (e.g. one the
   // user just created) is "new" — as opposed to a calendar the user has
@@ -105,79 +121,89 @@ export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSe
   return (
     <>
       <SidebarMenu>
-        {calendars.map((cal) => (
-          <SidebarMenuItem key={cal.id} className="group/cal relative">
-            {/* asChild renders the SidebarMenuButton styles onto a <div> so a
-                Radix Checkbox (which is a <button>) is not nested inside another
-                <button>, avoiding the React hydration warning. */}
-            <SidebarMenuButton
-              asChild
-              className="cursor-pointer group-hover/cal:bg-sidebar-accent group-hover/cal:text-sidebar-accent-foreground"
-            >
-              <div
-                role="checkbox"
-                aria-checked={visibleIds.has(cal.id)}
-                aria-label={cal.name}
-                tabIndex={0}
-                onClick={() => toggleCalendar(cal.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    toggleCalendar(cal.id);
-                  }
-                }}
+        {calendars.map((cal) => {
+          const canManage = cal.isOwn || cal.permission === 'manage';
+          const canDelete = cal.isOwn && !cal.isDefault;
+          const hasMenu = canManage || canDelete;
+          return (
+            <SidebarMenuItem key={cal.id} className="group/cal relative">
+              {/* asChild renders the SidebarMenuButton styles onto a <div> so a
+                  Radix Checkbox (which is a <button>) is not nested inside another
+                  <button>, avoiding the React hydration warning. */}
+              <SidebarMenuButton
+                asChild
+                className="cursor-pointer group-hover/cal:bg-sidebar-accent group-hover/cal:text-sidebar-accent-foreground"
               >
-                <div className="flex items-center gap-2 flex-1 min-w-0 pr-0 group-hover/cal:pr-8">
-                  <Checkbox
-                    aria-hidden="true"
-                    tabIndex={-1}
-                    checked={visibleIds.has(cal.id)}
-                    className={`h-4 w-4 pointer-events-none ${visibleIds.has(cal.id) ? '' : 'border-[1.5px]'}`}
-                    style={{ borderColor: cal.color || '#3b82f6', backgroundColor: visibleIds.has(cal.id) ? (cal.color || '#3b82f6') : undefined }}
-                  />
-                  <span className="truncate text-sm">{cal.name}</span>
-                </div>
-              </div>
-            </SidebarMenuButton>
-            <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/cal:opacity-100 pointer-events-none group-hover/cal:pointer-events-auto">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 hover:bg-black/[0.05] dark:hover:bg-black/20 rounded-md"
-                    onClick={(e) => e.stopPropagation()}
+                <div
+                  role="checkbox"
+                  aria-checked={visibleIds.has(cal.id)}
+                  aria-label={cal.name}
+                  tabIndex={0}
+                  onClick={() => toggleCalendar(cal.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleCalendar(cal.id);
+                    }
+                  }}
+                >
+                  <div
+                    className={`flex items-center gap-2 flex-1 min-w-0 pr-0 ${hasMenu ? ROW_MENU_PADDING_CLASS : ''}`}
                   >
-                    <MoreVertical className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  {(cal.isOwn || cal.permission === 'manage') && (
-                    <DropdownMenuItem onClick={() => setEditCalendar(cal)}>
-                      <Pencil className="h-4 w-4 mr-0.5" />
-                      {t.createCalendar.edit}
-                    </DropdownMenuItem>
-                  )}
-                  {(cal.isOwn || cal.permission === 'manage') && (
-                    <DropdownMenuItem onClick={() => setShareCalendarId(cal.id)}>
-                      <Share2 className="h-4 w-4 mr-0.5" />
-                      {t.shareCalendar.title}
-                    </DropdownMenuItem>
-                  )}
-                  {cal.isOwn && !cal.isDefault && (
-                    <DropdownMenuItem
-                      onClick={() => deleteCalendar.mutate(cal.id)}
-                      variant="destructive"
-                    >
-                      <Trash2 className="h-4 w-4 mr-0.5" />
-                      {t.bookingPagesSidebar.delete}
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </SidebarMenuItem>
-        ))}
+                    <Checkbox
+                      aria-hidden="true"
+                      tabIndex={-1}
+                      checked={visibleIds.has(cal.id)}
+                      className={`h-4 w-4 pointer-events-none ${visibleIds.has(cal.id) ? '' : 'border-[1.5px]'}`}
+                      style={{ borderColor: cal.color || '#3b82f6', backgroundColor: visibleIds.has(cal.id) ? (cal.color || '#3b82f6') : undefined }}
+                    />
+                    <span className="truncate text-sm">{cal.name}</span>
+                  </div>
+                </div>
+              </SidebarMenuButton>
+              {hasMenu && (
+                <div className={ROW_MENU_CLASS}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t.deleteCalendar.menuLabel.replace('{name}', cal.name)}
+                        className="h-6 w-6 hover:bg-black/[0.05] dark:hover:bg-black/20 rounded-md focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreVertical className="h-3.5 w-3.5" aria-hidden="true" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-40">
+                      {canManage && (
+                        <DropdownMenuItem onClick={() => setEditCalendar(cal)}>
+                          <Pencil className="h-4 w-4 mr-0.5" />
+                          {t.createCalendar.edit}
+                        </DropdownMenuItem>
+                      )}
+                      {canManage && (
+                        <DropdownMenuItem onClick={() => setShareCalendar(cal)}>
+                          <Share2 className="h-4 w-4 mr-0.5" />
+                          {t.shareCalendar.title}
+                        </DropdownMenuItem>
+                      )}
+                      {canDelete && (
+                        <DropdownMenuItem
+                          onClick={() => setDeleteCalendar(cal)}
+                          variant="destructive"
+                        >
+                          <Trash2 className="h-4 w-4 mr-0.5" />
+                          {t.deleteCalendar.menuDelete}
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
+            </SidebarMenuItem>
+          );
+        })}
       </SidebarMenu>
 
       <CreateCalendarDialog open={createOpen} onOpenChange={setCreateOpen} />
@@ -186,13 +212,18 @@ export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSe
         onOpenChange={(open) => { if (!open) setEditCalendar(null); }}
         editCalendar={editCalendar}
       />
-      {shareCalendarId && (
+      {shareCalendar && (
         <ShareCalendarDialog
-          calendarId={shareCalendarId}
-          open={!!shareCalendarId}
-          onOpenChange={(open) => { if (!open) setShareCalendarId(null); }}
+          calendarId={shareCalendar.id}
+          ownerId={shareCalendar.ownerId}
+          open={!!shareCalendar}
+          onOpenChange={(open) => { if (!open) setShareCalendar(null); }}
         />
       )}
+      <DeleteCalendarDialog
+        calendar={deleteCalendar}
+        onOpenChange={(open) => { if (!open) setDeleteCalendar(null); }}
+      />
     </>
   );
 }

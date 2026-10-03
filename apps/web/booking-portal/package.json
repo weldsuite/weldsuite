@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "node --test \"lib/*.test.ts\""
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",

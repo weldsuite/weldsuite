@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useAuth } from '@clerk/clerk-react';
 import { useCreateMeeting, useJoinByCode, useMeeting, useUpcomingMeetings, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
@@ -30,6 +30,7 @@ import { MeetingInvitePicker } from '../components/meeting-invite-picker';
 
 import { QuickCreateCard } from '@/app/weldcalendar/components/calendar-view';
 import { useUserCalendars } from '@/hooks/queries/use-calendar-queries';
+import { placeCardNearAnchor } from '@/app/weldcalendar/lib/popover-position';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
@@ -405,10 +406,7 @@ export default function NewMeetingPage() {
             role="presentation"
             onClick={closeSchedule}
           />
-          <div
-            className="absolute z-[70] w-[min(360px,calc(100vw-1rem))] bg-popover border rounded-lg shadow-lg animate-in fade-in-0 zoom-in-95"
-            style={schedulePopoverStyle(newMeetingRef.current)}
-          >
+          <SchedulePopover anchorRef={newMeetingRef}>
             <QuickCreateCard
               defaultType="event"
               defaultTitle={scheduleSeed?.title}
@@ -421,7 +419,7 @@ export default function NewMeetingPage() {
               onMoreOptions={closeSchedule}
               showTypeTabs={false}
             />
-          </div>
+          </SchedulePopover>
         </>
       )}
     </div>
@@ -429,20 +427,66 @@ export default function NewMeetingPage() {
 }
 
 const SCHEDULE_POPOVER_WIDTH = 360;
+/** Viewport width under which the card sits below the button instead of beside it. */
+const SCHEDULE_NARROW_VIEWPORT = 640;
 
 /**
- * Placement of the schedule card: left of the "New meeting" button on wide
- * screens (never off the left edge), centered under it on small ones.
+ * The "Schedule in calendar" card, fixed to the viewport next to the "New
+ * meeting" button: left of it on wide screens, below (or above) it otherwise.
+ * It is clamped so the whole card, Save button included, stays on screen at any
+ * window height and never covers the button, and it follows the card's height
+ * as rows expand.
  */
-function schedulePopoverStyle(anchor: HTMLElement | null): React.CSSProperties {
-  const top = anchor ? anchor.getBoundingClientRect().top : '50%';
-  if (typeof window !== 'undefined' && window.innerWidth < 640) {
-    return { top, left: '50%', transform: 'translateX(-50%)' };
-  }
-  const left = anchor
-    ? Math.max(8, anchor.getBoundingClientRect().left - SCHEDULE_POPOVER_WIDTH - 8)
-    : '50%';
-  return { top, left };
+function SchedulePopover({
+  anchorRef,
+  children,
+}: Readonly<{ anchorRef: React.RefObject<HTMLElement | null>; children: React.ReactNode }>) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const place = () => {
+      const anchor = anchorRef.current;
+      const viewport = { width: window.innerWidth, height: window.innerHeight };
+      const narrow = viewport.width < SCHEDULE_NARROW_VIEWPORT;
+      const size = { width: Math.min(SCHEDULE_POPOVER_WIDTH, viewport.width - 16), height: card.offsetHeight };
+      if (!anchor) {
+        setPos({
+          x: Math.max(8, (viewport.width - size.width) / 2),
+          y: Math.max(8, (viewport.height - size.height) / 2),
+        });
+        return;
+      }
+      setPos(
+        placeCardNearAnchor({
+          anchor: anchor.getBoundingClientRect(),
+          card: size,
+          viewport,
+          order: narrow ? ['below', 'above'] : ['left', 'below', 'above'],
+        }),
+      );
+    };
+    place();
+    window.addEventListener('resize', place);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(card);
+    return () => {
+      window.removeEventListener('resize', place);
+      observer?.disconnect();
+    };
+  }, [anchorRef]);
+
+  return (
+    <div
+      ref={cardRef}
+      className="fixed z-[70] w-[min(360px,calc(100vw-1rem))] bg-popover border rounded-lg shadow-lg animate-in fade-in-0 zoom-in-95"
+      style={pos ? { top: pos.y, left: pos.x } : { top: 0, left: 0, visibility: 'hidden' }}
+    >
+      {children}
+    </div>
+  );
 }
 
 function MeetingReadyAddPeople({ meetingId }: Readonly<{ meetingId: string }>) {

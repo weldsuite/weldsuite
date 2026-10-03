@@ -1,12 +1,22 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@weldsuite/ui/components/dialog';
 
 const mutateAsync = vi.fn();
 let members: Array<{ userId: string; name: string; email: string }> = [];
 let people: Array<{ id: string; displayName: string; email: string }> = [];
 
 vi.mock('@/hooks/queries/use-weldmeet-queries', () => ({
-  useMeeting: () => ({ data: { attendees: [{ email: 'already@acme.com' }] } }),
+  useMeeting: () => ({
+    data: {
+      organizerId: 'user_host',
+      attendees: [
+        { email: 'host@acme.com', role: 'organizer', userId: 'user_host' },
+        { email: 'already@acme.com', role: 'attendee' },
+      ],
+    },
+  }),
   useInviteToMeeting: () => ({ mutateAsync }),
 }));
 vi.mock('@/hooks/queries/use-settings-queries', () => ({
@@ -68,6 +78,40 @@ describe('MeetingInvitePicker', () => {
     expect(screen.getByText('CRM people')).toBeInTheDocument();
     expect(screen.getByText('Crm Person')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Invited/ })).toBeDisabled();
+  });
+
+  it('labels the organizer instead of offering or showing them as invited', () => {
+    members = [
+      { userId: 'user_host', name: 'Host Person', email: 'host@acme.com' },
+      { userId: 'user_2', name: 'Colleague', email: 'colleague@acme.com' },
+    ];
+    render(<MeetingInvitePicker meetingId="mtg_1" />);
+
+    expect(screen.getByText('Organizer')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Invited/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Invite' })).toHaveLength(1);
+  });
+
+  it('lets Escape close the surrounding dialog', async () => {
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent>
+            <DialogTitle>Add people</DialogTitle>
+            <DialogDescription>Invite people</DialogDescription>
+            <MeetingInvitePicker meetingId="mtg_1" />
+          </DialogContent>
+        </Dialog>
+      );
+    }
+    render(<Harness />);
+    const input = screen.getByPlaceholderText(PLACEHOLDER);
+    fireEvent.change(input, { target: { value: 'someone' } });
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('explains how to invite outsiders when nothing matches', () => {

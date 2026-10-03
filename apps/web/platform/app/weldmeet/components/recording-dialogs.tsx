@@ -129,7 +129,9 @@ export function RecordingAiEstimateDialog({
           )}
           {estimate === null && rate !== undefined && (
             <p className="font-medium">
-              {fillTemplate(t.recording.estimate.costUnknown, { rate: formatCredits(rate) })}
+              {fillTemplate(rate === 1 ? t.recording.estimate.costUnknownOne : t.recording.estimate.costUnknown, {
+                rate: formatCredits(rate),
+              })}
             </p>
           )}
           {pricing.data && (

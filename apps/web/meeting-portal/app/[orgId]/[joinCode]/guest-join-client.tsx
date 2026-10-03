@@ -20,7 +20,13 @@ import {
   installGetUserMediaPatch,
   type NoiseSuppressor,
 } from '@weldsuite/df3-noise-suppression';
-import { useVirtualBackground, type ViewMode } from '@weldsuite/weldmeet-ui';
+import {
+  enableMicrophone,
+  isMicrophonePermissionDenied,
+  useMicrophoneRecovery,
+  useVirtualBackground,
+  type ViewMode,
+} from '@weldsuite/weldmeet-ui';
 import { writeGuestIdentity } from '@/lib/guest-identity';
 import { randomToken } from '@/lib/random-id';
 
@@ -158,6 +164,9 @@ export default function GuestJoinClient() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [duration, setDuration] = useState(0);
+  // Whether the guest wants their mic on. Survives a browser-level block so
+  // the mic comes back by itself once access is allowed again (TASK-713).
+  const micWantedRef = useRef(true);
 
   // Camera preview
   const [previewAudioEnabled, setPreviewAudioEnabled] = useState(true);
@@ -296,6 +305,41 @@ export default function GuestJoinClient() {
     };
   }, [rtkClient]);
 
+  // ── Keep the in-call mic state in step with RTK ──
+  // A mic turned off while access is allowed (host mute, the participant
+  // menu) is a real mute; one lost to a browser block is not, so it comes
+  // back once access is allowed again.
+  useEffect(() => {
+    const self = rtkClient?.self;
+    if (!self) return;
+    const onAudioUpdate = () => {
+      setIsMuted(!self.audioEnabled);
+      if (self.audioEnabled) {
+        micWantedRef.current = true;
+        return;
+      }
+      void isMicrophonePermissionDenied().then((denied) => {
+        if (!denied && !self.audioEnabled) micWantedRef.current = false;
+      });
+    };
+    self.on('audioUpdate', onAudioUpdate);
+    return () => {
+      self.off('audioUpdate', onAudioUpdate);
+    };
+  }, [rtkClient]);
+
+  useMicrophoneRecovery(rtkClient?.self, {
+    isMicWanted: () => micWantedRef.current,
+    onLost: () => {
+      setIsMuted(true);
+      setPreviewAudioEnabled(false);
+    },
+    onRestored: ({ enabled }) => {
+      setIsMuted(!enabled);
+      setPreviewAudioEnabled(enabled);
+    },
+  });
+
   // ── Leave on tab close ──
 
   useEffect(() => {
@@ -433,11 +477,13 @@ export default function GuestJoinClient() {
       // Once RTK owns the mic, toggle via the SDK and set the explicit state
       // (no `v => !v` flip — the SDK is the source of truth, not React state).
       if (rtkClient.self.audioEnabled) {
+        micWantedRef.current = false;
         void rtkClient.self.disableAudio();
         setPreviewAudioEnabled(false);
       } else {
-        void rtkClient.self.enableAudio();
+        micWantedRef.current = true;
         setPreviewAudioEnabled(true);
+        void enableMicrophone(rtkClient.self).then(({ enabled }) => setPreviewAudioEnabled(enabled));
       }
       return;
     }
@@ -698,6 +744,7 @@ export default function GuestJoinClient() {
       // handler already moved the UI on; don't resurrect the client.
       if (!isCurrent()) return;
       setRtkClient(m);
+      micWantedRef.current = wantAudio;
       setIsMuted(!wantAudio);
       setIsVideoOff(!wantVideo);
 
@@ -874,15 +921,20 @@ export default function GuestJoinClient() {
 
   // ── Media controls (connected room) ──
 
-  const toggleMute = useCallback(() => {
+  const toggleMute = useCallback(async () => {
     if (!rtkClient) return;
     if (rtkClient.self.audioEnabled) {
+      micWantedRef.current = false;
       void rtkClient.self.disableAudio();
       setIsMuted(true);
-    } else {
-      void rtkClient.self.enableAudio();
-      setIsMuted(false);
+      return;
     }
+    micWantedRef.current = true;
+    // Re-acquires the mic when its track ended (access revoked and allowed
+    // again), where a plain enableAudio() would leave it off (TASK-713). Reads
+    // the real state, so a blocked mic doesn't show as on.
+    const { enabled } = await enableMicrophone(rtkClient.self);
+    setIsMuted(!enabled);
   }, [rtkClient]);
 
   const toggleVideo = useCallback(async () => {

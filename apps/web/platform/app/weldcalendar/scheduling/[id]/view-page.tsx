@@ -6,7 +6,9 @@ import {
   startOfWeek,
   addDays,
 } from 'date-fns';
-import { ChevronLeft, ChevronRight, CalendarClock, Search } from 'lucide-react';
+import { useOrganization } from '@clerk/clerk-react';
+import { toast } from 'sonner';
+import { ChevronLeft, ChevronRight, CalendarClock, Copy, Search } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { cn } from '@/lib/utils';
@@ -24,6 +26,8 @@ import {
   TimeGridInner,
 } from '@/app/weldcalendar/components/calendar-shared';
 import { getTranslations } from '@/lib/i18n';
+import { WEEK_STARTS_ON } from '@/app/weldcalendar/lib/calendar-format';
+import { buildBookingPageUrl } from '@/lib/weldcalendar/booking-portal-url';
 
 export default function BookingPageViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,6 +35,20 @@ export default function BookingPageViewPage() {
   const { data, isLoading } = useBookingPage(id);
   const bookingPage = data?.data;
   const t = getTranslations('weldcalendar');
+  const { organization } = useOrganization();
+  const orgSlug = organization?.slug || organization?.id || '';
+  // Public link guests book through (the booking portal, never the platform).
+  const publicUrl = bookingPage?.slug && orgSlug ? buildBookingPageUrl(orgSlug, bookingPage.slug) : null;
+
+  const copyPublicLink = async () => {
+    if (!publicUrl) return;
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      toast.success(t.toast.bookingLinkCopied);
+    } catch {
+      toast.error(t.bookingView.copyLinkFailed);
+    }
+  };
 
   // View options for the booking page calendar. Booking pages are inherently
   // week-based, so only Week is wired up — but we expose the same dropdown the
@@ -39,7 +57,7 @@ export default function BookingPageViewPage() {
     { label: t.calendarView.viewWeek, value: 'week' as const },
   ];
 
-  const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 0 }));
+  const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: WEEK_STARTS_ON }));
   const [currentView, setCurrentView] = useState<'week'>('week');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -122,7 +140,7 @@ export default function BookingPageViewPage() {
             onFiltersChange={setActiveFilters}
           />
           {!isTodayInWeek && (
-            <Button variant="outline" size="sm" className="shadow-none" onClick={() => setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: 0 }))}>
+            <Button variant="outline" size="sm" className="shadow-none" onClick={() => setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: WEEK_STARTS_ON }))}>
               {t.bookingView.today}
             </Button>
           )}
@@ -136,6 +154,29 @@ export default function BookingPageViewPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {publicUrl && (
+            <div className="flex items-center gap-1 h-8 rounded-md border border-input pl-2.5 pr-0.5 max-w-[320px]">
+              <a
+                href={publicUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={t.bookingView.openPublicLink}
+                className="truncate text-xs text-muted-foreground hover:text-foreground"
+              >
+                {publicUrl.replace(/^https?:\/\//, '')}
+              </a>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={copyPublicLink}
+                title={t.bookingView.copyLink}
+                aria-label={t.bookingView.copyLink}
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
           <div className="relative flex items-center">
             <div className={cn(
               'flex items-center transition-all duration-200 ease-out',

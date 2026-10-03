@@ -167,13 +167,8 @@ export function taskCursorCondition(
 // Enrichment helpers
 // ============================================================================
 
-/**
- * Enrich task rows with assignee info from workspaceMembers, the
- * currently-scheduled calendar slot (if any) and the linked CRM company.
- */
-export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
-  if (taskResults.length === 0) return taskResults;
-
+/** Workspace members referenced by the tasks' assignee fields, keyed by user id. */
+async function fetchAssigneeMap(db: any, taskResults: any[]): Promise<Map<string, any>> {
   const allIds = new Set<string>();
   for (const t of taskResults) {
     if (t.assigneeId) allIds.add(t.assigneeId);
@@ -196,15 +191,18 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
       .where(inArray(workspaceMembers.userId, [...allIds]));
     for (const m of members) memberMap.set(m.userId, m);
   }
+  return memberMap;
+}
 
-  const taskIds = taskResults
-    .map((t: any) => t.id)
-    .filter((id: any): id is string => typeof id === 'string');
-  const eventMap = await fetchTaskScheduledSlots(db, taskIds);
-
-  // CRM link: `tasks.customer_id` holds a company id. Resolve it to a display
-  // object in one batched query so list/detail views (CRM My Tasks, task panel)
-  // can show the linked record without a second round trip.
+/**
+ * CRM link: `tasks.customer_id` holds a company id. Resolve it to a display
+ * object in one batched query so list/detail views (CRM My Tasks, task panel)
+ * can show the linked record without a second round trip.
+ */
+async function fetchLinkedCompanyMap(
+  db: any,
+  taskResults: any[],
+): Promise<Map<string, { id: string; name: string; avatar: string | null }>> {
   const companyIds = new Set<string>();
   for (const row of taskResults) {
     if (typeof row.customerId === 'string' && row.customerId) companyIds.add(row.customerId);
@@ -228,6 +226,24 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
       });
     }
   }
+  return companyMap;
+}
+
+/**
+ * Enrich task rows with assignee info from workspaceMembers, the
+ * currently-scheduled calendar slot (if any) and the linked CRM company.
+ */
+export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
+  if (taskResults.length === 0) return taskResults;
+
+  const memberMap = await fetchAssigneeMap(db, taskResults);
+
+  const taskIds = taskResults
+    .map((t: any) => t.id)
+    .filter((id: any): id is string => typeof id === 'string');
+  const eventMap = await fetchTaskScheduledSlots(db, taskIds);
+
+  const companyMap = await fetchLinkedCompanyMap(db, taskResults);
 
   return taskResults.map((task: any) => {
     const ids: string[] =

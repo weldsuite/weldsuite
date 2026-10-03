@@ -5,9 +5,7 @@ import { getTranslations } from '@/lib/i18n';
 import {
   format,
   startOfMonth,
-  endOfMonth,
   startOfWeek,
-  endOfWeek,
   addDays,
   addMonths,
   subMonths,
@@ -17,10 +15,14 @@ import {
   isSameDay,
   isToday,
   differenceInMinutes,
-  isTomorrow,
-  isYesterday,
-  isThisWeek,
 } from 'date-fns';
+import { defaultQuickCreateRange, defaultRangeForDay, normalizeQuickCreateRange, resolveQuickCreateTimes, resolveTaskSlot, shiftEndDate } from './quick-create-dates';
+import { useDismissOnOutsideMouseDown } from './quick-create-dismiss';
+import { setQuickCreatePreviewTitle, useQuickCreatePreviewTitle } from './quick-create-preview-store';
+import { inviteEmailFromQuery } from './guest-invite';
+import { Mail } from 'lucide-react';
+import { placeCardNearAnchor } from '../lib/popover-position';
+import { WEEK_STARTS_ON, formatClock, useTimeFormat, type TimeFormat } from '../lib/calendar-format';
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Paperclip, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import {
@@ -42,7 +44,16 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { LocationAutocomplete } from './location-autocomplete';
 import { MonthEventChip, MonthMoreButton, MONTH_CHIP_CLASS } from './month-event-chip';
-import { monthCellCapacity, splitMonthCellEvents, MONTH_DEFAULT_CAPACITY } from '../lib/month-layout';
+import { monthCellCapacity, monthChipTime, splitMonthCellEvents, MONTH_DEFAULT_CAPACITY } from '../lib/month-layout';
+import { AllDayRow } from './all-day-row';
+import {
+  countEventsByDay,
+  dayKey as localDayKey,
+  timedEventsForDay,
+  type TimedSegment,
+} from '../lib/event-days';
+import { formatEventTimeRange, formatScheduleTime, getDateGroup } from '../lib/schedule';
+import { buildMonthGrid, orderWeekdays } from '../lib/week-grid';
 import {
   Select,
   SelectContent,
@@ -84,11 +95,20 @@ import {
   type UserCalendar,
 } from '@/hooks/queries/use-calendar-queries';
 import { EVENT_TYPE_COLORS, EVENT_TYPE_OPTIONS, EVENT_PRIORITY_OPTIONS } from '../lib/event-form-schema';
+import { applyEventFilters, matchesEventSearch, mergeSearchResults } from '../lib/event-filters';
+import { formatEventWhen } from '../lib/event-when';
+import { getCurrentSlot, getNotifiableGuests, isSameSlot } from '../lib/event-reschedule';
+import { isEditableTarget, isEscapeHandledElsewhere } from '../lib/escape-guard';
+import { useSearchCalendarEvents } from '@/hooks/queries/use-calendar-queries';
+import { useUser } from '@clerk/clerk-react';
+import { CalendarSearchResults } from './calendar-search-results';
+import { RescheduleNotifyDialog } from './reschedule-notify-dialog';
 import { EntityList, FilterPills, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { usePeople, type Person } from '@/components/objects/person/use-person-data';
 import { useCreateTask, type Task } from '@/hooks/use-crm-tasks';
 import { useWorkspaceMembers, useWorkingHours, type WorkingHours, type DayHours } from '@/hooks/queries/use-settings-queries';
 import { EventDialog } from './event-dialog';
+import { GuestSearchInput } from './guest-search-input';
 import { useObjectPanel } from '@/components/object-panel';
 import { WeekDayHeader, TimeLabelColumn, TODAY_BLUE } from './calendar-shared';
 import { getActiveCalendarIds } from './calendar-sidebar-section';
@@ -263,11 +283,29 @@ function computeQuickCreatePosForClick(
   return { x, y: mouseEvent.clientY, cardBottomY: null };
 }
 
+/** Width of the quick-create card and the height assumed until it is measured. */
+const QUICK_CREATE_WIDTH = 360;
+const QUICK_CREATE_ESTIMATED_HEIGHT = 420;
+
 /**
- * Popover position when opened from the toolbar button — mirrors the
- * drag-to-schedule positioning so it anchors to the same spot.
+ * Popover position when opened from the toolbar's New Event button: just below
+ * the button, right-aligned to it and kept inside the viewport (the layout
+ * effect in CalendarView re-clamps once the real height is known). Without the
+ * button in the DOM it falls back to the slot's own day column / cell.
  */
 function computeQuickCreatePosForToolbar(s: Date, e: Date): QuickCreatePos {
+  const button = document.querySelector('[data-new-event-button]');
+  if (button) {
+    const rect = button.getBoundingClientRect();
+    const { x, y } = placeCardNearAnchor({
+      anchor: rect,
+      card: { width: QUICK_CREATE_WIDTH, height: QUICK_CREATE_ESTIMATED_HEIGHT },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      order: ['below', 'above'],
+      align: 'end',
+    });
+    return { x, y, cardBottomY: null };
+  }
   const dateKey = format(s, 'yyyy-MM-dd');
   const dayCol = queryDayColumn(s);
   const monthCell = document.querySelector(`[data-date="${dateKey}"]`) as HTMLElement | null;
@@ -309,7 +347,7 @@ function getHeaderLabel(currentDate: Date, currentView: View): string {
       return format(currentDate, 'MMMM yyyy');
     case 'week': {
       // When the visible week spans two months, show the boundary.
-      const ws = startOfWeek(currentDate, { weekStartsOn: 1 });
+      const ws = startOfWeek(currentDate, { weekStartsOn: WEEK_STARTS_ON });
       return formatSpanLabel(ws, addDays(ws, 6));
     }
     case '4day':
@@ -377,6 +415,8 @@ export function CalendarView() {
     localStorage.setItem('weldcalendar:view', view);
   }, []);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Set when the edit dialog was opened from the event panel, so closing it returns there.
+  const reopenPanelAfterDialogRef = useRef(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [defaultStart, setDefaultStart] = useState<Date | undefined>();
   const [defaultEnd, setDefaultEnd] = useState<Date | undefined>();
@@ -410,7 +450,7 @@ export function CalendarView() {
         { value: 'event', label: t.calendarView.filterTypeEvent },
         { value: 'call', label: t.calendarView.filterTypeCall },
         { value: 'appointment', label: t.calendarView.filterTypeAppointment },
-        { value: 'reminder', label: t.calendarView.filterTypeReminder },
+        { value: 'reminder', label: t.calendarView.filterTypeTask },
         { value: 'other', label: t.calendarView.filterTypeOther },
       ],
     },
@@ -453,12 +493,13 @@ export function CalendarView() {
   useEffect(() => {
     const handler = (e: Event) => {
       const date = new Date((e as CustomEvent).detail.date);
+      // Keep the current view: Day shows that day, 4 Days starts at it, Week /
+      // Month / Year contain it, Schedule lists from it.
       setCurrentDate(date);
-      setCurrentView('week');
     };
     window.addEventListener('weldcalendar:navigate-to-date', handler);
     return () => window.removeEventListener('weldcalendar:navigate-to-date', handler);
-  }, [setCurrentView]);
+  }, []);
 
   // Sync mini calendar when main view date changes
   useEffect(() => {
@@ -502,51 +543,29 @@ export function CalendarView() {
     });
   }, [events]);
 
-  const filteredEvents = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const base = activeFilters.length === 0
-      ? events
-      : events.filter((evt) => activeFilters.every((f) => {
-          if (!f.value) return true;
-          const isNot = f.operator === 'is_not';
-          let match = false;
-          switch (f.field) {
-            case 'type':
-              match = evt.type === f.value;
-              break;
-            case 'calendar':
-              match = evt.calendarId === f.value;
-              break;
-            case 'status':
-              match = evt.status === f.value;
-              break;
-            case 'priority':
-              match = evt.priority === f.value;
-              break;
-            case 'allDay':
-              match = String(evt.allDay || false) === f.value;
-              break;
-            default:
-              return true;
-          }
-          return isNot ? !match : match;
-        }));
+  const timeFormat = useTimeFormat();
+  const { user } = useUser();
+  const selfEmail = user?.primaryEmailAddress?.emailAddress;
 
-    if (!q) return base;
-    return base.filter((evt) => {
-      // Match across the fields a user is most likely to remember.
-      const haystacks: (string | undefined)[] = [
-        evt.title,
-        evt.description,
-        evt.location,
-        evt.meetingUrl,
-        evt.notes,
-        ...(evt.attendees?.flatMap((a) => [a.name, a.email]) ?? []),
-        ...(evt.tags ?? []),
-      ];
-      return haystacks.some((s) => typeof s === 'string' && s.toLowerCase().includes(q));
-    });
-  }, [events, activeFilters, searchQuery]);
+  const filteredEvents = useMemo(() => applyEventFilters(events, activeFilters), [events, activeFilters]);
+
+  // Search: the range query only holds the visible window, so a non-empty box
+  // also asks the server (all dates) and the grid gives way to a results list.
+  const trimmedSearch = searchQuery.trim();
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(trimmedSearch), 250);
+    return () => clearTimeout(id);
+  }, [trimmedSearch]);
+  const { data: searchData, isFetching: isSearchFetching } = useSearchCalendarEvents(debouncedSearch, calendarIdsParam);
+  const isSearching = trimmedSearch.length >= 2 && (debouncedSearch !== trimmedSearch || isSearchFetching);
+  const searchResults = useMemo(() => {
+    if (!trimmedSearch) return [];
+    const local = filteredEvents.filter((evt) => matchesEventSearch(evt, trimmedSearch));
+    const server = applyEventFilters(searchData?.data ?? [], activeFilters)
+      .filter((evt) => matchesEventSearch(evt, trimmedSearch));
+    return mergeSearchResults(server, local, Date.now());
+  }, [trimmedSearch, filteredEvents, searchData, activeFilters]);
 
   const calendarColorMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -773,22 +792,14 @@ export function CalendarView() {
   // own mousedown handler stops propagation, so it won't trigger close.
   // When the dismissal happens, mark the gesture so the upcoming mouseup
   // (which may fire onSelectSlot for the same cell) doesn't re-open.
-  useEffect(() => {
-    if (!quickCreateOpen) return;
-    const handleMouseDown = (ev: MouseEvent) => {
-      const target = ev.target as Node | null;
-      if (target && quickCreateRef.current?.contains(target)) return;
-      // A control inside the card can unmount itself on mousedown (e.g. the
-      // guest dropdown after picking a result), detaching `target` before this
-      // document listener runs. composedPath() is captured at dispatch, so it
-      // still knows the event started inside the card.
-      if (quickCreateRef.current && ev.composedPath().includes(quickCreateRef.current)) return;
-      dismissedByCurrentGestureRef.current = true;
-      setQuickCreateOpen(false);
-    };
-    document.addEventListener('mousedown', handleMouseDown);
-    return () => document.removeEventListener('mousedown', handleMouseDown);
-  }, [quickCreateOpen]);
+  // Popovers / selects / dialogs opened from the card (date picker, repeat)
+  // render in a portal outside it; useDismissOnOutsideMouseDown treats them as
+  // part of the card.
+  const dismissQuickCreate = useCallback(() => {
+    dismissedByCurrentGestureRef.current = true;
+    setQuickCreateOpen(false);
+  }, []);
+  useDismissOnOutsideMouseDown(quickCreateOpen, quickCreateRef, dismissQuickCreate);
 
   // Clear the dismissal flag once the gesture ends — but only AFTER any
   // mouseup-driven onSelectSlot has had a chance to short-circuit. Using a
@@ -827,8 +838,47 @@ export function CalendarView() {
     setDialogOpen(true);
   }, []);
 
+  // Drag / resize of an event with guests: asked once ("send update?") before
+  // anything is saved, instead of one "rescheduled" email per adjustment.
+  const [guestDrop, setGuestDrop] = useState<{ event: CalendarEvent; newStart: Date; newEnd: Date } | null>(null);
+
+  /** Saves a move and offers an Undo that restores the previous slot (re-notifying only if this move did). */
+  const performReschedule = useCallback(async (
+    event: CalendarEvent,
+    newStart: Date,
+    newEnd: Date,
+    notifyAttendees: boolean,
+  ) => {
+    if (!event.id) return;
+    const eventId = event.id;
+    const previous = getCurrentSlot(event);
+    try {
+      await rescheduleEvent.mutateAsync({
+        id: eventId,
+        startTime: newStart.toISOString(),
+        endTime: newEnd.toISOString(),
+        notifyAttendees,
+      });
+    } catch {
+      toast.error(t.toast.eventMoveFailed);
+      return;
+    }
+    toast(t.toast.eventMoved, {
+      action: {
+        label: t.toast.undo,
+        onClick: () => {
+          rescheduleEvent
+            .mutateAsync({ id: eventId, ...previous, notifyAttendees })
+            .then(() => toast.success(t.toast.eventMoveUndone))
+            .catch(() => toast.error(t.toast.eventMoveFailed));
+        },
+      },
+    });
+  }, [rescheduleEvent, t.toast.eventMoveFailed, t.toast.eventMoved, t.toast.eventMoveUndone, t.toast.undo]);
+
   const handleEventDrop = useCallback((event: CalendarEvent, newStart: Date, newEnd: Date) => {
     if (!event.id) return;
+    if (isSameSlot(event, newStart, newEnd)) return;
 
     // For auto-scheduled task/activity events: show confirm dialog before pinning
     const isAutoScheduledEntity =
@@ -841,13 +891,22 @@ export function CalendarView() {
       return;
     }
 
-    // For all other events: instant reschedule (no dialog)
-    rescheduleEvent.mutate({
-      id: event.id,
-      startTime: newStart.toISOString(),
-      endTime: newEnd.toISOString(),
-    });
-  }, [rescheduleEvent]);
+    if (getNotifiableGuests(event, selfEmail).length > 0) {
+      setGuestDrop({ event, newStart, newEnd });
+      return;
+    }
+
+    // No guests to tell: reschedule straight away (with an Undo toast).
+    void performReschedule(event, newStart, newEnd, false);
+  }, [performReschedule, selfEmail]);
+
+  /** Answer of the "send update to guests?" dialog; `null` leaves the event where it was. */
+  const resolveGuestDrop = useCallback((notifyAttendees: boolean | null) => {
+    const drop = guestDrop;
+    setGuestDrop(null);
+    if (!drop || notifyAttendees === null) return;
+    void performReschedule(drop.event, drop.newStart, drop.newEnd, notifyAttendees);
+  }, [guestDrop, performReschedule]);
 
   /** Called when the user confirms "Pin to this time" in the dialog */
   const handleConfirmPin = useCallback(() => {
@@ -911,13 +970,21 @@ export function CalendarView() {
     setEventPreviewOpen(true);
   }, [openObjectPanel, closeObjectPanels]);
 
-  // Escape key to close cards
+  const handleSelectSearchResult = useCallback((event: CalendarEvent) => {
+    setCurrentDate(new Date(event.startTime));
+    setSearchQuery('');
+    setSearchOpen(false);
+    handleSelectEvent(event);
+  }, [handleSelectEvent]);
+
+  // Escape key to close cards. A popover / dropdown / dialog that is open on
+  // top of a card consumes its own Escape, and an inline editor in the panel
+  // only cancels its edit: neither may also close the card underneath.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (quickCreateOpen) setQuickCreateOpen(false);
-        if (eventPreviewOpen) setEventPreviewOpen(false);
-      }
+      if (e.key !== 'Escape' || isEscapeHandledElsewhere(e)) return;
+      if (quickCreateOpen) setQuickCreateOpen(false);
+      if (eventPreviewOpen && !isEditableTarget(e.target)) setEventPreviewOpen(false);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -963,23 +1030,26 @@ export function CalendarView() {
     <div className="flex-1 min-h-0 flex flex-col [--cal-time-label-width:60px] md:[--cal-time-label-width:72px]">
       {/* Toolbar */}
       <div className="flex items-center justify-between max-md:gap-2 border-b px-4 py-2.5 bg-background shrink-0 z-10">
-        <div className="flex items-center gap-1 md:gap-2 max-md:min-w-0">
+        <div className="flex items-center gap-1 md:gap-2 min-w-0">
           <FilterPills
             filters={activeFilters}
             filterConfigs={calendarFilterConfigs}
             maxFilters={3}
             onFiltersChange={setActiveFilters}
+            operatorLabels={{ is: t.calendarView.filterOperatorIs, 'is not': t.calendarView.filterOperatorIsNot }}
+            labels={{ filter: t.calendarView.filterButton, selectCondition: t.calendarView.filterSelectCondition }}
           />
-          <Button variant="ghost" size="icon" className="hidden md:inline-flex h-8 w-8" onClick={goPrev}>
+          <Button variant="ghost" size="icon" className="hidden md:inline-flex h-8 w-8 shrink-0" onClick={goPrev} aria-label={t.calendarView.previousPeriod}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="hidden md:inline-flex h-8 w-8" onClick={goNext}>
+          <Button variant="ghost" size="icon" className="hidden md:inline-flex h-8 w-8 shrink-0" onClick={goNext} aria-label={t.calendarView.nextPeriod}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <h2 className="hidden md:block text-[18px] font-semibold ml-1 -translate-y-[1px]">{headerLabel}</h2>
+          {/* One line, even with the event panel open: shrink + truncate rather than wrap. */}
+          <h2 className="hidden md:block min-w-0 truncate whitespace-nowrap text-[18px] font-semibold ml-1 -translate-y-[1px]">{headerLabel}</h2>
         </div>
 
-        <div className="flex items-center gap-1 md:gap-2 max-md:shrink-0">
+        <div className="flex items-center gap-1 md:gap-2 shrink-0">
           {!isTodayInView && (
             <Button variant="outline" size="sm" className="shadow-none shrink-0" onClick={goToday}>
               {t.calendarView.today}
@@ -989,6 +1059,7 @@ export function CalendarView() {
             open={searchOpen}
             query={searchQuery}
             placeholder={t.calendarView.searchPlaceholder}
+            toggleLabel={t.calendarView.searchToggle}
             onOpenChange={setSearchOpen}
             onQueryChange={setSearchQuery}
           />
@@ -996,7 +1067,7 @@ export function CalendarView() {
             value={isMobile ? foldViewForMobile(currentView) : currentView}
             onValueChange={(v) => setCurrentView(v as View)}
           >
-            <SelectTrigger size="sm" className="w-[110px] md:w-[130px] shadow-none">
+            <SelectTrigger size="sm" className="w-[110px] md:w-[130px] shadow-none" aria-label={t.calendarView.viewSelectLabel}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1007,6 +1078,7 @@ export function CalendarView() {
           </Select>
           <Button
             size="sm"
+            data-new-event-button
             className="shadow-none max-md:h-8 max-md:px-2.5"
             onClick={() => handleCreateEvent(undefined, undefined, 'event')}
           >
@@ -1018,6 +1090,16 @@ export function CalendarView() {
 
       {/* Calendar Body */}
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden" data-calendar-body>
+        {trimmedSearch && (
+          <CalendarSearchResults
+            results={searchResults}
+            isSearching={isSearching}
+            calendarColorMap={calendarColorMap}
+            timeFormat={timeFormat}
+            onSelect={handleSelectSearchResult}
+          />
+        )}
+        {!trimmedSearch && (
         <CalendarBody
           currentView={currentView}
           isMobile={isMobile}
@@ -1040,6 +1122,7 @@ export function CalendarView() {
             onPreviewResize: handlePreviewResize,
           }}
         />
+        )}
       </div>
 
       {/* Inline quick-create card — rendered as fixed overlay so it's never clipped.
@@ -1076,6 +1159,7 @@ export function CalendarView() {
         width={EVENT_PANEL_WIDTH}
         onClose={() => setEventPreviewOpen(false)}
         onEdit={() => {
+          reopenPanelAfterDialogRef.current = true;
           setEventPreviewOpen(false);
           setDialogOpen(true);
         }}
@@ -1083,13 +1167,31 @@ export function CalendarView() {
 
       <EventDialog
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          // Cancelling (or saving) the edit goes back to the panel it was opened from.
+          if (!open && reopenPanelAfterDialogRef.current) {
+            reopenPanelAfterDialogRef.current = false;
+            setEventPreviewOpen(true);
+          }
+        }}
+        onDeleted={() => {
+          reopenPanelAfterDialogRef.current = false;
+          setSelectedEvent(null);
+        }}
         event={selectedEvent}
         defaultStart={defaultStart}
         defaultEnd={defaultEnd}
         defaultType={defaultEventType}
         calendars={allCalendars}
         defaultCalendarId={defaultCalendar?.id}
+      />
+
+      <RescheduleNotifyDialog
+        open={guestDrop !== null}
+        onSend={() => resolveGuestDrop(true)}
+        onDontSend={() => resolveGuestDrop(false)}
+        onCancel={() => resolveGuestDrop(null)}
       />
 
       {/* Pin-on-drag confirmation dialog */}
@@ -1117,12 +1219,15 @@ function CalendarSearchInput({
   open,
   query,
   placeholder,
+  toggleLabel,
   onOpenChange,
   onQueryChange,
 }: {
   open: boolean;
   query: string;
   placeholder: string;
+  /** Accessible name of the collapsed icon button. */
+  toggleLabel: string;
   onOpenChange: (open: boolean) => void;
   onQueryChange: (query: string) => void;
 }) {
@@ -1140,6 +1245,8 @@ function CalendarSearchInput({
             open && "opacity-0 pointer-events-none absolute"
           )}
           onClick={() => onOpenChange(true)}
+          aria-label={toggleLabel}
+          tabIndex={open ? -1 : 0}
         >
           <Search className="h-4 w-4" />
         </Button>
@@ -1151,6 +1258,7 @@ function CalendarSearchInput({
           <input
             type="text"
             placeholder={placeholder}
+            aria-label={placeholder}
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             onBlur={() => !query && onOpenChange(false)}
@@ -1204,7 +1312,7 @@ function CalendarBody({
   timeGrid: TimeGridViewProps;
 }) {
   if (currentView === 'year') {
-    return <YearView currentDate={timeGrid.currentDate} onDateClick={onShowDay} />;
+    return <YearView currentDate={timeGrid.currentDate} events={timeGrid.events} onDateClick={onShowDay} />;
   }
   if (currentView === 'schedule') {
     return (
@@ -1276,22 +1384,6 @@ function getQuickCreateInitialValues(
     meetingUrl: editEvent?.meetingUrl || '',
     calendarId: editEvent?.calendarId || defaults.calendarId,
   };
-}
-
-/** "When" summary for the event preview: the date for all-day events, else date + time range. */
-function formatEventWhen(event: CalendarEvent): string {
-  if (event.allDay) return format(new Date(event.startTime), 'EEEE, MMMM d');
-  const start = format(new Date(event.startTime), 'EEE, MMM d · h:mm a');
-  const end = event.endTime ? ` – ${format(new Date(event.endTime), 'h:mm a')}` : '';
-  return `${start}${end}`;
-}
-
-/** Time column of the schedule list: the all-day label, a start – end range, or just the start. */
-function formatScheduleTime(start: Date, end: Date | null, allDayLabel: string | null): string {
-  if (allDayLabel) return allDayLabel;
-  const startLabel = format(start, 'h:mma').toLowerCase();
-  if (!end) return startLabel;
-  return `${startLabel} – ${format(end, 'h:mma').toLowerCase()}`;
 }
 
 /**
@@ -1384,6 +1476,7 @@ function PeopleRow({
   people,
   isActive,
   emptyLabel,
+  allowInvite = true,
   search,
   onSearchChange,
   onActivate,
@@ -1394,6 +1487,8 @@ function PeopleRow({
   people: GuestEntry[];
   isActive: boolean;
   emptyLabel: string;
+  /** Guests: a typed email address can be invited. Assignees: members / contacts only. */
+  allowInvite?: boolean;
   search: string;
   onSearchChange: (value: string) => void;
   onActivate: () => void;
@@ -1454,6 +1549,8 @@ function PeopleRow({
               value={search}
               onChange={onSearchChange}
               selectedIds={people.map((g) => g.id)}
+              selectedEmails={people.map((g) => g.email)}
+              allowInvite={allowInvite}
               onSelect={onAdd}
               onBlurAway={onDeactivate}
             />
@@ -1548,6 +1645,7 @@ function EventTimeRow({
   onEndTimeChange: (value: string) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   return (
     <div
       role="button"
@@ -1565,12 +1663,12 @@ function EventTimeRow({
           <div role="presentation" onClick={(e) => e.stopPropagation()} className="space-y-2.5">
             <div className="flex items-center gap-2">
               <DatePickerField
-                value={new Date(startDate)}
+                value={new Date(`${startDate}T00:00`)}
                 onChange={(d) => onStartDateChange(format(d, 'yyyy-MM-dd'))}
               />
               <span className="text-muted-foreground text-xs shrink-0">–</span>
               <DatePickerField
-                value={new Date(endDate)}
+                value={new Date(`${endDate}T00:00`)}
                 onChange={(d) => onEndDateChange(format(d, 'yyyy-MM-dd'))}
               />
             </div>
@@ -1579,6 +1677,7 @@ function EventTimeRow({
                 <Input
                   type="time"
                   value={startTime}
+                  data-enter-submits="true"
                   onChange={(e) => onStartTimeChange(e.target.value)}
                   className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
                 />
@@ -1586,6 +1685,7 @@ function EventTimeRow({
                 <Input
                   type="time"
                   value={endTime}
+                  data-enter-submits="true"
                   onChange={(e) => onEndTimeChange(e.target.value)}
                   className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
                 />
@@ -1598,19 +1698,19 @@ function EventTimeRow({
           </div>
         ) : (
           <div className="flex items-center gap-1 text-sm h-7">
-            <span>{format(new Date(startDate), 'EEEE, MMM d')}</span>
+            <span>{format(new Date(`${startDate}T00:00`), 'EEEE, MMM d')}</span>
             {!allDay && (
               <>
                 <span className="text-muted-foreground">·</span>
-                <span>{format(new Date(`${startDate}T${startTime}`), 'h:mm a')}</span>
+                <span>{formatClock(new Date(`${startDate}T${startTime || '00:00'}`), timeFormat)}</span>
                 <span className="text-muted-foreground">–</span>
-                <span>{format(new Date(`${endDate}T${endTime}`), 'h:mm a')}</span>
+                <span>{formatClock(new Date(`${endDate}T${endTime || '00:00'}`), timeFormat)}</span>
               </>
             )}
             {allDay && startDate !== endDate && (
               <>
                 <span className="text-muted-foreground">–</span>
-                <span>{format(new Date(endDate), 'EEEE, MMM d')}</span>
+                <span>{format(new Date(`${endDate}T00:00`), 'EEEE, MMM d')}</span>
               </>
             )}
             {allDay && startDate === endDate && (
@@ -1863,6 +1963,7 @@ function RepeatPopover({
         <Button
           variant="outline"
           size={repeat ? 'sm' : 'icon'}
+          aria-label={t.quickCreate.repeatLabel}
           className={cn(
             'h-8',
             repeat
@@ -1948,28 +2049,22 @@ export function QuickCreateCard({
   const [type, setType] = useState(initial.type);
   const [title, setTitle] = useState(initial.title);
   const [allDay, setAllDay] = useState(initial.allDay);
-  const [startDate, setStartDate] = useState(() => {
-    const d = defaultStart || new Date();
-    return format(d, 'yyyy-MM-dd');
-  });
-  const [endDate, setEndDate] = useState(() => {
-    const d = defaultEnd || defaultStart || new Date();
-    return format(d, 'yyyy-MM-dd');
-  });
-  const [startTimeVal, setStartTimeVal] = useState(() => {
-    if (defaultStart) return format(defaultStart, 'HH:mm');
-    const d = new Date();
-    d.setMinutes(0, 0, 0);
-    d.setHours(d.getHours() + 1);
-    return format(d, 'HH:mm');
-  });
-  const [endTimeVal, setEndTimeVal] = useState(() => {
-    if (defaultEnd) return format(defaultEnd, 'HH:mm');
-    const d = new Date();
-    d.setMinutes(0, 0, 0);
-    d.setHours(d.getHours() + 2);
-    return format(d, 'HH:mm');
-  });
+  const [initialRange] = useState(() => defaultQuickCreateRange(defaultStart, defaultEnd));
+  const [startDate, setStartDate] = useState(initialRange.startDate);
+  const [endDate, setEndDate] = useState(initialRange.endDate);
+  const [startTimeVal, setStartTimeVal] = useState(initialRange.startTime);
+  const [endTimeVal, setEndTimeVal] = useState(initialRange.endTime);
+  // Moving the start date moves the end date along, so the event keeps its length.
+  const handleStartDateChange = (next: string) => {
+    setEndDate((end) => shiftEndDate(startDate, next, end));
+    setStartDate(next);
+  };
+  // What is saved: an end at or before the start (23:00 - 00:00 on one date)
+  // rolls to the next day, so the card shows and sends the same end.
+  const effectiveRange = normalizeQuickCreateRange(
+    { startDate, startTime: startTimeVal, endDate, endTime: endTimeVal },
+    allDay,
+  );
 
   const [location, setLocation] = useState(initial.location);
   const [description, setDescription] = useState(initial.description);
@@ -2033,6 +2128,13 @@ export function QuickCreateCard({
   const createTask = useCreateTask();
   const { saveEventWithWeldMeet } = useAutoCreateWeldMeeting();
 
+  // Feed the typed title to the preview block this card leaves on the grid.
+  const isEditing = !!editEvent;
+  useEffect(() => {
+    if (!isEditing) setQuickCreatePreviewTitle(title);
+  }, [title, isEditing]);
+  useEffect(() => () => setQuickCreatePreviewTitle(''), []);
+
   const handleCopyMeetingLink = useCallback(async () => {
     if (!meetingUrl) return;
     try {
@@ -2074,29 +2176,40 @@ export function QuickCreateCard({
     high: t.quickCreate.priorityHigh,
   };
 
-  const saveTask = async (finalTitle: string) => {
-    await createTask.mutateAsync({
+  /**
+   * Creates the task. The calendar block it gets is pinned to the day / slot the
+   * card shows (the clicked one unless the due date was changed), so the
+   * auto-scheduler does not move it elsewhere. Returns false when it failed (the
+   * hook already reported it), so the card stays open.
+   */
+  const saveTask = async (finalTitle: string): Promise<boolean> => {
+    const slot = resolveTaskSlot(taskDueDate, taskDueTime, { start: defaultStart, end: defaultEnd });
+    const dueDate = taskDueDate
+      ? slot && taskDueTime
+        ? slot.start
+        : new Date(taskDueDate.getFullYear(), taskDueDate.getMonth(), taskDueDate.getDate())
+      : undefined;
+    const result = await createTask.mutateAsync({
       title: finalTitle,
       description: description.trim() || undefined,
       status: taskStatus,
       priority: taskPriority || undefined,
-      dueDate: taskDueDate && taskDueTime
-        ? new Date(`${format(taskDueDate, 'yyyy-MM-dd')}T${taskDueTime}`)
-        : taskDueDate,
+      dueDate,
+      startDate: slot?.start,
+      duration: slot?.durationMinutes ?? undefined,
       labels: taskLabels.length > 0 ? taskLabels : undefined,
       repeat: taskRepeat ? { frequency: taskRepeat as NonNullable<Task['repeat']>['frequency'] } : undefined,
     });
+    return result.success;
   };
 
-  const getEventTimes = () => ({
-    start: allDay ? new Date(`${startDate}T00:00:00`) : new Date(`${startDate}T${startTimeVal}`),
-    end: allDay ? new Date(`${endDate}T23:59:59`) : new Date(`${endDate}T${endTimeVal}`),
-  });
+  const getEventTimes = () =>
+    resolveQuickCreateTimes({ startDate, startTime: startTimeVal, endDate, endTime: endTimeVal }, allDay);
 
   const buildEventData = (finalTitle: string): CalendarEventInput => {
     const { start, end } = getEventTimes();
     const url = meetingUrl.trim();
-    const guests = selectedGuests.map((g) => ({ email: g.email, name: g.name }));
+    const guests = selectedGuests.map((g) => ({ email: g.email, name: g.name && g.name !== g.email ? g.name : undefined }));
     return {
       calendarId: selectedCalendarId,
       title: finalTitle,
@@ -2104,6 +2217,9 @@ export function QuickCreateCard({
       allDay,
       startTime: start.toISOString(),
       endTime: end.toISOString(),
+      // The times above are the browser's local ones; the server stores this
+      // zone with the event instead of guessing.
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
       status: 'confirmed' as const,
       priority: 'normal' as const,
       location: location.trim() || undefined,
@@ -2175,11 +2291,8 @@ export function QuickCreateCard({
     try {
       const finalTitle = title.trim() || defaultTitles[type] || t.calendarView.untitled;
 
-      if (isTask) {
-        await saveTask(finalTitle);
-      } else if (!(await saveEvent(finalTitle))) {
-        return; // don't close yet — dialog pending or save failed
-      }
+      const saved = isTask ? await saveTask(finalTitle) : await saveEvent(finalTitle);
+      if (!saved) return; // don't close yet — dialog pending or save failed
       onClose();
     } finally {
       savingRef.current = false;
@@ -2214,8 +2327,22 @@ export function QuickCreateCard({
       className="overflow-y-auto max-h-[80vh]"
       onClick={() => setActiveField(null)}
       onKeyDown={(e) => {
-        if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
-        if (e.key === 'Enter' && !e.shiftKey && !(e.target instanceof HTMLTextAreaElement)) { e.preventDefault(); handleSave(); }
+        // Escape already consumed by a popover / select opened from the card
+        // (they portal out, but React events still bubble through them).
+        if (e.defaultPrevented) return;
+        if (e.key === 'Escape') { e.stopPropagation(); onClose(); return; }
+        // Enter saves only from the title and the time inputs. Anywhere else (the
+        // participants search, labels, location, popovers and comboboxes) it
+        // belongs to that control, never to the card.
+        if (
+          e.key === 'Enter' &&
+          !e.shiftKey &&
+          e.target instanceof HTMLInputElement &&
+          e.target.dataset.enterSubmits === 'true'
+        ) {
+          e.preventDefault();
+          handleSave();
+        }
       }}
     >
       {/* Title */}
@@ -2224,7 +2351,9 @@ export function QuickCreateCard({
           placeholder={t.quickCreate.addTitlePlaceholder}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleSave(); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.stopPropagation(); handleSave(); }
+          }}
           className="h-10 text-sm font-medium shadow-none"
           autoFocus
         />
@@ -2294,6 +2423,7 @@ export function QuickCreateCard({
               people={taskAssignees}
               isActive={activeField === 'assignee'}
               emptyLabel={t.quickCreate.assigneeLabel}
+              allowInvite={false}
               search={taskAssigneeSearch}
               onSearchChange={setTaskAssigneeSearch}
               onActivate={() => setActiveField('assignee')}
@@ -2341,11 +2471,11 @@ export function QuickCreateCard({
               onToggle={() => setActiveField(activeField === 'time' ? null : 'time')}
               allDay={allDay}
               onAllDayChange={setAllDay}
-              startDate={startDate}
-              endDate={endDate}
+              startDate={effectiveRange.startDate}
+              endDate={effectiveRange.endDate}
               startTime={startTimeVal}
               endTime={endTimeVal}
-              onStartDateChange={setStartDate}
+              onStartDateChange={handleStartDateChange}
               onEndDateChange={setEndDate}
               onStartTimeChange={setStartTimeVal}
               onEndTimeChange={setEndTimeVal}
@@ -2361,7 +2491,9 @@ export function QuickCreateCard({
               onActivate={() => setActiveField('guests')}
               onDeactivate={() => setActiveField(null)}
               onAdd={(guest) => {
-                setSelectedGuests((prev) => [...prev, guest]);
+                setSelectedGuests((prev) =>
+                  prev.some((g) => g.email.toLowerCase() === guest.email.toLowerCase()) ? prev : [...prev, guest],
+                );
                 setGuestSearch('');
               }}
               onRemove={(id) => setSelectedGuests((prev) => prev.filter((p) => p.id !== id))}
@@ -2420,7 +2552,8 @@ export function QuickCreateCard({
       {/* Footer */}
       <div role="presentation" className="flex items-center justify-end px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-1.5">
-          <RepeatPopover repeat={taskRepeat} onChange={setTaskRepeat} />
+          {/* Repeat is only saved for tasks; events have no recurrence here. */}
+          {isTask && <RepeatPopover repeat={taskRepeat} onChange={setTaskRepeat} />}
           <Button
             variant="default"
             size="sm"
@@ -2478,22 +2611,8 @@ function MonthView({
   onEventDrop: (event: CalendarEvent, newStart: Date, newEnd: Date) => void;
 }) {
   const t = getTranslations('weldcalendar');
-  const monthStart = startOfMonth(currentDate);
-  const monthEnd = endOfMonth(currentDate);
-  const calStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const calEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
-
-  // Build weeks
-  const weeks: Date[][] = [];
-  let day = calStart;
-  while (day <= calEnd) {
-    const week: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      week.push(day);
-      day = addDays(day, 1);
-    }
-    weeks.push(week);
-  }
+  const timeFormat = useTimeFormat();
+  const weeks = useMemo(() => buildMonthGrid(currentDate), [currentDate]);
 
   // Week rows are equal and fixed-height (they fill the available space and
   // never grow with their content), so how many chips fit in a day cell is
@@ -2618,8 +2737,10 @@ function MonthView({
             <MonthEventChip
               key={evt.id || ei}
               color={getEventColor(evt, calendarColorMap)}
-              time={evt.allDay ? null : format(new Date(evt.startTime), 'h:mm')}
+              time={monthChipTime(evt, timeFormat)}
               title={evt.title}
+              autoScheduled={evt.autoScheduled === true}
+              autoScheduledLabel={t.viewExtras.autoScheduled}
               className={cn(
                 isEventSelected && "ring-2 ring-foreground/50 ring-offset-1 brightness-90",
                 isDragging && "opacity-40 pointer-events-none",
@@ -2646,15 +2767,15 @@ function MonthView({
     );
   };
 
-  const dayNames = [
+  const dayNames = orderWeekdays([
+    t.bookingEditorDays.sun,
     t.bookingEditorDays.mon,
     t.bookingEditorDays.tue,
     t.bookingEditorDays.wed,
     t.bookingEditorDays.thu,
     t.bookingEditorDays.fri,
     t.bookingEditorDays.sat,
-    t.bookingEditorDays.sun,
-  ];
+  ]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -2700,7 +2821,11 @@ function MonthView({
                     isSelected && 'bg-primary/5',
                     isDragOver && 'bg-primary/10 ring-2 ring-inset ring-primary/30',
                   )}
-                  onClick={(e) => { if (!dragEvent) onSelectSlot(day, new Date(day.getTime() + 3600000), e); }}
+                  onClick={(e) => {
+                    if (dragEvent) return;
+                    const slot = defaultRangeForDay(day);
+                    onSelectSlot(slot.start, slot.end, e);
+                  }}
                 >
                   <div className="flex justify-end mb-0.5">
                     <span
@@ -2775,7 +2900,7 @@ function MobileWeekDayStrip({
   events: CalendarEvent[];
   onSelectDay: (d: Date) => void;
 }) {
-  const weekStart = startOfWeek(weekDate, { weekStartsOn: 1 });
+  const weekStart = startOfWeek(weekDate, { weekStartsOn: WEEK_STARTS_ON });
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
   return (
@@ -3022,20 +3147,7 @@ function MobileMonthBlock({
   currentDate: Date;
   onSelectDay: (d: Date) => void;
 }) {
-  const start = startOfMonth(month);
-  const end = endOfMonth(month);
-  const calStart = startOfWeek(start, { weekStartsOn: 1 });
-  const calEnd = endOfWeek(end, { weekStartsOn: 1 });
-  const weeks: Date[][] = [];
-  let d = calStart;
-  while (d <= calEnd) {
-    const week: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      week.push(d);
-      d = addDays(d, 1);
-    }
-    weeks.push(week);
-  }
+  const weeks = useMemo(() => buildMonthGrid(month), [month]);
   const monthKey = format(month, 'yyyy-MM');
 
   return (
@@ -3088,6 +3200,14 @@ function MobileMonthBlock({
   );
 }
 
+/** Localized one-letter weekday headers ("M", "T", …), starting on WEEK_STARTS_ON. */
+function weekdayInitials(): string[] {
+  const days = getTranslations('weldcalendar').bookingEditorDays;
+  return orderWeekdays([days.sun, days.mon, days.tue, days.wed, days.thu, days.fri, days.sat]).map((d) =>
+    d.charAt(0).toUpperCase(),
+  );
+}
+
 function MobileMonthView({
   currentDate,
   onSelectDay,
@@ -3119,8 +3239,8 @@ function MobileMonthView({
     if (el) container.scrollTop = el.offsetTop;
   }, []);
 
-  // Single-letter weekday header (Mon–Sun).
-  const dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  // Single-letter weekday header, starting on WEEK_STARTS_ON.
+  const dayLetters = weekdayInitials();
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -3209,7 +3329,9 @@ function WeekView({
   onPreviewMouseDown?: (e: React.MouseEvent) => void;
   onPreviewResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
 }) {
-  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+  const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
+  const weekStart = startOfWeek(currentDate, { weekStartsOn: WEEK_STARTS_ON });
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const containerRef = useRef<HTMLDivElement>(null);
   const hourHeight = useFittedHourHeight(containerRef);
@@ -3235,17 +3357,24 @@ function WeekView({
           lockstep with the booking calendars. */}
       <WeekDayHeader days={days} />
 
+      <AllDayRow
+        days={days}
+        events={events}
+        getColor={(e) => getEventColor(e, calendarColorMap)}
+        onSelectEvent={onSelectEvent}
+        allDayLabel={t.calendarView.allDay}
+        autoScheduledLabel={t.viewExtras.autoScheduled}
+      />
+
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
         <div className="grid [grid-template-columns:var(--cal-time-label-width,72px)_repeat(7,1fr)] relative" style={{ minHeight: '100%' }}>
-          <TimeLabelColumn hourHeight={hourHeight} />
+          <TimeLabelColumn hourHeight={hourHeight} timeFormat={timeFormat} />
 
           {/* Day columns */}
           {days.map((day) => {
             const dayKey = format(day, 'yyyy-MM-dd');
             const today = isToday(day);
-            const dayEvents = events.filter(
-              (e) => format(new Date(e.startTime), 'yyyy-MM-dd') === dayKey && !e.allDay,
-            );
+            const dayEvents = timedEventsForDay(events, day);
 
             return (
               <div key={dayKey} data-day-col={dayKey} className={cn(
@@ -3271,19 +3400,23 @@ function WeekView({
                 {today && <CurrentTimeIndicator hourHeight={hourHeight} />}
 
                 {/* Events */}
-                {dayEvents.map((evt, i) => {
+                {dayEvents.map(({ event: evt, segment }, i) => {
                   const isDragging = dragState?.event.id === evt.id;
                   const isEventResizing = resizeState?.event.id === evt.id;
+                  // Only the segment on the event's own start day can be moved
+                  // or resized; continuation segments are display-only.
+                  const editable = !segment.continuesBefore;
                   return (
                     <TimeSlotEvent
                       key={evt.id || i}
                       event={evt}
+                      segment={segment}
                       color={getEventColor(evt, calendarColorMap)}
                       onClick={(e) => { if (!dragState && !isSlotDragging && !isResizing && !justDraggedRef.current && !justResizedRef.current) onSelectEvent(evt, e); }}
                       hourHeight={hourHeight}
-                      onDragStart={(e) => handleEventDragStart(evt, e)}
-                      onResizeTopStart={(e) => handleResizeStart(evt, 'top', e)}
-                      onResizeBottomStart={(e) => handleResizeStart(evt, 'bottom', e)}
+                      onDragStart={editable ? (e) => handleEventDragStart(evt, e) : undefined}
+                      onResizeTopStart={editable ? (e) => handleResizeStart(evt, 'top', e) : undefined}
+                      onResizeBottomStart={editable && !segment.continuesAfter ? (e) => handleResizeStart(evt, 'bottom', e) : undefined}
                       dimmed={isDragging || isEventResizing}
                     />
                   );
@@ -3379,10 +3512,11 @@ function DayView({
    *  renders its own week-strip header above the timeline. */
   hideHeader?: boolean;
 }) {
+  const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const dayKey = format(currentDate, 'yyyy-MM-dd');
-  const dayEvents = events.filter(
-    (e) => format(new Date(e.startTime), 'yyyy-MM-dd') === dayKey && !e.allDay,
-  );
+  const dayEvents = timedEventsForDay(events, currentDate);
+  const rowDays = useMemo(() => [currentDate], [currentDate]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const hourHeight = useFittedHourHeight(containerRef);
@@ -3407,10 +3541,19 @@ function DayView({
       {/* Day header */}
       {!hideHeader && <WeekDayHeader days={[currentDate]} />}
 
+      <AllDayRow
+        days={rowDays}
+        events={events}
+        getColor={(e) => getEventColor(e, calendarColorMap)}
+        onSelectEvent={onSelectEvent}
+        allDayLabel={t.calendarView.allDay}
+        autoScheduledLabel={t.viewExtras.autoScheduled}
+      />
+
       {/* Time grid */}
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
         <div className="grid [grid-template-columns:var(--cal-time-label-width,72px)_1fr] relative" style={{ minHeight: '100%' }}>
-        <TimeLabelColumn hourHeight={hourHeight} />
+        <TimeLabelColumn hourHeight={hourHeight} timeFormat={timeFormat} />
 
         {/* Day column */}
         <div className="relative" data-day-col={dayKey}>
@@ -3430,19 +3573,23 @@ function DayView({
 
           {isToday(currentDate) && <CurrentTimeIndicator hourHeight={hourHeight} />}
 
-          {dayEvents.map((evt, i) => {
+          {dayEvents.map(({ event: evt, segment }, i) => {
             const isDragging = dragState?.event.id === evt.id;
             const isEventResizing = dayResizeState?.event.id === evt.id;
+            // Only the segment on the event's own start day can be moved or
+            // resized; continuation segments are display-only.
+            const editable = !segment.continuesBefore;
             return (
               <TimeSlotEvent
                 key={evt.id || i}
                 event={evt}
+                segment={segment}
                 color={getEventColor(evt, calendarColorMap)}
                 onClick={(e) => { if (!dragState && !isSlotDragging && !isDayResizing && !justDraggedRef.current && !justDayResizedRef.current) onSelectEvent(evt, e); }}
                 hourHeight={hourHeight}
-                onDragStart={(e) => handleEventDragStart(evt, e)}
-                onResizeTopStart={(e) => handleDayResizeStart(evt, 'top', e)}
-                onResizeBottomStart={(e) => handleDayResizeStart(evt, 'bottom', e)}
+                onDragStart={editable ? (e) => handleEventDragStart(evt, e) : undefined}
+                onResizeTopStart={editable ? (e) => handleDayResizeStart(evt, 'top', e) : undefined}
+                onResizeBottomStart={editable && !segment.continuesAfter ? (e) => handleDayResizeStart(evt, 'bottom', e) : undefined}
                 dimmed={isDragging || isEventResizing}
               />
             );
@@ -3505,6 +3652,7 @@ function DayView({
 
 function TimeSlotEvent({
   event,
+  segment,
   color,
   onClick,
   hourHeight = 48,
@@ -3514,6 +3662,8 @@ function TimeSlotEvent({
   dimmed,
 }: {
   event: CalendarEvent;
+  /** The part of the event on this day's column; omit to draw it from its own start. */
+  segment?: TimedSegment;
   color: string;
   onClick: (e: React.MouseEvent) => void;
   hourHeight?: number;
@@ -3522,8 +3672,16 @@ function TimeSlotEvent({
   onResizeBottomStart?: (e: React.MouseEvent) => void;
   dimmed?: boolean;
 }) {
-  const startDate = new Date(event.startTime);
-  const endDate = event.endTime ? new Date(event.endTime) : new Date(startDate.getTime() + 60 * 60 * 1000);
+  const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
+  // The event's real times, shown in the label even on a continuation segment.
+  const eventStart = new Date(event.startTime);
+  const eventEnd = event.endTime ? new Date(event.endTime) : new Date(eventStart.getTime() + 60 * 60 * 1000);
+  // Position comes from the segment (clipped to this day) when the event spans
+  // midnight, otherwise from the event itself.
+  const clipped = segment && (segment.continuesBefore || segment.continuesAfter) ? segment : null;
+  const startDate = clipped ? clipped.start : eventStart;
+  const endDate = clipped ? clipped.end : eventEnd;
   const startHour = startDate.getHours() + startDate.getMinutes() / 60;
   const duration = differenceInMinutes(endDate, startDate);
   const topPx = startHour * hourHeight;
@@ -3538,9 +3696,10 @@ function TimeSlotEvent({
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
   const holdCleanupRef = useRef<(() => void) | null>(null);
 
-  let scheduleIcon: React.ReactNode = null;
-  if (event.autoScheduled === false) scheduleIcon = <Pin className="h-2.5 w-2.5 text-white" />;
-  else if (event.autoScheduled === true) scheduleIcon = <Sparkles className="h-2.5 w-2.5 text-white" />;
+  // Auto-scheduled blocks carry a visible, labelled marker; pinned task /
+  // activity blocks keep their pin.
+  const isAutoScheduled = event.autoScheduled === true;
+  const isPinned = event.autoScheduled === false && (event.sourceType === 'task' || event.sourceType === 'activity');
 
   return (
     <div
@@ -3610,15 +3769,25 @@ function TimeSlotEvent({
         </div>
       )}
       {/* Auto-schedule / pin state indicator */}
-      {(event.sourceType === 'task' || event.sourceType === 'activity') && (
+      {isAutoScheduled && (
+        <span
+          role="img"
+          aria-label={t.viewExtras.autoScheduled}
+          title={t.viewExtras.autoScheduled}
+          className="absolute top-1 right-1.5 opacity-80"
+        >
+          <Sparkles className="h-2.5 w-2.5 text-white" aria-hidden />
+        </span>
+      )}
+      {isPinned && (
         <span className="absolute top-1 right-1.5 opacity-70" aria-hidden>
-          {scheduleIcon}
+          <Pin className="h-2.5 w-2.5 text-white" />
         </span>
       )}
       <span className="font-semibold truncate block pr-4">{event.title}</span>
       {heightPx > 30 && (
         <span className="text-white/70 text-[12px] block mt-[3px]">
-          {format(startDate, 'h:mm a')} – {format(endDate, 'h:mm a')}
+          {formatEventTimeRange(eventStart, eventEnd, timeFormat)}
         </span>
       )}
       {/* Resize handle at bottom edge */}
@@ -3652,6 +3821,7 @@ function DragGhost({
   duration: number;
   hourHeight: number;
 }) {
+  const timeFormat = useTimeFormat();
   const heightPx = Math.max((duration / 60) * hourHeight, 22);
   const hours = Math.floor(top / hourHeight);
   const minutes = Math.round(((top % hourHeight) / hourHeight) * 60 / 15) * 15;
@@ -3674,7 +3844,7 @@ function DragGhost({
       <span className="font-semibold truncate block">{event.title}</span>
       {heightPx > 30 && (
         <span className="text-white/70 text-[12px] block mt-[3px]">
-          {format(ghostDate, 'h:mm a')} – {format(ghostEnd, 'h:mm a')}
+          {formatEventTimeRange(ghostDate, ghostEnd, timeFormat)}
         </span>
       )}
     </div>
@@ -3694,6 +3864,7 @@ function ResizeGhost({
   height: number;
   hourHeight: number;
 }) {
+  const timeFormat = useTimeFormat();
   const heightPx = Math.max(height, 22);
   const startMinutes = Math.round(((top / hourHeight) * 60) / 15) * 15;
   const endMinutes =
@@ -3717,7 +3888,7 @@ function ResizeGhost({
       <span className="font-semibold truncate block">{event.title}</span>
       {heightPx > 30 && (
         <span className="text-white/70 text-[12px] block mt-[3px]">
-          {format(startDate, 'h:mm a')} – {format(endDate, 'h:mm a')}
+          {formatEventTimeRange(startDate, endDate, timeFormat)}
         </span>
       )}
     </div>
@@ -3797,6 +3968,7 @@ function EventDetailPanel({
   onEdit: () => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const deleteEvent = useDeleteCalendarEvent();
   const updateEvent = useUpdateCalendarEvent();
   const { createMeetingAndGetUrl, isPending: isCreatingMeeting } = useAutoCreateWeldMeeting();
@@ -3908,6 +4080,13 @@ function EventDetailPanel({
   const color = getEventColor(event, calendarColorMap);
   const calendar = calendars.find((c) => c.id === event.calendarId);
   const hasAttendees = !!event.attendees?.length;
+  // Show the stored priority (including "normal") rather than a "Set priority" placeholder.
+  const priorityLabels: Record<string, string> = {
+    low: t.calendarView.filterPriorityLow,
+    normal: t.calendarView.filterPriorityNormal,
+    high: t.calendarView.filterPriorityHigh,
+    urgent: t.calendarView.filterPriorityUrgent,
+  };
 
   const handleDelete = async (sendNotification?: boolean) => {
     if (event.id) {
@@ -4180,7 +4359,7 @@ function EventDetailPanel({
                   className="h-8 text-sm inline-flex items-center self-start group/field text-left"
                 >
                   <span className="px-1.5 -mx-1.5 rounded ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 h-[22px] inline-flex items-center transition-shadow">
-                    {formatEventWhen(event)}
+                    {formatEventWhen(event, timeFormat)}
                   </span>
                 </Button>
               </div>
@@ -4194,9 +4373,9 @@ function EventDetailPanel({
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
-                      {event.priority && event.priority !== 'normal' ? (
-                        <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-muted capitalize ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow">
-                          {event.priority}
+                      {event.priority ? (
+                        <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-muted ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow">
+                          {priorityLabels[event.priority] ?? event.priority}
                         </span>
                       ) : (
                         <span className="text-muted-foreground group-hover/field:underline">{t.eventPreview.setPriority}</span>
@@ -4211,7 +4390,7 @@ function EventDetailPanel({
                         onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { priority: value } })}
                         className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[140px]"
                       >
-                        <span>{label}</span>
+                        <span>{priorityLabels[value] ?? label}</span>
                         {event.priority === value && <Check className="h-3.5 w-3.5 text-primary" />}
                       </Button>
                     ))}
@@ -4274,9 +4453,13 @@ function EventDetailPanel({
                   quick-create card. Add via search; remove with the X chip. */}
               <EventAttendeesField
                 attendees={event.attendees ?? []}
+                // sendNotification makes calendar-api mail an invite to each newly
+                // added attendee (members, contacts and invited addresses alike).
+                // [] clears the list: an omitted field would leave it untouched.
                 onChange={(next) => event.id && updateEvent.mutate({
                   id: event.id,
-                  data: { attendees: next.length ? next : undefined },
+                  data: { attendees: next },
+                  sendNotification: true,
                 })}
               />
 
@@ -4531,6 +4714,19 @@ function EventAttendeesField({
     );
   };
 
+  // A typed email that is not a member / contact / attendee yet can be invited
+  // as an external guest: it is saved as a plain `{ email }` attendee, like the
+  // quick-create card does, and calendar-api mails it the invite.
+  const [query, setQuery] = useState('');
+  const inviteEmail = inviteEmailFromQuery(query, [
+    ...attendees.map((a) => a.email),
+    ...options.map((o) => o.email),
+  ]);
+  const inviteExternal = (email: string) => {
+    onChange([...attendees.map((a) => ({ email: a.email, name: a.name })), { email }]);
+    setQuery('');
+  };
+
   const hasAny = attendees.length > 0;
 
   return (
@@ -4540,7 +4736,7 @@ function EventAttendeesField({
         <span className="text-sm text-muted-foreground">{t.eventPreview.fieldAttendees}</span>
       </div>
       <div className="flex-1 min-w-0">
-        <Popover>
+        <Popover onOpenChange={(open) => { if (!open) setQuery(''); }}>
           <PopoverTrigger asChild>
             <div
               role="button"
@@ -4593,9 +4789,25 @@ function EventAttendeesField({
           </PopoverTrigger>
           <PopoverContent className="w-64 p-0" align="start">
             <Command>
-              <CommandInput placeholder={t.eventPreview.searchAttendees} />
+              <CommandInput
+                placeholder={t.eventPreview.searchAttendees}
+                value={query}
+                onValueChange={setQuery}
+              />
               <CommandList className="max-h-[260px] p-1">
                 <CommandEmpty>{t.eventPreview.noPeopleFound}</CommandEmpty>
+                {inviteEmail && (
+                  <CommandItem
+                    value={`invite ${inviteEmail}`}
+                    onSelect={() => inviteExternal(inviteEmail)}
+                    className="flex items-center gap-2 px-1.5"
+                  >
+                    <div className="h-5 w-5 flex items-center justify-center shrink-0">
+                      <Mail className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                    <span className="truncate">{t.eventPreview.inviteGuest.replace('{email}', inviteEmail)}</span>
+                  </CommandItem>
+                )}
                 {options.map((o) => {
                   const selected = isSelected(o.email);
                   return (
@@ -4635,163 +4847,6 @@ function EventAttendeesField({
           </PopoverContent>
         </Popover>
       </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// Guest Search Input (search contacts by name/email)
-// ============================================================================
-
-interface GuestResult {
-  id: string;
-  name: string;
-  email: string;
-  initial: string;
-  type: 'member' | 'contact';
-}
-
-function GuestSearchInput({
-  value,
-  onChange,
-  selectedIds,
-  onSelect,
-  onBlurAway,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  selectedIds: string[];
-  onSelect: (guest: { id: string; name: string; email: string }) => void;
-  /** Called when focus leaves the input (click away) — collapses the row. */
-  onBlurAway?: () => void;
-}) {
-  const t = getTranslations('weldcalendar');
-  const [open, setOpen] = useState(false);
-
-  const { data: peopleData } = usePeople(
-    value.length >= 1 ? { search: value, limit: 6 } : { limit: 6 },
-  );
-  const { data: membersData } = useWorkspaceMembers(1, 50);
-
-  const contacts = useMemo(() => (peopleData?.data || []) as Person[], [peopleData]);
-  const members = useMemo<WorkspaceMemberLite[]>(
-    () =>
-      (membersData?.data || []).map((m) => ({
-        id: m.id ?? m.userId,
-        name: m.name ?? undefined,
-        email: m.email ?? undefined,
-        picture: m.picture ?? undefined,
-      })),
-    [membersData],
-  );
-
-  // Build unified results
-  const results = useMemo(() => {
-    const search = value.toLowerCase();
-    const items: GuestResult[] = [];
-
-    // Team members first
-    for (const m of members) {
-      if (selectedIds.includes(`member-${m.id}`)) continue;
-      const name = m.name || m.email || '';
-      const email = m.email || '';
-      if (search && !name.toLowerCase().includes(search) && !email.toLowerCase().includes(search)) continue;
-      items.push({
-        id: `member-${m.id}`,
-        name,
-        email,
-        initial: (name[0] || email[0] || '?').toUpperCase(),
-        type: 'member',
-      });
-    }
-
-    // Then contacts
-    for (const c of contacts) {
-      if (selectedIds.includes(`contact-${c.id}`)) continue;
-      const name = c.fullName || `${c.firstName} ${c.lastName}`.trim();
-      items.push({
-        id: `contact-${c.id}`,
-        name,
-        email: c.email ?? '',
-        initial: (c.firstName?.[0] || c.email?.[0] || '?').toUpperCase(),
-        type: 'contact',
-      });
-    }
-
-    return items.slice(0, 8);
-  }, [contacts, members, selectedIds, value]);
-
-  const pickGuest = (e: React.MouseEvent, item: GuestResult) => {
-    e.preventDefault();
-    onSelect({ id: item.id, name: item.name, email: item.email });
-    setOpen(false);
-  };
-
-  const showDropdown = open && value.length >= 1 && results.length > 0;
-  const hasMembers = results.some((r) => r.type === 'member');
-  const hasContacts = results.some((r) => r.type === 'contact');
-
-  return (
-    <div className="relative">
-      <Input
-        placeholder={t.eventPreview.searchMembersContacts}
-        value={value}
-        onChange={(e) => {
-          onChange(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => { setOpen(false); onBlurAway?.(); }, 150)}
-        className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
-        autoFocus
-      />
-      {showDropdown && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-popover border rounded-lg shadow-lg z-50 max-h-[240px] overflow-y-auto">
-          {hasMembers && (
-            <div className="px-3 pt-2 pb-1">
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t.eventPreview.teamMembersGroup}</span>
-            </div>
-          )}
-          {results.filter((r) => r.type === 'member').map((item) => (
-            <Button
-              variant="ghost"
-              key={item.id}
-              className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent transition-colors"
-              onMouseDown={(e) => pickGuest(e, item)}
-            >
-              <div className="h-[24px] w-[24px] rounded-[5.5px] bg-blue-500/10 flex items-center justify-center shrink-0">
-                <span className="text-xs font-medium text-blue-600">{item.initial}</span>
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{item.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{item.email}</p>
-              </div>
-            </Button>
-          ))}
-          {hasMembers && hasContacts && <Separator />}
-          {hasContacts && (
-            <div className="px-3 pt-2 pb-1">
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t.eventPreview.contactsGroup}</span>
-            </div>
-          )}
-          {results.filter((r) => r.type === 'contact').map((item) => (
-            <Button
-              variant="ghost"
-              key={item.id}
-              className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent transition-colors"
-              onMouseDown={(e) => pickGuest(e, item)}
-            >
-              <div className="h-[24px] w-[24px] rounded-[5.5px] bg-primary/10 flex items-center justify-center shrink-0">
-                <span className="text-xs font-medium text-primary">{item.initial}</span>
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{item.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{item.email}</p>
-              </div>
-            </Button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -4841,6 +4896,7 @@ function DatePickerField({
       >
         <Calendar
           mode="single"
+          weekStartsOn={WEEK_STARTS_ON}
           selected={value}
           month={month}
           onMonthChange={setMonth}
@@ -4940,6 +4996,13 @@ function InlineSelectRow({
 // Inline Date/Time Row (fixed dropdown with calendar + time input)
 // ============================================================================
 
+/** "HH:mm" in the user's clock format ("09:00" or "9:00 AM"); unparseable input is shown as is. */
+function formatDueTime(time: string, timeFormat: TimeFormat): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (!match) return time;
+  return formatClock(new Date(1970, 0, 1, Number(match[1]), Number(match[2])), timeFormat);
+}
+
 function InlineDateTimeRow({
   icon,
   date,
@@ -4956,6 +5019,7 @@ function InlineDateTimeRow({
   placeholder: string;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState<Date | undefined>(date || new Date());
   const rowRef = React.useRef<HTMLDivElement>(null);
@@ -4991,7 +5055,7 @@ function InlineDateTimeRow({
         {icon}
         <span className="text-sm text-foreground h-7 flex items-center">
           {date ? format(date, 'EEEE, MMM d') : placeholder}
-          {time && <span className="text-muted-foreground ml-1">· {time}</span>}
+          {time && <span className="text-muted-foreground ml-1">· {formatDueTime(time, timeFormat)}</span>}
         </span>
       </div>
       {open && (
@@ -5003,6 +5067,7 @@ function InlineDateTimeRow({
           >
             <Calendar
               mode="single"
+              weekStartsOn={WEEK_STARTS_ON}
               selected={date}
               month={month}
               onMonthChange={setMonth}
@@ -5015,6 +5080,7 @@ function InlineDateTimeRow({
               <input
                 type="time"
                 value={time}
+                data-enter-submits="true"
                 onChange={(e) => onTimeChange(e.target.value)}
                 className="text-sm bg-transparent focus:outline-none flex-1"
                 placeholder={t.misc.addTime}
@@ -5126,6 +5192,8 @@ function FourDayView({
   onPreviewMouseDown?: (e: React.MouseEvent) => void;
   onPreviewResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
 }) {
+  const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const days = Array.from({ length: 4 }, (_, i) => addDays(currentDate, i));
   const containerRef = useRef<HTMLDivElement>(null);
   const hourHeight = useFittedHourHeight(containerRef);
@@ -5148,15 +5216,21 @@ function FourDayView({
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <WeekDayHeader days={days} />
+      <AllDayRow
+        days={days}
+        events={events}
+        getColor={(e) => getEventColor(e, calendarColorMap)}
+        onSelectEvent={onSelectEvent}
+        allDayLabel={t.calendarView.allDay}
+        autoScheduledLabel={t.viewExtras.autoScheduled}
+      />
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
         <div className="grid [grid-template-columns:var(--cal-time-label-width,72px)_repeat(4,1fr)] relative" style={{ minHeight: '100%' }}>
-          <TimeLabelColumn hourHeight={hourHeight} />
+          <TimeLabelColumn hourHeight={hourHeight} timeFormat={timeFormat} />
           {days.map((day) => {
             const dayKey = format(day, 'yyyy-MM-dd');
             const today = isToday(day);
-            const dayEvents = events.filter(
-              (e) => format(new Date(e.startTime), 'yyyy-MM-dd') === dayKey && !e.allDay,
-            );
+            const dayEvents = timedEventsForDay(events, day);
             return (
               <div key={dayKey} data-day-col={dayKey} className={cn('border-r border-border last:border-r-0 relative', today && 'bg-primary/[0.01]')}>
                 {HOURS.map((hour) => (
@@ -5173,19 +5247,23 @@ function FourDayView({
                   />
                 ))}
                 {today && <CurrentTimeIndicator hourHeight={hourHeight} />}
-                {dayEvents.map((evt, i) => {
+                {dayEvents.map(({ event: evt, segment }, i) => {
                   const isDragging = dragState?.event.id === evt.id;
                   const isEventResizing = fourDayResizeState?.event.id === evt.id;
+                  // Only the segment on the event's own start day can be moved
+                  // or resized; continuation segments are display-only.
+                  const editable = !segment.continuesBefore;
                   return (
                     <TimeSlotEvent
                       key={evt.id || i}
                       event={evt}
+                      segment={segment}
                       color={getEventColor(evt, calendarColorMap)}
                       onClick={(e) => { if (!dragState && !isSlotDragging && !isFourDayResizing && !justDraggedRef.current && !justFourDayResizedRef.current) onSelectEvent(evt, e); }}
                       hourHeight={hourHeight}
-                      onDragStart={(e) => handleEventDragStart(evt, e)}
-                      onResizeTopStart={(e) => handleFourDayResizeStart(evt, 'top', e)}
-                      onResizeBottomStart={(e) => handleFourDayResizeStart(evt, 'bottom', e)}
+                      onDragStart={editable ? (e) => handleEventDragStart(evt, e) : undefined}
+                      onResizeTopStart={editable ? (e) => handleFourDayResizeStart(evt, 'top', e) : undefined}
+                      onResizeBottomStart={editable && !segment.continuesAfter ? (e) => handleFourDayResizeStart(evt, 'bottom', e) : undefined}
                       dimmed={isDragging || isEventResizing}
                     />
                   );
@@ -5250,19 +5328,24 @@ function FourDayView({
 
 function YearView({
   currentDate,
+  events,
   onDateClick,
 }: {
   currentDate: Date;
+  events: CalendarEvent[];
   onDateClick: (date: Date) => void;
 }) {
   const year = currentDate.getFullYear();
   const months = Array.from({ length: 12 }, (_, i) => new Date(year, i, 1));
+  // Events per day for the whole year (all-day and multi-day events count on
+  // every day they cover), computed once for all twelve months.
+  const eventCounts = useMemo(() => countEventsByDay(events), [events]);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3 md:p-6">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 md:gap-x-10 gap-y-6 md:gap-y-8 max-w-6xl mx-auto">
         {months.map((month) => (
-          <YearMonth key={month.getMonth()} month={month} onDateClick={onDateClick} />
+          <YearMonth key={month.getMonth()} month={month} eventCounts={eventCounts} onDateClick={onDateClick} />
         ))}
       </div>
     </div>
@@ -5271,42 +5354,37 @@ function YearView({
 
 function YearMonth({
   month,
+  eventCounts,
   onDateClick,
 }: {
   month: Date;
+  eventCounts: ReadonlyMap<string, number>;
   onDateClick: (date: Date) => void;
 }) {
-  const monthEnd = endOfMonth(month);
-  const calStart = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
-
-  const weeks: Date[][] = [];
-  let day = calStart;
-  while (day <= monthEnd || weeks.length < 5) {
-    const week: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      week.push(day);
-      day = addDays(day, 1);
-    }
-    weeks.push(week);
-    if (day > monthEnd && weeks.length >= 5) break;
-  }
+  const t = getTranslations('weldcalendar');
+  const weeks = useMemo(() => buildMonthGrid(month, { minWeeks: 5 }), [month]);
+  const weekdayLabels = weekdayInitials();
 
   return (
     <div>
       <h3 className="text-sm font-semibold mb-2 pl-2.5">{format(month, 'MMMM')}</h3>
       <div className="grid grid-cols-7 gap-0">
-        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+        {weekdayLabels.map((d, i) => (
           <div key={i} className="text-[10px] text-muted-foreground text-center py-0.5">{d}</div>
         ))}
         {weeks.map((week, wi) =>
           week.map((d, di) => {
             const inMonth = isSameMonth(d, month);
             const today = isToday(d);
+            const count = inMonth ? (eventCounts.get(localDayKey(d)) ?? 0) : 0;
             return (
               <Button
                 variant="ghost"
                 key={`${wi}-${di}`}
                 onClick={() => onDateClick(d)}
+                aria-label={count > 0
+                  ? `${format(d, 'EEEE, MMMM d')}, ${count === 1 ? t.viewExtras.oneEvent : t.viewExtras.manyEvents.replace('{count}', String(count))}`
+                  : undefined}
                 className={cn(
                   'relative text-[12px] font-medium h-8 w-full flex items-center justify-center transition-colors',
                   !inMonth && 'text-muted-foreground/50',
@@ -5320,6 +5398,16 @@ function YearMonth({
                 )}>
                   {format(d, 'd')}
                 </span>
+                {count > 0 && (
+                  <span
+                    data-event-dot
+                    aria-hidden
+                    className={cn(
+                      'absolute bottom-0.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full',
+                      count > 2 ? 'bg-primary' : 'bg-primary/60',
+                    )}
+                  />
+                )}
               </Button>
             );
           }),
@@ -5339,6 +5427,9 @@ interface ScheduleItem {
   type: string;
   time: string;
   date: string;
+  /** Display label of `type` ("Task" for reminders). */
+  typeLabel: string;
+  /** "Mon, Oct 5" */
   dateLabel: string;
   dateGroup: string;
   color: string;
@@ -5346,18 +5437,6 @@ interface ScheduleItem {
   allDay: boolean;
   location?: string;
   event: CalendarEvent;
-}
-
-function getDateGroup(date: Date): string {
-  if (isYesterday(date)) return 'yesterday';
-  if (isToday(date)) return 'today';
-  if (isTomorrow(date)) return 'tomorrow';
-  if (isThisWeek(date, { weekStartsOn: 1 })) return 'this_week';
-  const nextWeekStart = addDays(endOfWeek(new Date(), { weekStartsOn: 1 }), 1);
-  const nextWeekEnd = addDays(nextWeekStart, 6);
-  if (date >= nextWeekStart && date <= nextWeekEnd) return 'next_week';
-  if (isSameMonth(date, new Date())) return 'this_month';
-  return 'later';
 }
 
 function ScheduleView({
@@ -5370,7 +5449,18 @@ function ScheduleView({
   onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const items: ScheduleItem[] = useMemo(() => {
+    const typeLabels: Record<string, string> = {
+      meeting: t.calendarView.filterTypeMeeting,
+      event: t.calendarView.filterTypeEvent,
+      // Reminders are the calendar's task items: "Task" everywhere they are labelled.
+      reminder: t.scheduleView.filterTypeTask,
+      appointment: t.calendarView.filterTypeAppointment,
+      call: t.calendarView.filterTypeCall,
+      other: t.calendarView.filterTypeOther,
+    };
+    const now = new Date();
     const sorted = [...events].sort(
       (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
     );
@@ -5381,10 +5471,11 @@ function ScheduleView({
         id: evt.id || `${evt.startTime}-${evt.title}`,
         title: evt.title || t.misc.noTitle,
         type: evt.type,
+        typeLabel: evt.sourceType === 'task' ? t.scheduleView.filterTypeTask : (typeLabels[evt.type] ?? evt.type),
         date: format(start, 'yyyy-MM-dd'),
-        dateLabel: `${format(start, 'd')} ${format(start, 'MMM, EEE').toUpperCase()}`,
-        dateGroup: getDateGroup(start),
-        time: formatScheduleTime(start, end, evt.allDay ? t.calendarView.allDay : null),
+        dateLabel: format(start, 'EEE, MMM d'),
+        dateGroup: getDateGroup(start, now),
+        time: formatScheduleTime(start, end, evt.allDay ? t.calendarView.allDay : null, timeFormat),
         color: getEventColor(evt, calendarColorMap),
         isToday: isToday(start),
         allDay: evt.allDay || false,
@@ -5392,10 +5483,11 @@ function ScheduleView({
         event: evt,
       };
     });
-  }, [events, calendarColorMap, t.calendarView.allDay, t.misc.noTitle]);
+  }, [events, calendarColorMap, timeFormat, t.calendarView, t.scheduleView.filterTypeTask, t.misc.noTitle]);
 
   const headerColumns: HeaderColumn[] = [
     { id: 'color', header: '', width: '24px' },
+    { id: 'date', header: t.scheduleView.colDate, width: 'w-[110px]' },
     { id: 'time', header: t.scheduleView.colTime, width: 'w-[150px]' },
     { id: 'title', header: t.scheduleView.colTitle, width: 'flex-1 min-w-0' },
     { id: 'type', header: t.scheduleView.colType, width: 'w-[100px]' },
@@ -5430,6 +5522,7 @@ function ScheduleView({
     const yesterday = addDays(today, -1);
     const tomorrow = addDays(today, 1);
     return [
+      { id: 'earlier', label: t.scheduleView.groupEarlier, sortOrder: 0, filter: (i: ScheduleItem) => i.dateGroup === 'earlier' },
       { id: 'yesterday', label: `${t.scheduleView.groupYesterday} · ${format(yesterday, 'EEEE, MMMM d')}`, sortOrder: 1, filter: (i: ScheduleItem) => i.dateGroup === 'yesterday' },
       { id: 'today', label: `${t.scheduleView.groupToday} · ${format(today, 'EEEE, MMMM d')}`, sortOrder: 2, filter: (i: ScheduleItem) => i.dateGroup === 'today' },
       { id: 'tomorrow', label: `${t.scheduleView.groupTomorrow} · ${format(tomorrow, 'EEEE, MMMM d')}`, sortOrder: 3, filter: (i: ScheduleItem) => i.dateGroup === 'tomorrow' },
@@ -5438,7 +5531,7 @@ function ScheduleView({
       { id: 'this_month', label: format(today, 'MMMM'), sortOrder: 6, filter: (i: ScheduleItem) => i.dateGroup === 'this_month' },
       { id: 'later', label: t.scheduleView.groupLater, sortOrder: 7, filter: (i: ScheduleItem) => i.dateGroup === 'later' },
     ];
-  }, [t.scheduleView.groupYesterday, t.scheduleView.groupToday, t.scheduleView.groupTomorrow, t.scheduleView.groupThisWeek, t.scheduleView.groupNextWeek, t.scheduleView.groupLater]);
+  }, [t.scheduleView.groupEarlier, t.scheduleView.groupYesterday, t.scheduleView.groupToday, t.scheduleView.groupTomorrow, t.scheduleView.groupThisWeek, t.scheduleView.groupNextWeek, t.scheduleView.groupLater]);
 
   const renderRow = useCallback((item: ScheduleItem) => {
 
@@ -5456,8 +5549,14 @@ function ScheduleView({
           <div className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
         </div>
 
+        {/* Date — own column on desktop; stacked above the time on mobile */}
+        <div className="hidden md:block w-[110px] shrink-0">
+          <span className="text-sm text-muted-foreground whitespace-nowrap">{item.dateLabel}</span>
+        </div>
+
         {/* Time */}
         <div className="w-[110px] md:w-[150px] shrink-0">
+          <span className="md:hidden text-xs font-medium text-foreground whitespace-nowrap block">{item.dateLabel}</span>
           <span className="text-xs md:text-sm text-muted-foreground whitespace-nowrap">{item.time}</span>
         </div>
 
@@ -5467,13 +5566,13 @@ function ScheduleView({
           {/* On mobile, show type + location inline under the title since the
              dedicated columns are hidden. */}
           <span className="md:hidden text-xs text-muted-foreground truncate block">
-            {[item.type, item.location].filter(Boolean).join(' · ')}
+            {[item.typeLabel, item.location].filter(Boolean).join(' · ')}
           </span>
         </div>
 
         {/* Type — hidden on mobile (shown inline under title above) */}
         <div className="hidden md:block w-[100px] shrink-0">
-          <span className="text-xs text-muted-foreground capitalize">{item.type}</span>
+          <span className="text-xs text-muted-foreground">{item.typeLabel}</span>
         </div>
 
         {/* Location — hidden on mobile (shown inline under title above) */}
@@ -5500,7 +5599,7 @@ function ScheduleView({
         maxFilters={3}
         renderRow={renderRow}
         searchPlaceholder={t.calendarView.searchPlaceholder}
-        searchFields={['title', 'type', 'location', 'time']}
+        searchFields={['title', 'type', 'typeLabel', 'location', 'time', 'dateLabel']}
         hideTopBar
         emptyState={{
           title: t.scheduleView.noUpcomingEvents,
@@ -5540,6 +5639,8 @@ function TimeSlotPreview({
   onResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
+  const typedTitle = useQuickCreatePreviewTitle().trim();
   const color = colorOverride || (type ? (EVENT_TYPE_COLORS[type] || '#3b82f6') : '#3b82f6');
   const startHour = date.getHours() + date.getMinutes() / 60;
   const topPx = startHour * hourHeight;
@@ -5566,11 +5667,9 @@ function TimeSlotPreview({
           className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize z-[3]"
         />
       )}
-      <span className="font-semibold block">{t.misc.noTitle}</span>
+      <span className="font-semibold block truncate">{typedTitle || t.misc.noTitle}</span>
       <span className="text-white/70 text-[12px] block mt-[3px]">
-        {endDate
-          ? `${format(date, 'h:mm a')} – ${format(endDate, 'h:mm a')}`
-          : format(date, 'h:mm a')}
+        {formatEventTimeRange(date, endDate ?? null, timeFormat)}
       </span>
       {onResize && (
         <div
@@ -5594,6 +5693,7 @@ function SlotDragPreview({
   startTime: Date;
   endTime: Date;
 }) {
+  const timeFormat = useTimeFormat();
   return (
     <div
       className="absolute left-[3px] right-[3px] rounded-[6px] px-2.5 py-1.5 text-primary text-[11px] leading-tight overflow-hidden z-[1] pointer-events-none bg-primary/15 border border-primary/40"
@@ -5603,7 +5703,7 @@ function SlotDragPreview({
       }}
     >
       <span className="font-semibold block">
-        {format(startTime, 'h:mm a')} – {format(endTime, 'h:mm a')}
+        {formatEventTimeRange(startTime, endTime, timeFormat)}
       </span>
     </div>
   );

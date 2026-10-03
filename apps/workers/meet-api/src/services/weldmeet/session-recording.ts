@@ -71,6 +71,7 @@ import {
   mintRecordingToken,
   safeFilename,
 } from './recording-access';
+import { reconcileRecordingFromRtk } from './recording-reconcile';
 
 export type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 type MeetingRow = typeof schema.meetings.$inferSelect;
@@ -213,7 +214,10 @@ export async function buildRecordingInfo(db: Database, session: MeetingSessionRo
 export async function getRecordingInfo(c: AppContext, sessionId: string): Promise<Response> {
   const auth = await authorizeSession(c, sessionId);
   if (isResponse(auth)) return auth;
-  return success(c, await buildRecordingInfo(c.get('tenantDb'), auth.session));
+  const db = c.get('tenantDb');
+  const orgId = c.get('orgId');
+  const session = orgId ? await reconcileRecordingFromRtk(c.env, db, orgId, auth.session) : auth.session;
+  return success(c, await buildRecordingInfo(db, session));
 }
 
 // ============================================================================

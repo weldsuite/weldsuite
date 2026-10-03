@@ -18,6 +18,17 @@ interface DiscordThread {
   type: number;
 }
 
+/**
+ * Discord ids are snowflakes (numeric strings). Validate before interpolating
+ * one into a request path so a malformed value can never rewrite the URL.
+ */
+function snowflake(id: string): string {
+  if (!/^\d{1,20}$/.test(id)) {
+    throw new Error(`Invalid Discord id: ${JSON.stringify(id)}`);
+  }
+  return id;
+}
+
 async function discordFetch<T>(url: string, init: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -37,7 +48,7 @@ export async function createPrivateThread(
   name: string,
 ): Promise<DiscordThread> {
   return discordFetch<DiscordThread>(
-    `${DISCORD_API}/channels/${channelId}/threads`,
+    `${DISCORD_API}/channels/${snowflake(channelId)}/threads`,
     {
       method: 'POST',
       headers: {
@@ -62,7 +73,7 @@ export async function addThreadMember(
   userId: string,
 ): Promise<void> {
   const res = await fetch(
-    `${DISCORD_API}/channels/${threadId}/thread-members/${userId}`,
+    `${DISCORD_API}/channels/${snowflake(threadId)}/thread-members/${snowflake(userId)}`,
     {
       method: 'PUT',
       headers: { Authorization: `Bot ${botToken}` },
@@ -92,7 +103,7 @@ export async function sendMessageWithEmbed(
   if (options.components) body.components = options.components;
 
   return discordFetch<DiscordApiMessage>(
-    `${DISCORD_API}/channels/${channelId}/messages`,
+    `${DISCORD_API}/channels/${snowflake(channelId)}/messages`,
     {
       method: 'POST',
       headers: {
@@ -113,7 +124,7 @@ export async function sendMessage(
   content: string,
 ): Promise<DiscordApiMessage> {
   return discordFetch<DiscordApiMessage>(
-    `${DISCORD_API}/channels/${channelId}/messages`,
+    `${DISCORD_API}/channels/${snowflake(channelId)}/messages`,
     {
       method: 'POST',
       headers: {
@@ -133,7 +144,7 @@ export async function archiveThread(
   threadId: string,
 ): Promise<void> {
   const res = await fetch(
-    `${DISCORD_API}/channels/${threadId}`,
+    `${DISCORD_API}/channels/${snowflake(threadId)}`,
     {
       method: 'PATCH',
       headers: {
@@ -162,7 +173,7 @@ export async function followUpInteraction(
   if (ephemeral) body.flags = 64; // EPHEMERAL
 
   const res = await fetch(
-    `${DISCORD_API}/webhooks/${appId}/${interactionToken}/messages/@original`,
+    `${DISCORD_API}/webhooks/${snowflake(appId)}/${encodeURIComponent(interactionToken)}/messages/@original`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

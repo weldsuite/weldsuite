@@ -10,7 +10,7 @@ import {
 } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-import { DAY_NAMES, type DayName } from '@/lib/constants';
+import { hasBookableRange, mondayFirstOffset, WEEKDAY_NAMES } from '@/lib/availability';
 import type { WeeklyAvailability } from '@/lib/schemas';
 
 interface CalendarWidgetProps {
@@ -19,6 +19,8 @@ interface CalendarWidgetProps {
   today: Date;
   maxDate: Date;
   availability: WeeklyAvailability;
+  /** Appointment length in minutes: a day whose ranges are all shorter has no slots. */
+  duration: number;
   emptyDates: Set<string>;
   pendingDates: Set<string>;
   accentColor: string;
@@ -32,6 +34,7 @@ export function CalendarWidget({
   today,
   maxDate,
   availability,
+  duration,
   emptyDates,
   pendingDates,
   accentColor,
@@ -58,7 +61,7 @@ export function CalendarWidget({
     return (
       isBefore(day, today) ||
       day > maxDate ||
-      !hasAvailabilityForDay(day, availability) ||
+      !hasAvailabilityForDay(day, availability, duration) ||
       emptyDates.has(dayStr) ||
       pendingDates.has(dayStr)
     );
@@ -80,10 +83,10 @@ export function CalendarWidget({
         next = addDays(day, 7);
         break;
       case 'Home':
-        next = addDays(day, -day.getDay());
+        next = addDays(day, -mondayFirstOffset(day.getDay()));
         break;
       case 'End':
-        next = addDays(day, 6 - day.getDay());
+        next = addDays(day, 6 - mondayFirstOffset(day.getDay()));
         break;
       case 'Enter':
       case ' ':
@@ -170,7 +173,7 @@ export function CalendarWidget({
           role="row"
           className="grid mt-4 grid-cols-7 md:grid-cols-[repeat(7,59px)] gap-1 md:gap-1.5 md:justify-center"
         >
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
             <div
               key={d}
               role="columnheader"
@@ -316,7 +319,8 @@ function generateCalendarCells(month: Date): CalendarCellData[] {
   const m = month.getMonth();
   const firstDay = new Date(year, m, 1);
   const lastDay = new Date(year, m + 1, 0);
-  const startPad = firstDay.getDay();
+  // Weeks start on Monday, like the rest of WeldCalendar.
+  const startPad = mondayFirstOffset(firstDay.getDay());
   const cells: CalendarCellData[] = [];
 
   for (let i = 0; i < startPad; i++) cells.push({ key: `empty-${i}`, date: null });
@@ -331,10 +335,18 @@ function isInMonth(day: Date, month: Date): boolean {
   return day.getFullYear() === month.getFullYear() && day.getMonth() === month.getMonth();
 }
 
-export function hasAvailabilityForDay(date: Date, availability: WeeklyAvailability): boolean {
-  const dayName = DAY_NAMES[date.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6] satisfies DayName;
-  const slots = availability[dayName] ?? [];
-  return slots.length > 0;
+/**
+ * True when the weekday has at least one range long enough for an appointment.
+ * A day whose ranges are invalid (end before start) or shorter than the
+ * appointment can never have slots, so it is not selectable.
+ */
+export function hasAvailabilityForDay(
+  date: Date,
+  availability: WeeklyAvailability,
+  duration: number,
+): boolean {
+  const dayName = WEEKDAY_NAMES[date.getDay()];
+  return !!dayName && hasBookableRange(availability[dayName], duration);
 }
 
 // Re-exported so the orchestrator can use the same `today` zero-time normalisation.
