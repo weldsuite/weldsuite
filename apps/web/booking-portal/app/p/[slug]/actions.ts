@@ -1,7 +1,7 @@
 'use server';
 
 import { eq, and, isNull, gte, lte, desc, ne } from 'drizzle-orm';
-import { fromZonedTime, toZonedTime } from 'date-fns-tz';
+import { fromZonedTime } from 'date-fns-tz';
 import { buildIcsInvite } from '@weldsuite/transactional-email';
 import { personalAccounts } from '@weldsuite/db/schema/master';
 import { masterDb } from '@weldsuite/db/lib/master';
@@ -20,7 +20,8 @@ import {
   sendBookingRescheduledEmail,
   sendGuestInviteEmail,
 } from '@/lib/booking-emails';
-import { BOOKING_FROM_ADDRESS, DAY_NAMES, type DayName } from '@/lib/constants';
+import { BOOKING_FROM_ADDRESS } from '@/lib/constants';
+import { sanitizeAvailability, weekdayOfDate } from '@/lib/availability';
 import {
   cancelPersonalBookingInputSchema,
   createPersonalBookingInputSchema,
@@ -96,11 +97,11 @@ export async function getPersonalAvailableSlots(
     );
     return [];
   }
-  const availability = availabilityParse.data;
+  const availability = sanitizeAvailability(availabilityParse.data);
 
-  const midnightUtc = new Date(`${date}T00:00:00Z`);
-  const dayInTz = toZonedTime(midnightUtc, tz);
-  const dayName = DAY_NAMES[dayInTz.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6] satisfies DayName;
+  // `date` is already a calendar date in the page's timezone: read its weekday directly.
+  const dayName = weekdayOfDate(date);
+  if (!dayName) return [];
   const daySlots = availability[dayName] ?? [];
   if (daySlots.length === 0) return [];
 

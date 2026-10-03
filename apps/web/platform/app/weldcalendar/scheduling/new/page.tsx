@@ -43,8 +43,11 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { cn } from '@/lib/utils';
-import { useCreateBookingPage, useUserCalendars } from '@/hooks/queries/use-calendar-queries';
+import { useCreateBookingPage } from '@/hooks/queries/use-calendar-queries';
 import type { WeeklyAvailability, TimeRange } from '@/hooks/queries/use-calendar-queries';
+import { findAvailabilityProblem } from '@weldsuite/core-api-client/schemas/booking-pages';
+import type { AvailabilityProblem } from '@weldsuite/core-api-client/schemas/booking-pages';
+import { WEEK_STARTS_ON } from '../../lib/calendar-format';
 import { DEFAULT_AVAILABILITY, DURATION_OPTIONS } from '../../types';
 import {
   HOURS as SHARED_HOURS,
@@ -69,8 +72,9 @@ export interface BookingPageEditorProps {
   };
 }
 
+// Monday first, like the rest of WeldCalendar (WEEK_STARTS_ON).
 const DAY_NAMES: (keyof WeeklyAvailability)[] = [
-  'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
 ];
 
 type RepeatMode = 'none' | 'weekly' | 'custom';
@@ -332,9 +336,6 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   ];
   const navigate = useNavigate();
   const createBookingPage = useCreateBookingPage();
-  const { data: calendarsData } = useUserCalendars();
-  const calendars = calendarsData?.data || [];
-  const [selectedCalendarId, setSelectedCalendarId] = useState<string>('');
   const isEdit = mode === 'edit';
   // Id of the booking page being edited (undefined when creating a new one).
   const editingId = isEdit ? bookingPageId : undefined;
@@ -353,7 +354,12 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   const specific = useSpecificDates();
   const [bufferBefore, setBufferBefore] = useState(initial.bufferBefore);
   const [bufferAfter, setBufferAfter] = useState(initial.bufferAfter);
-  const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 0 }));
+  const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: WEEK_STARTS_ON }));
+
+  // A range that ends before it starts (Monday 18:00-17:00), or overlaps another
+  // one, can never produce a slot. Block saving instead of publishing a page
+  // whose days are selectable but empty. The API enforces the same rule.
+  const availabilityProblem = repeatMode === 'none' ? null : findAvailabilityProblem(availability);
 
   const hasUnsavedChanges = () =>
     hasUnsavedBookingChanges(isEdit, initialData, { title, duration, bufferBefore, bufferAfter });
@@ -387,6 +393,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   // edit mode) and returns the destination route the normal Save flow should
   // navigate to. Does NOT navigate — callers decide.
   const persistBookingPage = async (): Promise<BookingPageDestination> => {
+    if (availabilityProblem) throw new Error('invalid availability');
     const name = resolveBookingName(title);
 
     if (editingId) {
@@ -413,6 +420,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   // and navigate to the Details page in draft mode (where the Create button
   // actually fires the API).
   const handleContinue = () => {
+    if (availabilityProblem) return;
     const name = resolveBookingName(title);
     if (editingId) {
       sessionStorage.setItem(`booking-edit-${editingId}`, JSON.stringify({
@@ -493,7 +501,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
               onFiltersChange={setActiveFilters}
             />
             {!isTodayInWeek && (
-              <Button variant="outline" size="sm" className="shadow-none" onClick={() => setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: 0 }))}>
+              <Button variant="outline" size="sm" className="shadow-none" onClick={() => setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: WEEK_STARTS_ON }))}>
                 {t.bookingView.today}
               </Button>
             )}
@@ -594,6 +602,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
               onRepeatModeChange={setRepeatMode}
               availability={availability}
               onAvailabilityChange={setAvailability}
+              availabilityProblem={availabilityProblem}
               specific={specific}
             />
 
@@ -648,34 +657,6 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
                 </div>
               </div>
             </CollapsibleSection>
-
-            {/* Calendar selection */}
-            <div className="px-5 py-4">
-              <div className="space-y-2.5">
-                <div>
-                  <p className="text-sm font-medium">{t.bookingEditor.calendarSection}</p>
-                  <p className="text-xs text-muted-foreground">{t.bookingEditor.calendarHint}</p>
-                </div>
-                <Select
-                  value={selectedCalendarId || (calendars[0]?.id || '')}
-                  onValueChange={setSelectedCalendarId}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={t.bookingEditor.calendarPlaceholder} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {calendars.map((cal) => (
-                      <SelectItem key={cal.id} value={cal.id}>
-                        <div className="flex items-center gap-2">
-                          <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: cal.color || '#3b82f6' }} />
-                          {cal.name}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -684,7 +665,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
           <Button variant="outline" onClick={handleNavigateAway}>
             {t.bookingEditor.cancel}
           </Button>
-          <Button onClick={handleContinue} disabled={isSaving}>
+          <Button onClick={handleContinue} disabled={isSaving || !!availabilityProblem}>
             {continueButtonLabel(isSaving, isEdit, t.bookingEditor)}
           </Button>
         </div>
@@ -920,27 +901,35 @@ function CollapsibleSection({
 
 function TimeRangeInputs({
   range,
+  invalid = false,
   onStartChange,
   onEndChange,
 }: Readonly<{
   range: TimeRange;
+  invalid?: boolean;
   onStartChange: (value: string) => void;
   onEndChange: (value: string) => void;
 }>) {
+  const inputClass = cn(
+    'h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden',
+    invalid && 'border-destructive focus-visible:ring-destructive/30',
+  );
   return (
     <>
       <Input
         type="time"
         value={range.start}
+        aria-invalid={invalid || undefined}
         onChange={(e) => onStartChange(e.target.value)}
-        className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
+        className={inputClass}
       />
       <span className="text-muted-foreground text-sm">–</span>
       <Input
         type="time"
         value={range.end}
+        aria-invalid={invalid || undefined}
         onChange={(e) => onEndChange(e.target.value)}
-        className="h-9 text-sm shadow-none w-[95px] [&::-webkit-calendar-picker-indicator]:hidden"
+        className={inputClass}
       />
     </>
   );
@@ -1072,12 +1061,14 @@ function AvailabilitySection({
   onRepeatModeChange,
   availability,
   onAvailabilityChange,
+  availabilityProblem,
   specific,
 }: Readonly<{
   repeatMode: RepeatMode;
   onRepeatModeChange: (mode: RepeatMode) => void;
   availability: WeeklyAvailability;
   onAvailabilityChange: Dispatch<SetStateAction<WeeklyAvailability>>;
+  availabilityProblem: AvailabilityProblem | null;
   specific: SpecificDatesApi;
 }>) {
   const t = getTranslations('weldcalendar');
@@ -1137,7 +1128,11 @@ function AvailabilitySection({
         {repeatMode === 'none' ? (
           <SpecificDatesEditor specific={specific} />
         ) : (
-          <WeeklyAvailabilityEditor availability={availability} onChange={onAvailabilityChange} />
+          <WeeklyAvailabilityEditor
+            availability={availability}
+            onChange={onAvailabilityChange}
+            problem={availabilityProblem}
+          />
         )}
       </div>
     </div>
@@ -1251,9 +1246,11 @@ function CustomRepeatDialog({
 function WeeklyAvailabilityEditor({
   availability,
   onChange,
+  problem,
 }: Readonly<{
   availability: WeeklyAvailability;
   onChange: Dispatch<SetStateAction<WeeklyAvailability>>;
+  problem: AvailabilityProblem | null;
 }>) {
   const t = getTranslations('weldcalendar');
   const dayShort: Record<keyof WeeklyAvailability, string> = {
@@ -1310,6 +1307,7 @@ function WeeklyAvailabilityEditor({
           key={day}
           label={dayShort[day]}
           ranges={availability[day]}
+          problem={problem?.day === day ? problem : null}
           onEnable={() => enableDay(day)}
           onAddRange={() => addRange(day)}
           onRemoveRange={(idx) => removeRange(day, idx)}
@@ -1324,6 +1322,7 @@ function WeeklyAvailabilityEditor({
 function DayAvailabilityRow({
   label,
   ranges,
+  problem,
   onEnable,
   onAddRange,
   onRemoveRange,
@@ -1332,6 +1331,8 @@ function DayAvailabilityRow({
 }: Readonly<{
   label: string;
   ranges: TimeRange[];
+  /** The first invalid range on this day, if any. Shown inline and blocks saving. */
+  problem: AvailabilityProblem | null;
   onEnable: () => void;
   onAddRange: () => void;
   onRemoveRange: (index: number) => void;
@@ -1349,41 +1350,51 @@ function DayAvailabilityRow({
       {isEnabled ? (
         <div className="flex-1 space-y-2">
           {ranges.map((range, idx) => (
-            <div key={rangeKey(range)} className="flex items-center gap-2">
-              <TimeRangeInputs
-                range={range}
-                onStartChange={(value) => onUpdateRange(idx, { start: value })}
-                onEndChange={(value) => onUpdateRange(idx, { end: value })}
-              />
-              <div className="flex items-center gap-0.5 ml-auto">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-[11px] hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => onRemoveRange(idx)}
-                  title={t.bookingPagesSidebar.delete}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-[11px]"
-                  onClick={onAddRange}
-                  title={t.availabilityEditor.addTimeRange}
-                >
-                  <Plus className="h-4 w-4 text-muted-foreground" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-[11px]"
-                  onClick={onCopyToAll}
-                  title={t.bookingEditor.copyToAllDays}
-                >
-                  <Copy className="h-4 w-4 text-muted-foreground" />
-                </Button>
+            <div key={rangeKey(range)} className="space-y-1">
+              <div className="flex items-center gap-2">
+                <TimeRangeInputs
+                  range={range}
+                  invalid={problem?.index === idx}
+                  onStartChange={(value) => onUpdateRange(idx, { start: value })}
+                  onEndChange={(value) => onUpdateRange(idx, { end: value })}
+                />
+                <div className="flex items-center gap-0.5 ml-auto">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-[11px] hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => onRemoveRange(idx)}
+                    title={t.bookingPagesSidebar.delete}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-[11px]"
+                    onClick={onAddRange}
+                    title={t.availabilityEditor.addTimeRange}
+                  >
+                    <Plus className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-[11px]"
+                    onClick={onCopyToAll}
+                    title={t.bookingEditor.copyToAllDays}
+                  >
+                    <Copy className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
               </div>
+              {problem?.index === idx && (
+                <p role="alert" className="text-xs text-destructive">
+                  {problem.kind === 'end-before-start'
+                    ? t.bookingEditor.availabilityEndBeforeStart
+                    : t.bookingEditor.availabilityOverlap}
+                </p>
+              )}
             </div>
           ))}
         </div>
@@ -1554,6 +1565,7 @@ function DatePickerInput({
       <PopoverContent className="w-auto overflow-hidden p-0" align="start">
         <Calendar
           mode="single"
+          weekStartsOn={WEEK_STARTS_ON}
           selected={value}
           defaultMonth={value}
           captionLayout="dropdown"

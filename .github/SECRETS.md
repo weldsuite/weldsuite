@@ -32,8 +32,9 @@ Optional frontend build secrets (on both environments if used):
 
 | GitHub secret | Used by |
 |---|---|
-| `VITE_BOOKING_PORTAL_URL` | Platform + WeldCalendar Pages builds |
+| `VITE_BOOKING_PORTAL_URL` | Platform + WeldCalendar Pages builds (optional: defaults to `https://book.weldsuite.org` / `https://book-test.weldsuite.org`) |
 | `VITE_MEETING_PORTAL_URL` | Platform Pages build |
+| `VITE_MAPBOX_ACCESS_TOKEN` | Platform Pages build (WeldCalendar event location autocomplete; no suggestions without it) |
 | `VITE_MIXPANEL_TOKEN` | Platform Pages build |
 | `VITE_BETTERSTACK_SOURCE_TOKEN` | Platform Pages build |
 

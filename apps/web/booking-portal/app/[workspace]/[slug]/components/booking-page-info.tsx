@@ -10,6 +10,8 @@ interface BookingPageInfoProps {
   bookingPage: BookingPageProps;
   workspaceName: string;
   workspaceImage: string | null;
+  /** The member hosting this page. The workspace is shown as secondary text. */
+  hostName?: string | null;
   locationLabel: string;
   timezone: string;
   /** When provided, the timezone row becomes a picker. */
@@ -21,11 +23,14 @@ export function BookingPageInfo({
   bookingPage,
   workspaceName,
   workspaceImage,
+  hostName,
   locationLabel,
   timezone,
   onTimezoneChange,
   accentColor = '#111827',
 }: Readonly<BookingPageInfoProps>) {
+  const host = hostName?.trim() || workspaceName;
+  const showWorkspace = host !== workspaceName;
   return (
     <div className="w-full md:w-[280px] shrink-0 md:border-r md:border-b-0 md:border-gray-200 dark:md:border-[#26262B] flex flex-col overflow-hidden">
       <div className="flex flex-col flex-1 px-6 pt-6 pb-6">
@@ -39,13 +44,22 @@ export function BookingPageInfo({
             />
           ) : (
             <div className="h-full w-full bg-gray-200 dark:bg-[#2E2E33] flex items-center justify-center text-sm font-semibold text-gray-500 dark:text-[#C4C4CA]">
-              {workspaceName.charAt(0)}
+              {host.charAt(0)}
             </div>
           )}
         </div>
-        <p className="text-sm font-medium text-blue-600 dark:text-blue-400 mb-2 tabular-nums">
-          {workspaceName}
+        <p
+          className={`text-sm font-medium text-blue-600 dark:text-blue-400 tabular-nums ${
+            showWorkspace ? 'mb-0.5' : 'mb-2'
+          }`}
+        >
+          {host}
         </p>
+        {showWorkspace && (
+          <p className="text-[13px] text-gray-500 dark:text-[#9999A1] mb-2 tabular-nums">
+            {workspaceName}
+          </p>
+        )}
         <h1 className="text-[20px] font-semibold text-gray-900 dark:text-[#F2F2F4] leading-tight mb-2 tabular-nums">
           {bookingPage.name}
         </h1>

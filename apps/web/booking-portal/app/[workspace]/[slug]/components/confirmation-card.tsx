@@ -11,6 +11,10 @@ import type { TimeSlot } from '../actions';
 interface ConfirmationCardProps {
   bookingPage: BookingPageProps;
   workspaceName: string;
+  /** The member hosting the meeting; the workspace is shown as secondary text. */
+  hostName?: string | null;
+  /** Open with the "Cancel this meeting?" confirmation showing (cancel link in the email). */
+  startInCancelConfirm?: boolean;
   selectedSlot: TimeSlot | null;
   selectedDate: Date | null;
   bookerName: string;
@@ -27,6 +31,8 @@ interface ConfirmationCardProps {
 export function ConfirmationCard({
   bookingPage,
   workspaceName,
+  hostName,
+  startInCancelConfirm = false,
   selectedSlot,
   selectedDate,
   bookerName,
@@ -39,7 +45,8 @@ export function ConfirmationCard({
   onCancel,
   cancelling,
 }: Readonly<ConfirmationCardProps>) {
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(startInCancelConfirm);
+  const host = hostName?.trim() || workspaceName;
   const formatTime = (date: Date) =>
     formatInTimeZone(date, timezone, use24h ? 'HH:mm' : 'h:mm a');
   const formatDateInTz = (date: Date, pattern: string) =>
@@ -72,7 +79,7 @@ export function ConfirmationCard({
           className="block mb-6 max-w-md text-sm rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-amber-900 dark:text-amber-200 px-4 py-3"
         >
           Booking confirmed, but we couldn't deliver the confirmation email. Please reach out to{' '}
-          <strong>{workspaceName}</strong> directly if you need the details.
+          <strong>{host}</strong> directly if you need the details.
         </output>
       )}
       {emailDelivery === 'partial' && (
@@ -113,13 +120,20 @@ export function ConfirmationCard({
                 Who
               </dt>
               <dd className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-900 dark:text-[#F2F2F4] truncate">
-                    {workspaceName}
-                  </span>
-                  <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-300">
-                    HOST
-                  </span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-900 dark:text-[#F2F2F4] truncate">
+                      {host}
+                    </span>
+                    <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-300">
+                      HOST
+                    </span>
+                  </div>
+                  {host !== workspaceName && (
+                    <p className="text-gray-500 dark:text-[#9999A1] text-[13px] truncate mt-1">
+                      {workspaceName}
+                    </p>
+                  )}
                 </div>
                 {(bookerName || bookerEmail) && (
                   <div className="min-w-0">
@@ -295,7 +309,6 @@ function AddToCalendar({
 
   const googleUrl = `${EXTERNAL_CALENDAR_BASE.google}?action=TEMPLATE&text=${title}&dates=${fmt(start)}/${fmt(end)}&details=${details}&location=${location}`;
   const outlookUrl = `${EXTERNAL_CALENDAR_BASE.outlook}?path=/calendar/action/compose&rru=addevent&subject=${title}&body=${details}&location=${location}&startdt=${startIso}&enddt=${endIso}`;
-  const weldcalUrl = `${EXTERNAL_CALENDAR_BASE.weldcal}?title=${title}&start=${startIso}&end=${endIso}&location=${location}`;
 
   const ics = [
     'BEGIN:VCALENDAR',
@@ -323,10 +336,6 @@ function AddToCalendar({
     <div className="mt-6 flex items-center justify-center gap-3 text-sm text-gray-700 dark:text-[#C4C4CA]">
       <span>Add to calendar</span>
       <div className="flex items-center gap-2">
-        <a href={weldcalUrl} target="_blank" rel="noreferrer" className={btn} title="WeldCalendar">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icons/weldcalendar.svg" alt="WeldCalendar" className="h-4 w-4" />
-        </a>
         <a href={googleUrl} target="_blank" rel="noreferrer" className={btn} title="Google Calendar">
           <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
