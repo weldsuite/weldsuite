@@ -73,7 +73,9 @@ For manual stream wiring, `suppressor.process(rawStream)` returns the processed
 Each `process()` call builds its own pipeline, which is freed (raw mic
 included) when its processed track is stopped; `dispose()` frees the rest.
 Never tear one pipeline down from another: RTK acquires the mic several times
-per join and keeps whichever track it settled on.
+per join and keeps whichever track it settled on. When the raw mic track ends
+(microphone access revoked, device unplugged) the processed track is ended
+too and fires `ended`, so RTK re-acquires the mic like it does for a raw track.
 
 ## Consumer plumbing
 

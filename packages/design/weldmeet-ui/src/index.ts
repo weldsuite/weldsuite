@@ -80,3 +80,12 @@ export {
   type VirtualBackgroundType,
   type VirtualBackgroundPreference,
 } from './hooks/use-virtual-background';
+export { useMicrophoneRecovery, type UseMicrophoneRecoveryOptions } from './hooks/use-microphone-recovery';
+
+// Microphone
+export {
+  enableMicrophone,
+  isMicrophonePermissionDenied,
+  type EnableMicrophoneResult,
+  type MicrophoneSelf,
+} from './lib/microphone';

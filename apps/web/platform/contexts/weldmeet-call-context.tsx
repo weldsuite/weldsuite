@@ -37,6 +37,7 @@ import {
   playHandLowerSound,
 } from '@/lib/utils/notification-sound';
 import { randomSuffix } from '@/lib/random';
+import { enableMicrophone, isMicrophonePermissionDenied, useMicrophoneRecovery } from '@weldsuite/weldmeet-ui';
 
 // RNNoise noise suppression flag. Plain build-time/runtime gate, default ON;
 // set VITE_NOISE_SUPPRESSION=false to disable. (Legacy alias:
@@ -350,6 +351,9 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
   const [cameraBlocked, setCameraBlocked] = useState(false);
+  // Whether the user wants their mic on. Survives a browser-level block so
+  // the mic comes back by itself once access is allowed again (TASK-713).
+  const micWantedRef = useRef(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [duration, setDuration] = useState(0);
   const [meeting, setMeeting] = useState<RealtimeKitClient | null>(null);
@@ -633,12 +637,27 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       setMicBlocked(isPermissionBlocked(permissions?.audio));
       setCameraBlocked(isPermissionBlocked(permissions?.video));
     };
+    // A mic turned off while access is allowed (host mute, the participant
+    // menu) is a real mute; one lost to a browser block is not, so it comes
+    // back. The browser permission is read after the event, because a revoke
+    // can end the track before the permission change is reported.
+    const onAudioUpdate = () => {
+      sync();
+      if (self.audioEnabled) {
+        micWantedRef.current = true;
+        return;
+      }
+      if (isPermissionBlocked(self.mediaPermissions?.audio)) return;
+      void isMicrophonePermissionDenied().then((denied) => {
+        if (!denied && !self.audioEnabled) micWantedRef.current = false;
+      });
+    };
     sync();
-    self.on('audioUpdate', sync);
+    self.on('audioUpdate', onAudioUpdate);
     self.on('videoUpdate', sync);
     self.on('mediaPermissionUpdate', sync);
     return () => {
-      self.off('audioUpdate', sync);
+      self.off('audioUpdate', onAudioUpdate);
       self.off('videoUpdate', sync);
       self.off('mediaPermissionUpdate', sync);
     };
@@ -675,6 +694,17 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       for (const status of statuses) status.onchange = null;
     };
   }, [meeting]);
+
+  // Revoking mic access ends the mic track and allowing it again doesn't give
+  // RTK a new one, so bring the mic back if the user had it on (TASK-713).
+  useMicrophoneRecovery(meeting?.self, {
+    isMicWanted: () => micWantedRef.current,
+    onLost: () => setIsMuted(true),
+    onRestored: ({ enabled }) => {
+      setIsMuted(!enabled);
+      if (enabled) setMicBlocked(false);
+    },
+  });
 
   // Subscribe to hand-raise + host-controls broadcasts from other participants.
   // RealtimeKit's own `participants.broadcastMessage` is reused (no extra
@@ -1109,6 +1139,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     if (options?.skipPreview) {
       const audioOn = true;
       const videoOn = type === 'video';
+      micWantedRef.current = audioOn;
       setIsMuted(!audioOn);
       setIsVideoOff(!videoOn);
       await connectToMeeting(mId, type, audioOn, videoOn);
@@ -1122,6 +1153,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     if (!meetingId) return;
     const audioOn = previewAudioEnabled;
     const videoOn = previewVideoEnabled;
+    micWantedRef.current = audioOn;
     setIsMuted(!audioOn);
     setIsVideoOff(!videoOn);
     // Read before the stream is torn down: the devices the user picked.
@@ -1223,21 +1255,20 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   const toggleMute = useCallback(async () => {
     if (!meeting) return;
     if (meeting.self.audioEnabled) {
+      micWantedRef.current = false;
       meeting.self.disableAudio();
       setIsMuted(true);
       playMuteSound();
       return;
     }
-    try {
-      await meeting.self.enableAudio();
-    } catch (err) {
-      console.error('[WeldMeet] enableAudio failed:', err);
-    }
-    // RTK resolves without a track when the browser blocks the mic, so read
-    // the real state instead of assuming the unmute worked.
-    const nowEnabled = meeting.self.audioEnabled;
-    setIsMuted(!nowEnabled);
-    if (nowEnabled) playUnmuteSound();
+    micWantedRef.current = true;
+    // Re-acquires the mic when its track ended (access revoked and allowed
+    // again), where a plain enableAudio() would leave it off (TASK-713).
+    const { enabled, blocked } = await enableMicrophone(meeting.self);
+    setIsMuted(!enabled);
+    if (blocked) setMicBlocked(true);
+    else if (enabled) setMicBlocked(false);
+    if (enabled) playUnmuteSound();
   }, [meeting]);
 
   const toggleVideo = useCallback(async () => {
