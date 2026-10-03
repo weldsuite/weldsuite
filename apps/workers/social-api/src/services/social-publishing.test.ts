@@ -511,8 +511,8 @@ describe('social publishing · delete cancels the pending delivery', () => {
     expect(row.postpeerPostId).toBeNull();
   });
 
-  it('stays quiet for an already-published post so the record is still deletable', async () => {
-    if (!available) return;
+  it('stays quiet for an already-published post so the record is still deletable', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_del_pub', 'published', 'pp_del_pub');
     const calls = stubPostPeer();
@@ -528,8 +528,8 @@ describe('social publishing · delete cancels the pending delivery', () => {
     expect(row.status).toBe('published');
   });
 
-  it('propagates a non-conflict cancellation failure so the route cannot delete the row', async () => {
-    if (!available) return;
+  it('propagates a non-conflict cancellation failure so the route cannot delete the row', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_del_err', 'scheduled', 'pp_del_err');
     stubPostPeer();
