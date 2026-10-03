@@ -145,6 +145,26 @@ function parseHandlers(source: string): Handler[] {
  * `publishEntityEvent`). A registration referencing such a symbol publishes.
  */
 function collectPublishingHelpers(source: string): Set<string> {
+  const blocks = collectTopLevelBlocks(source);
+
+  const publishing = new Set<string>();
+  for (const [name, block] of blocks) {
+    if (block.includes('publishEntityEvent')) publishing.add(name);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [name, block] of blocks) {
+      if (publishing.has(name) || !referencesAny(block, publishing)) continue;
+      publishing.add(name);
+      changed = true;
+    }
+  }
+  return publishing;
+}
+
+/** Top-level `function`/`const` declarations in a file, keyed by name. */
+function collectTopLevelBlocks(source: string): Map<string, string> {
   // Anchor declarations to column 0 (top-level only) so that *indented*
   // inner declarations inside a helper body don't prematurely end its block.
   const declRe = /(?:^|\n)(?:export )?(?:async )?(?:function (\w+)|const (\w+)\s*=)/g;
@@ -159,34 +179,19 @@ function collectPublishingHelpers(source: string): Set<string> {
     const end = next ? next.index : source.length;
     blocks.set(name, source.slice(m.index, end));
   }
+  return blocks;
+}
 
-  const publishing = new Set<string>();
-  for (const [name, block] of blocks) {
-    if (block.includes('publishEntityEvent')) publishing.add(name);
+/** Whether `text` mentions any of `names` as a whole word. */
+function referencesAny(text: string, names: Iterable<string>): boolean {
+  for (const name of names) {
+    if (new RegExp(`\\b${name}\\b`).test(text)) return true;
   }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const [name, block] of blocks) {
-      if (publishing.has(name)) continue;
-      for (const pub of publishing) {
-        if (new RegExp(`\\b${pub}\\b`).test(block)) {
-          publishing.add(name);
-          changed = true;
-          break;
-        }
-      }
-    }
-  }
-  return publishing;
+  return false;
 }
 
 function handlerPublishes(h: Handler, helpers: Set<string>): boolean {
-  if (h.body.includes('publishEntityEvent')) return true;
-  for (const name of helpers) {
-    if (new RegExp(`\\b${name}\\b`).test(h.body)) return true;
-  }
-  return false;
+  return h.body.includes('publishEntityEvent') || referencesAny(h.body, helpers);
 }
 
 function isCoreCrud(h: Handler): boolean {
