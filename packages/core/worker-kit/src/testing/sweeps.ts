@@ -185,7 +185,7 @@ function collectTopLevelBlocks(source: string): Map<string, string> {
 /** Whether `text` mentions any of `names` as a whole word. */
 function referencesAny(text: string, names: Iterable<string>): boolean {
   for (const name of names) {
-    if (new RegExp(`\\b${name}\\b`).test(text)) return true;
+    if (new RegExp(String.raw`\b${name}\b`).test(text)) return true;
   }
   return false;
 }
@@ -207,7 +207,7 @@ export function routeDirs(routesDir: string): string[] {
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
     .filter((name) => existsSync(join(routesDir, name, 'index.ts')))
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 }
 
 export interface EventCoverageReport {
