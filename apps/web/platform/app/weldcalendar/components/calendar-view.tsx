@@ -5,9 +5,7 @@ import { getTranslations } from '@/lib/i18n';
 import {
   format,
   startOfMonth,
-  endOfMonth,
   startOfWeek,
-  endOfWeek,
   addDays,
   addMonths,
   subMonths,
@@ -17,9 +15,6 @@ import {
   isSameDay,
   isToday,
   differenceInMinutes,
-  isTomorrow,
-  isYesterday,
-  isThisWeek,
 } from 'date-fns';
 import { defaultQuickCreateRange, shiftEndDate } from './quick-create-dates';
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Paperclip, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
@@ -43,7 +38,17 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { LocationAutocomplete } from './location-autocomplete';
 import { MonthEventChip, MonthMoreButton, MONTH_CHIP_CLASS } from './month-event-chip';
-import { monthCellCapacity, splitMonthCellEvents, MONTH_DEFAULT_CAPACITY } from '../lib/month-layout';
+import { monthCellCapacity, monthChipTime, splitMonthCellEvents, MONTH_DEFAULT_CAPACITY } from '../lib/month-layout';
+import { AllDayRow } from './all-day-row';
+import { WEEK_STARTS_ON, useTimeFormat } from '../lib/calendar-format';
+import {
+  countEventsByDay,
+  dayKey as localDayKey,
+  timedEventsForDay,
+  type TimedSegment,
+} from '../lib/event-days';
+import { formatEventTimeRange, formatScheduleTime, getDateGroup } from '../lib/schedule';
+import { buildMonthGrid, orderWeekdays } from '../lib/week-grid';
 import {
   Select,
   SelectContent,
@@ -311,7 +316,7 @@ function getHeaderLabel(currentDate: Date, currentView: View): string {
       return format(currentDate, 'MMMM yyyy');
     case 'week': {
       // When the visible week spans two months, show the boundary.
-      const ws = startOfWeek(currentDate, { weekStartsOn: 1 });
+      const ws = startOfWeek(currentDate, { weekStartsOn: WEEK_STARTS_ON });
       return formatSpanLabel(ws, addDays(ws, 6));
     }
     case '4day':
@@ -455,12 +460,13 @@ export function CalendarView() {
   useEffect(() => {
     const handler = (e: Event) => {
       const date = new Date((e as CustomEvent).detail.date);
+      // Keep the current view: Day shows that day, 4 Days starts at it, Week /
+      // Month / Year contain it, Schedule lists from it.
       setCurrentDate(date);
-      setCurrentView('week');
     };
     window.addEventListener('weldcalendar:navigate-to-date', handler);
     return () => window.removeEventListener('weldcalendar:navigate-to-date', handler);
-  }, [setCurrentView]);
+  }, []);
 
   // Sync mini calendar when main view date changes
   useEffect(() => {
@@ -1206,7 +1212,7 @@ function CalendarBody({
   timeGrid: TimeGridViewProps;
 }) {
   if (currentView === 'year') {
-    return <YearView currentDate={timeGrid.currentDate} onDateClick={onShowDay} />;
+    return <YearView currentDate={timeGrid.currentDate} events={timeGrid.events} onDateClick={onShowDay} />;
   }
   if (currentView === 'schedule') {
     return (
@@ -1286,14 +1292,6 @@ function formatEventWhen(event: CalendarEvent): string {
   const start = format(new Date(event.startTime), 'EEE, MMM d · h:mm a');
   const end = event.endTime ? ` – ${format(new Date(event.endTime), 'h:mm a')}` : '';
   return `${start}${end}`;
-}
-
-/** Time column of the schedule list: the all-day label, a start – end range, or just the start. */
-function formatScheduleTime(start: Date, end: Date | null, allDayLabel: string | null): string {
-  if (allDayLabel) return allDayLabel;
-  const startLabel = format(start, 'h:mma').toLowerCase();
-  if (!end) return startLabel;
-  return `${startLabel} – ${format(end, 'h:mma').toLowerCase()}`;
 }
 
 /**
@@ -2468,22 +2466,8 @@ function MonthView({
   onEventDrop: (event: CalendarEvent, newStart: Date, newEnd: Date) => void;
 }) {
   const t = getTranslations('weldcalendar');
-  const monthStart = startOfMonth(currentDate);
-  const monthEnd = endOfMonth(currentDate);
-  const calStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const calEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
-
-  // Build weeks
-  const weeks: Date[][] = [];
-  let day = calStart;
-  while (day <= calEnd) {
-    const week: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      week.push(day);
-      day = addDays(day, 1);
-    }
-    weeks.push(week);
-  }
+  const timeFormat = useTimeFormat();
+  const weeks = useMemo(() => buildMonthGrid(currentDate), [currentDate]);
 
   // Week rows are equal and fixed-height (they fill the available space and
   // never grow with their content), so how many chips fit in a day cell is
@@ -2608,8 +2592,10 @@ function MonthView({
             <MonthEventChip
               key={evt.id || ei}
               color={getEventColor(evt, calendarColorMap)}
-              time={evt.allDay ? null : format(new Date(evt.startTime), 'h:mm')}
+              time={monthChipTime(evt, timeFormat)}
               title={evt.title}
+              autoScheduled={evt.autoScheduled === true}
+              autoScheduledLabel={t.viewExtras.autoScheduled}
               className={cn(
                 isEventSelected && "ring-2 ring-foreground/50 ring-offset-1 brightness-90",
                 isDragging && "opacity-40 pointer-events-none",
@@ -2636,15 +2622,15 @@ function MonthView({
     );
   };
 
-  const dayNames = [
+  const dayNames = orderWeekdays([
+    t.bookingEditorDays.sun,
     t.bookingEditorDays.mon,
     t.bookingEditorDays.tue,
     t.bookingEditorDays.wed,
     t.bookingEditorDays.thu,
     t.bookingEditorDays.fri,
     t.bookingEditorDays.sat,
-    t.bookingEditorDays.sun,
-  ];
+  ]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -2765,7 +2751,7 @@ function MobileWeekDayStrip({
   events: CalendarEvent[];
   onSelectDay: (d: Date) => void;
 }) {
-  const weekStart = startOfWeek(weekDate, { weekStartsOn: 1 });
+  const weekStart = startOfWeek(weekDate, { weekStartsOn: WEEK_STARTS_ON });
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
   return (
@@ -3012,20 +2998,7 @@ function MobileMonthBlock({
   currentDate: Date;
   onSelectDay: (d: Date) => void;
 }) {
-  const start = startOfMonth(month);
-  const end = endOfMonth(month);
-  const calStart = startOfWeek(start, { weekStartsOn: 1 });
-  const calEnd = endOfWeek(end, { weekStartsOn: 1 });
-  const weeks: Date[][] = [];
-  let d = calStart;
-  while (d <= calEnd) {
-    const week: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      week.push(d);
-      d = addDays(d, 1);
-    }
-    weeks.push(week);
-  }
+  const weeks = useMemo(() => buildMonthGrid(month), [month]);
   const monthKey = format(month, 'yyyy-MM');
 
   return (
@@ -3078,6 +3051,14 @@ function MobileMonthBlock({
   );
 }
 
+/** Localized one-letter weekday headers ("M", "T", …), starting on WEEK_STARTS_ON. */
+function weekdayInitials(): string[] {
+  const days = getTranslations('weldcalendar').bookingEditorDays;
+  return orderWeekdays([days.sun, days.mon, days.tue, days.wed, days.thu, days.fri, days.sat]).map((d) =>
+    d.charAt(0).toUpperCase(),
+  );
+}
+
 function MobileMonthView({
   currentDate,
   onSelectDay,
@@ -3109,8 +3090,8 @@ function MobileMonthView({
     if (el) container.scrollTop = el.offsetTop;
   }, []);
 
-  // Single-letter weekday header (Mon–Sun).
-  const dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  // Single-letter weekday header, starting on WEEK_STARTS_ON.
+  const dayLetters = weekdayInitials();
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -3199,7 +3180,9 @@ function WeekView({
   onPreviewMouseDown?: (e: React.MouseEvent) => void;
   onPreviewResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
 }) {
-  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+  const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
+  const weekStart = startOfWeek(currentDate, { weekStartsOn: WEEK_STARTS_ON });
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const containerRef = useRef<HTMLDivElement>(null);
   const hourHeight = useFittedHourHeight(containerRef);
@@ -3225,17 +3208,24 @@ function WeekView({
           lockstep with the booking calendars. */}
       <WeekDayHeader days={days} />
 
+      <AllDayRow
+        days={days}
+        events={events}
+        getColor={(e) => getEventColor(e, calendarColorMap)}
+        onSelectEvent={onSelectEvent}
+        allDayLabel={t.calendarView.allDay}
+        autoScheduledLabel={t.viewExtras.autoScheduled}
+      />
+
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
         <div className="grid [grid-template-columns:var(--cal-time-label-width,72px)_repeat(7,1fr)] relative" style={{ minHeight: '100%' }}>
-          <TimeLabelColumn hourHeight={hourHeight} />
+          <TimeLabelColumn hourHeight={hourHeight} timeFormat={timeFormat} />
 
           {/* Day columns */}
           {days.map((day) => {
             const dayKey = format(day, 'yyyy-MM-dd');
             const today = isToday(day);
-            const dayEvents = events.filter(
-              (e) => format(new Date(e.startTime), 'yyyy-MM-dd') === dayKey && !e.allDay,
-            );
+            const dayEvents = timedEventsForDay(events, day);
 
             return (
               <div key={dayKey} data-day-col={dayKey} className={cn(
@@ -3261,19 +3251,23 @@ function WeekView({
                 {today && <CurrentTimeIndicator hourHeight={hourHeight} />}
 
                 {/* Events */}
-                {dayEvents.map((evt, i) => {
+                {dayEvents.map(({ event: evt, segment }, i) => {
                   const isDragging = dragState?.event.id === evt.id;
                   const isEventResizing = resizeState?.event.id === evt.id;
+                  // Only the segment on the event's own start day can be moved
+                  // or resized; continuation segments are display-only.
+                  const editable = !segment.continuesBefore;
                   return (
                     <TimeSlotEvent
                       key={evt.id || i}
                       event={evt}
+                      segment={segment}
                       color={getEventColor(evt, calendarColorMap)}
                       onClick={(e) => { if (!dragState && !isSlotDragging && !isResizing && !justDraggedRef.current && !justResizedRef.current) onSelectEvent(evt, e); }}
                       hourHeight={hourHeight}
-                      onDragStart={(e) => handleEventDragStart(evt, e)}
-                      onResizeTopStart={(e) => handleResizeStart(evt, 'top', e)}
-                      onResizeBottomStart={(e) => handleResizeStart(evt, 'bottom', e)}
+                      onDragStart={editable ? (e) => handleEventDragStart(evt, e) : undefined}
+                      onResizeTopStart={editable ? (e) => handleResizeStart(evt, 'top', e) : undefined}
+                      onResizeBottomStart={editable && !segment.continuesAfter ? (e) => handleResizeStart(evt, 'bottom', e) : undefined}
                       dimmed={isDragging || isEventResizing}
                     />
                   );
@@ -3369,10 +3363,11 @@ function DayView({
    *  renders its own week-strip header above the timeline. */
   hideHeader?: boolean;
 }) {
+  const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const dayKey = format(currentDate, 'yyyy-MM-dd');
-  const dayEvents = events.filter(
-    (e) => format(new Date(e.startTime), 'yyyy-MM-dd') === dayKey && !e.allDay,
-  );
+  const dayEvents = timedEventsForDay(events, currentDate);
+  const rowDays = useMemo(() => [currentDate], [currentDate]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const hourHeight = useFittedHourHeight(containerRef);
@@ -3397,10 +3392,19 @@ function DayView({
       {/* Day header */}
       {!hideHeader && <WeekDayHeader days={[currentDate]} />}
 
+      <AllDayRow
+        days={rowDays}
+        events={events}
+        getColor={(e) => getEventColor(e, calendarColorMap)}
+        onSelectEvent={onSelectEvent}
+        allDayLabel={t.calendarView.allDay}
+        autoScheduledLabel={t.viewExtras.autoScheduled}
+      />
+
       {/* Time grid */}
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
         <div className="grid [grid-template-columns:var(--cal-time-label-width,72px)_1fr] relative" style={{ minHeight: '100%' }}>
-        <TimeLabelColumn hourHeight={hourHeight} />
+        <TimeLabelColumn hourHeight={hourHeight} timeFormat={timeFormat} />
 
         {/* Day column */}
         <div className="relative" data-day-col={dayKey}>
@@ -3420,19 +3424,23 @@ function DayView({
 
           {isToday(currentDate) && <CurrentTimeIndicator hourHeight={hourHeight} />}
 
-          {dayEvents.map((evt, i) => {
+          {dayEvents.map(({ event: evt, segment }, i) => {
             const isDragging = dragState?.event.id === evt.id;
             const isEventResizing = dayResizeState?.event.id === evt.id;
+            // Only the segment on the event's own start day can be moved or
+            // resized; continuation segments are display-only.
+            const editable = !segment.continuesBefore;
             return (
               <TimeSlotEvent
                 key={evt.id || i}
                 event={evt}
+                segment={segment}
                 color={getEventColor(evt, calendarColorMap)}
                 onClick={(e) => { if (!dragState && !isSlotDragging && !isDayResizing && !justDraggedRef.current && !justDayResizedRef.current) onSelectEvent(evt, e); }}
                 hourHeight={hourHeight}
-                onDragStart={(e) => handleEventDragStart(evt, e)}
-                onResizeTopStart={(e) => handleDayResizeStart(evt, 'top', e)}
-                onResizeBottomStart={(e) => handleDayResizeStart(evt, 'bottom', e)}
+                onDragStart={editable ? (e) => handleEventDragStart(evt, e) : undefined}
+                onResizeTopStart={editable ? (e) => handleDayResizeStart(evt, 'top', e) : undefined}
+                onResizeBottomStart={editable && !segment.continuesAfter ? (e) => handleDayResizeStart(evt, 'bottom', e) : undefined}
                 dimmed={isDragging || isEventResizing}
               />
             );
@@ -3495,6 +3503,7 @@ function DayView({
 
 function TimeSlotEvent({
   event,
+  segment,
   color,
   onClick,
   hourHeight = 48,
@@ -3504,6 +3513,8 @@ function TimeSlotEvent({
   dimmed,
 }: {
   event: CalendarEvent;
+  /** The part of the event on this day's column; omit to draw it from its own start. */
+  segment?: TimedSegment;
   color: string;
   onClick: (e: React.MouseEvent) => void;
   hourHeight?: number;
@@ -3512,8 +3523,16 @@ function TimeSlotEvent({
   onResizeBottomStart?: (e: React.MouseEvent) => void;
   dimmed?: boolean;
 }) {
-  const startDate = new Date(event.startTime);
-  const endDate = event.endTime ? new Date(event.endTime) : new Date(startDate.getTime() + 60 * 60 * 1000);
+  const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
+  // The event's real times, shown in the label even on a continuation segment.
+  const eventStart = new Date(event.startTime);
+  const eventEnd = event.endTime ? new Date(event.endTime) : new Date(eventStart.getTime() + 60 * 60 * 1000);
+  // Position comes from the segment (clipped to this day) when the event spans
+  // midnight, otherwise from the event itself.
+  const clipped = segment && (segment.continuesBefore || segment.continuesAfter) ? segment : null;
+  const startDate = clipped ? clipped.start : eventStart;
+  const endDate = clipped ? clipped.end : eventEnd;
   const startHour = startDate.getHours() + startDate.getMinutes() / 60;
   const duration = differenceInMinutes(endDate, startDate);
   const topPx = startHour * hourHeight;
@@ -3528,9 +3547,10 @@ function TimeSlotEvent({
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
   const holdCleanupRef = useRef<(() => void) | null>(null);
 
-  let scheduleIcon: React.ReactNode = null;
-  if (event.autoScheduled === false) scheduleIcon = <Pin className="h-2.5 w-2.5 text-white" />;
-  else if (event.autoScheduled === true) scheduleIcon = <Sparkles className="h-2.5 w-2.5 text-white" />;
+  // Auto-scheduled blocks carry a visible, labelled marker; pinned task /
+  // activity blocks keep their pin.
+  const isAutoScheduled = event.autoScheduled === true;
+  const isPinned = event.autoScheduled === false && (event.sourceType === 'task' || event.sourceType === 'activity');
 
   return (
     <div
@@ -3600,15 +3620,25 @@ function TimeSlotEvent({
         </div>
       )}
       {/* Auto-schedule / pin state indicator */}
-      {(event.sourceType === 'task' || event.sourceType === 'activity') && (
+      {isAutoScheduled && (
+        <span
+          role="img"
+          aria-label={t.viewExtras.autoScheduled}
+          title={t.viewExtras.autoScheduled}
+          className="absolute top-1 right-1.5 opacity-80"
+        >
+          <Sparkles className="h-2.5 w-2.5 text-white" aria-hidden />
+        </span>
+      )}
+      {isPinned && (
         <span className="absolute top-1 right-1.5 opacity-70" aria-hidden>
-          {scheduleIcon}
+          <Pin className="h-2.5 w-2.5 text-white" />
         </span>
       )}
       <span className="font-semibold truncate block pr-4">{event.title}</span>
       {heightPx > 30 && (
         <span className="text-white/70 text-[12px] block mt-[3px]">
-          {format(startDate, 'h:mm a')} – {format(endDate, 'h:mm a')}
+          {formatEventTimeRange(eventStart, eventEnd, timeFormat)}
         </span>
       )}
       {/* Resize handle at bottom edge */}
@@ -3642,6 +3672,7 @@ function DragGhost({
   duration: number;
   hourHeight: number;
 }) {
+  const timeFormat = useTimeFormat();
   const heightPx = Math.max((duration / 60) * hourHeight, 22);
   const hours = Math.floor(top / hourHeight);
   const minutes = Math.round(((top % hourHeight) / hourHeight) * 60 / 15) * 15;
@@ -3664,7 +3695,7 @@ function DragGhost({
       <span className="font-semibold truncate block">{event.title}</span>
       {heightPx > 30 && (
         <span className="text-white/70 text-[12px] block mt-[3px]">
-          {format(ghostDate, 'h:mm a')} – {format(ghostEnd, 'h:mm a')}
+          {formatEventTimeRange(ghostDate, ghostEnd, timeFormat)}
         </span>
       )}
     </div>
@@ -3684,6 +3715,7 @@ function ResizeGhost({
   height: number;
   hourHeight: number;
 }) {
+  const timeFormat = useTimeFormat();
   const heightPx = Math.max(height, 22);
   const startMinutes = Math.round(((top / hourHeight) * 60) / 15) * 15;
   const endMinutes =
@@ -3707,7 +3739,7 @@ function ResizeGhost({
       <span className="font-semibold truncate block">{event.title}</span>
       {heightPx > 30 && (
         <span className="text-white/70 text-[12px] block mt-[3px]">
-          {format(startDate, 'h:mm a')} – {format(endDate, 'h:mm a')}
+          {formatEventTimeRange(startDate, endDate, timeFormat)}
         </span>
       )}
     </div>
@@ -4674,6 +4706,7 @@ function DatePickerField({
       >
         <Calendar
           mode="single"
+          weekStartsOn={WEEK_STARTS_ON}
           selected={value}
           month={month}
           onMonthChange={setMonth}
@@ -4836,6 +4869,7 @@ function InlineDateTimeRow({
           >
             <Calendar
               mode="single"
+              weekStartsOn={WEEK_STARTS_ON}
               selected={date}
               month={month}
               onMonthChange={setMonth}
@@ -4959,6 +4993,8 @@ function FourDayView({
   onPreviewMouseDown?: (e: React.MouseEvent) => void;
   onPreviewResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
 }) {
+  const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const days = Array.from({ length: 4 }, (_, i) => addDays(currentDate, i));
   const containerRef = useRef<HTMLDivElement>(null);
   const hourHeight = useFittedHourHeight(containerRef);
@@ -4981,15 +5017,21 @@ function FourDayView({
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <WeekDayHeader days={days} />
+      <AllDayRow
+        days={days}
+        events={events}
+        getColor={(e) => getEventColor(e, calendarColorMap)}
+        onSelectEvent={onSelectEvent}
+        allDayLabel={t.calendarView.allDay}
+        autoScheduledLabel={t.viewExtras.autoScheduled}
+      />
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
         <div className="grid [grid-template-columns:var(--cal-time-label-width,72px)_repeat(4,1fr)] relative" style={{ minHeight: '100%' }}>
-          <TimeLabelColumn hourHeight={hourHeight} />
+          <TimeLabelColumn hourHeight={hourHeight} timeFormat={timeFormat} />
           {days.map((day) => {
             const dayKey = format(day, 'yyyy-MM-dd');
             const today = isToday(day);
-            const dayEvents = events.filter(
-              (e) => format(new Date(e.startTime), 'yyyy-MM-dd') === dayKey && !e.allDay,
-            );
+            const dayEvents = timedEventsForDay(events, day);
             return (
               <div key={dayKey} data-day-col={dayKey} className={cn('border-r border-border last:border-r-0 relative', today && 'bg-primary/[0.01]')}>
                 {HOURS.map((hour) => (
@@ -5006,19 +5048,23 @@ function FourDayView({
                   />
                 ))}
                 {today && <CurrentTimeIndicator hourHeight={hourHeight} />}
-                {dayEvents.map((evt, i) => {
+                {dayEvents.map(({ event: evt, segment }, i) => {
                   const isDragging = dragState?.event.id === evt.id;
                   const isEventResizing = fourDayResizeState?.event.id === evt.id;
+                  // Only the segment on the event's own start day can be moved
+                  // or resized; continuation segments are display-only.
+                  const editable = !segment.continuesBefore;
                   return (
                     <TimeSlotEvent
                       key={evt.id || i}
                       event={evt}
+                      segment={segment}
                       color={getEventColor(evt, calendarColorMap)}
                       onClick={(e) => { if (!dragState && !isSlotDragging && !isFourDayResizing && !justDraggedRef.current && !justFourDayResizedRef.current) onSelectEvent(evt, e); }}
                       hourHeight={hourHeight}
-                      onDragStart={(e) => handleEventDragStart(evt, e)}
-                      onResizeTopStart={(e) => handleFourDayResizeStart(evt, 'top', e)}
-                      onResizeBottomStart={(e) => handleFourDayResizeStart(evt, 'bottom', e)}
+                      onDragStart={editable ? (e) => handleEventDragStart(evt, e) : undefined}
+                      onResizeTopStart={editable ? (e) => handleFourDayResizeStart(evt, 'top', e) : undefined}
+                      onResizeBottomStart={editable && !segment.continuesAfter ? (e) => handleFourDayResizeStart(evt, 'bottom', e) : undefined}
                       dimmed={isDragging || isEventResizing}
                     />
                   );
@@ -5083,19 +5129,24 @@ function FourDayView({
 
 function YearView({
   currentDate,
+  events,
   onDateClick,
 }: {
   currentDate: Date;
+  events: CalendarEvent[];
   onDateClick: (date: Date) => void;
 }) {
   const year = currentDate.getFullYear();
   const months = Array.from({ length: 12 }, (_, i) => new Date(year, i, 1));
+  // Events per day for the whole year (all-day and multi-day events count on
+  // every day they cover), computed once for all twelve months.
+  const eventCounts = useMemo(() => countEventsByDay(events), [events]);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3 md:p-6">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 md:gap-x-10 gap-y-6 md:gap-y-8 max-w-6xl mx-auto">
         {months.map((month) => (
-          <YearMonth key={month.getMonth()} month={month} onDateClick={onDateClick} />
+          <YearMonth key={month.getMonth()} month={month} eventCounts={eventCounts} onDateClick={onDateClick} />
         ))}
       </div>
     </div>
@@ -5104,42 +5155,37 @@ function YearView({
 
 function YearMonth({
   month,
+  eventCounts,
   onDateClick,
 }: {
   month: Date;
+  eventCounts: ReadonlyMap<string, number>;
   onDateClick: (date: Date) => void;
 }) {
-  const monthEnd = endOfMonth(month);
-  const calStart = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
-
-  const weeks: Date[][] = [];
-  let day = calStart;
-  while (day <= monthEnd || weeks.length < 5) {
-    const week: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      week.push(day);
-      day = addDays(day, 1);
-    }
-    weeks.push(week);
-    if (day > monthEnd && weeks.length >= 5) break;
-  }
+  const t = getTranslations('weldcalendar');
+  const weeks = useMemo(() => buildMonthGrid(month, { minWeeks: 5 }), [month]);
+  const weekdayLabels = weekdayInitials();
 
   return (
     <div>
       <h3 className="text-sm font-semibold mb-2 pl-2.5">{format(month, 'MMMM')}</h3>
       <div className="grid grid-cols-7 gap-0">
-        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+        {weekdayLabels.map((d, i) => (
           <div key={i} className="text-[10px] text-muted-foreground text-center py-0.5">{d}</div>
         ))}
         {weeks.map((week, wi) =>
           week.map((d, di) => {
             const inMonth = isSameMonth(d, month);
             const today = isToday(d);
+            const count = inMonth ? (eventCounts.get(localDayKey(d)) ?? 0) : 0;
             return (
               <Button
                 variant="ghost"
                 key={`${wi}-${di}`}
                 onClick={() => onDateClick(d)}
+                aria-label={count > 0
+                  ? `${format(d, 'EEEE, MMMM d')}, ${count === 1 ? t.viewExtras.oneEvent : t.viewExtras.manyEvents.replace('{count}', String(count))}`
+                  : undefined}
                 className={cn(
                   'relative text-[12px] font-medium h-8 w-full flex items-center justify-center transition-colors',
                   !inMonth && 'text-muted-foreground/50',
@@ -5153,6 +5199,16 @@ function YearMonth({
                 )}>
                   {format(d, 'd')}
                 </span>
+                {count > 0 && (
+                  <span
+                    data-event-dot
+                    aria-hidden
+                    className={cn(
+                      'absolute bottom-0.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full',
+                      count > 2 ? 'bg-primary' : 'bg-primary/60',
+                    )}
+                  />
+                )}
               </Button>
             );
           }),
@@ -5172,6 +5228,9 @@ interface ScheduleItem {
   type: string;
   time: string;
   date: string;
+  /** Display label of `type` ("Task" for reminders). */
+  typeLabel: string;
+  /** "Mon, Oct 5" */
   dateLabel: string;
   dateGroup: string;
   color: string;
@@ -5179,18 +5238,6 @@ interface ScheduleItem {
   allDay: boolean;
   location?: string;
   event: CalendarEvent;
-}
-
-function getDateGroup(date: Date): string {
-  if (isYesterday(date)) return 'yesterday';
-  if (isToday(date)) return 'today';
-  if (isTomorrow(date)) return 'tomorrow';
-  if (isThisWeek(date, { weekStartsOn: 1 })) return 'this_week';
-  const nextWeekStart = addDays(endOfWeek(new Date(), { weekStartsOn: 1 }), 1);
-  const nextWeekEnd = addDays(nextWeekStart, 6);
-  if (date >= nextWeekStart && date <= nextWeekEnd) return 'next_week';
-  if (isSameMonth(date, new Date())) return 'this_month';
-  return 'later';
 }
 
 function ScheduleView({
@@ -5203,7 +5250,18 @@ function ScheduleView({
   onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const items: ScheduleItem[] = useMemo(() => {
+    const typeLabels: Record<string, string> = {
+      meeting: t.calendarView.filterTypeMeeting,
+      event: t.calendarView.filterTypeEvent,
+      // Reminders are the calendar's task items: "Task" everywhere they are labelled.
+      reminder: t.scheduleView.filterTypeTask,
+      appointment: t.calendarView.filterTypeAppointment,
+      call: t.calendarView.filterTypeCall,
+      other: t.calendarView.filterTypeOther,
+    };
+    const now = new Date();
     const sorted = [...events].sort(
       (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
     );
@@ -5214,10 +5272,11 @@ function ScheduleView({
         id: evt.id || `${evt.startTime}-${evt.title}`,
         title: evt.title || t.misc.noTitle,
         type: evt.type,
+        typeLabel: evt.sourceType === 'task' ? t.scheduleView.filterTypeTask : (typeLabels[evt.type] ?? evt.type),
         date: format(start, 'yyyy-MM-dd'),
-        dateLabel: `${format(start, 'd')} ${format(start, 'MMM, EEE').toUpperCase()}`,
-        dateGroup: getDateGroup(start),
-        time: formatScheduleTime(start, end, evt.allDay ? t.calendarView.allDay : null),
+        dateLabel: format(start, 'EEE, MMM d'),
+        dateGroup: getDateGroup(start, now),
+        time: formatScheduleTime(start, end, evt.allDay ? t.calendarView.allDay : null, timeFormat),
         color: getEventColor(evt, calendarColorMap),
         isToday: isToday(start),
         allDay: evt.allDay || false,
@@ -5225,10 +5284,11 @@ function ScheduleView({
         event: evt,
       };
     });
-  }, [events, calendarColorMap, t.calendarView.allDay, t.misc.noTitle]);
+  }, [events, calendarColorMap, timeFormat, t.calendarView, t.scheduleView.filterTypeTask, t.misc.noTitle]);
 
   const headerColumns: HeaderColumn[] = [
     { id: 'color', header: '', width: '24px' },
+    { id: 'date', header: t.scheduleView.colDate, width: 'w-[110px]' },
     { id: 'time', header: t.scheduleView.colTime, width: 'w-[150px]' },
     { id: 'title', header: t.scheduleView.colTitle, width: 'flex-1 min-w-0' },
     { id: 'type', header: t.scheduleView.colType, width: 'w-[100px]' },
@@ -5263,6 +5323,7 @@ function ScheduleView({
     const yesterday = addDays(today, -1);
     const tomorrow = addDays(today, 1);
     return [
+      { id: 'earlier', label: t.scheduleView.groupEarlier, sortOrder: 0, filter: (i: ScheduleItem) => i.dateGroup === 'earlier' },
       { id: 'yesterday', label: `${t.scheduleView.groupYesterday} · ${format(yesterday, 'EEEE, MMMM d')}`, sortOrder: 1, filter: (i: ScheduleItem) => i.dateGroup === 'yesterday' },
       { id: 'today', label: `${t.scheduleView.groupToday} · ${format(today, 'EEEE, MMMM d')}`, sortOrder: 2, filter: (i: ScheduleItem) => i.dateGroup === 'today' },
       { id: 'tomorrow', label: `${t.scheduleView.groupTomorrow} · ${format(tomorrow, 'EEEE, MMMM d')}`, sortOrder: 3, filter: (i: ScheduleItem) => i.dateGroup === 'tomorrow' },
@@ -5271,7 +5332,7 @@ function ScheduleView({
       { id: 'this_month', label: format(today, 'MMMM'), sortOrder: 6, filter: (i: ScheduleItem) => i.dateGroup === 'this_month' },
       { id: 'later', label: t.scheduleView.groupLater, sortOrder: 7, filter: (i: ScheduleItem) => i.dateGroup === 'later' },
     ];
-  }, [t.scheduleView.groupYesterday, t.scheduleView.groupToday, t.scheduleView.groupTomorrow, t.scheduleView.groupThisWeek, t.scheduleView.groupNextWeek, t.scheduleView.groupLater]);
+  }, [t.scheduleView.groupEarlier, t.scheduleView.groupYesterday, t.scheduleView.groupToday, t.scheduleView.groupTomorrow, t.scheduleView.groupThisWeek, t.scheduleView.groupNextWeek, t.scheduleView.groupLater]);
 
   const renderRow = useCallback((item: ScheduleItem) => {
 
@@ -5289,8 +5350,14 @@ function ScheduleView({
           <div className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
         </div>
 
+        {/* Date — own column on desktop; stacked above the time on mobile */}
+        <div className="hidden md:block w-[110px] shrink-0">
+          <span className="text-sm text-muted-foreground whitespace-nowrap">{item.dateLabel}</span>
+        </div>
+
         {/* Time */}
         <div className="w-[110px] md:w-[150px] shrink-0">
+          <span className="md:hidden text-xs font-medium text-foreground whitespace-nowrap block">{item.dateLabel}</span>
           <span className="text-xs md:text-sm text-muted-foreground whitespace-nowrap">{item.time}</span>
         </div>
 
@@ -5300,13 +5367,13 @@ function ScheduleView({
           {/* On mobile, show type + location inline under the title since the
              dedicated columns are hidden. */}
           <span className="md:hidden text-xs text-muted-foreground truncate block">
-            {[item.type, item.location].filter(Boolean).join(' · ')}
+            {[item.typeLabel, item.location].filter(Boolean).join(' · ')}
           </span>
         </div>
 
         {/* Type — hidden on mobile (shown inline under title above) */}
         <div className="hidden md:block w-[100px] shrink-0">
-          <span className="text-xs text-muted-foreground capitalize">{item.type}</span>
+          <span className="text-xs text-muted-foreground">{item.typeLabel}</span>
         </div>
 
         {/* Location — hidden on mobile (shown inline under title above) */}
@@ -5333,7 +5400,7 @@ function ScheduleView({
         maxFilters={3}
         renderRow={renderRow}
         searchPlaceholder={t.calendarView.searchPlaceholder}
-        searchFields={['title', 'type', 'location', 'time']}
+        searchFields={['title', 'type', 'typeLabel', 'location', 'time', 'dateLabel']}
         hideTopBar
         emptyState={{
           title: t.scheduleView.noUpcomingEvents,
@@ -5373,6 +5440,7 @@ function TimeSlotPreview({
   onResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const color = colorOverride || (type ? (EVENT_TYPE_COLORS[type] || '#3b82f6') : '#3b82f6');
   const startHour = date.getHours() + date.getMinutes() / 60;
   const topPx = startHour * hourHeight;
@@ -5401,9 +5469,7 @@ function TimeSlotPreview({
       )}
       <span className="font-semibold block">{t.misc.noTitle}</span>
       <span className="text-white/70 text-[12px] block mt-[3px]">
-        {endDate
-          ? `${format(date, 'h:mm a')} – ${format(endDate, 'h:mm a')}`
-          : format(date, 'h:mm a')}
+        {formatEventTimeRange(date, endDate ?? null, timeFormat)}
       </span>
       {onResize && (
         <div
@@ -5427,6 +5493,7 @@ function SlotDragPreview({
   startTime: Date;
   endTime: Date;
 }) {
+  const timeFormat = useTimeFormat();
   return (
     <div
       className="absolute left-[3px] right-[3px] rounded-[6px] px-2.5 py-1.5 text-primary text-[11px] leading-tight overflow-hidden z-[1] pointer-events-none bg-primary/15 border border-primary/40"
@@ -5436,7 +5503,7 @@ function SlotDragPreview({
       }}
     >
       <span className="font-semibold block">
-        {format(startTime, 'h:mm a')} – {format(endTime, 'h:mm a')}
+        {formatEventTimeRange(startTime, endTime, timeFormat)}
       </span>
     </div>
   );

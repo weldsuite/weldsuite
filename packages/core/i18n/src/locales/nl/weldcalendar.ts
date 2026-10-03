@@ -479,6 +479,8 @@ export const weldcalendar = {
       colTitle: 'Titel',
       colType: 'Type',
       colLocation: 'Locatie',
+      colDate: 'Datum',
+      groupEarlier: 'Eerder',
       groupYesterday: 'Gisteren',
       groupToday: 'Vandaag',
       groupTomorrow: 'Morgen',
@@ -490,6 +492,13 @@ export const weldcalendar = {
       noUpcomingEventsDesc: 'Geen evenementen gepland in deze periode.',
       noEventsFound: 'Geen evenementen gevonden',
       noEventsFoundDesc: 'We konden geen evenementen vinden die overeenkomen met je filter.',
+    },
+
+    // Shared by the calendar views: auto-scheduled marker, year-view day dots
+    viewExtras: {
+      autoScheduled: 'Automatisch gepland',
+      oneEvent: '1 evenement',
+      manyEvents: '{count} evenementen',
     },
 
     // Booking Editor day abbreviations

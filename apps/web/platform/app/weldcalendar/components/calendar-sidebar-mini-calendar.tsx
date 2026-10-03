@@ -4,7 +4,10 @@ import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 
-const WEEKDAY_IDS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+import { buildMonthGrid, orderWeekdays } from '../lib/week-grid';
+
+/** Sunday-first, matching the order of the `dayLabels` translation. */
+const WEEKDAY_IDS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 
 interface MiniCalendarProps {
   selectedDate?: Date;
@@ -13,11 +16,14 @@ interface MiniCalendarProps {
 
 export function MiniCalendar({ selectedDate: externalSelectedDate, onDateSelect }: Readonly<MiniCalendarProps>) {
   const t = useTranslations();
+  // The translation lists the labels Sunday-first; show them from WEEK_STARTS_ON.
   const DAY_LABELS = t('sweep.miscA.miniCalendar.dayLabels').split(',');
-  const dayHeaders = DAY_LABELS.map((label, dayIndex) => ({
-    id: WEEKDAY_IDS[dayIndex] ?? `day-${dayIndex}`,
-    label,
-  }));
+  const dayHeaders = orderWeekdays(
+    DAY_LABELS.map((label, dayIndex) => ({
+      id: WEEKDAY_IDS[dayIndex] ?? `day-${dayIndex}`,
+      label,
+    })),
+  );
   const today = new Date();
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -71,42 +77,8 @@ export function MiniCalendar({ selectedDate: externalSelectedDate, onDateSelect 
     onDateSelect?.(date);
   };
 
-  // Build the calendar grid
-  const weeks = useMemo(() => {
-    const firstDay = new Date(viewYear, viewMonth, 1);
-    const lastDay = new Date(viewYear, viewMonth + 1, 0);
-    const startDayOfWeek = firstDay.getDay(); // 0 = Sunday
-    const daysInMonth = lastDay.getDate();
-
-    const grid: Date[][] = [];
-    let week: Date[] = [];
-
-    // Fill leading empty cells
-    for (let i = 0; i < startDayOfWeek; i++) {
-      const prevDate = new Date(viewYear, viewMonth, -(startDayOfWeek - 1 - i));
-      week.push(prevDate);
-    }
-
-    // Fill days
-    for (let day = 1; day <= daysInMonth; day++) {
-      week.push(new Date(viewYear, viewMonth, day));
-      if (week.length === 7) {
-        grid.push(week);
-        week = [];
-      }
-    }
-
-    // Fill trailing empty cells
-    if (week.length > 0) {
-      let nextDay = 1;
-      while (week.length < 7) {
-        week.push(new Date(viewYear, viewMonth + 1, nextDay++));
-      }
-      grid.push(week);
-    }
-
-    return grid;
-  }, [viewMonth, viewYear]);
+  // Calendar grid: rows start on the calendar-wide week start (WEEK_STARTS_ON).
+  const weeks = useMemo(() => buildMonthGrid(new Date(viewYear, viewMonth, 1)), [viewMonth, viewYear]);
 
   const isToday = (date: Date) =>
     date.getDate() === today.getDate() &&

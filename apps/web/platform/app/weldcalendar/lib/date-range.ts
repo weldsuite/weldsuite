@@ -5,16 +5,25 @@ import {
   endOfWeek,
   startOfDay,
   endOfDay,
+  startOfYear,
+  endOfYear,
   addDays,
 } from 'date-fns';
+import { WEEK_STARTS_ON } from './calendar-format';
 
 export type CalendarView = 'month' | 'week' | '4day' | 'day' | 'year' | 'schedule';
+
+/** Number of days the Schedule view lists, starting at the selected date. */
+const SCHEDULE_DAYS = 60;
 
 /**
  * Date range the calendar view fetches events for. Keep in lock-step with the
  * `useCalendarEventsRange` query key — anything that derives a key for
  * prefetching must call this so the cached entry matches what `CalendarView`
  * reads on mount.
+ *
+ * Every range runs from the start of its first day to the **end** of its last
+ * day (23:59:59.999), so events on the last day are never cut off.
  */
 export function getCalendarDateRange(date: Date, view: CalendarView): { start: string; end: string } {
   switch (view) {
@@ -22,15 +31,15 @@ export function getCalendarDateRange(date: Date, view: CalendarView): { start: s
       const ms = startOfMonth(date);
       const me = endOfMonth(date);
       return {
-        start: startOfWeek(ms, { weekStartsOn: 1 }).toISOString(),
-        end: endOfWeek(me, { weekStartsOn: 1 }).toISOString(),
+        start: startOfWeek(ms, { weekStartsOn: WEEK_STARTS_ON }).toISOString(),
+        end: endOfWeek(me, { weekStartsOn: WEEK_STARTS_ON }).toISOString(),
       };
     }
     case 'week': {
-      const ws = startOfWeek(date, { weekStartsOn: 1 });
+      const ws = startOfWeek(date, { weekStartsOn: WEEK_STARTS_ON });
       return {
         start: ws.toISOString(),
-        end: addDays(ws, 7).toISOString(),
+        end: endOfWeek(ws, { weekStartsOn: WEEK_STARTS_ON }).toISOString(),
       };
     }
     case 'day':
@@ -42,22 +51,21 @@ export function getCalendarDateRange(date: Date, view: CalendarView): { start: s
       const s = startOfDay(date);
       return {
         start: s.toISOString(),
-        end: addDays(s, 4).toISOString(),
+        end: endOfDay(addDays(s, 3)).toISOString(),
       };
     }
-    case 'year': {
-      const yearStart = new Date(date.getFullYear(), 0, 1);
-      const yearEnd = new Date(date.getFullYear(), 11, 31);
+    case 'year':
       return {
-        start: yearStart.toISOString(),
-        end: yearEnd.toISOString(),
+        start: startOfYear(date).toISOString(),
+        end: endOfYear(date).toISOString(),
+      };
+    case 'schedule': {
+      const s = startOfDay(date);
+      return {
+        start: s.toISOString(),
+        end: endOfDay(addDays(s, SCHEDULE_DAYS - 1)).toISOString(),
       };
     }
-    case 'schedule':
-      return {
-        start: startOfDay(date).toISOString(),
-        end: addDays(date, 60).toISOString(),
-      };
     default:
       return {
         start: startOfMonth(date).toISOString(),
