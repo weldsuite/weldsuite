@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { formatInTimeZone } from 'date-fns-tz';
+import { CalendarClock, Loader2, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 
 import type { BookingPageProps } from '@/lib/schemas';
+import type { TimeSlot } from '../actions';
 
 export interface BookingFormState {
   name: string;
@@ -19,6 +21,11 @@ export interface BookingFormState {
 
 interface BookingDetailsFormProps {
   bookingPage: BookingPageProps;
+  /** The slot picked in the previous step, shown at the top of the form. */
+  selectedSlot: TimeSlot;
+  /** The guest's timezone, as used by the slot list. */
+  timezone: string;
+  use24h: boolean;
   submitting: boolean;
   accentColor: string;
   initial: BookingFormState;
@@ -78,8 +85,48 @@ function QuestionInput({ question: q, id, value, onChange }: Readonly<QuestionIn
   );
 }
 
+function SelectedSlotSummary({
+  slot,
+  timezone,
+  use24h,
+  onChange,
+}: Readonly<{ slot: TimeSlot; timezone: string; use24h: boolean; onChange: () => void }>) {
+  const start = new Date(slot.start);
+  const end = new Date(slot.end);
+  const clock = use24h ? 'HH:mm' : 'h:mm a';
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-gray-200 dark:border-[#26262B] bg-gray-50 dark:bg-[#1A1A1E] px-3.5 py-3">
+      <div className="flex items-start gap-2.5 min-w-0">
+        <CalendarClock
+          className="h-4 w-4 mt-0.5 shrink-0 text-gray-500 dark:text-[#9999A1]"
+          aria-hidden="true"
+        />
+        <div className="min-w-0 tabular-nums">
+          <p className="text-sm font-medium text-gray-900 dark:text-[#F2F2F4]">
+            {formatInTimeZone(start, timezone, 'EEEE, MMMM d, yyyy')}
+          </p>
+          <p className="text-[13px] text-gray-500 dark:text-[#9999A1] mt-0.5">
+            {formatInTimeZone(start, timezone, clock)} – {formatInTimeZone(end, timezone, clock)} ·{' '}
+            {timezone}
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onChange}
+        className="shrink-0 text-sm text-gray-900 dark:text-[#F2F2F4] underline underline-offset-2 hover:text-gray-700 dark:hover:text-[#C4C4CA]"
+      >
+        Change
+      </button>
+    </div>
+  );
+}
+
 export function BookingDetailsForm({
   bookingPage,
+  selectedSlot,
+  timezone,
+  use24h,
   submitting,
   accentColor,
   initial,
@@ -114,6 +161,13 @@ export function BookingDetailsForm({
           className="space-y-5 flex-1 min-h-0 overflow-y-auto scrollbar-thin-visible pr-6 md:pr-[14px]"
           style={{ scrollbarGutter: 'stable' }}
         >
+          <SelectedSlotSummary
+            slot={selectedSlot}
+            timezone={timezone}
+            use24h={use24h}
+            onChange={onBack}
+          />
+
           <div className="grid gap-2">
             <Label htmlFor="name">
               Your name <span className="text-destructive">*</span>
