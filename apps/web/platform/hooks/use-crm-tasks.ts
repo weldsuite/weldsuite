@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { calendarKeys } from '@/hooks/queries/use-calendar-queries';
 import { toast } from 'sonner';
 
 export interface Task {
@@ -126,6 +127,11 @@ export function useCreateTask() {
       status?: Task['status'] | 'in-progress' | 'blocked';
       priority?: Task['priority'];
       dueDate?: Date;
+      /**
+       * Pins the task's calendar block to this start (no auto-placement): a task
+       * created from a calendar slot lands where it was clicked.
+       */
+      startDate?: Date;
       assigneeId?: string;
       assigneeIds?: string[];
       /** Minutes. */
@@ -146,6 +152,7 @@ export function useCreateTask() {
           customerId: data.linkedCompanyId,
           duration: data.duration,
           dueDate: data.dueDate ? data.dueDate.toISOString() : undefined,
+          startDate: data.startDate ? data.startDate.toISOString() : undefined,
           labels: data.labels,
           repeat: data.repeat,
         });
@@ -160,6 +167,9 @@ export function useCreateTask() {
     onSuccess: (result) => {
       if (result.success) {
         queryClient.invalidateQueries({ queryKey: crmTasksKeys.all });
+        // Every created task gets a calendar block: refresh the calendar now
+        // instead of on the next reload.
+        queryClient.invalidateQueries({ queryKey: calendarKeys.all });
         toast.success('Task created');
       } else {
         toast.error(result.error || 'Failed to create task');

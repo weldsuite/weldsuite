@@ -90,6 +90,8 @@ export type CreateBookingInput = z.infer<typeof createBookingInputSchema>;
 export const cancelBookingInputSchema = z.object({
   workspaceSlug: z.string().min(1),
   bookingId: z.string().min(1),
+  /** Signed token from the confirmation email / booking confirmation. */
+  token: z.string().min(1),
   reason: z.string().max(2000).optional(),
 });
 
@@ -98,6 +100,8 @@ export type CancelBookingInput = z.infer<typeof cancelBookingInputSchema>;
 export const rescheduleBookingInputSchema = z.object({
   workspaceSlug: z.string().min(1),
   bookingId: z.string().min(1),
+  /** Signed token from the confirmation email / booking confirmation. */
+  token: z.string().min(1),
   startTime: isoDateTime,
   endTime: isoDateTime,
 });

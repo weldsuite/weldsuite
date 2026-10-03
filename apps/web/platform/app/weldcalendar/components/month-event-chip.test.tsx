@@ -26,6 +26,22 @@ describe('MonthEventChip', () => {
     expect(screen.getByRole('button')).toHaveClass('justify-start');
   });
 
+  it('keeps a time that carries a meridiem whole', () => {
+    render(<MonthEventChip color="#3b82f6" time="5:10 PM" title="Design homepage mockups for the launch" />);
+    expect(screen.getByText('5:10 PM')).toHaveClass('shrink-0');
+  });
+
+  it('marks auto-scheduled events with an accessible label', () => {
+    render(<MonthEventChip color="#3b82f6" time="9 AM" title="Write report" autoScheduled autoScheduledLabel="Auto-scheduled" />);
+    const marker = screen.getByRole('img', { name: 'Auto-scheduled' });
+    expect(marker).toHaveAttribute('title', 'Auto-scheduled');
+  });
+
+  it('has no marker for manually scheduled events', () => {
+    render(<MonthEventChip color="#3b82f6" time="9 AM" title="Write report" />);
+    expect(screen.queryByRole('img')).toBeNull();
+  });
+
   it('omits the time for all-day events', () => {
     render(<MonthEventChip color="#3b82f6" time={null} title="Company offsite" />);
     expect(screen.getByRole('button')).toHaveTextContent('Company offsite');

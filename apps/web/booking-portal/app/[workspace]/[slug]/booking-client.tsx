@@ -49,6 +49,8 @@ interface State {
   formState: BookingFormState;
   emailDelivery: 'sent' | 'failed' | 'partial' | null;
   bookingId: string | null;
+  /** Signed token that authorises cancelling / rescheduling `bookingId` (workspace pages). */
+  manageToken: string | null;
   isRescheduling: boolean;
   // The slot of the confirmed booking, preserved so "Keep current time"
   // can restore it after the user enters reschedule mode.
@@ -69,6 +71,7 @@ type Action =
   | {
       type: 'booking-confirmed';
       bookingId: string;
+      manageToken: string | null;
       formState: BookingFormState;
       emailDelivery: 'sent' | 'failed' | 'partial';
     }
@@ -87,8 +90,27 @@ const initialFormState: BookingFormState = {
   guests: [],
 };
 
-function makeInitialState(bookingPage: BookingPageProps): State {
-  return {
+/** An existing booking opened from the signed link in a confirmation email. */
+export interface ManagedBooking {
+  bookingId: string;
+  token: string;
+  bookerName: string;
+  bookerEmail: string;
+  startTime: string;
+  endTime: string;
+  cancelled: boolean;
+  /** Which button of the email was clicked. */
+  intent: 'reschedule' | 'cancel' | null;
+}
+
+function makeInitialState({
+  bookingPage,
+  initialBooking,
+}: {
+  bookingPage: BookingPageProps;
+  initialBooking: ManagedBooking | null;
+}): State {
+  const base: State = {
     step: 'select-time',
     selectedDate: null,
     currentMonth: new Date(),
@@ -102,8 +124,30 @@ function makeInitialState(bookingPage: BookingPageProps): State {
     formState: initialFormState,
     emailDelivery: null,
     bookingId: null,
+    manageToken: null,
     isRescheduling: false,
     confirmedSlot: null,
+  };
+  if (!initialBooking) return base;
+
+  const slot: TimeSlot = {
+    start: initialBooking.startTime,
+    end: initialBooking.endTime,
+    available: true,
+  };
+  let step: Step = 'confirmed';
+  if (initialBooking.cancelled) step = 'cancelled';
+  else if (initialBooking.intent === 'reschedule') step = 'select-time';
+  return {
+    ...base,
+    step,
+    selectedSlot: slot,
+    selectedDate: new Date(initialBooking.startTime),
+    confirmedSlot: slot,
+    isRescheduling: step === 'select-time',
+    bookingId: initialBooking.bookingId,
+    manageToken: initialBooking.token,
+    formState: { ...initialFormState, name: initialBooking.bookerName, email: initialBooking.bookerEmail },
   };
 }
 
@@ -145,6 +189,7 @@ function reducer(state: State, action: Action): State {
         formState: action.formState,
         emailDelivery: action.emailDelivery,
         bookingId: action.bookingId,
+        manageToken: action.manageToken,
         confirmedSlot: state.selectedSlot,
         isRescheduling: false,
       };
@@ -178,7 +223,11 @@ interface BookingClientProps {
   workspaceSlug?: string;
   workspaceName: string;
   workspaceImage: string | null;
+  /** The member who owns the page; shown as the host, with the workspace as secondary. */
+  hostName?: string | null;
   bookingPage: BookingPageProps;
+  /** Set when the page was opened from a signed cancel / reschedule link. */
+  initialBooking?: ManagedBooking | null;
 }
 
 function getLocationLabel(locationType: BookingPageProps['locationType']): string {
@@ -192,9 +241,11 @@ export function BookingClient({
   workspaceSlug = '',
   workspaceName,
   workspaceImage,
+  hostName = null,
   bookingPage,
+  initialBooking = null,
 }: Readonly<BookingClientProps>) {
-  const [state, dispatch] = useReducer(reducer, bookingPage, makeInitialState);
+  const [state, dispatch] = useReducer(reducer, { bookingPage, initialBooking }, makeInitialState);
   const [slotsLoading, startSlotsTransition] = useTransition();
   const [submitting, startSubmitTransition] = useTransition();
   const [cancelling, startCancelTransition] = useTransition();
@@ -236,7 +287,7 @@ export function BookingClient({
 
       while (date <= limit) {
         if (cancelled) return;
-        if (hasAvailabilityForDay(date, bookingPage.availability)) {
+        if (hasAvailabilityForDay(date, bookingPage.availability, bookingPage.duration)) {
           const dateStr = format(date, 'yyyy-MM-dd');
           const result =
             kind === 'personal'
@@ -260,7 +311,7 @@ export function BookingClient({
     return () => {
       cancelled = true;
     };
-  }, [bookingPage.availability, bookingPage.id, bookingPage.maxAdvance, kind, workspaceSlug]);
+  }, [bookingPage.availability, bookingPage.duration, bookingPage.id, bookingPage.maxAdvance, kind, workspaceSlug]);
 
   const handleDateSelect = (date: Date) => {
     dispatch({ type: 'select-date', date });
@@ -313,6 +364,10 @@ export function BookingClient({
         dispatch({
           type: 'booking-confirmed',
           bookingId: result.bookingId,
+          manageToken:
+            'manageToken' in result && typeof result.manageToken === 'string'
+              ? result.manageToken
+              : null,
           formState,
           emailDelivery: result.emailDelivery,
         });
@@ -341,6 +396,7 @@ export function BookingClient({
           : await rescheduleBooking({
               workspaceSlug,
               bookingId: state.bookingId!,
+              token: state.manageToken ?? '',
               startTime: slot.start,
               endTime: slot.end,
             });
@@ -363,7 +419,11 @@ export function BookingClient({
       const result =
         kind === 'personal'
           ? await cancelPersonalBooking({ bookingId: state.bookingId! })
-          : await cancelBooking({ workspaceSlug, bookingId: state.bookingId! });
+          : await cancelBooking({
+              workspaceSlug,
+              bookingId: state.bookingId!,
+              token: state.manageToken ?? '',
+            });
       if (result.success) {
         dispatch({ type: 'booking-cancelled' });
       } else {
@@ -398,6 +458,8 @@ export function BookingClient({
           <ConfirmationCard
             bookingPage={bookingPage}
             workspaceName={workspaceName}
+            hostName={hostName}
+            startInCancelConfirm={initialBooking?.intent === 'cancel'}
             selectedSlot={state.selectedSlot}
             selectedDate={state.selectedDate}
             bookerName={state.formState.name}
@@ -427,12 +489,16 @@ export function BookingClient({
             <BookingPageInfo
               bookingPage={bookingPage}
               workspaceName={workspaceName}
+              hostName={hostName}
               workspaceImage={workspaceImage}
               locationLabel={locationLabel}
               timezone={state.timezone}
             />
             <BookingDetailsForm
               bookingPage={bookingPage}
+              selectedSlot={state.selectedSlot}
+              timezone={state.timezone}
+              use24h={state.use24h}
               submitting={submitting}
               accentColor={accentColor}
               initial={state.formState}
@@ -463,6 +529,7 @@ export function BookingClient({
               <BookingPageInfo
                 bookingPage={bookingPage}
                 workspaceName={workspaceName}
+                hostName={hostName}
                 workspaceImage={workspaceImage}
                 locationLabel={locationLabel}
                 timezone={state.timezone}
@@ -475,6 +542,7 @@ export function BookingClient({
                 today={today}
                 maxDate={maxDate}
                 availability={bookingPage.availability}
+                duration={bookingPage.duration}
                 emptyDates={state.emptyDates}
                 pendingDates={state.pendingDates}
                 accentColor={accentColor}

@@ -159,4 +159,137 @@ describe('/api/booking-pages · pglite integration', () => {
     const body = (await res.json()) as { data: { id: string; ownerId: string } };
     expect(body.data.ownerId).toBe(erinId);
   });
+
+  // ── Availability + question validation ──────────────────────────────────
+
+  const JSON_HEADERS = { 'Content-Type': 'application/json' };
+  const mondayOnly = (start: string, end: string) => ({ ...emptyAvailability, monday: [{ start, end }] });
+
+  it('POST / rejects a range that ends before it starts (Monday 18:00-17:00)', async () => {
+    const { request } = createTestApp('/api/booking-pages', bookingPagesRoutes, {
+      context: { permissions: permissions('bookings:create'), userId: 'user_bpg_avail', tenantDb: db },
+    });
+    const res = await request('/api/booking-pages', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ ...basePage('-badrange'), availability: mondayOnly('18:00', '17:00') }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST / rejects overlapping ranges on the same day but allows touching ranges', async () => {
+    const { request } = createTestApp('/api/booking-pages', bookingPagesRoutes, {
+      context: { permissions: permissions('bookings:create'), userId: 'user_bpg_avail', tenantDb: db },
+    });
+    const overlap = await request('/api/booking-pages', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        ...basePage('-overlap'),
+        availability: {
+          ...emptyAvailability,
+          monday: [
+            { start: '09:00', end: '12:00' },
+            { start: '11:00', end: '14:00' },
+          ],
+        },
+      }),
+    });
+    expect(overlap.status).toBe(400);
+
+    const touching = await request('/api/booking-pages', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        ...basePage('-touching'),
+        availability: {
+          ...emptyAvailability,
+          monday: [
+            { start: '09:00', end: '12:00' },
+            { start: '12:00', end: '14:00' },
+          ],
+        },
+      }),
+    });
+    expect(touching.status).toBe(201);
+  });
+
+  it('PATCH /:id rejects an invalid availability range', async () => {
+    const { request } = createTestApp('/api/booking-pages', bookingPagesRoutes, {
+      context: {
+        permissions: permissions('bookings:create', 'bookings:update'),
+        userId: 'user_bpg_avail_patch',
+        tenantDb: db,
+      },
+    });
+    const created = await request('/api/booking-pages', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(basePage('-patch-avail')),
+    });
+    const { data } = (await created.json()) as { data: { id: string } };
+
+    const res = await request(`/api/booking-pages/${data.id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ availability: mondayOnly('18:00', '17:00') }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('persists custom form fields as questions on create and update', async () => {
+    const { request } = createTestApp('/api/booking-pages', bookingPagesRoutes, {
+      context: {
+        permissions: permissions('bookings:create', 'bookings:update', 'bookings:read'),
+        userId: 'user_bpg_questions',
+        tenantDb: db,
+      },
+    });
+    const questions = [
+      { id: 'phone', label: 'Phone number', type: 'text', required: true },
+      { id: 'topic', label: 'Topic', type: 'select', required: false, options: ['Sales', 'Support'] },
+    ];
+    const created = await request('/api/booking-pages', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ ...basePage('-questions'), questions }),
+    });
+    expect(created.status).toBe(201);
+    const { data } = (await created.json()) as { data: { id: string } };
+
+    const [row] = await db
+      .select()
+      .from(schema.calendarBookingPages)
+      .where(eq(schema.calendarBookingPages.id, data.id))
+      .limit(1);
+    expect(row?.questions).toEqual(questions);
+
+    const updated = await request(`/api/booking-pages/${data.id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ questions: [questions[0]] }),
+    });
+    expect(updated.status).toBe(200);
+    const [after] = await db
+      .select()
+      .from(schema.calendarBookingPages)
+      .where(eq(schema.calendarBookingPages.id, data.id))
+      .limit(1);
+    expect(after?.questions).toEqual([questions[0]]);
+  });
+
+  it('rejects a select question without options', async () => {
+    const { request } = createTestApp('/api/booking-pages', bookingPagesRoutes, {
+      context: { permissions: permissions('bookings:create'), userId: 'user_bpg_questions', tenantDb: db },
+    });
+    const res = await request('/api/booking-pages', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        ...basePage('-badselect'),
+        questions: [{ id: 'topic', label: 'Topic', type: 'select', required: false }],
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
 });

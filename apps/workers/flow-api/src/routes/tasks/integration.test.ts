@@ -70,6 +70,59 @@ describe('/api/tasks · pglite integration', () => {
     const res = await request('/api/tasks/task_missing');
     expect(res.status).toBe(404);
   });
+
+  // A task created from a calendar slot sends the clicked start: its calendar
+  // block must be pinned there (not auto-placed in the next free slot) and must
+  // end after it starts, even though the due date equals the start.
+  it('POST / pins the calendar block to the given startDate with its duration', async () => {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:create'), tenantDb: db },
+    });
+    const start = new Date('2030-10-14T09:00:00.000Z');
+
+    const res = await request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Pinned from the calendar',
+        startDate: start.toISOString(),
+        dueDate: start.toISOString(),
+        duration: 45,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string } };
+
+    const [event] = await db
+      .select()
+      .from(schema.calendarEvents)
+      .where(eq(schema.calendarEvents.sourceId, body.data.id))
+      .limit(1);
+    expect(event?.autoScheduled).toBe(false);
+    expect(event?.startTime.toISOString()).toBe(start.toISOString());
+    expect(event?.endTime?.toISOString()).toBe(new Date(start.getTime() + 45 * 60000).toISOString());
+  });
+
+  it('POST / keeps a due date after the start as the end of the pinned block', async () => {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:create'), tenantDb: db },
+    });
+    const start = new Date('2030-10-15T09:00:00.000Z');
+    const due = new Date('2030-10-15T12:00:00.000Z');
+
+    const res = await request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Range task', startDate: start.toISOString(), dueDate: due.toISOString() }),
+    });
+    const body = (await res.json()) as { data: { id: string } };
+    const [event] = await db
+      .select()
+      .from(schema.calendarEvents)
+      .where(eq(schema.calendarEvents.sourceId, body.data.id))
+      .limit(1);
+    expect(event?.endTime?.toISOString()).toBe(due.toISOString());
+  });
 });
 
 describe('/api/tasks/:id/move · pglite integration', () => {

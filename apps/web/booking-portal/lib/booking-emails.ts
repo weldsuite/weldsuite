@@ -23,6 +23,13 @@ interface BookingEmailParams {
   confirmationMessage: string | null;
   timezone?: string | null;
   ics?: string;
+  /** The member who owns the booking page. Shown instead of the bare workspace name. */
+  hostName?: string | null;
+  /** Replies from the guest go to the host. */
+  hostEmail?: string | null;
+  /** Signed links into the portal's reschedule / cancel flow. */
+  rescheduleUrl?: string | null;
+  cancelUrl?: string | null;
 }
 
 interface GuestInviteParams {
@@ -36,6 +43,8 @@ interface GuestInviteParams {
   workspaceName: string;
   timezone?: string | null;
   ics?: string;
+  hostName?: string | null;
+  hostEmail?: string | null;
 }
 
 class MissingResendApiKeyError extends Error {
@@ -82,6 +91,57 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** "Jane Doe (Acme)" when the host is a person, otherwise just the workspace name. */
+function hostLabel(hostName: string | null | undefined, workspaceName: string): string {
+  const host = hostName?.trim();
+  return host && host !== workspaceName ? `${host} (${workspaceName})` : workspaceName;
+}
+
+function hostLabelHtml(hostName: string | null | undefined, workspaceName: string): string {
+  const host = hostName?.trim();
+  if (!host || host === workspaceName) return `<strong>${escapeHtml(workspaceName)}</strong>`;
+  return `<strong>${escapeHtml(host)}</strong> (${escapeHtml(workspaceName)})`;
+}
+
+/** RFC 5322 display name: quoted, with characters that would break the header removed. */
+function fromHeader(hostName: string | null | undefined, workspaceName: string): string {
+  const host = hostName?.trim();
+  const label = host && host !== workspaceName ? `${host} via ${workspaceName}` : workspaceName;
+  return `"${label.replace(/["\\<>\r\n]/g, '')}" <${BOOKING_FROM_ADDRESS}>`;
+}
+
+function replyToField(email: string | null | undefined): { reply_to: string } | Record<string, never> {
+  const trimmed = email?.trim();
+  return trimmed ? { reply_to: trimmed } : {};
+}
+
+function hostLineHtml(hostName: string | null | undefined, workspaceName: string): string {
+  return `<p style="margin:0 0 4px"><strong>Host:</strong> ${escapeHtml(hostLabel(hostName, workspaceName))}</p>`;
+}
+
+/** Footer of the confirmation / reschedule mail: signed links, or a contact fallback. */
+function manageFooterHtml(params: BookingEmailParams, fallbackIntro: string): string {
+  const style = 'margin:0;color:#6b7280;font-size:13px';
+  if (params.rescheduleUrl && params.cancelUrl) {
+    const link = 'color:#111827;font-weight:600';
+    return `<p style="${style}">${escapeHtml(fallbackIntro)} <a href="${escapeHtml(params.rescheduleUrl)}" style="${link}">Reschedule</a> or <a href="${escapeHtml(params.cancelUrl)}" style="${link}">Cancel</a> this meeting, or reply to this email to reach ${escapeHtml(params.hostName?.trim() || params.workspaceName)}.</p>`;
+  }
+  return `<p style="${style}">${escapeHtml(fallbackIntro)} Reply to this email or contact ${escapeHtml(params.hostName?.trim() || params.workspaceName)} directly.</p>`;
+}
+
+function manageFooterText(params: BookingEmailParams, fallbackIntro: string): string[] {
+  const who = params.hostName?.trim() || params.workspaceName;
+  if (params.rescheduleUrl && params.cancelUrl) {
+    return [
+      fallbackIntro,
+      `Reschedule: ${params.rescheduleUrl}`,
+      `Cancel: ${params.cancelUrl}`,
+      `Or reply to this email to reach ${who}.`,
+    ];
+  }
+  return [`${fallbackIntro} Reply to this email or contact ${who} directly.`];
+}
+
 function locationHtml(locationType: string | null, locationValue: string | null): string {
   if (!locationValue) return '';
   if (locationType === 'video') {
@@ -114,10 +174,11 @@ export async function sendBookingConfirmationEmail(params: BookingEmailParams): 
     </div>
     <div style="padding:32px">
       <p style="margin:0 0 16px;color:#374151">Hi ${escapeHtml(params.bookerName)},</p>
-      <p style="margin:0 0 24px;color:#374151">Your meeting has been confirmed with <strong>${escapeHtml(params.workspaceName)}</strong>.</p>
+      <p style="margin:0 0 24px;color:#374151">Your meeting has been confirmed with ${hostLabelHtml(params.hostName, params.workspaceName)}.</p>
 
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin:0 0 24px">
         <p style="margin:0 0 4px;font-size:16px;font-weight:600;color:#111827">${escapeHtml(params.bookingPageName)}</p>
+        ${hostLineHtml(params.hostName, params.workspaceName)}
         <p style="margin:0 0 4px"><strong>Date:</strong> ${dateStr}</p>
         <p style="margin:0 0 4px"><strong>Time:</strong> ${timeStr}</p>
         ${locationHtml(params.locationType, params.locationValue)}
@@ -125,7 +186,7 @@ export async function sendBookingConfirmationEmail(params: BookingEmailParams): 
 
       ${customMessage}
 
-      <p style="margin:0;color:#6b7280;font-size:13px">If you need to make changes, please contact ${escapeHtml(params.workspaceName)} directly.</p>
+      ${manageFooterHtml(params, 'If you need to make changes, you can')}
     </div>
   </div>
 </body>
@@ -136,22 +197,24 @@ export async function sendBookingConfirmationEmail(params: BookingEmailParams): 
     ``,
     `Hi ${params.bookerName},`,
     ``,
-    `Your meeting has been confirmed with ${params.workspaceName}.`,
+    `Your meeting has been confirmed with ${hostLabel(params.hostName, params.workspaceName)}.`,
     ``,
     `${params.bookingPageName}`,
+    `Host: ${hostLabel(params.hostName, params.workspaceName)}`,
     `Date: ${dateStr}`,
     `Time: ${timeStr}`,
     params.locationValue ? `Location: ${params.locationValue}` : '',
     params.confirmationMessage ? `\n${params.confirmationMessage}` : '',
     ``,
-    `If you need to make changes, please contact ${params.workspaceName} directly.`,
+    ...manageFooterText(params, 'If you need to make changes:'),
   ]
     .filter(Boolean)
     .join('\n');
 
   await sendEmail(apiKey, {
-    from: `${params.workspaceName} <${BOOKING_FROM_ADDRESS}>`,
+    from: fromHeader(params.hostName, params.workspaceName),
     to: [params.bookerEmail],
+    ...replyToField(params.hostEmail),
     subject: `Booking Confirmed: ${params.bookingPageName} — ${dateStr}`,
     html,
     text,
@@ -174,16 +237,17 @@ export async function sendBookingRescheduledEmail(params: BookingEmailParams): P
     </div>
     <div style="padding:32px">
       <p style="margin:0 0 16px;color:#374151">Hi ${escapeHtml(params.bookerName)},</p>
-      <p style="margin:0 0 24px;color:#374151">Your meeting with <strong>${escapeHtml(params.workspaceName)}</strong> has been moved to a new time.</p>
+      <p style="margin:0 0 24px;color:#374151">Your meeting with ${hostLabelHtml(params.hostName, params.workspaceName)} has been moved to a new time.</p>
 
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin:0 0 24px">
         <p style="margin:0 0 4px;font-size:16px;font-weight:600;color:#111827">${escapeHtml(params.bookingPageName)}</p>
+        ${hostLineHtml(params.hostName, params.workspaceName)}
         <p style="margin:0 0 4px"><strong>Date:</strong> ${dateStr}</p>
         <p style="margin:0 0 4px"><strong>Time:</strong> ${timeStr}</p>
         ${locationHtml(params.locationType, params.locationValue)}
       </div>
 
-      <p style="margin:0;color:#6b7280;font-size:13px">The updated invitation is attached. If you need to make further changes, please contact ${escapeHtml(params.workspaceName)} directly.</p>
+      ${manageFooterHtml(params, 'The updated invitation is attached. If you need to make further changes, you can')}
     </div>
   </div>
 </body>
@@ -194,21 +258,23 @@ export async function sendBookingRescheduledEmail(params: BookingEmailParams): P
     ``,
     `Hi ${params.bookerName},`,
     ``,
-    `Your meeting with ${params.workspaceName} has been moved to a new time.`,
+    `Your meeting with ${hostLabel(params.hostName, params.workspaceName)} has been moved to a new time.`,
     ``,
     `${params.bookingPageName}`,
+    `Host: ${hostLabel(params.hostName, params.workspaceName)}`,
     `Date: ${dateStr}`,
     `Time: ${timeStr}`,
     params.locationValue ? `Location: ${params.locationValue}` : '',
     ``,
-    `If you need to make further changes, please contact ${params.workspaceName} directly.`,
+    ...manageFooterText(params, 'The updated invitation is attached. If you need to make further changes:'),
   ]
     .filter(Boolean)
     .join('\n');
 
   await sendEmail(apiKey, {
-    from: `${params.workspaceName} <${BOOKING_FROM_ADDRESS}>`,
+    from: fromHeader(params.hostName, params.workspaceName),
     to: [params.bookerEmail],
+    ...replyToField(params.hostEmail),
     subject: `Booking Rescheduled: ${params.bookingPageName} — ${dateStr}`,
     html,
     text,
@@ -231,7 +297,7 @@ export async function sendBookingCancellationEmail(params: BookingEmailParams): 
     </div>
     <div style="padding:32px">
       <p style="margin:0 0 16px;color:#374151">Hi ${escapeHtml(params.bookerName)},</p>
-      <p style="margin:0 0 24px;color:#374151">Your meeting with <strong>${escapeHtml(params.workspaceName)}</strong> has been cancelled.</p>
+      <p style="margin:0 0 24px;color:#374151">Your meeting with ${hostLabelHtml(params.hostName, params.workspaceName)} has been cancelled.</p>
 
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin:0 0 24px">
         <p style="margin:0 0 4px;font-size:16px;font-weight:600;color:#111827;text-decoration:line-through">${escapeHtml(params.bookingPageName)}</p>
@@ -239,7 +305,7 @@ export async function sendBookingCancellationEmail(params: BookingEmailParams): 
         <p style="margin:0 0 4px"><strong>Time:</strong> ${timeStr}</p>
       </div>
 
-      <p style="margin:0;color:#6b7280;font-size:13px">If this was a mistake or you'd like to rebook, please contact ${escapeHtml(params.workspaceName)} directly.</p>
+      <p style="margin:0;color:#6b7280;font-size:13px">If this was a mistake or you'd like to rebook, reply to this email or contact ${escapeHtml(params.hostName?.trim() || params.workspaceName)} directly.</p>
     </div>
   </div>
 </body>
@@ -250,20 +316,21 @@ export async function sendBookingCancellationEmail(params: BookingEmailParams): 
     ``,
     `Hi ${params.bookerName},`,
     ``,
-    `Your meeting with ${params.workspaceName} has been cancelled.`,
+    `Your meeting with ${hostLabel(params.hostName, params.workspaceName)} has been cancelled.`,
     ``,
     `${params.bookingPageName}`,
     `Date: ${dateStr}`,
     `Time: ${timeStr}`,
     ``,
-    `If this was a mistake or you'd like to rebook, please contact ${params.workspaceName} directly.`,
+    `If this was a mistake or you'd like to rebook, reply to this email or contact ${params.hostName?.trim() || params.workspaceName} directly.`,
   ]
     .filter(Boolean)
     .join('\n');
 
   await sendEmail(apiKey, {
-    from: `${params.workspaceName} <${BOOKING_FROM_ADDRESS}>`,
+    from: fromHeader(params.hostName, params.workspaceName),
     to: [params.bookerEmail],
+    ...replyToField(params.hostEmail),
     subject: `Booking Cancelled: ${params.bookingPageName} — ${dateStr}`,
     html,
     text,
@@ -286,7 +353,7 @@ export async function sendGuestInviteEmail(params: GuestInviteParams): Promise<v
     </div>
     <div style="padding:32px">
       <p style="margin:0 0 16px;color:#374151">Hi,</p>
-      <p style="margin:0 0 24px;color:#374151"><strong>${escapeHtml(params.bookerName)}</strong> has added you as a guest to a meeting with <strong>${escapeHtml(params.workspaceName)}</strong>.</p>
+      <p style="margin:0 0 24px;color:#374151"><strong>${escapeHtml(params.bookerName)}</strong> has added you as a guest to a meeting with ${hostLabelHtml(params.hostName, params.workspaceName)}.</p>
 
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin:0 0 24px">
         <p style="margin:0 0 4px;font-size:16px;font-weight:600;color:#111827">${escapeHtml(params.bookingPageName)}</p>
@@ -295,7 +362,7 @@ export async function sendGuestInviteEmail(params: GuestInviteParams): Promise<v
         ${locationHtml(params.locationType, params.locationValue)}
       </div>
 
-      <p style="margin:0;color:#6b7280;font-size:13px">This is an automated invitation. If you have questions, contact ${escapeHtml(params.bookerName)} or ${escapeHtml(params.workspaceName)} directly.</p>
+      <p style="margin:0;color:#6b7280;font-size:13px">This is an automated invitation. If you have questions, contact ${escapeHtml(params.bookerName)} or ${escapeHtml(params.hostName?.trim() || params.workspaceName)} directly.</p>
     </div>
   </div>
 </body>
@@ -304,7 +371,7 @@ export async function sendGuestInviteEmail(params: GuestInviteParams): Promise<v
   const text = [
     `You're Invited`,
     ``,
-    `${params.bookerName} has added you as a guest to a meeting with ${params.workspaceName}.`,
+    `${params.bookerName} has added you as a guest to a meeting with ${hostLabel(params.hostName, params.workspaceName)}.`,
     ``,
     `${params.bookingPageName}`,
     `Date: ${dateStr}`,
@@ -315,8 +382,9 @@ export async function sendGuestInviteEmail(params: GuestInviteParams): Promise<v
     .join('\n');
 
   await sendEmail(apiKey, {
-    from: `${params.workspaceName} <${BOOKING_FROM_ADDRESS}>`,
+    from: fromHeader(params.hostName, params.workspaceName),
     to: [params.guestEmail],
+    ...replyToField(params.hostEmail),
     subject: `Invitation: ${params.bookingPageName} — ${dateStr}`,
     html,
     text,

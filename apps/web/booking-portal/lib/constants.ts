@@ -25,9 +25,10 @@ export const LAYOUT = {
   CALENDAR_CELL_HEIGHT: 59,
 } as const;
 
-// External calendar deep-links assembled in the confirmation card.
+// External calendar deep-links assembled in the confirmation card. Guests are
+// external people, so there is deliberately no WeldCalendar option: the booking
+// is already on the host's calendar.
 export const EXTERNAL_CALENDAR_BASE = {
   google: 'https://calendar.google.com/calendar/render',
   outlook: 'https://outlook.live.com/calendar/0/deeplink/compose',
-  weldcal: 'https://app.weldsuite.com/weldcalendar/new-event',
 } as const;

@@ -14,12 +14,21 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { useCreateUserCalendar, useUpdateUserCalendar } from '@/hooks/queries/use-calendar-queries';
 import { getTranslations } from '@/lib/i18n';
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 
+/** Swatch colours, each with the i18n key of its accessible name. */
 const CALENDAR_COLORS = [
-  '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
-  '#ec4899', '#06b6d4', '#f97316', '#14b8a6', '#6366f1',
-];
+  { value: '#3b82f6', name: 'blue' },
+  { value: '#ef4444', name: 'red' },
+  { value: '#22c55e', name: 'green' },
+  { value: '#f59e0b', name: 'amber' },
+  { value: '#8b5cf6', name: 'violet' },
+  { value: '#ec4899', name: 'pink' },
+  { value: '#06b6d4', name: 'cyan' },
+  { value: '#f97316', name: 'orange' },
+  { value: '#14b8a6', name: 'teal' },
+  { value: '#6366f1', name: 'indigo' },
+] as const;
 
 const schema = z.object({
   name: z.string().min(1, 'Name is required').max(255),
@@ -57,6 +66,8 @@ export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: Reado
   }, [open, editCalendar, form]);
 
   const isPending = createCalendar.isPending || updateCalendar.isPending;
+  const selectedColor = form.watch('color');
+  const colorLabelId = useId();
 
   let submitLabel: string;
   if (isEdit) {
@@ -91,20 +102,25 @@ export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: Reado
           </div>
 
           <div className="space-y-2">
-            <Label>{t.createCalendar.colorLabel}</Label>
-            <div className="flex justify-between">
-              {CALENDAR_COLORS.map((color) => (
-                <Button
-                  key={color}
-                  type="button"
-                  variant="ghost"
-                  onClick={() => form.setValue('color', color)}
-                  className={`w-7 h-7 rounded-md border-2 transition-transform ${
-                    form.watch('color') === color ? 'border-foreground scale-110' : 'border-transparent'
-                  }`}
-                  style={{ backgroundColor: color }}
-                />
-              ))}
+            <Label id={colorLabelId}>{t.createCalendar.colorLabel}</Label>
+            <div className="flex justify-between" role="group" aria-labelledby={colorLabelId}>
+              {CALENDAR_COLORS.map(({ value, name }) => {
+                const selected = selectedColor === value;
+                return (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant="ghost"
+                    aria-label={t.createCalendar.colorNames[name]}
+                    aria-pressed={selected}
+                    onClick={() => form.setValue('color', value)}
+                    className={`w-7 h-7 rounded-md border-2 transition-transform focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                      selected ? 'border-foreground scale-110' : 'border-transparent'
+                    }`}
+                    style={{ backgroundColor: value }}
+                  />
+                );
+              })}
             </div>
           </div>
 

@@ -172,6 +172,7 @@ export const userCalendarKeys = {
   list: () => [...userCalendarKeys.all, 'list'] as const,
   detail: (id: string) => [...userCalendarKeys.all, 'detail', id] as const,
   shares: (id: string) => [...userCalendarKeys.all, 'shares', id] as const,
+  deleteImpact: (id: string) => [...userCalendarKeys.all, 'delete-impact', id] as const,
 };
 
 export const calendarKeys = {
@@ -180,6 +181,7 @@ export const calendarKeys = {
   eventsRange: (startDate?: string, endDate?: string, calendarIds?: string) => [...calendarKeys.all, 'events-range', startDate, endDate, calendarIds] as const,
   event: (id: string) => [...calendarKeys.all, 'event', id] as const,
   upcoming: (params?: Record<string, unknown>) => [...calendarKeys.all, 'upcoming', params] as const,
+  search: (term: string, calendarIds?: string) => [...calendarKeys.all, 'search', term, calendarIds] as const,
 };
 
 const bookingPageKeys = {
@@ -218,6 +220,26 @@ export function useCalendarEventsRange(startDate?: string, endDate?: string, cal
     enabled: !!startDate && !!endDate,
   });
 }
+/**
+ * Server-side events search (title / description) across ALL dates, newest
+ * first. The range query only knows the visible window, so the toolbar search
+ * uses this to find events outside it.
+ */
+export function useSearchCalendarEvents(term: string, calendarIds?: string, limit = 50) {
+  const { getClient } = useAppApiClient();
+  const trimmed = term.trim();
+  return useQuery({
+    queryKey: calendarKeys.search(trimmed, calendarIds),
+    queryFn: async () => {
+      const client = await getClient();
+      const query = buildQueryString({ search: trimmed, limit, calendarIds });
+      return client.get<{ data: CalendarEvent[] }>(`/calendar-events${query}`);
+    },
+    enabled: trimmed.length >= 2,
+    staleTime: 15_000,
+  });
+}
+
 export function useUpcomingCalendarEvents(params?: { days?: number; limit?: number }) {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -325,18 +347,25 @@ export function useRescheduleCalendarEvent() {
       startTime,
       endTime,
       manual,
+      notifyAttendees,
     }: {
       id: string;
       startTime: string;
       endTime?: string;
       /** When true, sets autoScheduled=false on the event and pins tasks.startDate */
       manual?: boolean;
+      /**
+       * Whether calendar-api emails the attendees about the move. Left out it
+       * means "yes" (the server default); pass false for a silent move.
+       */
+      notifyAttendees?: boolean;
     }) => {
       const client = await getClient();
       return client.patch<{ data: unknown }>(`/calendar-events/${id}/reschedule`, {
         startTime,
         endTime,
         ...(manual ? { manual: true } : {}),
+        ...(notifyAttendees === undefined ? {} : { notifyAttendees }),
       });
     },
     onMutate: async ({ id, startTime, endTime, manual }) => {
@@ -364,6 +393,10 @@ export function useRescheduleCalendarEvent() {
           };
         },
       );
+    },
+    // A failed move must not leave the optimistic position on the grid.
+    onError: () => {
+      qc.invalidateQueries({ queryKey: calendarKeys.all });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: calendarKeys.all });
@@ -558,17 +591,49 @@ export function useUpdateUserCalendar() {
   });
 }
 
+/** What deleting a calendar removes — feeds the delete confirmation dialog. */
+export interface CalendarDeleteImpact {
+  /** Every event in the calendar; all are deleted with it. */
+  eventCount: number;
+  /** Upcoming events with attendees, who can be mailed a cancellation. */
+  eventsWithAttendees: number;
+}
+
+export function useCalendarDeleteImpact(calendarId: string | null) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: userCalendarKeys.deleteImpact(calendarId ?? ''),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: CalendarDeleteImpact }>(`/calendars/${calendarId}/delete-impact`);
+    },
+    enabled: !!calendarId,
+    // Always re-count when the dialog opens: events may have changed since.
+    staleTime: 0,
+    meta: { persist: false },
+  });
+}
+
 export function useDeleteUserCalendar() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id, sendNotification }: { id: string; sendNotification?: boolean }) => {
       const client = await getClient();
-      return client.delete<Record<string, never>>(`/calendars/${id}`);
+      // Same flag as an event delete: mails a cancellation to the attendees of
+      // the calendar's upcoming events. Its events are deleted either way.
+      const qs = sendNotification ? '?sendNotification=true' : '';
+      return client.delete<Record<string, never>>(`/calendars/${id}${qs}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: userCalendarKeys.all });
+      // Not the delete impact: re-counting a calendar that is gone only 404s.
+      qc.invalidateQueries({
+        queryKey: userCalendarKeys.all,
+        predicate: (q) => q.queryKey[1] !== 'delete-impact',
+      });
       qc.invalidateQueries({ queryKey: calendarKeys.all });
+      // The server cancels the WeldMeet meetings linked to the deleted events.
+      qc.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }

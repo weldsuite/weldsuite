@@ -2,6 +2,7 @@
   "extends": "@weldsuite/typescript-config/nextjs.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./*"]
     }

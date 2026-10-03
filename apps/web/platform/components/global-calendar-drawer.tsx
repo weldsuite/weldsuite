@@ -5,10 +5,12 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { cn } from '@/lib/utils';
 import { FloatingDrawer } from '@/components/layout/floating-drawer';
-import { useUpcomingCalendarEvents, useUserCalendars, type CalendarEvent } from '@/hooks/queries/use-calendar-queries';
+import { useCalendarEventsRange, useUserCalendars, type CalendarEvent } from '@/hooks/queries/use-calendar-queries';
 import { EVENT_TYPE_COLORS } from '@/app/weldcalendar/lib/event-form-schema';
+import { formatClock, formatClockCompact, formatClockRange, useTimeFormat, type TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
+import { effectiveEnd, isUpcomingOrOngoing } from '@/app/weldcalendar/lib/upcoming-events';
 import { useRouter } from '@/lib/router';
-import { format, isToday, isTomorrow, startOfDay, setHours, addDays } from 'date-fns';
+import { format, isToday, isTomorrow, startOfDay, endOfDay, setHours, addDays } from 'date-fns';
 import { EmptyStateIllustration } from '@/components/entity-list';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -31,15 +33,13 @@ const eventTypeIcons: Record<string, typeof Calendar> = {
   other: Calendar,
 };
 
-function formatEventTime(event: CalendarEvent): string {
+function formatEventTime(event: CalendarEvent, timeFormat: TimeFormat): string {
   if (event.allDay) return 'All day';
   const start = new Date(event.startTime);
-  const timeStr = format(start, 'h:mm a');
-  if (event.endTime) {
-    const end = new Date(event.endTime);
-    return `${timeStr} - ${format(end, 'h:mm a')}`;
-  }
-  return timeStr;
+  const end = effectiveEnd(event);
+  // No end, or an end that is not after the start: show the start only (never a negative range).
+  if (end.getTime() <= start.getTime()) return formatClock(start, timeFormat);
+  return formatClockRange(start, end, timeFormat);
 }
 
 function getDayLabel(date: Date): string {
@@ -72,10 +72,11 @@ function groupEventsByDay(events: CalendarEvent[]): DayGroup[] {
 interface EventListItemProps {
   event: CalendarEvent;
   calendar: { name: string; color?: string } | undefined;
+  timeFormat: TimeFormat;
   onClick: (event: CalendarEvent) => void;
 }
 
-function EventListItem({ event, calendar, onClick }: EventListItemProps) {
+function EventListItem({ event, calendar, timeFormat, onClick }: EventListItemProps) {
   const TypeIcon = eventTypeIcons[event.type] || Calendar;
   const eventColor = event.color || EVENT_TYPE_COLORS[event.type] || EVENT_TYPE_COLORS.other;
 
@@ -99,11 +100,11 @@ function EventListItem({ event, calendar, onClick }: EventListItemProps) {
         </div>
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-xs text-gray-500 dark:text-muted-foreground">
-            {formatEventTime(event)}
+            {formatEventTime(event, timeFormat)}
           </span>
           {calendar && (
             <>
-              <span className="text-gray-300 dark:text-border">Â·</span>
+              <span className="text-gray-300 dark:text-border">·</span>
               <span className="text-xs text-gray-400 dark:text-muted-foreground truncate">
                 {calendar.name}
               </span>
@@ -111,7 +112,7 @@ function EventListItem({ event, calendar, onClick }: EventListItemProps) {
           )}
           {event.isVirtual && event.meetingUrl && (
             <>
-              <span className="text-gray-300 dark:text-border">Â·</span>
+              <span className="text-gray-300 dark:text-border">·</span>
               <Video className="h-3 w-3 text-blue-500 flex-shrink-0" />
             </>
           )}
@@ -184,7 +185,17 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
     window.localStorage.setItem(VIEW_STORAGE_KEY, view);
   }, [view]);
 
-  const { data: eventsData, isLoading: eventsLoading } = useUpcomingCalendarEvents({ days: 7, limit: 50 });
+  const timeFormat = useTimeFormat();
+  // Today plus the next 6 days. Read through the range endpoint rather than
+  // `/upcoming`, which only returns events that START after now and so drops an
+  // all-day event of today (it starts at 00:00) and anything already underway.
+  const range = useMemo(() => {
+    const now = new Date();
+    return { start: startOfDay(now).toISOString(), end: endOfDay(addDays(now, 6)).toISOString() };
+    // Recomputed each time the drawer opens, so a tab left open overnight rolls forward.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+  const { data: eventsData, isLoading: eventsLoading } = useCalendarEventsRange(range.start, range.end);
   const { data: calendarsData } = useUserCalendars();
 
   useEffect(() => {
@@ -203,11 +214,9 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
     return map;
   }, [calendarsData]);
 
+  // Every non-cancelled event of the window (the Day view also wants today's finished ones).
   const events = useMemo(() => {
-    let items = eventsData?.data ?? [];
-
-    // Filter cancelled events
-    items = items.filter(e => e.status !== 'cancelled');
+    let items = (eventsData?.data ?? []).filter((e) => e.status !== 'cancelled');
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -221,7 +230,13 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
     return [...items].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
   }, [eventsData, searchQuery]);
 
-  const dayGroups = useMemo(() => groupEventsByDay(events), [events]);
+  // The List view only shows what is still to come (or underway), including today's all-day events.
+  const upcomingEvents = useMemo(() => {
+    const now = new Date();
+    return events.filter((e) => isUpcomingOrOngoing(e, now)).slice(0, 50);
+  }, [events]);
+
+  const dayGroups = useMemo(() => groupEventsByDay(upcomingEvents), [upcomingEvents]);
 
   const handleEventClick = (event: CalendarEvent) => {
     const date = format(new Date(event.startTime), 'yyyy-MM-dd');
@@ -309,7 +324,7 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
             <span className="text-sm text-muted-foreground">Loading...</span>
           </div>
         ) : view === 'day' ? (
-          <PanelDayView events={events} onEventClick={handleEventClick} />
+          <PanelDayView events={events} timeFormat={timeFormat} onEventClick={handleEventClick} />
         ) : dayGroups.length === 0 ? (
           <EmptyEventsState hasSearch={!!searchQuery} />
         ) : (
@@ -330,6 +345,7 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
                     key={event.id}
                     event={event}
                     calendar={event.calendarId ? calendarMap.get(event.calendarId) : undefined}
+                    timeFormat={timeFormat}
                     onClick={handleEventClick}
                   />
                 ))}
@@ -345,10 +361,11 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
 
 interface PanelDayViewProps {
   events: CalendarEvent[];
+  timeFormat: TimeFormat;
   onEventClick: (event: CalendarEvent) => void;
 }
 
-function PanelDayView({ events, onEventClick }: PanelDayViewProps) {
+function PanelDayView({ events, timeFormat, onEventClick }: PanelDayViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
@@ -470,7 +487,7 @@ function PanelDayView({ events, onEventClick }: PanelDayViewProps) {
             {HOURS.map((hour) => (
               <div key={hour} className="flex items-start justify-end pr-2" style={{ height: hourHeight }}>
                 <span className="text-[10px] text-muted-foreground -mt-1.5 tabular-nums">
-                  {hour === 0 ? '' : format(setHours(new Date(), hour), 'h a')}
+                  {hour === 0 ? '' : formatClockCompact(setHours(new Date(2000, 0, 1), hour), timeFormat)}
                 </span>
               </div>
             ))}
@@ -487,11 +504,16 @@ function PanelDayView({ events, onEventClick }: PanelDayViewProps) {
 
             {timedEvents.map((event) => {
               const start = new Date(event.startTime);
-              const end = event.endTime
-                ? new Date(event.endTime)
+              // A missing / not-after-start end shows as a 30 minute block.
+              const storedEnd = effectiveEnd(event);
+              const end = storedEnd.getTime() > start.getTime()
+                ? storedEnd
                 : new Date(start.getTime() + 30 * 60_000);
               const startMins = start.getHours() * 60 + start.getMinutes();
-              const endMins = end.getHours() * 60 + end.getMinutes();
+              // Runs past midnight: the block stops at the bottom of this day.
+              const endMins = format(end, 'yyyy-MM-dd') === format(start, 'yyyy-MM-dd')
+                ? end.getHours() * 60 + end.getMinutes()
+                : 24 * 60;
               const top = (startMins / 60) * hourHeight;
               const height = Math.max(20, ((endMins - startMins) / 60) * hourHeight - 2);
               const color = event.color || EVENT_TYPE_COLORS[event.type] || EVENT_TYPE_COLORS.other;
@@ -515,8 +537,9 @@ function PanelDayView({ events, onEventClick }: PanelDayViewProps) {
                   </div>
                   {height > 28 && (
                     <div className="text-[10px] text-muted-foreground truncate mt-0.5">
-                      {format(start, 'h:mm a')}
-                      {event.endTime && ` – ${format(end, 'h:mm a')}`}
+                      {storedEnd.getTime() > start.getTime()
+                        ? formatClockRange(start, end, timeFormat)
+                        : formatClock(start, timeFormat)}
                     </div>
                   )}
                 </Button>

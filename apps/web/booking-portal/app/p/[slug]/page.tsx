@@ -6,6 +6,7 @@ import { masterDb } from '@weldsuite/db/lib/master';
 
 import { getPersonalDb } from '@/lib/db';
 import { bookingPagePropsSchema } from '@/lib/schemas';
+import { sanitizeAvailability } from '@/lib/availability';
 import { BookingClient } from '../../[workspace]/[slug]/booking-client';
 
 type Props = {
@@ -90,7 +91,7 @@ export default async function PersonalBookingPage({ params }: Readonly<Props>) {
     color: bookingPage.color,
     locationType: bookingPage.locationType,
     locationValue: bookingPage.locationValue,
-    availability: bookingPage.availability,
+    availability: sanitizeAvailability(bookingPage.availability),
     questions: bookingPage.questions ?? [],
     minNotice: bookingPage.minNotice,
     maxAdvance: bookingPage.maxAdvance,

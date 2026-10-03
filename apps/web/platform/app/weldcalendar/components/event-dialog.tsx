@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Trash2 } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { LocationAutocomplete } from './location-autocomplete';
+import { GuestSearchInput } from './guest-search-input';
 import {
   useCreateCalendarEvent,
   useUpdateCalendarEvent,
@@ -48,6 +49,7 @@ import {
   DEFAULT_WELDMEET_SETTINGS,
 } from '@/hooks/use-auto-create-weld-meeting';
 import { EventNotificationDialog } from './event-notification-dialog';
+import { normalizeEventTimes } from '../lib/event-times';
 
 interface EventDialogProps {
   open: boolean;
@@ -62,14 +64,63 @@ interface EventDialogProps {
   defaultDescription?: string;
   calendars?: UserCalendar[];
   defaultCalendarId?: string;
+  /** Called after the edited event was deleted from inside the dialog. */
+  onDeleted?: () => void;
 }
 
-function formatDateTimeLocal(date: Date): string {
+type FormAttendee = NonNullable<EventFormInput['attendees']>[number];
+
+const isValidDate = (d: Date | null | undefined): d is Date => d instanceof Date && !Number.isNaN(d.getTime());
+
+/** `datetime-local` value, or `date` value for all-day events; '' for a missing / invalid date. */
+function formatInputValue(date: Date | null | undefined, allDay: boolean): string {
+  if (!isValidDate(date)) return '';
   const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return allDay ? day : `${day}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEnd, defaultType, defaultTitle, defaultDescription, calendars, defaultCalendarId }: Readonly<EventDialogProps>) {
+/** Parses a `datetime-local` / `date` input value into a local Date (Invalid Date when empty). */
+function parseInputValue(value: string, allDay: boolean): Date {
+  if (!value) return new Date(Number.NaN);
+  return new Date(allDay && !value.includes('T') ? `${value}T00:00:00` : value);
+}
+
+/** The browser's IANA zone ("Europe/Amsterdam"), sent so the server knows how to render the event's times. */
+function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Server rows carry `null` for unset columns; the form wants `undefined`. */
+function toFormAttendees(attendees: CalendarEvent['attendees'] | null | undefined): FormAttendee[] {
+  return (attendees ?? []).map((a) => ({
+    email: a.email,
+    name: a.name ?? undefined,
+    status: a.status ?? undefined,
+    role: a.role ?? undefined,
+  }));
+}
+
+/** Every message in react-hook-form's (possibly nested) error object, prefixed with its field label. */
+function collectErrorMessages(errors: unknown, label: string, out: string[] = []): string[] {
+  if (!errors || typeof errors !== 'object') return out;
+  const record = errors as Record<string, unknown>;
+  if (typeof record.message === 'string' && record.message) {
+    out.push(label ? `${label}: ${record.message}` : record.message);
+    return out;
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (key === 'ref' || key === 'root') continue;
+    collectErrorMessages(value, label, out);
+  }
+  return out;
+}
+
+export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEnd, defaultType, defaultTitle, defaultDescription, calendars, defaultCalendarId, onDeleted }: Readonly<EventDialogProps>) {
   const isEdit = !!event?.id;
   const t = getTranslations('weldcalendar');
 
@@ -85,6 +136,10 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   const [addWeldMeet, setAddWeldMeet] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const savingRef = useRef(false);
+  // Guests picker (same people search as the quick-create card).
+  const [guestsActive, setGuestsActive] = useState(false);
+  const [guestSearch, setGuestSearch] = useState('');
+  const [guestIds, setGuestIds] = useState<string[]>([]);
 
   // Calendars the user can create events in (own + edit/manage shared)
   const writableCalendars = (calendars || []).filter((c) => c.isOwn || c.permission === 'edit' || c.permission === 'manage');
@@ -106,12 +161,18 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
       priority: 'normal',
       color: '',
       notes: '',
+      attendees: [],
     },
   });
 
-  // Reset form when event changes
+  // Reset the form whenever the dialog opens or its subject changes, so a
+  // cancelled edit never leaks into the next time the dialog is opened.
   useEffect(() => {
+    if (!open) return;
     setAddWeldMeet(false);
+    setGuestsActive(false);
+    setGuestSearch('');
+    setGuestIds([]);
     if (event) {
       form.reset({
         calendarId: event.calendarId || defaultCalendarId || '',
@@ -128,8 +189,11 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
         priority: (event.priority as EventFormValues['priority']) || 'normal',
         color: event.color || '',
         notes: event.notes || '',
-        attendees: event.attendees,
-        tags: event.tags,
+        // The API returns null for unset columns; keep them out of the form.
+        attendees: toFormAttendees(event.attendees),
+        tags: event.tags ?? undefined,
+        customerId: event.customerId ?? undefined,
+        contactId: event.contactId ?? undefined,
       });
     } else {
       form.reset({
@@ -147,11 +211,33 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
         priority: 'normal',
         color: '',
         notes: '',
+        attendees: [],
       });
     }
-  }, [event, defaultStart, defaultEnd, defaultType, defaultTitle, defaultDescription, defaultCalendarId, form]);
+  }, [open, event, defaultStart, defaultEnd, defaultType, defaultTitle, defaultDescription, defaultCalendarId, form]);
 
+  const attendees: FormAttendee[] = form.watch('attendees') ?? [];
   const hasAttendees = !!(isEdit && event?.attendees?.length);
+
+  const addGuest = (guest: { id: string; name: string; email: string }) => {
+    const email = guest.email.trim();
+    if (!email) {
+      toast.error(t.eventDialog.guestNoEmail);
+      return;
+    }
+    if (attendees.some((a) => a.email.toLowerCase() === email.toLowerCase())) return;
+    form.setValue('attendees', [...attendees, { email, name: guest.name || undefined }], { shouldDirty: true });
+    setGuestIds((ids) => [...ids, guest.id]);
+    setGuestSearch('');
+  };
+
+  const removeGuest = (email: string) => {
+    form.setValue(
+      'attendees',
+      attendees.filter((a) => a.email.toLowerCase() !== email.toLowerCase()),
+      { shouldDirty: true },
+    );
+  };
 
   /**
    * Saves the event through `save`. With WeldMeet added the meeting is created
@@ -194,22 +280,53 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   };
 
   const onSubmit = async (values: EventFormValues) => {
+    const times = normalizeEventTimes(values.startTime, values.endTime, values.allDay);
+    if (!times.ok) {
+      form.setError(times.error === 'invalid-start' ? 'startTime' : 'endTime', {
+        type: 'validate',
+        message: times.error === 'invalid-start' ? t.eventDialog.invalidStart : t.eventDialog.endBeforeStart,
+      });
+      return;
+    }
+
+    // Editing: '' (not undefined) is what clears a value the user emptied.
+    const clearable = (next: string | null | undefined, previous: string | null | undefined) =>
+      next || (isEdit && previous ? '' : undefined);
+
+    const guests = (values.attendees ?? []).map((a) => ({
+      email: a.email,
+      name: a.name ?? undefined,
+      status: a.status ?? undefined,
+      role: a.role ?? undefined,
+    }));
+
     const payload: CalendarEventInput = {
-      ...values,
       calendarId: values.calendarId || defaultCalendarId,
-      startTime: values.startTime.toISOString(),
-      endTime: values.endTime ? values.endTime.toISOString() : undefined,
-      // Editing: '' (not undefined) is what clears a link the user switched off.
-      meetingUrl: values.meetingUrl || (isEdit && event?.meetingUrl ? '' : undefined),
-      location: values.location || undefined,
-      description: values.description || undefined,
+      title: values.title,
+      type: values.type,
+      status: values.status,
+      priority: values.priority,
+      allDay: values.allDay,
+      startTime: times.start.toISOString(),
+      endTime: times.end ? times.end.toISOString() : undefined,
+      timezone: browserTimeZone(),
+      isVirtual: values.isVirtual,
+      meetingUrl: clearable(values.meetingUrl, event?.meetingUrl),
+      location: clearable(values.location, event?.location),
+      description: clearable(values.description, event?.description),
       notes: values.notes || undefined,
       color: values.color || undefined,
+      customerId: values.customerId ?? undefined,
+      contactId: values.contactId ?? undefined,
+      tags: values.tags ?? undefined,
+      // Edit sends the full list (an empty one removes everyone); create only when there are guests.
+      attendees: isEdit || guests.length ? guests : undefined,
     };
 
     if (isEdit && event?.id) {
-      if (hasAttendees) {
-        // The meeting is created after the notify dialog is answered, not before.
+      if (hasAttendees || guests.length > 0) {
+        // Added / removed guests count too: the dialog is how the user decides
+        // whether they are mailed. The meeting is created after it is answered.
         setPendingPayload(payload);
         setShowUpdateDialog(true);
         return;
@@ -244,9 +361,27 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   const handleDelete = async (sendNotification?: boolean) => {
     if (event?.id) {
       await deleteEvent.mutateAsync({ id: event.id, sendNotification });
+      onDeleted?.();
       onOpenChange(false);
     }
   };
+
+  const fieldLabels: Record<string, string> = {
+    calendarId: t.eventDialog.calendarLabel,
+    title: t.eventDialog.titleLabel,
+    startTime: t.eventDialog.startLabel,
+    endTime: t.eventDialog.endLabel,
+    meetingUrl: t.eventDialog.meetingUrlLabel,
+    attendees: t.eventDialog.guestsLabel,
+  };
+  // Title and the time fields show their error inline; everything else (a
+  // field the dialog has no spot for, or a stale value from the server) would
+  // otherwise block the submit without a word.
+  const errorMessages = Object.entries(form.formState.errors).flatMap(([field, err]) =>
+    field === 'title' || field === 'endTime' || field === 'startTime'
+      ? []
+      : collectErrorMessages(err, fieldLabels[field] ?? ''),
+  );
 
   const isLoading = createEvent.isPending || updateEvent.isPending || deleteEvent.isPending || isSaving;
 
@@ -357,18 +492,41 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
               <Input
                 id="startTime"
                 type={form.watch('allDay') ? 'date' : 'datetime-local'}
-                value={form.watch('startTime') ? formatDateTimeLocal(form.watch('startTime')) : ''}
-                onChange={(e) => form.setValue('startTime', new Date(e.target.value))}
+                value={formatInputValue(form.watch('startTime'), !!form.watch('allDay'))}
+                aria-invalid={!!form.formState.errors.startTime}
+                onChange={(e) => {
+                  const allDay = !!form.getValues('allDay');
+                  const next = parseInputValue(e.target.value, allDay);
+                  const prev = form.getValues('startTime');
+                  const end = form.getValues('endTime');
+                  // Moving the start moves the end with it, so the duration is kept.
+                  if (isValidDate(next) && isValidDate(prev) && isValidDate(end)) {
+                    form.setValue('endTime', new Date(end.getTime() + (next.getTime() - prev.getTime())), { shouldDirty: true });
+                  }
+                  form.setValue('startTime', next, { shouldDirty: true });
+                  form.clearErrors(['startTime', 'endTime']);
+                }}
               />
+              {form.formState.errors.startTime && (
+                <p className="text-sm text-destructive">{form.formState.errors.startTime.message}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="endTime">{t.eventDialog.endLabel}</Label>
               <Input
                 id="endTime"
                 type={form.watch('allDay') ? 'date' : 'datetime-local'}
-                value={form.watch('endTime') ? formatDateTimeLocal(form.watch('endTime')!) : ''}
-                onChange={(e) => form.setValue('endTime', e.target.value ? new Date(e.target.value) : null)}
+                value={formatInputValue(form.watch('endTime'), !!form.watch('allDay'))}
+                aria-invalid={!!form.formState.errors.endTime}
+                onChange={(e) => {
+                  const next = parseInputValue(e.target.value, !!form.getValues('allDay'));
+                  form.setValue('endTime', isValidDate(next) ? next : null, { shouldDirty: true });
+                  form.clearErrors('endTime');
+                }}
               />
+              {form.formState.errors.endTime && (
+                <p className="text-sm text-destructive">{form.formState.errors.endTime.message}</p>
+              )}
             </div>
           </div>
 
@@ -418,6 +576,51 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
             </div>
           )}
 
+          {/* Guests — same people search as the quick-create card */}
+          <div className="space-y-2">
+            <Label>{t.eventDialog.guestsLabel}</Label>
+            {attendees.length > 0 && (
+              <ul className="flex flex-wrap gap-1.5">
+                {attendees.map((a) => (
+                  <li
+                    key={a.email}
+                    className="inline-flex items-center gap-1 rounded-md bg-muted pl-2 pr-1 py-0.5 text-xs max-w-full"
+                  >
+                    <span className="truncate">{a.name || a.email}</span>
+                    <button
+                      type="button"
+                      aria-label={t.eventDialog.removeGuest.replace('{name}', a.name || a.email)}
+                      className="inline-flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+                      onClick={() => removeGuest(a.email)}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {guestsActive ? (
+              // Enter picks a result; it must not also submit the form.
+              <div
+                className="rounded-md border px-3"
+                onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+              >
+                <GuestSearchInput
+                  value={guestSearch}
+                  onChange={setGuestSearch}
+                  selectedIds={guestIds}
+                  onSelect={addGuest}
+                  onBlurAway={() => { setGuestsActive(false); setGuestSearch(''); }}
+                />
+              </div>
+            ) : (
+              <Button type="button" variant="outline" size="sm" className="shadow-none" onClick={() => setGuestsActive(true)}>
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                {t.eventDialog.addGuests}
+              </Button>
+            )}
+          </div>
+
           {/* Description */}
           <div className="space-y-2">
             <Label htmlFor="description">{t.eventDialog.descriptionLabel}</Label>
@@ -446,6 +649,15 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {errorMessages.length > 0 && (
+            <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <p className="font-medium">{t.eventDialog.validationSummary}</p>
+              <ul className="mt-1 list-disc pl-4">
+                {errorMessages.map((m) => (<li key={m}>{m}</li>))}
+              </ul>
             </div>
           )}
 
