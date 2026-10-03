@@ -8,6 +8,7 @@
  * with `isOwn` + `permission` — the two fields the sidebar, the event dialog
  * and the calendar view gate on. `/ensure-default`, `/:id/shares`,
  * `/:id/share` and `/:id/share/:shareId` come across with it.
+ * `/:id/delete-impact` and the event cascade on `DELETE /:id` are TASK-745.
  *
  * Access model (from the legacy route, unchanged):
  *   - list/read: calendars you own ∪ calendars shared with you
@@ -25,6 +26,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -37,11 +39,22 @@ import { schema } from '@weldsuite/worker-kit/db';
 import {
   ensureDefaultCalendar,
   getCalendarAccess,
+  isActiveWorkspaceMember,
   listCalendarShares,
   listCalendarsForUser,
   removeCalendarShare,
   upsertCalendarShare,
 } from '../../services/calendar-access';
+import {
+  eventIdsWithScheduledMeetings,
+  getCalendarDeleteImpact,
+  listCalendarEventsForDeletion,
+  needsCancellationMail,
+  softDeleteCalendar,
+} from '../../services/calendar-deletion';
+import { getOrganizerInfo, sendCalendarEventEmails } from '../../services/calendar-mail';
+import { cancelMeetingsForEvent } from '../../services/calendar-meeting-sync';
+import { pushCalendarEventToGoogle } from '../../lib/integrations/sync/outbound-calendar-sync';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.calendars;
@@ -63,9 +76,13 @@ const createSchema = z.object({
 const updateSchema = createSchema.partial();
 
 const shareSchema = z.object({
-  sharedWithId: z.string().min(1),
+  sharedWithId: z.string().trim().min(1).max(255),
   permission: z.enum(['view', 'edit', 'manage']).default('view'),
 });
+
+/** 422 for a well-formed request the share model cannot accept. */
+const unprocessable = (c: Context, message: string) =>
+  c.json({ error: { code: 'UNPROCESSABLE_ENTITY', message } }, 422);
 
 // ── GET / — calendars visible to the caller (own + shared with them) ─────
 
@@ -204,34 +221,161 @@ app.patch('/:id', requirePermission('calendars:update'), zValidator('json', upda
   }
 });
 
-// ── DELETE /:id — soft delete (owner only, never the default) ────────────
+// ── Calendar delete (TASK-745) ───────────────────────────────────────────
+//
+// Deleting a calendar deletes its events with it, and applies to every one of
+// them what a single event delete does: the linked WeldMeet meeting is
+// cancelled, Google gets the delete, and — on `?sendNotification=true`, the
+// same flag and meaning as `DELETE /api/calendar-events/:id` — attendees of
+// upcoming events are mailed a cancellation. `GET /:id/delete-impact` feeds
+// the confirmation dialog ("this deletes N events").
+
+type CalendarContext = Context<{ Bindings: Env; Variables: Variables }>;
+type CalendarEventRow = Awaited<ReturnType<typeof listCalendarEventsForDeletion>>[number];
+
+const isoOrNull = (d: Date | null | undefined): string | null => d?.toISOString() ?? null;
+
+/**
+ * The calendar the caller may delete, or the error response to return: 404
+ * when missing, 403 when not theirs (sharees, even `manage`, cannot delete),
+ * 400 for the default calendar.
+ */
+async function loadDeletableCalendar(
+  c: CalendarContext,
+  id: string,
+): Promise<{ calendar: typeof t.$inferSelect } | { response: Response }> {
+  const db = c.get('tenantDb');
+  const [calendar] = await db
+    .select()
+    .from(t)
+    .where(and(eq(t.id, id), isNull(t.deletedAt)))
+    .limit(1);
+  if (!calendar) return { response: error.notFound(c, 'Calendar', id) };
+  if (calendar.ownerId !== c.get('userId')) return { response: error.forbidden(c) };
+  if (calendar.isDefault) {
+    return { response: error.badRequest(c, 'Cannot delete default calendar') };
+  }
+  return { calendar };
+}
+
+/** Cancel the WeldMeet meetings linked to the deleted events (best-effort). */
+async function cancelLinkedMeetings(c: CalendarContext, eventIds: string[]): Promise<void> {
+  const db = c.get('tenantDb');
+  try {
+    const withMeetings = await eventIdsWithScheduledMeetings(db, eventIds);
+    for (const eventId of withMeetings) {
+      for (const m of await cancelMeetingsForEvent(db, eventId)) {
+        publishEntityEvent({
+          c,
+          entityType: 'meeting',
+          entityId: m.id,
+          action: 'updated',
+          data: { id: m.id, title: m.title, status: m.status, startAt: m.startAt, hostId: m.hostId },
+          changes: m.status !== m.oldStatus ? { status: { old: m.oldStatus, new: m.status } } : null,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[calendar-api/calendars] meeting cancel failed:', err);
+  }
+}
+
+/** Mail a cancellation to the attendees of each event, one organizer lookup per organizer. */
+async function sendCancellationMails(c: CalendarContext, events: CalendarEventRow[]): Promise<void> {
+  const db = c.get('tenantDb');
+  const organizers = new Map<string, Awaited<ReturnType<typeof getOrganizerInfo>>>();
+  for (const event of events) {
+    try {
+      let organizer = organizers.get(event.organizerId);
+      if (!organizer) {
+        organizer = await getOrganizerInfo(db, event.organizerId);
+        organizers.set(event.organizerId, organizer);
+      }
+      await sendCalendarEventEmails(c.env, {
+        kind: 'cancel',
+        organizer,
+        attendees: event.attendees ?? [],
+        sequence: 3,
+        event: {
+          id: event.id,
+          title: event.title,
+          description: event.description,
+          location: event.location,
+          startTime: isoOrNull(event.startTime),
+          endTime: isoOrNull(event.endTime),
+        },
+      });
+    } catch (err) {
+      console.error(`[calendar-api/calendars] cancellation mail failed for event ${event.id}:`, err);
+    }
+  }
+}
+
+/** Push each deleted event to the connected Google calendars, one at a time. */
+async function pushDeletesToGoogle(c: CalendarContext, eventIds: string[]): Promise<void> {
+  const db = c.get('tenantDb');
+  for (const id of eventIds) {
+    await pushCalendarEventToGoogle(db, id, 'deleted', { id }, c.env);
+  }
+}
+
+// ── GET /:id/delete-impact — what a delete would remove (owner only) ─────
+
+app.get('/:id/delete-impact', requirePermission('calendars:delete'), async (c) => {
+  const id = c.req.param('id');
+  try {
+    const loaded = await loadDeletableCalendar(c, id);
+    if ('response' in loaded) return loaded.response;
+    return success(c, await getCalendarDeleteImpact(c.get('tenantDb'), id));
+  } catch (err) {
+    console.error('[calendar-api/calendars] delete impact failed:', err);
+    return error.internal(c, 'Failed to load calendar delete impact');
+  }
+});
+
+// ── DELETE /:id — soft delete with its events (owner only, never the default)
 
 app.delete('/:id', requirePermission('calendars:delete'), async (c) => {
   const db = c.get('tenantDb');
-  const userId = c.get('userId');
   const id = c.req.param('id');
+  const sendNotification = c.req.query('sendNotification') === 'true';
   try {
-    const [existing] = await db
-      .select()
-      .from(t)
-      .where(and(eq(t.id, id), isNull(t.deletedAt)))
-      .limit(1);
-    if (!existing) return error.notFound(c, 'Calendar', id);
-    if (existing.ownerId !== userId) return error.forbidden(c);
-    if (existing.isDefault) return error.badRequest(c, 'Cannot delete default calendar');
+    const loaded = await loadDeletableCalendar(c, id);
+    if ('response' in loaded) return loaded.response;
+    const { calendar } = loaded;
 
-    await db
-      .update(t)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(t.id, id));
+    // Read before the soft delete: the mails and meeting cancels need the rows.
+    const events = await listCalendarEventsForDeletion(db, id);
+    await softDeleteCalendar(db, id);
 
     publishEntityEvent({
       c,
       entityType: 'calendar',
       entityId: id,
       action: 'deleted',
-      data: { id },
+      data: { id, name: calendar.name, ownerId: calendar.ownerId },
     });
+    for (const event of events) {
+      publishEntityEvent({
+        c,
+        entityType: 'calendar_event',
+        entityId: event.id,
+        action: 'deleted',
+        data: { id: event.id, title: event.title, calendarId: id },
+      });
+    }
+
+    const eventIds = events.map((e) => e.id);
+    if (eventIds.length) c.executionCtx.waitUntil(pushDeletesToGoogle(c, eventIds));
+
+    await cancelLinkedMeetings(c, eventIds);
+
+    if (sendNotification) {
+      const now = new Date();
+      const toNotify = events.filter((e) => needsCancellationMail(e, now));
+      if (toNotify.length) c.executionCtx.waitUntil(sendCancellationMails(c, toNotify));
+    }
+
     return noContent(c);
   } catch (err) {
     console.error('[app-api/calendars] delete failed:', err);
@@ -281,6 +425,16 @@ app.post('/:id/share', requirePermission('calendars:update'), zValidator('json',
       return exists ? error.forbidden(c) : error.notFound(c, 'Calendar', calendarId);
     }
     if (!access.isOwn && access.permission !== 'manage') return error.forbidden(c);
+
+    // The target must be a real member: the share is keyed on their user id,
+    // so an email or a typo would otherwise be stored as a share nobody can
+    // use (TASK-749). Sharing with yourself or the owner grants nothing.
+    if (data.sharedWithId === userId || data.sharedWithId === access.calendar.ownerId) {
+      return unprocessable(c, 'A calendar cannot be shared with yourself or its owner');
+    }
+    if (!(await isActiveWorkspaceMember(db, data.sharedWithId))) {
+      return unprocessable(c, 'Calendars can only be shared with members of this workspace');
+    }
 
     const result = await upsertCalendarShare(db, {
       calendarId,

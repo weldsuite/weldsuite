@@ -204,6 +204,27 @@ export async function ensureDefaultCalendar(
 
 export type CalendarShareRow = typeof schema.calendarShares.$inferSelect;
 
+/**
+ * True when `userId` is an active member of this workspace. A calendar may
+ * only be shared with one: the share target is a Clerk user id, and anything
+ * else (an email, a typo) would create a share nobody can ever use.
+ */
+export async function isActiveWorkspaceMember(db: Database, userId: string): Promise<boolean> {
+  const { workspaceMembers } = schema;
+  const [member] = await db
+    .select({ id: workspaceMembers.id })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.userId, userId),
+        eq(workspaceMembers.status, 'ACTIVE'),
+        isNull(workspaceMembers.deletedAt),
+      ),
+    )
+    .limit(1);
+  return !!member;
+}
+
 /** List the (non-deleted) share rows for a calendar. */
 export async function listCalendarShares(
   db: Database,

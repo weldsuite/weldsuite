@@ -46,20 +46,36 @@ export function GoogleCalendarSidebarSection({ isConnected }: Readonly<GoogleCal
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <SidebarMenuButton
-          className="justify-between cursor-pointer"
-          onClick={toggleVisibility}
-        >
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Checkbox
-              checked={visible}
-              className="h-4 w-4 pointer-events-none"
-              style={{
-                borderColor: GOOGLE_CALENDAR_COLOR,
-                backgroundColor: visible ? GOOGLE_CALENDAR_COLOR : undefined,
-              }}
-            />
-            <span className="truncate text-sm">{t.googleCalendar.label}</span>
+        {/* Same pattern as the calendar rows: the row itself is the checkbox
+            (a <div>, so the Radix Checkbox <button> is not nested in a
+            <button>) and the visual checkbox is hidden from assistive tech. */}
+        <SidebarMenuButton asChild className="justify-between cursor-pointer">
+          <div
+            role="checkbox"
+            aria-checked={visible}
+            aria-label={t.googleCalendar.label}
+            tabIndex={0}
+            onClick={toggleVisibility}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleVisibility();
+              }
+            }}
+          >
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <Checkbox
+                aria-hidden="true"
+                tabIndex={-1}
+                checked={visible}
+                className="h-4 w-4 pointer-events-none"
+                style={{
+                  borderColor: GOOGLE_CALENDAR_COLOR,
+                  backgroundColor: visible ? GOOGLE_CALENDAR_COLOR : undefined,
+                }}
+              />
+              <span className="truncate text-sm">{t.googleCalendar.label}</span>
+            </div>
           </div>
         </SidebarMenuButton>
       </SidebarMenuItem>

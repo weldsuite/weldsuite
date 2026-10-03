@@ -172,6 +172,7 @@ export const userCalendarKeys = {
   list: () => [...userCalendarKeys.all, 'list'] as const,
   detail: (id: string) => [...userCalendarKeys.all, 'detail', id] as const,
   shares: (id: string) => [...userCalendarKeys.all, 'shares', id] as const,
+  deleteImpact: (id: string) => [...userCalendarKeys.all, 'delete-impact', id] as const,
 };
 
 export const calendarKeys = {
@@ -558,17 +559,49 @@ export function useUpdateUserCalendar() {
   });
 }
 
+/** What deleting a calendar removes — feeds the delete confirmation dialog. */
+export interface CalendarDeleteImpact {
+  /** Every event in the calendar; all are deleted with it. */
+  eventCount: number;
+  /** Upcoming events with attendees, who can be mailed a cancellation. */
+  eventsWithAttendees: number;
+}
+
+export function useCalendarDeleteImpact(calendarId: string | null) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: userCalendarKeys.deleteImpact(calendarId ?? ''),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: CalendarDeleteImpact }>(`/calendars/${calendarId}/delete-impact`);
+    },
+    enabled: !!calendarId,
+    // Always re-count when the dialog opens: events may have changed since.
+    staleTime: 0,
+    meta: { persist: false },
+  });
+}
+
 export function useDeleteUserCalendar() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id, sendNotification }: { id: string; sendNotification?: boolean }) => {
       const client = await getClient();
-      return client.delete<Record<string, never>>(`/calendars/${id}`);
+      // Same flag as an event delete: mails a cancellation to the attendees of
+      // the calendar's upcoming events. Its events are deleted either way.
+      const qs = sendNotification ? '?sendNotification=true' : '';
+      return client.delete<Record<string, never>>(`/calendars/${id}${qs}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: userCalendarKeys.all });
+      // Not the delete impact: re-counting a calendar that is gone only 404s.
+      qc.invalidateQueries({
+        queryKey: userCalendarKeys.all,
+        predicate: (q) => q.queryKey[1] !== 'delete-impact',
+      });
       qc.invalidateQueries({ queryKey: calendarKeys.all });
+      // The server cancels the WeldMeet meetings linked to the deleted events.
+      qc.invalidateQueries({ queryKey: weldmeetKeys.all });
     },
   });
 }
