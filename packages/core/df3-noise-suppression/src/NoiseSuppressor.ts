@@ -173,12 +173,28 @@ export class NoiseSuppressor {
     }
     // RTK stops the tracks it discards, so stopping the processed track is the
     // signal to free its pipeline (and the raw mic behind it).
-    for (const track of output.getAudioTracks()) {
+    const outputTracks = output.getAudioTracks();
+    for (const track of outputTracks) {
       const stopTrack = track.stop.bind(track);
       track.stop = () => {
         stopTrack();
         this.release(pipeline);
       };
+    }
+    // The WebAudio output track never ends on its own. When the raw mic ends
+    // (the user revokes microphone access in the browser, the device is
+    // unplugged), end the processed track too and fire `ended` like a real
+    // mic track would, so RTK drops it and acquires a fresh mic instead of
+    // holding a `live` track that stays silent for the rest of the call.
+    const onInputEnded = () => {
+      for (const track of outputTracks) {
+        if (track.readyState === 'ended') continue;
+        track.stop();
+        track.dispatchEvent(new Event('ended'));
+      }
+    };
+    for (const input of inputStream.getAudioTracks()) {
+      input.addEventListener('ended', onInputEnded, { once: true });
     }
     return output;
   }

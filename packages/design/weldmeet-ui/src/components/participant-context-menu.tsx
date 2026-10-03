@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@weldsuite/ui/lib/utils';
+import { enableMicrophone } from '../lib/microphone';
 import type { MeetingClient, MeetingPeer } from '../types';
 
 export interface ParticipantContextMenuProps {
@@ -206,7 +207,7 @@ export function ParticipantContextMenu({
               <button
                 onClick={() => {
                   if (meeting?.self?.audioEnabled) void meeting.self.disableAudio();
-                  else void meeting?.self?.enableAudio();
+                  else if (meeting?.self) void enableMicrophone(meeting.self);
                   onClose();
                 }}
                 role="menuitem"
