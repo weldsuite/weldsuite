@@ -85,10 +85,17 @@ export function MeetingHeader({
           </span>
         )}
         {isRecording && (
+          // A visible label, not just a dot: everyone in the call, guests
+          // included, must be able to tell the meeting is being recorded.
           <span
-            className="h-2 w-2 rounded-full bg-red-500"
-            title={recordingState === 'PAUSED' ? 'Recording paused' : 'Recording'}
-          />
+            role="status"
+            className="flex items-center gap-1.5 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-500 flex-shrink-0"
+          >
+            <span className={cn('h-2 w-2 rounded-full bg-red-500', recordingState !== 'PAUSED' && 'animate-pulse')} />
+            {recordingState === 'PAUSED'
+              ? (recordingLabels?.paused ?? 'Recording paused')
+              : (recordingLabels?.active ?? 'Recording')}
+          </span>
         )}
         <span
           ref={titleInputRef}

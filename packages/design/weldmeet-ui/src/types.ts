@@ -86,6 +86,10 @@ export interface RecordingLabels {
   startingTool?: string;
   /** Meeting-tools row description while busy. Default "Please wait…". */
   pleaseWait?: string;
+  /** Header badge while recording. Default "Recording". */
+  active?: string;
+  /** Header badge while the recording is paused. Default "Recording paused". */
+  paused?: string;
 }
 
 export interface MeetingRoomViewProps {

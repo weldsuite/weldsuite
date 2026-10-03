@@ -58,6 +58,20 @@ export function MeetingInvitePicker({
     return emails;
   }, [meeting?.attendees]);
 
+  // The organizer is on the attendee list too, but isn't an invitee.
+  const organizerEmails = useMemo(() => {
+    const emails = new Set<string>();
+    for (const a of meeting?.attendees ?? []) {
+      if (a.email && (a.role === 'organizer' || (!!a.userId && a.userId === meeting?.organizerId))) {
+        emails.add(a.email.toLowerCase());
+      }
+    }
+    return emails;
+  }, [meeting?.attendees, meeting?.organizerId]);
+  const isOrganizer = (candidate: InviteCandidate) =>
+    (!!meeting?.organizerId && candidate.key === `member:${meeting.organizerId}`) ||
+    (!!candidate.email && organizerEmails.has(candidate.email.toLowerCase()));
+
   const members: InviteCandidate[] = useMemo(() => {
     const source: WorkspaceMember[] = debounced ? (memberResults?.data ?? []) : (firstMembers?.data ?? []);
     return source.map((m) => ({
@@ -123,6 +137,7 @@ export function MeetingInvitePicker({
   };
 
   const renderRow = (candidate: InviteCandidate) => {
+    const organizer = isOrganizer(candidate);
     const invited = isInvited(candidate.email);
     const pending = !!candidate.email && pendingEmails.has(candidate.email.toLowerCase());
     return (
@@ -145,23 +160,29 @@ export function MeetingInvitePicker({
             <p className="text-xs text-muted-foreground truncate">{candidate.email}</p>
           )}
         </div>
-        <Button
-          size="sm"
-          variant={invited ? 'ghost' : compact ? 'secondary' : 'outline'}
-          className={cn('shrink-0', compact && 'h-7 text-xs')}
-          onClick={() =>
-            candidate.email && handleInvite(candidate.email, candidate.typed ? undefined : candidate.name)
-          }
-          disabled={invited || pending || !candidate.email}
-        >
-          {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {!pending && invited && (
-            <>
-              <Check className="h-3.5 w-3.5" /> {t.invited}
-            </>
-          )}
-          {!pending && !invited && t.invite}
-        </Button>
+        {organizer ? (
+          <span className={cn('shrink-0 px-3 text-muted-foreground', compact ? 'text-xs' : 'text-sm')}>
+            {t.organizer}
+          </span>
+        ) : (
+          <Button
+            size="sm"
+            variant={invited ? 'ghost' : compact ? 'secondary' : 'outline'}
+            className={cn('shrink-0', compact && 'h-7 text-xs')}
+            onClick={() =>
+              candidate.email && handleInvite(candidate.email, candidate.typed ? undefined : candidate.name)
+            }
+            disabled={invited || pending || !candidate.email}
+          >
+            {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {!pending && invited && (
+              <>
+                <Check className="h-3.5 w-3.5" /> {t.invited}
+              </>
+            )}
+            {!pending && !invited && t.invite}
+          </Button>
+        )}
       </div>
     );
   };

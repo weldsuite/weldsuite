@@ -80,13 +80,19 @@ describe('getExistingTenantDb · workspace cache', () => {
     expect(insertSpy).not.toHaveBeenCalled();
   });
 
-  it('does not cache a workspace that is not provisioned yet', async () => {
+  it('treats a workspace without a tenant database as not found and does not cache it', async () => {
     const pending = { ...provisioned, id: 'ws_pending', clerkOrgId: 'org_pending', databaseUrl: null, neonProjectId: null };
     queue.push([{ workspace: pending, plan: null }]);
-    // not provisioned: getTenantDbByWorkspaceId refuses (no database configured)
-    queue.push([{ workspace: pending, plan: null }]);
-    await expect(getExistingTenantDb('ws_pending')).rejects.toThrow('no database');
+    await expect(getExistingTenantDb('ws_pending')).rejects.toBeInstanceOf(TenantNotFoundError);
     // a second call must query the master DB again (queue is empty -> not found), i.e. nothing was cached
     await expect(getExistingTenantDb('ws_pending')).rejects.toBeInstanceOf(TenantNotFoundError);
+  });
+
+  it('treats a phantom workspace row for a made-up clerk org id as not found', async () => {
+    // What the old auto-provisioning getTenantDb left behind: active, no Neon database.
+    const phantom = { id: 'ws_phantom', clerkOrgId: 'org_doesnotexist', isActive: true, databaseUrl: null, neonProjectId: null, neonBranchId: null, neonRoleName: null, neonDatabaseName: null };
+    queue.push([], [{ workspace: phantom, plan: null }]);
+    await expect(getExistingTenantDb('org_doesnotexist')).rejects.toSatisfy(isTenantNotFoundError);
+    expect(insertSpy).not.toHaveBeenCalled();
   });
 });
