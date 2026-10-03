@@ -804,7 +804,13 @@ export async function createCalendarEventForTask(
 
   // User-pinned (explicit startDate) — respect it, no auto-placement.
   if (params.startDate) {
-    const endTime = params.dueDate ?? new Date(params.startDate.getTime() + duration * 60000);
+    // A due date at or before the start (a task due "that day" at 00:00, or at the
+    // start itself) is a deadline, not the block's end: the block then lasts its
+    // duration. Otherwise the event would end before it starts.
+    const endTime =
+      params.dueDate && params.dueDate.getTime() > params.startDate.getTime()
+        ? params.dueDate
+        : new Date(params.startDate.getTime() + duration * 60000);
     await db.insert(calendarEvents).values({
       id,
       calendarId,

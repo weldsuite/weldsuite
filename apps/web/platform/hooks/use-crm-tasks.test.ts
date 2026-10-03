@@ -15,6 +15,7 @@ vi.mock('@weldsuite/realtime/react', () => ({ useTopic: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { hydrate, useCreateTask, useCrmTasks, type RawTask } from './use-crm-tasks';
+import { calendarKeys } from '@/hooks/queries/use-calendar-queries';
 
 const base: RawTask = {
   id: 'task_1',
@@ -119,5 +120,29 @@ describe('useCreateTask()', () => {
       assigneeId: 'user_1',
       assigneeIds: ['user_1', 'user_2'],
     });
+  });
+
+  it('sends startDate so a task created from a calendar slot is pinned there', async () => {
+    const { result } = renderHook(() => useCreateTask(), { wrapper });
+    const start = new Date('2026-10-14T09:00:00.000Z');
+    result.current.mutate({ title: 'Pinned', dueDate: start, startDate: start });
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    const [, payload] = postMock.mock.calls[0] as [string, Record<string, unknown>];
+    expect(payload).toMatchObject({ startDate: start.toISOString(), dueDate: start.toISOString() });
+  });
+
+  it('refreshes the calendar after a task is created', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateTask(), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client }, children),
+    });
+    result.current.mutate({ title: 'Shows up in the calendar' });
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: calendarKeys.all }),
+    );
   });
 });

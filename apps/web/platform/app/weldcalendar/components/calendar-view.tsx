@@ -21,7 +21,13 @@ import {
   isYesterday,
   isThisWeek,
 } from 'date-fns';
-import { defaultQuickCreateRange, shiftEndDate } from './quick-create-dates';
+import { defaultQuickCreateRange, defaultRangeForDay, normalizeQuickCreateRange, resolveQuickCreateTimes, resolveTaskSlot, shiftEndDate } from './quick-create-dates';
+import { useDismissOnOutsideMouseDown } from './quick-create-dismiss';
+import { setQuickCreatePreviewTitle, useQuickCreatePreviewTitle } from './quick-create-preview-store';
+import { inviteEmailFromQuery } from './guest-invite';
+import { Mail } from 'lucide-react';
+import { placeCardNearAnchor } from '../lib/popover-position';
+import { WEEK_STARTS_ON, formatClock, formatClockRange, useTimeFormat, type TimeFormat } from '../lib/calendar-format';
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Paperclip, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import {
@@ -265,11 +271,29 @@ function computeQuickCreatePosForClick(
   return { x, y: mouseEvent.clientY, cardBottomY: null };
 }
 
+/** Width of the quick-create card and the height assumed until it is measured. */
+const QUICK_CREATE_WIDTH = 360;
+const QUICK_CREATE_ESTIMATED_HEIGHT = 420;
+
 /**
- * Popover position when opened from the toolbar button — mirrors the
- * drag-to-schedule positioning so it anchors to the same spot.
+ * Popover position when opened from the toolbar's New Event button: just below
+ * the button, right-aligned to it and kept inside the viewport (the layout
+ * effect in CalendarView re-clamps once the real height is known). Without the
+ * button in the DOM it falls back to the slot's own day column / cell.
  */
 function computeQuickCreatePosForToolbar(s: Date, e: Date): QuickCreatePos {
+  const button = document.querySelector('[data-new-event-button]');
+  if (button) {
+    const rect = button.getBoundingClientRect();
+    const { x, y } = placeCardNearAnchor({
+      anchor: rect,
+      card: { width: QUICK_CREATE_WIDTH, height: QUICK_CREATE_ESTIMATED_HEIGHT },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      order: ['below', 'above'],
+      align: 'end',
+    });
+    return { x, y, cardBottomY: null };
+  }
   const dateKey = format(s, 'yyyy-MM-dd');
   const dayCol = queryDayColumn(s);
   const monthCell = document.querySelector(`[data-date="${dateKey}"]`) as HTMLElement | null;
@@ -775,22 +799,14 @@ export function CalendarView() {
   // own mousedown handler stops propagation, so it won't trigger close.
   // When the dismissal happens, mark the gesture so the upcoming mouseup
   // (which may fire onSelectSlot for the same cell) doesn't re-open.
-  useEffect(() => {
-    if (!quickCreateOpen) return;
-    const handleMouseDown = (ev: MouseEvent) => {
-      const target = ev.target as Node | null;
-      if (target && quickCreateRef.current?.contains(target)) return;
-      // A control inside the card can unmount itself on mousedown (e.g. the
-      // guest dropdown after picking a result), detaching `target` before this
-      // document listener runs. composedPath() is captured at dispatch, so it
-      // still knows the event started inside the card.
-      if (quickCreateRef.current && ev.composedPath().includes(quickCreateRef.current)) return;
-      dismissedByCurrentGestureRef.current = true;
-      setQuickCreateOpen(false);
-    };
-    document.addEventListener('mousedown', handleMouseDown);
-    return () => document.removeEventListener('mousedown', handleMouseDown);
-  }, [quickCreateOpen]);
+  // Popovers / selects / dialogs opened from the card (date picker, repeat)
+  // render in a portal outside it; useDismissOnOutsideMouseDown treats them as
+  // part of the card.
+  const dismissQuickCreate = useCallback(() => {
+    dismissedByCurrentGestureRef.current = true;
+    setQuickCreateOpen(false);
+  }, []);
+  useDismissOnOutsideMouseDown(quickCreateOpen, quickCreateRef, dismissQuickCreate);
 
   // Clear the dismissal flag once the gesture ends — but only AFTER any
   // mouseup-driven onSelectSlot has had a chance to short-circuit. Using a
@@ -916,6 +932,8 @@ export function CalendarView() {
   // Escape key to close cards
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // An open popover / select (date picker, repeat) consumed this Escape.
+      if (e.defaultPrevented) return;
       if (e.key === 'Escape') {
         if (quickCreateOpen) setQuickCreateOpen(false);
         if (eventPreviewOpen) setEventPreviewOpen(false);
@@ -1009,6 +1027,7 @@ export function CalendarView() {
           </Select>
           <Button
             size="sm"
+            data-new-event-button
             className="shadow-none max-md:h-8 max-md:px-2.5"
             onClick={() => handleCreateEvent(undefined, undefined, 'event')}
           >
@@ -1386,6 +1405,7 @@ function PeopleRow({
   people,
   isActive,
   emptyLabel,
+  allowInvite = true,
   search,
   onSearchChange,
   onActivate,
@@ -1396,6 +1416,8 @@ function PeopleRow({
   people: GuestEntry[];
   isActive: boolean;
   emptyLabel: string;
+  /** Guests: a typed email address can be invited. Assignees: members / contacts only. */
+  allowInvite?: boolean;
   search: string;
   onSearchChange: (value: string) => void;
   onActivate: () => void;
@@ -1456,6 +1478,8 @@ function PeopleRow({
               value={search}
               onChange={onSearchChange}
               selectedIds={people.map((g) => g.id)}
+              selectedEmails={people.map((g) => g.email)}
+              allowInvite={allowInvite}
               onSelect={onAdd}
               onBlurAway={onDeactivate}
             />
@@ -1550,6 +1574,7 @@ function EventTimeRow({
   onEndTimeChange: (value: string) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   return (
     <div
       role="button"
@@ -1567,12 +1592,12 @@ function EventTimeRow({
           <div role="presentation" onClick={(e) => e.stopPropagation()} className="space-y-2.5">
             <div className="flex items-center gap-2">
               <DatePickerField
-                value={new Date(startDate)}
+                value={new Date(`${startDate}T00:00`)}
                 onChange={(d) => onStartDateChange(format(d, 'yyyy-MM-dd'))}
               />
               <span className="text-muted-foreground text-xs shrink-0">–</span>
               <DatePickerField
-                value={new Date(endDate)}
+                value={new Date(`${endDate}T00:00`)}
                 onChange={(d) => onEndDateChange(format(d, 'yyyy-MM-dd'))}
               />
             </div>
@@ -1581,6 +1606,7 @@ function EventTimeRow({
                 <Input
                   type="time"
                   value={startTime}
+                  data-enter-submits="true"
                   onChange={(e) => onStartTimeChange(e.target.value)}
                   className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
                 />
@@ -1588,6 +1614,7 @@ function EventTimeRow({
                 <Input
                   type="time"
                   value={endTime}
+                  data-enter-submits="true"
                   onChange={(e) => onEndTimeChange(e.target.value)}
                   className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
                 />
@@ -1600,19 +1627,19 @@ function EventTimeRow({
           </div>
         ) : (
           <div className="flex items-center gap-1 text-sm h-7">
-            <span>{format(new Date(startDate), 'EEEE, MMM d')}</span>
+            <span>{format(new Date(`${startDate}T00:00`), 'EEEE, MMM d')}</span>
             {!allDay && (
               <>
                 <span className="text-muted-foreground">·</span>
-                <span>{format(new Date(`${startDate}T${startTime}`), 'h:mm a')}</span>
+                <span>{formatClock(new Date(`${startDate}T${startTime || '00:00'}`), timeFormat)}</span>
                 <span className="text-muted-foreground">–</span>
-                <span>{format(new Date(`${endDate}T${endTime}`), 'h:mm a')}</span>
+                <span>{formatClock(new Date(`${endDate}T${endTime || '00:00'}`), timeFormat)}</span>
               </>
             )}
             {allDay && startDate !== endDate && (
               <>
                 <span className="text-muted-foreground">–</span>
-                <span>{format(new Date(endDate), 'EEEE, MMM d')}</span>
+                <span>{format(new Date(`${endDate}T00:00`), 'EEEE, MMM d')}</span>
               </>
             )}
             {allDay && startDate === endDate && (
@@ -1865,6 +1892,7 @@ function RepeatPopover({
         <Button
           variant="outline"
           size={repeat ? 'sm' : 'icon'}
+          aria-label={t.quickCreate.repeatLabel}
           className={cn(
             'h-8',
             repeat
@@ -1960,6 +1988,12 @@ export function QuickCreateCard({
     setEndDate((end) => shiftEndDate(startDate, next, end));
     setStartDate(next);
   };
+  // What is saved: an end at or before the start (23:00 - 00:00 on one date)
+  // rolls to the next day, so the card shows and sends the same end.
+  const effectiveRange = normalizeQuickCreateRange(
+    { startDate, startTime: startTimeVal, endDate, endTime: endTimeVal },
+    allDay,
+  );
 
   const [location, setLocation] = useState(initial.location);
   const [description, setDescription] = useState(initial.description);
@@ -2023,6 +2057,13 @@ export function QuickCreateCard({
   const createTask = useCreateTask();
   const { saveEventWithWeldMeet } = useAutoCreateWeldMeeting();
 
+  // Feed the typed title to the preview block this card leaves on the grid.
+  const isEditing = !!editEvent;
+  useEffect(() => {
+    if (!isEditing) setQuickCreatePreviewTitle(title);
+  }, [title, isEditing]);
+  useEffect(() => () => setQuickCreatePreviewTitle(''), []);
+
   const handleCopyMeetingLink = useCallback(async () => {
     if (!meetingUrl) return;
     try {
@@ -2064,29 +2105,40 @@ export function QuickCreateCard({
     high: t.quickCreate.priorityHigh,
   };
 
-  const saveTask = async (finalTitle: string) => {
-    await createTask.mutateAsync({
+  /**
+   * Creates the task. The calendar block it gets is pinned to the day / slot the
+   * card shows (the clicked one unless the due date was changed), so the
+   * auto-scheduler does not move it elsewhere. Returns false when it failed (the
+   * hook already reported it), so the card stays open.
+   */
+  const saveTask = async (finalTitle: string): Promise<boolean> => {
+    const slot = resolveTaskSlot(taskDueDate, taskDueTime, { start: defaultStart, end: defaultEnd });
+    const dueDate = taskDueDate
+      ? slot && taskDueTime
+        ? slot.start
+        : new Date(taskDueDate.getFullYear(), taskDueDate.getMonth(), taskDueDate.getDate())
+      : undefined;
+    const result = await createTask.mutateAsync({
       title: finalTitle,
       description: description.trim() || undefined,
       status: taskStatus,
       priority: taskPriority || undefined,
-      dueDate: taskDueDate && taskDueTime
-        ? new Date(`${format(taskDueDate, 'yyyy-MM-dd')}T${taskDueTime}`)
-        : taskDueDate,
+      dueDate,
+      startDate: slot?.start,
+      duration: slot?.durationMinutes ?? undefined,
       labels: taskLabels.length > 0 ? taskLabels : undefined,
       repeat: taskRepeat ? { frequency: taskRepeat as NonNullable<Task['repeat']>['frequency'] } : undefined,
     });
+    return result.success;
   };
 
-  const getEventTimes = () => ({
-    start: allDay ? new Date(`${startDate}T00:00:00`) : new Date(`${startDate}T${startTimeVal}`),
-    end: allDay ? new Date(`${endDate}T23:59:59`) : new Date(`${endDate}T${endTimeVal}`),
-  });
+  const getEventTimes = () =>
+    resolveQuickCreateTimes({ startDate, startTime: startTimeVal, endDate, endTime: endTimeVal }, allDay);
 
   const buildEventData = (finalTitle: string): CalendarEventInput => {
     const { start, end } = getEventTimes();
     const url = meetingUrl.trim();
-    const guests = selectedGuests.map((g) => ({ email: g.email, name: g.name }));
+    const guests = selectedGuests.map((g) => ({ email: g.email, name: g.name && g.name !== g.email ? g.name : undefined }));
     return {
       calendarId: selectedCalendarId,
       title: finalTitle,
@@ -2094,6 +2146,9 @@ export function QuickCreateCard({
       allDay,
       startTime: start.toISOString(),
       endTime: end.toISOString(),
+      // The times above are the browser's local ones; the server stores this
+      // zone with the event instead of guessing.
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
       status: 'confirmed' as const,
       priority: 'normal' as const,
       location: location.trim() || undefined,
@@ -2165,11 +2220,8 @@ export function QuickCreateCard({
     try {
       const finalTitle = title.trim() || defaultTitles[type] || t.calendarView.untitled;
 
-      if (isTask) {
-        await saveTask(finalTitle);
-      } else if (!(await saveEvent(finalTitle))) {
-        return; // don't close yet — dialog pending or save failed
-      }
+      const saved = isTask ? await saveTask(finalTitle) : await saveEvent(finalTitle);
+      if (!saved) return; // don't close yet — dialog pending or save failed
       onClose();
     } finally {
       savingRef.current = false;
@@ -2204,8 +2256,22 @@ export function QuickCreateCard({
       className="overflow-y-auto max-h-[80vh]"
       onClick={() => setActiveField(null)}
       onKeyDown={(e) => {
-        if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
-        if (e.key === 'Enter' && !e.shiftKey && !(e.target instanceof HTMLTextAreaElement)) { e.preventDefault(); handleSave(); }
+        // Escape already consumed by a popover / select opened from the card
+        // (they portal out, but React events still bubble through them).
+        if (e.defaultPrevented) return;
+        if (e.key === 'Escape') { e.stopPropagation(); onClose(); return; }
+        // Enter saves only from the title and the time inputs. Anywhere else (the
+        // participants search, labels, location, popovers and comboboxes) it
+        // belongs to that control, never to the card.
+        if (
+          e.key === 'Enter' &&
+          !e.shiftKey &&
+          e.target instanceof HTMLInputElement &&
+          e.target.dataset.enterSubmits === 'true'
+        ) {
+          e.preventDefault();
+          handleSave();
+        }
       }}
     >
       {/* Title */}
@@ -2214,7 +2280,9 @@ export function QuickCreateCard({
           placeholder={t.quickCreate.addTitlePlaceholder}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleSave(); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.stopPropagation(); handleSave(); }
+          }}
           className="h-10 text-sm font-medium shadow-none"
           autoFocus
         />
@@ -2284,6 +2352,7 @@ export function QuickCreateCard({
               people={taskAssignees}
               isActive={activeField === 'assignee'}
               emptyLabel={t.quickCreate.assigneeLabel}
+              allowInvite={false}
               search={taskAssigneeSearch}
               onSearchChange={setTaskAssigneeSearch}
               onActivate={() => setActiveField('assignee')}
@@ -2331,8 +2400,8 @@ export function QuickCreateCard({
               onToggle={() => setActiveField(activeField === 'time' ? null : 'time')}
               allDay={allDay}
               onAllDayChange={setAllDay}
-              startDate={startDate}
-              endDate={endDate}
+              startDate={effectiveRange.startDate}
+              endDate={effectiveRange.endDate}
               startTime={startTimeVal}
               endTime={endTimeVal}
               onStartDateChange={handleStartDateChange}
@@ -2351,7 +2420,9 @@ export function QuickCreateCard({
               onActivate={() => setActiveField('guests')}
               onDeactivate={() => setActiveField(null)}
               onAdd={(guest) => {
-                setSelectedGuests((prev) => [...prev, guest]);
+                setSelectedGuests((prev) =>
+                  prev.some((g) => g.email.toLowerCase() === guest.email.toLowerCase()) ? prev : [...prev, guest],
+                );
                 setGuestSearch('');
               }}
               onRemove={(id) => setSelectedGuests((prev) => prev.filter((p) => p.id !== id))}
@@ -2410,7 +2481,8 @@ export function QuickCreateCard({
       {/* Footer */}
       <div role="presentation" className="flex items-center justify-end px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-1.5">
-          <RepeatPopover repeat={taskRepeat} onChange={setTaskRepeat} />
+          {/* Repeat is only saved for tasks; events have no recurrence here. */}
+          {isTask && <RepeatPopover repeat={taskRepeat} onChange={setTaskRepeat} />}
           <Button
             variant="default"
             size="sm"
@@ -2690,7 +2762,11 @@ function MonthView({
                     isSelected && 'bg-primary/5',
                     isDragOver && 'bg-primary/10 ring-2 ring-inset ring-primary/30',
                   )}
-                  onClick={(e) => { if (!dragEvent) onSelectSlot(day, new Date(day.getTime() + 3600000), e); }}
+                  onClick={(e) => {
+                    if (dragEvent) return;
+                    const slot = defaultRangeForDay(day);
+                    onSelectSlot(slot.start, slot.end, e);
+                  }}
                 >
                   <div className="flex justify-end mb-0.5">
                     <span
@@ -4264,9 +4340,13 @@ function EventDetailPanel({
                   quick-create card. Add via search; remove with the X chip. */}
               <EventAttendeesField
                 attendees={event.attendees ?? []}
+                // sendNotification makes calendar-api mail an invite to each newly
+                // added attendee (members, contacts and invited addresses alike).
+                // [] clears the list: an omitted field would leave it untouched.
                 onChange={(next) => event.id && updateEvent.mutate({
                   id: event.id,
-                  data: { attendees: next.length ? next : undefined },
+                  data: { attendees: next },
+                  sendNotification: true,
                 })}
               />
 
@@ -4521,6 +4601,19 @@ function EventAttendeesField({
     );
   };
 
+  // A typed email that is not a member / contact / attendee yet can be invited
+  // as an external guest: it is saved as a plain `{ email }` attendee, like the
+  // quick-create card does, and calendar-api mails it the invite.
+  const [query, setQuery] = useState('');
+  const inviteEmail = inviteEmailFromQuery(query, [
+    ...attendees.map((a) => a.email),
+    ...options.map((o) => o.email),
+  ]);
+  const inviteExternal = (email: string) => {
+    onChange([...attendees.map((a) => ({ email: a.email, name: a.name })), { email }]);
+    setQuery('');
+  };
+
   const hasAny = attendees.length > 0;
 
   return (
@@ -4530,7 +4623,7 @@ function EventAttendeesField({
         <span className="text-sm text-muted-foreground">{t.eventPreview.fieldAttendees}</span>
       </div>
       <div className="flex-1 min-w-0">
-        <Popover>
+        <Popover onOpenChange={(open) => { if (!open) setQuery(''); }}>
           <PopoverTrigger asChild>
             <div
               role="button"
@@ -4583,9 +4676,25 @@ function EventAttendeesField({
           </PopoverTrigger>
           <PopoverContent className="w-64 p-0" align="start">
             <Command>
-              <CommandInput placeholder={t.eventPreview.searchAttendees} />
+              <CommandInput
+                placeholder={t.eventPreview.searchAttendees}
+                value={query}
+                onValueChange={setQuery}
+              />
               <CommandList className="max-h-[260px] p-1">
                 <CommandEmpty>{t.eventPreview.noPeopleFound}</CommandEmpty>
+                {inviteEmail && (
+                  <CommandItem
+                    value={`invite ${inviteEmail}`}
+                    onSelect={() => inviteExternal(inviteEmail)}
+                    className="flex items-center gap-2 px-1.5"
+                  >
+                    <div className="h-5 w-5 flex items-center justify-center shrink-0">
+                      <Mail className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                    <span className="truncate">{t.eventPreview.inviteGuest.replace('{email}', inviteEmail)}</span>
+                  </CommandItem>
+                )}
                 {options.map((o) => {
                   const selected = isSelected(o.email);
                   return (
@@ -4674,6 +4783,7 @@ function DatePickerField({
       >
         <Calendar
           mode="single"
+          weekStartsOn={WEEK_STARTS_ON}
           selected={value}
           month={month}
           onMonthChange={setMonth}
@@ -4773,6 +4883,13 @@ function InlineSelectRow({
 // Inline Date/Time Row (fixed dropdown with calendar + time input)
 // ============================================================================
 
+/** "HH:mm" in the user's clock format ("09:00" or "9:00 AM"); unparseable input is shown as is. */
+function formatDueTime(time: string, timeFormat: TimeFormat): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (!match) return time;
+  return formatClock(new Date(1970, 0, 1, Number(match[1]), Number(match[2])), timeFormat);
+}
+
 function InlineDateTimeRow({
   icon,
   date,
@@ -4789,6 +4906,7 @@ function InlineDateTimeRow({
   placeholder: string;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState<Date | undefined>(date || new Date());
   const rowRef = React.useRef<HTMLDivElement>(null);
@@ -4824,7 +4942,7 @@ function InlineDateTimeRow({
         {icon}
         <span className="text-sm text-foreground h-7 flex items-center">
           {date ? format(date, 'EEEE, MMM d') : placeholder}
-          {time && <span className="text-muted-foreground ml-1">· {time}</span>}
+          {time && <span className="text-muted-foreground ml-1">· {formatDueTime(time, timeFormat)}</span>}
         </span>
       </div>
       {open && (
@@ -4836,6 +4954,7 @@ function InlineDateTimeRow({
           >
             <Calendar
               mode="single"
+              weekStartsOn={WEEK_STARTS_ON}
               selected={date}
               month={month}
               onMonthChange={setMonth}
@@ -4848,6 +4967,7 @@ function InlineDateTimeRow({
               <input
                 type="time"
                 value={time}
+                data-enter-submits="true"
                 onChange={(e) => onTimeChange(e.target.value)}
                 className="text-sm bg-transparent focus:outline-none flex-1"
                 placeholder={t.misc.addTime}
@@ -5373,6 +5493,8 @@ function TimeSlotPreview({
   onResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
+  const typedTitle = useQuickCreatePreviewTitle().trim();
   const color = colorOverride || (type ? (EVENT_TYPE_COLORS[type] || '#3b82f6') : '#3b82f6');
   const startHour = date.getHours() + date.getMinutes() / 60;
   const topPx = startHour * hourHeight;
@@ -5399,11 +5521,9 @@ function TimeSlotPreview({
           className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize z-[3]"
         />
       )}
-      <span className="font-semibold block">{t.misc.noTitle}</span>
+      <span className="font-semibold block truncate">{typedTitle || t.misc.noTitle}</span>
       <span className="text-white/70 text-[12px] block mt-[3px]">
-        {endDate
-          ? `${format(date, 'h:mm a')} – ${format(endDate, 'h:mm a')}`
-          : format(date, 'h:mm a')}
+        {endDate ? formatClockRange(date, endDate, timeFormat) : formatClock(date, timeFormat)}
       </span>
       {onResize && (
         <div
@@ -5427,6 +5547,7 @@ function SlotDragPreview({
   startTime: Date;
   endTime: Date;
 }) {
+  const timeFormat = useTimeFormat();
   return (
     <div
       className="absolute left-[3px] right-[3px] rounded-[6px] px-2.5 py-1.5 text-primary text-[11px] leading-tight overflow-hidden z-[1] pointer-events-none bg-primary/15 border border-primary/40"
@@ -5435,9 +5556,7 @@ function SlotDragPreview({
         height: `${heightPx}px`,
       }}
     >
-      <span className="font-semibold block">
-        {format(startTime, 'h:mm a')} – {format(endTime, 'h:mm a')}
-      </span>
+      <span className="font-semibold block">{formatClockRange(startTime, endTime, timeFormat)}</span>
     </div>
   );
 }
