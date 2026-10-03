@@ -78,7 +78,7 @@ function overlayInitScript({ captionPosition = 'bottom' } = {}) {
         ripple.className = '__video-ripple'
         ripple.style.left = `${e.clientX}px`
         ripple.style.top = `${e.clientY}px`
-        root.insertBefore(ripple, cursor)
+        cursor.before(ripple)
         setTimeout(() => ripple.remove(), 600)
       },
       true,

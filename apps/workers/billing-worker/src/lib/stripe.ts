@@ -148,7 +148,7 @@ export async function stripeApiRequest(
  * Retrieve a Stripe subscription by ID.
  */
 export async function retrieveSubscription(key: string, subscriptionId: string): Promise<any> {
-  return stripeApiRequest(key, 'GET', `/v1/subscriptions/${subscriptionId}`);
+  return stripeApiRequest(key, 'GET', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`);
 }
 
 /**
@@ -324,7 +324,7 @@ export async function updateSubscriptionQuantity(
   itemId: string,
   quantity: number
 ): Promise<any> {
-  return stripeApiRequest(key, 'POST', `/v1/subscriptions/${subscriptionId}`, {
+  return stripeApiRequest(key, 'POST', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     'items[0][id]': itemId,
     'items[0][quantity]': quantity.toString(),
     proration_behavior: 'create_prorations',
@@ -335,7 +335,7 @@ export async function updateSubscriptionQuantity(
  * Cancel a subscription at period end.
  */
 export async function cancelSubscription(key: string, subscriptionId: string): Promise<any> {
-  return stripeApiRequest(key, 'POST', `/v1/subscriptions/${subscriptionId}`, {
+  return stripeApiRequest(key, 'POST', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     cancel_at_period_end: 'true',
   });
 }
@@ -344,7 +344,7 @@ export async function cancelSubscription(key: string, subscriptionId: string): P
  * Reactivate a canceled subscription (undo cancel_at_period_end).
  */
 export async function reactivateSubscription(key: string, subscriptionId: string): Promise<any> {
-  return stripeApiRequest(key, 'POST', `/v1/subscriptions/${subscriptionId}`, {
+  return stripeApiRequest(key, 'POST', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     cancel_at_period_end: 'false',
   });
 }
@@ -374,7 +374,7 @@ export async function updateSubscriptionItemQuantity(
   itemId: string,
   quantity: number
 ): Promise<any> {
-  return stripeApiRequest(key, 'POST', `/v1/subscription_items/${itemId}`, {
+  return stripeApiRequest(key, 'POST', `/v1/subscription_items/${encodeURIComponent(itemId)}`, {
     quantity: quantity.toString(),
     proration_behavior: 'create_prorations',
   });
@@ -387,7 +387,7 @@ export async function deleteSubscriptionItem(
   key: string,
   itemId: string
 ): Promise<any> {
-  return stripeApiRequest(key, 'DELETE', `/v1/subscription_items/${itemId}?proration_behavior=create_prorations`);
+  return stripeApiRequest(key, 'DELETE', `/v1/subscription_items/${encodeURIComponent(itemId)}?proration_behavior=create_prorations`);
 }
 
 /**
@@ -403,7 +403,7 @@ export async function deleteSubscriptionItemNoProration(
   return stripeApiRequest(
     key,
     'DELETE',
-    `/v1/subscription_items/${itemId}?proration_behavior=none`
+    `/v1/subscription_items/${encodeURIComponent(itemId)}?proration_behavior=none`
   );
 }
 
@@ -414,7 +414,7 @@ export async function cancelSubscriptionImmediately(
   key: string,
   subscriptionId: string
 ): Promise<any> {
-  return stripeApiRequest(key, 'DELETE', `/v1/subscriptions/${subscriptionId}?prorate=true`);
+  return stripeApiRequest(key, 'DELETE', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}?prorate=true`);
 }
 
 /**
@@ -424,7 +424,7 @@ export async function listPaymentMethods(
   key: string,
   customerId: string
 ): Promise<any> {
-  return stripeApiRequest(key, 'GET', `/v1/payment_methods?customer=${customerId}&type=card`);
+  return stripeApiRequest(key, 'GET', `/v1/payment_methods?customer=${encodeURIComponent(customerId)}&type=card`);
 }
 
 /**
@@ -435,7 +435,7 @@ export async function listInvoices(
   customerId: string,
   limit: number = 10
 ): Promise<any> {
-  return stripeApiRequest(key, 'GET', `/v1/invoices?customer=${customerId}&limit=${limit}`);
+  return stripeApiRequest(key, 'GET', `/v1/invoices?customer=${encodeURIComponent(customerId)}&limit=${limit}`);
 }
 
 export interface StripePaymentIntentResponse {
@@ -447,7 +447,7 @@ export async function retrievePaymentIntent(
   key: string,
   paymentIntentId: string,
 ): Promise<StripePaymentIntentResponse> {
-  return stripeApiRequest(key, 'GET', `/v1/payment_intents/${paymentIntentId}`);
+  return stripeApiRequest(key, 'GET', `/v1/payment_intents/${encodeURIComponent(paymentIntentId)}`);
 }
 
 export interface StripeCustomerResponse {
@@ -461,7 +461,7 @@ export async function retrieveCustomer(
   key: string,
   customerId: string,
 ): Promise<StripeCustomerResponse> {
-  return stripeApiRequest(key, 'GET', `/v1/customers/${customerId}`);
+  return stripeApiRequest(key, 'GET', `/v1/customers/${encodeURIComponent(customerId)}`);
 }
 
 export async function setCustomerDefaultPaymentMethod(
@@ -469,7 +469,7 @@ export async function setCustomerDefaultPaymentMethod(
   customerId: string,
   paymentMethodId: string,
 ): Promise<{ id: string }> {
-  return stripeApiRequest(key, 'POST', `/v1/customers/${customerId}`, {
+  return stripeApiRequest(key, 'POST', `/v1/customers/${encodeURIComponent(customerId)}`, {
     'invoice_settings[default_payment_method]': paymentMethodId,
   });
 }
@@ -522,7 +522,7 @@ export async function updateStripeProduct(
     }
   }
 
-  return stripeApiRequest(key, 'POST', `/v1/products/${productId}`, body);
+  return stripeApiRequest(key, 'POST', `/v1/products/${encodeURIComponent(productId)}`, body);
 }
 
 /**
@@ -557,7 +557,7 @@ export async function archiveStripePrice(
   key: string,
   priceId: string
 ): Promise<any> {
-  return stripeApiRequest(key, 'POST', `/v1/prices/${priceId}`, {
+  return stripeApiRequest(key, 'POST', `/v1/prices/${encodeURIComponent(priceId)}`, {
     active: 'false',
   });
 }
@@ -595,7 +595,7 @@ export async function updateStripeCustomer(
     if (params.address.country) body['address[country]'] = params.address.country;
   }
 
-  return stripeApiRequest(key, 'POST', `/v1/customers/${customerId}`, body);
+  return stripeApiRequest(key, 'POST', `/v1/customers/${encodeURIComponent(customerId)}`, body);
 }
 
 /**
@@ -607,7 +607,7 @@ export async function createCustomerTaxId(
   type: string,
   value: string
 ): Promise<any> {
-  return stripeApiRequest(key, 'POST', `/v1/customers/${customerId}/tax_ids`, {
+  return stripeApiRequest(key, 'POST', `/v1/customers/${encodeURIComponent(customerId)}/tax_ids`, {
     type,
     value,
   });
@@ -620,7 +620,7 @@ export async function listCustomerTaxIds(
   key: string,
   customerId: string
 ): Promise<any> {
-  return stripeApiRequest(key, 'GET', `/v1/customers/${customerId}/tax_ids`);
+  return stripeApiRequest(key, 'GET', `/v1/customers/${encodeURIComponent(customerId)}/tax_ids`);
 }
 
 /**
@@ -631,7 +631,7 @@ export async function deleteCustomerTaxId(
   customerId: string,
   taxIdId: string
 ): Promise<any> {
-  return stripeApiRequest(key, 'DELETE', `/v1/customers/${customerId}/tax_ids/${taxIdId}`);
+  return stripeApiRequest(key, 'DELETE', `/v1/customers/${encodeURIComponent(customerId)}/tax_ids/${encodeURIComponent(taxIdId)}`);
 }
 
 // ============================================================================
