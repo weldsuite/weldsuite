@@ -95,6 +95,14 @@ import {
   type UserCalendar,
 } from '@/hooks/queries/use-calendar-queries';
 import { EVENT_TYPE_COLORS, EVENT_TYPE_OPTIONS, EVENT_PRIORITY_OPTIONS } from '../lib/event-form-schema';
+import { applyEventFilters, matchesEventSearch, mergeSearchResults } from '../lib/event-filters';
+import { formatEventWhen } from '../lib/event-when';
+import { getCurrentSlot, getNotifiableGuests, isSameSlot } from '../lib/event-reschedule';
+import { isEditableTarget, isEscapeHandledElsewhere } from '../lib/escape-guard';
+import { useSearchCalendarEvents } from '@/hooks/queries/use-calendar-queries';
+import { useUser } from '@clerk/clerk-react';
+import { CalendarSearchResults } from './calendar-search-results';
+import { RescheduleNotifyDialog } from './reschedule-notify-dialog';
 import { EntityList, FilterPills, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { usePeople, type Person } from '@/components/objects/person/use-person-data';
 import { useCreateTask, type Task } from '@/hooks/use-crm-tasks';
@@ -407,6 +415,8 @@ export function CalendarView() {
     localStorage.setItem('weldcalendar:view', view);
   }, []);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Set when the edit dialog was opened from the event panel, so closing it returns there.
+  const reopenPanelAfterDialogRef = useRef(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [defaultStart, setDefaultStart] = useState<Date | undefined>();
   const [defaultEnd, setDefaultEnd] = useState<Date | undefined>();
@@ -440,7 +450,7 @@ export function CalendarView() {
         { value: 'event', label: t.calendarView.filterTypeEvent },
         { value: 'call', label: t.calendarView.filterTypeCall },
         { value: 'appointment', label: t.calendarView.filterTypeAppointment },
-        { value: 'reminder', label: t.calendarView.filterTypeReminder },
+        { value: 'reminder', label: t.calendarView.filterTypeTask },
         { value: 'other', label: t.calendarView.filterTypeOther },
       ],
     },
@@ -533,51 +543,29 @@ export function CalendarView() {
     });
   }, [events]);
 
-  const filteredEvents = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const base = activeFilters.length === 0
-      ? events
-      : events.filter((evt) => activeFilters.every((f) => {
-          if (!f.value) return true;
-          const isNot = f.operator === 'is_not';
-          let match = false;
-          switch (f.field) {
-            case 'type':
-              match = evt.type === f.value;
-              break;
-            case 'calendar':
-              match = evt.calendarId === f.value;
-              break;
-            case 'status':
-              match = evt.status === f.value;
-              break;
-            case 'priority':
-              match = evt.priority === f.value;
-              break;
-            case 'allDay':
-              match = String(evt.allDay || false) === f.value;
-              break;
-            default:
-              return true;
-          }
-          return isNot ? !match : match;
-        }));
+  const timeFormat = useTimeFormat();
+  const { user } = useUser();
+  const selfEmail = user?.primaryEmailAddress?.emailAddress;
 
-    if (!q) return base;
-    return base.filter((evt) => {
-      // Match across the fields a user is most likely to remember.
-      const haystacks: (string | undefined)[] = [
-        evt.title,
-        evt.description,
-        evt.location,
-        evt.meetingUrl,
-        evt.notes,
-        ...(evt.attendees?.flatMap((a) => [a.name, a.email]) ?? []),
-        ...(evt.tags ?? []),
-      ];
-      return haystacks.some((s) => typeof s === 'string' && s.toLowerCase().includes(q));
-    });
-  }, [events, activeFilters, searchQuery]);
+  const filteredEvents = useMemo(() => applyEventFilters(events, activeFilters), [events, activeFilters]);
+
+  // Search: the range query only holds the visible window, so a non-empty box
+  // also asks the server (all dates) and the grid gives way to a results list.
+  const trimmedSearch = searchQuery.trim();
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(trimmedSearch), 250);
+    return () => clearTimeout(id);
+  }, [trimmedSearch]);
+  const { data: searchData, isFetching: isSearchFetching } = useSearchCalendarEvents(debouncedSearch, calendarIdsParam);
+  const isSearching = trimmedSearch.length >= 2 && (debouncedSearch !== trimmedSearch || isSearchFetching);
+  const searchResults = useMemo(() => {
+    if (!trimmedSearch) return [];
+    const local = filteredEvents.filter((evt) => matchesEventSearch(evt, trimmedSearch));
+    const server = applyEventFilters(searchData?.data ?? [], activeFilters)
+      .filter((evt) => matchesEventSearch(evt, trimmedSearch));
+    return mergeSearchResults(server, local, Date.now());
+  }, [trimmedSearch, filteredEvents, searchData, activeFilters]);
 
   const calendarColorMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -850,8 +838,47 @@ export function CalendarView() {
     setDialogOpen(true);
   }, []);
 
+  // Drag / resize of an event with guests: asked once ("send update?") before
+  // anything is saved, instead of one "rescheduled" email per adjustment.
+  const [guestDrop, setGuestDrop] = useState<{ event: CalendarEvent; newStart: Date; newEnd: Date } | null>(null);
+
+  /** Saves a move and offers an Undo that restores the previous slot (re-notifying only if this move did). */
+  const performReschedule = useCallback(async (
+    event: CalendarEvent,
+    newStart: Date,
+    newEnd: Date,
+    notifyAttendees: boolean,
+  ) => {
+    if (!event.id) return;
+    const eventId = event.id;
+    const previous = getCurrentSlot(event);
+    try {
+      await rescheduleEvent.mutateAsync({
+        id: eventId,
+        startTime: newStart.toISOString(),
+        endTime: newEnd.toISOString(),
+        notifyAttendees,
+      });
+    } catch {
+      toast.error(t.toast.eventMoveFailed);
+      return;
+    }
+    toast(t.toast.eventMoved, {
+      action: {
+        label: t.toast.undo,
+        onClick: () => {
+          rescheduleEvent
+            .mutateAsync({ id: eventId, ...previous, notifyAttendees })
+            .then(() => toast.success(t.toast.eventMoveUndone))
+            .catch(() => toast.error(t.toast.eventMoveFailed));
+        },
+      },
+    });
+  }, [rescheduleEvent, t.toast.eventMoveFailed, t.toast.eventMoved, t.toast.eventMoveUndone, t.toast.undo]);
+
   const handleEventDrop = useCallback((event: CalendarEvent, newStart: Date, newEnd: Date) => {
     if (!event.id) return;
+    if (isSameSlot(event, newStart, newEnd)) return;
 
     // For auto-scheduled task/activity events: show confirm dialog before pinning
     const isAutoScheduledEntity =
@@ -864,13 +891,22 @@ export function CalendarView() {
       return;
     }
 
-    // For all other events: instant reschedule (no dialog)
-    rescheduleEvent.mutate({
-      id: event.id,
-      startTime: newStart.toISOString(),
-      endTime: newEnd.toISOString(),
-    });
-  }, [rescheduleEvent]);
+    if (getNotifiableGuests(event, selfEmail).length > 0) {
+      setGuestDrop({ event, newStart, newEnd });
+      return;
+    }
+
+    // No guests to tell: reschedule straight away (with an Undo toast).
+    void performReschedule(event, newStart, newEnd, false);
+  }, [performReschedule, selfEmail]);
+
+  /** Answer of the "send update to guests?" dialog; `null` leaves the event where it was. */
+  const resolveGuestDrop = useCallback((notifyAttendees: boolean | null) => {
+    const drop = guestDrop;
+    setGuestDrop(null);
+    if (!drop || notifyAttendees === null) return;
+    void performReschedule(drop.event, drop.newStart, drop.newEnd, notifyAttendees);
+  }, [guestDrop, performReschedule]);
 
   /** Called when the user confirms "Pin to this time" in the dialog */
   const handleConfirmPin = useCallback(() => {
@@ -934,15 +970,21 @@ export function CalendarView() {
     setEventPreviewOpen(true);
   }, [openObjectPanel, closeObjectPanels]);
 
-  // Escape key to close cards
+  const handleSelectSearchResult = useCallback((event: CalendarEvent) => {
+    setCurrentDate(new Date(event.startTime));
+    setSearchQuery('');
+    setSearchOpen(false);
+    handleSelectEvent(event);
+  }, [handleSelectEvent]);
+
+  // Escape key to close cards. A popover / dropdown / dialog that is open on
+  // top of a card consumes its own Escape, and an inline editor in the panel
+  // only cancels its edit: neither may also close the card underneath.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // An open popover / select (date picker, repeat) consumed this Escape.
-      if (e.defaultPrevented) return;
-      if (e.key === 'Escape') {
-        if (quickCreateOpen) setQuickCreateOpen(false);
-        if (eventPreviewOpen) setEventPreviewOpen(false);
-      }
+      if (e.key !== 'Escape' || isEscapeHandledElsewhere(e)) return;
+      if (quickCreateOpen) setQuickCreateOpen(false);
+      if (eventPreviewOpen && !isEditableTarget(e.target)) setEventPreviewOpen(false);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -988,23 +1030,26 @@ export function CalendarView() {
     <div className="flex-1 min-h-0 flex flex-col [--cal-time-label-width:60px] md:[--cal-time-label-width:72px]">
       {/* Toolbar */}
       <div className="flex items-center justify-between max-md:gap-2 border-b px-4 py-2.5 bg-background shrink-0 z-10">
-        <div className="flex items-center gap-1 md:gap-2 max-md:min-w-0">
+        <div className="flex items-center gap-1 md:gap-2 min-w-0">
           <FilterPills
             filters={activeFilters}
             filterConfigs={calendarFilterConfigs}
             maxFilters={3}
             onFiltersChange={setActiveFilters}
+            operatorLabels={{ is: t.calendarView.filterOperatorIs, 'is not': t.calendarView.filterOperatorIsNot }}
+            labels={{ filter: t.calendarView.filterButton, selectCondition: t.calendarView.filterSelectCondition }}
           />
-          <Button variant="ghost" size="icon" className="hidden md:inline-flex h-8 w-8" onClick={goPrev}>
+          <Button variant="ghost" size="icon" className="hidden md:inline-flex h-8 w-8 shrink-0" onClick={goPrev} aria-label={t.calendarView.previousPeriod}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="hidden md:inline-flex h-8 w-8" onClick={goNext}>
+          <Button variant="ghost" size="icon" className="hidden md:inline-flex h-8 w-8 shrink-0" onClick={goNext} aria-label={t.calendarView.nextPeriod}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <h2 className="hidden md:block text-[18px] font-semibold ml-1 -translate-y-[1px]">{headerLabel}</h2>
+          {/* One line, even with the event panel open: shrink + truncate rather than wrap. */}
+          <h2 className="hidden md:block min-w-0 truncate whitespace-nowrap text-[18px] font-semibold ml-1 -translate-y-[1px]">{headerLabel}</h2>
         </div>
 
-        <div className="flex items-center gap-1 md:gap-2 max-md:shrink-0">
+        <div className="flex items-center gap-1 md:gap-2 shrink-0">
           {!isTodayInView && (
             <Button variant="outline" size="sm" className="shadow-none shrink-0" onClick={goToday}>
               {t.calendarView.today}
@@ -1014,6 +1059,7 @@ export function CalendarView() {
             open={searchOpen}
             query={searchQuery}
             placeholder={t.calendarView.searchPlaceholder}
+            toggleLabel={t.calendarView.searchToggle}
             onOpenChange={setSearchOpen}
             onQueryChange={setSearchQuery}
           />
@@ -1021,7 +1067,7 @@ export function CalendarView() {
             value={isMobile ? foldViewForMobile(currentView) : currentView}
             onValueChange={(v) => setCurrentView(v as View)}
           >
-            <SelectTrigger size="sm" className="w-[110px] md:w-[130px] shadow-none">
+            <SelectTrigger size="sm" className="w-[110px] md:w-[130px] shadow-none" aria-label={t.calendarView.viewSelectLabel}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1044,6 +1090,16 @@ export function CalendarView() {
 
       {/* Calendar Body */}
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden" data-calendar-body>
+        {trimmedSearch && (
+          <CalendarSearchResults
+            results={searchResults}
+            isSearching={isSearching}
+            calendarColorMap={calendarColorMap}
+            timeFormat={timeFormat}
+            onSelect={handleSelectSearchResult}
+          />
+        )}
+        {!trimmedSearch && (
         <CalendarBody
           currentView={currentView}
           isMobile={isMobile}
@@ -1066,6 +1122,7 @@ export function CalendarView() {
             onPreviewResize: handlePreviewResize,
           }}
         />
+        )}
       </div>
 
       {/* Inline quick-create card — rendered as fixed overlay so it's never clipped.
@@ -1102,6 +1159,7 @@ export function CalendarView() {
         width={EVENT_PANEL_WIDTH}
         onClose={() => setEventPreviewOpen(false)}
         onEdit={() => {
+          reopenPanelAfterDialogRef.current = true;
           setEventPreviewOpen(false);
           setDialogOpen(true);
         }}
@@ -1109,13 +1167,31 @@ export function CalendarView() {
 
       <EventDialog
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          // Cancelling (or saving) the edit goes back to the panel it was opened from.
+          if (!open && reopenPanelAfterDialogRef.current) {
+            reopenPanelAfterDialogRef.current = false;
+            setEventPreviewOpen(true);
+          }
+        }}
+        onDeleted={() => {
+          reopenPanelAfterDialogRef.current = false;
+          setSelectedEvent(null);
+        }}
         event={selectedEvent}
         defaultStart={defaultStart}
         defaultEnd={defaultEnd}
         defaultType={defaultEventType}
         calendars={allCalendars}
         defaultCalendarId={defaultCalendar?.id}
+      />
+
+      <RescheduleNotifyDialog
+        open={guestDrop !== null}
+        onSend={() => resolveGuestDrop(true)}
+        onDontSend={() => resolveGuestDrop(false)}
+        onCancel={() => resolveGuestDrop(null)}
       />
 
       {/* Pin-on-drag confirmation dialog */}
@@ -1143,12 +1219,15 @@ function CalendarSearchInput({
   open,
   query,
   placeholder,
+  toggleLabel,
   onOpenChange,
   onQueryChange,
 }: {
   open: boolean;
   query: string;
   placeholder: string;
+  /** Accessible name of the collapsed icon button. */
+  toggleLabel: string;
   onOpenChange: (open: boolean) => void;
   onQueryChange: (query: string) => void;
 }) {
@@ -1166,6 +1245,8 @@ function CalendarSearchInput({
             open && "opacity-0 pointer-events-none absolute"
           )}
           onClick={() => onOpenChange(true)}
+          aria-label={toggleLabel}
+          tabIndex={open ? -1 : 0}
         >
           <Search className="h-4 w-4" />
         </Button>
@@ -1177,6 +1258,7 @@ function CalendarSearchInput({
           <input
             type="text"
             placeholder={placeholder}
+            aria-label={placeholder}
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             onBlur={() => !query && onOpenChange(false)}
@@ -1302,14 +1384,6 @@ function getQuickCreateInitialValues(
     meetingUrl: editEvent?.meetingUrl || '',
     calendarId: editEvent?.calendarId || defaults.calendarId,
   };
-}
-
-/** "When" summary for the event preview: the date for all-day events, else date + time range. */
-function formatEventWhen(event: CalendarEvent): string {
-  if (event.allDay) return format(new Date(event.startTime), 'EEEE, MMMM d');
-  const start = format(new Date(event.startTime), 'EEE, MMM d · h:mm a');
-  const end = event.endTime ? ` – ${format(new Date(event.endTime), 'h:mm a')}` : '';
-  return `${start}${end}`;
 }
 
 /**
@@ -3894,6 +3968,7 @@ function EventDetailPanel({
   onEdit: () => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
   const deleteEvent = useDeleteCalendarEvent();
   const updateEvent = useUpdateCalendarEvent();
   const { createMeetingAndGetUrl, isPending: isCreatingMeeting } = useAutoCreateWeldMeeting();
@@ -4005,6 +4080,13 @@ function EventDetailPanel({
   const color = getEventColor(event, calendarColorMap);
   const calendar = calendars.find((c) => c.id === event.calendarId);
   const hasAttendees = !!event.attendees?.length;
+  // Show the stored priority (including "normal") rather than a "Set priority" placeholder.
+  const priorityLabels: Record<string, string> = {
+    low: t.calendarView.filterPriorityLow,
+    normal: t.calendarView.filterPriorityNormal,
+    high: t.calendarView.filterPriorityHigh,
+    urgent: t.calendarView.filterPriorityUrgent,
+  };
 
   const handleDelete = async (sendNotification?: boolean) => {
     if (event.id) {
@@ -4277,7 +4359,7 @@ function EventDetailPanel({
                   className="h-8 text-sm inline-flex items-center self-start group/field text-left"
                 >
                   <span className="px-1.5 -mx-1.5 rounded ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 h-[22px] inline-flex items-center transition-shadow">
-                    {formatEventWhen(event)}
+                    {formatEventWhen(event, timeFormat)}
                   </span>
                 </Button>
               </div>
@@ -4291,9 +4373,9 @@ function EventDetailPanel({
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
-                      {event.priority && event.priority !== 'normal' ? (
-                        <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-muted capitalize ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow">
-                          {event.priority}
+                      {event.priority ? (
+                        <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-muted ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow">
+                          {priorityLabels[event.priority] ?? event.priority}
                         </span>
                       ) : (
                         <span className="text-muted-foreground group-hover/field:underline">{t.eventPreview.setPriority}</span>
@@ -4308,7 +4390,7 @@ function EventDetailPanel({
                         onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { priority: value } })}
                         className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[140px]"
                       >
-                        <span>{label}</span>
+                        <span>{priorityLabels[value] ?? label}</span>
                         {event.priority === value && <Check className="h-3.5 w-3.5 text-primary" />}
                       </Button>
                     ))}
