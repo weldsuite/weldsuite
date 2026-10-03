@@ -23,8 +23,9 @@
 
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Env } from '../types';
+import { validTimeZoneOrUndefined } from './calendar-timezone';
 
 // ── Env ──────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,11 @@ function templateIds(env: Env): CalendarTemplateEnv {
   return env as Env & CalendarTemplateEnv;
 }
 
+/** Optional override of the platform base URL the app links are built from. */
+interface AppUrlEnv {
+  APP_URL?: string;
+}
+
 const FROM = 'WeldCalendar <notifications@mail.weldsuite.org>';
 
 export function getPlatformUrl(environment: string): string {
@@ -57,9 +63,13 @@ export function getPlatformUrl(environment: string): string {
   return urls[environment] || 'https://app.weldsuite.org';
 }
 
-/** The calendar deep-link every mail links back to. */
+/**
+ * The authenticated calendar deep-link. Only workspace members can open it, so
+ * it is never put in a mail to an external guest (see `memberEmails`).
+ */
 function eventUrlFor(env: Env): string {
-  return `${getPlatformUrl(env.ENVIRONMENT)}/weldcalendar`;
+  const override = (env as Env & AppUrlEnv).APP_URL?.trim().replace(/\/+$/, '');
+  return `${override || getPlatformUrl(env.ENVIRONMENT)}/weldcalendar`;
 }
 
 // ── Organizer lookup ─────────────────────────────────────────────────────
@@ -67,20 +77,67 @@ function eventUrlFor(env: Env): string {
 export interface OrganizerInfo {
   name: string;
   email: string;
+  /** The organizer's preferred IANA zone; times render in it when the event has none. */
+  timezone?: string;
 }
 
-/** Resolve the organizer's display name + email from the tenant member table. */
+/**
+ * Resolve the organizer's display name + email from the tenant member table,
+ * plus their preferred timezone (`user_preferences`) when they have one.
+ */
 export async function getOrganizerInfo(
   db: Database,
   userId: string,
 ): Promise<OrganizerInfo> {
-  const { workspaceMembers } = schema;
+  const { workspaceMembers, userPreferences } = schema;
   const [organizer] = await db
     .select({ name: workspaceMembers.name, email: workspaceMembers.email })
     .from(workspaceMembers)
     .where(eq(workspaceMembers.userId, userId))
     .limit(1);
-  return { name: organizer?.name ?? 'Someone', email: organizer?.email ?? '' };
+
+  let timezone: string | undefined;
+  try {
+    const [prefs] = await db
+      .select({ timezone: userPreferences.timezone })
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .limit(1);
+    timezone = validTimeZoneOrUndefined(prefs?.timezone);
+  } catch (err) {
+    console.error('[calendar-api/calendar-mail] organizer timezone lookup failed:', err);
+  }
+
+  return { name: organizer?.name ?? 'Someone', email: organizer?.email ?? '', timezone };
+}
+
+/**
+ * The lower-cased subset of `emails` that belong to active internal workspace
+ * members. Members can open the authenticated calendar; everyone else is a
+ * guest.
+ */
+export async function getMemberEmails(db: Database, emails: string[]): Promise<Set<string>> {
+  const lowered = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  if (lowered.length === 0) return new Set();
+  const { workspaceMembers } = schema;
+  try {
+    const rows = await db
+      .select({ email: workspaceMembers.email })
+      .from(workspaceMembers)
+      .where(
+        and(
+          inArray(sql`lower(${workspaceMembers.email})`, lowered),
+          isNull(workspaceMembers.deletedAt),
+          eq(workspaceMembers.status, 'ACTIVE'),
+          // Outside collaborators are scoped to channels; they have no calendar.
+          eq(workspaceMembers.memberType, 'INTERNAL'),
+        ),
+      );
+    return new Set(rows.map((r) => (r.email ?? '').toLowerCase()).filter(Boolean));
+  } catch (err) {
+    console.error('[calendar-api/calendar-mail] member lookup failed:', err);
+    return new Set();
+  }
 }
 
 // ── ICS (RFC 5545) ───────────────────────────────────────────────────────
@@ -100,6 +157,18 @@ export interface IcsEventParams {
   method?: IcsMethod;
   sequence?: number;
   url?: string;
+  /**
+   * Video-conference join link. Becomes LOCATION when the event has no physical
+   * location (else it is kept out of LOCATION), is always spelled out as
+   * "Join: <url>" in DESCRIPTION, and is advertised to Google/Outlook through
+   * X-GOOGLE-CONFERENCE. When set it is also the URL unless `url` overrides it.
+   * Ignored for CANCEL.
+   */
+  meetingUrl?: string;
+  /** All-day events are written as DATE values (DTEND exclusive) in `timezone`. */
+  allDay?: boolean;
+  /** IANA zone used to resolve the calendar day of all-day events. */
+  timezone?: string;
 }
 
 interface EmailAttachment {
@@ -108,8 +177,26 @@ interface EmailAttachment {
   content_type?: string;
 }
 
+/** UTC date-time form, e.g. 20261001T210000Z. */
 function formatIcsDate(iso: string): string {
   return new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+}
+
+/** The calendar day of `iso` in `timeZone` as [year, month, day]. */
+function zonedYmd(iso: string, timeZone: string): [number, number, number] {
+  const text = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(iso));
+  const [y, m, d] = text.split('-').map(Number);
+  return [y, m, d];
+}
+
+function icsDateOnly(ymd: [number, number, number], plusDays = 0): string {
+  const d = new Date(Date.UTC(ymd[0], ymd[1] - 1, ymd[2] + plusDays));
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
 function escapeIcsText(text: string): string {
@@ -117,7 +204,48 @@ function escapeIcsText(text: string): string {
     .replace(/\\/g, '\\\\')
     .replace(/;/g, '\\;')
     .replace(/,/g, '\\,')
-    .replace(/\n/g, '\\n');
+    .replace(/\r\n|\r|\n/g, '\\n');
+}
+
+/** Parameter values containing , ; : must be quoted (and cannot contain quotes). */
+function icsParamValue(text: string): string {
+  return `"${text.replace(/["\r\n]/g, ' ')}"`;
+}
+
+const ICS_MAX_OCTETS = 75;
+
+/** Fold a content line to 75 octets (continuations start with a space). */
+function foldIcsLine(line: string): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(line).length <= ICS_MAX_OCTETS) return line;
+  const parts: string[] = [];
+  let current = '';
+  let octets = 0;
+  let limit = ICS_MAX_OCTETS;
+  for (const ch of line) {
+    const size = encoder.encode(ch).length;
+    if (octets + size > limit) {
+      parts.push(current);
+      current = '';
+      octets = 0;
+      limit = ICS_MAX_OCTETS - 1; // the leading space of a continuation line
+    }
+    current += ch;
+    octets += size;
+  }
+  parts.push(current);
+  return parts.join('\r\n ');
+}
+
+/**
+ * A SEQUENCE that increases with every revision sent for a UID: clients ignore
+ * a REQUEST/CANCEL whose sequence is not higher than the one they hold, so a
+ * constant would make the second reschedule (or a cancel after a reschedule) a
+ * no-op in the guest's calendar. Seconds since the epoch is monotonic without
+ * having to persist a counter, and fits the 32-bit integer clients expect.
+ */
+export function nextIcsSequence(now: number = Date.now()): number {
+  return Math.floor(now / 1000);
 }
 
 export function generateIcs(params: IcsEventParams): string {
@@ -133,8 +261,12 @@ export function generateIcs(params: IcsEventParams): string {
     attendeeEmail,
     method = 'REQUEST',
     sequence = 0,
-    url,
+    meetingUrl,
+    allDay,
+    timezone,
   } = params;
+  const joinUrl = method === 'CANCEL' ? undefined : meetingUrl;
+  const url = params.url ?? joinUrl;
 
   const now = formatIcsDate(new Date().toISOString());
   const lines: string[] = [
@@ -147,20 +279,42 @@ export function generateIcs(params: IcsEventParams): string {
     `DTSTAMP:${now}`,
     `SEQUENCE:${sequence}`,
     `SUMMARY:${escapeIcsText(title)}`,
-    `ORGANIZER;CN=${escapeIcsText(organizerName)}:mailto:${organizerEmail}`,
-    `ATTENDEE;RSVP=TRUE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION:mailto:${attendeeEmail}`,
   ];
+  if (organizerEmail) {
+    lines.push(`ORGANIZER;CN=${icsParamValue(organizerName)}:mailto:${organizerEmail}`);
+  }
+  lines.push(
+    `ATTENDEE;RSVP=TRUE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION:mailto:${attendeeEmail}`,
+  );
 
-  if (startTime) lines.push(`DTSTART:${formatIcsDate(startTime)}`);
-  if (endTime) lines.push(`DTEND:${formatIcsDate(endTime)}`);
-  if (description) lines.push(`DESCRIPTION:${escapeIcsText(description)}`);
-  if (location) lines.push(`LOCATION:${escapeIcsText(location)}`);
+  if (startTime) {
+    if (allDay) {
+      const zone = validTimeZoneOrUndefined(timezone) ?? 'UTC';
+      lines.push(`DTSTART;VALUE=DATE:${icsDateOnly(zonedYmd(startTime, zone))}`);
+      // DTEND of a DATE event is exclusive: the day after the last day.
+      lines.push(`DTEND;VALUE=DATE:${icsDateOnly(zonedYmd(endTime ?? startTime, zone), 1)}`);
+    } else {
+      lines.push(`DTSTART:${formatIcsDate(startTime)}`);
+      // Never emit a DTEND that is not after DTSTART (legacy rows may have one).
+      if (endTime && new Date(endTime).getTime() > new Date(startTime).getTime()) {
+        lines.push(`DTEND:${formatIcsDate(endTime)}`);
+      }
+    }
+  }
+
+  const descriptionParts = [description, joinUrl ? `Join: ${joinUrl}` : undefined].filter(
+    (p): p is string => !!p,
+  );
+  if (descriptionParts.length) lines.push(`DESCRIPTION:${escapeIcsText(descriptionParts.join('\n\n'))}`);
+  const icsLocation = location || joinUrl;
+  if (icsLocation) lines.push(`LOCATION:${escapeIcsText(icsLocation)}`);
   if (url) lines.push(`URL:${url}`);
+  if (joinUrl) lines.push(`X-GOOGLE-CONFERENCE:${joinUrl}`);
 
   lines.push(method === 'CANCEL' ? 'STATUS:CANCELLED' : 'STATUS:CONFIRMED');
   lines.push('END:VEVENT', 'END:VCALENDAR');
 
-  return lines.join('\r\n');
+  return `${lines.map(foldIcsLine).join('\r\n')}\r\n`;
 }
 
 export function icsAttachment(params: IcsEventParams): EmailAttachment {
@@ -180,12 +334,24 @@ export interface CalendarEmailParams {
   startTime?: string;
   endTime?: string;
   location?: string;
-  eventUrl: string;
+  /**
+   * Link to the authenticated WeldCalendar app. Only pass it for recipients who
+   * are workspace members: guests have no account, so for them the button is
+   * left out.
+   */
+  eventUrl?: string;
+  /** Video-conference join link; renders a prominent join button + the plain URL. */
+  meetingUrl?: string;
+  /** IANA zone the times are shown in (the Worker itself runs in UTC). */
+  timezone?: string;
+  allDay?: boolean;
 }
 
 export interface CalendarRescheduleParams extends CalendarEmailParams {
   oldStartTime?: string;
   oldEndTime?: string;
+  /** Not a move, e.g. a join link was added: the copy says "updated". */
+  updated?: boolean;
 }
 
 function escapeHtml(str: string): string {
@@ -196,7 +362,14 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function formatDateTime(iso: string): string {
+/** Zone name used when an event/organizer has none. */
+const FALLBACK_TIME_ZONE = 'UTC';
+
+function zoneOf(timezone?: string): string {
+  return validTimeZoneOrUndefined(timezone) ?? FALLBACK_TIME_ZONE;
+}
+
+function formatDateTime(iso: string, timezone?: string): string {
   return new Date(iso).toLocaleString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -205,15 +378,54 @@ function formatDateTime(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
     timeZoneName: 'short',
+    timeZone: zoneOf(timezone),
   });
 }
 
-function formatTime(iso: string): string {
+function formatTime(iso: string, timezone?: string): string {
   return new Date(iso).toLocaleString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     timeZoneName: 'short',
+    timeZone: zoneOf(timezone),
   });
+}
+
+function formatDate(iso: string, timezone?: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: zoneOf(timezone),
+  });
+}
+
+function sameDay(a: string, b: string, timezone?: string): boolean {
+  const zone = zoneOf(timezone);
+  const fmt = (iso: string) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date(iso));
+  return fmt(a) === fmt(b);
+}
+
+/** Plain-text "when" line, shared by the HTML (escaped by the caller) and text bodies. */
+export function formatWhen(
+  startTime: string,
+  endTime: string | undefined,
+  timezone?: string,
+  allDay?: boolean,
+): string {
+  if (allDay) {
+    const days = endTime && !sameDay(startTime, endTime, timezone)
+      ? `${formatDate(startTime, timezone)} – ${formatDate(endTime, timezone)}`
+      : formatDate(startTime, timezone);
+    return `${days} (all day)`;
+  }
+  if (!endTime) return formatDateTime(startTime, timezone);
+  const end = sameDay(startTime, endTime, timezone)
+    ? formatTime(endTime, timezone)
+    : formatDateTime(endTime, timezone);
+  return `${formatDateTime(startTime, timezone)} – ${end}`;
 }
 
 function wrapLayout(title: string, body: string): string {
@@ -260,7 +472,12 @@ function wrapLayout(title: string, body: string): string {
 </html>`;
 }
 
-function renderTimeSection(startTime?: string, endTime?: string): string {
+function renderTimeSection(
+  startTime: string | undefined,
+  endTime: string | undefined,
+  timezone?: string,
+  allDay?: boolean,
+): string {
   if (!startTime) return '';
   return `
     <tr>
@@ -269,7 +486,7 @@ function renderTimeSection(startTime?: string, endTime?: string): string {
           <tr>
             <td style="padding-right: 8px; vertical-align: top; color: #6b7280;">&#128197;</td>
             <td style="font-size: 15px; color: #374151; line-height: 1.5;">
-              ${formatDateTime(startTime)}${endTime ? ` &ndash; ${formatTime(endTime)}` : ''}
+              ${escapeHtml(formatWhen(startTime, endTime, timezone, allDay))}
             </td>
           </tr>
         </table>
@@ -304,19 +521,63 @@ function renderDescriptionSection(description?: string): string {
     </tr>`;
 }
 
-function renderButton(label: string, url: string): string {
+function renderButton(label: string, url: string, variant: 'primary' | 'secondary' = 'primary'): string {
+  const style =
+    variant === 'primary'
+      ? 'background-color: #3b82f6; color: #ffffff; border: 1px solid #3b82f6;'
+      : 'background-color: #ffffff; color: #3b82f6; border: 1px solid #3b82f6;';
   return `
     <tr>
       <td style="padding: 8px 0 0 0;" align="center">
-        <a href="${escapeHtml(url)}" style="display: inline-block; padding: 12px 32px; background-color: #3b82f6; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; line-height: 1;">
+        <a href="${escapeHtml(url)}" style="display: inline-block; padding: 12px 32px; ${style} font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; line-height: 1;">
           ${escapeHtml(label)}
         </a>
       </td>
     </tr>`;
 }
 
+/** WeldMeet rooms live on meet(-env).weldsuite.org; anything else is a third-party link. */
+function isWeldMeetUrl(url: string): boolean {
+  try {
+    return /^meet(-[a-z]+)?\.weldsuite\.org$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function joinLabel(meetingUrl: string): string {
+  return isWeldMeetUrl(meetingUrl) ? 'Join WeldMeet meeting' : 'Join video meeting';
+}
+
+/** Join button + the plain URL (for clients that strip buttons), then the member-only app link. */
+function renderActions(meetingUrl: string | undefined, eventUrl: string | undefined): string {
+  const parts: string[] = [];
+  if (meetingUrl) {
+    parts.push(renderButton(joinLabel(meetingUrl), meetingUrl));
+    parts.push(`
+    <tr>
+      <td style="padding: 12px 0 0 0;" align="center">
+        <p style="margin: 0; font-size: 13px; color: #6b7280; line-height: 1.5; word-break: break-all;">
+          Or copy this link into your browser:<br>
+          <a href="${escapeHtml(meetingUrl)}" style="color: #3b82f6;">${escapeHtml(meetingUrl)}</a>
+        </p>
+      </td>
+    </tr>`);
+  }
+  if (eventUrl) {
+    parts.push(
+      `<tr><td style="height: 12px;"></td></tr>`,
+      renderButton(meetingUrl ? 'View in WeldCalendar' : 'View Event', eventUrl, meetingUrl ? 'secondary' : 'primary'),
+    );
+  }
+  return parts.join('');
+}
+
 export function renderCalendarInviteEmail(params: CalendarEmailParams): string {
-  const { organizerName, eventTitle, eventDescription, startTime, endTime, location, eventUrl } = params;
+  const {
+    organizerName, eventTitle, eventDescription, startTime, endTime, location, eventUrl,
+    meetingUrl, timezone, allDay,
+  } = params;
   const body = `
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
       <tr>
@@ -332,10 +593,10 @@ export function renderCalendarInviteEmail(params: CalendarEmailParams): string {
         </td>
       </tr>
       <tr><td style="height: 16px;"></td></tr>
-      ${renderTimeSection(startTime, endTime)}
+      ${renderTimeSection(startTime, endTime, timezone, allDay)}
       ${renderLocationSection(location)}
       ${renderDescriptionSection(eventDescription)}
-      ${renderButton('View Event', eventUrl)}
+      ${renderActions(meetingUrl, eventUrl)}
     </table>`;
   return wrapLayout('Event Invitation', body);
 }
@@ -343,7 +604,7 @@ export function renderCalendarInviteEmail(params: CalendarEmailParams): string {
 export function renderCalendarRescheduleEmail(params: CalendarRescheduleParams): string {
   const {
     organizerName, eventTitle, eventDescription, startTime, endTime,
-    oldStartTime, oldEndTime, location, eventUrl,
+    oldStartTime, oldEndTime, location, eventUrl, meetingUrl, timezone, allDay, updated,
   } = params;
 
   const oldTimeSection = oldStartTime
@@ -353,7 +614,7 @@ export function renderCalendarRescheduleEmail(params: CalendarRescheduleParams):
           <table role="presentation" cellpadding="0" cellspacing="0" border="0">
             <tr>
               <td style="font-size: 14px; color: #9ca3af; line-height: 1.5; text-decoration: line-through;">
-                ${formatDateTime(oldStartTime)}${oldEndTime ? ` &ndash; ${formatTime(oldEndTime)}` : ''}
+                ${escapeHtml(formatWhen(oldStartTime, oldEndTime, timezone, allDay))}
               </td>
             </tr>
           </table>
@@ -366,7 +627,7 @@ export function renderCalendarRescheduleEmail(params: CalendarRescheduleParams):
       <tr>
         <td style="padding: 0 0 20px 0;">
           <p style="margin: 0; font-size: 15px; color: #374151; line-height: 1.6;">
-            <strong>${escapeHtml(organizerName)}</strong> has rescheduled an event:
+            <strong>${escapeHtml(organizerName)}</strong> has ${updated ? 'updated' : 'rescheduled'} an event:
           </p>
         </td>
       </tr>
@@ -377,16 +638,17 @@ export function renderCalendarRescheduleEmail(params: CalendarRescheduleParams):
       </tr>
       <tr><td style="height: 16px;"></td></tr>
       ${oldTimeSection}
-      ${renderTimeSection(startTime, endTime)}
+      ${renderTimeSection(startTime, endTime, timezone, allDay)}
       ${renderLocationSection(location)}
       ${renderDescriptionSection(eventDescription)}
-      ${renderButton('View Event', eventUrl)}
+      ${renderActions(meetingUrl, eventUrl)}
     </table>`;
-  return wrapLayout('Event Rescheduled', body);
+  return wrapLayout(updated ? 'Event Updated' : 'Event Rescheduled', body);
 }
 
+/** A cancelled event has nothing to join, so no meeting link and no app button. */
 export function renderCalendarCancelEmail(params: CalendarEmailParams): string {
-  const { organizerName, eventTitle, startTime, endTime, location } = params;
+  const { organizerName, eventTitle, startTime, endTime, location, timezone, allDay } = params;
   const body = `
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
       <tr>
@@ -402,10 +664,35 @@ export function renderCalendarCancelEmail(params: CalendarEmailParams): string {
         </td>
       </tr>
       <tr><td style="height: 16px;"></td></tr>
-      ${renderTimeSection(startTime, endTime)}
+      ${renderTimeSection(startTime, endTime, timezone, allDay)}
       ${renderLocationSection(location)}
     </table>`;
   return wrapLayout('Event Cancelled', body);
+}
+
+export type MailKind = 'invite' | 'reschedule' | 'update' | 'cancel';
+
+/** Plain-text alternative of the three mails (the join URL is spelled out). */
+export function renderCalendarText(kind: MailKind, params: CalendarRescheduleParams): string {
+  const { organizerName, eventTitle, eventDescription, startTime, endTime, location, eventUrl, timezone, allDay } = params;
+  const verb = {
+    invite: 'has invited you to an event',
+    reschedule: 'has rescheduled an event',
+    update: 'has updated an event',
+    cancel: 'has cancelled an event',
+  }[kind];
+  const lines = [`${organizerName} ${verb}:`, '', eventTitle];
+  if (kind === 'reschedule' && params.oldStartTime) {
+    lines.push(`Was: ${formatWhen(params.oldStartTime, params.oldEndTime, timezone, allDay)}`);
+  }
+  if (startTime) lines.push(`When: ${formatWhen(startTime, endTime, timezone, allDay)}`);
+  if (location) lines.push(`Where: ${location}`);
+  if (kind !== 'cancel' && eventDescription) lines.push('', eventDescription);
+  if (kind !== 'cancel' && params.meetingUrl) {
+    lines.push('', `${joinLabel(params.meetingUrl)}: ${params.meetingUrl}`);
+  }
+  if (kind !== 'cancel' && eventUrl) lines.push('', `View in WeldCalendar: ${eventUrl}`);
+  return lines.join('\n');
 }
 
 // ── Resend transport (inline — see file header) ───────────────────────────
@@ -415,6 +702,7 @@ interface ResendPayload {
   to: string[];
   subject?: string;
   html?: string;
+  text?: string;
   template?: { id: string; variables: Record<string, string> };
   attachments?: EmailAttachment[];
 }
@@ -451,66 +739,98 @@ export interface CalendarMailEvent {
   location?: string | null;
   startTime?: string | null;
   endTime?: string | null;
+  /** Video-conference join link (WeldMeet or third-party). */
+  meetingUrl?: string | null;
+  /** The event's IANA zone; falls back to the organizer's, then UTC. */
+  timezone?: string | null;
+  allDay?: boolean | null;
 }
 
-type MailKind = 'invite' | 'reschedule' | 'cancel';
-
-interface SendOptions {
+/** Options of `sendCalendarEventEmails`. */
+export interface SendOptions {
   kind: MailKind;
   event: CalendarMailEvent;
   attendees: AttendeeLike[];
   organizer: OrganizerInfo;
+  /**
+   * Floor for the ICS SEQUENCE. Reschedule and cancel mails are always sent
+   * with at least `nextIcsSequence()` so they supersede earlier revisions.
+   */
   sequence?: number;
   /** Reschedule mails render the previous slot struck through. */
   oldStartTime?: string | null;
   oldEndTime?: string | null;
+  /**
+   * Lower-cased emails of workspace members (see `getMemberEmails`). Only these
+   * recipients get the link into the authenticated calendar; everyone else is
+   * an external guest with no account. Omitted means nobody is a member.
+   */
+  memberEmails?: ReadonlySet<string>;
 }
 
 const SUBJECTS: Record<MailKind, (title: string) => string> = {
   invite: (t) => `Event invitation: ${t}`,
   reschedule: (t) => `Event rescheduled: ${t}`,
+  update: (t) => `Event updated: ${t}`,
   cancel: (t) => `Event cancelled: ${t}`,
 };
 
 function templateIdFor(env: Env, kind: MailKind): string | undefined {
   const ids = templateIds(env);
   if (kind === 'invite') return ids.RESEND_MEETING_INVITE_TEMPLATE_ID;
-  if (kind === 'reschedule') return ids.RESEND_MEETING_UPDATE_TEMPLATE_ID;
+  if (kind === 'reschedule' || kind === 'update') return ids.RESEND_MEETING_UPDATE_TEMPLATE_ID;
   return ids.RESEND_MEETING_CANCEL_TEMPLATE_ID;
 }
 
-function renderHtml(kind: MailKind, opts: SendOptions, url: string): string {
+/** The zone the mail shows times in: the event's, else the organizer's, else UTC. */
+export function mailTimeZone(event: CalendarMailEvent, organizer: OrganizerInfo): string {
+  return (
+    validTimeZoneOrUndefined(event.timezone) ??
+    validTimeZoneOrUndefined(organizer.timezone) ??
+    FALLBACK_TIME_ZONE
+  );
+}
+
+function emailParams(opts: SendOptions, eventUrl: string | undefined): CalendarRescheduleParams {
   const { event, organizer } = opts;
-  const base: CalendarEmailParams = {
+  return {
     organizerName: organizer.name,
     eventTitle: event.title,
     eventDescription: event.description ?? undefined,
     startTime: event.startTime ?? undefined,
     endTime: event.endTime ?? undefined,
     location: event.location ?? undefined,
-    eventUrl: url,
-  };
-  if (kind === 'invite') return renderCalendarInviteEmail(base);
-  if (kind === 'cancel') return renderCalendarCancelEmail(base);
-  return renderCalendarRescheduleEmail({
-    ...base,
+    eventUrl,
+    meetingUrl: opts.kind === 'cancel' ? undefined : event.meetingUrl?.trim() || undefined,
+    timezone: mailTimeZone(event, organizer),
+    allDay: event.allDay ?? undefined,
     oldStartTime: opts.oldStartTime ?? undefined,
     oldEndTime: opts.oldEndTime ?? undefined,
-  });
+    updated: opts.kind === 'update',
+  };
 }
 
-function templateVariables(kind: MailKind, opts: SendOptions, url: string): Record<string, string> {
-  const { event, organizer } = opts;
+function renderHtml(opts: SendOptions, eventUrl: string | undefined): string {
+  const params = emailParams(opts, eventUrl);
+  if (opts.kind === 'invite') return renderCalendarInviteEmail(params);
+  if (opts.kind === 'cancel') return renderCalendarCancelEmail(params);
+  return renderCalendarRescheduleEmail(params);
+}
+
+function templateVariables(opts: SendOptions, eventUrl: string | undefined): Record<string, string> {
+  const { kind, event, organizer } = opts;
   const vars: Record<string, string> = {
     ORGANIZER_NAME: organizer.name,
     MEETING_TITLE: event.title,
     MEETING_DESCRIPTION: event.description ?? '',
     SCHEDULED_START: event.startTime ?? '',
     SCHEDULED_END: event.endTime ?? '',
+    TIMEZONE: mailTimeZone(event, organizer),
   };
-  // The legacy cancel template did not carry a JOIN_URL.
-  if (kind !== 'cancel') vars.JOIN_URL = url;
-  if (kind === 'reschedule') {
+  // The legacy cancel template did not carry a JOIN_URL. The join link is the
+  // meeting when there is one; the app link only reaches workspace members.
+  if (kind !== 'cancel') vars.JOIN_URL = event.meetingUrl?.trim() || eventUrl || '';
+  if (kind === 'reschedule' || kind === 'update') {
     vars.OLD_SCHEDULED_START = opts.oldStartTime ?? '';
     vars.OLD_SCHEDULED_END = opts.oldEndTime ?? '';
   }
@@ -529,10 +849,14 @@ export async function sendCalendarEventEmails(env: Env, opts: SendOptions): Prom
   const apiKey = env.RESEND_API_KEY;
   if (!apiKey || !opts.attendees.length) return;
 
-  const url = eventUrlFor(env);
+  const appUrl = eventUrlFor(env);
   const { kind, event, organizer } = opts;
   const method: IcsMethod = kind === 'cancel' ? 'CANCEL' : 'REQUEST';
   const templateId = templateIdFor(env, kind);
+  const meetingUrl = kind === 'cancel' ? undefined : event.meetingUrl?.trim() || undefined;
+  const zone = mailTimeZone(event, organizer);
+  const sequence =
+    kind === 'invite' ? (opts.sequence ?? 0) : Math.max(opts.sequence ?? 0, nextIcsSequence());
 
   for (const attendee of opts.attendees) {
     const email = attendee.email;
@@ -540,33 +864,44 @@ export async function sendCalendarEventEmails(env: Env, opts: SendOptions): Prom
     if (!email) continue;
     if (organizer.email && email.toLowerCase() === organizer.email.toLowerCase()) continue;
 
-    const ics = icsAttachment({
-      uid: `${event.id}@weldsuite.org`,
-      title: event.title,
-      description: event.description ?? undefined,
-      location: event.location ?? undefined,
-      startTime: event.startTime ?? undefined,
-      endTime: event.endTime ?? undefined,
-      organizerName: organizer.name,
-      organizerEmail: organizer.email,
-      attendeeEmail: email,
-      method,
-      sequence: opts.sequence,
-      url: kind === 'cancel' ? undefined : url,
-    });
+    // External guests have no account: the authenticated calendar is a dead
+    // end for them, so only members get that link.
+    const isMember = opts.memberEmails?.has(email.toLowerCase()) ?? false;
+    const eventUrl = kind !== 'cancel' && isMember ? appUrl : undefined;
 
     try {
+      const ics = icsAttachment({
+        uid: `${event.id}@weldsuite.org`,
+        title: event.title,
+        description: event.description ?? undefined,
+        location: event.location ?? undefined,
+        startTime: event.startTime ?? undefined,
+        endTime: event.endTime ?? undefined,
+        organizerName: organizer.name,
+        organizerEmail: organizer.email,
+        attendeeEmail: email,
+        method,
+        sequence,
+        url: meetingUrl ?? eventUrl,
+        meetingUrl,
+        allDay: event.allDay ?? undefined,
+        timezone: zone,
+      });
+
       await postToResend(apiKey, {
         from: FROM,
         to: [email],
         subject: SUBJECTS[kind](event.title),
         ...(templateId
-          ? { template: { id: templateId, variables: templateVariables(kind, opts, url) } }
-          : { html: renderHtml(kind, opts, url) }),
+          ? { template: { id: templateId, variables: templateVariables(opts, eventUrl) } }
+          : {
+              html: renderHtml(opts, eventUrl),
+              text: renderCalendarText(kind, emailParams(opts, eventUrl)),
+            }),
         attachments: [ics],
       });
     } catch (err) {
-      console.error(`[app-api/calendar-mail] ${kind} email failed for ${email}:`, err);
+      console.error(`[calendar-api/calendar-mail] ${kind} email failed for ${email}:`, err);
     }
   }
 }

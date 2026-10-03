@@ -10,7 +10,7 @@
  * doesn't move a slot the user chose by hand.
  */
 
-import { and, asc, eq, gte, isNull, inArray, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, inArray, lte, sql } from 'drizzle-orm';
 import { updateCalendarEventForTask } from '@weldsuite/db/lib/calendar-sync';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -36,7 +36,9 @@ export async function listEventsInRange(
       and(
         isNull(calendarEvents.deletedAt),
         inArray(calendarEvents.calendarId, params.calendarIds),
-        gte(calendarEvents.startTime, params.startDate),
+        // Overlap, not "starts inside": multi-day events that began before the
+        // window still belong on the grid.
+        gte(sql`coalesce(${calendarEvents.endTime}, ${calendarEvents.startTime})`, params.startDate),
         lte(calendarEvents.startTime, params.endDate),
       ),
     )

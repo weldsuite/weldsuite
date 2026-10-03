@@ -33,7 +33,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -51,10 +51,15 @@ import {
   unpinEvent,
 } from '../../services/calendar-events';
 import {
+  getMemberEmails,
   getOrganizerInfo,
+  nextIcsSequence,
   sendCalendarEventEmails,
   type AttendeeLike,
+  type CalendarMailEvent,
+  type SendOptions,
 } from '../../services/calendar-mail';
+import { timeZoneSchema } from '../../services/calendar-timezone';
 import {
   cancelMeetingsForEvent,
   linkMeetingToEvent,
@@ -75,11 +80,34 @@ const t = schema.calendarEvents;
 // with no `startTime` — which the NOT NULL column then rejects at the DB.
 // These mirror the legacy route and the `calendar_events` columns.
 
+/** `null` from a client that serialises "no value" is treated as absent. */
+const optionalText = z
+  .string()
+  .nullish()
+  .transform((v) => v ?? undefined);
+
+/**
+ * An attendee is identified by email alone: workspace members, CRM contacts and
+ * external guests all arrive as `{ email, name? }` (plus optional status/role),
+ * and every one of them is mailed the invite. Unknown keys (a client-side id or
+ * type) are stripped.
+ */
 const attendeeSchema = z.object({
-  email: z.string().email(),
-  name: z.string().optional(),
-  status: z.string().optional(),
-  role: z.string().optional(),
+  email: z.string().trim().email(),
+  name: optionalText,
+  status: optionalText,
+  role: optionalText,
+});
+
+/** One entry per email address (case-insensitive) so nobody is invited twice. */
+const attendeesSchema = z.array(attendeeSchema).transform((list) => {
+  const seen = new Set<string>();
+  return list.filter((a) => {
+    const key = a.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 });
 
 const createSchema = z.object({
@@ -90,7 +118,8 @@ const createSchema = z.object({
   startTime: z.string().min(1),
   endTime: z.string().optional(),
   allDay: z.boolean().optional(),
-  timezone: z.string().optional(),
+  /** IANA zone the event is scheduled in (e.g. Europe/Amsterdam); mails render times in it. */
+  timezone: timeZoneSchema.optional(),
   location: z.string().optional(),
   isVirtual: z.boolean().optional(),
   meetingUrl: z.string().optional(),
@@ -99,7 +128,7 @@ const createSchema = z.object({
   color: z.string().optional(),
   recurrenceRule: z.string().optional(),
   recurrenceId: z.string().optional(),
-  attendees: z.array(attendeeSchema).optional(),
+  attendees: attendeesSchema.optional(),
   reminders: z
     .array(z.object({ type: z.enum(['email', 'notification']), minutes: z.number() }))
     .optional(),
@@ -136,7 +165,20 @@ const createSchema = z.object({
  * not a supported operation; it would need the same accessibility check POST
  * does, plus a product decision.
  */
-const updateSchema = createSchema.partial().omit({ calendarId: true, recurrenceId: true });
+const updateSchema = createSchema
+  .partial()
+  .omit({ calendarId: true, recurrenceId: true })
+  .extend({
+    // A client clearing a field sends null; accept it instead of answering 400.
+    tags: z.array(z.string()).nullable().optional(),
+    attendees: attendeesSchema.nullable().optional(),
+    location: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    customerId: z.string().nullable().optional(),
+    contactId: z.string().nullable().optional(),
+    meetingUrl: z.string().nullable().optional(),
+    timezone: timeZoneSchema.nullable().optional(),
+  });
 
 const rescheduleSchema = z.object({
   startTime: z.string().min(1),
@@ -147,6 +189,8 @@ const rescheduleSchema = z.object({
    * reschedules (cron, cascading bumps) pass false and must not pin.
    */
   manual: z.boolean().optional().default(false),
+  /** False moves the event without mailing the attendees. */
+  notifyAttendees: z.boolean().optional().default(true),
 });
 
 const listQuerySchema = z.object({
@@ -176,11 +220,65 @@ const upcomingQuerySchema = z.object({
 
 const isoOrNull = (d: Date | null | undefined): string | null => d?.toISOString() ?? null;
 
+/**
+ * Why a start/end pair is not a valid time range, or null when it is. An event
+ * must end after it starts; an all-day event may end the same day it starts
+ * (the platform stores a one-day all-day event as start 00:00 .. end 23:59, and
+ * older clients send the same instant twice), so for those `end >= start`.
+ */
+function timeRangeError(
+  start: Date,
+  end: Date | null | undefined,
+  allDay: boolean | null | undefined,
+): string | null {
+  if (Number.isNaN(start.getTime())) return 'startTime is not a valid date';
+  if (!end) return null;
+  if (Number.isNaN(end.getTime())) return 'endTime is not a valid date';
+  const ok = allDay ? end.getTime() >= start.getTime() : end.getTime() > start.getTime();
+  return ok ? null : 'endTime must be after startTime';
+}
+
+const sameInstant = (a: Date | null | undefined, b: Date | null | undefined): boolean =>
+  (a?.getTime() ?? null) === (b?.getTime() ?? null);
+
+/** The mail-relevant fields of a stored event. */
+function mailEventFromRow(row: CalendarEventRow): CalendarMailEvent {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    location: row.location,
+    startTime: isoOrNull(row.startTime),
+    endTime: isoOrNull(row.endTime),
+    meetingUrl: row.meetingUrl,
+    timezone: row.timezone,
+    allDay: row.allDay,
+  };
+}
+
 // Attendee mail is dispatched through `c.executionCtx.waitUntil(...)` rather
 // than awaited inline as the legacy route did. Sends were already best-effort
 // there (each wrapped in its own try/catch, failures never surfaced), so this
 // changes nothing observable — it just stops a create with N attendees holding
 // the response open for N sequential Resend round-trips.
+
+/**
+ * Queue attendee mail. Workspace members are looked up first: they get a link
+ * into the authenticated calendar, external guests (no account) do not.
+ */
+function queueMail(c: EventContext, opts: SendOptions): void {
+  if (!c.env.RESEND_API_KEY || opts.attendees.length === 0) return;
+  const db = c.get('tenantDb');
+  c.executionCtx.waitUntil(
+    (async () => {
+      const memberEmails =
+        opts.kind === 'cancel'
+          ? undefined
+          : await getMemberEmails(db, opts.attendees.map((a) => a.email ?? ''));
+      await sendCalendarEventEmails(c.env, { ...opts, memberEmails });
+    })(),
+  );
+}
 
 // ── GET / — list events (cursor-paginated) ───────────────────────────────
 
@@ -198,11 +296,15 @@ app.get('/', requirePermission('events:read'), zValidator('query', listQuerySche
     const conditions = [isNull(t.deletedAt), inArray(t.calendarId, calendarIds)];
     if (q.type) conditions.push(eq(t.type, q.type));
     if (q.status) conditions.push(eq(t.status, q.status));
-    if (q.startDate) conditions.push(gte(t.startTime, new Date(q.startDate)));
+    // Events OVERLAPPING the window, not just those starting inside it: a
+    // multi-day event that began before `startDate` must still be listed.
+    if (q.startDate) conditions.push(gte(sql`coalesce(${t.endTime}, ${t.startTime})`, new Date(q.startDate)));
     if (q.endDate) conditions.push(lte(t.startTime, new Date(q.endDate)));
     if (q.search) {
-      const term = `%${q.search}%`;
-      conditions.push(or(like(t.title, term), like(t.description, term))!);
+      const term = `%${q.search.replaceAll(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+      conditions.push(
+        or(ilike(t.title, term), ilike(t.description, term), ilike(t.location, term))!,
+      );
     }
 
     const filterConditions = [...conditions];
@@ -317,6 +419,13 @@ app.post('/', requirePermission('events:create'), zValidator('json', createSchem
     const accessible = await getAccessibleCalendarIds(db, userId);
     if (!accessible.includes(data.calendarId)) return error.forbidden(c);
 
+    const rangeError = timeRangeError(
+      new Date(data.startTime),
+      data.endTime ? new Date(data.endTime) : null,
+      data.allDay,
+    );
+    if (rangeError) return error.badRequest(c, rangeError);
+
     await db.insert(t).values({
       id,
       calendarId: data.calendarId,
@@ -329,7 +438,7 @@ app.post('/', requirePermission('events:create'), zValidator('json', createSchem
       timezone: data.timezone,
       location: data.location,
       isVirtual: data.isVirtual,
-      meetingUrl: data.meetingUrl,
+      meetingUrl: data.meetingUrl?.trim() || undefined,
       status: data.status || 'confirmed',
       priority: data.priority || 'normal',
       color: data.color,
@@ -370,21 +479,22 @@ app.post('/', requirePermission('events:create'), zValidator('json', createSchem
 
     if (data.attendees?.length) {
       const organizer = await getOrganizerInfo(db, userId);
-      c.executionCtx.waitUntil(
-        sendCalendarEventEmails(c.env, {
-          kind: 'invite',
-          organizer,
-          attendees: data.attendees,
-          event: {
-            id,
-            title: data.title,
-            description: data.description,
-            location: data.location,
-            startTime: data.startTime,
-            endTime: data.endTime,
-          },
-        }),
-      );
+      queueMail(c, {
+        kind: 'invite',
+        organizer,
+        attendees: data.attendees,
+        event: {
+          id,
+          title: data.title,
+          description: data.description,
+          location: data.location,
+          startTime: data.startTime,
+          endTime: data.endTime,
+          meetingUrl: data.meetingUrl,
+          timezone: data.timezone,
+          allDay: data.allDay,
+        },
+      });
     }
 
     return success(c, weldMeetingId ? { id, weldMeetingLinked } : { id }, 201);
@@ -476,62 +586,79 @@ async function cancelLinkedMeetings(c: EventContext, eventId: string): Promise<v
   }
 }
 
-/** Mails newly-added attendees an invite and re-notifies the list on a time change. */
+const emailKey = (a: AttendeeLike): string => (a.email ?? '').trim().toLowerCase();
+
+/**
+ * Mails the people an edit affects: newly-added attendees get an invitation,
+ * removed ones a cancellation, and the rest an update when the time moved
+ * (reschedule) or a join link was added or changed (update). Nobody is mailed
+ * twice for one edit.
+ */
 async function notifyAttendeesOfUpdate(
   c: EventContext,
   existing: CalendarEventRow,
   data: UpdateEventData,
 ): Promise<void> {
   const db = c.get('tenantDb');
-  const id = existing.id;
   const organizer = await getOrganizerInfo(db, existing.organizerId);
-  const title = data.title ?? existing.title;
-  const startTime = data.startTime ?? isoOrNull(existing.startTime);
-  const endTime = data.endTime ?? isoOrNull(existing.endTime);
-  const mailEvent = {
-    id,
-    title,
-    description: data.description ?? existing.description,
-    location: data.location ?? existing.location,
-    startTime,
-    endTime,
+
+  // The event as it reads after the edit (a null clears the field).
+  const pick = <K extends keyof UpdateEventData & keyof CalendarEventRow>(key: K) =>
+    data[key] !== undefined ? data[key] : existing[key];
+  const startTime = data.startTime ? new Date(data.startTime) : existing.startTime;
+  const endTime = data.endTime ? new Date(data.endTime) : existing.endTime;
+  const meetingUrl = (pick('meetingUrl') ?? '').trim() || null;
+  const mailEvent: CalendarMailEvent = {
+    id: existing.id,
+    title: data.title ?? existing.title,
+    description: pick('description'),
+    location: pick('location'),
+    startTime: isoOrNull(startTime),
+    endTime: isoOrNull(endTime),
+    meetingUrl,
+    timezone: pick('timezone'),
+    allDay: data.allDay ?? existing.allDay,
   };
 
-  // Newly-added attendees get an invitation.
-  if (data.attendees !== undefined) {
-    const oldEmails = new Set(
-      (existing.attendees ?? []).map((a) => a.email?.toLowerCase()).filter(Boolean),
-    );
-    const added = data.attendees.filter((a) => !oldEmails.has(a.email.toLowerCase()));
-    if (added.length) {
-      c.executionCtx.waitUntil(
-        sendCalendarEventEmails(c.env, {
-          kind: 'invite',
-          organizer,
-          attendees: added,
-          event: mailEvent,
-          sequence: 1,
-        }),
-      );
-    }
-  }
+  const oldAttendees: AttendeeLike[] = existing.attendees ?? [];
+  const newAttendees: AttendeeLike[] =
+    data.attendees === undefined ? oldAttendees : (data.attendees ?? []);
+  const oldKeys = new Set(oldAttendees.map(emailKey).filter(Boolean));
+  const newKeys = new Set(newAttendees.map(emailKey).filter(Boolean));
+  const added = newAttendees.filter((a) => emailKey(a) && !oldKeys.has(emailKey(a)));
+  const removed = oldAttendees.filter((a) => emailKey(a) && !newKeys.has(emailKey(a)));
+  const retained = newAttendees.filter((a) => oldKeys.has(emailKey(a)));
 
-  // A time change re-notifies the attendee list.
-  if (data.startTime !== undefined || data.endTime !== undefined) {
-    const attendees: AttendeeLike[] = data.attendees ?? existing.attendees ?? [];
-    if (attendees.length) {
-      c.executionCtx.waitUntil(
-        sendCalendarEventEmails(c.env, {
-          kind: 'reschedule',
-          organizer,
-          attendees,
-          event: mailEvent,
-          sequence: 2,
-          oldStartTime: isoOrNull(existing.startTime),
-          oldEndTime: isoOrNull(existing.endTime),
-        }),
-      );
-    }
+  // Newly-added attendees get an invitation.
+  queueMail(c, {
+    kind: 'invite',
+    organizer,
+    attendees: added,
+    event: mailEvent,
+    sequence: nextIcsSequence(),
+  });
+
+  // Removed attendees are told the event is no longer theirs.
+  queueMail(c, {
+    kind: 'cancel',
+    organizer,
+    attendees: removed,
+    event: mailEventFromRow(existing),
+  });
+
+  // Everyone who stays hears about a move, or about a join link that appeared
+  // or changed. (Re-saving the same time is not a reschedule.)
+  const moved = !sameInstant(startTime, existing.startTime) || !sameInstant(endTime, existing.endTime);
+  const linkChanged = !!meetingUrl && meetingUrl !== (existing.meetingUrl?.trim() || null);
+  if (moved || linkChanged) {
+    queueMail(c, {
+      kind: moved ? 'reschedule' : 'update',
+      organizer,
+      attendees: retained,
+      event: mailEvent,
+      oldStartTime: isoOrNull(existing.startTime),
+      oldEndTime: isoOrNull(existing.endTime),
+    });
   }
 }
 
@@ -554,6 +681,16 @@ app.patch('/:id', requirePermission('events:update'), zValidator('json', updateS
 
     const accessible = await getAccessibleCalendarIds(db, userId);
     if (!accessible.includes(existing.calendarId)) return error.notFound(c, 'Calendar event', id);
+
+    // Compare against the stored value of whichever bound the body leaves out.
+    if (data.startTime !== undefined || data.endTime !== undefined) {
+      const rangeError = timeRangeError(
+        data.startTime !== undefined ? new Date(data.startTime) : existing.startTime,
+        data.endTime !== undefined ? new Date(data.endTime) : existing.endTime,
+        data.allDay ?? existing.allDay,
+      );
+      if (rangeError) return error.badRequest(c, rangeError);
+    }
 
     const update = buildUpdateFields(data);
 
@@ -628,22 +765,12 @@ app.delete('/:id', requirePermission('events:delete'), async (c) => {
 
     if (sendNotification && existing.attendees?.length) {
       const organizer = await getOrganizerInfo(db, existing.organizerId);
-      c.executionCtx.waitUntil(
-        sendCalendarEventEmails(c.env, {
-          kind: 'cancel',
-          organizer,
-          attendees: existing.attendees,
-          sequence: 3,
-          event: {
-            id,
-            title: existing.title,
-            description: existing.description,
-            location: existing.location,
-            startTime: isoOrNull(existing.startTime),
-            endTime: isoOrNull(existing.endTime),
-          },
-        }),
-      );
+      queueMail(c, {
+        kind: 'cancel',
+        organizer,
+        attendees: existing.attendees,
+        event: mailEventFromRow(existing),
+      });
     }
 
     return noContent(c);
@@ -697,22 +824,12 @@ app.patch('/:id/cancel', requirePermission('events:update'), async (c) => {
 
     if (existing.attendees?.length) {
       const organizer = await getOrganizerInfo(db, existing.organizerId);
-      c.executionCtx.waitUntil(
-        sendCalendarEventEmails(c.env, {
-          kind: 'cancel',
-          organizer,
-          attendees: existing.attendees,
-          sequence: 3,
-          event: {
-            id,
-            title: existing.title,
-            description: existing.description,
-            location: existing.location,
-            startTime: isoOrNull(existing.startTime),
-            endTime: isoOrNull(existing.endTime),
-          },
-        }),
-      );
+      queueMail(c, {
+        kind: 'cancel',
+        organizer,
+        attendees: existing.attendees,
+        event: mailEventFromRow(existing),
+      });
     }
 
     return success(c, { id, status: 'cancelled' });
@@ -744,6 +861,9 @@ app.patch('/:id/reschedule', requirePermission('events:update'), zValidator('jso
     const newStart = new Date(data.startTime);
     const newEnd = data.endTime ? new Date(data.endTime) : null;
 
+    const rangeError = timeRangeError(newStart, newEnd ?? existing.endTime, existing.allDay);
+    if (rangeError) return error.badRequest(c, rangeError);
+
     const update: Record<string, unknown> = { startTime: newStart, updatedAt: new Date() };
     if (newEnd) update.endTime = newEnd;
 
@@ -772,26 +892,20 @@ app.patch('/:id/reschedule', requirePermission('events:update'), zValidator('jso
 
     await syncLinkedMeetings(c, existing);
 
-    if (existing.attendees?.length) {
+    if (data.notifyAttendees && existing.attendees?.length) {
       const organizer = await getOrganizerInfo(db, existing.organizerId);
-      c.executionCtx.waitUntil(
-        sendCalendarEventEmails(c.env, {
-          kind: 'reschedule',
-          organizer,
-          attendees: existing.attendees,
-          sequence: 2,
-          event: {
-            id,
-            title: existing.title,
-            description: existing.description,
-            location: existing.location,
-            startTime: data.startTime,
-            endTime: data.endTime ?? isoOrNull(existing.endTime),
-          },
-          oldStartTime: isoOrNull(existing.startTime),
-          oldEndTime: isoOrNull(existing.endTime),
-        }),
-      );
+      queueMail(c, {
+        kind: 'reschedule',
+        organizer,
+        attendees: existing.attendees,
+        event: {
+          ...mailEventFromRow(existing),
+          startTime: data.startTime,
+          endTime: data.endTime ?? isoOrNull(existing.endTime),
+        },
+        oldStartTime: isoOrNull(existing.startTime),
+        oldEndTime: isoOrNull(existing.endTime),
+      });
     }
 
     return success(c, { id, ...data });
