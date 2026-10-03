@@ -17,6 +17,20 @@
 # The job runs in the `test` / `production` GitHub Environment, which is where
 # EXPO_TOKEN lives. Adding required reviewers to that environment turns this
 # into a second approval gate on top of the manual dispatch.
+#
+# `auto-submit` uploads the finished binary to TestFlight (iOS) and to the Play
+# track named in eas.json (Android, `internal`). It only works on the
+# `production` channel: `preview` is `distribution: internal`, which yields an
+# ad hoc IPA and an APK, and neither store takes those. The upload itself runs
+# on EAS (`eas submit`, no build quota) with credentials stored there, so there
+# are no store secrets in GitHub. Once per app, before the first run:
+#   - iOS: `ascAppId` under `submit.production.ios` in the app's eas.json, and
+#     an App Store Connect API key on EAS (`eas credentials --platform ios`).
+#   - Android: a Google service account key on EAS
+#     (`eas credentials --platform android`), and one release uploaded by hand
+#     in Play Console, since the Play API refuses an app's very first upload.
+# What can be checked from the repo is checked in `select`, so a missing
+# `ascAppId` fails in seconds rather than after a 40 minute build.
 name: Mobile native build
 
 on:
@@ -69,7 +83,7 @@ on:
         type: boolean
         default: false
       auto-submit:
-        description: 'Submit to TestFlight / the Play track in eas.json when the build finishes (needs a populated `submit` profile + store credentials on EAS). Releasing to the public stays manual either way.'
+        description: 'Production channel only: upload to TestFlight (iOS) and the Play internal testing track (Android) when the build finishes. Needs `ascAppId` in eas.json + store credentials on EAS. Releasing to the public stays manual.'
         type: boolean
         default: false
 
@@ -146,6 +160,59 @@ jobs:
               printf -- '- %s: %s\n' "$app" "${platforms[*]}"
             done
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v4
+        if: inputs.auto-submit
+        with:
+          sparse-checkout: |
+            apps/mobile/*/eas.json
+          sparse-checkout-cone-mode: false
+
+      # Everything `eas submit --non-interactive` needs from eas.json, checked
+      # for every selected build before a runner starts compiling. Credentials
+      # live on EAS and cannot be checked from here; a missing one still fails
+      # in the submit step, after the binary is safely uploaded as an artifact.
+      - name: Check store submission config
+        if: inputs.auto-submit
+        env:
+          BUILDS: ${{ steps.pick.outputs.builds }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+
+          failed=0
+          fail() {
+            echo "::error file=$1,title=$2::$3"
+            failed=1
+          }
+
+          # Read into a variable first: a failing jq inside `< <(…)` would not
+          # trip `set -e`, and the loop would pass having checked nothing.
+          rows="$(jq -r '.[] | [.app, .platform] | @tsv' <<< "$BUILDS")"
+
+          while IFS=$'\t' read -r app platform; do
+            file="apps/mobile/$app-app/eas.json"
+
+            if jq -e --arg p "$CHANNEL" '.build[$p].distribution == "internal"' "$file" > /dev/null; then
+              fail "$file" "Not a store build" \
+                "$app: the '$CHANNEL' build profile is distribution: internal (APK / ad hoc IPA), which TestFlight and Google Play reject. Run auto-submit on the production channel."
+              continue
+            fi
+
+            if ! jq -e --arg p "$CHANNEL" '.submit[$p] != null' "$file" > /dev/null; then
+              fail "$file" "No submit profile" \
+                "$app: eas.json has no submit.$CHANNEL profile."
+              continue
+            fi
+
+            if [ "$platform" = "ios" ] && \
+               ! jq -e --arg p "$CHANNEL" '(.submit[$p].ios.ascAppId // "") != ""' "$file" > /dev/null; then
+              fail "$file" "ascAppId missing" \
+                "$app: set submit.$CHANNEL.ios.ascAppId in eas.json to the app's Apple ID (App Store Connect -> App Information). eas submit cannot look it up non-interactively."
+            fi
+          done <<< "$rows"
+
+          exit "$failed"
 
   build:
     name: Build ${{ matrix.app }} ${{ matrix.platform }} (${{ inputs.channel }})
@@ -324,7 +391,18 @@ jobs:
               echo "- Queued on EAS builders."
             fi
             if [ "$AUTO_SUBMIT" = "true" ]; then
-              echo "- Submitted to the internal track. Releasing it to the public is still a manual step."
+              if [ "$BUILDER" = "local" ]; then
+                verb="Submitted"
+              else
+                verb="EAS submits it when the build finishes,"
+              fi
+              if [ "$PLATFORM" = "ios" ]; then
+                echo "- $verb to App Store Connect. It appears in TestFlight once Apple has processed it, usually within 15 minutes."
+              else
+                track="$(jq -r --arg p "$CHANNEL" '.submit[$p].android.track // "internal"' "apps/mobile/$APP-app/eas.json")"
+                echo "- $verb to the Play \`$track\` track."
+              fi
+              echo "- Releasing it to the public is still a manual step."
             else
               echo "- Submitting it to the stores is a manual step."
             fi
