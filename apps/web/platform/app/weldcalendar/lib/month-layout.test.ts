@@ -1,11 +1,33 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('@/hooks/queries/use-settings-queries', () => ({ useUserPreferences: () => ({ data: undefined }) }));
+
 import {
   MONTH_CELL_CHROME,
   MONTH_CHIP_GAP,
   MONTH_CHIP_HEIGHT,
   monthCellCapacity,
+  monthChipTime,
   splitMonthCellEvents,
 } from './month-layout';
+
+describe('monthChipTime', () => {
+  it('keeps AM/PM so 6 PM is not shown as "6:00"', () => {
+    expect(monthChipTime({ startTime: new Date(2026, 9, 3, 18, 0) }, '12h')).toBe('6 PM');
+    expect(monthChipTime({ startTime: new Date(2026, 9, 3, 23, 0) }, '12h')).toBe('11 PM');
+    expect(monthChipTime({ startTime: new Date(2026, 9, 3, 17, 10) }, '12h')).toBe('5:10 PM');
+    expect(monthChipTime({ startTime: new Date(2026, 9, 3, 9, 5) }, '12h')).toBe('9:05 AM');
+  });
+
+  it('follows the 24h preference', () => {
+    expect(monthChipTime({ startTime: new Date(2026, 9, 3, 18, 0) }, '24h')).toBe('18:00');
+  });
+
+  it('is null for all-day events and accepts ISO strings', () => {
+    expect(monthChipTime({ allDay: true, startTime: new Date(2026, 9, 3) }, '12h')).toBeNull();
+    expect(monthChipTime({ startTime: new Date(2026, 9, 3, 18, 0).toISOString() }, '12h')).toBe('6 PM');
+  });
+});
 
 describe('monthCellCapacity', () => {
   it('is zero when the row is too short for even one chip', () => {

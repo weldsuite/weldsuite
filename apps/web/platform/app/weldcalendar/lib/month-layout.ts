@@ -7,6 +7,8 @@
  * "+N more" decision testable without a layout engine.
  */
 
+import { formatClockCompact, type TimeFormat } from './calendar-format';
+
 /** Height of one event chip (and of the "+N more" line), in px. */
 export const MONTH_CHIP_HEIGHT = 20;
 /** Vertical gap between chips in a cell, in px (Tailwind `space-y-0.5`). */
@@ -54,4 +56,17 @@ export function splitMonthCellEvents(
   if (total <= slots) return { visible: total, hidden: 0 };
   const visible = Math.max(0, slots - 1);
   return { visible, hidden: total - visible };
+}
+
+/**
+ * Time label of a month-view chip: the compact start time in the user's clock
+ * format ("6 PM", "5:10 PM", "17:10"), or `null` for all-day events. The
+ * meridiem is always kept: "6:00" for 6 PM is ambiguous.
+ */
+export function monthChipTime(
+  event: { allDay?: boolean; startTime: string | Date },
+  timeFormat: TimeFormat,
+): string | null {
+  if (event.allDay) return null;
+  return formatClockCompact(new Date(event.startTime), timeFormat);
 }

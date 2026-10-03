@@ -1,4 +1,5 @@
 import type { ComponentProps, CSSProperties, MouseEvent } from 'react';
+import { Sparkles } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
 
@@ -12,22 +13,29 @@ export const MONTH_CHIP_CLASS =
 
 interface MonthEventChipProps
   extends Omit<ComponentProps<typeof Button>, 'children' | 'style'> {
-  /** Start time, e.g. "5:10". Omitted for all-day events. Never truncated. */
+  /** Start time, e.g. "5:10 PM" or "17:10". Omitted for all-day events. Never truncated. */
   time?: string | null;
   title: string;
   color: string;
+  /** Marks the event as placed by the auto-scheduler. */
+  autoScheduled?: boolean;
+  /** Accessible name / tooltip of the auto-scheduled marker ("Auto-scheduled"). */
+  autoScheduledLabel?: string;
   style?: CSSProperties;
 }
 
 /**
- * One event chip in the month grid. The time and the title are separate
- * elements: only the title shrinks and ellipsises, so a long title can never
- * push the start of the time label out of view.
+ * One event chip in the month grid (also used for the bars of the all-day
+ * row). The time and the title are separate elements: only the title shrinks
+ * and ellipsises, so a long title can never push the start of the time label
+ * out of view.
  */
 export function MonthEventChip({
   time,
   title,
   color,
+  autoScheduled,
+  autoScheduledLabel,
   className,
   style,
   ...props
@@ -47,6 +55,17 @@ export function MonthEventChip({
       <span data-slot="chip-title" className="min-w-0 flex-1 truncate text-left">
         {title}
       </span>
+      {autoScheduled ? (
+        <span
+          data-slot="chip-auto-scheduled"
+          role="img"
+          aria-label={autoScheduledLabel}
+          title={autoScheduledLabel}
+          className="shrink-0 opacity-80"
+        >
+          <Sparkles className="h-2.5 w-2.5" aria-hidden />
+        </span>
+      ) : null}
     </Button>
   );
 }

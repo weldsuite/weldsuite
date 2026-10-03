@@ -1,6 +1,7 @@
 import React from 'react';
 import { format, isToday, setHours } from 'date-fns';
 import { cn } from '@/lib/utils';
+import type { TimeFormat } from '../lib/calendar-format';
 
 /**
  * Shared visual primitives for the calendar week / day / 4-day grids.
@@ -84,12 +85,25 @@ export function WeekDayHeader({ days }: Readonly<{ days: Date[] }>) {
 
 // ---------------------------------------------------------------------------
 
+/** "1 PM" in 12h, "13:00" in 24h. */
+export function formatHourLabel(hour: number, timeFormat: TimeFormat): string {
+  const d = setHours(new Date(2000, 0, 1), hour);
+  return format(d, timeFormat === '24h' ? 'HH:mm' : 'h a');
+}
+
 /**
  * The leading column of hour labels (12 AM, 1 AM … 11 PM). Always 72px wide,
  * with the label nudged up `-7px` so the digits sit on the hour gridline like
  * macOS Calendar / Google Calendar.
  */
-export function TimeLabelColumn({ hourHeight = DEFAULT_HOUR_HEIGHT }: Readonly<{ hourHeight?: number }>) {
+export function TimeLabelColumn({
+  hourHeight = DEFAULT_HOUR_HEIGHT,
+  timeFormat = '12h',
+}: Readonly<{
+  hourHeight?: number;
+  /** Follows the user's clock preference ("1 PM" vs "13:00"); 12h when omitted. */
+  timeFormat?: TimeFormat;
+}>) {
   return (
     <div className="border-r border-border">
       {HOURS.map((hour) => (
@@ -99,7 +113,7 @@ export function TimeLabelColumn({ hourHeight = DEFAULT_HOUR_HEIGHT }: Readonly<{
           style={{ height: hourHeight }}
         >
           <span className="text-[11px] text-muted-foreground -mt-[7px] tabular-nums">
-            {hour === 0 ? '' : format(setHours(new Date(), hour), 'h a')}
+            {hour === 0 ? '' : formatHourLabel(hour, timeFormat)}
           </span>
         </div>
       ))}
