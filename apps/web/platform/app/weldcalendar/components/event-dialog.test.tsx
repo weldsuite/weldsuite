@@ -26,6 +26,14 @@ vi.mock('@/hooks/queries/use-calendar-queries', () => ({
 vi.mock('./location-autocomplete', () => ({
   LocationAutocomplete: ({ id }: { id?: string }) => <input id={id} />,
 }));
+// The real picker queries people / members; the dialog only needs its props API.
+vi.mock('./guest-search-input', () => ({
+  GuestSearchInput: ({ onSelect }: { onSelect: (g: { id: string; name: string; email: string }) => void }) => (
+    <button type="button" onClick={() => onSelect({ id: 'member-1', name: 'Ada Lovelace', email: 'ada@example.com' })}>
+      pick-ada
+    </button>
+  ),
+}));
 
 import { EventDialog } from './event-dialog';
 
@@ -141,5 +149,153 @@ describe('EventDialog virtual meeting', () => {
       expect.objectContaining({ isVirtual: false, meetingUrl: '' }),
     );
     expect(createMeeting).not.toHaveBeenCalled();
+  });
+});
+
+const baseEvent = {
+  id: 'evt_1',
+  calendarId: 'cal_1',
+  type: 'meeting' as const,
+  title: 'Planning',
+  startTime: '2026-10-05T09:00:00.000Z',
+  endTime: '2026-10-05T10:00:00.000Z',
+};
+
+/** What the API returns for a quick-created event: every unset column is null. */
+const nullColumns = {
+  tags: null,
+  attendees: null,
+  description: null,
+  location: null,
+  meetingUrl: null,
+  customerId: null,
+  contactId: null,
+  notes: null,
+  color: null,
+} as unknown as Partial<React.ComponentProps<typeof EventDialog>['event']>;
+
+describe('EventDialog update (TASK-731)', () => {
+  it('saves an event whose unset columns are null instead of failing validation silently', async () => {
+    const { onOpenChange } = renderDialog({ event: { ...baseEvent, ...nullColumns } as never });
+
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Planning v2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    const call = updateEvent.mock.calls[0][0];
+    expect(call.id).toBe('evt_1');
+    expect(call.data).toEqual(expect.objectContaining({ title: 'Planning v2', startTime: expect.any(String) }));
+    // The server's schema rejects null, so no field may carry one.
+    expect(Object.values(call.data)).not.toContain(null);
+    expect(call.data.timezone).toEqual(expect.any(String));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it('shows an error summary when a field the dialog has no spot for is invalid', async () => {
+    renderDialog({
+      event: { ...baseEvent, attendees: [{ email: 'not-an-email' }] } as never,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Guests');
+    expect(updateEvent).not.toHaveBeenCalled();
+  });
+
+  it('rolls an end before the start on the same day over midnight', async () => {
+    renderDialog({
+      event: { ...baseEvent, startTime: '2026-10-05T21:00:00.000Z', endTime: '2026-10-05T22:00:00.000Z' } as never,
+    });
+
+    const start = (screen.getByLabelText('Start') as HTMLInputElement).value; // local 'YYYY-MM-DDTHH:mm'
+    const day = start.slice(0, 10);
+    fireEvent.change(screen.getByLabelText('End'), { target: { value: `${day}T00:30` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    const { startTime, endTime } = updateEvent.mock.calls[0][0].data;
+    expect(new Date(endTime).getTime()).toBeGreaterThan(new Date(startTime).getTime());
+    expect(new Date(endTime).getTime() - new Date(startTime).getTime()).toBeLessThan(24 * 3_600_000);
+  });
+
+  it('refuses an end on an earlier day with a validation error and no request', async () => {
+    renderDialog({ event: baseEvent as never });
+
+    const start = (screen.getByLabelText('Start') as HTMLInputElement).value;
+    const prevDay = new Date(`${start.slice(0, 10)}T00:00:00`);
+    prevDay.setDate(prevDay.getDate() - 1);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const value = `${prevDay.getFullYear()}-${pad(prevDay.getMonth() + 1)}-${pad(prevDay.getDate())}T10:00`;
+    fireEvent.change(screen.getByLabelText('End'), { target: { value } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+
+    expect(await screen.findByText('End must be after start')).toBeInTheDocument();
+    expect(updateEvent).not.toHaveBeenCalled();
+  });
+
+  it('keeps the duration when the start moves', async () => {
+    renderDialog({ event: baseEvent as never });
+
+    const startInput = screen.getByLabelText('Start') as HTMLInputElement;
+    const endBefore = (screen.getByLabelText('End') as HTMLInputElement).value;
+    const [day, time] = startInput.value.split('T');
+    const [h, m] = time.split(':').map(Number);
+    const newStart = `${day}T${String((h + 2) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    fireEvent.change(startInput, { target: { value: newStart } });
+
+    expect((screen.getByLabelText('End') as HTMLInputElement).value).not.toBe(endBefore);
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    const { startTime, endTime } = updateEvent.mock.calls[0][0].data;
+    expect(new Date(endTime).getTime() - new Date(startTime).getTime()).toBe(3_600_000);
+  });
+
+  it('does not leak a cancelled edit into the next time the dialog opens', () => {
+    const props = {
+      open: true,
+      onOpenChange: vi.fn(),
+      calendars,
+      defaultCalendarId: 'cal_1',
+      event: baseEvent as never,
+    };
+    const { rerender } = render(<EventDialog {...props} />);
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Typed then cancelled' } });
+    rerender(<EventDialog {...props} open={false} />);
+    rerender(<EventDialog {...props} open />);
+    expect(screen.getByLabelText('Title')).toHaveValue('Planning');
+  });
+});
+
+describe('EventDialog guests', () => {
+  it('adds a guest, asks the notify question, and sends the list with the answer', async () => {
+    renderDialog({ event: baseEvent as never });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add guests' }));
+    fireEvent.click(screen.getByRole('button', { name: 'pick-ada' }));
+    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    // An event with no guests before still asks: the new guest is mailed only on "yes".
+    expect(await screen.findByText('Update event')).toBeInTheDocument();
+    expect(updateEvent).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    const call = updateEvent.mock.calls[0][0];
+    expect(call.sendNotification).toBe(true);
+    expect(call.data.attendees).toEqual([expect.objectContaining({ email: 'ada@example.com', name: 'Ada Lovelace' })]);
+  });
+
+  it('removes a guest and still sends the (now empty) list', async () => {
+    renderDialog({
+      event: { ...baseEvent, attendees: [{ email: 'bob@example.com', name: 'Bob' }] } as never,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Bob' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    expect(updateEvent.mock.calls[0][0].data.attendees).toEqual([]);
   });
 });

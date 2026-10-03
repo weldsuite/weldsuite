@@ -166,7 +166,7 @@ export const weldcalendar = {
       filterTypeEvent: 'Evento',
       filterTypeCall: 'Llamada',
       filterTypeAppointment: 'Cita',
-      filterTypeReminder: 'Recordatorio',
+      filterTypeTask: 'Tarea',
       filterTypeOther: 'Otro',
       filterStatusConfirmed: 'Confirmado',
       filterStatusTentative: 'Provisional',

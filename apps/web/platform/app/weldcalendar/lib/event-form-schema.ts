@@ -1,27 +1,33 @@
 import { z } from 'zod';
 
+// The API returns `null` for every column that was never set (`tags`,
+// `attendees`, `customerId`, ...). Optional fields therefore accept null as well
+// as undefined: a strict `.optional()` rejects null and, because the dialog
+// seeds the form from the stored event, made "Update" fail validation silently.
 export const eventFormSchema = z.object({
   calendarId: z.string().min(1, 'Calendar is required'),
   title: z.string().min(1, 'Title is required').max(255),
-  description: z.string().optional(),
+  description: z.string().nullish(),
   type: z.enum(['meeting', 'call', 'appointment', 'event', 'reminder', 'other']).default('meeting'),
-  startTime: z.date({ required_error: 'Start time is required' }),
+  startTime: z.date({ required_error: 'Start time is required', invalid_type_error: 'Start time is required' }),
   endTime: z.date().optional().nullable(),
   allDay: z.boolean().default(false),
-  location: z.string().optional(),
+  location: z.string().nullish(),
   isVirtual: z.boolean().default(false),
-  meetingUrl: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  meetingUrl: z.string().url('Must be a valid URL').nullish().or(z.literal('')),
   status: z.enum(['confirmed', 'tentative', 'cancelled']).default('confirmed'),
   priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
-  color: z.string().optional(),
+  color: z.string().nullish(),
   attendees: z.array(z.object({
     email: z.string().email(),
-    name: z.string().optional(),
-  })).optional(),
-  customerId: z.string().optional(),
-  contactId: z.string().optional(),
-  notes: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+    name: z.string().nullish(),
+    status: z.string().nullish(),
+    role: z.string().nullish(),
+  })).nullish(),
+  customerId: z.string().nullish(),
+  contactId: z.string().nullish(),
+  notes: z.string().nullish(),
+  tags: z.array(z.string()).nullish(),
 });
 
 export type EventFormValues = z.infer<typeof eventFormSchema>;

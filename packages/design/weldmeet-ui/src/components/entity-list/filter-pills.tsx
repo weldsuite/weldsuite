@@ -16,9 +16,32 @@ interface FilterPillsProps {
   filterConfigs: FilterConfig[];
   maxFilters?: number;
   onFiltersChange: (filters: ActiveFilter[]) => void;
+  /**
+   * Translated operator labels keyed by operator value ('is', 'is not',
+   * 'contains', ...). Operators without an entry keep their English label, so
+   * existing consumers need not pass anything.
+   */
+  operatorLabels?: Partial<Record<string, string>>;
+  /** Translated UI strings; each falls back to its English default. */
+  labels?: {
+    /** The button that starts a new filter. */
+    filter?: string;
+    /** Placeholder of an operator that has not been picked yet. */
+    selectCondition?: string;
+  };
 }
 
-function getOperatorsForType(filterType?: FilterConfig['filterType']) {
+function getOperatorsForType(
+  filterType?: FilterConfig['filterType'],
+  operatorLabels?: FilterPillsProps['operatorLabels'],
+) {
+  return getBaseOperatorsForType(filterType).map((op) => ({
+    value: op.value,
+    label: operatorLabels?.[op.value] ?? op.label,
+  }));
+}
+
+function getBaseOperatorsForType(filterType?: FilterConfig['filterType']) {
   switch (filterType) {
     case 'text':
       return [
@@ -91,6 +114,8 @@ export function FilterPills({
   filterConfigs,
   maxFilters = 5,
   onFiltersChange,
+  operatorLabels,
+  labels,
 }: FilterPillsProps) {
   const filterIdCounterRef = useRef(0);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
@@ -126,7 +151,7 @@ export function FilterPills({
 
   const getOperatorLabel = (filter: ActiveFilter) => {
     const config = getFilterConfig(filter.field);
-    const operators = getOperatorsForType(config?.filterType);
+    const operators = getOperatorsForType(config?.filterType, operatorLabels);
     return (
       operators.find((o) => o.value === filter.operator)?.label || filter.operator
     );
@@ -354,7 +379,7 @@ export function FilterPills({
       {/* Active filter pills */}
       {filters.map((filter, index) => {
         const config = getFilterConfig(filter.field);
-        const operators = getOperatorsForType(config?.filterType);
+        const operators = getOperatorsForType(config?.filterType, operatorLabels);
 
         return (
           <div
@@ -387,7 +412,7 @@ export function FilterPills({
                 >
                   {filter.operator
                     ? getOperatorLabel(filter)
-                    : 'Select condition'}
+                    : (labels?.selectCondition ?? 'Select condition')}
                 </button>
               </PopoverTrigger>
               <PopoverContent align="start" className="w-auto min-w-28 p-1">
@@ -473,7 +498,7 @@ export function FilterPills({
               variant="outline"
               className="h-8 text-sm px-3 shadow-none text-muted-foreground"
             >
-              Filter
+              {labels?.filter ?? 'Filter'}
             </Button>
           ) : null}
         </PopoverTrigger>
