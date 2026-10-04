@@ -4337,6 +4337,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/flow-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/flow
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../../packages/core/notifications

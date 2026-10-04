@@ -15,6 +15,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
+import { getMilestoneStats, withMilestoneStats } from '@weldsuite/flow-domain/project-stats';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.milestones;
@@ -70,7 +71,8 @@ app.get('/', requirePermission('milestones:read'), async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
+    const stats = await getMilestoneStats(db, data);
+    return list(c, withMilestoneStats(data, stats), cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/milestones] list failed:', err);
     return error.internal(c, 'Failed to list milestones');
@@ -86,7 +88,8 @@ app.get('/:id', requirePermission('milestones:read'), async (c) => {
     if (row.projectId && !(await canAccessProject(c, row.projectId))) {
       return error.forbidden(c, PROJECT_DENIED);
     }
-    return success(c, row);
+    const stats = await getMilestoneStats(db, [row]);
+    return success(c, withMilestoneStats([row], stats)[0]);
   } catch (err) {
     console.error('[app-api/milestones] get failed:', err);
     return error.internal(c, 'Failed to fetch milestone');

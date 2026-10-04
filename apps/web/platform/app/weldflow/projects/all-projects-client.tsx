@@ -217,7 +217,8 @@ export function AllProjectsClient({
         id: project.id,
         name: project.name,
         status: (project.derivedStatus as TableStatus | undefined) ?? (project.health ? mapHealthToTableStatus(project.health) : mapApiStatusToTableStatus(project.status)),
-        progress: project.derivedProgress ?? project.progress ?? 0,
+        // The API returns progress as a numeric string ("37.50"); show a whole percent.
+        progress: Math.round(Number(project.derivedProgress ?? project.progress ?? 0)) || 0,
         owner: {
           name: t.allProjects.unassigned,
           initials: "U",
