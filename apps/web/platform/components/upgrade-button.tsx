@@ -43,9 +43,8 @@ export function UpgradeButton({ collapsed = false }: UpgradeButtonProps) {
     <>
       <Button
         variant="outline"
-        size="sm"
         onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-center rounded-md border border-blue-100 bg-blue-50 px-3 py-[7px] mb-2 text-sm font-medium text-blue-600 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 transition-colors"
+        className="flex w-full items-center justify-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-[7px] text-sm font-medium text-blue-600 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 transition-colors"
       >
         <span>Upgrade</span>
       </Button>
