@@ -102,6 +102,7 @@ export const navigation = {
       },
       weldpass: {
         passwords: 'Wachtwoorden',
+        vaults: 'Kluizen',
         passwordHealth: 'Wachtwoordgezondheid',
         projects: 'Projecten',
       },
