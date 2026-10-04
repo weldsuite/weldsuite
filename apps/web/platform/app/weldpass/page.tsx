@@ -1,5 +1,7 @@
 /**
  * WeldPass projects — the developer-secrets list, and the module's landing page.
+ * The list is the whole page: its top bar carries search and "New project",
+ * and the breadcrumb is the title.
  *
  * Members who can use the password manager but cannot read secrets (the
  * default for regular members) are sent to the passwords page instead of an
@@ -7,11 +9,10 @@
  */
 
 import { useState } from 'react';
-import { Link, Navigate } from '@tanstack/react-router';
-import { Plus } from 'lucide-react';
+import { Link, Navigate, useNavigate } from '@tanstack/react-router';
+import { KeyRound } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import {
@@ -23,12 +24,15 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
+import type { WeldPassProject } from '@weldsuite/app-api-client/domains/weldpass';
 import {
   useCreateWeldPassProject,
   useWeldPassProjects,
 } from '@/hooks/queries/use-weldpass-queries';
 import { PageLoader } from '@/components/page-loader';
-import { EmptyState, ErrorBanner, InlineSpinner, TimeAgo, errorMessage } from './components/shared';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
+import { emptyIcon, usePassBreadcrumbs } from './components/page-kit';
+import { ErrorBanner, TimeAgo, errorMessage } from './components/shared';
 
 export default function WeldPassLandingPage() {
   const { can, isLoading } = usePermissions();
@@ -44,86 +48,95 @@ export default function WeldPassLandingPage() {
 
 function WeldPassProjectsPage() {
   const t = useTranslations();
+  usePassBreadcrumbs({ label: t('weldpass.projects') });
+  const navigate = useNavigate();
   const { can } = usePermissions();
   const { data: projects, isLoading, error } = useWeldPassProjects();
   const [creating, setCreating] = useState(false);
 
   const canCreate = can('secrets:create') || can('secrets:manage');
+  const createButton = canCreate
+    ? { label: t('weldpass.projectList.newProject'), onClick: () => setCreating(true) }
+    : undefined;
 
-  return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">{t('weldpass.title')}</h1>
-          <p className="text-sm text-muted-foreground">{t('weldpass.projectList.subtitle')}</p>
-        </div>
-        {canCreate && (
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            {t('weldpass.projectList.newProject')}
-          </Button>
-        )}
-      </header>
-
-      <ErrorBanner error={error ? errorMessage(error, t('weldpass.audit.loadFailed')) : null} />
-
-      {isLoading && <InlineSpinner />}
-      {!isLoading && (!projects || projects.length === 0) && (
-        <EmptyState
-          title={t('weldpass.projectList.emptyTitle')}
-          description={t('weldpass.projectList.emptyDescription')}
-          action={
-            canCreate ? (
-              <Button onClick={() => setCreating(true)}>
-                {t('weldpass.projectList.emptyAction')}
-              </Button>
-            ) : undefined
-          }
-        />
-      )}
-      {!isLoading && projects && projects.length > 0 && (
-        <div className="space-y-2">
-          {projects.map((project) => (
-            <Card key={project.id} className="p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <Link
-                    to="/weldpass/$projectId"
-                    params={{ projectId: project.id }}
-                    className="text-sm font-medium hover:underline"
-                  >
-                    {project.name}
-                  </Link>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {project.description || project.slug}
-                  </p>
-                </div>
-                <p className="shrink-0 text-xs text-muted-foreground">
-                  {t('weldpass.projectList.updated')} <TimeAgo value={project.updatedAt} />
-                </p>
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {project.environments.map((environment) => (
-                  <Link
-                    key={environment.id}
-                    to="/weldpass/$projectId"
-                    params={{ projectId: project.id }}
-                    search={{ env: environment.id }}
-                  >
-                    <Badge variant={environment.isProduction ? 'outline' : 'secondary'}>
-                      {environment.name} · {environment.secretCount ?? 0}
-                    </Badge>
-                  </Link>
-                ))}
-              </div>
-            </Card>
+  const columns: ColumnDef<WeldPassProject>[] = [
+    {
+      id: 'name',
+      header: t('weldpass.projectList.table.name'),
+      width: 'flex-1',
+      render: (project) => (
+        <span className="block min-w-0">
+          <span className="block truncate font-medium">{project.name}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {project.description || project.slug}
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: 'environments',
+      header: t('weldpass.projectList.table.environments'),
+      width: 'w-[360px]',
+      render: (project) => (
+        <div className="flex flex-wrap gap-1">
+          {project.environments.map((environment) => (
+            <Link
+              key={environment.id}
+              to="/weldpass/$projectId"
+              params={{ projectId: project.id }}
+              search={{ env: environment.id }}
+              // The badge opens its own environment; the row opens the first.
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Badge variant={environment.isProduction ? 'outline' : 'secondary'}>
+                {environment.name} · {environment.secretCount ?? 0}
+              </Badge>
+            </Link>
           ))}
         </div>
-      )}
+      ),
+    },
+    {
+      id: 'updated',
+      header: t('weldpass.projectList.table.updated'),
+      width: 'w-[140px]',
+      render: (project) => (
+        <span className="text-sm">
+          <TimeAgo value={project.updatedAt} />
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <PanelEntityList<WeldPassProject>
+        items={projects ?? []}
+        isLoading={isLoading}
+        error={error}
+        columns={columns}
+        onRowClick={(project) =>
+          void navigate({ to: '/weldpass/$projectId', params: { projectId: project.id } })
+        }
+        searchFields={['name', 'slug', 'description']}
+        searchPlaceholder={t('weldpass.projectList.searchPlaceholder')}
+        createButton={createButton}
+        emptyState={{
+          icon: emptyIcon(KeyRound),
+          title: t('weldpass.projectList.emptyTitle'),
+          description: t('weldpass.projectList.emptyDescription'),
+          action: canCreate
+            ? { label: t('weldpass.projectList.emptyAction'), onClick: () => setCreating(true) }
+            : undefined,
+        }}
+        noResultsState={{
+          title: t('weldpass.projectList.noResultsTitle'),
+          description: t('weldpass.projectList.noResultsDescription'),
+        }}
+      />
 
       {creating && <CreateProjectDialog onClose={() => setCreating(false)} />}
-    </div>
+    </>
   );
 }
 

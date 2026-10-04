@@ -7,12 +7,14 @@ import type {
 import {
   canAdministerVault,
   canEditVault,
-  countByVault,
+  buildVaultGroups,
   createItemFormSchema,
   defaultCreateVaultId,
   emptyItemForm,
   filterItems,
+  filterVaults,
   formatTotpCode,
+  isFiltering,
   isNonMemberView,
   itemToFormValues,
   moveTargets,
@@ -20,6 +22,9 @@ import {
   secondsUntil,
   sortVaults,
   toItemInput,
+  vaultIdFromPills,
+  withVaultPill,
+  type FilterPill,
 } from './items';
 
 function item(overrides: Partial<WeldPassItem>): WeldPassItem {
@@ -61,40 +66,66 @@ function vault(
   };
 }
 
+function pill(field: string, operator: string, value: string, id = `${field}-${value}`): FilterPill {
+  return { id, field, operator, value };
+}
+
 describe('filterItems', () => {
   const items = [
     item({ id: 'a', title: 'GitHub', subtitle: 'dev@acme.com', host: 'github.com', vaultId: 'v1' }),
     item({ id: 'b', title: 'Bank card', type: 'card', subtitle: '•••• 4242', vaultId: 'v2' }),
     item({ id: 'c', title: 'Wifi code', type: 'note', vaultId: 'v1' }),
-    item({ id: 'd', title: 'AWS', url: 'https://console.aws.amazon.com', host: 'aws.amazon.com' }),
+    item({
+      id: 'd',
+      title: 'AWS',
+      url: 'https://console.aws.amazon.com',
+      host: 'aws.amazon.com',
+      vaultId: 'v3',
+    }),
   ];
+  const ids = (list: WeldPassItem[]) => list.map((i) => i.id);
 
   it('returns everything, sorted by title, with no filter', () => {
-    expect(filterItems(items, {}).map((i) => i.id)).toEqual(['d', 'b', 'a', 'c']);
+    expect(ids(filterItems(items, {}))).toEqual(['d', 'b', 'a', 'c']);
   });
 
-  it('filters by vault', () => {
-    expect(filterItems(items, { vaultId: 'v2' }).map((i) => i.id)).toEqual(['b']);
+  it('filters by a "vault is" pill', () => {
+    expect(ids(filterItems(items, { pills: [pill('vault', 'is', 'v2')] }))).toEqual(['b']);
   });
 
-  it('treats a null or missing vault as all vaults', () => {
-    expect(filterItems(items, { vaultId: null })).toHaveLength(4);
+  it('filters by a "vault is not" pill', () => {
+    expect(ids(filterItems(items, { pills: [pill('vault', 'is not', 'v1')] }))).toEqual(['d', 'b']);
   });
 
-  it('filters by type, and "all" keeps every type', () => {
-    expect(filterItems(items, { type: 'note' }).map((i) => i.id)).toEqual(['c']);
-    expect(filterItems(items, { type: 'all' })).toHaveLength(4);
+  it('filters by type', () => {
+    expect(ids(filterItems(items, { pills: [pill('type', 'is', 'note')] }))).toEqual(['c']);
+    expect(ids(filterItems(items, { pills: [pill('type', 'is not', 'login')] }))).toEqual(['b', 'c']);
+  });
+
+  it('ignores a pill whose operator or value is not chosen yet', () => {
+    expect(filterItems(items, { pills: [pill('vault', '', '')] })).toHaveLength(4);
+    expect(filterItems(items, { pills: [pill('vault', 'is', '')] })).toHaveLength(4);
+    expect(filterItems(items, { pills: [pill('vault', '', 'v1')] })).toHaveLength(4);
+  });
+
+  it('ignores pills for fields it does not know', () => {
+    expect(filterItems(items, { pills: [pill('colour', 'is', 'red')] })).toHaveLength(4);
+  });
+
+  it('requires every pill on the same field to hold', () => {
+    const pills = [pill('vault', 'is not', 'v1'), pill('vault', 'is not', 'v2')];
+    expect(ids(filterItems(items, { pills }))).toEqual(['d']);
   });
 
   it('matches title, username, host and url case-insensitively', () => {
-    expect(filterItems(items, { query: 'GITHUB' }).map((i) => i.id)).toEqual(['a']);
-    expect(filterItems(items, { query: 'dev@acme' }).map((i) => i.id)).toEqual(['a']);
-    expect(filterItems(items, { query: 'amazon' }).map((i) => i.id)).toEqual(['d']);
-    expect(filterItems(items, { query: '4242' }).map((i) => i.id)).toEqual(['b']);
+    expect(ids(filterItems(items, { query: 'GITHUB' }))).toEqual(['a']);
+    expect(ids(filterItems(items, { query: 'dev@acme' }))).toEqual(['a']);
+    expect(ids(filterItems(items, { query: 'amazon' }))).toEqual(['d']);
+    expect(ids(filterItems(items, { query: '4242' }))).toEqual(['b']);
   });
 
   it('requires every word of the query to match', () => {
-    expect(filterItems(items, { query: 'github acme' }).map((i) => i.id)).toEqual(['a']);
+    expect(ids(filterItems(items, { query: 'github acme' }))).toEqual(['a']);
     expect(filterItems(items, { query: 'github bank' })).toEqual([]);
   });
 
@@ -102,10 +133,9 @@ describe('filterItems', () => {
     expect(filterItems(items, { query: '   ' })).toHaveLength(4);
   });
 
-  it('combines vault, type and query', () => {
-    expect(filterItems(items, { vaultId: 'v1', type: 'login', query: 'git' }).map((i) => i.id)).toEqual(
-      ['a'],
-    );
+  it('combines pills and query', () => {
+    const pills = [pill('vault', 'is', 'v1'), pill('type', 'is', 'login')];
+    expect(ids(filterItems(items, { pills, query: 'git' }))).toEqual(['a']);
   });
 
   it('does not mutate the input', () => {
@@ -115,16 +145,90 @@ describe('filterItems', () => {
   });
 });
 
-describe('countByVault', () => {
-  it('counts items per vault', () => {
-    const counts = countByVault([
-      item({ vaultId: 'v1' }),
-      item({ vaultId: 'v1' }),
-      item({ vaultId: 'v2' }),
+describe('isFiltering', () => {
+  it('is true for a search or a complete pill only', () => {
+    expect(isFiltering({})).toBe(false);
+    expect(isFiltering({ query: '  ' })).toBe(false);
+    expect(isFiltering({ pills: [pill('vault', '', '')] })).toBe(false);
+    expect(isFiltering({ query: 'x' })).toBe(true);
+    expect(isFiltering({ pills: [pill('type', 'is', 'card')] })).toBe(true);
+  });
+});
+
+describe('the vault pill and the ?vault= link', () => {
+  const make = (vaultId: string) => pill('vault', 'is', vaultId, 'vault-link');
+
+  it('reads the vault from the first complete "vault is" pill', () => {
+    expect(vaultIdFromPills([])).toBeUndefined();
+    expect(vaultIdFromPills([pill('vault', 'is not', 'v1')])).toBeUndefined();
+    expect(vaultIdFromPills([pill('vault', 'is', '')])).toBeUndefined();
+    expect(vaultIdFromPills([pill('type', 'is', 'card'), pill('vault', 'is', 'v2')])).toBe('v2');
+  });
+
+  it('puts the linked vault in front of the other pills, replacing an older one', () => {
+    const typePill = pill('type', 'is', 'card');
+    expect(withVaultPill([typePill], 'v1', make)).toEqual([make('v1'), typePill]);
+    expect(withVaultPill([pill('vault', 'is', 'v9'), typePill], 'v1', make)).toEqual([
+      make('v1'),
+      typePill,
     ]);
-    expect(counts.get('v1')).toBe(2);
-    expect(counts.get('v2')).toBe(1);
-    expect(counts.get('v3')).toBeUndefined();
+  });
+
+  it('removes the vault pill when the link has none, keeping the rest', () => {
+    const typePill = pill('type', 'is', 'card');
+    const unfinished = pill('vault', '', '');
+    expect(withVaultPill([pill('vault', 'is', 'v1'), typePill, unfinished], undefined, make)).toEqual([
+      typePill,
+      unfinished,
+    ]);
+  });
+
+  it('keeps "vault is not" pills, which the link cannot express', () => {
+    const exclude = pill('vault', 'is not', 'v3');
+    expect(withVaultPill([exclude], 'v1', make)).toEqual([make('v1'), exclude]);
+  });
+});
+
+describe('buildVaultGroups', () => {
+  const vaults = [
+    vault('z', 'editor', { name: 'Zeta' }),
+    vault('p', 'manager', { kind: 'personal', name: 'stored name' }),
+    vault('a', 'viewer', { name: 'alpha' }),
+  ];
+  const label = (v: WeldPassVault) => (v.kind === 'personal' ? 'Personal' : v.name);
+
+  it('lists the personal vault first, then shared vaults by name', () => {
+    const groups = buildVaultGroups(vaults, label);
+    expect(groups.map((g) => g.label)).toEqual(['Personal', 'alpha', 'Zeta']);
+    expect(groups.map((g) => g.sortOrder)).toEqual([0, 1, 2]);
+  });
+
+  it('puts each item in the group of its vault', () => {
+    const groups = buildVaultGroups(vaults, label);
+    const inGroup = (id: string, vaultId: string) =>
+      groups.find((g) => g.id === id)?.filter({ vaultId });
+    expect(inGroup('a', 'a')).toBe(true);
+    expect(inGroup('a', 'z')).toBe(false);
+    expect(inGroup('p', 'p')).toBe(true);
+  });
+});
+
+describe('filterVaults', () => {
+  const vaults = [
+    vault('z', 'editor', { name: 'Zeta', description: 'Finance logins' }),
+    vault('p', 'manager', { kind: 'personal', name: 'stored name' }),
+    vault('a', 'viewer', { name: 'alpha' }),
+  ];
+  const label = (v: WeldPassVault) => (v.kind === 'personal' ? 'Personal' : v.name);
+
+  it('matches the shown name, not the stored one, and the description', () => {
+    expect(filterVaults(vaults, 'person', label).map((v) => v.id)).toEqual(['p']);
+    expect(filterVaults(vaults, 'stored', label)).toEqual([]);
+    expect(filterVaults(vaults, 'finance', label).map((v) => v.id)).toEqual(['z']);
+  });
+
+  it('returns every vault, personal first, for a blank query', () => {
+    expect(filterVaults(vaults, '  ', label).map((v) => v.id)).toEqual(['p', 'a', 'z']);
   });
 });
 

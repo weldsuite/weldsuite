@@ -4,17 +4,24 @@
 export const weldpass = {
   title: 'WeldPass',
   projects: 'Projecten',
+  secretsTab: 'Secrets',
   sync: 'Synchronisatie',
   auditLog: 'Auditlog',
 
   projectList: {
-    subtitle: 'Versleutelde secrets voor deze werkruimte.',
     newProject: 'Nieuw project',
     emptyTitle: 'Nog geen projecten',
     emptyDescription:
       'Een project bevat de secrets van één app, verdeeld over omgevingen zoals development, preview en productie.',
     emptyAction: 'Maak je eerste project',
-    updated: 'Bijgewerkt',
+    searchPlaceholder: 'Projecten zoeken',
+    noResultsTitle: 'Geen projecten gevonden',
+    noResultsDescription: 'Probeer een andere zoekopdracht.',
+    table: {
+      name: 'Naam',
+      environments: 'Omgevingen',
+      updated: 'Bijgewerkt',
+    },
     create: {
       title: 'Nieuw project',
       name: 'Naam',
@@ -29,9 +36,11 @@ export const weldpass = {
   },
 
   secrets: {
-    count: '{count} secrets',
-    countOne: '1 secret',
     production: 'Productie',
+    environment: 'Omgeving',
+    searchPlaceholder: 'Secrets zoeken',
+    noResultsTitle: 'Geen secrets gevonden',
+    noResultsDescription: 'Probeer een andere zoekopdracht, of kijk in een andere omgeving.',
     emptyTitle: 'Deze omgeving is leeg',
     emptyDescription:
       'Voeg handmatig een secret toe, of plak een bestaand .env-bestand om alles in één keer over te nemen.',
@@ -45,10 +54,9 @@ export const weldpass = {
     hide: 'Verbergen',
     copy: 'Kopiëren',
     history: 'Geschiedenis',
-    edit: 'Bewerken',
     delete: 'Verwijderen',
-    deleteConfirm:
-      '{key} verwijderen? Gesynchroniseerde doelen behouden hun kopie, tenzij ze opschonen.',
+    deleteTitle: '{key} verwijderen?',
+    deleteDescription: 'Gesynchroniseerde doelen behouden hun kopie, tenzij ze opschonen.',
     revealFailed: 'Die waarde kon niet worden getoond.',
     deleteFailed: 'Die secret kon niet worden verwijderd.',
     exportFailed: 'Deze omgeving kon niet worden geëxporteerd.',
@@ -109,13 +117,14 @@ export const weldpass = {
       'Koppel een omgeving aan een Worker, Pages-project of Vercel-project.',
     push: 'Versturen',
     remove: 'Verwijderen',
-    removeConfirm: '{name} verwijderen? Al verstuurde waarden blijven op het doel staan.',
+    removeTitle: '{name} verwijderen?',
+    removeDescription: 'Al verstuurde waarden blijven op het doel staan.',
+    removeFailed: 'Dat kon niet worden verwijderd.',
     autoSyncOn: 'Automatisch synchroniseren: aan',
     autoSyncOff: 'Automatisch synchroniseren: uit',
     prunes: 'Ruimt verwijderde sleutels op',
     pushedCount: '{count} verstuurd',
     pushFailed: 'Kon niet naar dat doel versturen.',
-    loadFailed: 'De synchronisatie-instellingen konden niet worden geladen.',
     updateFailed: 'Dat doel kon niet worden bijgewerkt.',
 
     tokens: 'API-tokens',
@@ -126,7 +135,8 @@ export const weldpass = {
     tokenVerified: 'Geverifieerd',
     tokenFailed: 'Mislukt',
     tokenUnverified: 'Niet geverifieerd',
-    deleteTokenConfirm: '{name} verwijderen? Doelen die het gebruiken stoppen met synchroniseren.',
+    deleteTokenTitle: '{name} verwijderen?',
+    deleteTokenDescription: 'Doelen die het gebruiken stoppen met synchroniseren.',
 
     recentPushes: 'Recente verzendingen',
     refresh: 'Vernieuwen',
@@ -179,14 +189,21 @@ export const weldpass = {
     subtitle:
       'Elke wijziging en elke inzage, met wie het deed. Waarden worden nooit vastgelegd.',
     emptyTitle: 'Nog niets vastgelegd',
-    loadFailed: 'De auditlog kon niet worden geladen.',
+    searchPlaceholder: 'Zoeken in de auditlog',
+    noResultsTitle: 'Geen gebeurtenissen gevonden',
+    noResultsDescription: 'Probeer een andere zoekopdracht.',
+    table: {
+      action: 'Actie',
+      target: 'Doel',
+      actor: 'Door',
+      ip: 'IP-adres',
+      when: 'Wanneer',
+    },
   },
 
   passwords: {
     title: 'Wachtwoorden',
-    subtitle: 'Logins, notities en kaarten die je team veilig bewaart en deelt.',
     accessDenied: 'Je hebt geen toestemming om het wachtwoordbeheer te gebruiken.',
-    loadFailed: 'Je wachtwoorden konden niet worden geladen.',
     retry: 'Opnieuw proberen',
 
     common: {
@@ -196,34 +213,32 @@ export const weldpass = {
     },
 
     vaults: {
-      heading: 'Kluizen',
-      all: 'Alle items',
       personal: 'Persoonlijk',
       newVault: 'Nieuwe kluis',
-      pick: 'Kies een kluis',
-      settings: 'Kluisinstellingen',
-      settingsFor: 'Instellingen van {vault}',
-      membersTitle: 'Leden',
-      membersFor: 'Leden van {vault}',
-      members: '{count} leden',
-      membersOne: '1 lid',
-      manageMembers: 'Leden beheren',
       notMemberTitle: 'Je bent geen lid van deze kluis',
       notMemberDescription:
         'Als werkruimtebeheerder kun je beheren wie toegang heeft tot deze kluis, maar je ziet de wachtwoorden erin niet. Voeg jezelf toe als lid om ze te openen.',
+      title: 'Kluizen',
+      columns: {
+        name: 'Naam',
+        role: 'Jouw rol',
+        members: 'Leden',
+        items: 'Items',
+        updated: 'Bijgewerkt',
+      },
+      notAMember: 'Geen lid',
+      search: 'Kluizen zoeken',
+      noResultsTitle: 'Geen kluizen gevonden',
+      noResultsDescription: 'Probeer een andere zoekopdracht.',
+      emptyTitle: 'Nog geen kluizen',
+      emptyDescription:
+        'Met een gedeelde kluis bewaart en gebruikt een team wachtwoorden samen. Maak er een aan en voeg je teamgenoten toe.',
     },
 
     toolbar: {
       search: 'Wachtwoorden zoeken',
       addItem: 'Item toevoegen',
       import: 'Importeren',
-      health: 'Wachtwoordgezondheid',
-      filters: {
-        all: 'Alles',
-        login: 'Logins',
-        note: 'Notities',
-        card: 'Kaarten',
-      },
     },
 
     types: {
@@ -234,10 +249,10 @@ export const weldpass = {
 
     table: {
       name: 'Naam',
-      details: 'Gebruikersnaam / site',
       vault: 'Kluis',
       updated: 'Bijgewerkt',
       hasTotp: 'Heeft een 2FA-code',
+      site: 'Site',
     },
 
     empty: {
@@ -247,8 +262,7 @@ export const weldpass = {
       vaultTitle: 'Deze kluis is leeg',
       vaultDescription: 'Voeg hier een item toe, of verplaats er een uit een andere kluis naartoe.',
       noResultsTitle: 'Niets gevonden',
-      noResultsDescription: 'Probeer een andere zoekopdracht, of toon alle soorten.',
-      clearFilters: 'Filters wissen',
+      noResultsDescription: 'Probeer een andere zoekopdracht of een ander filter.',
     },
 
     fields: {
@@ -437,7 +451,8 @@ export const weldpass = {
       add: 'Toevoegen',
       leave: 'Kluis verlaten',
       leaveTitle: '"{vault}" verlaten?',
-      leaveDescription: 'Je verliest de toegang tot de items totdat een beheerder je weer toevoegt.',
+      leaveDescription:
+        'Je verliest de toegang tot de items totdat een beheerder je weer toevoegt.',
       removeTitle: '{name} verwijderen?',
       removeDescription: 'Die persoon verliest direct de toegang tot de items in deze kluis.',
       removeConfirm: 'Verwijderen',
@@ -482,7 +497,6 @@ export const weldpass = {
       subtitle:
         'Zwakke, hergebruikte en oude wachtwoorden in je kluizen. Hier wordt nergens een wachtwoord getoond.',
       loadFailed: 'Het rapport kon niet worden geladen.',
-      emptyTitle: 'Nog geen wachtwoorden om te controleren',
       emptyDescription: 'Voeg logins met een wachtwoord toe en ze worden hier gecontroleerd.',
       goToPasswords: 'Naar wachtwoorden',
       checked: 'Gecontroleerd',
@@ -491,13 +505,19 @@ export const weldpass = {
       reused: 'Hergebruikt',
       old: 'Oud',
       allHealthy: 'Alle wachtwoorden zien er in orde uit.',
-      needsAttention: 'Aandacht nodig: {count}',
       changed: 'Gewijzigd',
       issues: {
         weak: 'Zwak',
         reused: 'Hergebruikt bij {count} logins',
         old: 'Oud',
       },
+      attentionTitle: 'Aandacht nodig',
+      attentionHint: 'Zwakste eerst. Open een login om het wachtwoord te wijzigen.',
+    },
+
+    filters: {
+      vault: 'Kluis',
+      type: 'Soort',
     },
   },
 

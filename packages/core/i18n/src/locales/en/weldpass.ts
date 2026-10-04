@@ -4,17 +4,24 @@
 export const weldpass = {
   title: 'WeldPass',
   projects: 'Projects',
+  secretsTab: 'Secrets',
   sync: 'Sync',
   auditLog: 'Audit log',
 
   projectList: {
-    subtitle: 'Encrypted secrets for this workspace.',
     newProject: 'New project',
     emptyTitle: 'No projects yet',
     emptyDescription:
       "A project holds one app's secrets, split across environments like development, preview and production.",
     emptyAction: 'Create your first project',
-    updated: 'Updated',
+    searchPlaceholder: 'Search projects',
+    noResultsTitle: 'No projects found',
+    noResultsDescription: 'Try a different search.',
+    table: {
+      name: 'Name',
+      environments: 'Environments',
+      updated: 'Updated',
+    },
     create: {
       title: 'New project',
       name: 'Name',
@@ -29,9 +36,11 @@ export const weldpass = {
   },
 
   secrets: {
-    count: '{count} secrets',
-    countOne: '1 secret',
     production: 'Production',
+    environment: 'Environment',
+    searchPlaceholder: 'Search secrets',
+    noResultsTitle: 'No secrets found',
+    noResultsDescription: 'Try a different search, or check another environment.',
     emptyTitle: 'This environment is empty',
     emptyDescription:
       'Add a secret by hand, or paste an existing .env file to bring everything over at once.',
@@ -45,9 +54,9 @@ export const weldpass = {
     hide: 'Hide',
     copy: 'Copy',
     history: 'History',
-    edit: 'Edit',
     delete: 'Delete',
-    deleteConfirm: 'Delete {key}? Synced targets keep their copy unless they prune.',
+    deleteTitle: 'Delete {key}?',
+    deleteDescription: 'Synced targets keep their copy unless they prune.',
     revealFailed: 'Could not reveal that value.',
     deleteFailed: 'Could not delete that secret.',
     exportFailed: 'Could not export this environment.',
@@ -107,13 +116,14 @@ export const weldpass = {
       'Point an environment at a Worker, Pages project or Vercel project.',
     push: 'Push',
     remove: 'Remove',
-    removeConfirm: 'Remove {name}? Values already pushed stay on the target.',
+    removeTitle: 'Remove {name}?',
+    removeDescription: 'Values already pushed stay on the target.',
+    removeFailed: 'Could not remove that.',
     autoSyncOn: 'Auto-sync: on',
     autoSyncOff: 'Auto-sync: off',
     prunes: 'Prunes removed keys',
     pushedCount: '{count} pushed',
     pushFailed: 'Could not push to that target.',
-    loadFailed: 'Could not load sync settings.',
     updateFailed: 'Could not update that target.',
 
     tokens: 'API tokens',
@@ -124,7 +134,8 @@ export const weldpass = {
     tokenVerified: 'Verified',
     tokenFailed: 'Failed',
     tokenUnverified: 'Unverified',
-    deleteTokenConfirm: 'Delete {name}? Targets using it stop syncing.',
+    deleteTokenTitle: 'Delete {name}?',
+    deleteTokenDescription: 'Targets using it stop syncing.',
 
     recentPushes: 'Recent pushes',
     refresh: 'Refresh',
@@ -176,14 +187,21 @@ export const weldpass = {
   audit: {
     subtitle: 'Every write and every reveal, with who did it. Values are never recorded.',
     emptyTitle: 'Nothing recorded yet',
-    loadFailed: 'Could not load the audit log.',
+    searchPlaceholder: 'Search the audit log',
+    noResultsTitle: 'No events found',
+    noResultsDescription: 'Try a different search.',
+    table: {
+      action: 'Action',
+      target: 'Target',
+      actor: 'By',
+      ip: 'IP address',
+      when: 'When',
+    },
   },
 
   passwords: {
     title: 'Passwords',
-    subtitle: 'Logins, notes and cards your team keeps and shares securely.',
     accessDenied: "You don't have permission to use the password manager.",
-    loadFailed: 'Could not load your passwords.',
     retry: 'Try again',
 
     common: {
@@ -193,34 +211,32 @@ export const weldpass = {
     },
 
     vaults: {
-      heading: 'Vaults',
-      all: 'All items',
       personal: 'Personal',
       newVault: 'New vault',
-      pick: 'Choose a vault',
-      settings: 'Vault settings',
-      settingsFor: 'Settings for {vault}',
-      membersTitle: 'Members',
-      membersFor: 'Members of {vault}',
-      members: '{count} members',
-      membersOne: '1 member',
-      manageMembers: 'Manage members',
       notMemberTitle: "You're not a member of this vault",
       notMemberDescription:
         "As a workspace admin you can manage who has access to this vault, but you can't see the passwords in it. Add yourself as a member to open them.",
+      title: 'Vaults',
+      columns: {
+        name: 'Name',
+        role: 'Your role',
+        members: 'Members',
+        items: 'Items',
+        updated: 'Updated',
+      },
+      notAMember: 'Not a member',
+      search: 'Search vaults',
+      noResultsTitle: 'No vaults found',
+      noResultsDescription: 'Try a different search.',
+      emptyTitle: 'No vaults yet',
+      emptyDescription:
+        'A shared vault lets a team keep and use passwords together. Create one and add your teammates.',
     },
 
     toolbar: {
       search: 'Search passwords',
       addItem: 'Add item',
       import: 'Import',
-      health: 'Password health',
-      filters: {
-        all: 'All',
-        login: 'Logins',
-        note: 'Notes',
-        card: 'Cards',
-      },
     },
 
     types: {
@@ -231,10 +247,10 @@ export const weldpass = {
 
     table: {
       name: 'Name',
-      details: 'Username / site',
       vault: 'Vault',
       updated: 'Updated',
       hasTotp: 'Has a 2FA code',
+      site: 'Site',
     },
 
     empty: {
@@ -244,8 +260,7 @@ export const weldpass = {
       vaultTitle: 'This vault is empty',
       vaultDescription: 'Add an item here, or move one in from another vault.',
       noResultsTitle: 'Nothing matches',
-      noResultsDescription: 'Try a different search, or show all types.',
-      clearFilters: 'Clear filters',
+      noResultsDescription: 'Try a different search or filter.',
     },
 
     fields: {
@@ -476,7 +491,6 @@ export const weldpass = {
       title: 'Password health',
       subtitle: 'Weak, reused and old passwords across your vaults. Nothing here shows a password.',
       loadFailed: 'Could not load the report.',
-      emptyTitle: 'No passwords to check yet',
       emptyDescription: 'Add logins with a password and they will be checked here.',
       goToPasswords: 'Go to passwords',
       checked: 'Checked',
@@ -485,13 +499,19 @@ export const weldpass = {
       reused: 'Reused',
       old: 'Old',
       allHealthy: 'All passwords look healthy.',
-      needsAttention: 'Needs attention: {count}',
       changed: 'Changed',
       issues: {
         weak: 'Weak',
         reused: 'Reused on {count} logins',
         old: 'Old',
       },
+      attentionTitle: 'Needs attention',
+      attentionHint: 'Weakest first. Open a login to change its password.',
+    },
+
+    filters: {
+      vault: 'Vault',
+      type: 'Type',
     },
   },
 

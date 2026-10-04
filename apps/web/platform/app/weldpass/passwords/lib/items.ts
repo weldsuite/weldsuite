@@ -23,27 +23,52 @@ import type {
 // Item list
 // ---------------------------------------------------------------------------
 
-export type ItemTypeFilter = 'all' | WeldPassItemType;
+/** Filter field ids shared by the item list's filter pills and the `?vault=` link. */
+export const VAULT_FILTER = 'vault';
+export const TYPE_FILTER = 'type';
+
+/** The shape of an active filter pill in the shared entity list. */
+export interface FilterPill {
+  id: string;
+  field: string;
+  /** "is" or "is not" for the select filters used here. Empty until picked. */
+  operator: string;
+  /** Empty until picked. */
+  value: string;
+}
 
 export interface ItemFilter {
-  /** Only this vault's items; omitted or null means every vault. */
-  vaultId?: string | null;
-  type?: ItemTypeFilter;
+  pills?: readonly FilterPill[];
   /** Free text. Every word has to match somewhere in title, username, site or URL. */
   query?: string;
 }
 
+/** A pill counts only once both its operator and its value are chosen. */
+function isComplete(pill: FilterPill): boolean {
+  return pill.operator !== '' && pill.value !== '';
+}
+
+/** Whether the pills that apply to `field` accept `value`. Other fields are ignored. */
+function pillsAccept(pills: readonly FilterPill[], field: string, value: string): boolean {
+  return pills
+    .filter((pill) => pill.field === field && isComplete(pill))
+    .every((pill) => (pill.operator === 'is not' ? value !== pill.value : value === pill.value));
+}
+
 /**
- * The visible items, sorted by title. Search is client-side over the fields a
- * list carries (never a secret), so a keystroke costs no request.
+ * The visible items, sorted by title. The entity list hands over its filter
+ * pills and search text and leaves the matching to us: search is client-side
+ * over the fields a list carries (never a secret), so a keystroke costs no
+ * request.
  */
 export function filterItems(items: readonly WeldPassItem[], filter: ItemFilter): WeldPassItem[] {
   const words = (filter.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  const pills = filter.pills ?? [];
 
   return items
     .filter((item) => {
-      if (filter.vaultId && item.vaultId !== filter.vaultId) return false;
-      if (filter.type && filter.type !== 'all' && item.type !== filter.type) return false;
+      if (!pillsAccept(pills, VAULT_FILTER, item.vaultId)) return false;
+      if (!pillsAccept(pills, TYPE_FILTER, item.type)) return false;
       if (words.length === 0) return true;
 
       const haystack = [item.title, item.subtitle, item.url, item.host]
@@ -55,11 +80,65 @@ export function filterItems(items: readonly WeldPassItem[], filter: ItemFilter):
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 }
 
-/** How many items each vault holds, from the already-loaded list. */
-export function countByVault(items: readonly WeldPassItem[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const item of items) counts.set(item.vaultId, (counts.get(item.vaultId) ?? 0) + 1);
-  return counts;
+/** Whether a search or any chosen filter is narrowing the list. */
+export function isFiltering(filter: ItemFilter): boolean {
+  return (filter.query ?? '').trim() !== '' || (filter.pills ?? []).some(isComplete);
+}
+
+/** The vault the list is narrowed to ("vault is X"), if any. */
+export function vaultIdFromPills(pills: readonly FilterPill[]): string | undefined {
+  return pills.find((pill) => pill.field === VAULT_FILTER && pill.operator === 'is' && pill.value)
+    ?.value;
+}
+
+/**
+ * Put `vaultId` into the pills as the one "vault is …" pill, replacing any
+ * other, or drop it when `vaultId` is undefined. Other pills (including a
+ * half-built one the user is still choosing a value for) are left alone.
+ */
+export function withVaultPill<T extends FilterPill>(
+  pills: readonly T[],
+  vaultId: string | undefined,
+  makePill: (vaultId: string) => T,
+): T[] {
+  const others = pills.filter(
+    (pill) => !(pill.field === VAULT_FILTER && pill.operator === 'is' && pill.value),
+  );
+  return vaultId ? [makePill(vaultId), ...others] : others;
+}
+
+/** One group of the item list: a vault's items, with its heading. */
+export interface VaultGroup {
+  id: string;
+  label: string;
+  sortOrder: number;
+  filter: (item: { vaultId: string }) => boolean;
+}
+
+/** Groups for the item list: the personal vault first, then shared vaults by name. */
+export function buildVaultGroups(
+  vaults: readonly WeldPassVault[],
+  label: (vault: WeldPassVault) => string,
+): VaultGroup[] {
+  return sortVaults(vaults).map((vault, index) => ({
+    id: vault.id,
+    label: label(vault),
+    sortOrder: index,
+    filter: (item) => item.vaultId === vault.id,
+  }));
+}
+
+/** Vaults matching a search box, by the name shown and the description. */
+export function filterVaults(
+  vaults: readonly WeldPassVault[],
+  query: string,
+  label: (vault: WeldPassVault) => string,
+): WeldPassVault[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return sortVaults(vaults).filter((vault) => {
+    const haystack = `${label(vault)} ${vault.description ?? ''}`.toLowerCase();
+    return words.every((word) => haystack.includes(word));
+  });
 }
 
 // ---------------------------------------------------------------------------
