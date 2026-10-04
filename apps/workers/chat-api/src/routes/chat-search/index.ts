@@ -27,13 +27,15 @@ const searchQuerySchema = z.object({
   authorId: z.string().optional(),
   before: z.string().datetime().optional(),
   after: z.string().datetime().optional(),
+  hasFile: z.enum(['true', 'false']).optional(),
+  isPinned: z.enum(['true', 'false']).optional(),
   limit: z.coerce.number().min(1).max(50).default(20),
 });
 
 app.get('/', requirePermission('messages:read'), zValidator('query', searchQuerySchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
-  const { q, channelId, authorId, before, after, limit } = c.req.valid('query');
+  const { q, channelId, authorId, before, after, hasFile, isPinned, limit } = c.req.valid('query');
 
   try {
     const { chatMessages, chatChannelMembers, chatChannels } = schema;
@@ -72,6 +74,8 @@ app.get('/', requirePermission('messages:read'), zValidator('query', searchQuery
     if (authorId) conditions.push(eq(chatMessages.authorId, authorId));
     if (after) conditions.push(gte(chatMessages.createdAt, new Date(after)));
     if (before) conditions.push(lte(chatMessages.createdAt, new Date(before)));
+    if (hasFile) conditions.push(eq(chatMessages.hasAttachments, hasFile === 'true'));
+    if (isPinned) conditions.push(eq(chatMessages.isPinned, isPinned === 'true'));
 
     const messages = await db
       .select({

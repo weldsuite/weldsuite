@@ -68,6 +68,21 @@ async function notifyNewDm(
   }
 }
 
+/**
+ * The subset of `userIds` that is not a member of the workspace. A DM is only
+ * ever created for real workspace members: without this check any string (a
+ * channel id, a typo) became a "user" with its own DM channel and member row.
+ */
+async function findUnknownWorkspaceUserIds(db: Database, userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const rows = await db
+    .select({ userId: schema.workspaceMembers.userId })
+    .from(schema.workspaceMembers)
+    .where(inArray(schema.workspaceMembers.userId, userIds));
+  const known = new Set(rows.map((r) => r.userId));
+  return userIds.filter((id) => !known.has(id));
+}
+
 app.get('/', requirePermission('messages:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -76,11 +91,13 @@ app.get('/', requirePermission('messages:read'), async (c) => {
     const { chatChannels, chatChannelMembers, workspaceMembers } = schema;
 
     const memberChannels = await db
-      .select({ channelId: chatChannelMembers.channelId })
+      .select({ channelId: chatChannelMembers.channelId, isMuted: chatChannelMembers.isMuted })
       .from(chatChannelMembers)
       .where(eq(chatChannelMembers.userId, userId));
     const channelIds = memberChannels.map((r) => r.channelId);
     if (channelIds.length === 0) return success(c, []);
+    // The caller's own mute flag per channel, so the UI can offer "Unmute".
+    const mutedByChannel = new Map(memberChannels.map((r) => [r.channelId, r.isMuted === true]));
 
     const channels = await db
       .select()
@@ -113,6 +130,7 @@ app.get('/', requirePermission('messages:read'), async (c) => {
           ...channel,
           members,
           otherMembers,
+          isMuted: mutedByChannel.get(channel.id) ?? false,
           lastReadAt: currentMember?.lastReadAt ?? null,
           lastReadMessageId: currentMember?.lastReadMessageId ?? null,
         };
@@ -138,6 +156,16 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
 
     const allUserIds = Array.from(new Set([userId, ...userIds]));
     const participantCount = allUserIds.length;
+
+    const unknownUserIds = await findUnknownWorkspaceUserIds(
+      db,
+      allUserIds.filter((id) => id !== userId),
+    );
+    if (unknownUserIds.length > 0) {
+      return error.badRequest(c, 'Some users are not members of this workspace', {
+        userIds: unknownUserIds,
+      });
+    }
 
     // Try to find an existing DM channel with exactly these participants.
     const userDmChannels = await db
@@ -334,12 +362,16 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
       }
     }
 
-    // No existing DM — create one.
+    // No existing DM — create one, but only for a real workspace member. A DM
+    // with yourself stays allowed (the caller is a member by definition).
     const [targetUser] = await db
       .select({ userId: workspaceMembers.userId, name: workspaceMembers.name })
       .from(workspaceMembers)
       .where(eq(workspaceMembers.userId, targetUserId))
       .limit(1);
+    if (!targetUser && targetUserId !== userId) {
+      return error.notFound(c, 'User', targetUserId);
+    }
 
     const channelName = targetUser?.name ?? 'Direct Message';
     const id = generateId('ch');

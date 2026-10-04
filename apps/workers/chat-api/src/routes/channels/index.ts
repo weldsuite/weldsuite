@@ -7,13 +7,13 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gt, inArray, isNull, like, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { updateChannelMembershipSchema } from '@weldsuite/app-api-client/schemas/chat-dm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { postChatMessage, ChatFeatureError } from '../../services/chat/post-message';
 import { setChannelMuted } from '../../services/chat/dm-membership';
 import { canAccessChannel, isChannelModerator } from '../../services/chat/channel-access';
@@ -59,7 +59,8 @@ const t = schema.chatChannels;
 // ---------------------------------------------------------------------------
 
 const createChannelBodySchema = z.object({
-  name: z.string().min(1).max(255),
+  // Trimmed before the length check, so a whitespace-only name is a 400.
+  name: z.string().trim().min(1).max(255),
   description: z.string().optional(),
   topic: z.string().optional(),
   type: z.enum(['public', 'private']).default('public'),
@@ -73,7 +74,7 @@ const createChannelBodySchema = z.object({
 });
 
 const updateChannelBodySchema = z.object({
-  name: z.string().min(1).max(255).optional(),
+  name: z.string().trim().min(1).max(255).optional(),
   description: z.string().optional(),
   topic: z.string().optional(),
   icon: z.string().max(50).optional(),
@@ -91,6 +92,67 @@ const updateChannelBodySchema = z.object({
   agentReplyPolicy: z.enum(['mentions', 'always', 'none']).optional(),
   agentMaxHops: z.number().int().min(1).max(5).optional(),
 });
+
+/**
+ * Whether a channel the caller can see already uses `name` (case-insensitive,
+ * surrounding whitespace ignored): a live public channel, or a live private
+ * channel the caller is a member of. A private channel the caller is not in
+ * never conflicts, so a 409 cannot reveal that it exists (a clash on the slug
+ * is resolved separately by `resolveChannelSlug`). DMs and entity channels are
+ * named after their participants / record and may repeat, so they neither
+ * conflict nor count. `excludeId` lets a channel keep its own name on rename.
+ */
+async function channelNameTaken(
+  db: Database,
+  userId: string,
+  name: string,
+  excludeId?: string,
+): Promise<boolean> {
+  const conditions = [
+    isNull(t.deletedAt),
+    sql`lower(btrim(${t.name})) = lower(${name})`,
+    or(
+      eq(t.type, 'public'),
+      and(
+        eq(t.type, 'private'),
+        sql`EXISTS (
+          SELECT 1 FROM ${schema.chatChannelMembers}
+          WHERE ${schema.chatChannelMembers.channelId} = ${t.id}
+            AND ${schema.chatChannelMembers.userId} = ${userId}
+        )`,
+      ),
+    )!,
+  ];
+  if (excludeId) conditions.push(ne(t.id, excludeId));
+  const [clash] = await db
+    .select({ id: t.id })
+    .from(t)
+    .where(and(...conditions))
+    .limit(1);
+  return Boolean(clash);
+}
+
+/** The caller's own `isMuted` flag per channel id (absent row = not muted). */
+async function callerMuteFlags(
+  db: Database,
+  userId: string,
+  channelIds: string[],
+): Promise<Map<string, boolean>> {
+  if (channelIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      channelId: schema.chatChannelMembers.channelId,
+      isMuted: schema.chatChannelMembers.isMuted,
+    })
+    .from(schema.chatChannelMembers)
+    .where(
+      and(
+        eq(schema.chatChannelMembers.userId, userId),
+        inArray(schema.chatChannelMembers.channelId, channelIds),
+      ),
+    );
+  return new Map(rows.map((r) => [r.channelId, r.isMuted === true]));
+}
 
 app.get('/', requirePermission('channels:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -140,7 +202,9 @@ app.get('/', requirePermission('channels:read'), async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
+    const muted = await callerMuteFlags(db, userId, data.map((r) => r.id));
+    const items = data.map((r) => ({ ...r, isMuted: muted.get(r.id) ?? false }));
+    return list(c, items, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/channels] list failed:', err);
     return error.internal(c, 'Failed to list channels');
@@ -179,7 +243,10 @@ app.get('/:id', requirePermission('channels:read'), async (c) => {
         eq(schema.chatChannelMembers.userId, schema.workspaceMembers.userId),
       )
       .where(eq(schema.chatChannelMembers.channelId, id));
-    return success(c, { ...row, members });
+    // The caller's own mute flag at the top level (the per-member flags in
+    // `members` are every member's, not necessarily the caller's).
+    const isMuted = members.find((m) => m.userId === userId)?.isMuted === true;
+    return success(c, { ...row, isMuted, members });
   } catch (err) {
     console.error('[app-api/channels] get failed:', err);
     return error.internal(c, 'Failed to fetch channel');
@@ -208,6 +275,10 @@ app.post(
     const data = c.req.valid('json');
 
     try {
+      if (await channelNameTaken(db, userId, data.name)) {
+        return error.conflict(c, `A channel named "${data.name}" already exists`);
+      }
+
       const { agentIds, agentReplyPolicy, agentMaxHops, ...channelFields } = data;
       const metadata =
         agentReplyPolicy || agentMaxHops
@@ -267,6 +338,15 @@ app.patch('/:id', requirePermission('channels:update'), zValidator('json', updat
     }
     if (!(await isChannelModerator(db, id, userId))) {
       return error.forbidden(c, 'Only channel owners and admins can update this channel');
+    }
+    // Renaming onto another public/private channel's name is a conflict; a
+    // channel keeping its own name is not, and DM / entity names may repeat.
+    if (
+      data.name !== undefined &&
+      (existing.type === 'public' || existing.type === 'private') &&
+      (await channelNameTaken(db, userId, data.name, id))
+    ) {
+      return error.conflict(c, `A channel named "${data.name}" already exists`);
     }
     const { agentReplyPolicy, agentMaxHops, ...rest } = data;
     const update: Record<string, any> = { updatedAt: new Date() };

@@ -10,7 +10,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createChatDraftSchema, updateChatDraftSchema } from '@weldsuite/core-api-client/schemas/chat-drafts';
 import type { Env, Variables } from '../../types';
@@ -21,6 +21,19 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.chatDrafts;
 
+/** SQL condition: the draft has text or at least one attachment. */
+const hasDraftBody = sql`(
+  btrim(${t.content}) <> ''
+  OR (jsonb_typeof(${t.attachments}) = 'array' AND jsonb_array_length(${t.attachments}) > 0)
+)`;
+
+/** True when there is neither non-whitespace text nor an attachment to keep. */
+function isEmptyDraft(content: unknown, attachments: unknown): boolean {
+  const hasText = typeof content === 'string' && content.trim().length > 0;
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+  return !hasText && !hasAttachments;
+}
+
 app.get('/', requirePermission('channels:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -29,7 +42,9 @@ app.get('/', requirePermission('channels:read'), async (c) => {
 
   // Owner boundary: a draft is private to its author. Always scope to the
   // caller — never trust a body/query-supplied userId.
-  const conditions: any[] = [eq(t.userId, userId)];
+  // Empty drafts (no text, no attachments) are never listed, even when an
+  // older client left one behind.
+  const conditions: any[] = [eq(t.userId, userId), hasDraftBody];
   if (q.channelId !== undefined && q.channelId !== '') conditions.push(eq(t.channelId, q.channelId));
   // Snapshot the filter set BEFORE the cursor predicate is (conditionally)
   // pushed — a stale cursor id finds no row and pushes nothing, so slicing
@@ -94,6 +109,27 @@ app.post('/', requirePermission('channels:read'), zValidator('json', createChatD
     // Stamp the authenticated caller as the owner + tenant — ignore any
     // body-supplied userId / workspaceId.
     const { userId: _ignoredUserId, workspaceId: _ignoredWorkspaceId, ...rest } = data;
+
+    // An empty draft is never stored: it means "no draft at this location", so
+    // clear whatever is there and answer success without creating a row.
+    if (isEmptyDraft(rest.content ?? rest.body, rest.attachments)) {
+      const channelId = typeof rest.channelId === 'string' ? rest.channelId : null;
+      const threadParentMessageId =
+        typeof rest.threadParentMessageId === 'string' ? rest.threadParentMessageId : null;
+      const removed = await db
+        .delete(t)
+        .where(
+          and(
+            eq(t.userId, userId),
+            channelId === null ? isNull(t.channelId) : eq(t.channelId, channelId),
+            threadParentMessageId === null
+              ? isNull(t.threadParentMessageId)
+              : eq(t.threadParentMessageId, threadParentMessageId),
+          ),
+        )
+        .returning({ id: t.id });
+      return success(c, { id: removed[0]?.id ?? null, deleted: removed.length > 0 });
+    }
     await db
       .insert(t)
       .values({ ...rest, id, userId, workspaceId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
@@ -116,6 +152,13 @@ app.patch('/:id', requirePermission('channels:read'), zValidator('json', updateC
       .where(and(eq(t.id, id), eq(t.userId, userId)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Chat draft', id);
+    // A draft that would end up empty is deleted instead of stored empty.
+    const nextContent = data.content !== undefined ? data.content : existing.content;
+    const nextAttachments = data.attachments !== undefined ? data.attachments : existing.attachments;
+    if (isEmptyDraft(nextContent, nextAttachments)) {
+      await db.delete(t).where(and(eq(t.id, id), eq(t.userId, userId)));
+      return success(c, { id, deleted: true });
+    }
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) if (v !== undefined && k !== 'userId') update[k] = v;
     await db.update(t).set(update).where(and(eq(t.id, id), eq(t.userId, userId)));

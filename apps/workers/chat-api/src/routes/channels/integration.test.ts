@@ -88,7 +88,13 @@ describe('/api/channels · pglite integration', () => {
       });
       return ((await res.json()) as { data: { id: string } }).data.id;
     };
-    await post('Rename Target');
+    // A live channel with this name would be a 409 (see names.integration.test.ts);
+    // a soft-deleted one still holds the slug, which is the case under test.
+    const targetId = await post('Rename Target');
+    await db
+      .update(schema.chatChannels)
+      .set({ deletedAt: new Date() })
+      .where(eq(schema.chatChannels.id, targetId));
     const id = await post('Rename Source');
 
     const res = await request(`/api/channels/${id}`, {
