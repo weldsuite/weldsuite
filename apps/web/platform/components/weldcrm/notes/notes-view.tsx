@@ -365,7 +365,7 @@ function NoteEditorDialog({
                   data-placeholder={t('sweep.weldcrm.globalPinnedNote.untitled')}
                   className="text-4xl font-bold text-foreground outline-none mb-1 break-words empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/50"
                 />
-                <div className="mt-4 -ml-[53px] -mr-12">
+                <div className="mt-4">
                   <BlockEditor
                     key={note?.id}
                     initialHtml={initialHtml}
