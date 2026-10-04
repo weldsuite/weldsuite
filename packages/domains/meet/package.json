@@ -7,6 +7,7 @@
   "exports": {
     "./audio/mp3": "./src/audio/mp3.ts",
     "./billing": "./src/billing.ts",
+    "./booking-meeting": "./src/booking-meeting.ts",
     "./env": "./src/env.ts",
     "./meeting-lifecycle": "./src/meeting-lifecycle.ts",
     "./r2-copy": "./src/r2-copy.ts",

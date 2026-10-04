@@ -56,6 +56,7 @@ export async function getTenantDbBySlug(slug: string) {
       name: workspaces.name,
       slug: workspaces.slug,
       isActive: workspaces.isActive,
+      clerkOrgId: workspaces.clerkOrgId,
       imageUrl: workspaces.imageUrl,
     })
     .from(workspaces)
@@ -70,6 +71,7 @@ export async function getTenantDbBySlug(slug: string) {
         name: workspaces.name,
         slug: workspaces.slug,
         isActive: workspaces.isActive,
+        clerkOrgId: workspaces.clerkOrgId,
         imageUrl: workspaces.imageUrl,
       })
       .from(workspaces)

@@ -1,8 +1,12 @@
 'use server';
 
-import { eq, and, isNull, gte, lte, desc, ne } from 'drizzle-orm';
-import { fromZonedTime } from 'date-fns-tz';
+import { eq, and, isNull, desc, sql } from 'drizzle-orm';
 import { buildIcsInvite } from '@weldsuite/transactional-email';
+import {
+  cancelBookingMeeting,
+  createBookingMeeting,
+  rescheduleBookingMeeting,
+} from '@weldsuite/meet-domain/booking-meeting';
 import {
   calendarBookingPages,
   calendarBookings,
@@ -19,7 +23,14 @@ import {
   sendGuestInviteEmail,
 } from '@/lib/booking-emails';
 import { BOOKING_FROM_ADDRESS } from '@/lib/constants';
-import { sanitizeAvailability, weekdayOfDate } from '@/lib/availability';
+import { isCalendarDate } from '@/lib/day-slots';
+import {
+  isTenantSlotAvailable,
+  loadDaySlots,
+  type SlotExclusions,
+  type TenantQueryDb,
+} from '@/lib/booking-slots';
+import { calendarLocationOf, needsWeldMeetMeeting } from '@/lib/location';
 import {
   buildManageUrls,
   createManageToken,
@@ -33,7 +44,6 @@ import {
   cancelBookingInputSchema,
   createBookingInputSchema,
   rescheduleBookingInputSchema,
-  weeklyAvailabilitySchema,
   type CancelBookingInput,
   type CreateBookingInput,
   type RescheduleBookingInput,
@@ -59,10 +69,61 @@ export type BookingResult =
       /** Signed token that authorises cancelling / rescheduling this booking. */
       manageToken: string;
       emailDelivery: 'sent' | 'failed' | 'partial';
+      /** Join link of the meeting (WeldMeet or the page's own link); null for in person / phone. */
+      meetingUrl: string | null;
     }
   | { success: false; error: string };
 
 const SLOT_TAKEN_ERROR = 'This time slot is no longer available. Please choose another time.';
+
+/** The page's own link for a video booking (a legacy manual link), or null. */
+function customVideoLink(page: { locationType: string | null; locationValue: string | null }): string | null {
+  return page.locationType === 'video' ? page.locationValue?.trim() || null : null;
+}
+
+/**
+ * Serialises bookings of one page for the length of the transaction, so two
+ * people booking the same slot at once cannot both pass the availability check.
+ */
+async function lockBookingPage(tx: TenantQueryDb, bookingPageId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${bookingPageId}))`);
+}
+
+/** The join link stored on a booking's calendar event, if any. */
+async function eventMeetingUrl(db: TenantQueryDb, eventId: string | null): Promise<string | null> {
+  if (!eventId) return null;
+  const [row] = await db
+    .select({ meetingUrl: calendarEvents.meetingUrl })
+    .from(calendarEvents)
+    .where(eq(calendarEvents.id, eventId))
+    .limit(1);
+  return row?.meetingUrl?.trim() || null;
+}
+
+/**
+ * While a booking is being rescheduled, its own event and booking must not
+ * count against the slots it is moving to. Only honoured with the signed token
+ * from the booking's link.
+ */
+async function managedExclusions(
+  db: TenantQueryDb,
+  bookingPageId: string,
+  manage: { bookingId: string; token: string } | undefined,
+): Promise<SlotExclusions> {
+  if (!manage || !(await isValidManageToken(manage.bookingId, manage.token))) return {};
+  const [booking] = await db
+    .select({ id: calendarBookings.id, calendarEventId: calendarBookings.calendarEventId })
+    .from(calendarBookings)
+    .where(
+      and(
+        eq(calendarBookings.id, manage.bookingId),
+        eq(calendarBookings.bookingPageId, bookingPageId),
+        isNull(calendarBookings.deletedAt),
+      ),
+    )
+    .limit(1);
+  return booking ? { excludeEventId: booking.calendarEventId, excludeBookingId: booking.id } : {};
+}
 
 // ── Get available slots for a date ─────────────────────────────────────
 
@@ -70,10 +131,12 @@ export async function getAvailableSlots(
   workspaceSlug: string,
   bookingPageId: string,
   date: string,
-  // When rescheduling, exclude the booking's own event so its current slot
-  // doesn't count as a conflict against the new time it's moving to.
-  excludeEventId?: string,
+  // When rescheduling: the booking being moved. Its own slot then counts as
+  // free (verified with the booking's signed token).
+  manage?: { bookingId: string; token: string },
 ): Promise<TimeSlot[]> {
+  if (!isCalendarDate(date)) return [];
+
   const tenant = await getTenantDbBySlug(workspaceSlug);
   if (!tenant) return [];
   const { db } = tenant;
@@ -92,89 +155,8 @@ export async function getAvailableSlots(
 
   if (!bookingPage) return [];
 
-  const tz = bookingPage.timezone || 'UTC';
-
-  const availabilityParse = weeklyAvailabilitySchema.safeParse(bookingPage.availability);
-  if (!availabilityParse.success) {
-    console.error(
-      '[booking-portal] availability JSONB failed schema validation',
-      bookingPageId,
-      availabilityParse.error.flatten(),
-    );
-    return [];
-  }
-  const availability = sanitizeAvailability(availabilityParse.data);
-
-  // `date` is already a calendar date in the owner's timezone: read its weekday
-  // directly (shifting UTC midnight into a negative-offset zone would land on
-  // the previous day).
-  const dayName = weekdayOfDate(date);
-  if (!dayName) return [];
-  const daySlots = availability[dayName] ?? [];
-
-  if (daySlots.length === 0) return [];
-
-  // Day window, in the owner's tz.
-  const dayStart = fromZonedTime(`${date}T00:00:00`, tz);
-  const dayEnd = fromZonedTime(`${date}T23:59:59.999`, tz);
-
-  const eventConditions = [
-    isNull(calendarEvents.deletedAt),
-    eq(calendarEvents.organizerId, bookingPage.ownerId),
-    gte(calendarEvents.startTime, dayStart),
-    lte(calendarEvents.startTime, dayEnd),
-    eq(calendarEvents.status, 'confirmed'),
-  ];
-  if (excludeEventId) {
-    eventConditions.push(ne(calendarEvents.id, excludeEventId));
-  }
-
-  const existingEvents = await db
-    .select({ startTime: calendarEvents.startTime, endTime: calendarEvents.endTime })
-    .from(calendarEvents)
-    .where(and(...eventConditions));
-
-  const duration = bookingPage.duration;
-  const bufferBefore = bookingPage.bufferBefore ?? 0;
-  const bufferAfter = bookingPage.bufferAfter ?? 0;
-  const slots: TimeSlot[] = [];
-
-  for (const range of daySlots) {
-    const rangeStart = fromZonedTime(`${date}T${range.start}:00`, tz);
-    const rangeEnd = fromZonedTime(`${date}T${range.end}:00`, tz);
-
-    let current = new Date(rangeStart);
-
-    while (current.getTime() + duration * 60000 <= rangeEnd.getTime()) {
-      const slotStart = new Date(current);
-      const slotEnd = new Date(current.getTime() + duration * 60000);
-
-      const bufferedStart = new Date(slotStart.getTime() - bufferBefore * 60000);
-      const bufferedEnd = new Date(slotEnd.getTime() + bufferAfter * 60000);
-
-      const hasConflict = existingEvents.some((evt) => {
-        const evtStart = new Date(evt.startTime);
-        const evtEnd = evt.endTime
-          ? new Date(evt.endTime)
-          : new Date(evtStart.getTime() + 30 * 60000);
-        return bufferedStart < evtEnd && bufferedEnd > evtStart;
-      });
-
-      const now = new Date();
-      const minNoticeMs = (bookingPage.minNotice ?? 60) * 60000;
-      const tooSoon = slotStart.getTime() - now.getTime() < minNoticeMs;
-
-      slots.push({
-        start: slotStart.toISOString(),
-        end: slotEnd.toISOString(),
-        available: !hasConflict && !tooSoon,
-      });
-
-      current = new Date(current.getTime() + duration * 60000);
-    }
-  }
-
-  return slots;
+  const exclude = await managedExclusions(db, bookingPage.id, manage);
+  return loadDaySlots(db, bookingPage, date, exclude);
 }
 
 // ── Create a booking ───────────────────────────────────────────────────
@@ -207,7 +189,6 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
       return { success: false, error: 'Booking page not found or inactive' };
     }
 
-    const slotDate = data.startTime.slice(0, 10); // 'yyyy-MM-dd' from ISO 8601
     const tz = bookingPage.timezone || 'UTC';
     const guests = data.guests ?? [];
 
@@ -239,11 +220,11 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
     // booking the guest can never manage.
     const manageToken = await createManageToken(bookingId);
     const startDate = new Date(data.startTime);
-    const descriptionLines = [
+    const endDate = new Date(data.endTime);
+    const baseDescription = [
       data.notes || `Booked via ${bookingPage.name}`,
       ...formatAnswerLines(questions, answers),
     ];
-    const endDate = new Date(data.endTime);
 
     const attendees = [
       { email: data.bookerEmail, name: data.bookerName, status: 'accepted', role: 'attendee' },
@@ -255,21 +236,48 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
       })),
     ];
 
-    // Re-verify the slot is still free *inside* a transaction so two concurrent
-    // bookers can't both win. The conflict check uses the same buffer logic
-    // as `getAvailableSlots` but only against the single requested slot.
+    // A video page without a link of its own meets in WeldMeet: every booking
+    // gets its own meeting, created with the event.
+    const wantsMeeting = needsWeldMeetMeeting(bookingPage.locationType, bookingPage.locationValue);
+    const eventTitle = `Meeting with ${data.bookerName}`;
+
+    // Re-verify the slot under the same rules as the picker *inside* a
+    // transaction, behind a per-page lock, so two concurrent bookers can't both
+    // win. Event, booking and meeting are written together or not at all.
     const insertResult = await db.transaction(async (tx) => {
-      const slots = await getAvailableSlots(data.workspaceSlug, data.bookingPageId, slotDate);
-      const matching = slots.find((s) => s.start === data.startTime && s.end === data.endTime);
-      if (!matching?.available) {
+      await lockBookingPage(tx, bookingPage.id);
+
+      if (!(await isTenantSlotAvailable(tx, bookingPage, data.startTime, data.endTime))) {
         return { kind: 'conflict' as const };
       }
+
+      const meeting = wantsMeeting
+        ? await createBookingMeeting(tx, {
+            id: generateId('mtg'),
+            title: eventTitle,
+            eventId,
+            hostUserId: bookingPage.ownerId,
+            // The meeting portal resolves the tenant by Clerk organization id.
+            workspaceId: tenant.workspace.clerkOrgId ?? tenant.workspace.id,
+            portalUrl: process.env.MEETING_PORTAL_URL,
+            start: startDate,
+            end: endDate,
+            attendees: [
+              { email: data.bookerEmail, name: data.bookerName, status: 'accepted' },
+              ...guests.map((g) => ({ email: g.email, name: g.name })),
+            ],
+          })
+        : null;
+      const meetingUrl = meeting?.joinUrl ?? customVideoLink(bookingPage);
 
       await tx.insert(calendarEvents).values({
         id: eventId,
         calendarId: ownerCalendar.id,
-        title: `Meeting with ${data.bookerName}`,
-        description: descriptionLines.join('\n'),
+        title: eventTitle,
+        description: [
+          ...baseDescription,
+          ...(meeting ? [`Join: ${meeting.joinUrl}`] : []),
+        ].join('\n'),
         type: 'meeting',
         startTime: startDate,
         endTime: endDate,
@@ -277,9 +285,9 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
         organizerId: bookingPage.ownerId,
         status: 'confirmed',
         priority: 'normal',
-        location: bookingPage.locationValue,
+        location: meeting ? 'WeldMeet' : bookingPage.locationValue,
         isVirtual: bookingPage.locationType === 'video',
-        meetingUrl: bookingPage.locationType === 'video' ? bookingPage.locationValue : null,
+        meetingUrl,
         attendees,
         createdAt: now,
         updatedAt: now,
@@ -302,12 +310,13 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
         updatedAt: now,
       });
 
-      return { kind: 'ok' as const };
+      return { kind: 'ok' as const, meetingUrl };
     });
 
     if (insertResult.kind === 'conflict') {
       return { success: false, error: SLOT_TAKEN_ERROR };
     }
+    const { meetingUrl } = insertResult;
 
     // The host is the member who owns the page. Their email is the ICS RSVP
     // target and the reply-to of every mail; their name is what guests see.
@@ -329,8 +338,13 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
       description: [
         data.notes || bookingPage.confirmationMessage || `Booked via ${bookingPage.name}`,
         ...formatAnswerLines(questions, answers),
+        ...(meetingUrl ? [`Join: ${meetingUrl}`] : []),
       ].join('\n'),
-      location: bookingPage.locationValue,
+      location: calendarLocationOf({
+        locationType: bookingPage.locationType,
+        locationValue: bookingPage.locationValue,
+        meetingUrl,
+      }),
       startTime: data.startTime,
       endTime: data.endTime,
       organizer: { email: organizerEmail, name: organizerName },
@@ -353,6 +367,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
         endTime: data.endTime,
         locationType: bookingPage.locationType,
         locationValue: bookingPage.locationValue,
+        meetingUrl,
         workspaceName: tenant.workspace.name,
         confirmationMessage: bookingPage.confirmationMessage,
         timezone: tz,
@@ -371,6 +386,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
           endTime: data.endTime,
           locationType: bookingPage.locationType,
           locationValue: bookingPage.locationValue,
+          meetingUrl,
           workspaceName: tenant.workspace.name,
           timezone: tz,
           ics,
@@ -388,7 +404,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
 
     const emailDelivery = summarizeEmailDelivery(failures.length, results.length);
 
-    return { success: true, bookingId, manageToken, emailDelivery };
+    return { success: true, bookingId, manageToken, emailDelivery, meetingUrl };
   } catch (err) {
     console.error('[booking-portal] Failed to create booking:', err);
     return { success: false, error: 'Something went wrong. Please try again.' };
@@ -426,6 +442,7 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
     if (booking.status === 'cancelled') return { success: true };
 
     const now = new Date();
+    const meetingUrl = await eventMeetingUrl(db, booking.calendarEventId);
 
     await db.transaction(async (tx) => {
       await tx
@@ -433,13 +450,17 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
         .set({ status: 'cancelled', cancelledAt: now, cancelReason: data.reason, updatedAt: now })
         .where(eq(calendarBookings.id, booking.id));
 
-      // Cancelling (not soft-deleting) the event frees the slot: getAvailableSlots
-      // only counts events with status 'confirmed'.
+      // Cancelling (not soft-deleting) the event frees the slot: only
+      // confirmed and tentative events block a slot.
       if (booking.calendarEventId) {
         await tx
           .update(calendarEvents)
           .set({ status: 'cancelled', updatedAt: now })
           .where(eq(calendarEvents.id, booking.calendarEventId));
+
+        // The WeldMeet meeting of the booking is cancelled with it, like
+        // calendar-api does when a linked event is cancelled.
+        await cancelBookingMeeting(tx, booking.calendarEventId);
       }
     });
 
@@ -465,7 +486,11 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
       sequence: 1,
       summary: `${pageName} with ${booking.bookerName}`,
       description: booking.notes,
-      location: bookingPage?.locationValue ?? null,
+      location: calendarLocationOf({
+        locationType: bookingPage?.locationType ?? null,
+        locationValue: bookingPage?.locationValue ?? null,
+        meetingUrl,
+      }),
       startTime: startIso,
       endTime: endIso,
       organizer: { email: host.email ?? BOOKING_FROM_ADDRESS, name: host.name },
@@ -484,6 +509,7 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
         endTime: endIso,
         locationType: bookingPage?.locationType ?? null,
         locationValue: bookingPage?.locationValue ?? null,
+        meetingUrl,
         workspaceName: tenant.workspace.name,
         confirmationMessage: null,
         timezone: tz,
@@ -500,6 +526,7 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
           endTime: endIso,
           locationType: bookingPage?.locationType ?? null,
           locationValue: bookingPage?.locationValue ?? null,
+          meetingUrl,
           workspaceName: tenant.workspace.name,
           confirmationMessage: null,
           timezone: tz,
@@ -569,32 +596,35 @@ export async function rescheduleBooking(
 
     if (!bookingPage) return { success: false, error: 'Booking page not found or inactive' };
 
-    const slotDate = data.startTime.slice(0, 10);
     const tz = bookingPage.timezone || booking.timezone || 'UTC';
     const now = new Date();
     const startDate = new Date(data.startTime);
     const endDate = new Date(data.endTime);
     const guests = booking.guests ?? [];
 
-    // Re-verify the new slot is free inside a transaction, excluding this
-    // booking's own event so an adjacent move isn't blocked by itself.
+    // Re-verify the new slot under the same rules, excluding this booking's own
+    // event and booking so a move is not blocked by itself. The meeting moves
+    // with the event.
     const result = await db.transaction(async (tx) => {
-      const slots = await getAvailableSlots(
-        data.workspaceSlug,
-        booking.bookingPageId,
-        slotDate,
-        booking.calendarEventId ?? undefined,
-      );
-      const matching = slots.find((s) => s.start === data.startTime && s.end === data.endTime);
-      if (!matching?.available) {
-        return { kind: 'conflict' as const };
-      }
+      await lockBookingPage(tx, bookingPage.id);
+
+      const free = await isTenantSlotAvailable(tx, bookingPage, data.startTime, data.endTime, {
+        excludeEventId: booking.calendarEventId,
+        excludeBookingId: booking.id,
+      });
+      if (!free) return { kind: 'conflict' as const };
 
       if (booking.calendarEventId) {
         await tx
           .update(calendarEvents)
           .set({ startTime: startDate, endTime: endDate, status: 'confirmed', updatedAt: now })
           .where(eq(calendarEvents.id, booking.calendarEventId));
+
+        await rescheduleBookingMeeting(tx, {
+          eventId: booking.calendarEventId,
+          start: startDate,
+          end: endDate,
+        });
       }
 
       await tx
@@ -609,6 +639,8 @@ export async function rescheduleBooking(
       return { success: false, error: SLOT_TAKEN_ERROR };
     }
 
+    const meetingUrl =
+      (await eventMeetingUrl(db, booking.calendarEventId)) ?? customVideoLink(bookingPage);
     const host = await getHostInfo(db, bookingPage.ownerId, tenant.workspace.name);
     const manageToken = data.token;
     const manageUrls = await buildManageUrls({
@@ -623,8 +655,15 @@ export async function rescheduleBooking(
       method: 'REQUEST',
       sequence: 1,
       summary: `${bookingPage.name} with ${booking.bookerName}`,
-      description: booking.notes || bookingPage.confirmationMessage || `Booked via ${bookingPage.name}`,
-      location: bookingPage.locationValue,
+      description: [
+        booking.notes || bookingPage.confirmationMessage || `Booked via ${bookingPage.name}`,
+        ...(meetingUrl ? [`Join: ${meetingUrl}`] : []),
+      ].join('\n'),
+      location: calendarLocationOf({
+        locationType: bookingPage.locationType,
+        locationValue: bookingPage.locationValue,
+        meetingUrl,
+      }),
       startTime: data.startTime,
       endTime: data.endTime,
       organizer: { email: host.email ?? BOOKING_FROM_ADDRESS, name: host.name },
@@ -643,6 +682,7 @@ export async function rescheduleBooking(
         endTime: data.endTime,
         locationType: bookingPage.locationType,
         locationValue: bookingPage.locationValue,
+        meetingUrl,
         workspaceName: tenant.workspace.name,
         confirmationMessage: bookingPage.confirmationMessage,
         timezone: tz,
@@ -661,6 +701,7 @@ export async function rescheduleBooking(
           endTime: data.endTime,
           locationType: bookingPage.locationType,
           locationValue: bookingPage.locationValue,
+          meetingUrl,
           workspaceName: tenant.workspace.name,
           timezone: tz,
           ics,
@@ -682,7 +723,7 @@ export async function rescheduleBooking(
 
     const emailDelivery = summarizeEmailDelivery(failures.length, results.length);
 
-    return { success: true, bookingId: booking.id, manageToken, emailDelivery };
+    return { success: true, bookingId: booking.id, manageToken, emailDelivery, meetingUrl };
   } catch (err) {
     console.error('[booking-portal] Failed to reschedule booking:', err);
     return { success: false, error: 'Something went wrong. Please try again.' };

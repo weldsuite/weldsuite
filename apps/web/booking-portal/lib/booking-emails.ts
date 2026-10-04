@@ -10,6 +10,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { sendEmail, type EmailAttachment } from '@weldsuite/transactional-email';
 
 import { BOOKING_FROM_ADDRESS } from './constants';
+import { isHttpUrl, joinUrlOf, type LocationFields } from './location';
 
 interface BookingEmailParams {
   bookerName: string;
@@ -19,6 +20,8 @@ interface BookingEmailParams {
   endTime: string;
   locationType: string | null;
   locationValue: string | null;
+  /** The WeldMeet join link of the booking; wins over `locationValue` for video. */
+  meetingUrl?: string | null;
   workspaceName: string;
   confirmationMessage: string | null;
   timezone?: string | null;
@@ -40,6 +43,7 @@ interface GuestInviteParams {
   endTime: string;
   locationType: string | null;
   locationValue: string | null;
+  meetingUrl?: string | null;
   workspaceName: string;
   timezone?: string | null;
   ics?: string;
@@ -142,18 +146,36 @@ function manageFooterText(params: BookingEmailParams, fallbackIntro: string): st
   return [`${fallbackIntro} Reply to this email or contact ${who} directly.`];
 }
 
-function locationHtml(locationType: string | null, locationValue: string | null): string {
-  if (!locationValue) return '';
-  if (locationType === 'video') {
-    return `<p style="margin:0 0 4px"><strong>Location:</strong> <a href="${escapeHtml(locationValue)}">Join Video Call</a></p>`;
+function locationHtml(fields: LocationFields): string {
+  const row = (label: string, inner: string) =>
+    `<p style="margin:0 0 4px"><strong>${label}:</strong> ${inner}</p>`;
+
+  if (fields.locationType === 'video') {
+    const joinUrl = joinUrlOf(fields);
+    if (!joinUrl) return row('Location', 'Video call');
+    if (!isHttpUrl(joinUrl)) return row('Location', escapeHtml(joinUrl));
+    const href = escapeHtml(joinUrl);
+    return [
+      row('Location', `<a href="${href}">Join video call</a>`),
+      `<p style="margin:0 0 4px;color:#6b7280;font-size:13px;word-break:break-all">${href}</p>`,
+    ].join('\n        ');
   }
-  if (locationType === 'phone') {
-    return `<p style="margin:0 0 4px"><strong>Phone:</strong> ${escapeHtml(locationValue)}</p>`;
-  }
-  if (locationType === 'in-person') {
-    return `<p style="margin:0 0 4px"><strong>Location:</strong> ${escapeHtml(locationValue)}</p>`;
-  }
+  const value = fields.locationValue?.trim();
+  if (!value) return '';
+  if (fields.locationType === 'phone') return row('Phone', escapeHtml(value));
+  if (fields.locationType === 'in-person') return row('Location', escapeHtml(value));
   return '';
+}
+
+function locationText(fields: LocationFields): string {
+  if (fields.locationType === 'video') {
+    const joinUrl = joinUrlOf(fields);
+    return joinUrl ? `Join video call: ${joinUrl}` : 'Location: Video call';
+  }
+  const value = fields.locationValue?.trim();
+  if (!value) return '';
+  if (fields.locationType === 'phone') return `Phone: ${value}`;
+  return `Location: ${value}`;
 }
 
 export async function sendBookingConfirmationEmail(params: BookingEmailParams): Promise<void> {
@@ -181,7 +203,7 @@ export async function sendBookingConfirmationEmail(params: BookingEmailParams): 
         ${hostLineHtml(params.hostName, params.workspaceName)}
         <p style="margin:0 0 4px"><strong>Date:</strong> ${dateStr}</p>
         <p style="margin:0 0 4px"><strong>Time:</strong> ${timeStr}</p>
-        ${locationHtml(params.locationType, params.locationValue)}
+        ${locationHtml(params)}
       </div>
 
       ${customMessage}
@@ -203,7 +225,7 @@ export async function sendBookingConfirmationEmail(params: BookingEmailParams): 
     `Host: ${hostLabel(params.hostName, params.workspaceName)}`,
     `Date: ${dateStr}`,
     `Time: ${timeStr}`,
-    params.locationValue ? `Location: ${params.locationValue}` : '',
+    locationText(params),
     params.confirmationMessage ? `\n${params.confirmationMessage}` : '',
     ``,
     ...manageFooterText(params, 'If you need to make changes:'),
@@ -244,7 +266,7 @@ export async function sendBookingRescheduledEmail(params: BookingEmailParams): P
         ${hostLineHtml(params.hostName, params.workspaceName)}
         <p style="margin:0 0 4px"><strong>Date:</strong> ${dateStr}</p>
         <p style="margin:0 0 4px"><strong>Time:</strong> ${timeStr}</p>
-        ${locationHtml(params.locationType, params.locationValue)}
+        ${locationHtml(params)}
       </div>
 
       ${manageFooterHtml(params, 'The updated invitation is attached. If you need to make further changes, you can')}
@@ -264,7 +286,7 @@ export async function sendBookingRescheduledEmail(params: BookingEmailParams): P
     `Host: ${hostLabel(params.hostName, params.workspaceName)}`,
     `Date: ${dateStr}`,
     `Time: ${timeStr}`,
-    params.locationValue ? `Location: ${params.locationValue}` : '',
+    locationText(params),
     ``,
     ...manageFooterText(params, 'The updated invitation is attached. If you need to make further changes:'),
   ]
@@ -359,7 +381,7 @@ export async function sendGuestInviteEmail(params: GuestInviteParams): Promise<v
         <p style="margin:0 0 4px;font-size:16px;font-weight:600;color:#111827">${escapeHtml(params.bookingPageName)}</p>
         <p style="margin:0 0 4px"><strong>Date:</strong> ${dateStr}</p>
         <p style="margin:0 0 4px"><strong>Time:</strong> ${timeStr}</p>
-        ${locationHtml(params.locationType, params.locationValue)}
+        ${locationHtml(params)}
       </div>
 
       <p style="margin:0;color:#6b7280;font-size:13px">This is an automated invitation. If you have questions, contact ${escapeHtml(params.bookerName)} or ${escapeHtml(params.hostName?.trim() || params.workspaceName)} directly.</p>
@@ -376,7 +398,7 @@ export async function sendGuestInviteEmail(params: GuestInviteParams): Promise<v
     `${params.bookingPageName}`,
     `Date: ${dateStr}`,
     `Time: ${timeStr}`,
-    params.locationValue ? `Location: ${params.locationValue}` : '',
+    locationText(params),
   ]
     .filter(Boolean)
     .join('\n');

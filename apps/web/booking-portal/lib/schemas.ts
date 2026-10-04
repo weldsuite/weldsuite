@@ -27,6 +27,21 @@ export const weeklyAvailabilitySchema = z.object(
   ) as Record<(typeof DAY_NAMES)[number], z.ZodOptional<z.ZodArray<typeof timeRangeSchema>>>,
 );
 
+/** Per-date availability: replaces the weekly ranges for `date` (page timezone). */
+export const dateOverrideSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD'),
+  slots: z.array(timeRangeSchema),
+});
+
+/** Date overrides stored on a page; a malformed entry is ignored, the rest still apply. */
+export function parseDateOverrides(raw: unknown): DateOverride[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const parsed = dateOverrideSchema.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
 export const bookingQuestionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -47,6 +62,7 @@ export const bookingPagePropsSchema = z.object({
   locationType: z.string().nullable(),
   locationValue: z.string().nullable(),
   availability: weeklyAvailabilitySchema,
+  dateOverrides: z.array(dateOverrideSchema).default([]),
   questions: z.array(bookingQuestionSchema).default([]),
   minNotice: z.number().int().nullable(),
   maxAdvance: z.number().int().nullable(),
@@ -54,6 +70,7 @@ export const bookingPagePropsSchema = z.object({
   timezone: z.string(),
 });
 
+export type DateOverride = z.infer<typeof dateOverrideSchema>;
 export type TimeRange = z.infer<typeof timeRangeSchema>;
 export type WeeklyAvailability = z.infer<typeof weeklyAvailabilitySchema>;
 export type BookingQuestion = z.infer<typeof bookingQuestionSchema>;
