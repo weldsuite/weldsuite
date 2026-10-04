@@ -70,7 +70,9 @@ function roomEventToMessage(
     authorType: event.authorType,
     content: event.content,
     htmlContent: event.htmlContent,
-    type: 'message',
+    // Server-posted notices (e.g. "pinned a message") arrive as a `message`
+    // event flagged with `messageType: 'system'`.
+    type: event.messageType === 'system' ? 'system' : 'message',
     parentId: event.threadId,
     attachments: event.attachments?.map((a) => ({
       id: a.id,

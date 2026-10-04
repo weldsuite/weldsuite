@@ -34,6 +34,7 @@ import {
 } from '@/hooks/queries/use-weldchat-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { availableInviteTabs, isValidEmail, type InviteTab } from './invite-validation';
 
 interface InvitePeopleDialogProps {
   channelId: string;
@@ -41,7 +42,7 @@ interface InvitePeopleDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type Tab = 'members' | 'guest';
+type Tab = InviteTab;
 
 function extractErrorMessage(err: unknown): string | undefined {
   if (err instanceof Error) return err.message;
@@ -70,7 +71,14 @@ export function InvitePeopleDialog({ channelId, open, onOpenChange }: InvitePeop
   // never render an empty tab strip.
   const initialTab: Tab = isPrivate ? 'members' : 'guest';
   const [tab, setTab] = useState<Tab>(initialTab);
-  const hasAnyTab = isPrivate || canInviteExternal;
+  const tabs = availableInviteTabs({ isPrivate, canInviteExternal });
+  const hasAnyTab = tabs.length > 0;
+  // The header names only what the dialog can actually do: public channels have
+  // no Members tab, and Guest needs `team:invite_external`.
+  const description =
+    tabs.length > 1
+      ? st('sweep.weldchat.invitePeople.descriptionBoth')
+      : st(tabs[0] === 'guest' ? 'sweep.weldchat.invitePeople.descriptionGuest' : 'sweep.weldchat.invitePeople.descriptionMembers');
 
   const handleOpenChange = (next: boolean) => {
     onOpenChange(next);
@@ -87,9 +95,7 @@ export function InvitePeopleDialog({ channelId, open, onOpenChange }: InvitePeop
             <UserPlus className="h-4 w-4" />
             {st('sweep.entities.invitePeople')}
           </DialogTitle>
-          <DialogDescription>
-            {st('sweep.entities.invitePeopleDescription')}
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="gap-3">
@@ -275,6 +281,7 @@ interface InviteResponse {
 
 function GuestTab({ channelId, onDone }: { channelId: string; onDone: () => void }) {
   const { t } = useI18n();
+  const st = useTranslations();
   const ts = t.weldchat?.inviteExternal;
   const { getClient } = useAppApiClient();
   const { mutateAsync: addMembers } = useAddChannelMembers();
@@ -284,10 +291,13 @@ function GuestTab({ channelId, onDone }: { channelId: string; onDone: () => void
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const emailValid = isValidEmail(email);
+  const showEmailError = emailTouched && email.trim() !== '' && !emailValid;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !name) return;
+    if (!emailValid || !name.trim()) return;
     setError(null);
     setSubmitting(true);
     try {
@@ -302,7 +312,7 @@ function GuestTab({ channelId, onDone }: { channelId: string; onDone: () => void
       if (data.activated) {
         await addMembers({ channelId, userIds: [data.memberId] });
         await qc.invalidateQueries({ queryKey: ['installed-apps'] });
-        toast.success(`${name.trim()} added to the channel`);
+        toast.success(st('sweep.weldchat.inviteExternal.addedToChannel', { name: name.trim() }));
       } else {
         toast.success(
           ts?.pending ?? "Invitation sent. They'll join the channel automatically once they accept.",
@@ -342,16 +352,24 @@ function GuestTab({ channelId, onDone }: { channelId: string; onDone: () => void
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          onBlur={() => setEmailTouched(true)}
           placeholder={ts?.emailPlaceholder ?? 'jane@example.com'}
+          aria-invalid={showEmailError ? true : undefined}
+          aria-describedby={showEmailError ? 'invite-people-email-error' : undefined}
           required
         />
+        {showEmailError && (
+          <p id="invite-people-email-error" className="text-sm text-destructive">
+            {st('sweep.weldchat.invitePeople.invalidEmail')}
+          </p>
+        )}
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <DialogFooter>
         <Button type="button" variant="ghost" onClick={onDone} disabled={submitting}>
           {ts?.cancel ?? 'Cancel'}
         </Button>
-        <Button type="submit" disabled={submitting || !email || !name}>
+        <Button type="submit" disabled={submitting || !emailValid || !name.trim()}>
           {submitting ? (ts?.submitting ?? 'Sending…') : (ts?.submit ?? 'Send invitation')}
         </Button>
       </DialogFooter>

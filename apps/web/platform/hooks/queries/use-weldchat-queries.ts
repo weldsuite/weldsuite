@@ -1053,6 +1053,61 @@ export function useRemoveChannelMember() {
 // `.../leave` — so re-adding a hook is a two-line job if the UI ever grows a
 // browse-channels flow. See the W5b report.
 
+/** Cached `useChannels()` / `useDmChannels()` list. */
+type ChannelListCache = ListEnvelope<ChatChannel>;
+
+interface ChannelCacheSnapshot {
+  channels: ChannelListCache | undefined;
+  dms: ChannelListCache | undefined;
+  detail: { data: ChatChannel } | undefined;
+}
+
+/**
+ * Optimistically patch one channel in every cache that shows it (sidebar
+ * channel list, DM list, channel detail) and return the previous values so a
+ * failed mutation can restore them.
+ */
+async function patchChannelInCaches(
+  queryClient: QueryClient,
+  channelId: string,
+  patch: Partial<ChatChannel>,
+): Promise<ChannelCacheSnapshot> {
+  const channelsKey = weldchatKeys.channels();
+  const dmsKey = weldchatKeys.dms();
+  const detailKey = weldchatKeys.channelDetail(channelId);
+  await Promise.all([
+    queryClient.cancelQueries({ queryKey: channelsKey, exact: true }),
+    queryClient.cancelQueries({ queryKey: dmsKey, exact: true }),
+    queryClient.cancelQueries({ queryKey: detailKey, exact: true }),
+  ]);
+  const snapshot: ChannelCacheSnapshot = {
+    channels: queryClient.getQueryData<ChannelListCache>(channelsKey),
+    dms: queryClient.getQueryData<ChannelListCache>(dmsKey),
+    detail: queryClient.getQueryData<{ data: ChatChannel }>(detailKey),
+  };
+  const patchList = (old: ChannelListCache | undefined) =>
+    old?.data
+      ? { ...old, data: old.data.map((ch) => (ch.id === channelId ? { ...ch, ...patch } : ch)) }
+      : old;
+  queryClient.setQueryData<ChannelListCache>(channelsKey, patchList);
+  queryClient.setQueryData<ChannelListCache>(dmsKey, patchList);
+  queryClient.setQueryData<{ data: ChatChannel }>(detailKey, (old) =>
+    old?.data ? { ...old, data: { ...old.data, ...patch } } : old,
+  );
+  return snapshot;
+}
+
+function restoreChannelCaches(
+  queryClient: QueryClient,
+  channelId: string,
+  snapshot: ChannelCacheSnapshot | undefined,
+) {
+  if (!snapshot) return;
+  queryClient.setQueryData(weldchatKeys.channels(), snapshot.channels);
+  queryClient.setQueryData(weldchatKeys.dms(), snapshot.dms);
+  queryClient.setQueryData(weldchatKeys.channelDetail(channelId), snapshot.detail);
+}
+
 /**
  * Mute/unmute the current user's membership.
  *
@@ -1068,7 +1123,11 @@ export function useMuteChannel() {
       const client = await getClient();
       return client.patch<unknown>(`/channels/${channelId}/me`, { isMuted: mute });
     },
-    onSuccess: (_data, variables) => {
+    // The list endpoints return the caller's own `isMuted`; flip the cached rows
+    // right away so the sidebar menu and indicator follow the click.
+    onMutate: ({ channelId, mute }) => patchChannelInCaches(queryClient, channelId, { isMuted: mute }),
+    onError: (_err, variables, snapshot) => restoreChannelCaches(queryClient, variables.channelId, snapshot),
+    onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
       queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channelDetail(variables.channelId) });
@@ -1076,19 +1135,31 @@ export function useMuteChannel() {
   });
 }
 
-export function useArchiveChannel() {
+/** Archive / unarchive a channel (`PATCH /api/channels/:id { isArchived }`). */
+function useSetChannelArchived(isArchived: boolean) {
   const queryClient = useQueryClient();
   const { getClient } = useAppApiClient();
   return useMutation({
     mutationFn: async (channelId: string) => {
       const client = await getClient();
-      return client.patch<unknown>(`/channels/${channelId}`, { isArchived: true });
+      return client.patch<unknown>(`/channels/${channelId}`, { isArchived });
     },
-    onSuccess: () => {
+    onMutate: (channelId) => patchChannelInCaches(queryClient, channelId, { isArchived }),
+    onError: (_err, channelId, snapshot) => restoreChannelCaches(queryClient, channelId, snapshot),
+    onSettled: (_data, _err, channelId) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
       queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.channelDetail(channelId) });
     },
   });
+}
+
+export function useArchiveChannel() {
+  return useSetChannelArchived(true);
+}
+
+export function useUnarchiveChannel() {
+  return useSetChannelArchived(false);
 }
 
 // ============================================================================

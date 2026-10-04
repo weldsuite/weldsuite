@@ -2,7 +2,7 @@
  * useDraftAutosave — persists message-input content to the draft API.
  *
  * Usage:
- *   const { draftId, restoredContent, restoredAttachments } = useDraftAutosave({
+ *   const { draftId, deleteDraft } = useDraftAutosave({
  *     channelId,
  *     threadParentMessageId: parentId,
  *     content,
@@ -10,10 +10,20 @@
  *     onRestore,
  *   });
  *
- * - On mount, if a matching draft exists and the editor is empty, calls onRestore().
+ * - Once the drafts have loaded, if a draft exists for this context and the
+ *   editor is empty, calls onRestore(). That happens once per context
+ *   (channel + thread parent), and only for a draft that existed then: never
+ *   for one this composer created or deleted itself.
  * - While mounted, debounces content+attachments changes (500ms) and calls upsert.
- * - On unmount, flushes any pending save synchronously (fire-and-forget).
- * - Provides `deleteDraft(draftId)` for callers to clear the draft after send.
+ *   An empty composer never creates a draft; it only deletes one that exists.
+ * - When the composer unmounts, or moves to another channel/thread without
+ *   unmounting, flushes any unsent text to the context it was typed in.
+ * - `deleteDraft()` ends with no draft for this composer: it cancels the pending
+ *   debounce and waits for any save already in flight before deleting, so a
+ *   late-landing create can't resurrect a draft after send.
+ *
+ * Saves and deletes run one at a time (a promise chain), so they land in the
+ * order they were requested.
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -43,6 +53,12 @@ export interface DraftAutosaveResult {
 
 const DEBOUNCE_MS = 500;
 
+const hasDraftContent = (content: string, attachments: ChatAttachmentInput[]) =>
+  content.trim().length > 0 || attachments.length > 0;
+
+const contextKey = (channelId: string, threadParentMessageId?: string) =>
+  `${channelId}|${threadParentMessageId ?? ''}`;
+
 export function useDraftAutosave({
   channelId,
   threadParentMessageId,
@@ -51,8 +67,8 @@ export function useDraftAutosave({
   onRestore,
 }: DraftAutosaveOptions): DraftAutosaveResult {
   const { data: draftsData } = useChatDrafts();
-  const { mutate: upsert } = useUpsertDraft();
-  const { mutate: deleteDraftMutate } = useDeleteDraft();
+  const { mutateAsync: upsertAsync } = useUpsertDraft();
+  const { mutateAsync: deleteAsync } = useDeleteDraft();
 
   const drafts: DraftItem[] = draftsData?.data ?? [];
 
@@ -63,39 +79,111 @@ export function useDraftAutosave({
       (d.threadParentMessageId ?? null) === (threadParentMessageId ?? null),
   ) ?? null;
 
-  const draftIdRef = useRef<string | null>(matchingDraft?.id ?? null);
-  draftIdRef.current = matchingDraft?.id ?? null;
+  const ctxKey = contextKey(channelId, threadParentMessageId);
+  const ctxKeyRef = useRef(ctxKey);
 
-  const restoredRef = useRef(false);
+  // The draft id we created or saw most recently. Kept separately from the
+  // query cache, which lags behind a save we just made.
+  const knownIdRef = useRef<string | null>(null);
+  // Ids deleted by this composer: the cache may still list them for a moment.
+  const deletedIdsRef = useRef(new Set<string>());
+  // Set once the drafts of the current context have been looked at for a restore.
+  const resolvedRef = useRef(false);
+  // Bumped by deleteDraft (and on a context change) so a save that was already
+  // queued behind another operation is dropped instead of re-creating a draft.
+  const generationRef = useRef(0);
+
+  // The composer isn't necessarily remounted when the channel/thread changes:
+  // forget everything that belonged to the previous context.
+  if (ctxKeyRef.current !== ctxKey) {
+    ctxKeyRef.current = ctxKey;
+    knownIdRef.current = null;
+    deletedIdsRef.current = new Set();
+    resolvedRef.current = false;
+    generationRef.current += 1;
+  }
+
+  if (matchingDraft && !deletedIdsRef.current.has(matchingDraft.id)) {
+    knownIdRef.current = matchingDraft.id;
+  }
+
   const contentRef = useRef(content);
   contentRef.current = content;
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
 
-  // On mount: restore draft if editor is empty and a draft exists.
+  const enqueue = useCallback((op: () => Promise<void>) => {
+    queueRef.current = queueRef.current.then(op).catch(() => undefined);
+  }, []);
+
+  const save = useCallback(
+    (
+      target: { channelId: string; threadParentMessageId?: string },
+      text: string,
+      files: ChatAttachmentInput[],
+    ) => {
+      const generation = generationRef.current;
+      const key = contextKey(target.channelId, target.threadParentMessageId);
+      enqueue(async () => {
+        if (generation !== generationRef.current) return;
+        const res = await upsertAsync({
+          channelId: target.channelId,
+          threadParentMessageId: target.threadParentMessageId ?? undefined,
+          content: text,
+          attachments: files.length > 0 ? files : undefined,
+        });
+        const id = res?.data?.id;
+        // A save for a context we have since left must not become this one's draft.
+        if (id && key === ctxKeyRef.current) {
+          knownIdRef.current = id;
+          deletedIdsRef.current.delete(id);
+        }
+      });
+    },
+    [enqueue, upsertAsync],
+  );
+
+  const removeDraft = useCallback(() => {
+    generationRef.current += 1;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    const key = ctxKeyRef.current;
+    enqueue(async () => {
+      // Runs after any save that was in flight, so `knownIdRef` already holds
+      // the id that save created.
+      if (key !== ctxKeyRef.current) return;
+      const id = knownIdRef.current;
+      if (!id) return;
+      knownIdRef.current = null;
+      deletedIdsRef.current.add(id);
+      await deleteAsync(id);
+    });
+  }, [enqueue, deleteAsync]);
+
+  // Restore once the drafts have loaded for this context.
   useEffect(() => {
-    if (restoredRef.current) return;
+    if (resolvedRef.current || !draftsData) return;
+    resolvedRef.current = true;
     if (!matchingDraft) return;
     if (content.trim().length > 0) return; // Don't overwrite user typing
-    restoredRef.current = true;
     onRestore?.(matchingDraft.content, matchingDraft.attachments ?? []);
-  // Only run once — when drafts load and content is still empty.
+  // Only when the drafts (re)load for a context; later list changes never restore.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchingDraft?.id]);
+  }, [draftsData, ctxKey]);
 
   // Debounced save on content / attachments change.
   useEffect(() => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
     debounceTimerRef.current = setTimeout(() => {
-      upsert({
-        channelId,
-        threadParentMessageId: threadParentMessageId ?? undefined,
-        content,
-        attachments: attachments.length > 0 ? attachments : undefined,
-      });
+      if (hasDraftContent(content, attachments)) {
+        save({ channelId, threadParentMessageId }, content, attachments);
+      } else if (knownIdRef.current) {
+        // The user emptied the composer: drop the draft that exists, never write an empty one.
+        removeDraft();
+      }
     }, DEBOUNCE_MS);
 
     return () => {
@@ -105,44 +193,25 @@ export function useDraftAutosave({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, attachments]);
 
-  // On unmount: flush any pending save (fire-and-forget).
+  // On unmount, or when the channel/thread changes under a mounted composer:
+  // flush unsent text to the context it was typed in (fire-and-forget).
   useEffect(() => {
+    const target = { channelId, threadParentMessageId };
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      const pending = contentRef.current;
-      const pendingAttachments = attachmentsRef.current;
       // Only save if there is content to persist.
-      if (pending.trim().length > 0 || pendingAttachments.length > 0) {
-        upsert({
-          channelId,
-          threadParentMessageId: threadParentMessageId ?? undefined,
-          content: pending,
-          attachments: pendingAttachments.length > 0 ? pendingAttachments : undefined,
-        });
+      if (hasDraftContent(contentRef.current, attachmentsRef.current)) {
+        save(target, contentRef.current, attachmentsRef.current);
       }
     };
-  // Intentionally empty dep array — cleanup runs once on unmount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [channelId, threadParentMessageId, save]);
 
   const deleteDraft = useCallback(() => {
-    const id = draftIdRef.current;
-    if (id) {
-      deleteDraftMutate(id);
-      draftIdRef.current = null;
-    } else {
-      // Draft may have been deleted already or not yet persisted; upsert with
-      // empty content which the backend will treat as a delete.
-      upsert({
-        channelId,
-        threadParentMessageId: threadParentMessageId ?? undefined,
-        content: '',
-      });
-    }
-  }, [channelId, threadParentMessageId, deleteDraftMutate, upsert]);
+    removeDraft();
+  }, [removeDraft]);
 
   return {
-    draftId: draftIdRef.current,
+    draftId: knownIdRef.current,
     deleteDraft,
   };
 }

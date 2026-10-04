@@ -2,6 +2,11 @@ import { useCallback, useEffect, lazy, Suspense } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useParams } from '@/lib/router';
+import { useNavigate } from '@tanstack/react-router';
+import { useAuth } from '@clerk/clerk-react';
+import { usePreviewMode } from '@/contexts/preview-mode-context';
+import { useMessageDeepLink } from '../lib/message-search';
+import { dmRedirectTarget } from '../lib/dm-redirect';
 import { useQueryClient } from '@tanstack/react-query';
 import { useChannel, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
@@ -38,6 +43,11 @@ export default function ChannelPage() {
   const { t } = useI18n();
   const st = useTranslations();
   const { channelId } = useParams<{ channelId: string }>();
+  const { targetMessageId, clearTarget } = useMessageDeepLink();
+  const navigate = useNavigate();
+  const { userId: currentUserId } = useAuth();
+  // The preview mirror (`/preview/weldchat/*`) has no DM routes to hand over to.
+  const inPreview = usePreviewMode() !== null;
   const { data, isLoading } = useChannel(channelId);
   const queryClient = useQueryClient();
   const { mutate: markAsRead } = useMarkChannelAsRead();
@@ -107,13 +117,28 @@ export default function ChannelPage() {
   const { status: callStatus, channelId: callChannelId, isFullscreen, isPiP } = useWeldChatCall();
 
   const channel = data?.data;
+  const isDmChannel = channel?.type === 'dm' && !inPreview;
+
+  // A DM is shown by the DM routes (header, member panel), never by this channel
+  // page. Message links carry the DM's channel id, so hand the link over to the
+  // proper DM page and keep `msg`.
+  useEffect(() => {
+    if (!channel || !isDmChannel || !currentUserId) return;
+    // `GET /channels/:id` returns `members` (the caller included), not `otherMembers`.
+    const target = dmRedirectTarget(channel.members as Array<{ userId?: string }> | undefined, currentUserId);
+    if (target.kind === 'dm') {
+      void navigate({ to: '/weldchat/dm/$userId', params: { userId: target.userId }, search: { msg: targetMessageId }, replace: true });
+    } else {
+      void navigate({ to: '/weldchat/dm/group/$channelId', params: { channelId }, search: { msg: targetMessageId }, replace: true });
+    }
+  }, [channel, isDmChannel, currentUserId, channelId, targetMessageId, navigate]);
 
   useBreadcrumbs([
     { label: st('sweep.weldchat.breadcrumb.chat'), href: '/weldchat' },
     ...(channel ? [{ label: `${channel.type === 'private' ? '' : '#'}${channel.name}` }] : []),
   ]);
 
-  if (isLoading) return <ChatPageSkeleton />;
+  if (isLoading || isDmChannel) return <ChatPageSkeleton />;
 
   if (!channel)
     return (
@@ -134,8 +159,10 @@ export default function ChannelPage() {
       ) : (
         <ChatDropZone channelId={channelId}>
           <PinnedMessagesBar channelId={channelId} />
-          <MessageList channelId={channelId} client={client} />
-          <MessageInput channelId={channelId} client={client} />
+          {/* Keyed by channel: the list's scroll/jump state and the composer's
+              text and draft belong to one channel, never carried to the next. */}
+          <MessageList key={channelId} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} />
+          <MessageInput key={channelId} channelId={channelId} client={client} />
         </ChatDropZone>
       )}
     </div>

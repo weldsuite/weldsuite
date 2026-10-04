@@ -404,6 +404,10 @@ export const sweep = {
     "breadcrumb": {
       "chat": "Chat"
     },
+    "channelCreate": {
+      "duplicateName": "Er bestaat al een kanaal met deze naam.",
+      "settingsSaveFailed": "De kanaalinstellingen konden niet worden opgeslagen."
+    },
     "channelEmptyState": {
       "directMessageFallback": "Direct bericht",
       "groupFallback": "Groep",
@@ -460,11 +464,9 @@ export const sweep = {
       "download": "Downloaden"
     },
     "forwardMessage": {
-      "addAttachment": "Bijlage toevoegen",
       "couldNotOpenDm": "Kon geen direct bericht openen met {name}",
-      "emoji": "Emoji",
-      "formatting": "Opmaak",
-      "mentionSomeone": "Iemand vermelden"
+      "scheduleOpenTabNote": "Geplande berichten worden alleen verstuurd zolang WeldSuite open blijft in dit tabblad. Je kunt maximaal {days} dagen vooruit plannen.",
+      "scheduleTooFar": "Kies een tijdstip binnen de komende {days} dagen"
     },
     "groupConversation": {
       "defaultName": "Groepschat"
@@ -477,6 +479,12 @@ export const sweep = {
     },
     "inviteExternal": {
       "addedToChannel": "{name} toegevoegd aan het kanaal"
+    },
+    "invitePeople": {
+      "descriptionBoth": "Voeg teamleden of externe gasten toe aan dit kanaal.",
+      "descriptionGuest": "Nodig een externe gast per e-mail uit voor dit kanaal.",
+      "descriptionMembers": "Voeg teamleden toe aan dit kanaal.",
+      "invalidEmail": "Voer een geldig e-mailadres in."
     },
     "mentionAutocomplete": {
       "noMatches": "Geen overeenkomsten.",
@@ -493,6 +501,13 @@ export const sweep = {
       "numberedList": "Genummerde lijst",
       "strikethrough": "Doorhalen",
       "underline": "Onderstrepen"
+    },
+    "messageMenus": {
+      "cancel": "Annuleren",
+      "delete": "Verwijderen",
+      "deleteDescription": "Dit bericht wordt definitief verwijderd voor iedereen. Dit kan niet ongedaan worden gemaakt.",
+      "deleteTitle": "Bericht verwijderen?",
+      "reactionFailed": "De reactie kon niet worden toegevoegd"
     },
     "relativeTime": {
       "daysAgo": "{count}d geleden",
@@ -515,6 +530,11 @@ export const sweep = {
       "addDirectMessagesSrOnly": "Directe berichten toevoegen",
       "archive": "Archiveren",
       "archiveAll": "Alles archiveren",
+      "archiveChannelDescription": "\"{name}\" wordt voor iedereen gearchiveerd. Je kunt het via het menu weer terugzetten.",
+      "archiveChannelTitle": "Kanaal archiveren?",
+      "archiveDmDescription": "Je gesprek met {name} wordt gearchiveerd. Je kunt het via het menu weer terugzetten.",
+      "archiveDmTitle": "Gesprek archiveren?",
+      "archivedTitle": "{name} (gearchiveerd)",
       "channels": "Kanalen",
       "delete": "Verwijderen",
       "deleteCancel": "Annuleren",
@@ -522,6 +542,8 @@ export const sweep = {
       "deleteChannelTitle": "Kanaal verwijderen?",
       "deleteDmDescription": "Je gesprek met {name} en alle berichten worden definitief verwijderd. Dit kan niet ongedaan worden gemaakt.",
       "deleteDmTitle": "Gesprek verwijderen?",
+      "deleteSectionDescription": "De sectie \"{name}\" wordt verwijderd. De kanalen blijven bestaan en gaan terug naar de standaardsectie.",
+      "deleteSectionTitle": "Sectie verwijderen?",
       "directMessageDisplayFallback": "Direct bericht",
       "directMessageFallback": "Direct bericht",
       "directMessagesGroup": "Directe berichten",
@@ -533,7 +555,12 @@ export const sweep = {
       "otherChannels": "Overige kanalen",
       "removeFromSection": "Uit sectie verwijderen",
       "rename": "Naam wijzigen",
+      "savedItems": "Opgeslagen items",
+      "search": "Zoeken",
+      "selfDmFallback": "Jij",
+      "selfDmLabel": "{name} (jij)",
       "settings": "Instellingen",
+      "unarchive": "Uit archief halen",
       "unknownMember": "Onbekend",
       "unmute": "Dempen opheffen",
       "unmuteAll": "Alles dempen opheffen"
