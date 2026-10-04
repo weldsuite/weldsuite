@@ -14,7 +14,8 @@
  *   - "Add task" navigates to /weldflow/my-tasks?customerId=… instead of opening
  *     the create dialog (no single project to create into).
  *   - Breadcrumbs are suppressed (panel is not a page).
- *   - `useProjectPermissions` falls back to a permissive default.
+ *   - There is no ProjectPermissionProvider here; TasksClient treats entity mode
+ *     as writable instead of using the (read-only) context default.
  */
 
 import { useState, useMemo } from 'react';

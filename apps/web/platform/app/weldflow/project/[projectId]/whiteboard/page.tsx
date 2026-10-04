@@ -157,22 +157,22 @@ export default function WhiteboardPage() {
         </div>
 
         <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 text-gray-400 hover:text-gray-600"
-              >
-                <EllipsisVertical className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleDuplicateWhiteboard(item)}>
-                <Copy className="h-4 w-4 mr-0.5" />
-                {st('sweep.weldflow.whiteboardListPage.duplicate')}
-              </DropdownMenuItem>
-              {canWrite && (
+          {canWrite && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 text-gray-400 hover:text-gray-600"
+                >
+                  <EllipsisVertical className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleDuplicateWhiteboard(item)}>
+                  <Copy className="h-4 w-4 mr-0.5" />
+                  {st('sweep.weldflow.whiteboardListPage.duplicate')}
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => handleDeleteWhiteboard(item.id)}
                   className="text-destructive focus:text-destructive focus:bg-destructive/10"
@@ -180,9 +180,9 @@ export default function WhiteboardPage() {
                   <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
                   {st('sweep.weldflow.whiteboardListPage.delete')}
                 </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
     );

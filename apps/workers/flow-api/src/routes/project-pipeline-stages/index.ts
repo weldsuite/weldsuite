@@ -19,12 +19,13 @@ import { error, list, noContent, success } from '@weldsuite/worker-kit/response'
 import { generateId } from '@weldsuite/worker-kit/id';
 import { randomString } from '@weldsuite/worker-kit/random';
 import { schema } from '@weldsuite/worker-kit/db';
-import { canAccessProject } from '../../lib/project-access';
+import { canAccessProject, canWriteProject } from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectPipelineStages;
 
 const PROJECT_DENIED = 'You are not a member of this project';
+const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
 
 const DEFAULT_STAGES: { name: string; color: string; systemStatus: string }[] = [
   { name: 'Backlog', color: '#94a3b8', systemStatus: 'backlog' },
@@ -180,8 +181,8 @@ app.post(
     const data = c.req.valid('json');
     const id = data.id || slugifyStage(data.name);
     const now = new Date();
-    if (!(await canAccessProject(c, data.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (!(await canWriteProject(c, data.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
 
     try {
@@ -246,7 +247,7 @@ app.patch(
         .where(and(inArray(t.id, stageIds), isNull(t.deletedAt)));
       const projectIds = [...new Set(stages.map((s) => s.projectId).filter(Boolean))] as string[];
       for (const pid of projectIds) {
-        if (!(await canAccessProject(c, pid))) return error.forbidden(c, PROJECT_DENIED);
+        if (!(await canWriteProject(c, pid))) return error.forbidden(c, PROJECT_WRITE_DENIED);
       }
       for (let i = 0; i < stageIds.length; i++) {
         await db
@@ -281,8 +282,8 @@ app.patch(
         .where(and(eq(t.id, id), isNull(t.deletedAt)))
         .limit(1);
       if (!existing) return error.notFound(c, 'Project pipeline stage', id);
-      if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-        return error.forbidden(c, PROJECT_DENIED);
+      if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+        return error.forbidden(c, PROJECT_WRITE_DENIED);
       }
 
       const update: Record<string, any> = { updatedAt: new Date() };
@@ -327,8 +328,8 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
       .where(and(eq(t.id, id), isNull(t.deletedAt)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Project pipeline stage', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
 
     const now = new Date();

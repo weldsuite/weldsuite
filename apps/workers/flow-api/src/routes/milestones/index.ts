@@ -14,13 +14,14 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
 import { getMilestoneStats, withMilestoneStats } from '@weldsuite/flow-domain/project-stats';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.milestones;
 
 const PROJECT_DENIED = 'You are not a member of this project';
+const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -106,8 +107,8 @@ app.post('/', requirePermission('milestones:create'), zValidator('json', createM
   if (!data.projectId) {
     return error.badRequest(c, 'Missing required field: projectId');
   }
-  if (!(await canAccessProject(c, data.projectId))) {
-    return error.forbidden(c, PROJECT_DENIED);
+  if (!(await canWriteProject(c, data.projectId))) {
+    return error.forbidden(c, PROJECT_WRITE_DENIED);
   }
   if (!data.dueDate) {
     return error.badRequest(c, 'Missing required field: dueDate');
@@ -139,8 +140,11 @@ app.patch('/:id', requirePermission('milestones:update'), zValidator('json', upd
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Milestone', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
+    }
+    if (data.projectId && data.projectId !== existing.projectId && !(await canWriteProject(c, data.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
@@ -170,8 +174,8 @@ app.delete('/:id', requirePermission('milestones:delete'), async (c) => {
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Milestone', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
     publishEntityEvent({

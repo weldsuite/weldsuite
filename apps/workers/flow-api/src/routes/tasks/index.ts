@@ -53,7 +53,13 @@ import {
 } from '@weldsuite/core-domain/custom-field-values';
 import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
 import { createFile } from '@weldsuite/core-domain/files';
-import { accessibleProjectIds, canAccessProject, canAccessTaskProject } from '../../lib/project-access';
+import {
+  accessibleProjectIds,
+  canAccessProject,
+  canAccessTaskProject,
+  canWriteProject,
+  canWriteTaskProject,
+} from '../../lib/project-access';
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
 
 // ============================================================================
@@ -421,9 +427,12 @@ async function detectCycle(db: any, taskId: string, newDependsOn: string[]): Pro
 const t = schema.tasks;
 
 // Row-level WeldFlow guard messages. `tasks:*` gates the feature; acting on a
-// task that belongs to a project requires membership of that project.
+// task that belongs to a project requires membership of that project, and
+// mutating it requires write access (project viewers are read-only).
 const TASK_PROJECT_DENIED = "You are not a member of this task's project";
 const PROJECT_MEMBER_DENIED = 'You are not a member of this project';
+const TASK_PROJECT_WRITE_DENIED = "You do not have write access to this task's project";
+const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
 
 async function insertTask(
   db: Variables['tenantDb'],
@@ -677,10 +686,10 @@ type TaskCtx = Context<{ Bindings: Env; Variables: Variables }>;
 type TaskDb = Variables['tenantDb'];
 
 /** Row-level guard shared by the by-id handlers: a Response to return, or null when access is allowed. */
-async function guardTaskAccess(c: TaskCtx, id: string): Promise<Response | null> {
-  const access = await canAccessTaskProject(c, id);
+async function guardTaskWrite(c: TaskCtx, id: string): Promise<Response | null> {
+  const access = await canWriteTaskProject(c, id);
   if (access === 'not-found') return error.notFound(c, 'Task', id);
-  if (access === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+  if (access === 'denied') return error.forbidden(c, TASK_PROJECT_WRITE_DENIED);
   return null;
 }
 
@@ -1524,14 +1533,14 @@ app.patch(
     const { taskIds } = c.req.valid('json');
     const q = c.req.query();
     const projectId = q.projectId;
-    if (projectId && !(await canAccessProject(c, projectId))) {
-      return error.forbidden(c, PROJECT_MEMBER_DENIED);
+    if (projectId && !(await canWriteProject(c, projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     // Guard EVERY task, not just the optional projectId filter — otherwise a
     // caller could reorder arbitrary tasks by id when projectId is omitted.
     for (const taskId of taskIds) {
-      if ((await canAccessTaskProject(c, taskId)) === 'denied') {
-        return error.forbidden(c, TASK_PROJECT_DENIED);
+      if ((await canWriteTaskProject(c, taskId)) === 'denied') {
+        return error.forbidden(c, TASK_PROJECT_WRITE_DENIED);
       }
     }
 
@@ -1568,8 +1577,8 @@ app.post(
     const db = c.get('tenantDb');
     const userId = c.get('userId');
     const projectId = c.req.param('projectId');
-    if (!(await canAccessProject(c, projectId))) {
-      return error.forbidden(c, PROJECT_MEMBER_DENIED);
+    if (!(await canWriteProject(c, projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     const data = c.req.valid('json') as Record<string, any>;
     try {
@@ -1722,9 +1731,9 @@ app.post(
     const id = c.req.param('id');
     const userId = c.get('userId');
     if (!userId) return error.unauthorized(c);
-    const acc = await canAccessTaskProject(c, id);
+    const acc = await canWriteTaskProject(c, id);
     if (acc === 'not-found') return error.notFound(c, 'Task', id);
-    if (acc === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+    if (acc === 'denied') return error.forbidden(c, TASK_PROJECT_WRITE_DENIED);
     const data = c.req.valid('json');
     try {
       const created = await createFile(db, {
@@ -1764,9 +1773,9 @@ app.delete('/:id/attachments/:fileId', requirePermission('tasks:update'), async 
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const fileId = c.req.param('fileId');
-  const acc = await canAccessTaskProject(c, id);
+  const acc = await canWriteTaskProject(c, id);
   if (acc === 'not-found') return error.notFound(c, 'Task', id);
-  if (acc === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+  if (acc === 'denied') return error.forbidden(c, TASK_PROJECT_WRITE_DENIED);
   try {
     // Scope the delete to THIS task: the file must be an attachment of it.
     const [existing] = await db
@@ -1883,8 +1892,8 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createTaskSc
   const data = c.req.valid('json') as Record<string, any>;
   try {
     const projectId = data.projectId ?? null;
-    if (projectId && !(await canAccessProject(c, projectId))) {
-      return error.forbidden(c, PROJECT_MEMBER_DENIED);
+    if (projectId && !(await canWriteProject(c, projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     const { row, assigneeIds } = await insertTask(db, data, { projectId, userId });
 
@@ -1950,7 +1959,7 @@ app.patch(
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
-    const denied = await guardTaskAccess(c, id);
+    const denied = await guardTaskWrite(c, id);
     if (denied) return denied;
     const data = c.req.valid('json');
 
@@ -2018,7 +2027,7 @@ app.patch(
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
-    const denied = await guardTaskAccess(c, id);
+    const denied = await guardTaskWrite(c, id);
     if (denied) return denied;
     const { status } = c.req.valid('json');
 
@@ -2084,7 +2093,7 @@ app.patch(
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
-    const denied = await guardTaskAccess(c, id);
+    const denied = await guardTaskWrite(c, id);
     if (denied) return denied;
     const data = c.req.valid('json');
 
@@ -2154,7 +2163,7 @@ app.put(
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
-    const denied = await guardTaskAccess(c, id);
+    const denied = await guardTaskWrite(c, id);
     if (denied) return denied;
     const data = c.req.valid('json');
 
@@ -2198,11 +2207,11 @@ app.post(
     const id = c.req.param('id');
     const { projectId: destProjectId } = c.req.valid('json');
     // Must be able to act on both the task's SOURCE project and the DESTINATION.
-    const _taskAccess = await canAccessTaskProject(c, id);
+    const _taskAccess = await canWriteTaskProject(c, id);
     if (_taskAccess === 'not-found') return error.notFound(c, 'Task', id);
-    if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
-    if (destProjectId && !(await canAccessProject(c, destProjectId))) {
-      return error.forbidden(c, 'You are not a member of the destination project');
+    if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_WRITE_DENIED);
+    if (destProjectId && !(await canWriteProject(c, destProjectId))) {
+      return error.forbidden(c, 'You do not have write access to the destination project');
     }
 
     // Rollout gate — feature is hidden unless the flag is on for this user.
@@ -2334,7 +2343,7 @@ app.patch(
     const db = c.get('tenantDb');
     const userId = c.get('userId');
     const id = c.req.param('id');
-    const denied = await guardTaskAccess(c, id);
+    const denied = await guardTaskWrite(c, id);
     if (denied) return denied;
     const body = c.req.valid('json') as Record<string, any>;
     // projectId / dependsOn / blocks are not plain column writes, see below.
@@ -2445,9 +2454,9 @@ app.patch(
 app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const _taskAccess = await canAccessTaskProject(c, id);
+  const _taskAccess = await canWriteTaskProject(c, id);
   if (_taskAccess === 'not-found') return error.notFound(c, 'Task', id);
-  if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_DENIED);
+  if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_WRITE_DENIED);
   try {
     const [existing] = await db
       .select()
