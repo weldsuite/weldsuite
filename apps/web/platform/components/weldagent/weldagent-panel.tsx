@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Send, Sparkles, X } from 'lucide-react';
+import { Loader2, SquarePen, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Textarea } from '@weldsuite/ui/components/textarea';
 import { FloatingDrawer } from '@/components/layout/floating-drawer';
+import { AgentChatInput, AgentSuggestions, DEFAULT_AGENT_SUGGESTIONS } from './agent-chat-input';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useWeldAgentChat } from '@/hooks/queries/use-ai-chat';
@@ -72,22 +72,21 @@ export function WeldAgentPanel({
     scrollEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, isSending]);
 
-  const submit = useCallback(() => {
-    if (!input.trim() || isSending) return;
-    sendMessage(input);
-    setInput('');
-  }, [input, isSending, sendMessage]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      submit();
-    }
-  };
+  const submit = useCallback(
+    (text: string) => {
+      if (!text.trim() || isSending) return;
+      sendMessage(text);
+      setInput('');
+    },
+    [isSending, sendMessage],
+  );
 
   const isEmpty = messages.length === 0;
-  const suggestions = entityContext?.suggestedPrompts?.slice(0, 4) ?? [];
-  const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+  const contextSuggestions = entityContext?.suggestedPrompts?.slice(0, 3) ?? [];
+  const suggestions = contextSuggestions.length > 0 ? contextSuggestions : DEFAULT_AGENT_SUGGESTIONS;
+  // The panel chat isn't saved, so title it the way saved chats are: from the first user message.
+  const firstUserMessage = messages.find((m) => m.role === 'user')?.content ?? '';
+  const chatTitle = firstUserMessage.replace(/\s+/g, ' ').trim().slice(0, 60) || t.newChat;
 
   return (
     <FloatingDrawer
@@ -97,27 +96,26 @@ export function WeldAgentPanel({
       className={className}
       data-testid="weldagent-panel"
     >
-      <div className="flex items-center justify-between px-4 h-14 border-b border-gray-200 dark:border-border flex-shrink-0">
+      <div className="flex items-center justify-between px-4 h-[53px] border-b border-gray-200 dark:border-border flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
           <span className="text-sm font-semibold text-gray-900 dark:text-foreground truncate">
-            {selectedAgent?.name ?? 'WeldAgent'}
+            {chatTitle}
           </span>
         </div>
         <div className="flex items-center gap-1">
-          {!isEmpty && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => {
-                reset();
-                setInput('');
-              }}
-            >
-              {t.newChat}
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={() => {
+              reset();
+              setInput('');
+            }}
+            title={t.newChat}
+            aria-label={t.newChat}
+          >
+            <SquarePen className="h-4 w-4" />
+          </Button>
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
@@ -148,31 +146,7 @@ export function WeldAgentPanel({
       )}
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        {isEmpty ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <Sparkles className="h-6 w-6 text-primary" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">{t.emptyTitle}</p>
-              <p className="text-sm text-muted-foreground max-w-xs">{t.emptyBody}</p>
-            </div>
-            {suggestions.length > 0 && (
-              <div className="mt-2 flex flex-wrap justify-center gap-2">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => sendMessage(s)}
-                    className="rounded-full border border-border bg-background px-3 py-1 text-xs text-foreground hover:bg-muted"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
+        {!isEmpty && (
           <div className="flex flex-col gap-3">
             {messages.map((m) => (
               <div
@@ -218,31 +192,20 @@ export function WeldAgentPanel({
         </div>
       )}
 
-      <div className="border-t border-gray-200 dark:border-border p-3 flex-shrink-0">
-        <div className="flex items-end gap-2">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={t.placeholder}
-            rows={1}
-            className="max-h-40 min-h-[40px] resize-none"
-            disabled={isSending}
-          />
-          <Button
-            size="sm"
-            className="h-10 w-10 flex-shrink-0 p-0"
-            onClick={submit}
-            disabled={!input.trim() || isSending}
-            aria-label={t.send}
-          >
-            {isSending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
+      {isEmpty && !input.trim() && (
+        <div className="px-3 pb-3 flex-shrink-0">
+          <AgentSuggestions suggestions={suggestions} onSelect={submit} />
         </div>
+      )}
+
+      <div className="px-3 pb-3 flex-shrink-0">
+        <AgentChatInput
+          value={input}
+          onChange={setInput}
+          onSubmit={submit}
+          placeholder={t.placeholder}
+          isSending={isSending}
+        />
       </div>
     </FloatingDrawer>
   );
