@@ -8,6 +8,8 @@ import {
   softDeleteProjectFolderCascade,
   wouldCreateCycle,
   replacedStorageKey,
+  isProjectUploadKey,
+  pickWritableFileColumns,
 } from './project-files';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -161,5 +163,56 @@ describe('replacedStorageKey', () => {
         { storagePath: 'new/b' },
       ),
     ).toBeNull();
+  });
+});
+
+describe('isProjectUploadKey', () => {
+  const ws = 'org_1';
+  const project = 'proj_1';
+
+  it('accepts keys the upload flow issues for the project', () => {
+    expect(isProjectUploadKey('workspaces/org_1/projects/project/proj_1/1_a.pdf', ws, project)).toBe(true);
+    expect(isProjectUploadKey('workspaces/org_1/project-files/project/proj_1/1_a.pdf', ws, project)).toBe(true);
+  });
+
+  it.each([
+    ['another workspace', 'workspaces/org_2/projects/project/proj_1/1_a.pdf'],
+    ['another project', 'workspaces/org_1/projects/project/proj_2/1_a.pdf'],
+    ['another entity type', 'workspaces/org_1/projects/customer/proj_1/1_a.pdf'],
+    ['a Drive object', 'workspaces/org_1/drive/general/1_a.pdf'],
+    ['a project document', 'workspaces/org_1/documents/proj_1/1_a.docx'],
+    ['a key without the workspaces root', 'imports/tasks/org_1/proj_1/job.json'],
+    ['a nested object path', 'workspaces/org_1/projects/project/proj_1/sub/1_a.pdf'],
+    ['a dot-dot segment', 'workspaces/org_1/projects/project/proj_1/..'],
+    ['an empty object name', 'workspaces/org_1/projects/project/proj_1/'],
+    ['an empty string', ''],
+  ])('rejects %s', (_label, key) => {
+    expect(isProjectUploadKey(key, ws, project)).toBe(false);
+  });
+
+  it('rejects non-string keys and a missing workspace or project', () => {
+    const key = 'workspaces/org_1/projects/project/proj_1/1_a.pdf';
+    expect(isProjectUploadKey(null, ws, project)).toBe(false);
+    expect(isProjectUploadKey({ key }, ws, project)).toBe(false);
+    expect(isProjectUploadKey(key, null, project)).toBe(false);
+    expect(isProjectUploadKey(key, ws, null)).toBe(false);
+  });
+});
+
+describe('pickWritableFileColumns', () => {
+  it('keeps writable columns and drops everything else', () => {
+    expect(
+      pickWritableFileColumns({
+        fileName: 'a.pdf',
+        parentId: null,
+        fileSize: 0,
+        id: 'pfile_x',
+        projectId: 'proj_x',
+        deletedAt: null,
+        isFolder: true,
+        bucket: 'other',
+        mimeType: undefined,
+      }),
+    ).toEqual({ fileName: 'a.pdf', parentId: null, fileSize: 0 });
   });
 });

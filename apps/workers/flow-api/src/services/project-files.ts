@@ -6,7 +6,7 @@
  * descendants so orphaned children don't linger in the tree.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
@@ -160,5 +160,116 @@ export function replacedStorageKey(
     nonEmptyStorageKey(existing.fileKey) || nonEmptyStorageKey(existing.storagePath);
   if (!oldKey || oldKey === nextKey) return null;
   return oldKey;
+}
+
+/**
+ * Columns a client may write on a project file. Everything else in the body
+ * (id, deletedAt, isFolder, bucket, …) is dropped: the request schema is
+ * `.passthrough()`, so without this list a caller could set any column.
+ */
+const WRITABLE_FILE_COLUMNS = [
+  'fileName',
+  'originalName',
+  'mimeType',
+  'fileSize',
+  'storagePath',
+  'fileKey',
+  'url',
+  'thumbnailUrl',
+  'storageProvider',
+  'fileType',
+  'isPublic',
+  'metadata',
+  'parentId',
+] as const;
+
+export function pickWritableFileColumns(data: Record<string, unknown>): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const key of WRITABLE_FILE_COLUMNS) {
+    if (data[key] !== undefined) picked[key] = data[key];
+  }
+  return picked;
+}
+
+/**
+ * True when `key` is an object the storage upload flow issued for this
+ * project: `workspaces/<workspaceId>/<folder>/project/<projectId>/<object>`
+ * (see `/api/storage/generate-upload-url`). The bucket is shared by every
+ * workspace and module, so this prefix is the only thing that ties a key to a
+ * project — a key outside it must never be stored on, or deleted for, a
+ * project file.
+ */
+export function isProjectUploadKey(
+  key: unknown,
+  workspaceId: string | null | undefined,
+  projectId: string | null | undefined,
+): key is string {
+  if (typeof key !== 'string' || !workspaceId || !projectId) return false;
+  const parts = key.split('/');
+  if (parts.length !== 6) return false;
+  if (parts.some((part) => part === '' || part === '.' || part === '..')) return false;
+  return (
+    parts[0] === 'workspaces' &&
+    parts[1] === workspaceId &&
+    parts[3] === 'project' &&
+    parts[4] === projectId
+  );
+}
+
+/** Is `key` the storage object of any project file other than `exceptId`? */
+export async function isStorageKeyInUse(
+  db: Database,
+  key: string,
+  exceptId?: string,
+): Promise<boolean> {
+  const references = or(eq(projectFiles.storagePath, key), eq(projectFiles.fileKey, key));
+  const [row] = await db
+    .select({ id: projectFiles.id })
+    .from(projectFiles)
+    .where(exceptId ? and(references, ne(projectFiles.id, exceptId)) : references)
+    .limit(1);
+  return !!row;
+}
+
+export interface StorageKeyScope {
+  workspaceId: string | null | undefined;
+  projectId: string | null | undefined;
+  /** The row being updated; its current keys may be sent back unchanged. */
+  existing?: { id: string; storagePath: string | null; fileKey: string | null };
+}
+
+/**
+ * Check the `storagePath` / `fileKey` a client sent. A key is accepted only
+ * when it is one of the project's own upload keys and no other project file
+ * points at it. Returns false when any sent key must be refused.
+ */
+export async function areStorageKeysAcceptable(
+  db: Database,
+  data: { storagePath?: unknown; fileKey?: unknown },
+  scope: StorageKeyScope,
+): Promise<boolean> {
+  const current = new Set([scope.existing?.storagePath, scope.existing?.fileKey]);
+  const sent = [data.storagePath, data.fileKey].filter((value) => value !== undefined);
+  for (const key of new Set(sent)) {
+    if (typeof key === 'string' && current.has(key)) continue;
+    if (!isProjectUploadKey(key, scope.workspaceId, scope.projectId)) return false;
+    if (await isStorageKeyInUse(db, key, scope.existing?.id)) return false;
+  }
+  return true;
+}
+
+/**
+ * May the R2 object behind a replaced project file be deleted? Only when it is
+ * one of the project's own upload keys and no other project file still points
+ * at it. Rows written before the prefix existed, or through another API
+ * surface, can hold any key; those objects are left in place.
+ */
+export async function canDeleteReplacedObject(
+  db: Database,
+  key: string,
+  scope: { workspaceId: string | null | undefined; projectId: string | null | undefined; fileId: string },
+): Promise<boolean> {
+  if (!isProjectUploadKey(key, scope.workspaceId, scope.projectId)) return false;
+  return !(await isStorageKeyInUse(db, key, scope.fileId));
 }
 
