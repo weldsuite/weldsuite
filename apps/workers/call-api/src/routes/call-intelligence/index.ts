@@ -32,6 +32,8 @@ import { logSafe } from '@weldsuite/worker-kit/log-safe';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const CALL_DENIED = 'You do not have access to this call';
+// Telnyx resource ids are UUIDs; anything outside this shape must not reach a request path.
+const TELNYX_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
 
 /** Own-only (call owner) unless the caller holds activities:scope:all. */
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
@@ -227,6 +229,10 @@ app.post('/token', requirePermission('activities:read'), async (c) => {
       }
       const credData = (await credResp.json()) as { data: { id: string } };
       credentialId = credData.data.id;
+    }
+
+    if (typeof credentialId !== 'string' || !TELNYX_ID_RE.test(credentialId)) {
+      throw new Error('Unexpected Telnyx credential id format');
     }
 
     const tokenResp = await fetch(
