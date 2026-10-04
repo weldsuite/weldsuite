@@ -16,6 +16,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
+import { canAccessProject, canWriteProject } from '../../lib/project-access';
 import * as filesService from '@weldsuite/core-domain/files';
 import * as documentsService from '../../services/documents';
 import { buildEmptyDocx } from '../../lib/office-templates';
@@ -31,6 +32,9 @@ const createDocumentSchema = z.object({
 app.get('/:projectId', requirePermission('projects:read'), async (c) => {
   const projectId = c.req.param('projectId');
   const db = c.get('tenantDb');
+  if (!(await canAccessProject(c, projectId))) {
+    return error.forbidden(c, 'You are not a member of this project');
+  }
   try {
     const rows = await db
       .select()
@@ -68,6 +72,9 @@ app.post(
     if (!userId) return error.unauthorized(c);
     const workspaceId = c.get('workspaceId') || c.get('orgId');
     if (!workspaceId) return error.orgRequired(c);
+    if (!(await canWriteProject(c, projectId))) {
+      return error.forbidden(c, 'You do not have write access to this project');
+    }
 
     const { name } = c.req.valid('json');
     const fileName = name.endsWith('.docx') ? name : `${name}.docx`;

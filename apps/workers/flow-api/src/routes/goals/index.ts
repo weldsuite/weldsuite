@@ -14,13 +14,14 @@ import { createGoalSchema, updateGoalSchema } from '@weldsuite/core-api-client/s
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
 import { schema } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectGoals;
 
 const PROJECT_DENIED = 'You are not a member of this project';
+const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
 
 type GoalsCtx = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -139,7 +140,7 @@ app.put(
   async (c) => {
     const db = c.get('tenantDb');
     const projectId = c.req.param('projectId');
-    if (!(await canAccessProject(c, projectId))) return error.forbidden(c, PROJECT_DENIED);
+    if (!(await canWriteProject(c, projectId))) return error.forbidden(c, PROJECT_WRITE_DENIED);
     const userId = c.get('userId');
     const payload = c.req.valid('json');
     const mission = (payload.mission ?? null) as Record<string, unknown> | null;
@@ -211,8 +212,8 @@ app.post('/', requirePermission('projects:create'), zValidator('json', createGoa
   const data = c.req.valid('json') as Record<string, any>;
   const id = generateId('goal');
   const now = new Date();
-  if (data.projectId && !(await canAccessProject(c, data.projectId))) {
-    return error.forbidden(c, PROJECT_DENIED);
+  if (data.projectId && !(await canWriteProject(c, data.projectId))) {
+    return error.forbidden(c, PROJECT_WRITE_DENIED);
   }
   try {
     await db.insert(t).values({ id, ...data, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
@@ -237,8 +238,8 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Goal', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
@@ -263,8 +264,8 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Goal', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
     publishEntityEvent({

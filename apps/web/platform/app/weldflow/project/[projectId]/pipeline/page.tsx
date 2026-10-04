@@ -74,6 +74,7 @@ import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { FilterPills } from '@/components/entity-list';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
+import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 
 // ---------- Types ----------
 
@@ -273,10 +274,11 @@ function DroppableStage({ id, children, containerRef }: Readonly<{ id: string; c
 
 // ---------- SortableStage ----------
 
-function SortableStage({ id, children }: Readonly<{ id: string; children: React.ReactNode }>) {
+function SortableStage({ id, disabled, children }: Readonly<{ id: string; disabled?: boolean; children: React.ReactNode }>) {
   const { setNodeRef, transform, transition, isDragging } = useSortable({
     id: `sortable-stage-${id}`,
     data: { type: 'stage', stageId: id },
+    disabled,
   });
 
   const style = {
@@ -297,9 +299,9 @@ function SortableStage({ id, children }: Readonly<{ id: string; children: React.
 
 // ---------- TaskCard ----------
 
-function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readonly<{ feature: TaskFeature; isDragging?: boolean; onClick?: () => void; availableLabels?: ProjectLabel[] }>) {
+function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite = false }: Readonly<{ feature: TaskFeature; isDragging?: boolean; onClick?: () => void; availableLabels?: ProjectLabel[]; canWrite?: boolean }>) {
   const { t } = useI18n();
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSortableDragging } = useSortable({ id: feature.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSortableDragging } = useSortable({ id: feature.id, disabled: !canWrite });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -490,7 +492,8 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readon
       onKeyDown={handleKeyDown}
       className={cn(
         "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
-        "hover:bg-gray-50 dark:hover:bg-secondary/70 cursor-grab active:cursor-grabbing w-full",
+        "hover:bg-gray-50 dark:hover:bg-secondary/70 w-full",
+        canWrite && "cursor-grab active:cursor-grabbing",
         "p-3 transition-all duration-200",
         isSortableDragging && "!bg-gray-100 dark:!bg-gray-800 !border-transparent",
         (isDragging || isSortableDragging) && "opacity-50",
@@ -504,9 +507,10 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: Readon
 
 // ---------- StageHeader ----------
 
-function PipelineStageHeader({ stage, taskCount, onAddTask, onEditStage, onDeleteStage, onDuplicateStage, onMoveLeft, onMoveRight, isFirst, isLast }: Readonly<{
+function PipelineStageHeader({ stage, taskCount, canWrite, onAddTask, onEditStage, onDeleteStage, onDuplicateStage, onMoveLeft, onMoveRight, isFirst, isLast }: Readonly<{
   stage: StageColumn;
   taskCount: number;
+  canWrite: boolean;
   onAddTask: () => void;
   onEditStage: () => void;
   onDeleteStage: () => void;
@@ -534,55 +538,67 @@ function PipelineStageHeader({ stage, taskCount, onAddTask, onEditStage, onDelet
           isOpen ? "bg-gray-100 dark:bg-secondary" : "hover:bg-gray-100 dark:hover:bg-secondary"
         )}
       >
-        <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex items-center gap-2 ml-1 h-auto p-0">
-              <div className="w-3 h-3 rounded" style={{ backgroundColor: stage.color }} />
-              <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">{stage.name}</h3>
-              <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px]">
-                {taskCount}
-              </span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            side="bottom"
-            sideOffset={4}
-            alignOffset={-8}
-            style={{ width: dropdownWidth > 0 ? `${dropdownWidth}px` : undefined }}
+        {canWrite ? (
+          <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="flex items-center gap-2 ml-1 h-auto p-0">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: stage.color }} />
+                <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">{stage.name}</h3>
+                <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px]">
+                  {taskCount}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              side="bottom"
+              sideOffset={4}
+              alignOffset={-8}
+              style={{ width: dropdownWidth > 0 ? `${dropdownWidth}px` : undefined }}
+            >
+              <DropdownMenuItem onClick={onEditStage}>
+                <Pencil className="h-4 w-4 mr-0.5" />
+                {t.projects.pipeline.editStage}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDuplicateStage}>
+                <Copy className="h-4 w-4 mr-0.5" />
+                {t.projects.pipeline.duplicateStage}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onMoveLeft} disabled={isFirst}>
+                <ArrowLeft className="h-4 w-4 mr-0.5" />
+                {t.projects.pipeline.moveLeft}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onMoveRight} disabled={isLast}>
+                <ArrowRight className="h-4 w-4 mr-0.5" />
+                {t.projects.pipeline.moveRight}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onDeleteStage} className="text-red-600 dark:text-red-400 focus:bg-red-50 dark:focus:bg-red-950/40 focus:text-red-600 dark:focus:text-red-400">
+                <Trash2 className="h-4 w-4 mr-0.5 text-red-600 dark:text-red-400" />
+                {t.projects.pipeline.deleteStage}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <div className="flex items-center gap-2 ml-1">
+            <div className="w-3 h-3 rounded" style={{ backgroundColor: stage.color }} />
+            <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">{stage.name}</h3>
+            <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px]">
+              {taskCount}
+            </span>
+          </div>
+        )}
+        {canWrite && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:bg-gray-200 dark:hover:bg-accent"
+            onClick={onAddTask}
           >
-            <DropdownMenuItem onClick={onEditStage}>
-              <Pencil className="h-4 w-4 mr-0.5" />
-              {t.projects.pipeline.editStage}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onDuplicateStage}>
-              <Copy className="h-4 w-4 mr-0.5" />
-              {t.projects.pipeline.duplicateStage}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onMoveLeft} disabled={isFirst}>
-              <ArrowLeft className="h-4 w-4 mr-0.5" />
-              {t.projects.pipeline.moveLeft}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onMoveRight} disabled={isLast}>
-              <ArrowRight className="h-4 w-4 mr-0.5" />
-              {t.projects.pipeline.moveRight}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onDeleteStage} className="text-red-600 dark:text-red-400 focus:bg-red-50 dark:focus:bg-red-950/40 focus:text-red-600 dark:focus:text-red-400">
-              <Trash2 className="h-4 w-4 mr-0.5 text-red-600 dark:text-red-400" />
-              {t.projects.pipeline.deleteStage}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:bg-gray-200 dark:hover:bg-accent"
-          onClick={onAddTask}
-        >
-          <Plus className="h-3 w-3" />
-        </Button>
+            <Plus className="h-3 w-3" />
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -661,6 +677,7 @@ const PipelinePage = () => {
   const params = useParams();
   const projectId = params.projectId as string;
   const { t } = useI18n();
+  const { canWrite } = useProjectPermissions();
 
   const [features, setFeatures] = useState<TaskFeature[]>([]);
   const [columns, setColumns] = useState<StageColumn[]>([]);
@@ -685,6 +702,7 @@ const PipelinePage = () => {
   }, [projectId]);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
+    if (!canWrite) return null;
     const result = await labelsApi.create({ ...data, projectId });
     if (result.success && result.data) {
       const newLabel: ProjectLabel = { id: result.data.id, name: data.name, color: data.color };
@@ -693,7 +711,7 @@ const PipelinePage = () => {
     }
     toast.error(t.projects.pipeline.labelCreateFailed);
     return null;
-  }, [projectId, t]);
+  }, [canWrite, projectId, t]);
 
   // Edit stage state
   const [showEditStageDialog, setShowEditStageDialog] = useState(false);
@@ -857,7 +875,7 @@ const PipelinePage = () => {
     setActiveDealId(null);
     setActiveStageId(null);
 
-    if (!over) { setDraggedFeatureOriginalColumn(null); return; }
+    if (!canWrite || !over) { setDraggedFeatureOriginalColumn(null); return; }
 
     const activeId = active.id as string;
     const overId = over.id as string;
@@ -910,6 +928,7 @@ const PipelinePage = () => {
 
   // Task CRUD
   const handleOpenCreateDialog = (columnId: string) => {
+    if (!canWrite) return;
     setSelectedColumn(columnId);
     setShowCreateDialog(true);
   };
@@ -925,6 +944,7 @@ const PipelinePage = () => {
     duration?: number;
     repeat?: { frequency: string; interval?: number; unit?: string };
   }) => {
+    if (!canWrite) return;
     // Resolve assigneeIds from the dialog
     const resolvedIds = data.assigneeIds || (data.assignee
       ? [projectMembers.find(m => m.user?.name === data.assignee)?.userId].filter(Boolean) as string[]
@@ -965,6 +985,7 @@ const PipelinePage = () => {
   };
 
   const handleOpenEditStage = (stage: StageColumn) => {
+    if (!canWrite) return;
     setEditingStage(stage);
     setEditStageName(stage.name);
     setEditStageColor(stage.color);
@@ -972,7 +993,7 @@ const PipelinePage = () => {
   };
 
   const handleSaveEditStage = async () => {
-    if (!editingStage || !editStageName.trim()) return;
+    if (!canWrite || !editingStage || !editStageName.trim()) return;
     const result = await stagesApi.update(projectId, editingStage.id, { name: editStageName.trim(), color: editStageColor });
     if (result.success) {
       setColumns(columns.map(col =>
@@ -987,6 +1008,7 @@ const PipelinePage = () => {
   };
 
   const handleDeleteStage = async (stageId: string) => {
+    if (!canWrite) return;
     const remaining = columns.filter(col => col.id !== stageId);
     if (remaining.length === 0) { toast.error(t.projects.pipeline.cannotDeleteLastStage); return; }
     const result = await stagesApi.delete(projectId, stageId, remaining[0].id);
@@ -1000,6 +1022,7 @@ const PipelinePage = () => {
   };
 
   const handleDuplicateStage = async (stage: StageColumn) => {
+    if (!canWrite) return;
     const idx = columns.findIndex(col => col.id === stage.id);
     const result = await stagesApi.create(projectId, { name: stage.name + ' (Copy)', color: stage.color, position: idx + 1, systemStatus: stage.systemStatus });
     if (result.success && result.data) {
@@ -1014,10 +1037,12 @@ const PipelinePage = () => {
   };
 
   const persistStageOrder = useCallback(async (ordered: StageColumn[]) => {
+    if (!canWrite) return;
     await stagesApi.reorder(projectId, ordered.map(s => s.id));
-  }, [projectId]);
+  }, [canWrite, projectId]);
 
   const handleMoveStageLeft = async (stageId: string) => {
+    if (!canWrite) return;
     const idx = columns.findIndex(col => col.id === stageId);
     if (idx <= 0) return;
     const next = [...columns];
@@ -1027,6 +1052,7 @@ const PipelinePage = () => {
   };
 
   const handleMoveStageRight = async (stageId: string) => {
+    if (!canWrite) return;
     const idx = columns.findIndex(col => col.id === stageId);
     if (idx >= columns.length - 1) return;
     const next = [...columns];
@@ -1109,14 +1135,16 @@ const PipelinePage = () => {
               </div>
             </div>
             {/* Add Task */}
-            <Button
-              size="sm"
-              className="h-8 bg-primary text-primary-foreground hover:bg-primary/90 relative z-10"
-              onClick={() => handleOpenCreateDialog(columns[0]?.id || 'todo')}
-            >
-              <Plus className="h-4 w-4 mr-0.5" />
-              <span>{t.projects.pipeline.addTask}</span>
-            </Button>
+            {canWrite && (
+              <Button
+                size="sm"
+                className="h-8 bg-primary text-primary-foreground hover:bg-primary/90 relative z-10"
+                onClick={() => handleOpenCreateDialog(columns[0]?.id || 'todo')}
+              >
+                <Plus className="h-4 w-4 mr-0.5" />
+                <span>{t.projects.pipeline.addTask}</span>
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -1136,13 +1164,14 @@ const PipelinePage = () => {
               {columns.map((column, colIdx) => {
                 const stageFeatures = filteredFeatures.filter(f => f.column === column.id);
                 return (
-                  <SortableStage key={column.id} id={column.id}>
+                  <SortableStage key={column.id} id={column.id} disabled={!canWrite}>
                     <div className="flex flex-col h-full overflow-visible">
                       <DroppableStage id={column.id} containerRef={containerRef}>
                         <div className="flex flex-col h-full">
                           <PipelineStageHeader
                             stage={column}
                             taskCount={stageFeatures.length}
+                            canWrite={canWrite}
                             onAddTask={() => handleOpenCreateDialog(column.id)}
                             onEditStage={() => handleOpenEditStage(column)}
                             onDeleteStage={() => handleDeleteStage(column.id)}
@@ -1156,11 +1185,11 @@ const PipelinePage = () => {
                             <div className="space-y-2">
                               <SortableContext items={stageFeatures.map(d => d.id)} strategy={verticalListSortingStrategy}>
                                 {stageFeatures.map((feature) => (
-                                  <TaskCard key={feature.id} feature={feature} availableLabels={availableLabels} onClick={() => setSelectedFeature(feature)} />
+                                  <TaskCard key={feature.id} feature={feature} availableLabels={availableLabels} canWrite={canWrite} onClick={() => setSelectedFeature(feature)} />
                                 ))}
                               </SortableContext>
                             </div>
-                            {stageFeatures.length === 0 && (
+                            {canWrite && stageFeatures.length === 0 && (
                               <Button
                                 variant="ghost"
                                 className="w-full h-auto py-2 px-4 bg-gray-50 dark:bg-background/50 border border-dashed border-gray-200 dark:border-border rounded-lg text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-background flex items-center justify-center gap-2 text-sm font-medium"
@@ -1285,6 +1314,7 @@ const PipelinePage = () => {
         hideRecord
         onSave={handleTaskDialogSave}
         onUpdate={(taskId, data) => {
+          if (!canWrite) return;
           const updateData: Parameters<typeof tasksApi.update>[2] = {};
           if (data.title) updateData.title = data.title;
           if (data.description !== undefined) updateData.description = data.description;

@@ -20,7 +20,7 @@ import type { Context } from 'hono';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
 import {
   createProjectFolder,
   softDeleteProjectFolderCascade,
@@ -35,6 +35,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectFiles;
 
 const PROJECT_DENIED = 'You are not a member of this project';
+const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
 const STORAGE_KEY_REJECTED = 'storagePath / fileKey must be an unused upload key of this project';
 
 type ParentCheck =
@@ -165,8 +166,8 @@ app.get('/:id', requirePermission('files:read'), async (c) => {
 app.post('/folders', requirePermission('files:create'), zValidator('json', createProjectFolderSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
-  if (!(await canAccessProject(c, data.projectId))) {
-    return error.forbidden(c, PROJECT_DENIED);
+  if (!(await canWriteProject(c, data.projectId))) {
+    return error.forbidden(c, PROJECT_WRITE_DENIED);
   }
   try {
     const row = await createProjectFolder(db, {
@@ -198,8 +199,8 @@ app.post('/', requirePermission('files:create'), zValidator('json', createProjec
   const id = generateId('pfile');
   const now = new Date();
   const projectId = typeof data.projectId === 'string' ? data.projectId : undefined;
-  if (projectId && !(await canAccessProject(c, projectId))) {
-    return error.forbidden(c, PROJECT_DENIED);
+  if (projectId && !(await canWriteProject(c, projectId))) {
+    return error.forbidden(c, PROJECT_WRITE_DENIED);
   }
   try {
     // If the client is creating a folder via the generic POST, normalize fields.
@@ -324,8 +325,8 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updatePr
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Project file', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
 
     const moveFailure = await checkMoveTarget(c, db, existing, data.parentId);
@@ -381,8 +382,8 @@ app.delete('/:id', requirePermission('files:delete'), async (c) => {
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Project file', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
 
     if (existing.isFolder) {

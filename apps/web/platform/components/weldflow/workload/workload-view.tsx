@@ -43,6 +43,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 
 // Internal types derived from API data
 interface TeamMember {
@@ -774,6 +775,9 @@ export interface WorkloadViewProps {
 
 export function WorkloadView({ initialData, error, projectId }: WorkloadViewProps) {
   const st = useTranslations();
+  const { canWrite } = useProjectPermissions();
+  // Milestones only exist on the project-scoped page, and viewers can read them but not change them.
+  const canEditMilestones = !!projectId && canWrite;
   // Transform API data to internal format
   const { members: teamMembers, tasks } = useMemo(
     () => transformApiData(initialData),
@@ -824,7 +828,7 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
 
   // Milestone handlers
   const handleCreateMarker = useCallback(async (date: Date) => {
-    if (!projectId) return;
+    if (!projectId || !canWrite) return;
     const tempId = `temp-${Date.now()}`;
     const newMarker: GanttMarkerType = {
       id: tempId,
@@ -846,10 +850,10 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
       setMarkers((prev) => prev.filter((m) => m.id !== tempId));
       toast.error(st('sweep.weldflow.workloadView.milestoneCreateFailed'));
     }
-  }, [projectId, st]);
+  }, [projectId, canWrite, st]);
 
   const handleRemoveMarker = useCallback(async (id: string) => {
-    if (!projectId) return;
+    if (!projectId || !canWrite) return;
     setMarkers((prev) => prev.filter((m) => m.id !== id));
     const result = await ganttApi.deleteMilestone(projectId, id);
     if (result.success) {
@@ -858,7 +862,7 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
       toast.error(st('sweep.weldflow.workloadView.milestoneDeleteFailed'));
       loadMilestones();
     }
-  }, [projectId, loadMilestones, st]);
+  }, [projectId, canWrite, loadMilestones, st]);
 
   const handleViewMarker = useCallback((id: string, event?: React.MouseEvent) => {
     const marker = markers.find((m) => m.id === id);
@@ -872,16 +876,17 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
   }, [markers]);
 
   const handleRenameMarker = useCallback((id: string) => {
+    if (!canWrite) return;
     const marker = markers.find((m) => m.id === id);
     if (marker) {
       setSelectedMarker(marker);
       setNewName(marker.label);
       setRenameMarkerDialogOpen(true);
     }
-  }, [markers]);
+  }, [canWrite, markers]);
 
   const handleSaveMarkerRename = useCallback(async () => {
-    if (!projectId || !selectedMarker || !newName.trim()) return;
+    if (!projectId || !canWrite || !selectedMarker || !newName.trim()) return;
     setMarkers((prev) => prev.map((m) => m.id === selectedMarker.id ? { ...m, label: newName.trim() } : m));
     setRenameMarkerDialogOpen(false);
 
@@ -893,10 +898,10 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
     }
     setSelectedMarker(null);
     setNewName('');
-  }, [projectId, selectedMarker, newName, st]);
+  }, [projectId, canWrite, selectedMarker, newName, st]);
 
   const handleChangeMarkerDate = useCallback(async (markerId: string, newDate: Date) => {
-    if (!projectId) return;
+    if (!projectId || !canWrite) return;
     setMarkers((prev) => prev.map((m) => m.id === markerId ? { ...m, date: newDate } : m));
     setSelectedMarker((prev) => prev?.id === markerId ? { ...prev, date: newDate } : prev);
 
@@ -907,12 +912,13 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
       toast.error(st('sweep.weldflow.workloadView.milestoneDateUpdateFailed'));
       loadMilestones();
     }
-  }, [projectId, loadMilestones, st]);
+  }, [projectId, canWrite, loadMilestones, st]);
 
   const handleChangeMarkerColor = useCallback((markerId: string, colorClassName: string) => {
+    if (!canWrite) return;
     setMarkers((prev) => prev.map((m) => m.id === markerId ? { ...m, className: colorClassName } : m));
     setSelectedMarker((prev) => prev?.id === markerId ? { ...prev, className: colorClassName } : prev);
-  }, []);
+  }, [canWrite]);
 
   const filterConfigs: FilterConfig[] = useMemo(() => [
     {
@@ -1207,13 +1213,13 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
             <GanttMarker
               key={marker.id}
               {...marker}
-              onRemove={handleRemoveMarker}
-              onRename={handleRenameMarker}
+              onRemove={canEditMilestones ? handleRemoveMarker : undefined}
+              onRename={canEditMilestones ? handleRenameMarker : undefined}
               onSelect={handleViewMarker}
             />
           ))}
           <GanttToday />
-          {projectId && <GanttCreateMarkerTrigger onCreateMarker={handleCreateMarker} />}
+          {canEditMilestones && <GanttCreateMarkerTrigger onCreateMarker={handleCreateMarker} />}
         </GanttTimeline>
       </GanttProvider>
 
@@ -1337,65 +1343,69 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
                       )}
                     </p>
                   </div>
-                  <Separator className="my-1" />
-                  <div className="px-2 py-1.5">
-                    <p className="text-xs font-medium text-muted-foreground mb-1.5">Color</p>
-                    <div className="grid grid-cols-8 gap-1">
-                      {markerColors.map((colorOption) => (
-                        <Button
-                          key={colorOption.name}
-                          variant="ghost"
-                          className={cn(
-                            "h-5 w-5 rounded-[4px] flex items-center justify-center transition-shadow p-0",
-                            selectedMarker.className === colorOption.className
-                              ? 'ring-2 ring-ring ring-offset-1 ring-offset-background'
-                              : 'hover:ring-1 hover:ring-ring/40 hover:ring-offset-1 hover:ring-offset-background'
-                          )}
-                          style={{ backgroundColor: colorOption.color }}
-                          onClick={() => handleChangeMarkerColor(selectedMarker.id, colorOption.className)}
-                          title={colorOption.name}
-                        >
-                          {selectedMarker.className === colorOption.className && (
-                            <Check className="h-3 w-3 text-foreground/60" />
-                          )}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                  <Separator className="my-1" />
-                  <div
-                    role="menuitem"
-                    className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
-                    onClick={() => setMarkerDatePickerOpen(true)}
-                  >
-                    <CalendarIcon className="h-4 w-4" />
-                    {st('sweep.weldflow.workloadView.changeDate')}
-                  </div>
-                  <div
-                    role="menuitem"
-                    className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
-                    onClick={() => {
-                      setViewMarkerPopoverOpen(false);
-                      setMarkerPopoverPosition(null);
-                      handleRenameMarker(selectedMarker.id);
-                    }}
-                  >
-                    <SquarePen className="h-4 w-4" />
-                    {st('sweep.weldflow.workloadView.rename')}
-                  </div>
-                  <div
-                    role="menuitem"
-                    className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors"
-                    onClick={() => {
-                      handleRemoveMarker(selectedMarker.id);
-                      setViewMarkerPopoverOpen(false);
-                      setSelectedMarker(null);
-                      setMarkerPopoverPosition(null);
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {st('sweep.weldflow.delete')}
-                  </div>
+                  {canEditMilestones && (
+                    <>
+                      <Separator className="my-1" />
+                      <div className="px-2 py-1.5">
+                        <p className="text-xs font-medium text-muted-foreground mb-1.5">Color</p>
+                        <div className="grid grid-cols-8 gap-1">
+                          {markerColors.map((colorOption) => (
+                            <Button
+                              key={colorOption.name}
+                              variant="ghost"
+                              className={cn(
+                                "h-5 w-5 rounded-[4px] flex items-center justify-center transition-shadow p-0",
+                                selectedMarker.className === colorOption.className
+                                  ? 'ring-2 ring-ring ring-offset-1 ring-offset-background'
+                                  : 'hover:ring-1 hover:ring-ring/40 hover:ring-offset-1 hover:ring-offset-background'
+                              )}
+                              style={{ backgroundColor: colorOption.color }}
+                              onClick={() => handleChangeMarkerColor(selectedMarker.id, colorOption.className)}
+                              title={colorOption.name}
+                            >
+                              {selectedMarker.className === colorOption.className && (
+                                <Check className="h-3 w-3 text-foreground/60" />
+                              )}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                      <Separator className="my-1" />
+                      <div
+                        role="menuitem"
+                        className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
+                        onClick={() => setMarkerDatePickerOpen(true)}
+                      >
+                        <CalendarIcon className="h-4 w-4" />
+                        {st('sweep.weldflow.workloadView.changeDate')}
+                      </div>
+                      <div
+                        role="menuitem"
+                        className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
+                        onClick={() => {
+                          setViewMarkerPopoverOpen(false);
+                          setMarkerPopoverPosition(null);
+                          handleRenameMarker(selectedMarker.id);
+                        }}
+                      >
+                        <SquarePen className="h-4 w-4" />
+                        {st('sweep.weldflow.workloadView.rename')}
+                      </div>
+                      <div
+                        role="menuitem"
+                        className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        onClick={() => {
+                          handleRemoveMarker(selectedMarker.id);
+                          setViewMarkerPopoverOpen(false);
+                          setSelectedMarker(null);
+                          setMarkerPopoverPosition(null);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {st('sweep.weldflow.delete')}
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </>
