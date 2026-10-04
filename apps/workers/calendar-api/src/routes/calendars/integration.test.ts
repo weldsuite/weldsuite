@@ -383,6 +383,48 @@ describe('DELETE /api/calendars/:id · events, meetings and attendee mail', () =
     await vi.waitFor(() => expect(resendRecipients()).toEqual(['guest@example.com']));
   });
 
+  it('renders the cancellation mail in the event timezone, not UTC (TASK-760)', async () => {
+    const calendarId = generateId('cal');
+    await db.insert(schema.calendars).values({
+      id: calendarId,
+      name: 'TZ Calendar',
+      ownerId,
+      isDefault: false,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    // 8:00-9:00 UTC is 10:00-11:00 in Amsterdam in summer (CEST, UTC+2); pin a fixed
+    // far-future summer date so the offset never depends on when the test runs.
+    await db.insert(schema.calendarEvents).values({
+      id: generateId('evt'),
+      calendarId,
+      organizerId: ownerId,
+      type: 'meeting',
+      title: 'Zoned',
+      startTime: new Date('2090-07-01T08:00:00.000Z'),
+      endTime: new Date('2090-07-01T09:00:00.000Z'),
+      timezone: 'Europe/Amsterdam',
+      attendees: [{ email: 'tz-guest@example.com' }],
+    });
+
+    const res = await api().request(`/api/calendars/${calendarId}?sendNotification=true`, {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(204);
+
+    await vi.waitFor(() => {
+      const mail = fetchSpy.mock.calls
+        .filter(([url]) => String(url).includes('api.resend.com'))
+        .map(([, init]) => JSON.parse(String(init?.body)) as { to: string[]; html: string })
+        .find((m) => m.to.includes('tz-guest@example.com'));
+      expect(mail).toBeDefined();
+      expect(mail?.html).toContain('10:00 AM GMT+2');
+      expect(mail?.html).toContain('11:00 AM GMT+2');
+      expect(mail?.html).not.toContain('UTC');
+    });
+  });
+
   it('sends no mail without sendNotification but still cancels the meeting', async () => {
     const { calendarId, meetingId } = await seedCalendarWithEvents();
     const res = await api().request(`/api/calendars/${calendarId}`, { method: 'DELETE' });

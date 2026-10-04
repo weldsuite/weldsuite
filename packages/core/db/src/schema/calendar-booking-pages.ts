@@ -54,6 +54,15 @@ export const calendarBookingPages = pgTable('calendar_booking_pages', {
   }>>(), // BookingQuestion[]
   minNotice: integer('min_notice').default(60), // minutes ahead required
   maxAdvance: integer('max_advance').default(60), // days ahead allowed
+  // Per-date availability overrides. `date` is YYYY-MM-DD in the page timezone,
+  // times are HH:mm. An override REPLACES the weekly availability for that date;
+  // empty `slots` closes the day.
+  dateOverrides: jsonb('date_overrides').$type<Array<{
+    date: string;
+    slots: Array<{ start: string; end: string }>;
+  }>>(),
+  // Cap on non-cancelled bookings per day (page timezone). null or 0 = unlimited.
+  maxBookingsPerDay: integer('max_bookings_per_day'),
 
   // Confirmation
   confirmationMessage: text('confirmation_message'),

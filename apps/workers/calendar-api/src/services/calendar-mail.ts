@@ -648,13 +648,29 @@ export function renderCalendarRescheduleEmail(params: CalendarRescheduleParams):
 
 /** A cancelled event has nothing to join, so no meeting link and no app button. */
 export function renderCalendarCancelEmail(params: CalendarEmailParams): string {
+  return renderEndedEmail('cancelled', params);
+}
+
+/**
+ * Sent to a guest who was taken off an event that carries on for everyone else:
+ * "removed you", not "cancelled", since the event itself still exists.
+ */
+export function renderCalendarRemovedEmail(params: CalendarEmailParams): string {
+  return renderEndedEmail('removed', params);
+}
+
+function renderEndedEmail(variant: 'cancelled' | 'removed', params: CalendarEmailParams): string {
   const { organizerName, eventTitle, startTime, endTime, location, timezone, allDay } = params;
+  const sentence =
+    variant === 'removed'
+      ? `<strong>${escapeHtml(organizerName)}</strong> removed you from an event:`
+      : `<strong>${escapeHtml(organizerName)}</strong> has cancelled an event:`;
   const body = `
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
       <tr>
         <td style="padding: 0 0 20px 0;">
           <p style="margin: 0; font-size: 15px; color: #374151; line-height: 1.6;">
-            <strong>${escapeHtml(organizerName)}</strong> has cancelled an event:
+            ${sentence}
           </p>
         </td>
       </tr>
@@ -667,10 +683,17 @@ export function renderCalendarCancelEmail(params: CalendarEmailParams): string {
       ${renderTimeSection(startTime, endTime, timezone, allDay)}
       ${renderLocationSection(location)}
     </table>`;
-  return wrapLayout('Event Cancelled', body);
+  return wrapLayout(variant === 'removed' ? 'Removed from event' : 'Event Cancelled', body);
 }
 
-export type MailKind = 'invite' | 'reschedule' | 'update' | 'cancel';
+/**
+ * `cancel`: the event is gone. `removed`: the event goes on but this recipient
+ * is no longer on it (the .ics is still a CANCEL so it leaves their calendar).
+ */
+export type MailKind = 'invite' | 'reschedule' | 'update' | 'cancel' | 'removed';
+
+/** Mails telling the recipient the event is no longer theirs: no join link, no app link. */
+const isEndedKind = (kind: MailKind): boolean => kind === 'cancel' || kind === 'removed';
 
 /** Plain-text alternative of the three mails (the join URL is spelled out). */
 export function renderCalendarText(kind: MailKind, params: CalendarRescheduleParams): string {
@@ -680,6 +703,7 @@ export function renderCalendarText(kind: MailKind, params: CalendarReschedulePar
     reschedule: 'has rescheduled an event',
     update: 'has updated an event',
     cancel: 'has cancelled an event',
+    removed: 'removed you from an event',
   }[kind];
   const lines = [`${organizerName} ${verb}:`, '', eventTitle];
   if (kind === 'reschedule' && params.oldStartTime) {
@@ -687,11 +711,11 @@ export function renderCalendarText(kind: MailKind, params: CalendarReschedulePar
   }
   if (startTime) lines.push(`When: ${formatWhen(startTime, endTime, timezone, allDay)}`);
   if (location) lines.push(`Where: ${location}`);
-  if (kind !== 'cancel' && eventDescription) lines.push('', eventDescription);
-  if (kind !== 'cancel' && params.meetingUrl) {
+  if (!isEndedKind(kind) && eventDescription) lines.push('', eventDescription);
+  if (!isEndedKind(kind) && params.meetingUrl) {
     lines.push('', `${joinLabel(params.meetingUrl)}: ${params.meetingUrl}`);
   }
-  if (kind !== 'cancel' && eventUrl) lines.push('', `View in WeldCalendar: ${eventUrl}`);
+  if (!isEndedKind(kind) && eventUrl) lines.push('', `View in WeldCalendar: ${eventUrl}`);
   return lines.join('\n');
 }
 
@@ -773,12 +797,15 @@ const SUBJECTS: Record<MailKind, (title: string) => string> = {
   reschedule: (t) => `Event rescheduled: ${t}`,
   update: (t) => `Event updated: ${t}`,
   cancel: (t) => `Event cancelled: ${t}`,
+  removed: (t) => `You were removed from: ${t}`,
 };
 
 function templateIdFor(env: Env, kind: MailKind): string | undefined {
   const ids = templateIds(env);
   if (kind === 'invite') return ids.RESEND_MEETING_INVITE_TEMPLATE_ID;
   if (kind === 'reschedule' || kind === 'update') return ids.RESEND_MEETING_UPDATE_TEMPLATE_ID;
+  // The Resend cancel template says "cancelled"; a removed guest gets the inline copy.
+  if (kind === 'removed') return undefined;
   return ids.RESEND_MEETING_CANCEL_TEMPLATE_ID;
 }
 
@@ -801,7 +828,7 @@ function emailParams(opts: SendOptions, eventUrl: string | undefined): CalendarR
     endTime: event.endTime ?? undefined,
     location: event.location ?? undefined,
     eventUrl,
-    meetingUrl: opts.kind === 'cancel' ? undefined : event.meetingUrl?.trim() || undefined,
+    meetingUrl: isEndedKind(opts.kind) ? undefined : event.meetingUrl?.trim() || undefined,
     timezone: mailTimeZone(event, organizer),
     allDay: event.allDay ?? undefined,
     oldStartTime: opts.oldStartTime ?? undefined,
@@ -814,6 +841,7 @@ function renderHtml(opts: SendOptions, eventUrl: string | undefined): string {
   const params = emailParams(opts, eventUrl);
   if (opts.kind === 'invite') return renderCalendarInviteEmail(params);
   if (opts.kind === 'cancel') return renderCalendarCancelEmail(params);
+  if (opts.kind === 'removed') return renderCalendarRemovedEmail(params);
   return renderCalendarRescheduleEmail(params);
 }
 
@@ -829,7 +857,7 @@ function templateVariables(opts: SendOptions, eventUrl: string | undefined): Rec
   };
   // The legacy cancel template did not carry a JOIN_URL. The join link is the
   // meeting when there is one; the app link only reaches workspace members.
-  if (kind !== 'cancel') vars.JOIN_URL = event.meetingUrl?.trim() || eventUrl || '';
+  if (!isEndedKind(kind)) vars.JOIN_URL = event.meetingUrl?.trim() || eventUrl || '';
   if (kind === 'reschedule' || kind === 'update') {
     vars.OLD_SCHEDULED_START = opts.oldStartTime ?? '';
     vars.OLD_SCHEDULED_END = opts.oldEndTime ?? '';
@@ -851,9 +879,9 @@ export async function sendCalendarEventEmails(env: Env, opts: SendOptions): Prom
 
   const appUrl = eventUrlFor(env);
   const { kind, event, organizer } = opts;
-  const method: IcsMethod = kind === 'cancel' ? 'CANCEL' : 'REQUEST';
+  const method: IcsMethod = isEndedKind(kind) ? 'CANCEL' : 'REQUEST';
   const templateId = templateIdFor(env, kind);
-  const meetingUrl = kind === 'cancel' ? undefined : event.meetingUrl?.trim() || undefined;
+  const meetingUrl = isEndedKind(kind) ? undefined : event.meetingUrl?.trim() || undefined;
   const zone = mailTimeZone(event, organizer);
   const sequence =
     kind === 'invite' ? (opts.sequence ?? 0) : Math.max(opts.sequence ?? 0, nextIcsSequence());
@@ -867,7 +895,7 @@ export async function sendCalendarEventEmails(env: Env, opts: SendOptions): Prom
     // External guests have no account: the authenticated calendar is a dead
     // end for them, so only members get that link.
     const isMember = opts.memberEmails?.has(email.toLowerCase()) ?? false;
-    const eventUrl = kind !== 'cancel' && isMember ? appUrl : undefined;
+    const eventUrl = !isEndedKind(kind) && isMember ? appUrl : undefined;
 
     try {
       const ics = icsAttachment({

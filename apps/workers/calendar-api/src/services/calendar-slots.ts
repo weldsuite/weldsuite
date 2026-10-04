@@ -11,9 +11,10 @@
  * which is available in workerd and needs no new dependency.
  */
 
-import { and, eq, gte, isNull, lte } from 'drizzle-orm';
+import { and, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
+import { getOwnedCalendarIds } from './calendar-access';
 
 export interface TimeSlot {
   start: string;
@@ -103,49 +104,89 @@ export function weekdayNameForDate(date: string): string {
 
 // ── Slot computation ─────────────────────────────────────────────────────
 
+/** Availability for one specific date; replaces the weekly availability for it. */
+export interface DateOverride {
+  date: string; // YYYY-MM-DD in the page timezone
+  slots: AvailabilityRange[];
+}
+
 export interface BookingPageSlotConfig {
+  id: string;
   ownerId: string;
   availability: WeeklyAvailability | null;
   timezone: string | null;
   duration: number;
   bufferBefore: number | null;
   bufferAfter: number | null;
+  /** Minutes of notice required; null falls back to 60. */
   minNotice: number | null;
+  /** Days ahead a slot can be booked; null = no limit. */
+  maxAdvance?: number | null;
+  dateOverrides?: DateOverride[] | null;
+  /** Cap on non-cancelled bookings per day; null or 0 = unlimited. */
+  maxBookingsPerDay?: number | null;
+}
+
+/** The calendar date after `date` (both YYYY-MM-DD). */
+function nextDate(date: string): string {
+  const parsed = Date.parse(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed)) throw new Error(`Invalid date: ${date}`);
+  return new Date(parsed + 24 * 60 * 60000).toISOString().slice(0, 10);
 }
 
 /**
  * Compute the bookable slots for one calendar date.
  *
- * Walks each availability window for that weekday in `duration`-minute steps
- * and marks a slot unavailable when it (plus its buffers) overlaps one of the
- * owner's confirmed events, or when it falls inside the minimum-notice window.
+ * The windows of that date are the page's override for it when there is one
+ * (empty = closed), else the weekly availability for its weekday. They are
+ * walked in `duration`-minute steps; a slot is unavailable when
+ *   - it (plus its buffers) overlaps an event of the owner that is confirmed or
+ *     tentative: one whose organizer is the owner or that sits on a calendar the
+ *     owner owns, all-day and multi-day events included, no matter on which day
+ *     the event started;
+ *   - it falls inside the minimum-notice window;
+ *   - the date is further ahead than `maxAdvance` days;
+ *   - the page already has `maxBookingsPerDay` non-cancelled bookings that day
+ *     (in the page timezone).
  */
 export async function computeAvailableSlots(
   db: Database,
   page: BookingPageSlotConfig,
   date: string,
+  now: number = Date.now(),
 ): Promise<TimeSlot[]> {
-  const { calendarEvents } = schema;
+  const { calendarEvents, calendarBookings } = schema;
 
   const availability = page.availability ?? {};
   const tz = page.timezone || 'UTC';
-  const daySlots = availability[weekdayNameForDate(date)] ?? [];
+  const override = (page.dateOverrides ?? []).find((o) => o.date === date);
+  const daySlots = override ? override.slots : (availability[weekdayNameForDate(date)] ?? []);
   if (daySlots.length === 0) return [];
 
-  // Day window, in the owner's timezone.
+  // Day window [dayStart, dayEnd), in the page's timezone.
   const dayStart = fromZonedTime(`${date}T00:00:00`, tz);
-  const dayEnd = fromZonedTime(`${date}T23:59:59.999`, tz);
+  const dayEnd = fromZonedTime(`${nextDate(date)}T00:00:00`, tz);
 
+  // Events that OVERLAP the day, not just those starting in it.
+  const ownedCalendarIds = await getOwnedCalendarIds(db, page.ownerId);
   const existingEvents = await db
     .select({ startTime: calendarEvents.startTime, endTime: calendarEvents.endTime })
     .from(calendarEvents)
     .where(
       and(
         isNull(calendarEvents.deletedAt),
-        eq(calendarEvents.organizerId, page.ownerId),
-        gte(calendarEvents.startTime, dayStart),
-        lte(calendarEvents.startTime, dayEnd),
-        eq(calendarEvents.status, 'confirmed'),
+        ownedCalendarIds.length > 0
+          ? or(
+              eq(calendarEvents.organizerId, page.ownerId),
+              inArray(calendarEvents.calendarId, ownedCalendarIds),
+            )
+          : eq(calendarEvents.organizerId, page.ownerId),
+        inArray(calendarEvents.status, ['confirmed', 'tentative']),
+        lt(calendarEvents.startTime, dayEnd),
+        gt(
+          sql`coalesce(${calendarEvents.endTime}, ${calendarEvents.startTime} + interval '30 minutes')`,
+          dayStart,
+        ),
       ),
     );
 
@@ -153,7 +194,26 @@ export async function computeAvailableSlots(
   const bufferBefore = page.bufferBefore ?? 0;
   const bufferAfter = page.bufferAfter ?? 0;
   const minNoticeMs = (page.minNotice ?? 60) * 60000;
-  const now = Date.now();
+
+  const beyondHorizon =
+    page.maxAdvance != null && dayStart.getTime() > now + page.maxAdvance * 24 * 60 * 60000;
+
+  let dayFull = false;
+  if (page.maxBookingsPerDay != null && page.maxBookingsPerDay > 0) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(calendarBookings)
+      .where(
+        and(
+          eq(calendarBookings.bookingPageId, page.id),
+          isNull(calendarBookings.deletedAt),
+          ne(calendarBookings.status, 'cancelled'),
+          gte(calendarBookings.startTime, dayStart),
+          lt(calendarBookings.startTime, dayEnd),
+        ),
+      );
+    dayFull = Number(row?.count ?? 0) >= page.maxBookingsPerDay;
+  }
 
   const slots: TimeSlot[] = [];
 
@@ -183,7 +243,7 @@ export async function computeAvailableSlots(
       slots.push({
         start: slotStart.toISOString(),
         end: slotEnd.toISOString(),
-        available: !hasConflict && !tooSoon,
+        available: !hasConflict && !tooSoon && !beyondHorizon && !dayFull,
       });
 
       current += duration * 60000;

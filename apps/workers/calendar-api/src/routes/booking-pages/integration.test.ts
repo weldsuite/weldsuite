@@ -293,3 +293,194 @@ describe('/api/booking-pages · pglite integration', () => {
     expect(res.status).toBe(400);
   });
 });
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+describe('/api/booking-pages · booking rules (TASK-892)', () => {
+  const userId = 'user_bpg_rules';
+
+  function api(...perms: Parameters<typeof permissions>) {
+    return createTestApp('/api/booking-pages', bookingPagesRoutes, {
+      context: { permissions: permissions(...perms), userId, tenantDb: db },
+    }).request;
+  }
+
+  async function create(body: Record<string, unknown>) {
+    const request = api('bookings:create');
+    return request('/api/booking-pages', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ ...basePage('-rules'), ...body }),
+    });
+  }
+
+  async function row(id: string) {
+    const [r] = await db.select().from(schema.calendarBookingPages).where(eq(schema.calendarBookingPages.id, id));
+    return r!;
+  }
+
+  it('persists minNotice, maxAdvance, dateOverrides and maxBookingsPerDay on create and patch', async () => {
+    const dateOverrides = [
+      { date: '2030-12-24', slots: [{ start: '09:00', end: '12:00' }] },
+      { date: '2030-12-25', slots: [] },
+    ];
+    const created = await create({ minNotice: 120, maxAdvance: 30, dateOverrides, maxBookingsPerDay: 4 });
+    expect(created.status).toBe(201);
+    const id = ((await created.json()) as { data: { id: string } }).data.id;
+    let stored = await row(id);
+    expect(stored.minNotice).toBe(120);
+    expect(stored.maxAdvance).toBe(30);
+    expect(stored.dateOverrides).toEqual(dateOverrides);
+    expect(stored.maxBookingsPerDay).toBe(4);
+
+    const patch = api('bookings:update');
+    const res = await patch(`/api/booking-pages/${id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ minNotice: 0, maxAdvance: 1, dateOverrides: null, maxBookingsPerDay: null }),
+    });
+    expect(res.status).toBe(200);
+    stored = await row(id);
+    expect(stored.minNotice).toBe(0);
+    expect(stored.maxAdvance).toBe(1);
+    expect(stored.dateOverrides).toBeNull();
+    expect(stored.maxBookingsPerDay).toBeNull();
+
+    const zero = await patch(`/api/booking-pages/${id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ maxBookingsPerDay: 0 }),
+    });
+    expect(zero.status).toBe(200);
+    expect((await row(id)).maxBookingsPerDay).toBe(0);
+  });
+
+  it('rejects out-of-range or malformed rule values', async () => {
+    const bad: Record<string, unknown>[] = [
+      { minNotice: -1 },
+      { minNotice: 1.5 },
+      { maxAdvance: 0 },
+      { maxAdvance: 'soon' },
+      { maxBookingsPerDay: -1 },
+      { maxBookingsPerDay: 2.5 },
+      { dateOverrides: [{ date: '2030-02-30', slots: [] }] },
+      { dateOverrides: [{ date: '25-12-2030', slots: [] }] },
+      { dateOverrides: [{ date: '2030-12-25', slots: [{ start: '12:00', end: '09:00' }] }] },
+      { dateOverrides: [{ date: '2030-12-25', slots: [{ start: '09:00', end: '09:00' }] }] },
+      {
+        dateOverrides: [
+          { date: '2030-12-25', slots: [{ start: '09:00', end: '12:00' }, { start: '11:00', end: '13:00' }] },
+        ],
+      },
+      { dateOverrides: [{ date: '2030-12-25', slots: [{ start: '9:00', end: '10:00' }] }] },
+      {
+        dateOverrides: [
+          { date: '2030-12-25', slots: [] },
+          { date: '2030-12-25', slots: [{ start: '09:00', end: '10:00' }] },
+        ],
+      },
+    ];
+    for (const body of bad) {
+      expect((await create(body)).status, JSON.stringify(body)).toBe(400);
+    }
+  });
+
+  it('accepts a full year of overrides and rejects more', async () => {
+    const day = (i: number) => new Date(Date.UTC(2031, 0, 1 + i)).toISOString().slice(0, 10);
+    const make = (n: number) => Array.from({ length: n }, (_, i) => ({ date: day(i), slots: [] }));
+    expect((await create({ dateOverrides: make(366) })).status).toBe(201);
+    expect((await create({ dateOverrides: make(367) })).status).toBe(400);
+  });
+
+  it('PATCH validates the same rules', async () => {
+    const created = await create({});
+    const id = ((await created.json()) as { data: { id: string } }).data.id;
+    const patch = api('bookings:update');
+    const res = await patch(`/api/booking-pages/${id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ maxAdvance: 0 }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/booking-pages/:id/delete-impact (TASK-893)', () => {
+  const ownerId = 'user_bpg_impact';
+  const hour = 60 * 60 * 1000;
+
+  function api(userId = ownerId, ...perms: Parameters<typeof permissions>) {
+    return createTestApp('/api/booking-pages', bookingPagesRoutes, {
+      context: { permissions: permissions(...(perms.length ? perms : ['bookings:delete'])), userId, tenantDb: db },
+    }).request;
+  }
+
+  async function seedPage(): Promise<string> {
+    const id = `bpg_impact_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    await db.insert(schema.calendarBookingPages).values({
+      id,
+      name: 'Impact',
+      slug: id,
+      ownerId,
+      duration: 30,
+      availability: emptyAvailability,
+    });
+    return id;
+  }
+
+  async function seedBooking(pageId: string, startOffsetMs: number, status = 'confirmed', deleted = false) {
+    const start = new Date(Date.now() + startOffsetMs);
+    await db.insert(schema.calendarBookings).values({
+      id: `bkg_${Math.random().toString(36).slice(2, 12)}`,
+      bookingPageId: pageId,
+      bookerName: 'B',
+      bookerEmail: 'b@example.com',
+      startTime: start,
+      endTime: new Date(start.getTime() + 30 * 60000),
+      status,
+      deletedAt: deleted ? new Date() : null,
+    });
+  }
+
+  it('counts only non-cancelled, non-deleted bookings that start in the future', async () => {
+    const pageId = await seedPage();
+    const otherPage = await seedPage();
+    await seedBooking(pageId, 2 * hour);
+    await seedBooking(pageId, 48 * hour);
+    await seedBooking(pageId, 5 * hour, 'cancelled');
+    await seedBooking(pageId, 6 * hour, 'confirmed', true);
+    await seedBooking(pageId, -3 * hour);
+    await seedBooking(otherPage, 2 * hour);
+
+    const res = await api()(`/api/booking-pages/${pageId}/delete-impact`);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: { upcomingBookingCount: number } }).data).toEqual({
+      upcomingBookingCount: 2,
+    });
+  });
+
+  it('is 0 for a page without bookings and 404 for an unknown or deleted page', async () => {
+    const pageId = await seedPage();
+    const res = await api()(`/api/booking-pages/${pageId}/delete-impact`);
+    expect(((await res.json()) as { data: { upcomingBookingCount: number } }).data.upcomingBookingCount).toBe(0);
+
+    expect((await api()('/api/booking-pages/bpg_nope/delete-impact')).status).toBe(404);
+
+    await db
+      .update(schema.calendarBookingPages)
+      .set({ deletedAt: new Date() })
+      .where(eq(schema.calendarBookingPages.id, pageId));
+    expect((await api()(`/api/booking-pages/${pageId}/delete-impact`)).status).toBe(404);
+  });
+
+  it('needs bookings:delete and respects owner scoping', async () => {
+    const pageId = await seedPage();
+    expect((await api(ownerId, 'bookings:read')(`/api/booking-pages/${pageId}/delete-impact`)).status).toBe(403);
+    expect((await api('user_bpg_impact_other')(`/api/booking-pages/${pageId}/delete-impact`)).status).toBe(404);
+    expect(
+      (await api('user_bpg_impact_other', 'bookings:delete', 'bookings:scope:all')(
+        `/api/booking-pages/${pageId}/delete-impact`,
+      )).status,
+    ).toBe(200);
+  });
+});

@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit manually.
  * Run `pnpm bundle-migrations` to regenerate.
  *
- * Contains 198 tenant database migrations bundled for Cloudflare Workers.
+ * Contains 199 tenant database migrations bundled for Cloudflare Workers.
  * Generated from: packages/core/db/drizzle/tenant-migrations/
  */
 
@@ -205,6 +205,7 @@ export const MIGRATION_JOURNAL = [
   { idx: 195, tag: "0195_commerce_portal_and_schema_drift", when: 1788500000000 },
   { idx: 196, tag: "0196_burly_the_twelve", when: 1790961019143 },
   { idx: 197, tag: "0197_weldpass_password_manager", when: 1791115443291 },
+  { idx: 198, tag: "0198_military_secret_warriors", when: 1791150513192 },
 ] as const;
 
 export const MIGRATION_SQL: Record<string, string> = {
@@ -11332,6 +11333,8 @@ CREATE UNIQUE INDEX "weldpass_vault_members_vault_user_idx" ON "weldpass_vault_m
 CREATE INDEX "weldpass_vault_members_user_idx" ON "weldpass_vault_members" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "weldpass_vaults_workspace_idx" ON "weldpass_vaults" USING btree ("workspace_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "weldpass_vaults_personal_owner_idx" ON "weldpass_vaults" USING btree ("workspace_id","owner_id") WHERE "weldpass_vaults"."kind" = 'personal' AND "weldpass_vaults"."deleted_at" IS NULL;`,
+  "0198_military_secret_warriors": `ALTER TABLE "calendar_booking_pages" ADD COLUMN "date_overrides" jsonb;--> statement-breakpoint
+ALTER TABLE "calendar_booking_pages" ADD COLUMN "max_bookings_per_day" integer;`,
 };
 
 export const MIGRATION_HASHES: Record<string, string> = {
@@ -11533,4 +11536,5 @@ export const MIGRATION_HASHES: Record<string, string> = {
   "0195_commerce_portal_and_schema_drift": "684d4dfeb3561c297ccf2c6db5f236c239524294358fceea061b94d0c5137dd4",
   "0196_burly_the_twelve": "54f826393467c33bc8868c65f31396a583987d47c25acc9f6c253c23a569c8d2",
   "0197_weldpass_password_manager": "2d91ef19b28de49b6f16c1692c17836ef1bbddbcbb88bfd5bdb441b8c1b0419c",
+  "0198_military_secret_warriors": "213d85c477d2dded48226e6ee6b3646697e5acb6972e1039053690e6afc95556",
 };
