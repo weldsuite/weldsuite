@@ -25,8 +25,6 @@ export default function ProjectsAnalyticsReportPage() {
   }
 
   return (
-    <div className="container mx-auto py-6">
-      <ReportViewClient report={report} charts={charts} />
-    </div>
+    <ReportViewClient report={report} charts={charts} />
   );
 }

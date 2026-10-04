@@ -552,7 +552,7 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
   {
     code: 'weldpass',
     name: 'WeldPass',
-    description: 'Encrypted secrets for your team, pushed straight to Cloudflare and Vercel.',
+    description: 'Passwords your team shares safely, and encrypted secrets pushed straight to Cloudflare and Vercel.',
     icon: 'KeyRound',
     category: 'Infrastructure',
     path: '/weldpass',

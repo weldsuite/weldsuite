@@ -273,6 +273,54 @@ export function credentialLocation(projectId: string, credentialId: string): Sec
 }
 
 // ---------------------------------------------------------------------------
+// Password manager items
+// ---------------------------------------------------------------------------
+
+/** Where a password-manager item lives. Bound into the ciphertext like a secret's. */
+export interface ItemLocation {
+  vaultId: string;
+  itemId: string;
+}
+
+/**
+ * Encrypt one item's fields under a fresh data key.
+ *
+ * Unlike `sealSecret` this stores no checksum and no hint. Those are safe for
+ * machine-generated API keys, but an unsalted hash or the last four characters
+ * of a human-chosen password is enough to confirm a guess from a database dump.
+ */
+export async function sealItem(
+  kek: Uint8Array<ArrayBuffer>,
+  location: ItemLocation,
+  plaintext: string,
+): Promise<{ ciphertext: string; dekWrapped: string }> {
+  const dek = crypto.getRandomValues(new Uint8Array(32));
+  return {
+    ciphertext: await seal(dek, new TextEncoder().encode(plaintext), itemAad(location), 'v1'),
+    dekWrapped: await seal(kek, dek, itemDekAad(location), 'v1'),
+  };
+}
+
+/** Decrypt one item's fields. Callers must have already checked vault access. */
+export async function openItem(
+  kek: Uint8Array<ArrayBuffer>,
+  location: ItemLocation,
+  stored: { ciphertext: string; dekWrapped: string },
+): Promise<string> {
+  const dek = await open(kek, stored.dekWrapped, itemDekAad(location));
+  const plain = await open(dek, stored.ciphertext, itemAad(location));
+  return new TextDecoder().decode(plain);
+}
+
+function itemAad(location: ItemLocation): string {
+  return `weldpass:item:${location.vaultId}:${location.itemId}`;
+}
+
+function itemDekAad(location: ItemLocation): string {
+  return `weldpass:item-dek:${location.vaultId}:${location.itemId}`;
+}
+
+// ---------------------------------------------------------------------------
 // Non-secret derivatives
 // ---------------------------------------------------------------------------
 

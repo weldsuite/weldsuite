@@ -18,12 +18,13 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectWhiteboards;
 
 const PROJECT_DENIED = 'You are not a member of this project';
+const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
 
 const createWhiteboardSchema = z.object({
   projectId: z.string().min(1),
@@ -121,8 +122,8 @@ app.post(
     // `pwb` prefix to match the id format api-worker has been writing.
     const id = generateId('pwb');
     const now = new Date();
-    if (data.projectId && !(await canAccessProject(c, data.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (data.projectId && !(await canWriteProject(c, data.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     try {
       await db.insert(t).values({
@@ -165,8 +166,8 @@ app.patch(
         .where(and(eq(t.id, id), isNull(t.deletedAt)))
         .limit(1);
       if (!existing) return error.notFound(c, 'Whiteboard', id);
-      if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-        return error.forbidden(c, PROJECT_DENIED);
+      if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+        return error.forbidden(c, PROJECT_WRITE_DENIED);
       }
 
       const update: Record<string, any> = { updatedAt: new Date() };
@@ -203,8 +204,8 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
       .where(and(eq(t.id, id), isNull(t.deletedAt)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Whiteboard', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
     publishEntityEvent({

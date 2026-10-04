@@ -101,6 +101,9 @@ export const navigation = {
         findLeads: 'Find Leads',
       },
       weldpass: {
+        passwords: 'Passwords',
+        vaults: 'Vaults',
+        passwordHealth: 'Password health',
         projects: 'Projects',
       },
       weldhr: {

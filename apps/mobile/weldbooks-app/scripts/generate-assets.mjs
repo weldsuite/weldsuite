@@ -25,31 +25,36 @@ if (outRelative.startsWith('..') || path.isAbsolute(outRelative)) {
 }
 
 const EMERALD = '#10B981';
-const VB_W = 520;
-const VB_H = 680;
+// Crop of Lucide's 24x24 grid to the mark's stroke bounds, as in the platform icon.svg.
+const VB_X = 3;
+const VB_Y = 1;
+const VB_W = 18;
+const VB_H = 22;
 
-/** The calculator path, lifted verbatim from the platform icon.svg. */
-const PATH_D = [
-  'M120,0h280c66.27,0,120,53.73,120,120v440c0,66.27-53.73,120-120,120H120C53.73,680,0,626.27,0,560V120C0,53.73,53.73,0,120,0Z',
-  'M80,92h360c22.09,0,40,17.91,40,40v104c0,22.09-17.91,40-40,40H80c-22.09,0-40-17.91-40-40V132c0-22.09,17.91-40,40-40Z',
-  'M100,400m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z',
-  'M260,400m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z',
-  'M420,400m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z',
-  'M100,560m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z',
-  'M260,560m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z',
-  'M420,560m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z',
-].join('\n      ');
+/** The calculator shapes (Lucide "calculator"), lifted verbatim from the platform icon.svg. */
+const MARK = [
+  '<rect width="16" height="20" x="4" y="2" rx="2"/>',
+  '<line x1="8" x2="16" y1="6" y2="6"/>',
+  '<line x1="16" x2="16" y1="14" y2="18"/>',
+  '<path d="M16 10h.01"/>',
+  '<path d="M12 10h.01"/>',
+  '<path d="M8 10h.01"/>',
+  '<path d="M12 14h.01"/>',
+  '<path d="M8 14h.01"/>',
+  '<path d="M12 18h.01"/>',
+  '<path d="M8 18h.01"/>',
+].join('\n    ');
 
 /** Mark on a transparent square canvas, scaled to `markRatio` of the canvas height. */
-function markSvg(size, fill, markRatio) {
+function markSvg(size, stroke, markRatio) {
   const h = size * markRatio;
   const w = h * (VB_W / VB_H);
   const x = (size - w) / 2;
   const y = (size - h) / 2;
   return Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="0 0 ${VB_W} ${VB_H}">
-    <path fill="${fill}" fill-rule="evenodd" d="${PATH_D}"/>
+  <svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="${VB_X} ${VB_Y} ${VB_W} ${VB_H}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    ${MARK}
   </svg>
 </svg>`,
   );

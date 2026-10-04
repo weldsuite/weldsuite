@@ -146,7 +146,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
   {
     code: 'weldpass',
     label: 'WeldPass',
-    objects: ['secrets'],
+    objects: ['secrets', 'passwords'],
   },
   {
     code: 'weldhr',

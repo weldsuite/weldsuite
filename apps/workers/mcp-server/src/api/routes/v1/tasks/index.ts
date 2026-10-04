@@ -41,12 +41,21 @@ function coerceDates(data: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * Drop server-owned columns a client must not set. The task schemas are
- * `.passthrough()`, so without this a PATCH carrying `number` would renumber a
- * task — or collide with the unique index and surface as a 500.
+ * Drop server-owned columns a client must not set. PATCH validates against an
+ * explicit allow-list (`updateTaskSchema`), so none of these reach here today;
+ * this stays as defence in depth should the schema ever widen. A PATCH carrying
+ * `number` would renumber a task — or collide with the unique index and surface
+ * as a 500.
  */
 function stripServerOwned(data: Record<string, unknown>): Record<string, unknown> {
-  const { number: _number, ...rest } = data;
+  const {
+    number: _number,
+    id: _id,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    deletedAt: _deletedAt,
+    ...rest
+  } = data;
   return rest;
 }
 

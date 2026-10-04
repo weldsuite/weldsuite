@@ -64,7 +64,7 @@ describe('getAppPermissionObjects', () => {
 
   it('resolves platform route codes and keeps post-refactor entries', () => {
     expect(getAppPermissionObjects('social')).toEqual(expect.arrayContaining(['posts', 'accounts']));
-    expect(getAppPermissionObjects('weldpass')).toEqual(['secrets']);
+    expect(getAppPermissionObjects('weldpass')).toEqual(['secrets', 'passwords']);
     expect(getAppPermissionObjects('unknown-app')).toEqual([]);
   });
 });

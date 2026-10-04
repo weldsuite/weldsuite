@@ -17,12 +17,13 @@ import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectMessages;
 
 const PROJECT_DENIED = 'You are not a member of this project';
+const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
 
 const listFiltersSchema = z.object({
   projectId: z.string().optional(),
@@ -124,8 +125,8 @@ app.post(
     const data = c.req.valid('json');
     const id = generateId('pmsg');
     const now = new Date();
-    if (!(await canAccessProject(c, data.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (!(await canWriteProject(c, data.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     try {
       await db.insert(t).values({
@@ -224,8 +225,8 @@ app.post(
         .where(and(eq(t.id, id), isNull(t.deletedAt)))
         .limit(1);
       if (!existing) return error.notFound(c, 'Project message', id);
-      if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-        return error.forbidden(c, PROJECT_DENIED);
+      if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+        return error.forbidden(c, PROJECT_WRITE_DENIED);
       }
       const reactions = ((existing.reactions as Record<string, string[]> | null) ?? {});
       const list = reactions[emoji] ?? [];

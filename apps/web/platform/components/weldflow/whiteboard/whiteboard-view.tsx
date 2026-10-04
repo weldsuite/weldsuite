@@ -193,6 +193,15 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<Tool>(canWrite ? 'select' : 'pan');
+  // Permissions can resolve after mount: once write access arrives, leave the
+  // read-only 'pan' default, but never override a tool the user picked since.
+  const prevCanWriteRef = useRef(canWrite);
+  useEffect(() => {
+    if (canWrite && !prevCanWriteRef.current) {
+      setTool(prev => (prev === 'pan' ? 'select' : prev));
+    }
+    prevCanWriteRef.current = canWrite;
+  }, [canWrite]);
   const [elements, setElements] = useState<WhiteboardElement[]>(initialElements);
   const [_isSaving, setIsSaving] = useState(false);
 
@@ -516,6 +525,9 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
 
   // Save function that can be called directly
   const saveWhiteboard = useCallback(async (elementsToSave: WhiteboardElement[]) => {
+    // Read-only viewers never write (the API would 403). Remote edits still land
+    // in `elements`; once write access resolves the autosave effect re-runs.
+    if (!canWrite) return;
     const elementsJson = JSON.stringify(elementsToSave);
     // Skip if nothing changed
     if (elementsJson === lastSavedElementsRef.current) {
@@ -546,7 +558,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     } finally {
       setIsSaving(false);
     }
-  }, [projectId, whiteboardId, getClient, st]);
+  }, [canWrite, projectId, whiteboardId, getClient, st]);
 
   useEffect(() => {
     // Skip initial render (when initialElements are being loaded)
@@ -1131,6 +1143,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
 
   // Start dragging every element of the current multi-selection
   const beginMultiElementDrag = (point: Point) => {
+    if (!canWrite) return;
     setIsDraggingElement(true);
     setDragStartPos(point);
 
@@ -1148,6 +1161,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   const beginSingleElementDrag = (clickedElement: WhiteboardElement, point: Point) => {
     setSelectedElement(clickedElement.id);
     setSelectedElements(new Set());
+    if (!canWrite) return; // select-to-inspect only
     setIsDraggingElement(true);
     setDragStartPos(point);
     setDragElementStart(snapshotDragStart(clickedElement));
@@ -1290,13 +1304,14 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     }
 
     if (tool !== 'select') {
-      handleToolMouseDown(e, point);
+      // Drawing tools are not offered read-only; only panning is.
+      if (canWrite || tool === 'pan') handleToolMouseDown(e, point);
       return;
     }
 
     // Check if clicking on a resize handle or arrow handle of the selected element
     const selected = selectedElement ? elements.find(el => el.id === selectedElement) : undefined;
-    if (selected && tryStartHandleDrag(e, point, selected)) return;
+    if (canWrite && selected && tryStartHandleDrag(e, point, selected)) return;
 
     handleSelectToolMouseDown(point);
   };
@@ -1789,10 +1804,11 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     // Select and start dragging the element
     setSelectedElement(touchedElement.id);
     setSelectedElements(new Set());
+    if (!canWrite) return; // select-to-inspect only
     setIsDraggingElement(true);
     setDragStartPos(point);
     setDragElementStart(snapshotDragStart(touchedElement));
-  }, [elements, zoom]);
+  }, [canWrite, elements, zoom]);
 
   // Start drawing/placing based on the active tool
   const beginTouchTool = useCallback((point: Point) => {
@@ -1800,13 +1816,14 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
       beginTouchSelect(point);
       return;
     }
+    if (!canWrite) return;
     if (tool !== 'rectangle' && tool !== 'circle' && tool !== 'arrow' && tool !== 'pen') return;
 
     setIsDrawing(true);
     if (tool === 'pen') setCurrentPath([{ x: point.x, y: point.y }]);
     setSelectedElement(null);
     setSelectedElements(new Set());
-  }, [tool, beginTouchSelect]);
+  }, [canWrite, tool, beginTouchSelect]);
 
   const beginSingleTouch = useCallback((touch: React.Touch) => {
     touchStartRef.current = {
@@ -2064,19 +2081,20 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
     if (clickedElement) {
       setSelectedElement(clickedElement.id);
       setSelectedElements(new Set());
-      setContextMenu({
+      // Every menu action edits the board, so read-only viewers get no menu.
+      setContextMenu(canWrite ? {
         x: e.clientX,
         y: e.clientY,
         elementId: clickedElement.id
-      });
+      } : null);
     } else {
       setContextMenu(null);
     }
-  }, [elements, screenToCanvas, zoom]);
+  }, [canWrite, elements, screenToCanvas, zoom]);
 
   // Context menu actions
   const bringToFront = useCallback(() => {
-    if (!contextMenu) return;
+    if (!canWrite || !contextMenu) return;
     const elementIndex = elements.findIndex(el => el.id === contextMenu.elementId);
     if (elementIndex === -1) return;
     const element = elements[elementIndex];
@@ -2086,10 +2104,10 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
     setElements(newElements);
     setTimeout(addToHistory, 100);
     setContextMenu(null);
-  }, [contextMenu, elements, addToHistory]);
+  }, [canWrite, contextMenu, elements, addToHistory]);
 
   const sendToBack = useCallback(() => {
-    if (!contextMenu) return;
+    if (!canWrite || !contextMenu) return;
     const elementIndex = elements.findIndex(el => el.id === contextMenu.elementId);
     if (elementIndex === -1) return;
     const element = elements[elementIndex];
@@ -2099,10 +2117,10 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
     setElements(newElements);
     setTimeout(addToHistory, 100);
     setContextMenu(null);
-  }, [contextMenu, elements, addToHistory]);
+  }, [canWrite, contextMenu, elements, addToHistory]);
 
   const bringForward = useCallback(() => {
-    if (!contextMenu) return;
+    if (!canWrite || !contextMenu) return;
     const elementIndex = elements.findIndex(el => el.id === contextMenu.elementId);
     if (elementIndex === -1 || elementIndex === elements.length - 1) return;
     const newElements = [...elements];
@@ -2110,10 +2128,10 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
     setElements(newElements);
     setTimeout(addToHistory, 100);
     setContextMenu(null);
-  }, [contextMenu, elements, addToHistory]);
+  }, [canWrite, contextMenu, elements, addToHistory]);
 
   const sendBackward = useCallback(() => {
-    if (!contextMenu) return;
+    if (!canWrite || !contextMenu) return;
     const elementIndex = elements.findIndex(el => el.id === contextMenu.elementId);
     if (elementIndex <= 0) return;
     const newElements = [...elements];
@@ -2121,7 +2139,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
     setElements(newElements);
     setTimeout(addToHistory, 100);
     setContextMenu(null);
-  }, [contextMenu, elements, addToHistory]);
+  }, [canWrite, contextMenu, elements, addToHistory]);
 
   const copyElement = useCallback(() => {
     // Copy from context menu, selected elements (multi), or single selected element
@@ -2144,7 +2162,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
   }, [contextMenu, selectedElement, selectedElements, elements]);
 
   const pasteElement = useCallback(() => {
-    if (clipboard.length === 0) return;
+    if (!canWrite || clipboard.length === 0) return;
 
     const newElements: WhiteboardElement[] = clipboard.map((el, index) => ({
       ...el,
@@ -2173,10 +2191,10 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
 
     setTimeout(addToHistory, 100);
     setContextMenu(null);
-  }, [clipboard, elements, addToHistory]);
+  }, [canWrite, clipboard, elements, addToHistory]);
 
   const duplicateElement = useCallback(() => {
-    if (!contextMenu) return;
+    if (!canWrite || !contextMenu) return;
     const element = elements.find(el => el.id === contextMenu.elementId);
     if (!element) return;
     const newElement: WhiteboardElement = {
@@ -2196,15 +2214,15 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
     setSelectedElement(newElement.id);
     setTimeout(addToHistory, 100);
     setContextMenu(null);
-  }, [contextMenu, elements, addToHistory]);
+  }, [canWrite, contextMenu, elements, addToHistory]);
 
   const deleteElement = useCallback(() => {
-    if (!contextMenu) return;
+    if (!canWrite || !contextMenu) return;
     deleteElementWithBroadcast(contextMenu.elementId);
     setSelectedElement(null);
     setTimeout(addToHistory, 100);
     setContextMenu(null);
-  }, [contextMenu, deleteElementWithBroadcast, addToHistory]);
+  }, [canWrite, contextMenu, deleteElementWithBroadcast, addToHistory]);
 
   // Close context menu when clicking elsewhere
   useEffect(() => {
@@ -2217,6 +2235,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
 
   // Delete selected element(s)
   const deleteSelectedElement = useCallback(() => {
+    if (!canWrite) return;
     if (selectedElements.size > 0) {
       // Delete multiple elements and broadcast
       selectedElements.forEach(id => {
@@ -2232,11 +2251,12 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       setSelectedElement(null);
       setTimeout(addToHistory, 100);
     }
-  }, [selectedElements, selectedElement, isConnected, broadcastElementDelete, elements, addToHistory, deleteElementWithBroadcast]);
+  }, [canWrite, selectedElements, selectedElement, isConnected, broadcastElementDelete, elements, addToHistory, deleteElementWithBroadcast]);
 
   // Duplicate the multi-selection, or the single selected element, next to the
   // originals. Returns whether there was a selection to duplicate.
   const duplicateSelection = useCallback((): boolean => {
+    if (!canWrite) return false;
     if (selectedElements.size > 0) {
       // Duplicate multiple selected elements
       const newElements = elements
@@ -2260,12 +2280,12 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       setTimeout(addToHistory, 100);
     }
     return true;
-  }, [selectedElement, selectedElements, elements, addToHistory]);
+  }, [canWrite, selectedElement, selectedElements, elements, addToHistory]);
 
   // Move the selected element to the front (or back) of the stacking order.
   // Returns whether there was a selected element.
   const reorderSelectedElement = useCallback((toFront: boolean): boolean => {
-    if (!selectedElement) return false;
+    if (!canWrite || !selectedElement) return false;
 
     const elementIndex = elements.findIndex(el => el.id === selectedElement);
     const canMove = toFront
@@ -2283,7 +2303,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       setTimeout(addToHistory, 100);
     }
     return true;
-  }, [selectedElement, elements, addToHistory]);
+  }, [canWrite, selectedElement, elements, addToHistory]);
 
   // Cmd/Ctrl + key shortcuts. Returns whether the key was handled (so the
   // browser default should be suppressed).
@@ -2719,6 +2739,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
     const point = screenToCanvas(e.clientX, e.clientY);
     setSelectedElement(element.id);
     setSelectedElements(new Set());
+    if (!canWrite) return; // select-to-inspect only
     setIsDraggingElement(true);
     setDragStartPos(point);
     setDragElementStart({ x: element.x || 0, y: element.y || 0 });
@@ -2800,7 +2821,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
         fill="transparent"
         stroke="none"
         onMouseDown={(e) => handleTextMouseDown(e, element)}
-        onDoubleClick={() => setEditingElement(element.id)}
+        onDoubleClick={() => { if (canWrite) setEditingElement(element.id); }}
         ref={(node) => syncTextHitArea(node, element)}
       />
       {renderTextLabel(element, textFontSize)}
@@ -2862,7 +2883,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
             selectedElement === element.id && "stroke-blue-500 stroke-2"
           )}
           onClick={() => selectSingleElement(element.id)}
-          onDoubleClick={() => setEditingElement(element.id)}
+          onDoubleClick={() => { if (canWrite) setEditingElement(element.id); }}
         />
         <foreignObject
           x={element.x}
@@ -3400,7 +3421,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       )}
 
       {/* Floating toolbar for selected text element */}
-      {selectedElement && !isPresentMode && !isPanning && (() => {
+      {canWrite && selectedElement && !isPresentMode && !isPanning && (() => {
         const element = elements.find(el => el.id === selectedElement);
         if (!element || element.type !== 'text') return null;
 
@@ -3751,7 +3772,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       })()}
 
       {/* Floating toolbar for selected shape/arrow/path/sticky elements */}
-      {selectedElement && !isPresentMode && !isPanning && (() => {
+      {canWrite && selectedElement && !isPresentMode && !isPanning && (() => {
         const element = elements.find(el => el.id === selectedElement);
         if (!element || element.type === 'text') return null;
 

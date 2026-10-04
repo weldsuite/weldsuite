@@ -422,18 +422,6 @@ export const weldmeet = {
     layout: {
       appNotInstalled: 'Aplicación no instalada',
     },
-    upgradePrompt: {
-      title: 'Inteligencia de llamadas.',
-      subtitle: 'Tus llamadas, transcritas y analizadas.',
-      description: 'Sabe qué se dijo y qué hacer a continuación.',
-      upgrade: 'Actualizar',
-      learnMore: 'Saber más',
-    },
-    illustration: {
-      transcript: 'Transcripción',
-      speakers: 'Interlocutores',
-      details: 'Detalles',
-    },
     callHistory: {
       searchPlaceholder: 'Buscar llamadas...',
       phoneSettings: 'Configuración de teléfono',

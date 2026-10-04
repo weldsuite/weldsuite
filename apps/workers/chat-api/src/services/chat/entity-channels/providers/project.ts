@@ -1,5 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
+import { getProjectStats, EMPTY_PROJECT_STATS } from '@weldsuite/flow-domain/project-stats';
 import { registerEntityProvider, type EntityChannelProvider } from '../registry';
 
 export const projectEntityProvider: EntityChannelProvider = {
@@ -50,7 +51,6 @@ export const projectEntityProvider: EntityChannelProvider = {
         status: projects.status,
         priority: projects.priority,
         health: projects.health,
-        progress: projects.progress,
         type: projects.type,
         methodology: projects.methodology,
         visibility: projects.visibility,
@@ -62,7 +62,6 @@ export const projectEntityProvider: EntityChannelProvider = {
         actualStartDate: projects.actualStartDate,
         actualEndDate: projects.actualEndDate,
         budgetedHours: projects.budgetedHours,
-        actualHours: projects.actualHours,
         budgetedAmount: projects.budgetedAmount,
         actualAmount: projects.actualAmount,
         budgetCurrency: projects.budgetCurrency,
@@ -72,11 +71,6 @@ export const projectEntityProvider: EntityChannelProvider = {
         trackTime: projects.trackTime,
         color: projects.color,
         icon: projects.icon,
-        totalTasks: projects.totalTasks,
-        completedTasks: projects.completedTasks,
-        openTasks: projects.openTasks,
-        totalMilestones: projects.totalMilestones,
-        completedMilestones: projects.completedMilestones,
         createdAt: projects.createdAt,
         updatedAt: projects.updatedAt,
       })
@@ -97,7 +91,10 @@ export const projectEntityProvider: EntityChannelProvider = {
         ),
       );
 
-    return { ...project, members };
+    // The stored counters are never maintained; derive them on read.
+    const stats = await getProjectStats(db, [entityId]);
+
+    return { ...project, ...(stats.get(entityId) ?? EMPTY_PROJECT_STATS), members };
   },
 
   async canAccess({ db, actingUserId, entityId }) {

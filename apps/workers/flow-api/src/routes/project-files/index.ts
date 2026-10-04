@@ -20,18 +20,23 @@ import type { Context } from 'hono';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
 import {
   createProjectFolder,
   softDeleteProjectFolderCascade,
   wouldCreateCycle,
   replacedStorageKey,
+  pickWritableFileColumns,
+  areStorageKeysAcceptable,
+  canDeleteReplacedObject,
 } from '../../services/project-files';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectFiles;
 
 const PROJECT_DENIED = 'You are not a member of this project';
+const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
+const STORAGE_KEY_REJECTED = 'storagePath / fileKey must be an unused upload key of this project';
 
 type ParentCheck =
   | { ok: true }
@@ -161,8 +166,8 @@ app.get('/:id', requirePermission('files:read'), async (c) => {
 app.post('/folders', requirePermission('files:create'), zValidator('json', createProjectFolderSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
-  if (!(await canAccessProject(c, data.projectId))) {
-    return error.forbidden(c, PROJECT_DENIED);
+  if (!(await canWriteProject(c, data.projectId))) {
+    return error.forbidden(c, PROJECT_WRITE_DENIED);
   }
   try {
     const row = await createProjectFolder(db, {
@@ -194,8 +199,8 @@ app.post('/', requirePermission('files:create'), zValidator('json', createProjec
   const id = generateId('pfile');
   const now = new Date();
   const projectId = typeof data.projectId === 'string' ? data.projectId : undefined;
-  if (projectId && !(await canAccessProject(c, projectId))) {
-    return error.forbidden(c, PROJECT_DENIED);
+  if (projectId && !(await canWriteProject(c, projectId))) {
+    return error.forbidden(c, PROJECT_WRITE_DENIED);
   }
   try {
     // If the client is creating a folder via the generic POST, normalize fields.
@@ -225,9 +230,19 @@ app.post('/', requirePermission('files:create'), zValidator('json', createProjec
       }
     }
 
+    // Only known columns reach the row, and a storage key only when the upload
+    // flow issued it for this project (the bucket is shared across workspaces).
+    const columns = pickWritableFileColumns(data);
+    const workspaceId = c.get('workspaceId') || c.get('orgId');
+    if (!(await areStorageKeysAcceptable(db, columns, { workspaceId, projectId }))) {
+      return error.badRequest(c, STORAGE_KEY_REJECTED);
+    }
+
     await db.insert(t).values({
+      ...columns,
       id,
-      ...data,
+      projectId,
+      uploadedById: c.get('userId') ?? (data.uploadedById as string | null | undefined) ?? null,
       parentId,
       createdAt: now,
       updatedAt: now,
@@ -279,13 +294,28 @@ async function checkMoveTarget(
   return null;
 }
 
-/** Column updates from the PATCH body (projectId is immutable). */
+/** Column updates from the PATCH body (projectId and every unlisted column are immutable). */
 function buildFileUpdate(data: Record<string, unknown>): Record<string, unknown> {
-  const update: Record<string, unknown> = { updatedAt: new Date() };
-  for (const [k, v] of Object.entries(data)) {
-    if (v !== undefined && k !== 'projectId') update[k] = v;
+  return { ...pickWritableFileColumns(data), updatedAt: new Date() };
+}
+
+/**
+ * Best-effort cleanup of the object a replace left behind. Never throws: the
+ * row is already updated, so a failure here must not fail the request.
+ */
+async function deleteReplacedObject(
+  c: AppContext,
+  db: Database,
+  key: string,
+  scope: { workspaceId: string | null | undefined; projectId: string | null; fileId: string },
+): Promise<void> {
+  if (!c.env.STORAGE) return;
+  try {
+    if (!(await canDeleteReplacedObject(db, key, scope))) return;
+    await c.env.STORAGE.delete(key);
+  } catch (cleanupErr) {
+    console.error('[app-api/project-files] failed to delete replaced R2 object:', key, cleanupErr);
   }
-  return update;
 }
 
 app.patch('/:id', requirePermission('files:update'), zValidator('json', updateProjectFileSchema), async (c) => {
@@ -295,14 +325,24 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updatePr
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Project file', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
 
     const moveFailure = await checkMoveTarget(c, db, existing, data.parentId);
     if (moveFailure) return moveFailure;
 
     const update = buildFileUpdate(data);
+
+    // A storage key from the client is only trusted when the upload flow issued
+    // it for this project and no other file points at it. Without this a caller
+    // could aim the row at any object in the shared bucket and have the replace
+    // cleanup below delete it.
+    const workspaceId = c.get('workspaceId') || c.get('orgId');
+    const keyScope = { workspaceId, projectId: existing.projectId };
+    if (!(await areStorageKeysAcceptable(db, update, { ...keyScope, existing }))) {
+      return error.badRequest(c, STORAGE_KEY_REJECTED);
+    }
 
     // Capture the previous R2 key before the row flips to the new object so we
     // can delete it only after the DB update succeeds (replace-file flow).
@@ -313,14 +353,8 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updatePr
 
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
 
-    if (oldStorageKey && c.env.STORAGE) {
-      await c.env.STORAGE.delete(oldStorageKey).catch((cleanupErr) => {
-        console.error(
-          '[app-api/project-files] failed to delete replaced R2 object:',
-          oldStorageKey,
-          cleanupErr,
-        );
-      });
+    if (oldStorageKey) {
+      await deleteReplacedObject(c, db, oldStorageKey, { ...keyScope, fileId: id });
     }
 
     publishEntityEvent({
@@ -348,8 +382,8 @@ app.delete('/:id', requirePermission('files:delete'), async (c) => {
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Project file', id);
-    if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
-      return error.forbidden(c, PROJECT_DENIED);
+    if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+      return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
 
     if (existing.isFolder) {

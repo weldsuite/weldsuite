@@ -72,6 +72,7 @@ import { MentionAutocomplete, type MentionSelection } from '@/app/weldchat/compo
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
+import { descriptionToHtml, escapeHtml } from './description-html';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -2436,29 +2437,6 @@ export function CommentsList({
   );
 }
 
-// Converts a stored description (which may be HTML or legacy markdown) into
-// HTML suitable for a contentEditable editor. This normalizes `**bold**`,
-// `*italic*`, `~~strike~~`, and `` `code` `` into their HTML equivalents so
-// the editor never shows raw markdown delimiters to the user.
-function descriptionToHtml(input: string): string {
-  if (!input) return '';
-  // If it already looks like HTML (contains tags), use it as-is.
-  if (/<[a-z][^>]*>/i.test(input)) return input;
-  // Otherwise treat it as markdown — convert the inline markers we support.
-  // Order matters: bold (**) before italic (*) so greedy matches don't swallow pairs.
-  let html = input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-    .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  // Preserve newlines as <br>
-  html = html.replace(/\n/g, '<br>');
-  return html;
-}
-
 type EditorFormatKind = 'bold' | 'italic' | 'strike' | 'code' | 'highlight' | 'ul' | 'ol';
 
 const EXEC_COMMANDS: Record<Exclude<EditorFormatKind, 'code' | 'highlight'>, string> = {
@@ -2641,8 +2619,8 @@ export function DescriptionField({
     if (!el) return;
     el.focus();
     const html = kind === 'image'
-      ? `<img src="${url}" alt="${name}" style="max-width:100%;max-height:300px;border-radius:6px;" />`
-      : `<a href="${url}" target="_blank" rel="noopener noreferrer">${name}</a>`;
+      ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(name)}" />`
+      : `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`;
     document.execCommand('insertHTML', false, html);
     currentHtmlRef.current = el.innerHTML;
   }, []);
@@ -2716,7 +2694,7 @@ export function DescriptionField({
   // flip. This is the critical invariant: anything different between the two
   // versions will cause a visible shift when the user clicks to start editing.
   const textBoxClass =
-    'w-full text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[0.85em] [&_code]:font-mono [&_mark]:bg-yellow-200 [&_mark]:dark:bg-yellow-400/30 [&_mark]:text-inherit [&_mark]:rounded [&_mark]:px-0.5 [&_a]:text-primary [&_a]:underline [&_a]:hover:text-primary/80 [&_img]:max-w-full [&_img]:rounded-md [&_img]:my-1 [&_img]:inline-block [&_p]:m-0';
+    'w-full text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[0.85em] [&_code]:font-mono [&_mark]:bg-yellow-200 [&_mark]:dark:bg-yellow-400/30 [&_mark]:text-inherit [&_mark]:rounded [&_mark]:px-0.5 [&_a]:text-primary [&_a]:underline [&_a]:hover:text-primary/80 [&_img]:max-w-full [&_img]:max-h-[300px] [&_img]:rounded-md [&_img]:my-1 [&_img]:inline-block [&_p]:m-0';
 
   // Compute the HTML to render in display mode. Mirrors the editor's load path
   // (`descriptionToHtml`) so the rendered output is literally identical — no

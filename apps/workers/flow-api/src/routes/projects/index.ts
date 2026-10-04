@@ -16,7 +16,18 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { schema } from '@weldsuite/worker-kit/db';
-import { canAccessProject, canManageProject } from '../../lib/project-access';
+import {
+  canAccessProject,
+  canManageProject,
+  canWriteProject,
+  resolveProjectAccess,
+} from '../../lib/project-access';
+import {
+  getMilestoneStats,
+  getProjectStats,
+  withMilestoneStats,
+  withProjectStats,
+} from '@weldsuite/flow-domain/project-stats';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projects;
@@ -105,7 +116,8 @@ app.get('/', async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
+    const stats = await getProjectStats(db, data.map((p) => p.id));
+    return list(c, withProjectStats(data, stats), cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/projects] list failed:', err);
     return error.internal(c, 'Failed to list projects');
@@ -291,7 +303,8 @@ app.get('/search', requirePermission('projects:read'), async (c) => {
       .where(and(...conditions))
       .orderBy(desc(projects.name))
       .limit(20);
-    return success(c, results);
+    const stats = await getProjectStats(db, results.map((p) => p.id));
+    return success(c, withProjectStats(results, stats));
   } catch (err) {
     console.error('[app-api/projects] search failed:', err);
     return error.internal(c, 'Failed to search projects');
@@ -302,46 +315,17 @@ app.get('/search', requirePermission('projects:read'), async (c) => {
 // GET /:id/permissions — derive current user's role + flags for one project.
 // Project manager (creator) is treated as owner even without a member row.
 // Workspace owners/admins (`projects:scope:all`) get full rights on every
-// project, matching the canAccessProject / canManageProject guards the write
-// routes enforce — otherwise the UI hides actions the API would allow.
+// project. Same rule as the write guards (resolveProjectAccess); viewers get
+// canWrite: false and the API rejects their mutations with 403.
 // ============================================================================
 
 app.get('/:id/permissions', requirePermission('projects:read'), async (c) => {
-  const db = c.get('tenantDb');
   const projectId = c.req.param('id');
   const userId = c.get('userId');
   if (!userId) return error.unauthorized(c);
 
   try {
-    const { projects, projectMembers } = schema;
-    const [[member], [project], scopeAll] = await Promise.all([
-      db
-        .select({ role: projectMembers.role })
-        .from(projectMembers)
-        .where(
-          and(
-            eq(projectMembers.projectId, projectId),
-            eq(projectMembers.userId, userId),
-            eq(projectMembers.isActive, true),
-            isNull(projectMembers.deletedAt),
-          ),
-        )
-        .limit(1),
-      db
-        .select({ projectManagerId: projects.projectManagerId })
-        .from(projects)
-        .where(eq(projects.id, projectId))
-        .limit(1),
-      hasContextPermission(c, 'projects:scope:all'),
-    ]);
-
-    const isProjectManager = !!project && project.projectManagerId === userId;
-    const projectRole = (member?.role ?? '').toLowerCase() || null;
-    const role = projectRole ?? (isProjectManager ? 'owner' : null);
-    const isAdmin = scopeAll || isProjectManager || role === 'owner' || role === 'admin';
-    const canWrite = isAdmin || role === 'member';
-    const canRead = canWrite || role === 'viewer';
-
+    const { role, canRead, canWrite, isAdmin } = await resolveProjectAccess(c, projectId);
     return success(c, { role, canRead, canWrite, isAdmin });
   } catch (err) {
     console.error('[app-api/projects] permissions failed:', err);
@@ -430,7 +414,8 @@ app.get('/:id/gantt/milestones', requirePermission('tasks:read'), async (c) => {
       .where(and(eq(milestones.projectId, projectId), isNull(milestones.deletedAt)))
       .orderBy(milestones.dueDate);
 
-    return success(c, results);
+    const stats = await getMilestoneStats(db, results);
+    return success(c, withMilestoneStats(results, stats));
   } catch (err) {
     console.error('[app-api/projects] gantt/milestones failed:', err);
     return error.internal(c, 'Failed to fetch gantt milestones');
@@ -565,7 +550,8 @@ app.get('/:id', requirePermission('projects:read'), async (c) => {
   try {
     const [row] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!row) return error.notFound(c, 'Project', id);
-    return success(c, row);
+    const stats = await getProjectStats(db, [row.id]);
+    return success(c, withProjectStats([row], stats)[0]);
   } catch (err) {
     console.error('[app-api/projects] get failed:', err);
     return error.internal(c, 'Failed to fetch project');
@@ -718,8 +704,8 @@ app.post(
     const userId = c.get('userId');
     const projectId = c.req.param('projectId');
     if (!workspaceId) return error.orgRequired(c);
-    if (!(await canAccessProject(c, projectId))) {
-      return error.forbidden(c, 'You are not a member of this project');
+    if (!(await canWriteProject(c, projectId))) {
+      return error.forbidden(c, 'You do not have write access to this project');
     }
 
     const { tasks: rows } = c.req.valid('json');

@@ -19,12 +19,13 @@ import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessTaskProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessTaskProject, canWriteTaskProject } from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.taskComments;
 
 const TASK_DENIED = "You are not a member of this task's project";
+const TASK_WRITE_DENIED = "You do not have write access to this task's project";
 
 const listFiltersSchema = z.object({
   taskId: z.string().optional(),
@@ -149,9 +150,9 @@ app.post(
     const data = c.req.valid('json');
     const id = generateId('tcmt');
     const now = new Date();
-    const access = await canAccessTaskProject(c, data.taskId);
+    const access = await canWriteTaskProject(c, data.taskId);
     if (access === 'not-found') return error.notFound(c, 'Task', data.taskId);
-    if (access === 'denied') return error.forbidden(c, TASK_DENIED);
+    if (access === 'denied') return error.forbidden(c, TASK_WRITE_DENIED);
     try {
       await db.insert(t).values({
         id,

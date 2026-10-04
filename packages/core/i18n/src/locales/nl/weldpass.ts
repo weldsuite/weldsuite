@@ -4,17 +4,24 @@
 export const weldpass = {
   title: 'WeldPass',
   projects: 'Projecten',
+  secretsTab: 'Secrets',
   sync: 'Synchronisatie',
   auditLog: 'Auditlog',
 
   projectList: {
-    subtitle: 'Versleutelde secrets voor deze werkruimte.',
     newProject: 'Nieuw project',
     emptyTitle: 'Nog geen projecten',
     emptyDescription:
       'Een project bevat de secrets van één app, verdeeld over omgevingen zoals development, preview en productie.',
     emptyAction: 'Maak je eerste project',
-    updated: 'Bijgewerkt',
+    searchPlaceholder: 'Projecten zoeken',
+    noResultsTitle: 'Geen projecten gevonden',
+    noResultsDescription: 'Probeer een andere zoekopdracht.',
+    table: {
+      name: 'Naam',
+      environments: 'Omgevingen',
+      updated: 'Bijgewerkt',
+    },
     create: {
       title: 'Nieuw project',
       name: 'Naam',
@@ -29,9 +36,11 @@ export const weldpass = {
   },
 
   secrets: {
-    count: '{count} secrets',
-    countOne: '1 secret',
     production: 'Productie',
+    environment: 'Omgeving',
+    searchPlaceholder: 'Secrets zoeken',
+    noResultsTitle: 'Geen secrets gevonden',
+    noResultsDescription: 'Probeer een andere zoekopdracht, of kijk in een andere omgeving.',
     emptyTitle: 'Deze omgeving is leeg',
     emptyDescription:
       'Voeg handmatig een secret toe, of plak een bestaand .env-bestand om alles in één keer over te nemen.',
@@ -45,10 +54,9 @@ export const weldpass = {
     hide: 'Verbergen',
     copy: 'Kopiëren',
     history: 'Geschiedenis',
-    edit: 'Bewerken',
     delete: 'Verwijderen',
-    deleteConfirm:
-      '{key} verwijderen? Gesynchroniseerde doelen behouden hun kopie, tenzij ze opschonen.',
+    deleteTitle: '{key} verwijderen?',
+    deleteDescription: 'Gesynchroniseerde doelen behouden hun kopie, tenzij ze opschonen.',
     revealFailed: 'Die waarde kon niet worden getoond.',
     deleteFailed: 'Die secret kon niet worden verwijderd.',
     exportFailed: 'Deze omgeving kon niet worden geëxporteerd.',
@@ -109,13 +117,14 @@ export const weldpass = {
       'Koppel een omgeving aan een Worker, Pages-project of Vercel-project.',
     push: 'Versturen',
     remove: 'Verwijderen',
-    removeConfirm: '{name} verwijderen? Al verstuurde waarden blijven op het doel staan.',
+    removeTitle: '{name} verwijderen?',
+    removeDescription: 'Al verstuurde waarden blijven op het doel staan.',
+    removeFailed: 'Dat kon niet worden verwijderd.',
     autoSyncOn: 'Automatisch synchroniseren: aan',
     autoSyncOff: 'Automatisch synchroniseren: uit',
     prunes: 'Ruimt verwijderde sleutels op',
     pushedCount: '{count} verstuurd',
     pushFailed: 'Kon niet naar dat doel versturen.',
-    loadFailed: 'De synchronisatie-instellingen konden niet worden geladen.',
     updateFailed: 'Dat doel kon niet worden bijgewerkt.',
 
     tokens: 'API-tokens',
@@ -126,7 +135,8 @@ export const weldpass = {
     tokenVerified: 'Geverifieerd',
     tokenFailed: 'Mislukt',
     tokenUnverified: 'Niet geverifieerd',
-    deleteTokenConfirm: '{name} verwijderen? Doelen die het gebruiken stoppen met synchroniseren.',
+    deleteTokenTitle: '{name} verwijderen?',
+    deleteTokenDescription: 'Doelen die het gebruiken stoppen met synchroniseren.',
 
     recentPushes: 'Recente verzendingen',
     refresh: 'Vernieuwen',
@@ -179,7 +189,336 @@ export const weldpass = {
     subtitle:
       'Elke wijziging en elke inzage, met wie het deed. Waarden worden nooit vastgelegd.',
     emptyTitle: 'Nog niets vastgelegd',
-    loadFailed: 'De auditlog kon niet worden geladen.',
+    searchPlaceholder: 'Zoeken in de auditlog',
+    noResultsTitle: 'Geen gebeurtenissen gevonden',
+    noResultsDescription: 'Probeer een andere zoekopdracht.',
+    table: {
+      action: 'Actie',
+      target: 'Doel',
+      actor: 'Door',
+      ip: 'IP-adres',
+      when: 'Wanneer',
+    },
+  },
+
+  passwords: {
+    title: 'Wachtwoorden',
+    accessDenied: 'Je hebt geen toestemming om het wachtwoordbeheer te gebruiken.',
+    retry: 'Opnieuw proberen',
+
+    common: {
+      close: 'Sluiten',
+      cancel: 'Annuleren',
+      save: 'Opslaan',
+    },
+
+    vaults: {
+      personal: 'Persoonlijk',
+      newVault: 'Nieuwe kluis',
+      notMemberTitle: 'Je bent geen lid van deze kluis',
+      notMemberDescription:
+        'Als werkruimtebeheerder kun je beheren wie toegang heeft tot deze kluis, maar je ziet de wachtwoorden erin niet. Voeg jezelf toe als lid om ze te openen.',
+      title: 'Kluizen',
+      columns: {
+        name: 'Naam',
+        role: 'Jouw rol',
+        members: 'Leden',
+        items: 'Items',
+        updated: 'Bijgewerkt',
+      },
+      notAMember: 'Geen lid',
+      search: 'Kluizen zoeken',
+      noResultsTitle: 'Geen kluizen gevonden',
+      noResultsDescription: 'Probeer een andere zoekopdracht.',
+      emptyTitle: 'Nog geen kluizen',
+      emptyDescription:
+        'Met een gedeelde kluis bewaart en gebruikt een team wachtwoorden samen. Maak er een aan en voeg je teamgenoten toe.',
+    },
+
+    toolbar: {
+      search: 'Wachtwoorden zoeken',
+      addItem: 'Item toevoegen',
+      import: 'Importeren',
+    },
+
+    types: {
+      login: 'Login',
+      note: 'Beveiligde notitie',
+      card: 'Kaart',
+    },
+
+    table: {
+      name: 'Naam',
+      vault: 'Kluis',
+      updated: 'Bijgewerkt',
+      hasTotp: 'Heeft een 2FA-code',
+      site: 'Site',
+    },
+
+    empty: {
+      title: 'Nog geen wachtwoorden',
+      description:
+        'Voeg je eerste login toe, of importeer de wachtwoorden die je al hebt uit een andere wachtwoordmanager.',
+      vaultTitle: 'Deze kluis is leeg',
+      vaultDescription: 'Voeg hier een item toe, of verplaats er een uit een andere kluis naartoe.',
+      noResultsTitle: 'Niets gevonden',
+      noResultsDescription: 'Probeer een andere zoekopdracht of een ander filter.',
+    },
+
+    fields: {
+      title: 'Titel',
+      website: 'Website',
+      username: 'Gebruikersnaam',
+      password: 'Wachtwoord',
+      totp: '2FA-code',
+      notes: 'Notities',
+      content: 'Notitie',
+      cardholder: 'Kaarthouder',
+      number: 'Kaartnummer',
+      expiry: 'Vervaldatum',
+      cvc: 'Beveiligingscode',
+    },
+
+    roles: {
+      viewer: 'Lezer',
+      editor: 'Bewerker',
+      manager: 'Beheerder',
+      viewerHint: 'kan wachtwoorden zien en kopiëren',
+      editorHint: 'kan ook items toevoegen, wijzigen, verplaatsen en verwijderen',
+      managerHint: 'kan ook de kluis hernoemen, leden beheren en de activiteit zien',
+    },
+
+    strength: {
+      weak: 'Zwak',
+      fair: 'Redelijk',
+      strong: 'Sterk',
+    },
+
+    generator: {
+      open: 'Genereren',
+      regenerate: 'Nog een genereren',
+      length: 'Lengte: {count}',
+      uppercase: 'Hoofdletters',
+      digits: 'Cijfers',
+      symbols: 'Symbolen',
+      use: 'Dit wachtwoord gebruiken',
+    },
+
+    detail: {
+      reveal: 'Tonen',
+      hide: 'Verbergen',
+      revealFailed: 'Dit item kon niet worden geopend.',
+      copyUsername: 'Gebruikersnaam kopiëren',
+      copyPassword: 'Wachtwoord kopiëren',
+      copyNumber: 'Kaartnummer kopiëren',
+      copyCvc: 'Beveiligingscode kopiëren',
+      copyCode: 'Code kopiëren',
+      openWebsite: 'Website openen',
+      showCode: 'Code tonen',
+      totpExpires: 'nog {seconds}s',
+      totpExpired: 'Code verlopen.',
+      totpFailed: 'Er kon geen code worden gegenereerd.',
+      updated: 'Bijgewerkt',
+      auditNote: 'Het tonen of kopiëren van een geheim wordt vastgelegd in de kluisactiviteit.',
+      edit: 'Bewerken',
+      move: 'Verplaatsen',
+      history: 'Geschiedenis',
+      delete: 'Verwijderen',
+      deleteTitle: '"{title}" verwijderen?',
+      deleteDescription:
+        'Het item verdwijnt voor iedereen die het in deze kluis kan zien. Dit kan niet ongedaan worden gemaakt.',
+      deleteFailed: 'Dit item kon niet worden verwijderd.',
+    },
+
+    form: {
+      addTitle: 'Item toevoegen',
+      addDescription: 'Kies wat je wilt bewaren en waar.',
+      editTitle: '"{title}" bewerken',
+      editDescription:
+        'Opslaan vervangt het item; de eerdere versie blijft bewaard in de geschiedenis.',
+      type: 'Soort',
+      typeLocked: 'Het soort kan niet meer worden gewijzigd nadat het item is aangemaakt.',
+      vault: 'Kluis',
+      sharedVaultHint: 'Iedereen in deze kluis kan dit item zien.',
+      titleRequired: 'Vul een titel in.',
+      totpHint: 'Plak de installatiesleutel (base32) of de otpauth://-link van de site.',
+      saveFailed: 'Dit item kon niet worden opgeslagen.',
+      saved: 'Item opgeslagen',
+    },
+
+    move: {
+      title: '"{title}" verplaatsen',
+      description:
+        'Een item naar een gedeelde kluis verplaatsen is de manier om het met een team te delen.',
+      target: 'Verplaatsen naar',
+      noTargets: 'Je hebt geen andere kluis waaraan je items kunt toevoegen.',
+      visibleToVault: 'Iedereen in {vault} kan dit item zien.',
+      historyStays: 'De versiegeschiedenis van het item gaat niet mee.',
+      submit: 'Item verplaatsen',
+      failed: 'Dit item kon niet worden verplaatst.',
+      moved: 'Item verplaatst',
+    },
+
+    history: {
+      title: 'Geschiedenis van "{title}"',
+      description: 'Eerdere versies van dit item.',
+      loadFailed: 'De geschiedenis kon niet worden geladen.',
+      restoreFailed: 'Die versie kon niet worden hersteld.',
+      restore: 'Herstellen',
+      restored: 'Versie hersteld',
+      restoreNote:
+        'Herstellen slaat de oude versie op als een nieuwe versie, dus er wordt niets overschreven.',
+      current: 'huidig',
+      actions: {
+        created: 'Aangemaakt',
+        updated: 'Bijgewerkt',
+        restored: 'Hersteld',
+        deleted: 'Verwijderd',
+      },
+    },
+
+    import: {
+      title: 'Wachtwoorden importeren',
+      description: 'Haal een CSV-export uit een andere wachtwoordmanager binnen.',
+      vault: 'Importeren in',
+      format: 'Indeling',
+      formatAuto: 'Automatisch herkennen',
+      file: 'CSV-bestand',
+      chooseFile: 'Bestand kiezen',
+      noFile: 'Geen bestand gekozen',
+      tooLarge: 'Dat bestand is groter dan 5 MB.',
+      readFailed: 'Dat bestand kon niet worden gelezen.',
+      failed: 'Dat bestand kon niet worden geïmporteerd.',
+      pasteLabel: 'Of plak de CSV',
+      pasteHint: 'De eerste regel moet de kopregel van de export zijn.',
+      submit: 'Importeren',
+      completeTitle: 'Import voltooid',
+      detectedFormat: 'Indeling: {format}',
+      created: '{count} geïmporteerd',
+      skipped: '{count} overgeslagen',
+      warnings: '{count} waarschuwingen',
+      skippedTitle: 'Overgeslagen rijen',
+      warningsTitle: 'Waarschuwingen',
+      noteLine: 'Regel {line}: {reason}',
+      deleteFileNote:
+        'De export bevat je wachtwoorden in leesbare tekst. Verwijder het bestand nu de import klaar is.',
+      done: 'Klaar',
+    },
+
+    vaultForm: {
+      createTitle: 'Nieuwe gedeelde kluis',
+      createDescription: 'Je wordt de beheerder en kunt daarna teamgenoten toevoegen.',
+      create: 'Kluis aanmaken',
+      createFailed: 'De kluis kon niet worden aangemaakt.',
+      name: 'Naam',
+      namePlaceholder: 'Marketing',
+      nameRequired: 'Vul een naam in.',
+      description: 'Beschrijving',
+      descriptionPlaceholder: 'Optioneel',
+    },
+
+    settings: {
+      title: '{vault}',
+      descriptionManager: 'Hernoem de kluis, beheer wie toegang heeft en bekijk de activiteit.',
+      descriptionMember: 'Wie toegang heeft tot deze kluis.',
+      tabMembers: 'Leden',
+      tabDetails: 'Details',
+      tabActivity: 'Activiteit',
+      saved: 'Opgeslagen.',
+      saveFailed: 'De kluis kon niet worden opgeslagen.',
+      dangerTitle: 'Kluis verwijderen',
+      dangerDescription: 'Verwijdert de kluis en alle items erin definitief voor al zijn leden.',
+      delete: 'Kluis verwijderen',
+      deleteTitle: '"{vault}" verwijderen?',
+      deleteDescription:
+        'De kluis en alle items erin worden voor elk lid verwijderd. Dit kan niet ongedaan worden gemaakt.',
+      deleteFailed: 'De kluis kon niet worden verwijderd.',
+      deleted: 'Kluis verwijderd',
+      left: 'Je hebt de kluis verlaten',
+    },
+
+    members: {
+      loadFailed: 'De leden konden niet worden geladen.',
+      notAMember:
+        'Je bent geen lid van deze kluis. Je kunt de leden beheren, maar om de items te openen moet je jezelf toevoegen.',
+      you: '(jij)',
+      roleFor: 'Rol van {name}',
+      remove: '{name} verwijderen',
+      addTitle: 'Teamgenoot toevoegen',
+      nobodyToAdd: 'Iedereen in de werkruimte is al lid.',
+      pickTeammate: 'Kies een teamgenoot',
+      newRole: 'Rol voor het nieuwe lid',
+      add: 'Toevoegen',
+      leave: 'Kluis verlaten',
+      leaveTitle: '"{vault}" verlaten?',
+      leaveDescription:
+        'Je verliest de toegang tot de items totdat een beheerder je weer toevoegt.',
+      removeTitle: '{name} verwijderen?',
+      removeDescription: 'Die persoon verliest direct de toegang tot de items in deze kluis.',
+      removeConfirm: 'Verwijderen',
+      addFailed: 'Die teamgenoot kon niet worden toegevoegd.',
+      roleFailed: 'Die rol kon niet worden gewijzigd.',
+      removeFailed: 'Dat lid kon niet worden verwijderd.',
+    },
+
+    activity: {
+      description: 'Wie wat deed in deze kluis, inclusief elke keer dat een wachtwoord is getoond.',
+      empty: 'Nog niets vastgelegd.',
+      loadFailed: 'De activiteit kon niet worden geladen.',
+      actions: {
+        vault: {
+          created: 'maakte de kluis aan',
+          updated: 'werkte de kluis bij',
+          deleted: 'verwijderde de kluis',
+        },
+        member: {
+          added: 'voegde een lid toe',
+          role_changed: 'wijzigde een rol',
+          removed: 'verwijderde een lid',
+        },
+        item: {
+          created: 'maakte een item aan',
+          updated: 'werkte een item bij',
+          deleted: 'verwijderde een item',
+          restored: 'herstelde een item',
+          revealed: 'toonde een item',
+          totp_generated: 'genereerde een 2FA-code',
+          moved_in: 'verplaatste een item hierheen',
+          moved_out: 'verplaatste een item hiervandaan',
+        },
+        items: {
+          imported: 'importeerde items',
+        },
+      },
+    },
+
+    health: {
+      title: 'Wachtwoordgezondheid',
+      subtitle:
+        'Zwakke, hergebruikte en oude wachtwoorden in je kluizen. Hier wordt nergens een wachtwoord getoond.',
+      loadFailed: 'Het rapport kon niet worden geladen.',
+      emptyDescription: 'Voeg logins met een wachtwoord toe en ze worden hier gecontroleerd.',
+      goToPasswords: 'Naar wachtwoorden',
+      checked: 'Gecontroleerd',
+      healthy: 'In orde',
+      weak: 'Zwak',
+      reused: 'Hergebruikt',
+      old: 'Oud',
+      allHealthy: 'Alle wachtwoorden zien er in orde uit.',
+      changed: 'Gewijzigd',
+      issues: {
+        weak: 'Zwak',
+        reused: 'Hergebruikt bij {count} logins',
+        old: 'Oud',
+      },
+      attentionTitle: 'Aandacht nodig',
+      attentionHint: 'Zwakste eerst. Open een login om het wachtwoord te wijzigen.',
+    },
+
+    filters: {
+      vault: 'Kluis',
+      type: 'Soort',
+    },
   },
 
   providers: {

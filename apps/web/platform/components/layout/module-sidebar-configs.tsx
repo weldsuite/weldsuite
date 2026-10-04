@@ -63,6 +63,9 @@ import {
   ClipboardList,
   PackageCheck,
   KeyRound,
+  LockKeyhole,
+  Vault,
+  HeartPulse,
   UsersRound,
   Network,
   UserPlus,
@@ -186,6 +189,9 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       {
         group: t.navigation.moduleSidebar.groups.general,
         items: [
+          { title: t.navigation.moduleSidebar.weldpass.passwords, href: '/weldpass/passwords', icon: LockKeyhole, permission: 'passwords:use' },
+          { title: t.navigation.moduleSidebar.weldpass.vaults, href: '/weldpass/passwords/vaults', icon: Vault, permission: 'passwords:use' },
+          { title: t.navigation.moduleSidebar.weldpass.passwordHealth, href: '/weldpass/passwords/health', icon: HeartPulse, permission: 'passwords:use' },
           { title: t.navigation.moduleSidebar.weldpass.projects, href: '/weldpass', icon: KeyRound, permission: 'secrets:read' },
         ],
       },

@@ -24,9 +24,11 @@ interface VersionHistorySheetProps {
   pageId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Called once a version has been restored on the server. */
+  onRestored?: () => void;
 }
 
-export function VersionHistorySheet({ pageId, open, onOpenChange }: Readonly<VersionHistorySheetProps>) {
+export function VersionHistorySheet({ pageId, open, onOpenChange, onRestored }: Readonly<VersionHistorySheetProps>) {
   const t = getTranslations('weldknow');
   const { data, isLoading } = useKnowledgePageVersions(pageId, open);
   const createVersion = useCreateKnowledgePageVersion();
@@ -51,6 +53,7 @@ export function VersionHistorySheet({ pageId, open, onOpenChange }: Readonly<Ver
     if (!restoreTarget) return;
     try {
       await restoreVersion.mutateAsync({ pageId, versionId: restoreTarget.id });
+      onRestored?.();
       toast.success(t.versions.restoreSuccess);
     } catch {
       toast.error(t.versions.restoreError);

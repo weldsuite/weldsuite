@@ -54,11 +54,18 @@ export interface PanelEntityListProps<T extends { id: string }> {
   searchQuery?: string;
   onSearchChange?: (q: string) => void;
   searchPlaceholder?: string;
+  /**
+   * Shows the desktop search box. Without `searchQuery` the list also matches
+   * these fields itself; with it, the page does the matching.
+   */
+  searchFields?: (keyof T)[];
   activeFilters?: ActiveFilter[];
   onFiltersChange?: (filters: ActiveFilter[]) => void;
 
   createButton?: { label: string; onClick: () => void };
   actionButtons?: ReactNode;
+  /** Rendered on the left of the top bar, next to the filter pills. */
+  leftActionButtons?: ReactNode;
 
   hasMore?: boolean;
   isLoadingMore?: boolean;
@@ -70,6 +77,8 @@ export interface PanelEntityListProps<T extends { id: string }> {
     description: string;
     action?: { label: string; onClick: () => void };
   };
+  /** Shown instead of the empty state when a search or filter matches nothing. */
+  noResultsState?: { icon?: ReactNode; title: string; description: string };
 }
 
 export function PanelEntityList<T extends { id: string }>({
@@ -85,14 +94,17 @@ export function PanelEntityList<T extends { id: string }>({
   searchQuery,
   onSearchChange,
   searchPlaceholder,
+  searchFields,
   activeFilters,
   onFiltersChange,
   createButton,
   actionButtons,
+  leftActionButtons,
   hasMore,
   isLoadingMore,
   onLoadMore,
   emptyState,
+  noResultsState,
 }: PanelEntityListProps<T>) {
   const t = getTranslations('common');
   const hasRowMenu = !!onEdit || !!onDelete;
@@ -202,14 +214,17 @@ export function PanelEntityList<T extends { id: string }>({
       searchQuery={searchQuery}
       onSearchChange={onSearchChange}
       searchPlaceholder={searchPlaceholder}
+      searchFields={searchFields}
       activeFilters={activeFilters}
       onFiltersChange={onFiltersChange}
       createButton={createButton}
       actionButtons={actionButtons}
+      leftActionButtons={leftActionButtons}
       hasMore={hasMore}
       isLoadingMore={isLoadingMore}
       onLoadMore={onLoadMore}
       emptyState={emptyState}
+      noResultsState={noResultsState}
     />
   );
 }

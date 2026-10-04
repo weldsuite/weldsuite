@@ -488,6 +488,8 @@ export const projects = {
       reportNotFound: 'Informe no encontrado',
       charts: '{count} gráficos',
       chart: '{count} gráfico',
+      chartsLabel: 'Gráficos',
+      searchReports: 'Buscar informes...',
       updated: 'Actualizado',
       createReport: 'Crear Nuevo Informe',
       createReportDescription: 'Crea un nuevo informe de analíticas para hacer seguimiento de métricas del proyecto.',
