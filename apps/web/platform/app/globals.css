@@ -572,6 +572,15 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
   font-style: normal !important;
 }
 
+/* BlockNote paints its own editor background and reserves a 54px inline
+   gutter for the side menu. The side menu is hidden (below), so drop the
+   gutter to line body text up with the page title, and let the surface
+   behind the editor show through so it matches the theme. */
+.block-editor-wrapper .bn-editor {
+  background-color: transparent;
+  padding-inline: 0;
+}
+
 /* BlockNote side menu (the hover + / drag controls next to each block)
    — hide entirely. */
 .bn-container .bn-side-menu,
