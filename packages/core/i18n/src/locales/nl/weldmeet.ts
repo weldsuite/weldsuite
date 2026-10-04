@@ -576,18 +576,6 @@ export const weldmeet = {
     layout: {
       appNotInstalled: 'App niet geïnstalleerd',
     },
-    upgradePrompt: {
-      title: 'Gespreksintelligenties.',
-      subtitle: 'Je gesprekken, getranscribeerd en geanalyseerd.',
-      description: 'Weet wat er gezegd is en wat je daarna moet doen.',
-      upgrade: 'Upgraden',
-      learnMore: 'Meer informatie',
-    },
-    illustration: {
-      transcript: 'Transcript',
-      speakers: 'Sprekers',
-      details: 'Details',
-    },
     callHistory: {
       searchPlaceholder: 'Gesprekken zoeken...',
       phoneSettings: 'Telefooninstellingen',

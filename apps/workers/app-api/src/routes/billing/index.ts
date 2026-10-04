@@ -23,8 +23,9 @@
  * Permissions:
  *  - /subscription, /plans, /plans-page, /phone-numbers, /domains, /limits
  *    intentionally have no object-level `requirePermission` gate (mirrors the
- *    api-worker source — member-facing feature gates such as weldcall-gate and
- *    the WeldDesk chat-widget call /subscription and /limits for every role;
+ *    api-worker source — member-facing feature gates such as the workspace
+ *    lock gate and the WeldDesk chat-widget call /subscription and /limits for
+ *    every role;
  *    Clerk auth + org resolution is enforced by the shared /api/* middleware).
  *  - /phone-subscription exposes Stripe phone-line pricing, so it is gated on
  *    `billing:read` like invoices/payments.

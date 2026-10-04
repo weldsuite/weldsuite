@@ -59,7 +59,7 @@ export function useSubscription() {
     queryFn: async () => {
       const client = await getClient();
       // Unwrapped: the legacy worker returned the subscription at the top level, and
-      // consumers (weldcall-gate) read `subscription.planSlug` directly. app-api wraps
+      // consumers (workspace-lock-gate) read its fields directly. app-api wraps
       // it in `{ data }`, so unwrap here to keep the hook's value identical.
       const res = await client.get<{ data: BillingSubscriptionResponse }>('/billing/subscription');
       return res.data;
