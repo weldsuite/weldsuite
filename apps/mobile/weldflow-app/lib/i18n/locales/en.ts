@@ -135,6 +135,8 @@ export const en = {
     createFailed: 'Could not create task',
     updateFailed: 'Could not update task',
     edit: 'Edit task',
+    subtasks: 'Subtasks',
+    subtaskProgress: '{done}/{total} subtasks',
   },
 
   more: {

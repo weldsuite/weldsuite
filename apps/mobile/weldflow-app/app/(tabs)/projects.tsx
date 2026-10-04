@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { View, FlatList, RefreshControl, StyleSheet } from 'react-native';
+import { View, FlatList, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { FolderKanban } from 'lucide-react-native';
@@ -23,8 +23,9 @@ import { RecordRow } from '@/components/record-row';
 import { ColorSwatch } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { ProjectStatusBadge } from '@/components/status-badge';
-import { useProjects } from '@/hooks/use-weldflow';
+import { useInfiniteProjects } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
+import { flattenPages } from '@/lib/pagination';
 
 export default function ProjectsScreen() {
   const { colors } = useTheme();
@@ -50,8 +51,21 @@ export default function ProjectsScreen() {
     [search, statusFilter],
   );
 
-  const { data, isLoading, isError, isRefetching, refetch } = useProjects(params);
-  const projects = data?.data ?? [];
+  const {
+    data,
+    isLoading,
+    isError,
+    isRefetching,
+    refetch,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useInfiniteProjects(params);
+  const projects = useMemo(() => flattenPages(data?.pages), [data]);
+
+  const loadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const open = useCallback(
     (route: string) => {
@@ -129,8 +143,19 @@ export default function ProjectsScreen() {
             />
           );
         }}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.4}
         refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={BRAND} />
+          // `isRefetching` is also true while a next page loads; the footer
+          // spinner covers that, so keep the pull-to-refresh one for real refreshes.
+          <RefreshControl
+            refreshing={isRefetching && !isFetchingNextPage}
+            onRefresh={() => void refetch()}
+            tintColor={BRAND}
+          />
+        }
+        ListFooterComponent={
+          isFetchingNextPage ? <ActivityIndicator style={styles.footer} color={BRAND} /> : null
         }
         contentContainerStyle={projects.length === 0 ? styles.emptyContainer : undefined}
         ListEmptyComponent={
@@ -150,4 +175,5 @@ const styles = StyleSheet.create({
   search: { borderRadius: 12 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   emptyContainer: { flexGrow: 1 },
+  footer: { paddingVertical: 16 },
 });

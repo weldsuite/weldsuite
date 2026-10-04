@@ -2,7 +2,7 @@
  * Task detail — status change + field summary from `GET /api/tasks/:id`.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -15,19 +15,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Check, Pencil } from 'lucide-react-native';
+import { Check, CheckSquare, Pencil } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 
-import { BRAND } from '@/lib/brand';
-import { formatDate } from '@/lib/date';
+import { ACCENTS, BRAND } from '@/lib/brand';
+import { formatDate, formatShortDate, isTaskOverdue } from '@/lib/date';
 import { Screen, ScreenHeader } from '@/components/screen';
-import { SectionCard, DetailRow } from '@/components/detail';
+import { SectionCard, DetailRow, IconTile } from '@/components/detail';
+import { RecordRow } from '@/components/record-row';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { TaskStatusBadge } from '@/components/status-badge';
 import { PriorityIndicator } from '@/components/PriorityIndicator';
-import { useProjectMembers, useTask, useUpdateTaskStatus } from '@/hooks/use-weldflow';
+import { useProjectMembers, useSubtasks, useTask, useUpdateTaskStatus } from '@/hooks/use-weldflow';
 import { formatTaskAssigneeDisplay } from '@/lib/assignee-display';
 import { statusLabel, useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
@@ -55,6 +57,9 @@ export default function TaskDetailScreen() {
   const { data, isLoading, refetch, isError } = useTask(projectId, taskId);
   const task = data?.data;
   const membersQuery = useProjectMembers(projectId);
+  const subtaskTotal = task?.subtaskCount ?? 0;
+  const subtasksQuery = useSubtasks(taskId, subtaskTotal > 0);
+  const subtasks = subtasksQuery.data?.data ?? [];
   const updateStatus = useUpdateTaskStatus(projectId, taskId);
   const assigneeDisplay = task
     ? formatTaskAssigneeDisplay(task, membersQuery.data?.data)
@@ -92,6 +97,57 @@ export default function TaskDetailScreen() {
         <ErrorState message={t.task.notFound} onRetry={() => void refetch()} />
       </Screen>
     );
+  }
+
+  let subtasksBody: ReactNode;
+  if (subtasksQuery.isLoading) {
+    subtasksBody = (
+      <View style={styles.subtasksLoading}>
+        <Spinner />
+      </View>
+    );
+  } else if (subtasksQuery.isError) {
+    subtasksBody = (
+      <Pressable
+        onPress={() => void subtasksQuery.refetch()}
+        accessibilityRole="button"
+        accessibilityLabel={t.common.tryAgain}
+      >
+        <Text style={[styles.subtasksError, { color: colors.mutedForeground }]}>
+          {t.common.somethingWentWrong} {t.common.tryAgain}
+        </Text>
+      </Pressable>
+    );
+  } else {
+    subtasksBody = subtasks.map((child) => {
+      const overdue = isTaskOverdue(child.dueDate, child.status);
+      return (
+        <RecordRow
+          key={child.id}
+          leading={<IconTile icon={CheckSquare} color={ACCENTS.tasks} />}
+          title={child.title}
+          subtitle={
+            child.subtaskCount
+              ? format(t.task.subtaskProgress, {
+                  done: child.completedSubtaskCount ?? 0,
+                  total: child.subtaskCount,
+                })
+              : undefined
+          }
+          meta={
+            child.dueDate
+              ? format(t.common.dueOn, { date: formatShortDate(child.dueDate) })
+              : undefined
+          }
+          metaColor={overdue ? colors.destructive : undefined}
+          badge={<TaskStatusBadge status={child.status} />}
+          onPress={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push(`/task/${projectId}/${child.id}`);
+          }}
+        />
+      );
+    });
   }
 
   return (
@@ -150,6 +206,12 @@ export default function TaskDetailScreen() {
             />
           ) : null}
         </SectionCard>
+
+        {subtaskTotal > 0 ? (
+          <SectionCard title={t.task.subtasks} padded={false}>
+            {subtasksBody}
+          </SectionCard>
+        ) : null}
 
         {task.tags && task.tags.length > 0 ? (
           <SectionCard title={t.task.tags}>
@@ -211,6 +273,8 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   bodyText: { fontSize: 15, lineHeight: 22 },
+  subtasksLoading: { paddingVertical: 16 },
+  subtasksError: { fontSize: 14, textAlign: 'center', paddingVertical: 16, paddingHorizontal: 16 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   tagText: { fontSize: 12, fontWeight: '500' },

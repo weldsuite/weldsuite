@@ -3,8 +3,8 @@
  * (`GET /projects/:id`, `GET /tasks?projectId=`).
  */
 
-import { useMemo, useState } from 'react';
-import { View, FlatList, RefreshControl, StyleSheet, Text } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { View, FlatList, RefreshControl, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { CheckSquare, Plus } from 'lucide-react-native';
@@ -21,8 +21,9 @@ import { RecordRow } from '@/components/record-row';
 import { IconTile } from '@/components/detail';
 import { DetailSkeleton, ErrorState, ListSkeleton } from '@/components/data-states';
 import { ProjectStatusBadge, TaskStatusBadge } from '@/components/status-badge';
-import { useProject, useProjectTasks } from '@/hooks/use-weldflow';
+import { useProject, useInfiniteProjectTasks } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
+import { flattenPages } from '@/lib/pagination';
 
 export default function ProjectDetailScreen() {
   const { colors } = useTheme();
@@ -40,7 +41,7 @@ export default function ProjectDetailScreen() {
   ];
 
   const projectQuery = useProject(projectId);
-  const tasksQuery = useProjectTasks(
+  const tasksQuery = useInfiniteProjectTasks(
     projectId,
     useMemo(
       () => ({
@@ -50,9 +51,14 @@ export default function ProjectDetailScreen() {
       [statusFilter],
     ),
   );
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = tasksQuery;
 
   const project = projectQuery.data?.data;
-  const tasks = tasksQuery.data?.data ?? [];
+  const tasks = useMemo(() => flattenPages(tasksQuery.data?.pages), [tasksQuery.data]);
+
+  const loadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   if (projectQuery.isLoading) {
     return (
@@ -137,6 +143,14 @@ export default function ProjectDetailScreen() {
               <RecordRow
                 leading={<IconTile icon={CheckSquare} color={ACCENTS.tasks} />}
                 title={item.title}
+                subtitle={
+                  item.subtaskCount
+                    ? format(t.task.subtaskProgress, {
+                        done: item.completedSubtaskCount ?? 0,
+                        total: item.subtaskCount,
+                      })
+                    : undefined
+                }
                 meta={
                   item.dueDate
                     ? format(t.common.dueOn, { date: formatShortDate(item.dueDate) })
@@ -151,12 +165,19 @@ export default function ProjectDetailScreen() {
               />
             );
           }}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
           refreshControl={
+            // `isRefetching` is also true while a next page loads; the footer
+            // spinner covers that, so keep the pull-to-refresh one for real refreshes.
             <RefreshControl
-              refreshing={tasksQuery.isRefetching}
+              refreshing={tasksQuery.isRefetching && !isFetchingNextPage}
               onRefresh={() => void tasksQuery.refetch()}
               tintColor={BRAND}
             />
+          }
+          ListFooterComponent={
+            isFetchingNextPage ? <ActivityIndicator style={styles.footer} color={BRAND} /> : null
           }
           contentContainerStyle={tasks.length === 0 ? styles.emptyContainer : undefined}
           ListEmptyComponent={
@@ -198,4 +219,5 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 11, fontWeight: '600', marginTop: 2 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   emptyContainer: { flexGrow: 1 },
+  footer: { paddingVertical: 16 },
 });
