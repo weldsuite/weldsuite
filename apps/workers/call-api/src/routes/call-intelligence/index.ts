@@ -231,7 +231,7 @@ app.post('/token', requirePermission('activities:read'), async (c) => {
       credentialId = credData.data.id;
     }
 
-    if (!TELNYX_ID_RE.test(credentialId)) {
+    if (typeof credentialId !== 'string' || !TELNYX_ID_RE.test(credentialId)) {
       throw new Error('Unexpected Telnyx credential id format');
     }
 
