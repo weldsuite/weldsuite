@@ -230,7 +230,7 @@ export class IframeManager {
     // Create container
     const container = document.createElement('div');
     container.className = 'weld-launcher-frame';
-    container.setAttribute('data-state', 'visible');
+    container.dataset.state = 'visible';
     // Container is larger than the button to allow hover animations (scale, shadow) without clipping
     const launcherPadding = 10;
     container.style.cssText = `
@@ -316,7 +316,7 @@ export class IframeManager {
     // Create container
     const container = document.createElement('div');
     container.className = 'weld-widget-frame';
-    container.setAttribute('data-state', 'closed');
+    container.dataset.state = 'closed';
 
     // Apply different styles for mobile vs desktop
     if (this.deviceInfo.isMobile) {
@@ -563,7 +563,7 @@ export class IframeManager {
     console.log(`[Weld SDK] Showing iframe ${type}`, { currentDisplay: iframe.container.style.display });
 
     iframe.visible = true;
-    iframe.container.setAttribute('data-state', type === IframeType.BACKDROP ? 'visible' : 'open');
+    iframe.container.dataset.state = type === IframeType.BACKDROP ? 'visible' : 'open';
     iframe.container.style.pointerEvents = 'auto';
     iframe.container.style.display = 'block';
 
@@ -611,7 +611,7 @@ export class IframeManager {
     console.log(`[Weld SDK] Hiding iframe ${type}`, { currentDisplay: iframe.container.style.display });
 
     iframe.visible = false;
-    iframe.container.setAttribute('data-state', type === IframeType.BACKDROP ? 'hidden' : 'closed');
+    iframe.container.dataset.state = type === IframeType.BACKDROP ? 'hidden' : 'closed';
     iframe.container.style.pointerEvents = 'none';
 
     // Animate close for widget on desktop, then hide after animation
