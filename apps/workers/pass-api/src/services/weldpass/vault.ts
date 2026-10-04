@@ -21,7 +21,15 @@ const DEFAULT_ENVIRONMENTS = [
 
 export class VaultNotFoundError extends Error {
   constructor(
-    readonly resource: 'project' | 'environment' | 'secret' | 'credential' | 'sync target',
+    readonly resource:
+      | 'project'
+      | 'environment'
+      | 'secret'
+      | 'credential'
+      | 'sync target'
+      | 'vault'
+      | 'vault member'
+      | 'item',
     readonly id: string,
   ) {
     super(`${resource} ${id} not found`);

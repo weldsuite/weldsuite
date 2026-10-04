@@ -60,6 +60,7 @@ import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifi
 import { createSearchApi } from '@weldsuite/app-api-client/domains/search';
 import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/access-requests';
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
+import { createWeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
 import { createMeetingSessionsApi } from '@weldsuite/app-api-client/domains/meeting-sessions';
 import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/weldmeet-recordings';
@@ -183,6 +184,7 @@ export function useAppApi() {
       search: createSearchApi(lazyClient),
       accessRequests: createAccessRequestsApi(lazyClient),
       weldpass: createWeldPassApi(lazyClient),
+      weldpassPasswords: createWeldPassPasswordsApi(lazyClient),
       weldhr: createWeldHrApi(lazyClient),
 
       // WeldMeet live-session actions (host "Remove from call").

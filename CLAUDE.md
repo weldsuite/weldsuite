@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WeldSuite is a pnpm + Turborepo monorepo containing the WeldSuite business platform and its surrounding apps. The main user-facing platform is a **Vite + React 19 SPA** with **TanStack Router** (file-based routing) and **Clerk** auth. Backend services run as **Hono on Cloudflare Workers**, talking to a multi-tenant **Neon Postgres** through Drizzle ORM. Node 20+, pnpm 10.34.5.
 
-Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps), **WeldPass** (secret management). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
+Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps), **WeldPass** (secret management and team password manager). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
 
 ### WeldApps, user-created apps
 
@@ -34,6 +34,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `docs`, Next.js public product help site (`help.weldsuite.org`, Markdoc / Syntax template)
 - `developer`, Vite SPA — WeldApps developer portal (`developer.weldsuite.org` / `developer-test.weldsuite.org`)
 - `helpdesk-widget`, Embeddable Vite chat widget (port 3100)
+- `weldpass-extension`, WeldPass browser extension (MV3, Chrome/Edge); built and loaded manually, not deployed by CI
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
 
 **`apps/workers/`**, Cloudflare Workers (Hono):
@@ -257,7 +258,7 @@ return success(c, newCustomer, 201);
 
 Fire-and-forget, uses `c.executionCtx.waitUntil(...)` internally, never blocks the response. Missing queue/realtime bindings log a warning and no-op. The events catalog at `packages/core/entity-events/src/events/` is the single source of truth for entity types + actions; agent `eventSubscriptions` and workflow `entity_event` triggers validate against the same registry.
 
-### WeldPass (secret management)
+### WeldPass (secret management + password manager)
 
 Encrypted secret vaults with push sync to Cloudflare Workers, Cloudflare Pages
 and Vercel. It is a **module of the platform**, not a separate app, and the UI
@@ -296,6 +297,44 @@ is a normal platform module. It is the first module split out of app-api
   Vercel has no such wrapper and is called directly in
   `services/weldpass/providers/vercel.ts`.
 - Schema: `packages/core/db/src/schema/weldpass.ts` (tenant DB only).
+
+#### WeldPass password manager
+
+A second surface in the same module and worker: logins, secure notes and cards
+for people, next to the env-var vaults for apps. Same envelope, different
+access model.
+
+- **Access is by vault membership, not workspace permission.** Everyone gets a
+  personal vault (created on first use, owner-only). Shared vaults have members
+  with a role: `viewer` (list + reveal), `editor` (also write/move/delete items),
+  `manager` (also members, rename, delete, activity). Every route resolves this
+  through `requireVaultAccess` in `services/weldpass/password-vaults.ts`; a
+  vault the caller cannot see is a 404.
+- **Workspace permissions only open the door**: `passwords:use` (MEMBER and up
+  by default), `passwords:create` (start a shared vault), `passwords:manage`
+  (ADMIN: see every shared vault and fix its membership). `passwords:manage`
+  never opens a personal vault, and reading a shared vault's items still takes
+  joining it, which is recorded.
+- **Sharing = moving an item into a shared vault** (`POST …/items/:id/move`).
+  The item is re-sealed under the target vault's key as a new item; its history
+  stays behind.
+- **Items are sealed whole** (`sealItem`, AAD-bound to vault + item). The plain
+  columns on `weldpass_items` (title, subtitle, url, host) are derived on every
+  write for listing and extension matching. No checksum or hint is stored for a
+  password, unlike `weldpass_secrets`: an unsalted hash of a human-chosen
+  password is most of the way to the password. Password health (weak / reused /
+  old) is therefore computed on demand in memory (`password-health.ts`).
+- **2FA codes are minted server-side** (`totp.ts`), so a teammate gets the six
+  digits without being sent the seed.
+- Routes: `apps/workers/pass-api/src/routes/weldpass/passwords.ts`
+  (`/api/weldpass/{vaults,items,password-health,teammates}`). Trail:
+  `weldpass_vault_events` (reveals and 2FA codes included), still no entity
+  events. Shared Zod schemas and helpers (strength, generator, host matching):
+  `@weldsuite/app-api-client/schemas/weldpass-passwords`; client:
+  `…/domains/weldpass-passwords`; hooks: `use-weldpass-passwords-queries.ts`.
+- **Browser extension**: `apps/web/weldpass-extension` (MV3, Chrome/Edge). It
+  reuses the web app's Clerk session, has no always-on content script, and
+  only touches a page on a click in its popup. Not part of CI/deploy.
 
 ### Deleted: `apps/core-api`, `apps/api-worker`, `apps/mobile-api-worker`
 

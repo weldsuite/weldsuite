@@ -140,7 +140,7 @@ const FALLBACK_CATALOG = [
     code: 'weldpass',
     name: 'WeldPass',
     description:
-      'Encrypted secret vaults for your apps, synced to Cloudflare Workers, Cloudflare Pages and Vercel',
+      'Team password manager with shared vaults, plus encrypted secret vaults for your apps synced to Cloudflare and Vercel',
     icon: 'KeyRound',
     category: 'Infrastructure',
     path: '/weldpass',

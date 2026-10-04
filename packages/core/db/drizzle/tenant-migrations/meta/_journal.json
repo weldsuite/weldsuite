@@ -1380,6 +1380,13 @@
       "when": 1790961019143,
       "tag": "0196_burly_the_twelve",
       "breakpoints": true
+    },
+    {
+      "idx": 197,
+      "version": "7",
+      "when": 1791115443291,
+      "tag": "0197_weldpass_password_manager",
+      "breakpoints": true
     }
   ]
 }

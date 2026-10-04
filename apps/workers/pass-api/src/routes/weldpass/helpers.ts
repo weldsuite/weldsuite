@@ -6,6 +6,9 @@
 import type { Context } from 'hono';
 import { error } from '@weldsuite/worker-kit/response';
 import { EnvelopeError, rootKeyringFromEnv, type RootKeyring } from '../../services/weldpass/envelope';
+import { ImportError } from '../../services/weldpass/password-import';
+import { ItemFieldError } from '../../services/weldpass/password-items';
+import { VaultAccessError, VaultConflictError } from '../../services/weldpass/password-vaults';
 import { ProviderError } from '../../services/weldpass/providers';
 import { SecretKeyError } from '../../services/weldpass/secrets';
 import {
@@ -71,8 +74,16 @@ export function toWeldPassErrorResponse(err: unknown, c: WeldPassContext): Respo
     return error.notFound(c, err.resource, err.id);
   }
 
-  if (err instanceof SecretKeyError) {
+  if (err instanceof SecretKeyError || err instanceof ItemFieldError || err instanceof ImportError) {
     return error.badRequest(c, err.message);
+  }
+
+  if (err instanceof VaultAccessError) {
+    return error.forbidden(c, err.message);
+  }
+
+  if (err instanceof VaultConflictError) {
+    return error.conflict(c, err.message);
   }
 
   if (err instanceof ProviderError) {
