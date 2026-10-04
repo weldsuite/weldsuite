@@ -77,6 +77,34 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === 'string');
 }
 
+/**
+ * Writes the repaired labels, guarded on the value that was read. Returns false
+ * when the task was edited in the meantime and nothing was written.
+ *
+ * The values go in as text and are cast in SQL (`$n::text::jsonb`). A parameter
+ * typed `jsonb` is JSON-encoded by the driver, which would encode these
+ * already-serialised arrays a second time and store a JSON string. The
+ * transaction rolls back if the stored value is not an array after all.
+ */
+async function writeLabels(
+  sql: postgres.Sql,
+  taskId: string,
+  before: string[],
+  after: string[],
+): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    const rows = (await tx.unsafe(
+      `UPDATE tasks SET labels = $1::text::jsonb
+        WHERE id = $2 AND labels = $3::text::jsonb
+        RETURNING jsonb_typeof(labels) AS kind`,
+      [JSON.stringify(after), taskId, JSON.stringify(before)] as never[],
+    )) as unknown as { kind: string }[];
+    if (rows.length === 0) return false;
+    if (rows[0].kind !== 'array') throw new Error(`task ${taskId}: labels would be stored as ${rows[0].kind}`);
+    return true;
+  });
+}
+
 async function repairTenant(
   label: string,
   databaseUrl: string,
@@ -121,15 +149,9 @@ async function repairTenant(
       }
       if (!repair.changed) continue;
 
-      if (execute) {
-        const res = await sql.unsafe(
-          `UPDATE tasks SET labels = $1::jsonb WHERE id = $2 AND labels = $3::jsonb`,
-          [JSON.stringify(repair.labels), task.id, JSON.stringify(task.labels)] as never[],
-        );
-        if (((res as unknown as { count?: number }).count ?? 0) === 0) {
-          counts.tasksChangedMeanwhile++;
-          continue;
-        }
+      if (execute && !(await writeLabels(sql, task.id, task.labels, repair.labels))) {
+        counts.tasksChangedMeanwhile++;
+        continue;
       }
       counts.tasksRepaired++;
       counts.entriesMapped += repair.mapped.length;
