@@ -17,6 +17,12 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { schema } from '@weldsuite/worker-kit/db';
 import { canAccessProject, canManageProject } from '../../lib/project-access';
+import {
+  getMilestoneStats,
+  getProjectStats,
+  withMilestoneStats,
+  withProjectStats,
+} from '@weldsuite/flow-domain/project-stats';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projects;
@@ -105,7 +111,8 @@ app.get('/', async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
+    const stats = await getProjectStats(db, data.map((p) => p.id));
+    return list(c, withProjectStats(data, stats), cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/projects] list failed:', err);
     return error.internal(c, 'Failed to list projects');
@@ -291,7 +298,8 @@ app.get('/search', requirePermission('projects:read'), async (c) => {
       .where(and(...conditions))
       .orderBy(desc(projects.name))
       .limit(20);
-    return success(c, results);
+    const stats = await getProjectStats(db, results.map((p) => p.id));
+    return success(c, withProjectStats(results, stats));
   } catch (err) {
     console.error('[app-api/projects] search failed:', err);
     return error.internal(c, 'Failed to search projects');
@@ -430,7 +438,8 @@ app.get('/:id/gantt/milestones', requirePermission('tasks:read'), async (c) => {
       .where(and(eq(milestones.projectId, projectId), isNull(milestones.deletedAt)))
       .orderBy(milestones.dueDate);
 
-    return success(c, results);
+    const stats = await getMilestoneStats(db, results);
+    return success(c, withMilestoneStats(results, stats));
   } catch (err) {
     console.error('[app-api/projects] gantt/milestones failed:', err);
     return error.internal(c, 'Failed to fetch gantt milestones');
@@ -565,7 +574,8 @@ app.get('/:id', requirePermission('projects:read'), async (c) => {
   try {
     const [row] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!row) return error.notFound(c, 'Project', id);
-    return success(c, row);
+    const stats = await getProjectStats(db, [row.id]);
+    return success(c, withProjectStats([row], stats)[0]);
   } catch (err) {
     console.error('[app-api/projects] get failed:', err);
     return error.internal(c, 'Failed to fetch project');
