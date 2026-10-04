@@ -6,6 +6,7 @@ import {
   resolveQuickCreateTimes,
   resolveTaskSlot,
   shiftEndDate,
+  shiftEndForStartTime,
   type QuickCreateRange,
 } from './quick-create-dates';
 
@@ -57,6 +58,43 @@ describe('shiftEndDate', () => {
 
   it('leaves the end date alone when the start date did not change', () => {
     expect(shiftEndDate('2026-10-02', '2026-10-02', '2026-10-04')).toBe('2026-10-04');
+  });
+});
+
+describe('shiftEndForStartTime', () => {
+  const range = (startTime: string, endTime: string, endDate = '2026-10-02'): QuickCreateRange => ({
+    startDate: '2026-10-02',
+    startTime,
+    endDate,
+    endTime,
+  });
+
+  it('keeps the length when the start time moves later (00:00 - 01:00 -> 14:00 - 15:00)', () => {
+    expect(shiftEndForStartTime(range('00:00', '01:00'), '14:00')).toEqual({ endDate: '2026-10-02', endTime: '15:00' });
+  });
+
+  it('keeps the length when the start time moves earlier', () => {
+    expect(shiftEndForStartTime(range('14:00', '16:30'), '09:15')).toEqual({ endDate: '2026-10-02', endTime: '11:45' });
+  });
+
+  it('carries the end into the next day when it crosses midnight', () => {
+    expect(shiftEndForStartTime(range('22:00', '23:00'), '23:30')).toEqual({ endDate: '2026-10-03', endTime: '00:30' });
+  });
+
+  it('keeps the length of an event that already ends the next day', () => {
+    expect(shiftEndForStartTime(range('20:00', '02:00', '2026-10-03'), '21:00')).toEqual({
+      endDate: '2026-10-03',
+      endTime: '03:00',
+    });
+  });
+
+  it('keeps the length of an end that the card rolls over midnight (23:00 - 00:00)', () => {
+    expect(shiftEndForStartTime(range('23:00', '00:00'), '22:00')).toEqual({ endDate: '2026-10-02', endTime: '23:00' });
+  });
+
+  it('leaves the end alone when the start time did not change or was cleared', () => {
+    expect(shiftEndForStartTime(range('09:00', '10:00'), '09:00')).toEqual({ endDate: '2026-10-02', endTime: '10:00' });
+    expect(shiftEndForStartTime(range('09:00', '10:00'), '')).toEqual({ endDate: '2026-10-02', endTime: '10:00' });
   });
 });
 

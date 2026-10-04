@@ -2,6 +2,7 @@ import type { ComponentProps, CSSProperties, MouseEvent } from 'react';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
+import { eventStatusKind, statusSurfaceClass, statusSurfaceStyle, statusTitleClass } from '../lib/event-status';
 
 /**
  * Shared class list for every chip in a month-view day cell. The fixed height
@@ -21,6 +22,8 @@ interface MonthEventChipProps
   autoScheduled?: boolean;
   /** Accessible name / tooltip of the auto-scheduled marker ("Auto-scheduled"). */
   autoScheduledLabel?: string;
+  /** Event status: cancelled is struck through and faded, tentative dashed and striped. */
+  status?: string | null;
   style?: CSSProperties;
 }
 
@@ -36,15 +39,18 @@ export function MonthEventChip({
   color,
   autoScheduled,
   autoScheduledLabel,
+  status,
   className,
   style,
   ...props
 }: MonthEventChipProps) {
+  const kind = eventStatusKind({ status });
   return (
     <Button
       variant="ghost"
-      className={cn(MONTH_CHIP_CLASS, className)}
-      style={{ backgroundColor: color, ...style }}
+      data-status={kind === 'confirmed' ? undefined : kind}
+      className={cn(MONTH_CHIP_CLASS, statusSurfaceClass(kind), className)}
+      style={{ backgroundColor: color, ...statusSurfaceStyle(kind), ...style }}
       {...props}
     >
       {time ? (
@@ -52,7 +58,7 @@ export function MonthEventChip({
           {time}
         </span>
       ) : null}
-      <span data-slot="chip-title" className="min-w-0 flex-1 truncate text-left">
+      <span data-slot="chip-title" className={cn('min-w-0 flex-1 truncate text-left', statusTitleClass(kind))}>
         {title}
       </span>
       {autoScheduled ? (

@@ -3,7 +3,8 @@
  * how a row's time is written.
  */
 
-import { addDays, addWeeks, endOfWeek, isSameDay, isSameMonth, startOfDay, startOfWeek } from 'date-fns';
+import { addDays, addWeeks, differenceInCalendarDays, endOfWeek, format, isSameDay, isSameMonth, startOfDay, startOfWeek } from 'date-fns';
+import { eventDayRange, isAllDayRowEvent, type SpanEvent } from './event-days';
 import { formatClock, formatClockRange, WEEK_STARTS_ON, type TimeFormat } from './calendar-format';
 
 export type ScheduleGroup =
@@ -66,4 +67,18 @@ export function formatScheduleTime(
 ): string {
   if (allDayLabel) return allDayLabel;
   return formatEventTimeRange(start, end, timeFormat);
+}
+
+/**
+ * Date column of the schedule list: "Mon, Oct 5" for a single-day event and
+ * "Mon, Oct 5 – Thu, Oct 8" for an all-day or 24h+ event that covers several
+ * days. A short timed event that merely crosses midnight shows its start day.
+ */
+export function formatScheduleDateLabel(event: SpanEvent): string {
+  const pattern = 'EEE, MMM d';
+  const start = new Date(event.startTime);
+  if (!isAllDayRowEvent(event)) return format(start, pattern);
+  const { first, last } = eventDayRange(event);
+  if (differenceInCalendarDays(last, first) < 1) return format(first, pattern);
+  return `${format(first, pattern)} – ${format(last, pattern)}`;
 }

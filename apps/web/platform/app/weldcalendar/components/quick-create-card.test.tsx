@@ -32,8 +32,9 @@ const peopleRows = vi.hoisted(() => ({ current: [] as Array<Record<string, unkno
 vi.mock('@/hooks/use-crm-tasks', () => ({
   useCreateTask: () => ({ mutateAsync: createTask, isPending: false }),
 }));
+const memberRows = vi.hoisted(() => ({ current: [] as Array<Record<string, unknown>> }));
 vi.mock('@/hooks/queries/use-settings-queries', () => ({
-  useWorkspaceMembers: () => ({ data: { data: [] } }),
+  useWorkspaceMembers: () => ({ data: { data: memberRows.current } }),
   useWorkingHours: () => ({ data: undefined }),
   useUserPreferences: () => ({ data: undefined }),
 }));
@@ -75,6 +76,7 @@ beforeEach(() => {
   updateEvent.mockResolvedValue({ data: { id: 'evt_1', weldMeetingLinked: true } });
   createTask.mockResolvedValue({ success: true });
   peopleRows.current = [];
+  memberRows.current = [];
 });
 
 describe('QuickCreateCard WeldMeet', () => {
@@ -283,6 +285,34 @@ describe('QuickCreateCard times', () => {
     expect(payload.timezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 
+  it('keeps the length when the start time changes (00:00 - 01:00 -> 14:00 - 15:00, TASK-895)', async () => {
+    renderCard({ defaultStart: new Date(2026, 9, 5, 0, 0), defaultEnd: new Date(2026, 9, 5, 1, 0) });
+
+    fireEvent.click(screen.getByText(/Monday, Oct 5/));
+    const [startInput] = screen.getAllByDisplayValue('00:00');
+    fireEvent.change(startInput!, { target: { value: '14:00' } });
+    expect(screen.getByDisplayValue('15:00')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(createEvent).toHaveBeenCalledTimes(1));
+    const payload = createEvent.mock.calls[0][0] as { startTime: string; endTime: string };
+    expect(new Date(payload.startTime).getTime()).toBe(new Date(2026, 9, 5, 14, 0).getTime());
+    expect(new Date(payload.endTime).getTime()).toBe(new Date(2026, 9, 5, 15, 0).getTime());
+  });
+
+  it('promises only a description in the empty description row (no WeldDrive attachment)', () => {
+    renderCard();
+
+    expect(screen.queryByText(/WeldDrive/)).not.toBeInTheDocument();
+    expect(screen.getByText('Add a description')).toBeInTheDocument();
+  });
+
+  it('gives the guest remove buttons an accessible name', () => {
+    renderCard({ defaultGuests: [{ email: 'ann@acme.com', name: 'Ann Has' }] });
+
+    expect(screen.getByRole('button', { name: 'Remove Ann Has' })).toBeInTheDocument();
+  });
+
   it('shows the quick-create times in the user clock format (12h by default)', () => {
     renderCard({ defaultStart: new Date(2026, 9, 5, 9, 0), defaultEnd: new Date(2026, 9, 5, 10, 0) });
 
@@ -317,6 +347,40 @@ describe('QuickCreateCard task', () => {
     renderTask();
 
     expect(screen.getByText('· 9:00 AM')).toBeInTheDocument();
+  });
+
+  it('sends the chosen assignee (the member\'s user id, not the picker key) with the task (TASK-889)', async () => {
+    // `id` is the workspace-member row, `userId` is what a task is assigned to.
+    memberRows.current = [{ id: 'row_9', userId: 'user_ada', name: 'Ada Lovelace', email: 'ada@acme.com' }];
+    peopleRows.current = [{ id: 'p1', firstName: 'Con', lastName: 'Tact', fullName: 'Con Tact', email: 'con@acme.com' }];
+    const { onClose } = renderTask();
+
+    fireEvent.click(screen.getByText('Assignee'));
+    const input = screen.getByPlaceholderText('Search team members...');
+    fireEvent.change(input, { target: { value: 'a' } });
+    // Only members can be assigned work: a contact is not offered.
+    expect(screen.queryByText('Con Tact')).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByText('Ada Lovelace'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1));
+    expect(createTask.mock.calls[0][0]).toEqual(expect.objectContaining({ assigneeIds: ['user_ada'] }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('sends no assignees when none was picked', async () => {
+    renderTask();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1));
+    expect(createTask.mock.calls[0][0].assigneeIds).toBeUndefined();
+  });
+
+  it('has no dead "Add attachment" row', () => {
+    renderTask();
+
+    expect(screen.queryByText('Add attachment')).not.toBeInTheDocument();
   });
 
   it('stays open when the task could not be created', async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/hooks/queries/use-settings-queries', () => ({ useUserPreferences: () => ({ data: undefined }) }));
 
-import { getCalendarDateRange, type CalendarView } from './date-range';
+import { getCalendarDateRange, getMobileMonthListRange, type CalendarView } from './date-range';
 
 const range = (date: Date, view: CalendarView) => {
   const { start, end } = getCalendarDateRange(date, view);
@@ -57,5 +57,17 @@ describe('getCalendarDateRange', () => {
       const { end } = range(wed, view);
       expect(fields(end).slice(3)).toEqual([23, 59, 59, 999]);
     }
+  });
+});
+
+describe('getMobileMonthListRange', () => {
+  it('covers every month the mobile list renders: 12 back to the end of 24 ahead', () => {
+    const { start, end } = getMobileMonthListRange(wed);
+    expect(fields(new Date(start))).toEqual([2025, 9, 1, 0, 0, 0, 0]);
+    expect(fields(new Date(end))).toEqual([2028, 9, 31, 23, 59, 59, 999]);
+  });
+
+  it('is stable within a month, so the query key does not change from day to day', () => {
+    expect(getMobileMonthListRange(new Date(2026, 9, 1))).toEqual(getMobileMonthListRange(new Date(2026, 9, 31, 23, 59)));
   });
 });

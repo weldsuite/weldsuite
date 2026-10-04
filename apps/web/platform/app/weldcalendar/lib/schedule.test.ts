@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/hooks/queries/use-settings-queries', () => ({ useUserPreferences: () => ({ data: undefined }) }));
 
-import { formatEventTimeRange, formatScheduleTime, getDateGroup } from './schedule';
+import { formatEventTimeRange, formatScheduleDateLabel, formatScheduleTime, getDateGroup } from './schedule';
 
 // Today: Sat 3 Oct 2026 (the week runs Mon 28 Sep - Sun 4 Oct).
 const now = new Date(2026, 9, 3, 14, 30);
@@ -75,5 +75,32 @@ describe('formatScheduleTime', () => {
 
   it('returns the all-day label when given', () => {
     expect(formatScheduleTime(start, end, 'All day', '12h')).toBe('All day');
+  });
+});
+
+describe('formatScheduleDateLabel', () => {
+  it('shows a single date for a one-day all-day event', () => {
+    const ev = { allDay: true, startTime: new Date(2026, 9, 5), endTime: new Date(2026, 9, 5, 23, 59, 59) };
+    expect(formatScheduleDateLabel(ev)).toBe('Mon, Oct 5');
+  });
+
+  it('shows the range for a multi-day all-day event', () => {
+    const ev = { allDay: true, startTime: new Date(2026, 9, 5), endTime: new Date(2026, 9, 8, 23, 59, 59) };
+    expect(formatScheduleDateLabel(ev)).toBe('Mon, Oct 5 – Thu, Oct 8');
+  });
+
+  it('treats an end on midnight as exclusive', () => {
+    const ev = { allDay: true, startTime: new Date(2026, 9, 5), endTime: new Date(2026, 9, 8) };
+    expect(formatScheduleDateLabel(ev)).toBe('Mon, Oct 5 – Wed, Oct 7');
+  });
+
+  it('shows the range for a timed event of 24h or longer', () => {
+    const ev = { startTime: new Date(2026, 9, 5, 9), endTime: new Date(2026, 9, 7, 9) };
+    expect(formatScheduleDateLabel(ev)).toBe('Mon, Oct 5 – Wed, Oct 7');
+  });
+
+  it('keeps the start day for a short timed event crossing midnight', () => {
+    const ev = { startTime: new Date(2026, 9, 5, 22), endTime: new Date(2026, 9, 6, 2) };
+    expect(formatScheduleDateLabel(ev)).toBe('Mon, Oct 5');
   });
 });

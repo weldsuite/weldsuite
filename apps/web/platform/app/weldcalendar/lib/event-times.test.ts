@@ -9,8 +9,13 @@ describe('normalizeEventTimes (timed)', () => {
     expect(r).toEqual({ ok: true, start: at('2026-10-05T09:00:00'), end: at('2026-10-05T10:00:00') });
   });
 
-  it('rolls a same-day end before the start to the next day (past midnight)', () => {
+  it('rejects a same-day end before the start instead of rolling it to the next day', () => {
     const r = normalizeEventTimes(at('2026-10-05T23:00:00'), at('2026-10-05T01:00:00'), false);
+    expect(r).toEqual({ ok: false, error: 'end-before-start' });
+  });
+
+  it('accepts a past-midnight event entered with the next day\'s date', () => {
+    const r = normalizeEventTimes(at('2026-10-05T23:00:00'), at('2026-10-06T01:00:00'), false);
     expect(r).toEqual({ ok: true, start: at('2026-10-05T23:00:00'), end: at('2026-10-06T01:00:00') });
   });
 
