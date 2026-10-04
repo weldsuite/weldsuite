@@ -28,6 +28,11 @@ workflow reads `PERSONAL_DATABASE_URL`.
 | `CLOUDFLARE_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | Workers + Pages + D1 migrations |
 | `EXPO_TOKEN` | not in Doppler | WeldMail / WeldChat / WeldBooks OTA (repo-level is fine) |
 
+Store submission (`auto-submit` in `mobile-build.yml`) needs **no GitHub
+secrets** beyond `EXPO_TOKEN`: the App Store Connect API key and the Google
+service account key are stored on EAS, per app, with `eas credentials`. The
+workflow header lists the one-time setup.
+
 Optional frontend build secrets (on both environments if used):
 
 | GitHub secret | Used by |
