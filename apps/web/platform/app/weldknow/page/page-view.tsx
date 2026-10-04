@@ -24,7 +24,11 @@ import { useRouter } from '@/lib/router';
 import { PageLoader } from '@/components/page-loader';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { BlockEditor, type BlockNoteEditorInstance } from '@/components/block-editor/block-editor';
+import {
+  BlockEditor,
+  type BlockEditorHandle,
+  type BlockNoteEditorInstance,
+} from '@/components/block-editor/block-editor';
 import type { Block, PartialBlock } from '@blocknote/core';
 import {
   useAddKnowledgeFavorite,
@@ -40,6 +44,17 @@ import { MovePageDialog } from '../components/move-page-dialog';
 import { VersionHistorySheet } from '../components/version-history-sheet';
 
 const AUTOSAVE_DELAY_MS = 1500;
+/** How many of this editor's own saves to remember when recognising their echo. */
+const SENT_CONTENT_HISTORY = 10;
+
+/** Stringify with sorted object keys, so equal content matches whatever key order the server returns. */
+function contentFingerprint(content: unknown): string {
+  return JSON.stringify(content ?? [], (_key, value) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : 1)))
+      : value,
+  );
+}
 
 /** Recursively concatenate every `text`-ish string found in a BlockNote block tree. */
 function extractText(blocks: unknown): string {
@@ -97,6 +112,12 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   const contentSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentBlocksRef = useRef<Block[] | null>(null);
   const editorRef = useRef<BlockNoteEditorInstance | null>(null);
+  const blockEditorRef = useRef<BlockEditorHandle>(null);
+  // Fingerprints of the content this editor recently saved, and the server
+  // content last compared against them — see the sync effect below.
+  const sentContentRef = useRef<string[]>([]);
+  const seenContentRef = useRef<{ pageId: string; contentJson: unknown } | null>(null);
+  const [restoreCount, setRestoreCount] = useState(0);
 
   // Sync local title/icon state whenever a different page loads.
   useEffect(() => {
@@ -153,7 +174,12 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
       setSaveState('saving');
       if (contentSaveTimeout.current) clearTimeout(contentSaveTimeout.current);
       contentSaveTimeout.current = setTimeout(() => {
+        contentSaveTimeout.current = null;
         const contentJson = currentBlocksRef.current as unknown as Record<string, unknown>[];
+        sentContentRef.current = [
+          ...sentContentRef.current.slice(1 - SENT_CONTENT_HISTORY),
+          contentFingerprint(contentJson),
+        ];
         saveContent.mutate(
           { id: pageId, data: { contentJson, contentText: extractText(contentJson) } },
           {
@@ -168,6 +194,45 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     },
     [pageId, saveContent, t],
   );
+
+  // The editor owns the content once it is mounted, so snapshot it per page.
+  // Passing page.contentJson straight through would hand BlockEditor a new
+  // array after every refetch and make it rebuild the whole editor — closing
+  // the slash menu and dropping the caret and undo history mid-edit.
+  const initialContent = useMemo(
+    () => (page?.contentJson ?? []) as unknown as PartialBlock[],
+    [page?.id], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Every autosave comes back as a realtime-triggered refetch. Only load server
+  // content into the open editor when it is not our own save echoing back
+  // (a restored version, or an edit made elsewhere), and never over unsaved edits.
+  useEffect(() => {
+    if (!page) return;
+    const seen = seenContentRef.current;
+    seenContentRef.current = { pageId: page.id, contentJson: page.contentJson };
+    if (seen?.pageId !== page.id) {
+      sentContentRef.current = [];
+      return;
+    }
+    if (seen.contentJson === page.contentJson) return;
+    if (contentSaveTimeout.current) return;
+    if (sentContentRef.current.includes(contentFingerprint(page.contentJson))) return;
+    blockEditorRef.current?.replaceContent(
+      (page.contentJson ?? []) as unknown as Parameters<BlockEditorHandle['replaceContent']>[0],
+    );
+  }, [page?.id, page?.contentJson, restoreCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A restored version must win over anything this editor sent or still holds.
+  const handleVersionRestored = useCallback(() => {
+    if (contentSaveTimeout.current) {
+      clearTimeout(contentSaveTimeout.current);
+      contentSaveTimeout.current = null;
+    }
+    sentContentRef.current = [];
+    if (seenContentRef.current) seenContentRef.current.contentJson = undefined;
+    setRestoreCount((count) => count + 1);
+  }, []);
 
   // Flush any pending saves when navigating away from this page.
   useEffect(() => {
@@ -321,8 +386,9 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
           )}
 
           <BlockEditor
+            ref={blockEditorRef}
             key={page.id}
-            initialContent={(page.contentJson ?? []) as unknown as PartialBlock[]}
+            initialContent={initialContent}
             editable={!readOnly}
             entityId={page.id}
             onContentChange={handleContentChange}
@@ -335,7 +401,12 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
 
       <MovePageDialog pageId={pageId} open={showMoveDialog} onOpenChange={setShowMoveDialog} />
 
-      <VersionHistorySheet pageId={pageId} open={showVersions} onOpenChange={setShowVersions} />
+      <VersionHistorySheet
+        pageId={pageId}
+        open={showVersions}
+        onOpenChange={setShowVersions}
+        onRestored={handleVersionRestored}
+      />
 
       <ConfirmDialog
         open={showDeleteConfirm}
