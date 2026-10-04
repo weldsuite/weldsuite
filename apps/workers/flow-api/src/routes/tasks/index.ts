@@ -44,6 +44,7 @@ import { createTaskSchema, updateTaskSchema, moveTaskSchema } from '@weldsuite/a
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import {
   syncValuesForEntity,
@@ -730,43 +731,49 @@ async function createNextRecurringTaskOnDone(
   return createNextRecurringTask(db, task, task.projectId);
 }
 
-/** Add (`add`) or remove this task's id from a reciprocal dependsOn/blocks list of a linked task. */
-async function syncReciprocalLink(
-  db: TaskDb,
-  linkedId: string,
-  field: 'blocks' | 'dependsOn',
-  selfId: string,
-  mode: 'add' | 'remove',
-): Promise<void> {
-  const [linked] = await db
-    .select({ blocks: t.blocks, dependsOn: t.dependsOn })
-    .from(t)
-    .where(eq(t.id, linkedId))
-    .limit(1);
-  if (!linked) return;
-  const current = ((linked[field] as string[]) || []);
-  const next = mode === 'add' ? [...new Set([...current, selfId])] : current.filter((x) => x !== selfId);
-  const now = new Date();
-  await db
-    .update(t)
-    .set(field === 'blocks' ? { blocks: next, updatedAt: now } : { dependsOn: next, updatedAt: now })
-    .where(eq(t.id, linkedId));
-}
+type ReciprocalLink = { id: string; set: { blocks?: string[]; dependsOn?: string[] } };
 
-async function syncReciprocalLinks(
+/**
+ * The reciprocal side of a dependency change: a task this one depends on lists it in
+ * `blocks`, and a task it blocks lists it in `dependsOn`. Returns the linked rows to
+ * write; nothing is written here.
+ */
+async function reciprocalLinkUpdates(
   db: TaskDb,
-  linkedIds: string[],
-  field: 'blocks' | 'dependsOn',
   selfId: string,
-  mode: 'add' | 'remove',
-): Promise<void> {
-  for (const linkedId of linkedIds) {
-    await syncReciprocalLink(db, linkedId, field, selfId, mode);
-  }
+  diff: { addedDeps: string[]; removedDeps: string[]; addedBlocks: string[]; removedBlocks: string[] },
+): Promise<ReciprocalLink[]> {
+  const linkedIds = [
+    ...new Set([...diff.addedDeps, ...diff.removedDeps, ...diff.addedBlocks, ...diff.removedBlocks]),
+  ];
+  if (linkedIds.length === 0) return [];
+  const rows = await db
+    .select({ id: t.id, blocks: t.blocks, dependsOn: t.dependsOn })
+    .from(t)
+    .where(inArray(t.id, linkedIds));
+  const withSelf = (ids: string[]) => [...new Set([...ids, selfId])];
+  const withoutSelf = (ids: string[]) => ids.filter((x) => x !== selfId);
+  return rows.map((row) => {
+    const set: ReciprocalLink['set'] = {};
+    const rowBlocks = (row.blocks as string[]) || [];
+    const rowDependsOn = (row.dependsOn as string[]) || [];
+    if (diff.addedDeps.includes(row.id)) set.blocks = withSelf(rowBlocks);
+    if (diff.removedDeps.includes(row.id)) set.blocks = withoutSelf(rowBlocks);
+    if (diff.addedBlocks.includes(row.id)) set.dependsOn = withSelf(rowDependsOn);
+    if (diff.removedBlocks.includes(row.id)) set.dependsOn = withoutSelf(rowDependsOn);
+    return { id: row.id, set };
+  });
 }
 
 type DependencyFailure = { ok: false; kind: 'not-found' | 'invalid' | 'forbidden'; message: string };
-type DependencyResult = { ok: true; dependsOn: string[]; blocks: string[] } | DependencyFailure;
+type DependencyPlan = {
+  ok: true;
+  /** The task row as it was before the change. */
+  task: Record<string, unknown>;
+  dependsOn: string[];
+  blocks: string[];
+  reciprocal: ReciprocalLink[];
+};
 
 const LINKED_TASK_DENIED = "You are not a member of a linked task's project";
 
@@ -805,19 +812,19 @@ async function checkAddedLinks(
 
 /**
  * Shared by PUT /:id/dependencies and PATCH /:id: validates the newly added links
- * (existence, access, cycles), writes dependsOn / blocks, then syncs the reciprocal
- * side on the linked tasks. Nothing is written when a check fails.
+ * (existence, access, cycles) and works out the reciprocal rows. Writes nothing;
+ * `commitDependencyUpdate` applies the plan.
  */
-async function applyDependencyUpdate(
+async function planDependencyUpdate(
   c: TaskCtx,
   db: TaskDb,
   id: string,
   input: { dependsOn?: string[]; blocks?: string[] },
-): Promise<DependencyResult> {
+): Promise<DependencyPlan | DependencyFailure> {
   const [currentTask] = await db
-    .select({ dependsOn: t.dependsOn, blocks: t.blocks })
+    .select()
     .from(t)
-    .where(eq(t.id, id))
+    .where(and(eq(t.id, id), isNull(t.deletedAt)))
     .limit(1);
   if (!currentTask) return { ok: false, kind: 'not-found', message: `Task ${id} not found` };
 
@@ -842,17 +849,42 @@ async function applyDependencyUpdate(
     (await anyAsync(addedBlocks, (blockedId) => detectCycle(db, blockedId, newDependsOn)));
   if (cyclic) return { ok: false, kind: 'invalid', message: 'Circular dependency detected' };
 
-  await db
-    .update(t)
-    .set({ dependsOn: newDependsOn, blocks: newBlocks, updatedAt: new Date() })
-    .where(eq(t.id, id));
+  const reciprocal = await reciprocalLinkUpdates(db, id, {
+    addedDeps,
+    removedDeps,
+    addedBlocks,
+    removedBlocks,
+  });
 
-  await syncReciprocalLinks(db, addedDeps, 'blocks', id, 'add');
-  await syncReciprocalLinks(db, removedDeps, 'blocks', id, 'remove');
-  await syncReciprocalLinks(db, addedBlocks, 'dependsOn', id, 'add');
-  await syncReciprocalLinks(db, removedBlocks, 'dependsOn', id, 'remove');
+  return {
+    ok: true,
+    task: currentTask as Record<string, unknown>,
+    dependsOn: newDependsOn,
+    blocks: newBlocks,
+    reciprocal,
+  };
+}
 
-  return { ok: true, dependsOn: newDependsOn, blocks: newBlocks };
+/**
+ * Write the task's own row (its dependency lists plus any other column changes) and
+ * every reciprocal row as one unit, so a failure leaves no one-sided link behind.
+ */
+async function commitDependencyUpdate(
+  db: TaskDb,
+  id: string,
+  plan: DependencyPlan,
+  columns: Record<string, any> = {},
+): Promise<void> {
+  const now = new Date();
+  await atomically(db, (handle) => [
+    ...plan.reciprocal.map((link) =>
+      handle.update(t).set({ ...link.set, updatedAt: now }).where(eq(t.id, link.id)),
+    ),
+    handle
+      .update(t)
+      .set({ ...columns, dependsOn: plan.dependsOn, blocks: plan.blocks, updatedAt: now })
+      .where(and(eq(t.id, id), isNull(t.deletedAt))),
+  ]);
 }
 
 async function anyAsync<T>(items: T[], test: (item: T) => Promise<boolean>): Promise<boolean> {
@@ -2127,9 +2159,19 @@ app.put(
     const data = c.req.valid('json');
 
     try {
-      const result = await applyDependencyUpdate(c, db, id, data);
-      if (!result.ok) return dependencyFailureResponse(c, id, result);
-      return success(c, { id, dependsOn: result.dependsOn, blocks: result.blocks });
+      const plan = await planDependencyUpdate(c, db, id, data);
+      if (!plan.ok) return dependencyFailureResponse(c, id, plan);
+      await commitDependencyUpdate(db, id, plan);
+
+      publishEntityEvent({
+        c,
+        entityType: 'project_task',
+        entityId: id,
+        action: 'updated',
+        data: taskAnalyticsPayload(plan.task),
+      });
+
+      return success(c, { id, dependsOn: plan.dependsOn, blocks: plan.blocks });
     } catch (err) {
       console.error('[app-api/tasks] dependencies update failed:', err);
       return error.internal(c, 'Failed to update dependencies');
@@ -2309,17 +2351,20 @@ app.patch(
       const relationError = await validateTaskRelations(db, existing, id, body);
       if (relationError) return error.badRequest(c, relationError);
 
-      // Dependencies run through the same cycle check + reciprocal sync as
-      // PUT /:id/dependencies, before anything else is written.
-      let dependencyEcho: { dependsOn?: string[]; blocks?: string[] } = {};
+      // Dependencies run through the same checks + reciprocal sync as
+      // PUT /:id/dependencies. Validated here, written below with the columns.
+      let dependencyPlan: DependencyPlan | null = null;
       if (dependsOn !== undefined || blocks !== undefined) {
-        const result = await applyDependencyUpdate(c, db, id, { dependsOn, blocks });
-        if (!result.ok) return dependencyFailureResponse(c, id, result);
-        dependencyEcho = {
-          ...(dependsOn !== undefined && { dependsOn: result.dependsOn }),
-          ...(blocks !== undefined && { blocks: result.blocks }),
-        };
+        const plan = await planDependencyUpdate(c, db, id, { dependsOn, blocks });
+        if (!plan.ok) return dependencyFailureResponse(c, id, plan);
+        dependencyPlan = plan;
       }
+      const dependencyEcho: { dependsOn?: string[]; blocks?: string[] } = dependencyPlan
+        ? {
+            ...(dependsOn !== undefined && { dependsOn: dependencyPlan.dependsOn }),
+            ...(blocks !== undefined && { blocks: dependencyPlan.blocks }),
+          }
+        : {};
 
       const update = buildTaskUpdate(data);
 
@@ -2332,7 +2377,11 @@ app.patch(
         update.completedDate = new Date();
       }
 
-      await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
+      if (dependencyPlan) {
+        await commitDependencyUpdate(db, id, dependencyPlan, update);
+      } else {
+        await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
+      }
 
       // Phase 1 dual-write: mirror the customFields blob into the typed values table.
       await syncValuesForEntity(db, 'task', id, data.customFields);

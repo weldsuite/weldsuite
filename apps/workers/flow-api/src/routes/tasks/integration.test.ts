@@ -705,4 +705,55 @@ describe('PATCH /api/tasks/:id · mass assignment + relations · pglite integrat
     expect((await patch('task_pt_child', { parentTaskId: null })).status).toBe(200);
     expect((await row('task_pt_child'))?.parentTaskId).toBeNull();
   });
+
+  it('writes dependencies, reciprocal links and columns as one unit', async () => {
+    await seedTask({ id: 'task_tx_1', title: 'Before' });
+    await seedTask({ id: 'task_tx_2' });
+
+    // 'not-a-number' passes the schema (a string) but the numeric column rejects it,
+    // so the task's own write fails after the reciprocal write was issued.
+    const failed = await patch('task_tx_1', {
+      title: 'After',
+      dependsOn: ['task_tx_2'],
+      estimatedHours: 'not-a-number',
+    });
+    expect(failed.status).toBe(500);
+    expect((await row('task_tx_1'))?.title).toBe('Before');
+    expect((await row('task_tx_1'))?.dependsOn).toBeNull();
+    expect((await row('task_tx_2'))?.blocks).toBeNull();
+
+    const saved = await patch('task_tx_1', { title: 'After', dependsOn: ['task_tx_2'] });
+    expect(saved.status).toBe(200);
+    expect((await row('task_tx_1'))?.title).toBe('After');
+    expect((await row('task_tx_1'))?.dependsOn).toEqual(['task_tx_2']);
+    expect((await row('task_tx_2'))?.blocks).toEqual(['task_tx_1']);
+  });
+
+  it('PUT /:id/dependencies publishes project_task.updated, and nothing when rejected', async () => {
+    await seedTask({ id: 'task_ev_1', title: 'Event task' });
+    await seedTask({ id: 'task_ev_2' });
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:update'), tenantDb: db },
+    });
+    const put = (body: unknown) =>
+      request('/api/tasks/task_ev_1/dependencies', { method: 'PUT', headers: json, body: JSON.stringify(body) });
+
+    mockedPublish.mockClear();
+    expect((await put({ dependsOn: ['task_ev_2'] })).status).toBe(200);
+    expect(mockedPublish).toHaveBeenCalledTimes(1);
+    const call = mockedPublish.mock.calls[0]![0] as {
+      entityType: string;
+      action: string;
+      entityId: string;
+      data: { title: string };
+    };
+    expect(call.entityType).toBe('project_task');
+    expect(call.action).toBe('updated');
+    expect(call.entityId).toBe('task_ev_1');
+    expect(call.data.title).toBe('Event task');
+
+    mockedPublish.mockClear();
+    expect((await put({ dependsOn: ['task_ev_1'] })).status).toBe(400);
+    expect(mockedPublish).not.toHaveBeenCalled();
+  });
 });
