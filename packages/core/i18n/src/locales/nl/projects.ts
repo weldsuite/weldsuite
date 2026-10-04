@@ -524,6 +524,8 @@ export const projects = {
       reportNotFound: 'Rapport niet gevonden',
       charts: '{count} grafieken',
       chart: '{count} grafiek',
+      chartsLabel: 'Grafieken',
+      searchReports: 'Rapporten zoeken...',
       updated: 'Bijgewerkt',
       createReport: 'Nieuw Rapport Aanmaken',
       createReportDescription: 'Maak een nieuw analyserapport om projectstatistieken bij te houden.',

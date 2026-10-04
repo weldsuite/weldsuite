@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Link } from '@/lib/router';
-import { ArrowLeft, Plus, Settings } from 'lucide-react';
+import { ChevronLeft, Plus } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
@@ -197,67 +197,70 @@ export function ReportViewClient({ report, charts }: Readonly<ReportViewClientPr
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" asChild>
+    <div className="flex flex-1 flex-col">
+      <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4">
+        <div className="flex items-center justify-between gap-4 px-3 md:px-4 h-[53px] border-b border-border pt-2 pb-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" asChild>
               <Link href="/weldflow/analytics">
-                <ArrowLeft className="h-4 w-4" />
+                <ChevronLeft className="h-4 w-4" />
               </Link>
             </Button>
-            <h1 className="text-2xl font-bold tracking-tight">{report.title}</h1>
+            <h1 className="text-sm font-medium truncate">{report.title}</h1>
+            {report.description && (
+              <p className="hidden md:block text-sm text-muted-foreground truncate">{report.description}</p>
+            )}
           </div>
-          {report.description && <p className="text-muted-foreground ml-10">{report.description}</p>}
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" asChild>
-            <Link href={`/weldflow/analytics/builder?reportId=${report.id}`}>
-              <Settings className="mr-0.5 h-4 w-4" />
-              {t.projects.analyticsReports.configure}
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link href={`/weldflow/analytics/builder?reportId=${report.id}&addChart=true`}>
-              <Plus className="mr-0.5 h-4 w-4" />
-              {t.projects.analyticsReports.addChart}
-            </Link>
-          </Button>
-        </div>
-      </div>
-
-      {charts.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center p-12">
-          <div className="text-center">
-            <h3 className="text-lg font-semibold">{t.projects.analyticsReports.noCharts}</h3>
-            <p className="text-muted-foreground mt-2">{t.projects.analyticsReports.noChartsDescription}</p>
-            <Button className="mt-6" asChild>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <Button variant="outline" size="sm" className="h-8 shadow-none" asChild>
+              <Link href={`/weldflow/analytics/builder?reportId=${report.id}`}>
+                {t.projects.analyticsReports.configure}
+              </Link>
+            </Button>
+            <Button size="sm" className="h-8" asChild>
               <Link href={`/weldflow/analytics/builder?reportId=${report.id}&addChart=true`}>
-                <Plus className="mr-0.5 h-4 w-4" />
+                <Plus className="h-4 w-4 mr-0.5" />
                 {t.projects.analyticsReports.addChart}
               </Link>
             </Button>
           </div>
-        </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {charts.map((chart) => (
-            <Card key={chart.id}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">{chart.title}</CardTitle>
-                {chart.description && <CardDescription>{chart.description}</CardDescription>}
-              </CardHeader>
-              <CardContent>
-                {isLoading ? (
-                  <div className="h-[300px]"><PageLoader fullScreen={false} /></div>
-                ) : (
-                  renderChart(chart, chartData[chart.id] || [])
-                )}
-              </CardContent>
-            </Card>
-          ))}
         </div>
-      )}
+      </div>
+
+      <div className="flex flex-1 flex-col py-6">
+        {charts.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center p-12">
+            <div className="text-center">
+              <h3 className="text-base font-semibold">{t.projects.analyticsReports.noCharts}</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">{t.projects.analyticsReports.noChartsDescription}</p>
+              <Button size="sm" className="h-8 mt-4" asChild>
+                <Link href={`/weldflow/analytics/builder?reportId=${report.id}&addChart=true`}>
+                  <Plus className="h-4 w-4 mr-0.5" />
+                  {t.projects.analyticsReports.addChart}
+                </Link>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {charts.map((chart) => (
+              <Card key={chart.id}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">{chart.title}</CardTitle>
+                  {chart.description && <CardDescription>{chart.description}</CardDescription>}
+                </CardHeader>
+                <CardContent>
+                  {isLoading ? (
+                    <div className="h-[300px]"><PageLoader fullScreen={false} /></div>
+                  ) : (
+                    renderChart(chart, chartData[chart.id] || [])
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -524,6 +524,8 @@ export const projects = {
       reportNotFound: 'Report not found',
       charts: '{count} charts',
       chart: '{count} chart',
+      chartsLabel: 'Charts',
+      searchReports: 'Search reports...',
       updated: 'Updated',
       createReport: 'Create New Report',
       createReportDescription: 'Create a new analytics report to track project metrics.',
