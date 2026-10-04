@@ -14,7 +14,7 @@ import {
   Modal,
   Pressable,
   Text,
-  ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,8 +35,9 @@ import { RecordRow } from '@/components/record-row';
 import { ColorSwatch, IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { ProjectStatusBadge, TaskStatusBadge } from '@/components/status-badge';
-import { useMyTasks, useProjects } from '@/hooks/use-weldflow';
+import { useInfiniteMyTasks, useInfiniteProjects } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
+import { flattenPages } from '@/lib/pagination';
 
 export default function MyTasksScreen() {
   const { colors } = useTheme();
@@ -55,25 +56,41 @@ export default function MyTasksScreen() {
     { key: 'done', label: t.myTasks.filterDone },
   ];
 
-  const projectsQuery = useProjects({ limit: 50, isActive: true });
-  const projects = projectsQuery.data?.data ?? [];
+  const projectsQuery = useInfiniteProjects({ limit: 50, isActive: true });
+  const projects = useMemo(() => flattenPages(projectsQuery.data?.pages), [projectsQuery.data]);
 
+  const loadMoreProjects = useCallback(() => {
+    if (projectsQuery.hasNextPage && !projectsQuery.isFetchingNextPage) {
+      void projectsQuery.fetchNextPage();
+    }
+  }, [projectsQuery]);
+
+  // "Open" is filtered on the server so paging and counts stay consistent.
   const params = useMemo(
     () => ({
       limit: 50,
       search: search.trim() || undefined,
       status: statusFilter === 'open' ? undefined : statusFilter,
+      excludeStatus: statusFilter === 'open' ? 'done,cancelled' : undefined,
     }),
     [statusFilter, search],
   );
 
-  const { data, isLoading, isError, isRefetching, refetch } = useMyTasks(params);
+  const {
+    data,
+    isLoading,
+    isError,
+    isRefetching,
+    refetch,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useInfiniteMyTasks(params);
+  const tasks = useMemo(() => flattenPages(data?.pages), [data]);
 
-  const tasks = useMemo(() => {
-    const raw = data?.data ?? [];
-    if (statusFilter !== 'open') return raw;
-    return raw.filter((task) => task.status !== 'done' && task.status !== 'cancelled');
-  }, [data, statusFilter]);
+  const loadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const open = useCallback(
     (route: string) => {
@@ -147,10 +164,18 @@ export default function MyTasksScreen() {
     );
   } else {
     projectPickerBody = (
-      <ScrollView>
-        {projects.map((project) => (
+      <FlatList
+        data={projects}
+        keyExtractor={(project) => project.id}
+        onEndReached={loadMoreProjects}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          projectsQuery.isFetchingNextPage ? (
+            <ActivityIndicator style={styles.pickerFooter} color={BRAND} />
+          ) : null
+        }
+        renderItem={({ item: project }) => (
           <Pressable
-            key={project.id}
             style={({ pressed }) => [
               styles.projectRow,
               { borderBottomColor: colors.border },
@@ -174,8 +199,8 @@ export default function MyTasksScreen() {
             </View>
             <ProjectStatusBadge status={project.status} />
           </Pressable>
-        ))}
-      </ScrollView>
+        )}
+      />
     );
   }
 
@@ -205,8 +230,19 @@ export default function MyTasksScreen() {
             />
           );
         }}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.4}
         refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={BRAND} />
+          // `isRefetching` is also true while a next page loads; the footer
+          // spinner covers that, so keep the pull-to-refresh one for real refreshes.
+          <RefreshControl
+            refreshing={isRefetching && !isFetchingNextPage}
+            onRefresh={() => void refetch()}
+            tintColor={BRAND}
+          />
+        }
+        ListFooterComponent={
+          isFetchingNextPage ? <ActivityIndicator style={styles.footer} color={BRAND} /> : null
         }
         contentContainerStyle={tasks.length === 0 ? styles.emptyContainer : undefined}
         ListEmptyComponent={
@@ -251,6 +287,8 @@ const styles = StyleSheet.create({
   search: { borderRadius: 12 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   emptyContainer: { flexGrow: 1 },
+  footer: { paddingVertical: 16 },
+  pickerFooter: { paddingVertical: 12 },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, maxHeight: '75%' },
   modalTitle: { fontSize: 18, fontWeight: '700' },

@@ -4,7 +4,7 @@
  * full-bleed rows. Data comes from app-api (`/projects`, `/my-tasks`).
  */
 
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect } from 'react';
 import { View, Text, ScrollView, RefreshControl, StyleSheet, Pressable } from 'react-native';
 import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
@@ -27,6 +27,9 @@ import { useProjects, useMyTasks } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 
+/** `excludeStatus` that leaves "open" tasks, i.e. everything not finished. */
+const OPEN_EXCLUDED = 'done,cancelled';
+
 export default function HomeScreen() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -34,32 +37,32 @@ export default function HomeScreen() {
   const { organization } = useOrganization();
   const { t, format, plural } = useI18n();
 
-  const projectsQuery = useProjects({ limit: 25, isActive: true });
-  const tasksQuery = useMyTasks({ limit: 50 });
+  // The KPIs are server totals (`pagination.totalCount`), not counts of what
+  // happens to be loaded, so they stay right past the first page. The recent
+  // lists reuse the same queries: a short first page plus the total.
+  const projectsQuery = useProjects({ limit: 6, isActive: true });
+  const tasksQuery = useMyTasks({ limit: 8, excludeStatus: OPEN_EXCLUDED });
+  const allTasksQuery = useMyTasks({ limit: 1 });
+  const overdueQuery = useMyTasks({
+    limit: 1,
+    excludeStatus: OPEN_EXCLUDED,
+    dueDateBucket: 'overdue',
+  });
+  const doneQuery = useMyTasks({ limit: 1, status: 'done' });
 
   const projects = projectsQuery.data?.data ?? [];
-  const allTasks = tasksQuery.data?.data ?? [];
+  const openTasks = tasksQuery.data?.data ?? [];
 
-  const openTasks = useMemo(
-    () => allTasks.filter((task) => task.status !== 'done' && task.status !== 'cancelled'),
-    [allTasks],
-  );
-  const overdueTasks = useMemo(
-    () => openTasks.filter((task) => isTaskOverdue(task.dueDate, task.status)),
-    [openTasks],
-  );
-  const doneTasks = useMemo(
-    () => allTasks.filter((task) => task.status === 'done'),
-    [allTasks],
-  );
-  const activeProjects = useMemo(
-    () => projects.filter((project) => project.status === 'Active' || project.isActive),
-    [projects],
-  );
+  const activeProjectCount = projectsQuery.data?.pagination.totalCount ?? 0;
+  const openTaskCount = tasksQuery.data?.pagination.totalCount ?? 0;
+  const allTaskCount = allTasksQuery.data?.pagination.totalCount ?? 0;
+  const overdueCount = overdueQuery.data?.pagination.totalCount ?? 0;
+  const doneCount = doneQuery.data?.pagination.totalCount ?? 0;
 
-  const loading = projectsQuery.isLoading || tasksQuery.isLoading;
-  const error = projectsQuery.isError || tasksQuery.isError;
-  const refreshing = projectsQuery.isRefetching || tasksQuery.isRefetching;
+  const queries = [projectsQuery, tasksQuery, allTasksQuery, overdueQuery, doneQuery];
+  const loading = queries.some((q) => q.isLoading);
+  const error = queries.some((q) => q.isError);
+  const refreshing = queries.some((q) => q.isRefetching);
 
   useEffect(() => {
     if (!loading) {
@@ -71,7 +74,10 @@ export default function HomeScreen() {
   const onRefresh = useCallback(() => {
     void projectsQuery.refetch();
     void tasksQuery.refetch();
-  }, [projectsQuery, tasksQuery]);
+    void allTasksQuery.refetch();
+    void overdueQuery.refetch();
+    void doneQuery.refetch();
+  }, [projectsQuery, tasksQuery, allTasksQuery, overdueQuery, doneQuery]);
 
   const navigate = useCallback(
     (route: string) => {
@@ -97,10 +103,7 @@ export default function HomeScreen() {
       <Screen header={header}>
         <ErrorState
           message={t.dashboard.loadError}
-          onRetry={() => {
-            void projectsQuery.refetch();
-            void tasksQuery.refetch();
-          }}
+          onRetry={onRefresh}
         />
       </Screen>
     );
@@ -114,32 +117,32 @@ export default function HomeScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={BRAND} />
         }
       >
-        {loading && !projectsQuery.data ? (
+        {loading ? (
           <KpiSkeletonGrid />
         ) : (
           <KpiGrid>
             <KpiCard
               label={t.dashboard.activeProjects}
-              value={String(activeProjects.length)}
-              sub={plural(projects.length, t.dashboard.projectCount)}
+              value={String(activeProjectCount)}
+              sub={plural(activeProjectCount, t.dashboard.projectCount)}
               onPress={() => navigate('/(tabs)/projects')}
             />
             <KpiCard
               label={t.dashboard.openTasks}
-              value={String(openTasks.length)}
-              sub={plural(allTasks.length, t.dashboard.taskCount)}
+              value={String(openTaskCount)}
+              sub={plural(allTaskCount, t.dashboard.taskCount)}
               onPress={() => navigate('/(tabs)/my-tasks')}
             />
             <KpiCard
               label={t.dashboard.overdue}
-              value={String(overdueTasks.length)}
-              warn={overdueTasks.length > 0}
+              value={String(overdueCount)}
+              warn={overdueCount > 0}
               onPress={() => navigate('/(tabs)/my-tasks')}
             />
             <KpiCard
               label={t.dashboard.done}
-              value={String(doneTasks.length)}
-              sub={plural(doneTasks.length, t.dashboard.taskCount)}
+              value={String(doneCount)}
+              sub={plural(doneCount, t.dashboard.taskCount)}
             />
           </KpiGrid>
         )}
@@ -172,7 +175,7 @@ export default function HomeScreen() {
             style={styles.empty}
           />
         ) : (
-          projects.slice(0, 6).map((project) => {
+          projects.map((project) => {
             const progress = Number(project.progress ?? 0);
             return (
               <RecordRow
@@ -201,7 +204,7 @@ export default function HomeScreen() {
             style={styles.empty}
           />
         ) : (
-          openTasks.slice(0, 8).map((task) => {
+          openTasks.map((task) => {
             const overdue = isTaskOverdue(task.dueDate, task.status);
             const projectName = 'project' in task && task.project ? task.project.name : undefined;
             return (

@@ -14,6 +14,7 @@
  *   listProjects/getProject          → /api/projects
  *   listProjectTasks/getTask/...     → /api/tasks (+ /projects/:projectId create,
  *                                       /:id/status)
+ *   listSubtasks                     → /api/tasks/:id/subtasks
  *   listMyTasks                      → /api/my-tasks (offset page/pageSize)
  *   listProjectMembers               → /api/project-members?projectId=
  *   listLabels/createLabel           → /api/project-labels
@@ -98,9 +99,11 @@ const weldflow = {
     projectId: string,
     params: ListTasksQuery = { limit: 50 },
   ): Promise<ListResponse<ProjectTask>> {
-    // Project-scoped /api/tasks uses offset pagination (pageSize), so mirror
-    // the legacy `limit` into `pageSize`. Only top-level tasks are returned
-    // (subtasks live under their parent), matching the platform WeldFlow UI.
+    // Project-scoped /api/tasks is offset-paginated (`pageSize`) when there is
+    // no `cursor` and keyset-paginated (`limit` + `cursor`) once there is one,
+    // so always send both sizes and forward the cursor for pages 2+. Only
+    // top-level tasks are returned (subtasks live under their parent), matching
+    // the platform WeldFlow UI.
     const query = buildQueryString({
       ...params,
       projectId,
@@ -111,6 +114,11 @@ const weldflow = {
 
   getTask(_projectId: string, taskId: string): Promise<DataResponse<ProjectTask>> {
     return client.get<DataResponse<ProjectTask>>(`/tasks/${taskId}`);
+  },
+
+  /** Direct children of a task, ordered by position. Not paginated. */
+  listSubtasks(taskId: string): Promise<{ data: ProjectTask[] }> {
+    return client.get<{ data: ProjectTask[] }>(`/tasks/${taskId}/subtasks`);
   },
 
   createTask(projectId: string, data: CreateTaskInput): Promise<DataResponse<ProjectTask>> {
@@ -140,14 +148,17 @@ const weldflow = {
     params: ListMyTasksQuery = { limit: 50 },
   ): Promise<ListResponse<ProjectTaskWithProject>> {
     // /api/my-tasks is offset-paginated (page/pageSize); map the legacy
-    // `limit` onto `pageSize`. The screen fetches a single page, so `cursor`
-    // is intentionally dropped.
+    // `limit` onto `pageSize`. It has no cursor (`pagination.cursor` is always
+    // null), so a next page is requested with `page`, never `cursor`.
     const query = buildQueryString({
+      page: params.page,
       pageSize: params.limit,
       search: params.search,
       status: params.status,
+      excludeStatus: params.excludeStatus,
       priority: params.priority,
       projectId: params.projectId,
+      dueDateBucket: params.dueDateBucket,
     } as Record<string, unknown>);
     return client.get<ListResponse<ProjectTaskWithProject>>(`/my-tasks${query}`);
   },

@@ -137,6 +137,8 @@ export const nl: Translations = {
     createFailed: 'Taak kon niet worden aangemaakt',
     updateFailed: 'Taak kon niet worden bijgewerkt',
     edit: 'Taak bewerken',
+    subtasks: 'Subtaken',
+    subtaskProgress: '{done}/{total} subtaken',
   },
 
   more: {
