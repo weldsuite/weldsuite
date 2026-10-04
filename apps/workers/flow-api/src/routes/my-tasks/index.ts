@@ -8,7 +8,8 @@
  * across all projects, each enriched with assignee display fields and a
  * lightweight project summary.
  *
- * Filters: search, status, priority, projectId, labelIds (CSV), dueDateBucket.
+ * Filters: search, status, excludeStatus (CSV, e.g. `done,cancelled` for the
+ * mobile "Open" chip), priority, projectId, labelIds (CSV), dueDateBucket.
  * Sort: sortField + sortDirection (defaults to the legacy status-priority
  * ordering). Offset (page/pageSize) pagination — cursor pagination doesn't
  * fit arbitrary sort fields, so this surface stays page-based like the
@@ -20,7 +21,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, like, notInArray, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list } from '@weldsuite/worker-kit/response';
@@ -40,6 +41,7 @@ const myTasksFiltersSchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   status: z.string().optional(),
+  excludeStatus: taskCsvStringArray,
   priority: z.string().optional(),
   search: z.string().optional(),
   projectId: z.string().optional(),
@@ -65,6 +67,10 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFilters
   ];
 
   if (q.status) conditions.push(eq(tasks.status, q.status));
+  // tasks.status is NOT NULL, so NOT IN never drops rows through NULL semantics.
+  if (q.excludeStatus && q.excludeStatus.length > 0) {
+    conditions.push(notInArray(tasks.status, q.excludeStatus));
+  }
   if (q.priority) conditions.push(eq(tasks.priority, q.priority));
   if (q.projectId) conditions.push(eq(tasks.projectId, q.projectId));
   if (q.labelIds && q.labelIds.length > 0) {

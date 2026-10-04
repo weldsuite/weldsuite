@@ -72,11 +72,17 @@ export interface ListTasksQuery {
 
 export interface ListMyTasksQuery {
   cursor?: string;
+  /** 1-based page number; /api/my-tasks is offset-paginated. */
+  page?: number;
   limit?: number;
   search?: string;
   status?: string;
+  /** Comma-separated statuses to leave out, e.g. `done,cancelled`. */
+  excludeStatus?: string;
   priority?: string;
   projectId?: string;
+  /** Server-side due-date filter, e.g. `overdue`. */
+  dueDateBucket?: string;
 }
 
 // ============================================================================
@@ -217,6 +223,9 @@ export interface ProjectTask {
   duration?: number | null;
   repeat?: TaskRepeat | null;
   calendarEventId?: string | null;
+  /** Direct children only; present on list rows and `GET /api/tasks/:id`. */
+  subtaskCount?: number;
+  completedSubtaskCount?: number;
   isBillable: boolean;
   createdAt: string;
   updatedAt: string;
