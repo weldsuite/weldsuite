@@ -36,6 +36,7 @@ import type {
 } from '@/types/weldflow';
 import { LABEL_COLORS } from '@/types/weldflow';
 import { useProjectMembers, useLabels, useCreateLabel } from '@/hooks/use-weldflow';
+import { labelsForIds, resolveLabelIds } from '@/lib/task-labels';
 import { StatusBadge } from './status-badge';
 import { PriorityIndicator } from './PriorityIndicator';
 import { BRAND } from '@/lib/brand';
@@ -496,15 +497,15 @@ interface LabelsSheetProps {
   visible: boolean;
   isLoading: boolean;
   availableLabels: ProjectLabel[];
-  selectedLabels: string[];
+  selectedLabelIds: string[];
   colors: ThemeColors;
   bottomInset: number;
-  onToggle: (name: string) => void;
-  onCreated: (name: string) => void;
+  onToggle: (labelId: string) => void;
+  onCreated: (labelId: string) => void;
   onClose: () => void;
 }
 
-function LabelsSheet({ visible, isLoading, availableLabels, selectedLabels, colors, bottomInset, onToggle, onCreated, onClose }: Readonly<LabelsSheetProps>) {
+function LabelsSheet({ visible, isLoading, availableLabels, selectedLabelIds, colors, bottomInset, onToggle, onCreated, onClose }: Readonly<LabelsSheetProps>) {
   const createLabel = useCreateLabel();
 
   // Create-on-the-fly UI
@@ -522,7 +523,7 @@ function LabelsSheet({ visible, isLoading, availableLabels, selectedLabels, colo
     }
     try {
       const res = await createLabel.mutateAsync({ name, color: newLabelColor });
-      onCreated(res.data.name);
+      onCreated(res.data.id);
       setNewLabelName('');
       setCreatingLabel(false);
     } catch (err) {
@@ -546,7 +547,7 @@ function LabelsSheet({ visible, isLoading, availableLabels, selectedLabels, colo
       ) : (
         <ScrollView>
           {availableLabels.map((l) => (
-            <OptionRow key={l.id} colors={colors} selected={selectedLabels.includes(l.name)} onPress={() => onToggle(l.name)}>
+            <OptionRow key={l.id} colors={colors} selected={selectedLabelIds.includes(l.id)} onPress={() => onToggle(l.id)}>
               <View style={styles.labelRowLeft}>
                 <View style={[styles.labelDot, { backgroundColor: l.color }]} />
                 <Text style={[styles.modalOptionText, { color: colors.text }]}>{l.name}</Text>
@@ -690,7 +691,7 @@ export function TaskForm({
   const members = membersQuery.data?.data ?? [];
 
   const labelsQuery = useLabels();
-  const availableLabels = labelsQuery.data?.data ?? [];
+  const availableLabels = useMemo(() => labelsQuery.data?.data ?? [], [labelsQuery.data]);
 
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [description, setDescription] = useState(initialValues?.description ?? '');
@@ -713,16 +714,23 @@ export function TaskForm({
     hoursCustomMode ? (initialValues?.estimatedHours ?? '') : '',
   );
 
+  // tasks.labels holds label IDs. Entries an older build saved by name are
+  // resolved to their ID here, so the next save writes IDs only.
+  const selectedLabelIds = useMemo(
+    () => resolveLabelIds(selectedLabels, availableLabels),
+    [selectedLabels, availableLabels],
+  );
   const selectedLabelObjects = useMemo<ProjectLabel[]>(
-    () => availableLabels.filter((l) => selectedLabels.includes(l.name)),
-    [availableLabels, selectedLabels],
+    () => labelsForIds(selectedLabelIds, availableLabels),
+    [availableLabels, selectedLabelIds],
   );
 
   const closePicker = () => setPicker(null);
 
   const toggleAssignee = (userId: string) => setAssigneeIds((current) => toggleInList(current, userId));
 
-  const toggleLabel = (name: string) => setSelectedLabels((current) => toggleInList(current, name));
+  const toggleLabel = (labelId: string) =>
+    setSelectedLabels((current) => toggleInList(resolveLabelIds(current, availableLabels), labelId));
 
   const setDateFor = (kind: DateKind, iso: string | null) => {
     if (kind === 'startDate') setStartDate(iso);
@@ -782,7 +790,7 @@ export function TaskForm({
       startDate,
       dueDate,
       estimatedHours: estimatedHours.trim(),
-      labels: selectedLabels,
+      labels: selectedLabelIds,
       assigneeIds,
     });
   };
@@ -937,11 +945,11 @@ export function TaskForm({
         visible={picker === 'labels'}
         isLoading={labelsQuery.isLoading}
         availableLabels={availableLabels}
-        selectedLabels={selectedLabels}
+        selectedLabelIds={selectedLabelIds}
         colors={colors}
         bottomInset={insets.bottom}
         onToggle={toggleLabel}
-        onCreated={(name) => setSelectedLabels((current) => [...current, name])}
+        onCreated={(labelId) => setSelectedLabels((current) => [...current, labelId])}
         onClose={closePicker}
       />
 
