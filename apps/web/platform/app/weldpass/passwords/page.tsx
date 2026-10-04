@@ -1,56 +1,61 @@
 /**
- * WeldPass passwords — the team password manager.
+ * WeldPass passwords — the team password manager's item list.
  *
- * Vaults on the left, items on the right. The vault filter and the opened item
- * live in the URL (`?vault=…&item=…`) so a reload keeps them and a link can
- * point at one login.
+ * `PanelEntityList` is the whole page, like the other modules' lists: search,
+ * "vault" and "type" filter pills, items grouped by vault. The vault filter and
+ * the opened item live in the URL (`?vault=…&item=…`) so a reload keeps them and
+ * a link can point at a vault or one login. Vaults themselves are managed on
+ * the Vaults page.
  *
  * Lists carry no secrets. A password is fetched only when the user presses
  * Reveal, Copy or Edit (see item-detail-dialog.tsx); every such fetch is
  * recorded on the vault's trail.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { useUser } from '@clerk/clerk-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { HeartPulse, Lock, Plus, Search, Upload } from 'lucide-react';
+import { LockKeyhole, Lock, SearchX, ShieldCheck, Upload } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
-import { usePermissions } from '@weldsuite/permissions/react';
 import type {
   WeldPassItem,
   WeldPassRevealedItem,
   WeldPassVault,
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
-import { AccessDeniedEmptyState } from '@/components/access-denied-empty-state';
-import { PageLoader } from '@/components/page-loader';
+import {
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
 import {
   useWeldPassItems,
   useWeldPassVaults,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { EmptyState, ErrorBanner, InlineSpinner, errorMessage } from '../components/shared';
-import { CreateVaultDialog } from './components/create-vault-dialog';
+import { TimeAgo } from '../components/shared';
+import { emptyIcon, usePassBreadcrumbs } from '../components/page-kit';
+import { PasswordsGate } from './components/passwords-gate';
 import { ImportDialog } from './components/import-dialog';
 import { ItemDetailDialog } from './components/item-detail-dialog';
 import { ItemFormDialog } from './components/item-form-dialog';
 import { ItemHistoryDialog } from './components/item-history-dialog';
-import { ItemTable } from './components/item-table';
+import { ItemTypeIcon } from './components/item-type-icon';
 import { MoveItemDialog } from './components/move-item-dialog';
-import { VaultSettingsDialog } from './components/vault-settings-dialog';
-import { VaultSidebar } from './components/vault-sidebar';
 import {
-  canAdministerVault,
+  TYPE_FILTER,
+  VAULT_FILTER,
+  buildVaultGroups,
   canEditVault,
-  countByVault,
   defaultCreateVaultId,
   filterItems,
+  isFiltering,
   isNonMemberView,
   moveTargets,
   sortVaults,
+  vaultIdFromPills,
+  withVaultPill,
   writableVaults,
-  type ItemTypeFilter,
 } from './lib/items';
 import { usePasswordsT } from './lib/use-passwords-t';
 
@@ -60,73 +65,91 @@ type Dialog =
   | { kind: 'move'; item: WeldPassItem }
   | { kind: 'history'; item: WeldPassItem }
   | { kind: 'import' }
-  | { kind: 'newVault' }
-  | { kind: 'settings'; vaultId: string }
   | null;
 
-const TYPE_FILTERS: ItemTypeFilter[] = ['all', 'login', 'note', 'card'];
+type PasswordsSearch = { vault?: string; item?: string };
 
-export default function WeldPassPasswordsPage() {
-  const tp = usePasswordsT();
-  const { can, isLoading } = usePermissions();
-
-  if (isLoading) return <PageLoader fullScreen={false} />;
-  if (!can('passwords:use')) {
-    return (
-      <AccessDeniedEmptyState
-        description={tp('accessDenied')}
-        permission="passwords:use"
-        pageLabel="WeldPass passwords"
-      />
-    );
-  }
-  return <PasswordsWorkspace />;
+/** The "vault is …" pill that mirrors `?vault=`. */
+function vaultLinkPill(vaultId: string): ActiveFilter {
+  return { id: 'vault-link', field: VAULT_FILTER, operator: 'is', value: vaultId };
 }
 
-function PasswordsWorkspace() {
+export default function WeldPassPasswordsPage() {
+  return (
+    <PasswordsGate pageLabel="WeldPass passwords">
+      <PasswordsList />
+    </PasswordsGate>
+  );
+}
+
+function PasswordsList() {
   const tp = usePasswordsT();
-  const { can } = usePermissions();
-  const { user } = useUser();
+  usePassBreadcrumbs({ label: tp('title') });
+
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { vault?: string; item?: string };
+  const search = useSearch({ strict: false }) as PasswordsSearch;
 
   const vaultsQuery = useWeldPassVaults();
   const itemsQuery = useWeldPassItems();
-  const [typeFilter, setTypeFilter] = useState<ItemTypeFilter>('all');
   const [query, setQuery] = useState('');
+  const [pills, setPills] = useState<ActiveFilter[]>(() =>
+    withVaultPill([], search.vault, vaultLinkPill),
+  );
   const [dialog, setDialog] = useState<Dialog>(null);
 
-  const canManageAll = can('passwords:manage');
-  const canCreateVault = can('passwords:create') || canManageAll;
 
   const vaults = useMemo(() => sortVaults(vaultsQuery.data ?? []), [vaultsQuery.data]);
   const vaultsById = useMemo(() => new Map(vaults.map((vault) => [vault.id, vault])), [vaults]);
   const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
-  const counts = useMemo(() => countByVault(items), [items]);
-
-  const selectedVault = search.vault ? (vaultsById.get(search.vault) ?? null) : null;
-  const openItem = search.item ? items.find((item) => item.id === search.item) : undefined;
-  const openItemVault = openItem ? vaultsById.get(openItem.vaultId) : undefined;
-
-  const visibleItems = useMemo(
-    () => filterItems(items, { vaultId: selectedVault?.id, type: typeFilter, query }),
-    [items, selectedVault?.id, typeFilter, query],
-  );
 
   // A personal vault is shown by a translated label, never its stored name.
-  const vaultLabel = (vault: WeldPassVault) =>
-    vault.kind === 'personal' ? tp('vaults.personal') : vault.name;
+  // Keyed on the label itself, so it follows a language switch.
+  const personalLabel = tp('vaults.personal');
+  const vaultLabel = useCallback(
+    (vault: WeldPassVault) => (vault.kind === 'personal' ? personalLabel : vault.name),
+    [personalLabel],
+  );
 
   const setSearch = useCallback(
-    (patch: { vault?: string; item?: string }, options: { replace?: boolean } = {}) => {
+    (patch: PasswordsSearch, options: { replace?: boolean } = {}) => {
       void navigate({
         to: '/weldpass/passwords',
-        search: (previous: { vault?: string; item?: string }) => ({ ...previous, ...patch }),
+        search: (previous: PasswordsSearch) => ({ ...previous, ...patch }),
         replace: options.replace ?? true,
       });
     },
     [navigate],
   );
+
+  // The vault pill and `?vault=` are two views of one thing. A pill the user
+  // edits is written to the URL below; a URL that changes on its own (a link,
+  // the Vaults page, the back button) is copied into the pills here. Only a
+  // change of the URL itself triggers this, so it cannot undo a pill edit that
+  // the URL has not caught up with yet.
+  const urlVault = search.vault;
+  const lastUrlVault = useRef(urlVault);
+  useEffect(() => {
+    if (lastUrlVault.current === urlVault) return;
+    lastUrlVault.current = urlVault;
+    setPills((previous) =>
+      vaultIdFromPills(previous) === urlVault
+        ? previous
+        : withVaultPill(previous, urlVault, vaultLinkPill),
+    );
+  }, [urlVault]);
+
+  function changePills(next: ActiveFilter[]) {
+    setPills(next);
+    const vaultId = vaultIdFromPills(next);
+    if (vaultId !== urlVault) setSearch({ vault: vaultId });
+  }
+
+  const selectedVault = vaultsById.get(vaultIdFromPills(pills) ?? '') ?? null;
+  const filter = useMemo(() => ({ pills, query }), [pills, query]);
+  const visibleItems = useMemo(() => filterItems(items, filter), [items, filter]);
+
+  const openItem = search.item ? items.find((item) => item.id === search.item) : undefined;
+  const openItemVault = openItem ? vaultsById.get(openItem.vaultId) : undefined;
 
   // A link to an item that no longer exists (moved, deleted, no access) should
   // not leave a dead `?item=` behind.
@@ -139,177 +162,152 @@ function PasswordsWorkspace() {
   const writable = writableVaults(vaults);
   const canAdd = selectedVault ? canEditVault(selectedVault) : writable.length > 0;
   const createVaultId = defaultCreateVaultId(vaults, selectedVault?.id);
-  const settingsVault = dialog?.kind === 'settings' ? vaultsById.get(dialog.vaultId) : undefined;
 
-  function closeDialog() {
-    setDialog(null);
-  }
+  const filterConfigs: FilterConfig[] = [
+    {
+      field: VAULT_FILTER,
+      label: tp('filters.vault'),
+      options: vaults.map((vault) => ({ value: vault.id, label: vaultLabel(vault) })),
+    },
+    {
+      field: TYPE_FILTER,
+      label: tp('filters.type'),
+      options: (['login', 'note', 'card'] as const).map((type) => ({
+        value: type,
+        label: tp(`types.${type}`),
+      })),
+    },
+  ];
 
-  const loading = vaultsQuery.isLoading || itemsQuery.isLoading;
-  const loadError = vaultsQuery.error ?? itemsQuery.error;
+  // Personal first, then shared vaults by name — the vault structure is
+  // visible without a sidebar.
+  const groups: GroupConfig<WeldPassItem>[] = useMemo(
+    () => buildVaultGroups(vaults, vaultLabel),
+    [vaults, vaultLabel],
+  );
 
-  let body: React.ReactNode;
-  if (loading) {
-    body = <InlineSpinner />;
-  } else if (loadError) {
-    body = (
-      <div className="space-y-3">
-        <ErrorBanner error={errorMessage(loadError, tp('loadFailed'))} />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void vaultsQuery.refetch();
-            void itemsQuery.refetch();
-          }}
-        >
-          {tp('retry')}
-        </Button>
-      </div>
-    );
-  } else if (isNonMemberView(selectedVault) && selectedVault) {
-    body = (
-      <EmptyState
-        title={tp('vaults.notMemberTitle')}
-        description={tp('vaults.notMemberDescription')}
-        action={
-          canAdministerVault(selectedVault, canManageAll) ? (
-            <Button onClick={() => setDialog({ kind: 'settings', vaultId: selectedVault.id })}>
-              <Lock className="mr-1.5 h-4 w-4" />
-              {tp('vaults.manageMembers')}
+  const columns: ColumnDef<WeldPassItem>[] = [
+    {
+      id: 'title',
+      header: tp('table.name'),
+      width: 'flex-1',
+      render: (item) => (
+        <span className="flex min-w-0 items-center gap-2.5">
+          <span
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+            title={tp(`types.${item.type}`)}
+          >
+            <ItemTypeIcon type={item.type} />
+          </span>
+          <span className="min-w-0">
+            <span className="flex items-center gap-1.5">
+              <span className="truncate font-medium">{item.title}</span>
+              {item.hasTotp && (
+                <ShieldCheck
+                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  aria-label={tp('table.hasTotp')}
+                />
+              )}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {item.subtitle || '—'}
+            </span>
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: 'site',
+      header: tp('table.site'),
+      width: 'hidden md:block md:w-[200px]',
+      render: (item) => <span className="text-muted-foreground">{item.host ?? '—'}</span>,
+    },
+    {
+      id: 'vault',
+      header: tp('table.vault'),
+      width: 'hidden lg:block lg:w-[160px]',
+      render: (item) => {
+        const vault = vaultsById.get(item.vaultId);
+        return <span className="text-muted-foreground">{vault ? vaultLabel(vault) : '—'}</span>;
+      },
+    },
+    {
+      id: 'updated',
+      header: tp('table.updated'),
+      width: 'hidden md:block md:w-[120px]',
+      render: (item) => <TimeAgo value={item.updatedAt} />,
+    },
+  ];
+
+  const createButton = canAdd
+    ? { label: tp('toolbar.addItem'), onClick: () => setDialog({ kind: 'create' }) }
+    : undefined;
+
+  const emptyState = (() => {
+    if (selectedVault && isNonMemberView(selectedVault)) {
+      return {
+        icon: emptyIcon(Lock),
+        title: tp('vaults.notMemberTitle'),
+        description: tp('vaults.notMemberDescription'),
+      };
+    }
+    if (selectedVault && !items.some((item) => item.vaultId === selectedVault.id)) {
+      return {
+        icon: emptyIcon(LockKeyhole),
+        title: tp('empty.vaultTitle'),
+        description: tp('empty.vaultDescription'),
+        action: createButton,
+      };
+    }
+    if (isFiltering(filter)) {
+      return {
+        icon: emptyIcon(SearchX),
+        title: tp('empty.noResultsTitle'),
+        description: tp('empty.noResultsDescription'),
+      };
+    }
+    return {
+      icon: emptyIcon(LockKeyhole),
+      title: tp('empty.title'),
+      description: tp('empty.description'),
+      action: createButton,
+    };
+  })();
+
+  const error = (vaultsQuery.error ?? itemsQuery.error) as Error | null;
+
+  return (
+    <>
+      <PanelEntityList<WeldPassItem>
+        items={visibleItems}
+        isLoading={vaultsQuery.isLoading || itemsQuery.isLoading}
+        error={error}
+        columns={columns}
+        groups={groups}
+        onRowClick={(item) => setSearch({ item: item.id }, { replace: false })}
+        filters={filterConfigs}
+        activeFilters={pills}
+        onFiltersChange={changePills}
+        searchQuery={query}
+        onSearchChange={setQuery}
+        searchFields={['title']}
+        searchPlaceholder={tp('toolbar.search')}
+        createButton={createButton}
+        actionButtons={
+          canAdd ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={() => setDialog({ kind: 'import' })}
+            >
+              <Upload className="h-4 w-4 md:mr-0.5" />
+              <span className="hidden md:inline">{tp('toolbar.import')}</span>
             </Button>
           ) : undefined
         }
+        emptyState={emptyState}
       />
-    );
-  } else if (visibleItems.length === 0) {
-    const filtering = query.trim() !== '' || typeFilter !== 'all';
-    body = filtering ? (
-      <EmptyState
-        title={tp('empty.noResultsTitle')}
-        description={tp('empty.noResultsDescription')}
-        action={
-          <Button
-            variant="outline"
-            onClick={() => {
-              setQuery('');
-              setTypeFilter('all');
-            }}
-          >
-            {tp('empty.clearFilters')}
-          </Button>
-        }
-      />
-    ) : (
-      <EmptyState
-        title={selectedVault ? tp('empty.vaultTitle') : tp('empty.title')}
-        description={selectedVault ? tp('empty.vaultDescription') : tp('empty.description')}
-        action={
-          canAdd ? (
-            <div className="flex flex-wrap justify-center gap-2">
-              <Button onClick={() => setDialog({ kind: 'create' })}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                {tp('toolbar.addItem')}
-              </Button>
-              <Button variant="outline" onClick={() => setDialog({ kind: 'import' })}>
-                <Upload className="mr-1.5 h-4 w-4" />
-                {tp('toolbar.import')}
-              </Button>
-            </div>
-          ) : undefined
-        }
-      />
-    );
-  } else {
-    body = (
-      <ItemTable
-        items={visibleItems}
-        vaultsById={vaultsById}
-        vaultLabel={vaultLabel}
-        onOpen={(item) => setSearch({ item: item.id }, { replace: false })}
-      />
-    );
-  }
-
-  const showToolbar = !loading && !loadError && !isNonMemberView(selectedVault);
-
-  return (
-    <div className="mx-auto w-full max-w-6xl space-y-4 p-4 sm:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">{tp('title')}</h1>
-          <p className="text-sm text-muted-foreground">{tp('subtitle')}</p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/weldpass/passwords/health">
-            <HeartPulse className="mr-1.5 h-4 w-4" />
-            {tp('toolbar.health')}
-          </Link>
-        </Button>
-      </header>
-
-      <div className="flex flex-col gap-4 md:flex-row md:gap-6">
-        <VaultSidebar
-          vaults={vaults}
-          counts={counts}
-          totalCount={items.length}
-          selectedVaultId={selectedVault?.id ?? null}
-          vaultLabel={vaultLabel}
-          canCreate={canCreateVault}
-          onSelect={(vaultId) => setSearch({ vault: vaultId ?? undefined })}
-          onCreate={() => setDialog({ kind: 'newVault' })}
-          onOpenSettings={(vault) => setDialog({ kind: 'settings', vaultId: vault.id })}
-          canAdministerVault={(vault) => canAdministerVault(vault, canManageAll)}
-        />
-
-        <section className="min-w-0 flex-1 space-y-3">
-          {selectedVault?.description && (
-            <p className="text-sm text-muted-foreground">{selectedVault.description}</p>
-          )}
-
-          {showToolbar && (
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-48 flex-1">
-                <Search
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={tp('toolbar.search')}
-                  aria-label={tp('toolbar.search')}
-                  className="pl-8"
-                />
-              </div>
-              <Tabs value={typeFilter} onValueChange={(value) => setTypeFilter(value as ItemTypeFilter)}>
-                <TabsList>
-                  {TYPE_FILTERS.map((filter) => (
-                    <TabsTrigger key={filter} value={filter}>
-                      {tp(`toolbar.filters.${filter}`)}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
-              {canAdd && (
-                <>
-                  <Button variant="outline" onClick={() => setDialog({ kind: 'import' })}>
-                    <Upload className="mr-1.5 h-4 w-4" />
-                    {tp('toolbar.import')}
-                  </Button>
-                  <Button onClick={() => setDialog({ kind: 'create' })}>
-                    <Plus className="mr-1.5 h-4 w-4" />
-                    {tp('toolbar.addItem')}
-                  </Button>
-                </>
-              )}
-            </div>
-          )}
-
-          {body}
-        </section>
-      </div>
 
       {openItem && dialog === null && (
         <ItemDetailDialog
@@ -337,9 +335,9 @@ function PasswordsWorkspace() {
           vaults={writable}
           vaultLabel={vaultLabel}
           defaultVaultId={createVaultId}
-          onClose={closeDialog}
+          onClose={() => setDialog(null)}
           onSaved={() => {
-            closeDialog();
+            setDialog(null);
             toast.success(tp('form.saved'));
           }}
         />
@@ -351,9 +349,9 @@ function PasswordsWorkspace() {
           vaultLabel={vaultLabel}
           defaultVaultId={dialog.item.vaultId}
           item={dialog.item}
-          onClose={closeDialog}
+          onClose={() => setDialog(null)}
           onSaved={() => {
-            closeDialog();
+            setDialog(null);
             toast.success(tp('form.saved'));
           }}
         />
@@ -364,9 +362,9 @@ function PasswordsWorkspace() {
           item={dialog.item}
           targets={moveTargets(vaults, dialog.item.vaultId)}
           vaultLabel={vaultLabel}
-          onClose={closeDialog}
+          onClose={() => setDialog(null)}
           onMoved={() => {
-            closeDialog();
+            setDialog(null);
             toast.success(tp('move.moved'));
           }}
         />
@@ -375,9 +373,9 @@ function PasswordsWorkspace() {
       {dialog?.kind === 'history' && (
         <ItemHistoryDialog
           item={dialog.item}
-          onClose={closeDialog}
+          onClose={() => setDialog(null)}
           onRestored={() => {
-            closeDialog();
+            setDialog(null);
             toast.success(tp('history.restored'));
           }}
         />
@@ -388,33 +386,9 @@ function PasswordsWorkspace() {
           vaults={writable}
           vaultLabel={vaultLabel}
           defaultVaultId={createVaultId}
-          onClose={closeDialog}
+          onClose={() => setDialog(null)}
         />
       )}
-
-      {dialog?.kind === 'newVault' && (
-        <CreateVaultDialog
-          onClose={closeDialog}
-          onCreated={(vault) => {
-            closeDialog();
-            setSearch({ vault: vault.id });
-          }}
-        />
-      )}
-
-      {dialog?.kind === 'settings' && settingsVault && (
-        <VaultSettingsDialog
-          vault={settingsVault}
-          canAdminister={canAdministerVault(settingsVault, canManageAll)}
-          currentUserId={user?.id}
-          onClose={closeDialog}
-          onGone={(reason) => {
-            closeDialog();
-            if (selectedVault?.id === settingsVault.id) setSearch({ vault: undefined });
-            toast.success(tp(reason === 'deleted' ? 'settings.deleted' : 'settings.left'));
-          }}
-        />
-      )}
-    </div>
+    </>
   );
 }
