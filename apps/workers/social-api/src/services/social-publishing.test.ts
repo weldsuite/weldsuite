@@ -163,8 +163,8 @@ async function seedPost(
 }
 
 describe('social publishing · double-post guards', () => {
-  it('reschedule cancels the previous PostPeer post before creating a new one', async () => {
-    if (!available) return;
+  it('reschedule cancels the previous PostPeer post before creating a new one', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_resched', 'scheduled', 'old_pp');
     const calls = stubPostPeer();
@@ -201,8 +201,8 @@ describe('social publishing · double-post guards', () => {
     expect(row.scheduledAt?.toISOString()).toBe('2030-01-01T00:00:00.000Z');
   });
 
-  it('publishPost is idempotent — rejects an already-published post', async () => {
-    if (!available) return;
+  it('publishPost is idempotent — rejects an already-published post', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_published', 'published', 'pp_live');
     stubPostPeer();
@@ -212,8 +212,8 @@ describe('social publishing · double-post guards', () => {
     ).rejects.toBeInstanceOf(SocialPublishConflictError);
   });
 
-  it('publishPost rejects a post that is mid-publish', async () => {
-    if (!available) return;
+  it('publishPost rejects a post that is mid-publish', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_publishing', 'publishing', null);
     stubPostPeer();
