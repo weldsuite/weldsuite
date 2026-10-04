@@ -41,7 +41,41 @@ export const createTaskSchema = z.object({
   customFields: z.record(z.any()).nullable().optional(),
   metadata: z.unknown().optional(),
 }).passthrough();
-export const updateTaskSchema = createTaskSchema.partial();
+// PATCH body. An explicit allow-list, not `createTaskSchema.partial()`: the create
+// schema is `.passthrough()`, which let a PATCH write any `tasks` column (`id`,
+// `number`, `key`, `reporterId`, `deletedAt`, ...). Unknown keys are stripped (not
+// rejected) so clients that still send extras, e.g. the CRM task hooks, keep
+// working. `projectId`, `dependsOn` and `blocks` are accepted here but handled
+// specially server-side (move guard, cycle detection + reciprocal sync).
+export const updateTaskSchema = z.object({
+  title: createTaskSchema.shape.title.optional(),
+  description: createTaskSchema.shape.description,
+  status: createTaskSchema.shape.status,
+  priority: createTaskSchema.shape.priority,
+  type: createTaskSchema.shape.type,
+  stageId: createTaskSchema.shape.stageId,
+  sprintId: createTaskSchema.shape.sprintId,
+  milestoneId: createTaskSchema.shape.milestoneId,
+  parentTaskId: createTaskSchema.shape.parentTaskId,
+  assigneeId: createTaskSchema.shape.assigneeId,
+  // Clients send null to clear every assignee.
+  assigneeIds: z.array(z.string()).nullish(),
+  customerId: createTaskSchema.shape.customerId,
+  contactId: createTaskSchema.shape.contactId,
+  startDate: createTaskSchema.shape.startDate,
+  dueDate: createTaskSchema.shape.dueDate,
+  estimatedHours: createTaskSchema.shape.estimatedHours,
+  duration: createTaskSchema.shape.duration,
+  storyPoints: createTaskSchema.shape.storyPoints,
+  labels: createTaskSchema.shape.labels,
+  tags: createTaskSchema.shape.tags,
+  isBillable: createTaskSchema.shape.isBillable,
+  repeat: createTaskSchema.shape.repeat,
+  customFields: createTaskSchema.shape.customFields,
+  projectId: createTaskSchema.shape.projectId,
+  dependsOn: createTaskSchema.shape.dependsOn,
+  blocks: createTaskSchema.shape.blocks,
+});
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 

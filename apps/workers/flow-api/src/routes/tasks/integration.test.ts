@@ -470,3 +470,239 @@ describe('/api/tasks · CRM company link · pglite integration', () => {
     expect(archived.linkedCompany).toBeNull();
   });
 });
+
+describe('PATCH /api/tasks/:id · mass assignment + relations · pglite integration', () => {
+  const now = new Date();
+  const json = { 'Content-Type': 'application/json' };
+
+  const seedProject = (id: string) =>
+    db
+      .insert(schema.projects)
+      .values({ id, name: id, createdAt: now, updatedAt: now } as typeof schema.projects.$inferInsert);
+  // The harness user is `user_test_default` without `projects:scope:all`, so a
+  // project is only reachable once they are a member.
+  const joinProject = (projectId: string) =>
+    db.insert(schema.projectMembers).values({
+      id: `pm_${projectId}`,
+      projectId,
+      userId: 'user_test_default',
+      role: 'member',
+      isActive: true,
+    } as typeof schema.projectMembers.$inferInsert);
+  const seedTask = (values: Record<string, unknown>) =>
+    db.insert(schema.tasks).values({ title: 'Task', ...values } as typeof schema.tasks.$inferInsert);
+  const row = async (id: string) => {
+    const [found] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1);
+    return found;
+  };
+  const patch = (id: string, body: unknown) => {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:update'), tenantDb: db },
+    });
+    return request(`/api/tasks/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(body) });
+  };
+
+  it('writes only allow-listed columns and ignores server-owned ones', async () => {
+    await seedTask({
+      id: 'task_ma_1',
+      number: 41001,
+      key: 'ORIG-1',
+      position: 5,
+      watchers: ['watcher_seed'],
+      actualHours: '1.00',
+      githubIssueNumber: 3,
+      githubRepoLinkId: 'ghl_seed',
+      reporterId: 'reporter_seed',
+    });
+
+    const res = await patch('task_ma_1', {
+      title: 'x',
+      number: 99999,
+      key: 'K-1',
+      calendarEventId: 'cal_x',
+      githubIssueNumber: 7,
+      githubRepoLinkId: 'ghl_x',
+      watchers: ['u'],
+      actualHours: '9',
+      id: 'task_other',
+      position: 42,
+      reporterId: 'someone',
+      deletedAt: '2020-01-01T00:00:00Z',
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Record<string, unknown> };
+    expect(Object.keys(body.data).sort()).toEqual(['id', 'title']);
+    expect(body.data.id).toBe('task_ma_1');
+
+    const saved = await row('task_ma_1');
+    expect(saved?.title).toBe('x');
+    expect(saved?.number).toBe(41001);
+    expect(saved?.key).toBe('ORIG-1');
+    expect(saved?.githubIssueNumber).toBe(3);
+    expect(saved?.githubRepoLinkId).toBe('ghl_seed');
+    expect(saved?.watchers).toEqual(['watcher_seed']);
+    expect(saved?.actualHours).toBe('1.00');
+    expect(saved?.position).toBe(5);
+    expect(saved?.reporterId).toBe('reporter_seed');
+    expect(saved?.deletedAt).toBeNull();
+    // The calendar sync may attach its own event; a client value must never win.
+    expect(saved?.calendarEventId).not.toBe('cal_x');
+    expect(await row('task_other')).toBeUndefined();
+  });
+
+  it('rejects a projectId change with 400 and writes nothing', async () => {
+    await seedProject('proj_ma_a');
+    await seedProject('proj_ma_b');
+    await joinProject('proj_ma_a');
+    await seedTask({ id: 'task_ma_proj', title: 'Keep me', projectId: 'proj_ma_a' });
+    await seedTask({ id: 'task_ma_personal', title: 'Keep me too' });
+
+    const moved = await patch('task_ma_proj', { projectId: 'proj_ma_b', title: 'Changed' });
+    expect(moved.status).toBe(400);
+    const movedBody = (await moved.json()) as { error: { message: string } };
+    expect(movedBody.error.message).toContain('/move');
+    expect((await row('task_ma_proj'))?.projectId).toBe('proj_ma_a');
+    expect((await row('task_ma_proj'))?.title).toBe('Keep me');
+
+    const pulledIn = await patch('task_ma_personal', { projectId: 'proj_ma_a' });
+    expect(pulledIn.status).toBe(400);
+    expect((await row('task_ma_personal'))?.projectId).toBeNull();
+  });
+
+  it('treats a projectId equal to the current one as a no-op', async () => {
+    const res = await patch('task_ma_proj', { projectId: 'proj_ma_a', title: 'Renamed' });
+    expect(res.status).toBe(200);
+    const saved = await row('task_ma_proj');
+    expect(saved?.projectId).toBe('proj_ma_a');
+    expect(saved?.title).toBe('Renamed');
+  });
+
+  it('rejects a dependency cycle with 400 and leaves the task unchanged', async () => {
+    await seedTask({ id: 'task_cy_1', dependsOn: ['task_cy_2'] });
+    await seedTask({ id: 'task_cy_2', blocks: ['task_cy_1'] });
+
+    const direct = await patch('task_cy_2', { dependsOn: ['task_cy_1'] });
+    expect(direct.status).toBe(400);
+    expect((await row('task_cy_2'))?.dependsOn).toBeNull();
+
+    const viaBlocks = await patch('task_cy_1', { blocks: ['task_cy_2'] });
+    expect(viaBlocks.status).toBe(400);
+    expect((await row('task_cy_1'))?.blocks).toBeNull();
+    expect((await row('task_cy_2'))?.dependsOn).toBeNull();
+  });
+
+  it('rejects a cycle that closes through a longer chain, from either side', async () => {
+    await seedTask({ id: 'task_ch_1', dependsOn: ['task_ch_2'] });
+    await seedTask({ id: 'task_ch_2', dependsOn: ['task_ch_3'] });
+    await seedTask({ id: 'task_ch_3' });
+
+    expect((await patch('task_ch_3', { dependsOn: ['task_ch_1'] })).status).toBe(400);
+    // task_ch_3 blocking task_ch_1 would make task_ch_1 -> task_ch_2 -> task_ch_3 -> task_ch_1.
+    expect((await patch('task_ch_1', { blocks: ['task_ch_3'] })).status).toBe(400);
+    expect((await row('task_ch_3'))?.dependsOn).toBeNull();
+  });
+
+  it('syncs the reciprocal side for added and removed dependencies', async () => {
+    await seedTask({ id: 'task_dp_1' });
+    await seedTask({ id: 'task_dp_3' });
+
+    const added = await patch('task_dp_1', { dependsOn: ['task_dp_3'] });
+    expect(added.status).toBe(200);
+    const addedBody = (await added.json()) as { data: { dependsOn: string[] } };
+    expect(addedBody.data.dependsOn).toEqual(['task_dp_3']);
+    expect((await row('task_dp_1'))?.dependsOn).toEqual(['task_dp_3']);
+    expect((await row('task_dp_3'))?.blocks).toEqual(['task_dp_1']);
+
+    const cleared = await patch('task_dp_1', { dependsOn: [] });
+    expect(cleared.status).toBe(200);
+    expect((await row('task_dp_1'))?.dependsOn).toEqual([]);
+    expect((await row('task_dp_3'))?.blocks).toEqual([]);
+  });
+
+  it('refuses links to unknown, deleted, self and inaccessible tasks', async () => {
+    await seedProject('proj_dn_ok');
+    await seedProject('proj_dn_hidden');
+    await joinProject('proj_dn_ok');
+    await seedTask({ id: 'task_dn_me', projectId: 'proj_dn_ok' });
+    await seedTask({ id: 'task_dn_hidden', projectId: 'proj_dn_hidden' });
+    await seedTask({ id: 'task_dn_gone', deletedAt: now });
+
+    const hidden = await patch('task_dn_me', { dependsOn: ['task_dn_hidden'] });
+    expect(hidden.status).toBe(403);
+    expect((await row('task_dn_hidden'))?.blocks).toBeNull();
+    expect((await row('task_dn_me'))?.dependsOn).toBeNull();
+
+    const hiddenBlock = await patch('task_dn_me', { blocks: ['task_dn_hidden'] });
+    expect(hiddenBlock.status).toBe(403);
+    expect((await row('task_dn_hidden'))?.dependsOn).toBeNull();
+
+    expect((await patch('task_dn_me', { dependsOn: ['task_dn_missing'] })).status).toBe(400);
+    expect((await patch('task_dn_me', { dependsOn: ['task_dn_gone'] })).status).toBe(400);
+    expect((await patch('task_dn_me', { dependsOn: ['task_dn_me'] })).status).toBe(400);
+    expect((await patch('task_dn_me', { blocks: ['task_dn_me'] })).status).toBe(400);
+  });
+
+  it('refuses the same links through PUT /:id/dependencies', async () => {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:update'), tenantDb: db },
+    });
+    const put = (body: unknown) =>
+      request('/api/tasks/task_dn_me/dependencies', { method: 'PUT', headers: json, body: JSON.stringify(body) });
+    expect((await put({ dependsOn: ['task_dn_hidden'] })).status).toBe(403);
+    expect((await put({ blocks: ['task_dn_missing'] })).status).toBe(400);
+    expect((await put({ dependsOn: ['task_dn_me'] })).status).toBe(400);
+    expect((await row('task_dn_hidden'))?.blocks).toBeNull();
+  });
+
+  it('still lets the caller remove a link to a task they cannot access', async () => {
+    await seedTask({ id: 'task_rm_hidden', projectId: 'proj_dn_hidden', blocks: ['task_rm_me'] });
+    await seedTask({ id: 'task_rm_me', projectId: 'proj_dn_ok', dependsOn: ['task_rm_hidden'] });
+
+    const res = await patch('task_rm_me', { dependsOn: [] });
+    expect(res.status).toBe(200);
+    expect((await row('task_rm_me'))?.dependsOn).toEqual([]);
+    expect((await row('task_rm_hidden'))?.blocks).toEqual([]);
+  });
+
+  it('clears assignees on assigneeIds: null and tolerates undeclared keys', async () => {
+    await seedTask({ id: 'task_as_1', assigneeId: 'user_a', assigneeIds: ['user_a'] });
+
+    const cleared = await patch('task_as_1', { assigneeIds: null });
+    expect(cleared.status).toBe(200);
+    const saved = await row('task_as_1');
+    expect(saved?.assigneeIds).toBeNull();
+    expect(saved?.assigneeId).toBeNull();
+
+    const extras = await patch('task_as_1', { title: 'Extras', assignees: [{ id: 'u' }], isImportant: true });
+    expect(extras.status).toBe(200);
+    const body = (await extras.json()) as { data: Record<string, unknown> };
+    expect(body.data.assignees).toBeUndefined();
+    expect(body.data.isImportant).toBeUndefined();
+    expect((await row('task_as_1'))?.title).toBe('Extras');
+  });
+
+  it('validates parentTaskId when it changes', async () => {
+    await seedProject('proj_pt_a');
+    await seedProject('proj_pt_b');
+    await joinProject('proj_pt_a');
+    await seedTask({ id: 'task_pt_child', projectId: 'proj_pt_a' });
+    await seedTask({ id: 'task_pt_parent', projectId: 'proj_pt_a' });
+    await seedTask({ id: 'task_pt_other', projectId: 'proj_pt_b' });
+    await seedTask({ id: 'task_pt_gone', projectId: 'proj_pt_a', deletedAt: now });
+
+    expect((await patch('task_pt_child', { parentTaskId: 'task_pt_child' })).status).toBe(400);
+    expect((await patch('task_pt_child', { parentTaskId: 'task_pt_other' })).status).toBe(400);
+    expect((await patch('task_pt_child', { parentTaskId: 'task_pt_gone' })).status).toBe(400);
+    expect((await patch('task_pt_child', { parentTaskId: 'task_pt_missing' })).status).toBe(400);
+    expect((await row('task_pt_child'))?.parentTaskId).toBeNull();
+
+    expect((await patch('task_pt_child', { parentTaskId: 'task_pt_parent' })).status).toBe(200);
+    expect((await row('task_pt_child'))?.parentTaskId).toBe('task_pt_parent');
+
+    // Re-sending the unchanged parent and clearing it both stay allowed.
+    expect((await patch('task_pt_child', { parentTaskId: 'task_pt_parent' })).status).toBe(200);
+    expect((await patch('task_pt_child', { parentTaskId: null })).status).toBe(200);
+    expect((await row('task_pt_child'))?.parentTaskId).toBeNull();
+  });
+});
