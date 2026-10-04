@@ -1,26 +1,23 @@
 import { ReactNode, useEffect } from 'react';
 import { PageLoader } from '@/components/page-loader';
-import { useSubscription } from '@/hooks/queries/use-billing-queries';
 import {
   useVoipPhoneNumbers,
   useVoipConfigured,
 } from '@/hooks/queries/use-voip-calls-queries';
 import { useCall } from '@/contexts/call-context';
-import { CallIntelligenceUpgradePrompt } from '../call-intelligence-upgrade-prompt';
 
 interface WeldCallGateProps {
   children: ReactNode;
 }
 
+// WeldCall is available on every plan: this only holds the page until the
+// workspace's phone numbers and VoIP config are loaded into the call context.
 export function WeldCallGate({ children }: Readonly<WeldCallGateProps>) {
-  const { data: subscription, isLoading: subLoading } = useSubscription();
   const { data: phoneNumbersData, isLoading: phoneLoading } = useVoipPhoneNumbers();
   const { data: voipConfiguredData, isLoading: configLoading } = useVoipConfigured();
   const { setPhoneNumbers, setVoipConfigured } = useCall();
 
-  const hasAccess =
-    subscription?.planSlug === 'scale' || subscription?.planSlug === 'enterprise';
-  const isLoading = subLoading || phoneLoading || configLoading;
+  const isLoading = phoneLoading || configLoading;
 
   useEffect(() => {
     if (phoneNumbersData?.data) {
@@ -36,10 +33,6 @@ export function WeldCallGate({ children }: Readonly<WeldCallGateProps>) {
 
   if (isLoading) {
     return <PageLoader fullScreen={false} />;
-  }
-
-  if (!hasAccess) {
-    return <CallIntelligenceUpgradePrompt />;
   }
 
   return <>{children}</>;

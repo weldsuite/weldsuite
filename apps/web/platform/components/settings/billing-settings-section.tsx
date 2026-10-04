@@ -147,7 +147,7 @@ const COMPARISON_SECTIONS: ComparisonSection[] = [
       { label: 'Customer lists', values: { free: 'Unlimited', business: 'Unlimited', scale: 'Unlimited', enterprise: 'Unlimited' } },
       { label: 'Import / export', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
       { label: 'Tags & custom fields', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Call intelligence', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
+      { label: 'Call intelligence', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
       { label: 'Meeting intelligence', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
     ],
   },
