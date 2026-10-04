@@ -1,5 +1,5 @@
 /**
- * WeldPass — secret management. Tenant DB.
+ * WeldPass — secret management and the team password manager. Tenant DB.
  *
  * A vault project belongs to one workspace. Everything below it hangs off
  * `project_id`, so `workspaceId` is checked once when the project is resolved
@@ -22,6 +22,7 @@ import {
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
 // Value types
@@ -328,6 +329,181 @@ export const weldpassAuditEvents = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Password manager
+//
+// A second surface next to the developer vaults above. Projects are opened by
+// workspace permission (`secrets:*`); these vaults are opened by *membership*:
+// a personal vault belongs to exactly one person, a shared vault to the people
+// listed in `weldpass_vault_members`. The envelope is the same — each vault has
+// its own KEK wrapped by the worker root key — so a shared vault's members
+// reach the same ciphertext through an access check, not through a copy.
+// ---------------------------------------------------------------------------
+
+export type WeldPassVaultKind = 'personal' | 'shared';
+
+/**
+ * viewer  — list and reveal items
+ * editor  — also add, edit, move and delete items
+ * manager — also rename or delete the vault and manage its members
+ */
+export type WeldPassVaultRole = 'viewer' | 'editor' | 'manager';
+
+export type WeldPassItemType = 'login' | 'note' | 'card';
+export type WeldPassItemAction = 'created' | 'updated' | 'deleted' | 'restored';
+
+export const weldpassVaults = pgTable(
+  'weldpass_vaults',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+
+    /** Clerk org id — the tenant DB is per-workspace, kept for defence in depth. */
+    workspaceId: varchar('workspace_id', { length: 255 }).notNull(),
+
+    kind: varchar('kind', { length: 20 }).$type<WeldPassVaultKind>().notNull(),
+    /** Set on a personal vault: the one user who can open it. Null when shared. */
+    ownerId: varchar('owner_id', { length: 255 }),
+
+    name: varchar('name', { length: 100 }).notNull(),
+    description: text('description'),
+
+    /** Vault key-encryption key, wrapped by the worker root key ("v1:iv:ct"). */
+    kekWrapped: text('kek_wrapped').notNull(),
+    rootKeyVersion: varchar('root_key_version', { length: 10 }).notNull().default('v1'),
+
+    createdBy: varchar('created_by', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('weldpass_vaults_workspace_idx').on(table.workspaceId),
+    // One personal vault per person. It is created on first use, so two tabs
+    // opening WeldPass at once must not end up with two.
+    uniqueIndex('weldpass_vaults_personal_owner_idx')
+      .on(table.workspaceId, table.ownerId)
+      .where(sql`${table.kind} = 'personal' AND ${table.deletedAt} IS NULL`),
+  ],
+);
+
+/** Who can open a shared vault. Personal vaults have no rows here. */
+export const weldpassVaultMembers = pgTable(
+  'weldpass_vault_members',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    vaultId: varchar('vault_id', { length: 30 }).notNull(),
+    /** Clerk user id, matching `workspace_members.user_id`. */
+    userId: varchar('user_id', { length: 255 }).notNull(),
+    role: varchar('role', { length: 20 }).$type<WeldPassVaultRole>().notNull(),
+
+    addedBy: varchar('added_by', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('weldpass_vault_members_vault_user_idx').on(table.vaultId, table.userId),
+    index('weldpass_vault_members_user_idx').on(table.userId),
+  ],
+);
+
+/**
+ * One login, secure note or payment card.
+ *
+ * Everything a person would call secret — password, TOTP seed, note body, card
+ * number — is in `ciphertext` as one JSON document. The plain columns are what
+ * a list needs to render and what the browser extension matches a page
+ * against: a title, a display line and the site.
+ */
+export const weldpassItems = pgTable(
+  'weldpass_items',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    vaultId: varchar('vault_id', { length: 30 }).notNull(),
+
+    type: varchar('type', { length: 20 }).$type<WeldPassItemType>().notNull(),
+    title: varchar('title', { length: 200 }).notNull(),
+    /** Login username, or "•••• 4242" for a card. Never a secret. */
+    subtitle: varchar('subtitle', { length: 255 }),
+    url: text('url'),
+    /** Lower-cased hostname of `url`, for matching a page to its logins. */
+    host: varchar('host', { length: 255 }),
+    hasTotp: boolean('has_totp').notNull().default(false),
+
+    /** AES-256-GCM ciphertext of the item's fields as JSON. */
+    ciphertext: text('ciphertext').notNull(),
+    /** The item's data key, wrapped by the vault KEK. */
+    dekWrapped: text('dek_wrapped').notNull(),
+
+    /** When a login's password last changed — drives the "old password" check. */
+    passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
+    version: integer('version').notNull().default(1),
+
+    createdBy: varchar('created_by', { length: 255 }),
+    updatedBy: varchar('updated_by', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('weldpass_items_vault_idx').on(table.vaultId),
+    index('weldpass_items_host_idx').on(table.host),
+  ],
+);
+
+/** Append-only item history, so an overwritten password is recoverable. */
+export const weldpassItemVersions = pgTable(
+  'weldpass_item_versions',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    itemId: varchar('item_id', { length: 30 }).notNull(),
+    vaultId: varchar('vault_id', { length: 30 }).notNull(),
+
+    version: integer('version').notNull(),
+    action: varchar('action', { length: 20 }).$type<WeldPassItemAction>().notNull(),
+
+    ciphertext: text('ciphertext').notNull(),
+    dekWrapped: text('dek_wrapped').notNull(),
+
+    createdBy: varchar('created_by', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('weldpass_item_versions_item_idx').on(table.itemId),
+    uniqueIndex('weldpass_item_versions_item_version_idx').on(table.itemId, table.version),
+  ],
+);
+
+/**
+ * The password manager's trail: who opened, changed or shared what. Kept apart
+ * from `weldpass_audit_events`, which is keyed by project and environment.
+ * Titles and member ids only — a password never reaches this table.
+ */
+export const weldpassVaultEvents = pgTable(
+  'weldpass_vault_events',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    vaultId: varchar('vault_id', { length: 30 }).notNull(),
+    itemId: varchar('item_id', { length: 30 }),
+
+    actorId: varchar('actor_id', { length: 255 }).notNull(),
+    /** e.g. item.revealed, item.updated, member.added, vault.created. */
+    action: varchar('action', { length: 40 }).notNull(),
+    /** Item title or the affected member's user id — never a value. */
+    targetLabel: varchar('target_label', { length: 255 }),
+
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    ip: varchar('ip', { length: 45 }),
+    userAgent: text('user_agent'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('weldpass_vault_events_vault_idx').on(table.vaultId),
+    index('weldpass_vault_events_item_idx').on(table.itemId),
+    index('weldpass_vault_events_created_at_idx').on(table.createdAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Row types
 // ---------------------------------------------------------------------------
 
@@ -347,3 +523,13 @@ export type WeldPassSyncRun = typeof weldpassSyncRuns.$inferSelect;
 export type NewWeldPassSyncRun = typeof weldpassSyncRuns.$inferInsert;
 export type WeldPassAuditEvent = typeof weldpassAuditEvents.$inferSelect;
 export type NewWeldPassAuditEvent = typeof weldpassAuditEvents.$inferInsert;
+export type WeldPassVault = typeof weldpassVaults.$inferSelect;
+export type NewWeldPassVault = typeof weldpassVaults.$inferInsert;
+export type WeldPassVaultMember = typeof weldpassVaultMembers.$inferSelect;
+export type NewWeldPassVaultMember = typeof weldpassVaultMembers.$inferInsert;
+export type WeldPassItem = typeof weldpassItems.$inferSelect;
+export type NewWeldPassItem = typeof weldpassItems.$inferInsert;
+export type WeldPassItemVersion = typeof weldpassItemVersions.$inferSelect;
+export type NewWeldPassItemVersion = typeof weldpassItemVersions.$inferInsert;
+export type WeldPassVaultEvent = typeof weldpassVaultEvents.$inferSelect;
+export type NewWeldPassVaultEvent = typeof weldpassVaultEvents.$inferInsert;

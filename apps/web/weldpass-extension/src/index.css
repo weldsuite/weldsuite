@@ -1,0 +1,91 @@
+@import "tailwindcss";
+@source "./**/*.{ts,tsx}";
+
+/* Light and dark follow the browser. No remote fonts: an extension page should
+   not call out to a font CDN every time it opens. */
+:root {
+  color-scheme: light dark;
+  --background: oklch(0.99 0.003 270);
+  --foreground: oklch(0.21 0.02 270);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.96 0.006 270);
+  --muted-foreground: oklch(0.5 0.02 270);
+  --primary: oklch(0.51 0.23 277);
+  --primary-foreground: oklch(0.99 0 0);
+  --accent: oklch(0.94 0.02 277);
+  --border: oklch(0.91 0.008 270);
+  --ring: oklch(0.6 0.2 277);
+  --success: oklch(0.52 0.14 155);
+  --warning: oklch(0.6 0.15 70);
+  --destructive: oklch(0.55 0.21 25);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.19 0.015 270);
+    --foreground: oklch(0.95 0.005 270);
+    --card: oklch(0.23 0.018 270);
+    --muted: oklch(0.27 0.018 270);
+    --muted-foreground: oklch(0.72 0.02 270);
+    --primary: oklch(0.67 0.19 277);
+    --primary-foreground: oklch(0.16 0.02 270);
+    --accent: oklch(0.31 0.05 277);
+    --border: oklch(0.33 0.02 270);
+    --ring: oklch(0.7 0.17 277);
+    --success: oklch(0.75 0.15 155);
+    --warning: oklch(0.8 0.14 80);
+    --destructive: oklch(0.72 0.17 25);
+  }
+}
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    margin: 0;
+  }
+
+  /* The browser sizes the popup to its content, up to 800×600. */
+  body {
+    @apply bg-background text-foreground antialiased;
+    width: 380px;
+    height: 540px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  #root {
+    height: 100%;
+  }
+
+  button:not([disabled]) {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+}

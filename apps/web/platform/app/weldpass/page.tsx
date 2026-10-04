@@ -1,7 +1,13 @@
-/** WeldPass projects — the module's landing page. */
+/**
+ * WeldPass projects — the developer-secrets list, and the module's landing page.
+ *
+ * Members who can use the password manager but cannot read secrets (the
+ * default for regular members) are sent to the passwords page instead of an
+ * error state.
+ */
 
 import { useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, Navigate } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -21,9 +27,22 @@ import {
   useCreateWeldPassProject,
   useWeldPassProjects,
 } from '@/hooks/queries/use-weldpass-queries';
+import { PageLoader } from '@/components/page-loader';
 import { EmptyState, ErrorBanner, InlineSpinner, TimeAgo, errorMessage } from './components/shared';
 
-export default function WeldPassProjectsPage() {
+export default function WeldPassLandingPage() {
+  const { can, isLoading } = usePermissions();
+
+  // The project query needs secrets:read, so it must not mount for a member
+  // who only has the password manager.
+  if (isLoading) return <PageLoader fullScreen={false} />;
+  if (!can('secrets:read') && can('passwords:use')) {
+    return <Navigate to="/weldpass/passwords" replace />;
+  }
+  return <WeldPassProjectsPage />;
+}
+
+function WeldPassProjectsPage() {
   const t = useTranslations();
   const { can } = usePermissions();
   const { data: projects, isLoading, error } = useWeldPassProjects();

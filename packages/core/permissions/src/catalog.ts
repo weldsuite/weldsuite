@@ -396,6 +396,30 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       },
     ],
   },
+  // ── WeldPass password manager ─────────────────────────────────────────
+  // Deliberately thin. These decide who may use the password manager at all;
+  // what someone can do inside a vault is their role *on that vault* (viewer,
+  // editor, manager), not a workspace permission. `passwords:manage` is for
+  // recovering a shared vault nobody manages any more — it does not open
+  // anyone's personal vault, and reading a shared vault still takes joining it.
+  {
+    key: 'passwords',
+    label: 'Passwords (WeldPass)',
+    permissions: [
+      {
+        key: 'passwords:use',
+        label: 'Use the password manager',
+        description: 'A personal vault, plus the shared vaults this person is added to.',
+      },
+      { key: 'passwords:create', label: 'Create shared vaults' },
+      {
+        key: 'passwords:manage',
+        label: 'Administer shared vaults',
+        description:
+          'See every shared vault and change who is in it. Does not open personal vaults; reading a shared vault still requires being a member, and joining one is recorded.',
+      },
+    ],
+  },
   // ── WeldHR (employee operations + workforce portal) ───────────────────
   // HR data is need-to-know: MEMBER and VIEWER get none of these by default.
   // `employees:sensitive` is kept apart from `employees:read` (same idea as
@@ -494,6 +518,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   // WeldPass (secret management) — admins run the vaults
   'secrets:read', 'secrets:reveal', 'secrets:create', 'secrets:update',
   'secrets:delete', 'secrets:sync', 'secrets:manage',
+  // WeldPass password manager — admins can also recover unmanaged shared vaults
+  'passwords:use', 'passwords:create', 'passwords:manage',
   // WeldHR — admins run HR, including the sensitive block
   'employees:read', 'employees:create', 'employees:update', 'employees:delete',
   'employees:sensitive', 'employees:manage',
@@ -608,6 +634,10 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // own (no scope:all) and they cannot change object definitions (no manage).
   'weldobjects:read',
   'weldobjects:*:read', 'weldobjects:*:create', 'weldobjects:*:update',
+  // WeldPass password manager — unlike developer secrets, every member gets a
+  // personal vault and can start a shared one. Access inside a vault is by
+  // membership, so this grants nothing over anyone else's passwords.
+  'passwords:use', 'passwords:create',
 ];
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [

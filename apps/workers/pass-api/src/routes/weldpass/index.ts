@@ -76,6 +76,7 @@ import {
   updateProject,
 } from '../../services/weldpass/vault';
 import { environmentFor, keyring, toWeldPassErrorResponse, vaultFor } from './helpers';
+import { passwordRoutes } from './passwords';
 import { syncTargetConfigSchema } from './sync-config';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -1042,5 +1043,14 @@ async function runAutoSync(
     return [];
   }
 }
+
+// ---------------------------------------------------------------------------
+// Password manager — /vaults, /items, /password-health (see ./passwords.ts)
+// ---------------------------------------------------------------------------
+
+// Mounted on this router rather than next to it so its handlers run inside the
+// error boundary above: the sub-router declares no `onError` of its own, so
+// Hono hands its handlers to this one.
+app.route('/', passwordRoutes);
 
 export { app as weldpassRoutes };

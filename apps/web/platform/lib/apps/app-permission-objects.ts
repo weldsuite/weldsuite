@@ -43,7 +43,7 @@ const POST_REFACTOR_APPS: Record<string, string[]> = {
   // the migration map derives), and WeldPass post-dates the refactor. Both
   // were missing, which made them owner-only.
   social: ['posts', 'campaigns', 'analytics', 'accounts'],
-  weldpass: ['secrets'],
+  weldpass: ['secrets', 'passwords'],
 };
 
 /**
