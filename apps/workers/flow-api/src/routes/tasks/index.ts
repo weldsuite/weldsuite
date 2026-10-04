@@ -44,6 +44,7 @@ import { createTaskSchema, updateTaskSchema, moveTaskSchema } from '@weldsuite/a
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import {
   syncValuesForEntity,
@@ -730,39 +731,173 @@ async function createNextRecurringTaskOnDone(
   return createNextRecurringTask(db, task, task.projectId);
 }
 
-/** Add (`add`) or remove this task's id from a reciprocal dependsOn/blocks list of a linked task. */
-async function syncReciprocalLink(
+type ReciprocalLink = { id: string; set: { blocks?: string[]; dependsOn?: string[] } };
+
+/**
+ * The reciprocal side of a dependency change: a task this one depends on lists it in
+ * `blocks`, and a task it blocks lists it in `dependsOn`. Returns the linked rows to
+ * write; nothing is written here.
+ */
+async function reciprocalLinkUpdates(
   db: TaskDb,
-  linkedId: string,
-  field: 'blocks' | 'dependsOn',
   selfId: string,
-  mode: 'add' | 'remove',
-): Promise<void> {
-  const [linked] = await db
-    .select({ blocks: t.blocks, dependsOn: t.dependsOn })
+  diff: { addedDeps: string[]; removedDeps: string[]; addedBlocks: string[]; removedBlocks: string[] },
+): Promise<ReciprocalLink[]> {
+  const linkedIds = [
+    ...new Set([...diff.addedDeps, ...diff.removedDeps, ...diff.addedBlocks, ...diff.removedBlocks]),
+  ];
+  if (linkedIds.length === 0) return [];
+  const rows = await db
+    .select({ id: t.id, blocks: t.blocks, dependsOn: t.dependsOn })
     .from(t)
-    .where(eq(t.id, linkedId))
-    .limit(1);
-  if (!linked) return;
-  const current = ((linked[field] as string[]) || []);
-  const next = mode === 'add' ? [...new Set([...current, selfId])] : current.filter((x) => x !== selfId);
-  const now = new Date();
-  await db
-    .update(t)
-    .set(field === 'blocks' ? { blocks: next, updatedAt: now } : { dependsOn: next, updatedAt: now })
-    .where(eq(t.id, linkedId));
+    .where(inArray(t.id, linkedIds));
+  const withSelf = (ids: string[]) => [...new Set([...ids, selfId])];
+  const withoutSelf = (ids: string[]) => ids.filter((x) => x !== selfId);
+  return rows.map((row) => {
+    const set: ReciprocalLink['set'] = {};
+    const rowBlocks = (row.blocks as string[]) || [];
+    const rowDependsOn = (row.dependsOn as string[]) || [];
+    if (diff.addedDeps.includes(row.id)) set.blocks = withSelf(rowBlocks);
+    if (diff.removedDeps.includes(row.id)) set.blocks = withoutSelf(rowBlocks);
+    if (diff.addedBlocks.includes(row.id)) set.dependsOn = withSelf(rowDependsOn);
+    if (diff.removedBlocks.includes(row.id)) set.dependsOn = withoutSelf(rowDependsOn);
+    return { id: row.id, set };
+  });
 }
 
-async function syncReciprocalLinks(
+type DependencyFailure = { ok: false; kind: 'not-found' | 'invalid' | 'forbidden'; message: string };
+type DependencyPlan = {
+  ok: true;
+  /** The task row as it was before the change. */
+  task: Record<string, unknown>;
+  dependsOn: string[];
+  blocks: string[];
+  reciprocal: ReciprocalLink[];
+};
+
+const LINKED_TASK_DENIED = "You are not a member of a linked task's project";
+
+/**
+ * Every task newly added to dependsOn / blocks must exist, not be deleted, not be the
+ * task itself, and live in a project the caller can access (personal tasks, with a
+ * null projectId, are fine). Removing links is never checked.
+ */
+async function checkAddedLinks(
+  c: TaskCtx,
   db: TaskDb,
-  linkedIds: string[],
-  field: 'blocks' | 'dependsOn',
   selfId: string,
-  mode: 'add' | 'remove',
-): Promise<void> {
-  for (const linkedId of linkedIds) {
-    await syncReciprocalLink(db, linkedId, field, selfId, mode);
+  addedIds: string[],
+): Promise<DependencyFailure | null> {
+  if (addedIds.length === 0) return null;
+  if (addedIds.includes(selfId)) {
+    return { ok: false, kind: 'invalid', message: 'A task cannot depend on or block itself' };
   }
+  const rows = await db
+    .select({ id: t.id, projectId: t.projectId, deletedAt: t.deletedAt })
+    .from(t)
+    .where(inArray(t.id, addedIds));
+  const found = new Map(rows.map((row) => [row.id, row]));
+  for (const linkedId of addedIds) {
+    const row = found.get(linkedId);
+    if (!row || row.deletedAt) {
+      return { ok: false, kind: 'invalid', message: `Linked task ${linkedId} not found` };
+    }
+  }
+  const accessible = await accessibleProjectIds(c);
+  if (accessible !== null && rows.some((row) => row.projectId && !accessible.includes(row.projectId))) {
+    return { ok: false, kind: 'forbidden', message: LINKED_TASK_DENIED };
+  }
+  return null;
+}
+
+/**
+ * Shared by PUT /:id/dependencies and PATCH /:id: validates the newly added links
+ * (existence, access, cycles) and works out the reciprocal rows. Writes nothing;
+ * `commitDependencyUpdate` applies the plan.
+ */
+async function planDependencyUpdate(
+  c: TaskCtx,
+  db: TaskDb,
+  id: string,
+  input: { dependsOn?: string[]; blocks?: string[] },
+): Promise<DependencyPlan | DependencyFailure> {
+  const [currentTask] = await db
+    .select()
+    .from(t)
+    .where(and(eq(t.id, id), isNull(t.deletedAt)))
+    .limit(1);
+  if (!currentTask) return { ok: false, kind: 'not-found', message: `Task ${id} not found` };
+
+  const oldDependsOn: string[] = (currentTask.dependsOn as string[]) || [];
+  const oldBlocks: string[] = (currentTask.blocks as string[]) || [];
+  const newDependsOn = input.dependsOn ? [...new Set(input.dependsOn)] : oldDependsOn;
+  const newBlocks = input.blocks ? [...new Set(input.blocks)] : oldBlocks;
+
+  const addedDeps = newDependsOn.filter((dep) => !oldDependsOn.includes(dep));
+  const removedDeps = oldDependsOn.filter((dep) => !newDependsOn.includes(dep));
+  const addedBlocks = newBlocks.filter((b) => !oldBlocks.includes(b));
+  const removedBlocks = oldBlocks.filter((b) => !newBlocks.includes(b));
+
+  const invalidLink = await checkAddedLinks(c, db, id, [...addedDeps, ...addedBlocks]);
+  if (invalidLink) return invalidLink;
+
+  // A new dependsOn edge closes a cycle when it leads back to this task. A new blocks
+  // edge appends this task to the blocked task's dependsOn, so it closes a cycle when
+  // the blocked task is reachable from this task's (new) dependsOn.
+  const cyclic =
+    (addedDeps.length > 0 && (await detectCycle(db, id, addedDeps))) ||
+    (await anyAsync(addedBlocks, (blockedId) => detectCycle(db, blockedId, newDependsOn)));
+  if (cyclic) return { ok: false, kind: 'invalid', message: 'Circular dependency detected' };
+
+  const reciprocal = await reciprocalLinkUpdates(db, id, {
+    addedDeps,
+    removedDeps,
+    addedBlocks,
+    removedBlocks,
+  });
+
+  return {
+    ok: true,
+    task: currentTask as Record<string, unknown>,
+    dependsOn: newDependsOn,
+    blocks: newBlocks,
+    reciprocal,
+  };
+}
+
+/**
+ * Write the task's own row (its dependency lists plus any other column changes) and
+ * every reciprocal row as one unit, so a failure leaves no one-sided link behind.
+ */
+async function commitDependencyUpdate(
+  db: TaskDb,
+  id: string,
+  plan: DependencyPlan,
+  columns: Record<string, any> = {},
+): Promise<void> {
+  const now = new Date();
+  await atomically(db, (handle) => [
+    ...plan.reciprocal.map((link) =>
+      handle.update(t).set({ ...link.set, updatedAt: now }).where(eq(t.id, link.id)),
+    ),
+    handle
+      .update(t)
+      .set({ ...columns, dependsOn: plan.dependsOn, blocks: plan.blocks, updatedAt: now })
+      .where(and(eq(t.id, id), isNull(t.deletedAt))),
+  ]);
+}
+
+async function anyAsync<T>(items: T[], test: (item: T) => Promise<boolean>): Promise<boolean> {
+  for (const item of items) {
+    if (await test(item)) return true;
+  }
+  return false;
+}
+
+function dependencyFailureResponse(c: TaskCtx, id: string, failure: DependencyFailure): Response {
+  if (failure.kind === 'not-found') return error.notFound(c, 'Task', id);
+  if (failure.kind === 'forbidden') return error.forbidden(c, failure.message);
+  return error.badRequest(c, failure.message);
 }
 
 /** Fields of a position update that are echoed back in the event payload and the response. */
@@ -801,15 +936,77 @@ function syncAssigneeFields(update: Record<string, any>, data: Record<string, an
   }
 }
 
-/** Copy the defined body fields (date strings become Dates) and sync the assignee columns. */
+/**
+ * The only `tasks` columns a PATCH body may write. Listed here as well as in
+ * `updateTaskSchema` so a future schema addition cannot silently become a column
+ * write. `assigneeIds` goes through `syncAssigneeFields`; `projectId`, `dependsOn`
+ * and `blocks` have their own handling in the PATCH handler.
+ */
+const PATCHABLE_TASK_COLUMNS = [
+  'title',
+  'description',
+  'status',
+  'priority',
+  'type',
+  'stageId',
+  'sprintId',
+  'milestoneId',
+  'parentTaskId',
+  'assigneeId',
+  'customerId',
+  'contactId',
+  'startDate',
+  'dueDate',
+  'estimatedHours',
+  'duration',
+  'storyPoints',
+  'labels',
+  'tags',
+  'isBillable',
+  'repeat',
+  'customFields',
+] as const;
+
+/** Copy the allow-listed body fields (date strings become Dates) and sync the assignee columns. */
 function buildTaskUpdate(data: Record<string, any>): Record<string, any> {
   const update: Record<string, any> = { updatedAt: new Date() };
-  for (const [k, v] of Object.entries(data)) {
+  for (const k of PATCHABLE_TASK_COLUMNS) {
+    const v = data[k];
     if (v === undefined) continue;
     update[k] = (k === 'startDate' || k === 'dueDate') && v ? new Date(v as string) : v;
   }
   syncAssigneeFields(update, data);
   return update;
+}
+
+/**
+ * Pre-write checks on a PATCH's `projectId` / `parentTaskId`. A project change goes
+ * through POST /:id/move (access check + rollout flag), so a PATCH may only repeat
+ * the current project. A changed parent must be a live task of the same project.
+ */
+async function validateTaskRelations(
+  db: TaskDb,
+  existing: any,
+  id: string,
+  data: Record<string, any>,
+): Promise<string | null> {
+  const currentProjectId = existing.projectId ?? null;
+  if (data.projectId !== undefined && (data.projectId ?? null) !== currentProjectId) {
+    return 'projectId cannot be changed with PATCH; use POST /api/tasks/:id/move';
+  }
+  const parentId = data.parentTaskId;
+  if (parentId === undefined || parentId === null || parentId === existing.parentTaskId) return null;
+  if (parentId === id) return 'A task cannot be its own parent';
+  const [parent] = await db
+    .select({ projectId: t.projectId, deletedAt: t.deletedAt })
+    .from(t)
+    .where(eq(t.id, parentId))
+    .limit(1);
+  if (!parent || parent.deletedAt) return `Parent task ${parentId} not found`;
+  if ((parent.projectId ?? null) !== currentProjectId) {
+    return 'Parent task must belong to the same project';
+  }
+  return null;
 }
 
 async function statusFromStage(db: TaskDb, stageId: unknown): Promise<string | undefined> {
@@ -1962,40 +2159,19 @@ app.put(
     const data = c.req.valid('json');
 
     try {
-      if (data.dependsOn && data.dependsOn.length > 0) {
-        const hasCycle = await detectCycle(db, id, data.dependsOn);
-        if (hasCycle) return error.badRequest(c, 'Circular dependency detected');
-      }
+      const plan = await planDependencyUpdate(c, db, id, data);
+      if (!plan.ok) return dependencyFailureResponse(c, id, plan);
+      await commitDependencyUpdate(db, id, plan);
 
-      const [currentTask] = await db
-        .select({ dependsOn: t.dependsOn, blocks: t.blocks })
-        .from(t)
-        .where(eq(t.id, id))
-        .limit(1);
-      if (!currentTask) return error.notFound(c, 'Task', id);
+      publishEntityEvent({
+        c,
+        entityType: 'project_task',
+        entityId: id,
+        action: 'updated',
+        data: taskAnalyticsPayload(plan.task),
+      });
 
-      const oldDependsOn: string[] = (currentTask.dependsOn as string[]) || [];
-      const oldBlocks: string[] = (currentTask.blocks as string[]) || [];
-      const newDependsOn = data.dependsOn ?? oldDependsOn;
-      const newBlocks = data.blocks ?? oldBlocks;
-
-      await db
-        .update(t)
-        .set({ dependsOn: newDependsOn, blocks: newBlocks, updatedAt: new Date() })
-        .where(eq(t.id, id));
-
-      // Reciprocal sync
-      const addedDeps = newDependsOn.filter((dep) => !oldDependsOn.includes(dep));
-      const removedDeps = oldDependsOn.filter((dep) => !newDependsOn.includes(dep));
-      const addedBlocks = newBlocks.filter((b) => !oldBlocks.includes(b));
-      const removedBlocks = oldBlocks.filter((b) => !newBlocks.includes(b));
-
-      await syncReciprocalLinks(db, addedDeps, 'blocks', id, 'add');
-      await syncReciprocalLinks(db, removedDeps, 'blocks', id, 'remove');
-      await syncReciprocalLinks(db, addedBlocks, 'dependsOn', id, 'add');
-      await syncReciprocalLinks(db, removedBlocks, 'dependsOn', id, 'remove');
-
-      return success(c, { id, dependsOn: newDependsOn, blocks: newBlocks });
+      return success(c, { id, dependsOn: plan.dependsOn, blocks: plan.blocks });
     } catch (err) {
       console.error('[app-api/tasks] dependencies update failed:', err);
       return error.internal(c, 'Failed to update dependencies');
@@ -2160,7 +2336,9 @@ app.patch(
     const id = c.req.param('id');
     const denied = await guardTaskAccess(c, id);
     if (denied) return denied;
-    const data = c.req.valid('json') as Record<string, any>;
+    const body = c.req.valid('json') as Record<string, any>;
+    // projectId / dependsOn / blocks are not plain column writes, see below.
+    const { projectId: _projectId, dependsOn, blocks, ...data } = body;
 
     try {
       const [existing] = await db
@@ -2169,6 +2347,24 @@ app.patch(
         .where(and(eq(t.id, id), isNull(t.deletedAt)))
         .limit(1);
       if (!existing) return error.notFound(c, 'Task', id);
+
+      const relationError = await validateTaskRelations(db, existing, id, body);
+      if (relationError) return error.badRequest(c, relationError);
+
+      // Dependencies run through the same checks + reciprocal sync as
+      // PUT /:id/dependencies. Validated here, written below with the columns.
+      let dependencyPlan: DependencyPlan | null = null;
+      if (dependsOn !== undefined || blocks !== undefined) {
+        const plan = await planDependencyUpdate(c, db, id, { dependsOn, blocks });
+        if (!plan.ok) return dependencyFailureResponse(c, id, plan);
+        dependencyPlan = plan;
+      }
+      const dependencyEcho: { dependsOn?: string[]; blocks?: string[] } = dependencyPlan
+        ? {
+            ...(dependsOn !== undefined && { dependsOn: dependencyPlan.dependsOn }),
+            ...(blocks !== undefined && { blocks: dependencyPlan.blocks }),
+          }
+        : {};
 
       const update = buildTaskUpdate(data);
 
@@ -2181,7 +2377,11 @@ app.patch(
         update.completedDate = new Date();
       }
 
-      await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
+      if (dependencyPlan) {
+        await commitDependencyUpdate(db, id, dependencyPlan, update);
+      } else {
+        await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
+      }
 
       // Phase 1 dual-write: mirror the customFields blob into the typed values table.
       await syncValuesForEntity(db, 'task', id, data.customFields);
@@ -2219,7 +2419,7 @@ app.patch(
         entityId: id,
         action: 'updated',
         data: taskAnalyticsPayload(
-          { ...(existing as Record<string, unknown>), ...data } as Record<string, unknown>,
+          { ...(existing as Record<string, unknown>), ...data, ...dependencyEcho } as Record<string, unknown>,
           { id, title: (data.title as string) || (existing as any).title },
         ),
       });
@@ -2230,7 +2430,7 @@ app.patch(
         kinds: githubKindsForUpdate(data, resolvedStatus, (existing as any).status),
       });
 
-      return success(c, { id, ...data, ...(nextTaskId && { nextTaskId }) });
+      return success(c, { id, ...data, ...dependencyEcho, ...(nextTaskId && { nextTaskId }) });
     } catch (err) {
       console.error('[app-api/tasks] update failed:', err);
       return error.internal(c, 'Failed to update task');
