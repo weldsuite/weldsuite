@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, Trash2, X } from 'lucide-react';
@@ -36,12 +36,12 @@ import {
   type UserCalendar,
 } from '@/hooks/queries/use-calendar-queries';
 import {
-  eventFormSchema,
+  buildEventFormSchema,
+  getEventPriorityOptions,
+  getEventStatusOptions,
+  getEventTypeOptions,
   type EventFormValues,
   type EventFormInput,
-  EVENT_TYPE_OPTIONS,
-  EVENT_PRIORITY_OPTIONS,
-  EVENT_STATUS_OPTIONS,
 } from '../lib/event-form-schema';
 import {
   useAutoCreateWeldMeeting,
@@ -49,6 +49,16 @@ import {
   DEFAULT_WELDMEET_SETTINGS,
 } from '@/hooks/use-auto-create-weld-meeting';
 import { EventNotificationDialog } from './event-notification-dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@weldsuite/ui/components/alert-dialog';
 import { normalizeEventTimes } from '../lib/event-times';
 
 interface EventDialogProps {
@@ -129,6 +139,8 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   const deleteEvent = useDeleteCalendarEvent();
   const { saveEventWithWeldMeet } = useAutoCreateWeldMeeting();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  // Guestless event: nobody to notify, but deleting still asks first.
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [pendingPayload, setPendingPayload] = useState<CalendarEventInput | null>(null);
   // The virtual-meeting switch only marks the event as WeldMeet: the meeting
@@ -144,8 +156,26 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   // Calendars the user can create events in (own + edit/manage shared)
   const writableCalendars = (calendars || []).filter((c) => c.isOwn || c.permission === 'edit' || c.permission === 'manage');
 
+  // Validation messages in the user's language.
+  const schema = useMemo(
+    () =>
+      buildEventFormSchema({
+        calendarRequired: t.eventDialog.calendarRequired,
+        titleRequired: t.eventDialog.titleRequired,
+        titleTooLong: t.eventDialog.titleTooLong,
+        startRequired: t.eventDialog.startRequired,
+        invalidMeetingUrl: t.eventDialog.invalidMeetingUrl,
+        invalidGuestEmail: t.eventDialog.invalidGuestEmail,
+      }),
+    [t.eventDialog],
+  );
+  // Type / priority / status names: the toolbar filter's, so a type has one name everywhere.
+  const typeOptions = getEventTypeOptions(t.calendarView);
+  const priorityOptions = getEventPriorityOptions(t.calendarView);
+  const statusOptions = getEventStatusOptions(t.calendarView);
+
   const form = useForm<EventFormInput, unknown, EventFormValues>({
-    resolver: zodResolver(eventFormSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       calendarId: defaultCalendarId || '',
       title: '',
@@ -226,7 +256,10 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
       return;
     }
     if (attendees.some((a) => a.email.toLowerCase() === email.toLowerCase())) return;
-    form.setValue('attendees', [...attendees, { email, name: guest.name || undefined }], { shouldDirty: true });
+    // A typed address arrives with the email as its name: store no name then
+    // (like the quick-create card), so the guest is not shown as "a@b.c / a@b.c".
+    const name = guest.name && guest.name.trim().toLowerCase() !== email.toLowerCase() ? guest.name : undefined;
+    form.setValue('attendees', [...attendees, { email, name }], { shouldDirty: true });
     setGuestIds((ids) => [...ids, guest.id]);
     setGuestSearch('');
   };
@@ -359,11 +392,15 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   };
 
   const handleDelete = async (sendNotification?: boolean) => {
-    if (event?.id) {
+    if (!event?.id) return;
+    try {
       await deleteEvent.mutateAsync({ id: event.id, sendNotification });
-      onDeleted?.();
-      onOpenChange(false);
+    } catch {
+      toast.error(t.eventPreview.deleteFailed);
+      return;
     }
+    onDeleted?.();
+    onOpenChange(false);
   };
 
   const fieldLabels: Record<string, string> = {
@@ -452,7 +489,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {EVENT_TYPE_OPTIONS.map((opt) => (
+                  {typeOptions.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -468,7 +505,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {EVENT_PRIORITY_OPTIONS.map((opt) => (
+                  {priorityOptions.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -644,7 +681,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {EVENT_STATUS_OPTIONS.map((opt) => (
+                  {statusOptions.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -667,7 +704,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
                 type="button"
                 variant="destructive"
                 size="sm"
-                onClick={() => hasAttendees ? setShowDeleteDialog(true) : handleDelete()}
+                onClick={() => hasAttendees ? setShowDeleteDialog(true) : setShowDeleteConfirm(true)}
                 disabled={isLoading}
               >
                 <Trash2 className="h-4 w-4 mr-1" />
@@ -695,6 +732,31 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
           isPending={deleteEvent.isPending}
           variant="delete"
         />
+        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t.eventPreview.deleteConfirmTitle}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t.eventPreview.deleteConfirmDescription.replace('{title}', event?.title || t.calendarView.untitled)}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteEvent.isPending}>{t.eventPreview.deleteConfirmCancel}</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={deleteEvent.isPending}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={async (e) => {
+                  // Stay open until the request settled: a failure keeps the dialog (and the event) in view.
+                  e.preventDefault();
+                  await handleDelete();
+                  setShowDeleteConfirm(false);
+                }}
+              >
+                {deleteEvent.isPending ? t.eventPreview.deleting : t.eventPreview.deleteConfirmAction}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <EventNotificationDialog
           open={showUpdateDialog}
           onOpenChange={(open) => { if (!open) { setShowUpdateDialog(false); setPendingPayload(null); } }}

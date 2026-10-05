@@ -94,6 +94,27 @@ export function resolveQuickCreateTimes(range: QuickCreateRange, allDay: boolean
   return { start, end };
 }
 
+/**
+ * The end date and time after the start TIME moved to `nextStartTime`: the end
+ * moves by the same amount, so the event keeps the length the card shows
+ * (00:00 - 01:00 becomes 14:00 - 15:00, not an 11 hour event that ends the next
+ * morning). A blank / unparseable time (the input was cleared while typing)
+ * leaves the end alone. Timed events only: an all-day event has no times.
+ */
+export function shiftEndForStartTime(
+  range: QuickCreateRange,
+  nextStartTime: string,
+): Pick<QuickCreateRange, 'endDate' | 'endTime'> {
+  const unchanged = { endDate: range.endDate, endTime: range.endTime };
+  if (!/^\d{1,2}:\d{2}$/.test(nextStartTime)) return unchanged;
+  const { start: prevStart, end: prevEnd } = resolveQuickCreateTimes(range, false);
+  const nextStart = toLocalDate(range.startDate, nextStartTime);
+  const deltaMs = nextStart.getTime() - prevStart.getTime();
+  if (!deltaMs || Number.isNaN(deltaMs)) return unchanged;
+  const end = new Date(prevEnd.getTime() + deltaMs);
+  return { endDate: format(end, 'yyyy-MM-dd'), endTime: format(end, 'HH:mm') };
+}
+
 /** The range as the card shows and saves it (see {@link resolveQuickCreateTimes}). */
 export function normalizeQuickCreateRange(range: QuickCreateRange, allDay: boolean): QuickCreateRange {
   const { end } = resolveQuickCreateTimes(range, allDay);

@@ -99,6 +99,69 @@ export const bookingQuestionSchema = z
     }
   });
 
+/** A real calendar date written YYYY-MM-DD (rejects 2026-02-30). */
+export function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * Availability for one specific date, in the page timezone. It REPLACES the
+ * weekly availability for that date; empty `slots` means not bookable that day.
+ */
+export const bookingDateOverrideSchema = z
+  .object({
+    date: z.string().refine(isValidIsoDate, 'Expected a date as YYYY-MM-DD'),
+    slots: z.array(bookingTimeRangeSchema).max(24),
+  })
+  .superRefine((value, ctx) => {
+    const ranges = value.slots;
+    for (let index = 0; index < ranges.length; index += 1) {
+      if (ranges[index].start >= ranges[index].end) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['slots', index],
+          message: 'End time must be after start time',
+        });
+        return;
+      }
+    }
+    const sorted = ranges
+      .map((range, index) => ({ range, index }))
+      .sort((a, b) => a.range.start.localeCompare(b.range.start));
+    for (let i = 1; i < sorted.length; i += 1) {
+      if (sorted[i].range.start < sorted[i - 1].range.end) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['slots', sorted[i].index],
+          message: 'Time ranges must not overlap',
+        });
+        return;
+      }
+    }
+  });
+
+/** Up to a year of overrides, one entry per date. */
+export const bookingDateOverridesSchema = z
+  .array(bookingDateOverrideSchema)
+  .max(366)
+  .superRefine((value, ctx) => {
+    const seen = new Set<string>();
+    value.forEach((override, index) => {
+      if (seen.has(override.date)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index, 'date'],
+          message: 'Each date can only have one override',
+        });
+      }
+      seen.add(override.date);
+    });
+  });
+
+export type BookingDateOverride = z.infer<typeof bookingDateOverrideSchema>;
+
 export const createBookingPageSchema = z.object({
   name: z.string().min(1).max(255),
   slug: z.string().min(1).max(255),
@@ -108,6 +171,14 @@ export const createBookingPageSchema = z.object({
   durationMinutes: z.number().int().optional(),
   availability: weeklyAvailabilitySchema.optional(),
   questions: z.array(bookingQuestionSchema).max(20).nullish(),
+  /** Minutes of notice required before a slot can be booked. */
+  minNotice: z.number().int().min(0).optional(),
+  /** How many days ahead a slot can be booked (>= 1). */
+  maxAdvance: z.number().int().min(1).optional(),
+  /** Per-date availability replacing the weekly one; null clears all overrides. */
+  dateOverrides: bookingDateOverridesSchema.nullish(),
+  /** Max non-cancelled bookings per day in the page timezone; null or 0 = unlimited. */
+  maxBookingsPerDay: z.number().int().min(0).nullish(),
   metadata: z.unknown().optional(),
 }).passthrough();
 export const updateBookingPageSchema = createBookingPageSchema.partial();

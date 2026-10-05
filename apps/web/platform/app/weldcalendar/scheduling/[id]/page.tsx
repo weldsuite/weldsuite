@@ -91,8 +91,23 @@ const sanitizeSlug = (raw: string) =>
     .replace(/^-|-$/g, '')
     .slice(0, 100);
 
-const isSameValue = (current: string, stored: string | undefined, fallback = '') =>
+const isSameValue = (current: string, stored: string | null | undefined, fallback = '') =>
   current === (stored || fallback);
+
+/**
+ * The location columns for the API. The meeting link / address only means
+ * something for a video or in-person page, so it is dropped otherwise. On an
+ * update an empty value is sent as `null`: PATCH skips `undefined`, so a
+ * cleared link (= "create a WeldMeet link automatically") would otherwise never
+ * be saved.
+ */
+function resolveLocationFields(locationType: string, locationValue: string) {
+  const hasValue = (locationType === 'video' || locationType === 'in-person') && locationValue.trim() !== '';
+  return {
+    locationType: (locationType || null) as BookingPage['locationType'],
+    locationValue: hasValue ? locationValue.trim() : null,
+  };
+}
 
 /** Returns the i18n key of the first validation error, or null when the form can be saved. */
 function getBookingFormError(locationType: string, locationValue: string, slug: string): BookingFormError | null {
@@ -319,13 +334,14 @@ export default function BookingPageDetailPage() {
   const persistDraftCreate = async (): Promise<{ newId: string | null }> => {
     const cleanSlug = sanitizeSlug(slug);
     const draft = readSessionJson<Partial<BookingPage>>('booking-new-draft', {});
+    const location = resolveLocationFields(locationType, locationValue);
     const result = await createBookingPage.mutateAsync({
       ...draft,
       name,
       slug: cleanSlug,
       description: description || undefined,
-      locationType: (locationType || undefined) as BookingPage['locationType'],
-      locationValue: locationValue || undefined,
+      locationType: location.locationType ?? undefined,
+      locationValue: location.locationValue ?? undefined,
       confirmationMessage: confirmationMessage || undefined,
       timezone,
       questions: toQuestions(customFields),
@@ -365,10 +381,10 @@ export default function BookingPageDetailPage() {
         ...pending,
         name,
         slug: cleanSlug,
-        description: description || undefined,
-        locationType: (locationType || undefined) as BookingPage['locationType'],
-        locationValue: locationValue || undefined,
-        confirmationMessage: confirmationMessage || undefined,
+        // '' (not undefined) is what clears a description / message that was removed.
+        description,
+        ...resolveLocationFields(locationType, locationValue),
+        confirmationMessage,
         timezone,
         questions: toQuestions(customFields),
       },
@@ -727,15 +743,19 @@ export default function BookingPageDetailPage() {
               </Select>
               {locationType === 'video' && (
                 <div className="space-y-2">
-                  <Label>{tc.bookingDetail.locationMeetingLinkLabel}</Label>
+                  <Label htmlFor="booking-meeting-link">{tc.bookingDetail.locationMeetingLinkLabel}</Label>
                   <Input
+                    id="booking-meeting-link"
+                    type="url"
                     value={locationValue}
                     onChange={(e) => setLocationValue(e.target.value)}
-                    placeholder="https://meet.google.com/..."
+                    placeholder={tc.bookingDetail.locationMeetingLinkPlaceholder}
                   />
-                  {!locationValue.trim() && (
-                    <p className="text-xs text-muted-foreground">{tc.bookingDetail.locationMeetingLinkHint}</p>
-                  )}
+                  <p className="text-xs text-muted-foreground">
+                    {locationValue.trim()
+                      ? tc.bookingDetail.locationMeetingLinkCustomHint
+                      : tc.bookingDetail.locationMeetingLinkHint}
+                  </p>
                 </div>
               )}
               {locationType === 'phone' && (

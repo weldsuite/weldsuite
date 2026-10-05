@@ -5,6 +5,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { CalendarX2, CheckCircle2, ExternalLink, Loader2 } from 'lucide-react';
 
 import { EXTERNAL_CALENDAR_BASE } from '@/lib/constants';
+import { calendarLocationOf, isHttpUrl, joinUrlOf } from '@/lib/location';
 import type { BookingPageProps } from '@/lib/schemas';
 import type { TimeSlot } from '../actions';
 
@@ -19,6 +20,10 @@ interface ConfirmationCardProps {
   selectedDate: Date | null;
   bookerName: string;
   bookerEmail: string;
+  /** Email addresses of the extra guests on the booking. */
+  guests?: readonly string[];
+  /** Join link of the booking's meeting (WeldMeet, or the page's own link). */
+  meetingUrl?: string | null;
   timezone: string;
   use24h: boolean;
   locationLabel: string;
@@ -37,6 +42,8 @@ export function ConfirmationCard({
   selectedDate,
   bookerName,
   bookerEmail,
+  guests = [],
+  meetingUrl = null,
   timezone,
   use24h,
   locationLabel,
@@ -47,6 +54,11 @@ export function ConfirmationCard({
 }: Readonly<ConfirmationCardProps>) {
   const [confirmingCancel, setConfirmingCancel] = useState(startInCancelConfirm);
   const host = hostName?.trim() || workspaceName;
+  const joinUrl = joinUrlOf({
+    locationType: bookingPage.locationType,
+    locationValue: bookingPage.locationValue,
+    meetingUrl,
+  });
   const formatTime = (date: Date) =>
     formatInTimeZone(date, timezone, use24h ? 'HH:mm' : 'h:mm a');
   const formatDateInTz = (date: Date, pattern: string) =>
@@ -149,6 +161,16 @@ export function ConfirmationCard({
                     )}
                   </div>
                 )}
+                {guests.map((guestEmail) => (
+                  <div key={guestEmail} className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-900 dark:text-[#F2F2F4] truncate">{guestEmail}</span>
+                      <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-gray-100 dark:bg-[#1F1F23] text-gray-600 dark:text-[#C4C4CA]">
+                        GUEST
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </dd>
             </div>
 
@@ -158,19 +180,24 @@ export function ConfirmationCard({
                   Where
                 </dt>
                 <dd className="text-gray-900 dark:text-[#F2F2F4]">
-                  {bookingPage.locationType === 'video' && bookingPage.locationValue ? (
-                    <a
-                      href={bookingPage.locationValue}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium text-gray-900 dark:text-[#F2F2F4] hover:underline inline-flex items-center gap-1.5"
-                    >
-                      {locationLabel}
-                      <ExternalLink
-                        className="h-3.5 w-3.5 text-gray-500 dark:text-[#9999A1]"
-                        aria-hidden="true"
-                      />
-                    </a>
+                  {joinUrl && isHttpUrl(joinUrl) ? (
+                    <>
+                      <a
+                        href={joinUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium text-gray-900 dark:text-[#F2F2F4] hover:underline inline-flex items-center gap-1.5"
+                      >
+                        {locationLabel}
+                        <ExternalLink
+                          className="h-3.5 w-3.5 text-gray-500 dark:text-[#9999A1]"
+                          aria-hidden="true"
+                        />
+                      </a>
+                      <p className="text-gray-500 dark:text-[#9999A1] text-[13px] break-all mt-1">
+                        {joinUrl}
+                      </p>
+                    </>
                   ) : (
                     <p className="font-medium">{locationLabel}</p>
                   )}
@@ -228,7 +255,12 @@ export function ConfirmationCard({
           <AddToCalendar
             bookingName={bookingPage.name}
             workspaceName={workspaceName}
-            locationValue={bookingPage.locationValue}
+            location={calendarLocationOf({
+              locationType: bookingPage.locationType,
+              locationValue: bookingPage.locationValue,
+              meetingUrl,
+            })}
+            joinUrl={joinUrl}
             startIso={selectedSlot.start}
             endIso={selectedSlot.end}
           />
@@ -244,6 +276,9 @@ interface CancelledCardProps {
   selectedSlot: TimeSlot | null;
   timezone: string;
   use24h: boolean;
+  /** The booking page's own URL, without the signed booking query. */
+  bookAgainHref: string;
+  accentColor: string;
 }
 
 export function CancelledCard({
@@ -252,6 +287,8 @@ export function CancelledCard({
   selectedSlot,
   timezone,
   use24h,
+  bookAgainHref,
+  accentColor,
 }: Readonly<CancelledCardProps>) {
   const formatTime = (date: Date) =>
     formatInTimeZone(date, timezone, use24h ? 'HH:mm' : 'h:mm a');
@@ -281,6 +318,14 @@ export function CancelledCard({
           {formatTime(new Date(selectedSlot.start))}
         </p>
       )}
+
+      <a
+        href={bookAgainHref}
+        style={{ backgroundColor: accentColor }}
+        className="mt-8 inline-flex items-center rounded-md px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity dark:!bg-[#F2F2F4] dark:!text-[#0A0A0B]"
+      >
+        Book again
+      </a>
     </div>
   );
 }
@@ -288,7 +333,10 @@ export function CancelledCard({
 interface AddToCalendarProps {
   bookingName: string;
   workspaceName: string;
-  locationValue: string | null;
+  /** Where it takes place: the join link for a video booking. */
+  location: string | null;
+  /** The join link, repeated in the details of the entry. */
+  joinUrl: string | null;
   startIso: string;
   endIso: string;
 }
@@ -296,7 +344,8 @@ interface AddToCalendarProps {
 function AddToCalendar({
   bookingName,
   workspaceName,
-  locationValue,
+  location: locationText,
+  joinUrl,
   startIso,
   endIso,
 }: Readonly<AddToCalendarProps>) {
@@ -304,8 +353,11 @@ function AddToCalendar({
   const end = new Date(endIso);
   const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const title = encodeURIComponent(bookingName);
-  const details = encodeURIComponent(`Booked with ${workspaceName}`);
-  const location = locationValue ? encodeURIComponent(locationValue) : '';
+  const detailsText = [`Booked with ${workspaceName}`, ...(joinUrl ? [`Join: ${joinUrl}`] : [])].join('\n');
+  const details = encodeURIComponent(detailsText);
+  const location = locationText ? encodeURIComponent(locationText) : '';
+  const escapeIcs = (value: string) =>
+    value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
 
   const googleUrl = `${EXTERNAL_CALENDAR_BASE.google}?action=TEMPLATE&text=${title}&dates=${fmt(start)}/${fmt(end)}&details=${details}&location=${location}`;
   const outlookUrl = `${EXTERNAL_CALENDAR_BASE.outlook}?path=/calendar/action/compose&rru=addevent&subject=${title}&body=${details}&location=${location}&startdt=${startIso}&enddt=${endIso}`;
@@ -319,9 +371,9 @@ function AddToCalendar({
     `DTSTAMP:${fmt(new Date())}`,
     `DTSTART:${fmt(start)}`,
     `DTEND:${fmt(end)}`,
-    `SUMMARY:${bookingName}`,
-    `DESCRIPTION:Booked with ${workspaceName}`,
-    locationValue ? `LOCATION:${locationValue}` : '',
+    `SUMMARY:${escapeIcs(bookingName)}`,
+    `DESCRIPTION:${escapeIcs(detailsText)}`,
+    locationText ? `LOCATION:${escapeIcs(locationText)}` : '',
     'END:VEVENT',
     'END:VCALENDAR',
   ]
@@ -330,28 +382,51 @@ function AddToCalendar({
   const icsUrl = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
 
   const btn =
-    'h-9 w-9 rounded-[9px] border border-gray-200 dark:border-[#2E2E33] hover:bg-gray-50 dark:hover:bg-[#1F1F23] flex items-center justify-center transition-colors';
+    'h-9 px-3 gap-2 rounded-[9px] border border-gray-200 dark:border-[#2E2E33] hover:bg-gray-50 dark:hover:bg-[#1F1F23] flex items-center justify-center text-[13px] font-medium text-gray-700 dark:text-[#C4C4CA] transition-colors';
 
   return (
-    <div className="mt-6 flex items-center justify-center gap-3 text-sm text-gray-700 dark:text-[#C4C4CA]">
+    <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-sm text-gray-700 dark:text-[#C4C4CA]">
       <span>Add to calendar</span>
-      <div className="flex items-center gap-2">
-        <a href={googleUrl} target="_blank" rel="noreferrer" className={btn} title="Google Calendar">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <a
+          href={googleUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={btn}
+          title="Add to Google Calendar"
+          aria-label="Add to Google Calendar"
+        >
           <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
             <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
             <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
           </svg>
+          <span>Google</span>
         </a>
-        <a href={outlookUrl} target="_blank" rel="noreferrer" className={btn} title="Outlook">
+        <a
+          href={outlookUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={btn}
+          title="Add to Outlook"
+          aria-label="Add to Outlook"
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icons/outlook.svg" alt="Outlook" className="h-[17px] w-[17px]" />
+          <img src="/icons/outlook.svg" alt="" aria-hidden="true" className="h-[17px] w-[17px]" />
+          <span>Outlook</span>
         </a>
-        <a href={icsUrl} download="booking.ics" className={btn} title="Apple / iCal">
+        <a
+          href={icsUrl}
+          download="booking.ics"
+          className={btn}
+          title="Download for Apple Calendar or other calendar apps (.ics)"
+          aria-label="Download for Apple Calendar or other calendar apps (.ics)"
+        >
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
             <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
           </svg>
+          <span>Apple</span>
         </a>
       </div>
     </div>

@@ -56,6 +56,16 @@ export async function getAccessibleCalendarIds(
   return [...ownCalendars.map((c) => c.id), ...sharedCalendars.map((s) => s.calendarId)];
 }
 
+/** Ids of the (non-deleted) calendars `userId` owns, shares excluded. */
+export async function getOwnedCalendarIds(db: Database, userId: string): Promise<string[]> {
+  const { calendars } = schema;
+  const rows = await db
+    .select({ id: calendars.id })
+    .from(calendars)
+    .where(and(eq(calendars.ownerId, userId), isNull(calendars.deletedAt)));
+  return rows.map((r) => r.id);
+}
+
 /**
  * Narrow a caller-supplied `calendarIds` filter to the ones they may actually
  * read. Returns the full accessible set when no filter is given.

@@ -42,6 +42,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import {
   getAccessibleCalendarIds,
+  getCalendarAccess,
   resolveRequestedCalendarIds,
 } from '../../services/calendar-access';
 import {
@@ -110,9 +111,30 @@ const attendeesSchema = z.array(attendeeSchema).transform((list) => {
   });
 });
 
+/** True for an absolute http(s) URL. `new URL` alone also accepts `javascript:`, `data:` etc. */
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Join link of a video meeting. Only http(s): the link is rendered as a clickable
+ * button in the platform and in attendee mail, so `javascript:alert(1)` must not
+ * get through. An empty string is allowed: it is how a client clears the link.
+ */
+const meetingUrlSchema = z
+  .string()
+  .trim()
+  .refine((v) => v === '' || isHttpUrl(v), 'meetingUrl must be an http(s) URL');
+
 const createSchema = z.object({
   calendarId: z.string().min(1),
-  title: z.string().min(1).max(255),
+  // Trimmed first, so a title of only spaces is rejected like an empty one.
+  title: z.string().trim().min(1).max(255),
   description: z.string().optional(),
   type: z.enum(['meeting', 'call', 'appointment', 'event', 'reminder', 'other']).default('meeting'),
   startTime: z.string().min(1),
@@ -122,7 +144,7 @@ const createSchema = z.object({
   timezone: timeZoneSchema.optional(),
   location: z.string().optional(),
   isVirtual: z.boolean().optional(),
-  meetingUrl: z.string().optional(),
+  meetingUrl: meetingUrlSchema.optional(),
   status: z.enum(['confirmed', 'tentative', 'cancelled']).optional(),
   priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
   color: z.string().optional(),
@@ -145,29 +167,20 @@ const createSchema = z.object({
 });
 
 /**
- * `calendarId` and `recurrenceId` are deliberately NOT patchable — the legacy
- * route's explicit field whitelist (api-worker calendar/events.ts) assigns 20
- * named fields and neither of these is among them, so a patched `calendarId`
- * was silently ignored there.
+ * `recurrenceId` is deliberately NOT patchable (it links an occurrence to its
+ * series and has no edit flow); Zod strips the key, so `data` cannot carry it.
  *
- * Keeping them out matters beyond fidelity: PATCH validates access against the
- * event's EXISTING calendar, and `calendar_events.calendarId` has no FK (the
- * reference is a comment only). A writable `calendarId` would therefore let a
- * caller move an event into a calendar they were never checked against, or into
- * a non-existent one — and since every read path filters by
- * `getAccessibleCalendarIds()`, a bogus value would make the event invisible to
- * everyone, with no API route to recover it.
- *
- * Omitting (rather than filtering in the update loop below) makes this a
- * compile-time guarantee: Zod strips the keys, so `data` cannot carry them.
- * The WeldCalendar event dialog does send `calendarId` on edit — seeded from the
- * event's own calendar, so it is a no-op. Moving an event between calendars is
- * not a supported operation; it would need the same accessibility check POST
- * does, plus a product decision.
+ * `calendarId` IS patchable (move an event to another calendar), but only
+ * through the authorization in the PATCH handler: `calendar_events.calendarId`
+ * has no FK, so a blindly written value would let a caller move an event into a
+ * calendar they have no write access to, or into a non-existent one, which
+ * every read path (filtered by `getAccessibleCalendarIds()`) would then hide
+ * from everyone with no route to recover it. The handler requires write access
+ * (owner, or an edit/manage share) to both the current and the target calendar.
  */
 const updateSchema = createSchema
   .partial()
-  .omit({ calendarId: true, recurrenceId: true })
+  .omit({ recurrenceId: true })
   .extend({
     // A client clearing a field sends null; accept it instead of answering 400.
     tags: z.array(z.string()).nullable().optional(),
@@ -176,7 +189,7 @@ const updateSchema = createSchema
     description: z.string().nullable().optional(),
     customerId: z.string().nullable().optional(),
     contactId: z.string().nullable().optional(),
-    meetingUrl: z.string().nullable().optional(),
+    meetingUrl: meetingUrlSchema.nullable().optional(),
     timezone: timeZoneSchema.nullable().optional(),
   });
 
@@ -238,6 +251,11 @@ function timeRangeError(
   return ok ? null : 'endTime must be after startTime';
 }
 
+/** Owner, or a share that lets the caller edit; `null` is a missing/deleted/invisible calendar. */
+function canWrite(access: Awaited<ReturnType<typeof getCalendarAccess>>): boolean {
+  return !!access && (access.isOwn || access.permission === 'edit' || access.permission === 'manage');
+}
+
 const sameInstant = (a: Date | null | undefined, b: Date | null | undefined): boolean =>
   (a?.getTime() ?? null) === (b?.getTime() ?? null);
 
@@ -272,7 +290,7 @@ function queueMail(c: EventContext, opts: SendOptions): void {
   c.executionCtx.waitUntil(
     (async () => {
       const memberEmails =
-        opts.kind === 'cancel'
+        opts.kind === 'cancel' || opts.kind === 'removed'
           ? undefined
           : await getMemberEmails(db, opts.attendees.map((a) => a.email ?? ''));
       await sendCalendarEventEmails(c.env, { ...opts, memberEmails });
@@ -638,9 +656,10 @@ async function notifyAttendeesOfUpdate(
     sequence: nextIcsSequence(),
   });
 
-  // Removed attendees are told the event is no longer theirs.
+  // Removed attendees are told they were taken off the event; it is not
+  // cancelled, it carries on for everyone else.
   queueMail(c, {
-    kind: 'cancel',
+    kind: 'removed',
     organizer,
     attendees: removed,
     event: mailEventFromRow(existing),
@@ -682,6 +701,21 @@ app.patch('/:id', requirePermission('events:update'), zValidator('json', updateS
     const accessible = await getAccessibleCalendarIds(db, userId);
     if (!accessible.includes(existing.calendarId)) return error.notFound(c, 'Calendar event', id);
 
+    // Moving to another calendar needs write access to where the event is now
+    // AND where it is going; a missing or deleted target answers 403 like one
+    // the caller may not write to, so ids cannot be probed.
+    const movedTo =
+      data.calendarId !== undefined && data.calendarId !== existing.calendarId
+        ? data.calendarId
+        : undefined;
+    if (movedTo !== undefined) {
+      const [source, target] = await Promise.all([
+        getCalendarAccess(db, existing.calendarId, userId),
+        getCalendarAccess(db, movedTo, userId),
+      ]);
+      if (!canWrite(source) || !canWrite(target)) return error.forbidden(c);
+    }
+
     // Compare against the stored value of whichever bound the body leaves out.
     if (data.startTime !== undefined || data.endTime !== undefined) {
       const rangeError = timeRangeError(
@@ -704,10 +738,11 @@ app.patch('/:id', requirePermission('events:update'), zValidator('json', updateS
       data: {
         id,
         title: data.title ?? existing.title,
-        calendarId: existing.calendarId,
+        calendarId: movedTo ?? existing.calendarId,
         startAt: data.startTime ?? isoOrNull(existing.startTime),
         endAt: data.endTime ?? isoOrNull(existing.endTime),
       },
+      changes: movedTo ? { calendarId: { old: existing.calendarId, new: movedTo } } : null,
     });
 
     c.executionCtx.waitUntil(pushCalendarEventToGoogle(db, id, 'updated', { id, ...data }, c.env));

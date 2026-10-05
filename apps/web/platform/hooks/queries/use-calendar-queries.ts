@@ -87,8 +87,14 @@ export interface CalendarEvent {
  * Request body for creating / updating an event. `weldMeetingId` is not part of
  * the event itself: calendar-api uses it to link that WeldMeet meeting to the
  * event atomically, so it must never end up in a cached `CalendarEvent`.
+ *
+ * `location` also accepts `null`: on PATCH it is what clears the stored value
+ * (an omitted / undefined field is left untouched).
  */
-export type CalendarEventInput = Partial<CalendarEvent> & { weldMeetingId?: string };
+export type CalendarEventInput = Omit<Partial<CalendarEvent>, 'location'> & {
+  weldMeetingId?: string;
+  location?: string | null;
+};
 
 /**
  * `weldMeetingLinked` is only present when a `weldMeetingId` was sent;
@@ -110,16 +116,30 @@ export interface BookingPage {
   bufferAfter?: number;
   color?: string;
   isActive?: boolean;
-  locationType?: 'in-person' | 'phone' | 'video';
-  locationValue?: string;
+  /** `null` clears the stored value on update (PATCH skips `undefined`). */
+  locationType?: 'in-person' | 'phone' | 'video' | null;
+  locationValue?: string | null;
   availability: WeeklyAvailability;
   questions?: BookingQuestion[];
+  /** Minutes of notice a guest needs before a slot (API default 60). */
   minNotice?: number;
+  /** How many days ahead guests can book (API default 60). */
   maxAdvance?: number;
+  /** Per-date availability that replaces the weekly hours for that date. */
+  dateOverrides?: BookingDateOverride[] | null;
+  /** Cap on bookings per day; `null` or 0 = unlimited. */
+  maxBookingsPerDay?: number | null;
   confirmationMessage?: string;
   timezone?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** One date whose availability replaces the weekly hours. Empty `slots` = unavailable. */
+export interface BookingDateOverride {
+  /** YYYY-MM-DD in the page timezone. */
+  date: string;
+  slots: TimeRange[];
 }
 
 export interface WeeklyAvailability {
@@ -189,6 +209,7 @@ const bookingPageKeys = {
   list: () => [...bookingPageKeys.all, 'list'] as const,
   detail: (id: string) => [...bookingPageKeys.all, 'detail', id] as const,
   slots: (id: string, date: string) => [...bookingPageKeys.all, 'slots', id, date] as const,
+  deleteImpact: (id: string) => [...bookingPageKeys.all, 'delete-impact', id] as const,
 };
 
 // ── Helper ──────────────────────────────────────────────────────────────
@@ -491,6 +512,37 @@ export function useUpdateBookingPage() {
   });
 }
 
+/** How many upcoming bookings a booking page still has, shown before it is deleted. */
+export function useBookingPageDeleteImpact(id: string | null) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: bookingPageKeys.deleteImpact(id ?? ''),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: { upcomingBookingCount: number } }>(`/booking-pages/${id}/delete-impact`);
+    },
+    enabled: !!id,
+    // Bookings come in while the dialog is closed; always re-count when it opens.
+    staleTime: 0,
+    meta: { persist: false },
+  });
+}
+
+/** Flips a booking page between active and inactive (the public link stops working while inactive). */
+export function useToggleBookingPage() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.patch<{ data: { id: string; isActive: boolean } }>(`/booking-pages/${id}/toggle`, {});
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: bookingPageKeys.all });
+    },
+  });
+}
+
 export function useDeleteBookingPage() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -499,7 +551,9 @@ export function useDeleteBookingPage() {
       const client = await getClient();
       return client.delete<Record<string, never>>(`/booking-pages/${id}`);
     },
-    onSuccess: () => {
+    onSuccess: (_result, id) => {
+      // The page is gone: drop its cached detail so an open view does not refetch a 404.
+      qc.removeQueries({ queryKey: bookingPageKeys.detail(id) });
       qc.invalidateQueries({ queryKey: bookingPageKeys.all });
     },
   });

@@ -353,9 +353,14 @@ describe('attendees', () => {
     const bySubject = Object.fromEntries(sent.map((m) => [m.subject, m]));
     expect(bySubject['Event invitation: Planning'].to).toEqual(['new@example.com']);
     expect(bySubject['Event invitation: Planning'].html).toContain(`href="${MEETING_URL}"`);
-    const cancel = bySubject['Event cancelled: Planning'];
-    expect(cancel.to).toEqual(['gone@example.com']);
-    expect(cancel.attachments[0].content).toContain('METHOD:CANCEL');
+    // The guest who was taken off is told so; the event itself is not cancelled.
+    expect(bySubject['Event cancelled: Planning']).toBeUndefined();
+    const removed = bySubject['You were removed from: Planning'];
+    expect(removed.to).toEqual(['gone@example.com']);
+    expect(removed.html).toContain('removed you from an event');
+    expect(removed.html).not.toContain('has cancelled an event');
+    expect(removed.html).not.toContain(MEETING_URL);
+    expect(removed.attachments[0].content).toContain('METHOD:CANCEL');
     expect(await settle()).toHaveLength(2);
   });
 
@@ -546,5 +551,141 @@ describe('date-range overlap', () => {
     await seed(other, 'foreign', '2032-06-01T00:00:00Z', '2032-06-10T00:00:00Z');
     const res = await send(userId, 'GET', '?startDate=2032-06-03T00:00:00Z&endDate=2032-06-04T00:00:00Z');
     expect(((await res.json()) as { data: unknown[] }).data).toHaveLength(0);
+  });
+});
+
+describe('field validation (TASK-894)', () => {
+  it('rejects a non-http(s) meetingUrl on create and update, keeps http(s), clears on empty/null', async () => {
+    const userId = `user_url_${next()}`;
+    const calendarId = await seedCalendar(userId);
+    const body = { calendarId, title: 'Link', startTime: '2030-03-01T10:00:00.000Z' };
+
+    for (const bad of ['javascript:alert(1)', 'data:text/html,x', 'ftp://example.com/x', 'not a url']) {
+      expect((await send(userId, 'POST', '', { ...body, meetingUrl: bad })).status, bad).toBe(400);
+    }
+
+    const ok = await send(userId, 'POST', '', { ...body, meetingUrl: MEETING_URL });
+    expect(ok.status).toBe(201);
+    const id = ((await ok.json()) as { data: { id: string } }).data.id;
+
+    expect((await send(userId, 'PATCH', `/${id}`, { meetingUrl: 'javascript:alert(1)' })).status).toBe(400);
+    expect((await eventRow(id)).meetingUrl).toBe(MEETING_URL);
+
+    expect((await send(userId, 'PATCH', `/${id}`, { meetingUrl: 'http://example.com/room' })).status).toBe(200);
+    expect((await eventRow(id)).meetingUrl).toBe('http://example.com/room');
+
+    expect((await send(userId, 'PATCH', `/${id}`, { meetingUrl: '' })).status).toBe(200);
+    expect((await eventRow(id)).meetingUrl).toBeNull();
+
+    expect((await send(userId, 'PATCH', `/${id}`, { meetingUrl: MEETING_URL })).status).toBe(200);
+    expect((await send(userId, 'PATCH', `/${id}`, { meetingUrl: null })).status).toBe(200);
+    expect((await eventRow(id)).meetingUrl).toBeNull();
+  });
+
+  it('rejects a whitespace-only title on create and update and trims a padded one', async () => {
+    const userId = `user_title_${next()}`;
+    const calendarId = await seedCalendar(userId);
+    const body = { calendarId, startTime: '2030-03-01T10:00:00.000Z' };
+
+    expect((await send(userId, 'POST', '', { ...body, title: '   ' })).status).toBe(400);
+    expect((await send(userId, 'POST', '', { ...body, title: '' })).status).toBe(400);
+
+    const created = await send(userId, 'POST', '', { ...body, title: '  Standup  ' });
+    expect(created.status).toBe(201);
+    const id = ((await created.json()) as { data: { id: string } }).data.id;
+    expect((await eventRow(id)).title).toBe('Standup');
+
+    expect((await send(userId, 'PATCH', `/${id}`, { title: '   ' })).status).toBe(400);
+    expect((await eventRow(id)).title).toBe('Standup');
+  });
+
+  it('still accepts a recurrenceRule (WeldMail "add to calendar" and Google sync rely on it)', async () => {
+    const userId = `user_rrule_${next()}`;
+    const { id } = await createEvent(userId, { recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO' });
+    expect((await eventRow(id)).recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO');
+  });
+});
+
+describe('moving an event to another calendar (TASK-888)', () => {
+  async function share(calendarId: string, sharedWithId: string, permission: 'view' | 'edit' | 'manage') {
+    await db.insert(schema.calendarShares).values({
+      id: generateId('csh'),
+      calendarId,
+      sharedWithId,
+      permission,
+      sharedById: 'someone',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  it('moves the event between two calendars the caller owns', async () => {
+    const userId = `user_mv_${next()}`;
+    const { id } = await createEvent(userId);
+    const target = await seedCalendar(userId);
+
+    const res = await send(userId, 'PATCH', `/${id}`, { calendarId: target });
+    expect(res.status).toBe(200);
+    expect((await eventRow(id)).calendarId).toBe(target);
+    // It shows up in the target calendar's list now.
+    const list = await send(userId, 'GET', `?calendarIds=${target}`);
+    expect(((await list.json()) as { data: { id: string }[] }).data.map((e) => e.id)).toContain(id);
+  });
+
+  it("a PATCH carrying the event's own calendarId stays a no-op", async () => {
+    const userId = `user_mv_same_${next()}`;
+    const { id, calendarId } = await createEvent(userId);
+    expect((await send(userId, 'PATCH', `/${id}`, { calendarId, title: 'Renamed' })).status).toBe(200);
+    expect((await eventRow(id)).calendarId).toBe(calendarId);
+  });
+
+  it('allows a target the caller can edit through a share', async () => {
+    const userId = `user_mv_edit_${next()}`;
+    const { id } = await createEvent(userId);
+    const target = await seedCalendar(`user_mv_edit_owner_${next()}`);
+    await share(target, userId, 'edit');
+    expect((await send(userId, 'PATCH', `/${id}`, { calendarId: target })).status).toBe(200);
+    expect((await eventRow(id)).calendarId).toBe(target);
+  });
+
+  it('403 when the target is shared view-only', async () => {
+    const userId = `user_mv_view_${next()}`;
+    const { id, calendarId } = await createEvent(userId);
+    const target = await seedCalendar(`user_mv_view_owner_${next()}`);
+    await share(target, userId, 'view');
+    expect((await send(userId, 'PATCH', `/${id}`, { calendarId: target })).status).toBe(403);
+    expect((await eventRow(id)).calendarId).toBe(calendarId);
+  });
+
+  it('403 when the target belongs to someone else and is not shared', async () => {
+    const userId = `user_mv_foreign_${next()}`;
+    const { id, calendarId } = await createEvent(userId);
+    const target = await seedCalendar(`user_mv_foreign_owner_${next()}`);
+    expect((await send(userId, 'PATCH', `/${id}`, { calendarId: target })).status).toBe(403);
+    expect((await eventRow(id)).calendarId).toBe(calendarId);
+  });
+
+  it('403 for an unknown or deleted target calendar', async () => {
+    const userId = `user_mv_unknown_${next()}`;
+    const { id, calendarId } = await createEvent(userId);
+    expect((await send(userId, 'PATCH', `/${id}`, { calendarId: 'cal_does_not_exist' })).status).toBe(403);
+
+    const deleted = await seedCalendar(userId);
+    await db
+      .update(schema.calendars)
+      .set({ deletedAt: new Date() })
+      .where(eq(schema.calendars.id, deleted));
+    expect((await send(userId, 'PATCH', `/${id}`, { calendarId: deleted })).status).toBe(403);
+    expect((await eventRow(id)).calendarId).toBe(calendarId);
+  });
+
+  it("403 when the caller may only view the event's current calendar", async () => {
+    const ownerId = `user_mv_src_owner_${next()}`;
+    const viewerId = `user_mv_src_viewer_${next()}`;
+    const { id, calendarId } = await createEvent(ownerId);
+    await share(calendarId, viewerId, 'view');
+    const viewerOwn = await seedCalendar(viewerId);
+    expect((await send(viewerId, 'PATCH', `/${id}`, { calendarId: viewerOwn })).status).toBe(403);
+    expect((await eventRow(id)).calendarId).toBe(calendarId);
   });
 });

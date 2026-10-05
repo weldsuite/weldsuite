@@ -9,6 +9,7 @@ import {
   nextIcsSequence,
   renderCalendarCancelEmail,
   renderCalendarInviteEmail,
+  renderCalendarRemovedEmail,
   renderCalendarRescheduleEmail,
   renderCalendarText,
   sendCalendarEventEmails,
@@ -126,6 +127,18 @@ describe('calendar mail HTML', () => {
     expect(html).not.toContain('app.weldsuite.org');
   });
 
+  it('removed mail says "removed you", never "cancelled", and has no join or app button', () => {
+    const html = renderCalendarRemovedEmail({ ...base, eventUrl: APP_LINK });
+    expect(html).toContain('removed you from an event');
+    expect(html).toContain('Removed from event');
+    expect(html).not.toContain('cancelled');
+    expect(html).not.toContain('Cancelled');
+    expect(html).not.toContain('Join');
+    expect(html).not.toContain(MEETING_URL);
+    expect(html).not.toContain('app.weldsuite.org');
+    expect(html).toContain('11:00 PM GMT+2');
+  });
+
   it('escapes HTML in titles and the meeting URL', () => {
     const html = renderCalendarInviteEmail({
       ...base,
@@ -142,6 +155,14 @@ describe('calendar mail HTML', () => {
     expect(text).toContain('11:00 PM GMT+2');
     expect(text).not.toContain('weldcalendar');
     expect(renderCalendarText('cancel', base)).not.toContain(MEETING_URL);
+  });
+
+  it('removed text body reads "removed you from an event" and omits the join URL', () => {
+    const text = renderCalendarText('removed', { ...base, eventUrl: APP_LINK });
+    expect(text).toContain('Gert removed you from an event:');
+    expect(text).not.toContain('cancelled');
+    expect(text).not.toContain(MEETING_URL);
+    expect(text).not.toContain('weldcalendar');
   });
 });
 
@@ -368,6 +389,39 @@ describe('sendCalendarEventEmails', () => {
     expect(sent[0].html).not.toContain(MEETING_URL);
     expect(sent[0].html).not.toContain('app.weldsuite.org');
     expect(ics).not.toContain(MEETING_URL);
+  });
+
+  it('removed: its own subject and copy, but still an .ics METHOD:CANCEL that supersedes earlier revisions', async () => {
+    const sent = stubResend();
+    await sendCalendarEventEmails(env, {
+      kind: 'removed',
+      organizer,
+      event,
+      attendees: [{ email: 'guest@example.com' }],
+      memberEmails: new Set(['guest@example.com']),
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].subject).toBe('You were removed from: Planning');
+    expect(sent[0].html).toContain('removed you from an event');
+    expect(sent[0].html).not.toContain('has cancelled an event');
+    expect(sent[0].html).not.toContain(MEETING_URL);
+    expect(sent[0].html).not.toContain('app.weldsuite.org');
+    expect(sent[0].text).toContain('removed you from an event');
+    const ics = sent[0].attachments[0].content;
+    expect(ics).toContain('METHOD:CANCEL');
+    expect(ics).toContain('STATUS:CANCELLED');
+    expect(ics).not.toContain(MEETING_URL);
+    expect(Number(/SEQUENCE:(\d+)/.exec(ics)?.[1])).toBeGreaterThan(0);
+  });
+
+  it('removed ignores the Resend cancel template so the wording stays correct', async () => {
+    const sent = stubResend();
+    await sendCalendarEventEmails(
+      { ...env, RESEND_MEETING_CANCEL_TEMPLATE_ID: 'tpl_cancel' } as unknown as Env,
+      { kind: 'removed', organizer, event, attendees: [{ email: 'guest@example.com' }] },
+    );
+    expect(sent[0].html).toContain('removed you from an event');
+    expect(JSON.stringify(sent[0])).not.toContain('tpl_cancel');
   });
 
   it('a bad event time is logged per recipient and never throws', async () => {

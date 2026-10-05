@@ -4,6 +4,8 @@ import { getTranslations } from '@/lib/i18n';
 import type { CalendarEvent } from '@/hooks/queries/use-calendar-queries';
 import { EVENT_TYPE_COLORS } from '../lib/event-form-schema';
 import { formatClock, formatClockRange, type TimeFormat } from '../lib/calendar-format';
+import { eventStatusKind, statusDotStyle, statusRowClass, statusTitleClass } from '../lib/event-status';
+import { cn } from '@/lib/utils';
 
 interface CalendarSearchResultsProps {
   results: CalendarEvent[];
@@ -62,27 +64,45 @@ export function CalendarSearchResults({
 
   return (
     <ul className="flex-1 min-h-0 overflow-y-auto divide-y" aria-busy={isSearching}>
-      {results.map((evt) => (
-        <li key={evt.id ?? `${evt.title}-${String(evt.startTime)}`}>
-          <button
-            type="button"
-            onClick={() => onSelect(evt)}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:bg-accent/50"
-          >
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: resultColor(evt, calendarColorMap) }}
-              aria-hidden="true"
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{evt.title || t.calendarView.untitled}</span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {resultWhen(evt, timeFormat, t.calendarView.allDay)}
+      {results.map((evt) => {
+        const kind = eventStatusKind(evt);
+        const statusLabel =
+          kind === 'cancelled'
+            ? t.calendarView.filterStatusCancelled
+            : kind === 'tentative'
+              ? t.calendarView.filterStatusTentative
+              : null;
+        return (
+          <li key={evt.id ?? `${evt.title}-${String(evt.startTime)}`}>
+            <button
+              type="button"
+              onClick={() => onSelect(evt)}
+              data-status={statusLabel ? kind : undefined}
+              className={cn(
+                'flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:bg-accent/50',
+                statusRowClass(kind),
+              )}
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={statusDotStyle(kind, resultColor(evt, calendarColorMap))}
+                aria-hidden="true"
+              />
+              <span className="min-w-0 flex-1">
+                <span className={cn('block truncate text-sm font-medium', statusTitleClass(kind))}>
+                  {evt.title || t.calendarView.untitled}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {resultWhen(evt, timeFormat, t.calendarView.allDay)}
+                </span>
               </span>
-            </span>
-          </button>
-        </li>
-      ))}
+              {statusLabel ? (
+                <span className="shrink-0 text-xs text-muted-foreground">{statusLabel}</span>
+              ) : null}
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }

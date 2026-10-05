@@ -16,14 +16,14 @@ import {
   isToday,
   differenceInMinutes,
 } from 'date-fns';
-import { defaultQuickCreateRange, defaultRangeForDay, normalizeQuickCreateRange, resolveQuickCreateTimes, resolveTaskSlot, shiftEndDate } from './quick-create-dates';
+import { defaultQuickCreateRange, defaultRangeForDay, normalizeQuickCreateRange, resolveQuickCreateTimes, resolveTaskSlot, shiftEndDate, shiftEndForStartTime } from './quick-create-dates';
 import { useDismissOnOutsideMouseDown } from './quick-create-dismiss';
 import { setQuickCreatePreviewTitle, useQuickCreatePreviewTitle } from './quick-create-preview-store';
 import { inviteEmailFromQuery } from './guest-invite';
 import { Mail } from 'lucide-react';
 import { placeCardNearAnchor } from '../lib/popover-position';
 import { WEEK_STARTS_ON, formatClock, useTimeFormat, type TimeFormat } from '../lib/calendar-format';
-import { ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Paperclip, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import {
   DropdownMenu,
@@ -52,7 +52,10 @@ import {
   timedEventsForDay,
   type TimedSegment,
 } from '../lib/event-days';
-import { formatEventTimeRange, formatScheduleTime, getDateGroup } from '../lib/schedule';
+import { formatEventTimeRange, formatScheduleDateLabel, formatScheduleTime, getDateGroup } from '../lib/schedule';
+import { bucketMonthEvents, dragDeltaDays, shiftEventByDays } from '../lib/month-events';
+import { layoutDayTimedEvents, timedBlockHorizontalStyle, timedBlockRange, MIN_BLOCK_PX, type TimedPlacement } from '../lib/timed-layout';
+import { eventStatusKind, statusDotStyle, statusRowClass, statusSurfaceClass, statusSurfaceStyle, statusTitleClass } from '../lib/event-status';
 import { buildMonthGrid, orderWeekdays } from '../lib/week-grid';
 import {
   Select,
@@ -94,7 +97,16 @@ import {
   type CalendarEventSaveResult,
   type UserCalendar,
 } from '@/hooks/queries/use-calendar-queries';
-import { EVENT_TYPE_COLORS, EVENT_TYPE_OPTIONS, EVENT_PRIORITY_OPTIONS } from '../lib/event-form-schema';
+import {
+  EVENT_TYPE_COLORS,
+  getEventPriorityLabels,
+  getEventPriorityOptions,
+  getEventStatusLabels,
+  getEventStatusOptions,
+  getEventTypeLabels,
+  getEventTypeOptions,
+  labelFor,
+} from '../lib/event-form-schema';
 import { applyEventFilters, matchesEventSearch, mergeSearchResults } from '../lib/event-filters';
 import { formatEventWhen } from '../lib/event-when';
 import { getCurrentSlot, getNotifiableGuests, isSameSlot } from '../lib/event-reschedule';
@@ -123,7 +135,13 @@ import { EventNotificationDialog } from './event-notification-dialog';
 import { useEventDrag } from '../hooks/use-event-drag';
 import { useEventResize } from '../hooks/use-event-resize';
 import { toast } from 'sonner';
-import { getCalendarDateRange, type CalendarView as View } from '../lib/date-range';
+import {
+  getCalendarDateRange,
+  getMobileMonthListRange,
+  MOBILE_MONTHS_BACK,
+  MOBILE_MONTHS_FORWARD,
+  type CalendarView as View,
+} from '../lib/date-range';
 
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -526,7 +544,13 @@ export function CalendarView() {
     const now = Date.now();
     return now >= new Date(dateRange.start).getTime() && now < new Date(dateRange.end).getTime();
   }, [dateRange]);
-  const { data: eventsData } = useCalendarEventsRange(dateRange.start, dateRange.end, calendarIdsParam);
+  // The mobile Month view is a scrolling list of months around today, so its
+  // event dots need more than the one month grid `dateRange` covers.
+  const fetchRange = useMemo(
+    () => (isMobile && foldViewForMobile(currentView) === 'month' ? getMobileMonthListRange(new Date()) : dateRange),
+    [isMobile, currentView, dateRange],
+  );
+  const { data: eventsData } = useCalendarEventsRange(fetchRange.start, fetchRange.end, calendarIdsParam);
   const events = useMemo(() => eventsData?.data || [], [eventsData]);
 
   // Keep `selectedEvent` (the panel's data source) in sync with the refreshed
@@ -623,8 +647,12 @@ export function CalendarView() {
       if (!wasDrag) return;
     }
     setSelectedEvent(null);
-    const s = start || getNextFullHour();
-    const e = end || new Date(s.getTime() + 60 * 60 * 1000);
+    // Without a chosen slot: the next full hour when today is on screen, else
+    // the day being viewed at 09:00 (a "New event" on another week must not
+    // land on today).
+    const viewedSlot = !start && !isTodayInView ? defaultRangeForDay(currentDate) : null;
+    const s = start || viewedSlot?.start || getNextFullHour();
+    const e = end || viewedSlot?.end || new Date(s.getTime() + 60 * 60 * 1000);
     setDefaultStart(s);
     setDefaultEnd(e);
     setDefaultEventType(type || 'event');
@@ -636,7 +664,7 @@ export function CalendarView() {
       : computeQuickCreatePosForToolbar(s, e);
     if (pos) setQuickCreatePos(pos);
     setQuickCreateOpen(true);
-  }, [currentView, closeObjectPanels]);
+  }, [currentView, closeObjectPanels, isTodayInView, currentDate]);
 
   // Drag the unsaved preview card to reschedule. While dragging, the popover
   // hides; on release, defaultStart/defaultEnd are updated and the popover
@@ -1331,7 +1359,8 @@ function CalendarBody({
           events={timeGrid.events}
           calendarColorMap={timeGrid.calendarColorMap}
           onSelectEvent={timeGrid.onSelectEvent}
-          onSelectDay={onSelectDay}
+          // Tapping a day opens that day's own view, where its events are listed.
+          onSelectDay={onShowDay}
         />
       );
     }
@@ -1358,7 +1387,8 @@ function CalendarBody({
   return <DesktopView {...timeGrid} />;
 }
 
-type GuestEntry = { id: string; name: string; email: string };
+/** `userId` is set for workspace members (what a task assignment needs); `id` is the picker's own key. */
+type GuestEntry = { id: string; name: string; email: string; userId?: string };
 
 type MeetingSettings = WeldMeetSettings;
 
@@ -1477,6 +1507,7 @@ function PeopleRow({
   isActive,
   emptyLabel,
   allowInvite = true,
+  membersOnly = false,
   search,
   onSearchChange,
   onActivate,
@@ -1489,6 +1520,8 @@ function PeopleRow({
   emptyLabel: string;
   /** Guests: a typed email address can be invited. Assignees: members / contacts only. */
   allowInvite?: boolean;
+  /** Assignees: only workspace members can be picked (a task is assigned to a user). */
+  membersOnly?: boolean;
   search: string;
   onSearchChange: (value: string) => void;
   onActivate: () => void;
@@ -1496,6 +1529,7 @@ function PeopleRow({
   onAdd: (guest: GuestEntry) => void;
   onRemove: (id: string) => void;
 }) {
+  const t = getTranslations('weldcalendar');
   if (people.length === 0 && !isActive) {
     return (
       <div
@@ -1538,6 +1572,7 @@ function PeopleRow({
                 variant="ghost"
                 size="icon"
                 className="h-5 w-5 rounded-[5.5px] hover:bg-muted flex items-center justify-center shrink-0"
+                aria-label={t.quickCreate.removeGuest.replace('{name}', g.name || g.email)}
                 onClick={(e) => { e.stopPropagation(); onRemove(g.id); }}
               >
                 <X className="h-3 w-3 text-muted-foreground" />
@@ -1551,6 +1586,7 @@ function PeopleRow({
               selectedIds={people.map((g) => g.id)}
               selectedEmails={people.map((g) => g.email)}
               allowInvite={allowInvite}
+              membersOnly={membersOnly}
               onSelect={onAdd}
               onBlurAway={onDeactivate}
             />
@@ -2059,6 +2095,19 @@ export function QuickCreateCard({
     setEndDate((end) => shiftEndDate(startDate, next, end));
     setStartDate(next);
   };
+  // Moving the start time moves the end time along too (00:00 - 01:00 -> 14:00
+  // - 15:00), so changing it never turns the event into an overnight one.
+  const handleStartTimeChange = (next: string) => {
+    if (!allDay) {
+      const shifted = shiftEndForStartTime(
+        { startDate, startTime: startTimeVal, endDate, endTime: endTimeVal },
+        next,
+      );
+      setEndDate(shifted.endDate);
+      setEndTimeVal(shifted.endTime);
+    }
+    setStartTimeVal(next);
+  };
   // What is saved: an end at or before the start (23:00 - 00:00 on one date)
   // rolls to the next day, so the card shows and sends the same end.
   const effectiveRange = normalizeQuickCreateRange(
@@ -2189,11 +2238,15 @@ export function QuickCreateCard({
         ? slot.start
         : new Date(taskDueDate.getFullYear(), taskDueDate.getMonth(), taskDueDate.getDate())
       : undefined;
+    // Tasks are assigned to users: the members' user ids (flow-api keeps the
+    // first as the primary assignee). The picker only offers members.
+    const assigneeIds = taskAssignees.flatMap((a) => (a.userId ? [a.userId] : []));
     const result = await createTask.mutateAsync({
       title: finalTitle,
       description: description.trim() || undefined,
       status: taskStatus,
       priority: taskPriority || undefined,
+      assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
       dueDate,
       startDate: slot?.start,
       duration: slot?.durationMinutes ?? undefined,
@@ -2424,6 +2477,7 @@ export function QuickCreateCard({
               isActive={activeField === 'assignee'}
               emptyLabel={t.quickCreate.assigneeLabel}
               allowInvite={false}
+              membersOnly
               search={taskAssigneeSearch}
               onSearchChange={setTaskAssigneeSearch}
               onActivate={() => setActiveField('assignee')}
@@ -2456,12 +2510,6 @@ export function QuickCreateCard({
               onDeactivate={() => setActiveField(null)}
               onChange={setDescription}
             />
-
-            {/* Task: Attachment row */}
-            <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors">
-              <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.addAttachment}</span>
-            </div>
           </>
         ) : (
           <>
@@ -2477,7 +2525,7 @@ export function QuickCreateCard({
               endTime={endTimeVal}
               onStartDateChange={handleStartDateChange}
               onEndDateChange={setEndDate}
-              onStartTimeChange={setStartTimeVal}
+              onStartTimeChange={handleStartTimeChange}
               onEndTimeChange={setEndTimeVal}
             />
 
@@ -2580,6 +2628,8 @@ export function QuickCreateCard({
 // Month View
 // ============================================================================
 
+const NO_MONTH_ENTRIES: readonly { event: CalendarEvent }[] = [];
+
 function MonthView({
   currentDate,
   events,
@@ -2633,16 +2683,13 @@ function MonthView({
   }, [weekCount]);
   const chipCapacity = rowHeight === null ? MONTH_DEFAULT_CAPACITY : monthCellCapacity(rowHeight);
 
-  // Group events by day
-  const eventsByDay = useMemo(() => {
-    const map: Record<string, CalendarEvent[]> = {};
-    for (const evt of events) {
-      const key = format(new Date(evt.startTime), 'yyyy-MM-dd');
-      if (!map[key]) map[key] = [];
-      map[key].push(evt);
-    }
-    return map;
-  }, [events]);
+  // Group events by day. All-day and 24h+ events appear on every day they
+  // cover (also on grid days that come after a start before the grid); other
+  // events appear once, on their start day.
+  const eventsByDay = useMemo(
+    () => bucketMonthEvents(events, weeks[0][0], weeks[weeks.length - 1][6]),
+    [events, weeks],
+  );
 
   // Drag-and-drop state
   const [dragEvent, setDragEvent] = useState<CalendarEvent | null>(null);
@@ -2664,15 +2711,14 @@ function MonthView({
     };
     const handleMouseUp = () => {
       if (dragRef.current && dragOverDate && dragOverDate !== dragRef.current.originDate) {
+        // Move by the whole days between the chip's grabbed day and the drop
+        // day, so a multi-day event grabbed on a continuation day shifts by
+        // the distance dragged rather than snapping its start to the drop day.
         const evt = dragRef.current.event;
-        const oldStart = new Date(evt.startTime);
-        const newDay = new Date(dragOverDate + 'T00:00:00');
-        const newStart = new Date(newDay);
-        newStart.setHours(oldStart.getHours(), oldStart.getMinutes(), oldStart.getSeconds());
-        const duration = evt.endTime
-          ? new Date(evt.endTime).getTime() - oldStart.getTime()
-          : 60 * 60 * 1000;
-        const newEnd = new Date(newStart.getTime() + duration);
+        const { start: newStart, end: newEnd } = shiftEventByDays(
+          evt,
+          dragDeltaDays(dragRef.current.originDate, dragOverDate),
+        );
         onEventDrop(evt, newStart, newEnd);
       }
       justDraggedRef.current = true;
@@ -2716,21 +2762,23 @@ function MonthView({
     };
   });
 
-  const handleEventDragStart = useCallback((evt: CalendarEvent, e: React.MouseEvent) => {
+  // `originDate` is the day cell the chip was grabbed in (a multi-day event has
+  // a chip on each day it covers, so it is not always the start day).
+  const handleEventDragStart = useCallback((evt: CalendarEvent, originDate: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const originDate = format(new Date(evt.startTime), 'yyyy-MM-dd');
     dragRef.current = { event: evt, originDate, startX: e.clientX, startY: e.clientY };
     pendingDragRef.current = true;
   }, []);
 
   // Event chips (plus the "+N more" line) of one day cell. `reserved` is the
   // number of slots taken by the quick-create preview / drag ghost.
-  const renderDayEventChips = (day: Date, dayEvents: CalendarEvent[], reserved: number) => {
+  const renderDayEventChips = (day: Date, dayEvents: readonly { event: CalendarEvent }[], reserved: number) => {
     const { visible, hidden } = splitMonthCellEvents(dayEvents.length, chipCapacity, reserved);
+    const dayKeyStr = format(day, 'yyyy-MM-dd');
     return (
       <>
-        {dayEvents.slice(0, visible).map((evt, ei) => {
+        {dayEvents.slice(0, visible).map(({ event: evt }, ei) => {
           const isEventSelected = selectedEventId === evt.id;
           const isDragging = dragEvent?.id === evt.id;
           return (
@@ -2739,6 +2787,7 @@ function MonthView({
               color={getEventColor(evt, calendarColorMap)}
               time={monthChipTime(evt, timeFormat)}
               title={evt.title}
+              status={evt.status}
               autoScheduled={evt.autoScheduled === true}
               autoScheduledLabel={t.viewExtras.autoScheduled}
               className={cn(
@@ -2746,7 +2795,7 @@ function MonthView({
                 isDragging && "opacity-40 pointer-events-none",
               )}
               style={{ cursor: 'grab' }}
-              onMouseDown={(e) => handleEventDragStart(evt, e)}
+              onMouseDown={(e) => handleEventDragStart(evt, dayKeyStr, e)}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!dragEvent && !justDraggedRef.current) onSelectEvent(evt, e);
@@ -2800,7 +2849,7 @@ function MonthView({
           <div key={wi} className="grid grid-cols-7 grid-rows-1 min-h-0 border-b last:border-b-0 overflow-hidden">
             {week.map((day) => {
               const key = format(day, 'yyyy-MM-dd');
-              const dayEvents = eventsByDay[key] || [];
+              const dayEvents = eventsByDay.get(key) ?? NO_MONTH_ENTRIES;
               const isCurrentMonth = isSameMonth(day, currentDate);
               const today = isToday(day);
 
@@ -3141,12 +3190,16 @@ function MobileWeekTimelineView(props: {
 function MobileMonthBlock({
   month,
   currentDate,
+  eventCounts,
   onSelectDay,
 }: {
   month: Date;
   currentDate: Date;
+  /** Events per `yyyy-MM-dd`; a day with at least one gets a dot. */
+  eventCounts: ReadonlyMap<string, number>;
   onSelectDay: (d: Date) => void;
 }) {
+  const t = getTranslations('weldcalendar');
   const weeks = useMemo(() => buildMonthGrid(month), [month]);
   const monthKey = format(month, 'yyyy-MM');
 
@@ -3170,13 +3223,17 @@ function MobileMonthBlock({
               }
               const today = isToday(day);
               const selected = isSameDay(day, currentDate);
+              const count = eventCounts.get(localDayKey(day)) ?? 0;
               return (
                 <Button
                   variant="ghost"
                   key={format(day, 'yyyy-MM-dd')}
                   type="button"
                   onClick={() => onSelectDay(day)}
-                  className="h-12 flex items-start justify-center pt-1.5 focus:outline-none"
+                  aria-label={count > 0
+                    ? `${format(day, 'EEEE, MMMM d')}, ${count === 1 ? t.viewExtras.oneEvent : t.viewExtras.manyEvents.replace('{count}', String(count))}`
+                    : undefined}
+                  className="relative h-12 flex items-start justify-center pt-1.5 focus:outline-none"
                 >
                   <span
                     className={cn(
@@ -3190,6 +3247,13 @@ function MobileMonthBlock({
                   >
                     <span className="translate-y-px">{format(day, 'd')}</span>
                   </span>
+                  {count > 0 && (
+                    <span
+                      data-event-dot
+                      aria-hidden
+                      className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-muted-foreground"
+                    />
+                  )}
                 </Button>
               );
             })}
@@ -3210,22 +3274,27 @@ function weekdayInitials(): string[] {
 
 function MobileMonthView({
   currentDate,
+  events,
   onSelectDay,
 }: {
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
   onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  /** Called with the tapped day; the parent opens that day's view. */
   onSelectDay: (d: Date) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // One pass over the events (multi-day ones count on each day they cover);
+  // every month block looks its days up in this map.
+  const eventCounts = useMemo(() => countEventsByDay(events), [events]);
 
   // A fixed window of months around "now" — frozen at mount so updates to
   // `currentDate` (tapping a date in the scroll) don't shift the list.
   const months = useMemo(() => {
     const anchor = startOfMonth(new Date());
     const list: Date[] = [];
-    for (let i = -12; i <= 24; i++) list.push(addMonths(anchor, i));
+    for (let i = -MOBILE_MONTHS_BACK; i <= MOBILE_MONTHS_FORWARD; i++) list.push(addMonths(anchor, i));
     return list;
   }, []);
 
@@ -3266,6 +3335,7 @@ function MobileMonthView({
             key={format(m, 'yyyy-MM')}
             month={m}
             currentDate={currentDate}
+            eventCounts={eventCounts}
             onSelectDay={onSelectDay}
           />
         ))}
@@ -3375,6 +3445,7 @@ function WeekView({
             const dayKey = format(day, 'yyyy-MM-dd');
             const today = isToday(day);
             const dayEvents = timedEventsForDay(events, day);
+            const placements = layoutDayTimedEvents(dayEvents, hourHeight);
 
             return (
               <div key={dayKey} data-day-col={dayKey} className={cn(
@@ -3411,6 +3482,7 @@ function WeekView({
                       key={evt.id || i}
                       event={evt}
                       segment={segment}
+                      placement={placements[i]}
                       color={getEventColor(evt, calendarColorMap)}
                       onClick={(e) => { if (!dragState && !isSlotDragging && !isResizing && !justDraggedRef.current && !justResizedRef.current) onSelectEvent(evt, e); }}
                       hourHeight={hourHeight}
@@ -3520,6 +3592,7 @@ function DayView({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const hourHeight = useFittedHourHeight(containerRef);
+  const placements = layoutDayTimedEvents(dayEvents, hourHeight);
 
   const { handleCellMouseDown, isSlotDragging, slotSelection } = useSlotDrag({
     hourHeight,
@@ -3584,6 +3657,7 @@ function DayView({
                 key={evt.id || i}
                 event={evt}
                 segment={segment}
+                placement={placements[i]}
                 color={getEventColor(evt, calendarColorMap)}
                 onClick={(e) => { if (!dragState && !isSlotDragging && !isDayResizing && !justDraggedRef.current && !justDayResizedRef.current) onSelectEvent(evt, e); }}
                 hourHeight={hourHeight}
@@ -3660,10 +3734,13 @@ function TimeSlotEvent({
   onResizeTopStart,
   onResizeBottomStart,
   dimmed,
+  placement,
 }: {
   event: CalendarEvent;
   /** The part of the event on this day's column; omit to draw it from its own start. */
   segment?: TimedSegment;
+  /** Column inside a cluster of overlapping events; omit for the full column width. */
+  placement?: TimedPlacement;
   color: string;
   onClick: (e: React.MouseEvent) => void;
   hourHeight?: number;
@@ -3679,9 +3756,7 @@ function TimeSlotEvent({
   const eventEnd = event.endTime ? new Date(event.endTime) : new Date(eventStart.getTime() + 60 * 60 * 1000);
   // Position comes from the segment (clipped to this day) when the event spans
   // midnight, otherwise from the event itself.
-  const clipped = segment && (segment.continuesBefore || segment.continuesAfter) ? segment : null;
-  const startDate = clipped ? clipped.start : eventStart;
-  const endDate = clipped ? clipped.end : eventEnd;
+  const { start: startDate, end: endDate } = timedBlockRange(event, segment);
   const startHour = startDate.getHours() + startDate.getMinutes() / 60;
   const duration = differenceInMinutes(endDate, startDate);
   const topPx = startHour * hourHeight;
@@ -3701,18 +3776,36 @@ function TimeSlotEvent({
   const isAutoScheduled = event.autoScheduled === true;
   const isPinned = event.autoScheduled === false && (event.sourceType === 'task' || event.sourceType === 'activity');
 
+  const statusKind = eventStatusKind(event);
+  const statusLabel =
+    statusKind === 'cancelled'
+      ? t.calendarView.filterStatusCancelled
+      : statusKind === 'tentative'
+        ? t.calendarView.filterStatusTentative
+        : undefined;
+  // Overlapping events share the column width; a lone event keeps all of it
+  // (3px gutters either side).
+  const horizontal = timedBlockHorizontalStyle(placement ?? { column: 0, columnCount: 1 });
+  const narrow = placement !== undefined && placement.columnCount > 1;
+
   return (
     <div
       role="presentation"
+      title={statusLabel}
+      data-status={statusLabel ? statusKind : undefined}
       className={cn(
-        "absolute left-[3px] right-[3px] rounded-[6px] px-2.5 py-1.5 text-white text-[12px] leading-tight overflow-hidden hover:brightness-95 transition-[filter,opacity] z-[2] border border-white/10 text-left items-start justify-start select-none group/event",
+        "absolute rounded-[6px] py-1.5 text-white text-[12px] leading-tight overflow-hidden hover:brightness-95 transition-[filter,opacity] z-[2] hover:z-[3] border border-white/10 text-left items-start justify-start select-none group/event",
+        narrow ? "px-1.5" : "px-2.5",
+        statusSurfaceClass(statusKind),
         dimmed && "opacity-40 pointer-events-none",
       )}
       style={{
         backgroundColor: color,
+        ...statusSurfaceStyle(statusKind),
+        ...horizontal,
         top: `${topPx}px`,
         height: `${heightPx}px`,
-        minHeight: '22px',
+        minHeight: `${MIN_BLOCK_PX}px`,
         cursor: 'pointer',
       }}
       onMouseDown={(e) => {
@@ -3784,9 +3877,9 @@ function TimeSlotEvent({
           <Pin className="h-2.5 w-2.5 text-white" />
         </span>
       )}
-      <span className="font-semibold truncate block pr-4">{event.title}</span>
+      <span className={cn("font-semibold truncate block pr-4", statusTitleClass(statusKind))}>{event.title}</span>
       {heightPx > 30 && (
-        <span className="text-white/70 text-[12px] block mt-[3px]">
+        <span className="text-white/70 text-[12px] block mt-[3px] truncate">
           {formatEventTimeRange(eventStart, eventEnd, timeFormat)}
         </span>
       )}
@@ -3950,7 +4043,10 @@ function WeldMeetIcon({ className }: { className?: string }) {
 // same layout CRM/Flow object panels use.
 // ============================================================================
 
-function EventDetailPanel({
+/** An attendee as the panel sends it to the API (status / role stay as stored server-side). */
+type EventAttendeeInput = { email: string; name?: string };
+
+export function EventDetailPanel({
   event,
   isOpen,
   calendars,
@@ -3971,8 +4067,16 @@ function EventDetailPanel({
   const timeFormat = useTimeFormat();
   const deleteEvent = useDeleteCalendarEvent();
   const updateEvent = useUpdateCalendarEvent();
-  const { createMeetingAndGetUrl, isPending: isCreatingMeeting } = useAutoCreateWeldMeeting();
+  const { saveEventWithWeldMeet } = useAutoCreateWeldMeeting();
+  // Guests: "notify" dialog. Guestless: a plain confirmation.
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Guest the user is about to remove (asks whether to notify first).
+  const [guestToRemove, setGuestToRemove] = useState<{ name: string; next: EventAttendeeInput[] } | null>(null);
+  const [isCreatingMeeting, setIsCreatingMeeting] = useState(false);
+  const creatingMeetingRef = useRef(false);
+  // The selector popovers close as soon as a value is picked.
+  const [openSelector, setOpenSelector] = useState<'type' | 'calendar' | 'priority' | 'status' | null>(null);
 
   // Resolve the ModuleContent aside portal target. Layout mounts first, so
   // this is usually available on the first layout effect; we still re-check
@@ -4024,8 +4128,16 @@ function EventDetailPanel({
       return;
     }
     setTitleDraft(next);
-    updateEvent.mutate({ id: event.id, data: { title: next } });
-  }, [event, titleDraft, updateEvent]);
+    updateEvent.mutate(
+      { id: event.id, data: { title: next } },
+      {
+        onError: () => {
+          setTitleDraft(event.title);
+          toast.error(t.eventPreview.updateFailed);
+        },
+      },
+    );
+  }, [event, titleDraft, updateEvent, t.eventPreview.updateFailed]);
 
   // Description: same optimistic-edit pattern as the title — click to enter
   // edit mode, Enter or blur to commit, Escape to cancel. Mirrors the task
@@ -4035,7 +4147,10 @@ function EventDetailPanel({
   // false) doesn't immediately clobber the typed text with the stale prop.
   const [descriptionDraft, setDescriptionDraft] = useState(event?.description ?? '');
   const [isEditingDescription, setIsEditingDescription] = useState(false);
-  const descriptionRef = useRef<HTMLDivElement>(null);
+  // A textarea (not a contentEditable): Enter then yields real "\n"s, where a
+  // contentEditable's `<div>` per line flattens to "First lineSecond line".
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const skipDescriptionSaveRef = useRef(false);
   const isEditingDescriptionRef = useRef(isEditingDescription);
   useEffect(() => { isEditingDescriptionRef.current = isEditingDescription; }, [isEditingDescription]);
   useEffect(() => {
@@ -4043,34 +4158,50 @@ function EventDetailPanel({
     setDescriptionDraft(event?.description ?? '');
   }, [event?.description]);
 
-  // Seed the editor and place caret at end the moment we flip into edit mode.
+  // Focus and put the caret at the end the moment we flip into edit mode.
   // useLayoutEffect runs synchronously after DOM commit so the caret lands on
   // the user's first click — no need to click twice to start typing.
   useLayoutEffect(() => {
     if (!isEditingDescription) return;
     const el = descriptionRef.current;
     if (!el) return;
-    el.textContent = descriptionDraft;
     el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    el.setSelectionRange(el.value.length, el.value.length);
   }, [isEditingDescription]);
 
+  // Auto-grow with the text, so the field is as tall as the description.
+  useLayoutEffect(() => {
+    const el = descriptionRef.current;
+    if (!el || !isEditingDescription) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [descriptionDraft, isEditingDescription]);
+
   const handleDescriptionSave = useCallback(() => {
-    const next = (descriptionRef.current?.textContent ?? descriptionDraft).trim();
     setIsEditingDescription(false);
+    // Escape cancelled the edit: the blur that follows must not save it.
+    if (skipDescriptionSaveRef.current) {
+      skipDescriptionSaveRef.current = false;
+      return;
+    }
+    // Interior line breaks are kept; only the outer whitespace goes.
+    const next = descriptionDraft.replace(/\r\n/g, '\n').trim();
     if (!event?.id || next === (event.description ?? '')) {
-      if (descriptionRef.current) descriptionRef.current.textContent = event?.description ?? '';
+      setDescriptionDraft(event?.description ?? '');
       return;
     }
     setDescriptionDraft(next);
-    updateEvent.mutate({ id: event.id, data: { description: next } });
-  }, [event, descriptionDraft, updateEvent]);
+    updateEvent.mutate(
+      // '' clears the description (the API stores it as an empty value).
+      { id: event.id, data: { description: next } },
+      {
+        onError: () => {
+          setDescriptionDraft(event.description ?? '');
+          toast.error(t.eventPreview.updateFailed);
+        },
+      },
+    );
+  }, [event, descriptionDraft, updateEvent, t.eventPreview.updateFailed]);
 
   // Closed / no event / no portal target → render nothing (in-flow panels
   // don't keep an off-screen translate-x shell; ObjectPanelHost / FloatingDrawer
@@ -4080,18 +4211,85 @@ function EventDetailPanel({
   const color = getEventColor(event, calendarColorMap);
   const calendar = calendars.find((c) => c.id === event.calendarId);
   const hasAttendees = !!event.attendees?.length;
-  // Show the stored priority (including "normal") rather than a "Set priority" placeholder.
-  const priorityLabels: Record<string, string> = {
-    low: t.calendarView.filterPriorityLow,
-    normal: t.calendarView.filterPriorityNormal,
-    high: t.calendarView.filterPriorityHigh,
-    urgent: t.calendarView.filterPriorityUrgent,
+  // The same names as the toolbar filter, so a type / priority / status reads the
+  // same everywhere. The stored priority (including "normal") is shown rather
+  // than a "Set priority" placeholder.
+  const typeLabels = getEventTypeLabels(t.calendarView);
+  const priorityLabels = getEventPriorityLabels(t.calendarView);
+  const statusLabels = getEventStatusLabels(t.calendarView);
+  const typeOptions = getEventTypeOptions(t.calendarView);
+  const priorityOptions = getEventPriorityOptions(t.calendarView);
+  const statusOptions = getEventStatusOptions(t.calendarView);
+  // Only calendars the user may write to can take the event (the API answers 403 otherwise);
+  // the one it is on stays listed so the current value is always visible.
+  const movableCalendars = calendars.filter(
+    (c) => c.id === event.calendarId || c.isOwn || c.permission === 'edit' || c.permission === 'manage',
+  );
+
+  const startEditingDescription = () => {
+    skipDescriptionSaveRef.current = false;
+    setIsEditingDescription(true);
+  };
+
+  /** One field of the event; the selector popover closes and a failure is reported. */
+  const patchEvent = (data: CalendarEventInput, failureMessage: string = t.eventPreview.updateFailed) => {
+    setOpenSelector(null);
+    if (!event.id) return;
+    updateEvent.mutate({ id: event.id, data }, { onError: () => toast.error(failureMessage) });
   };
 
   const handleDelete = async (sendNotification?: boolean) => {
-    if (event.id) {
+    if (!event.id) return;
+    try {
       await deleteEvent.mutateAsync({ id: event.id, sendNotification });
+      toast.success(t.eventPreview.eventDeleted);
       onClose();
+    } catch {
+      toast.error(t.eventPreview.deleteFailed);
+    }
+  };
+
+  /** Removes (or adds / clears) guests; `sendNotification` is the answer to "let them know?". */
+  const saveAttendees = (next: EventAttendeeInput[], sendNotification: boolean) => {
+    if (!event.id) return;
+    updateEvent.mutate(
+      { id: event.id, data: { attendees: next }, sendNotification },
+      { onError: () => toast.error(t.eventPreview.updateFailed) },
+    );
+  };
+
+  /**
+   * Adds the event's WeldMeet link. It goes through the same path as the quick-
+   * create card: the meeting is created with the event's times and guests and
+   * linked to it by the same update (`weldMeetingId`), so deleting the event
+   * cancels the meeting instead of leaving an orphan.
+   */
+  const handleGenerateMeeting = async () => {
+    if (!event.id || creatingMeetingRef.current) return;
+    const eventId = event.id;
+    creatingMeetingRef.current = true;
+    setIsCreatingMeeting(true);
+    try {
+      await saveEventWithWeldMeet({
+        title: event.title || t.misc.newMeetingTitle,
+        start: event.startTime,
+        end: event.endTime,
+        attendees: event.attendees?.map((a) => ({ email: a.email, name: a.name ?? undefined })),
+        settings: DEFAULT_WELDMEET_SETTINGS,
+        saveEvent: async (meetingUrl, weldMeetingId) =>
+          (
+            await updateEvent.mutateAsync({
+              id: eventId,
+              data: { meetingUrl, isVirtual: true, weldMeetingId },
+            })
+          ).data,
+      });
+    } catch (err) {
+      // A meeting that could not be created was already reported by the hook.
+      if (!(err instanceof WeldMeetCreateError)) toast.error(t.eventPreview.updateFailed);
+    } finally {
+      creatingMeetingRef.current = false;
+      setIsCreatingMeeting(false);
     }
   };
 
@@ -4125,13 +4323,77 @@ function EventDetailPanel({
         variant="delete"
       />
 
+      {/* Guestless event: nobody to notify, but deleting still asks first. */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t.eventPreview.deleteConfirmTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t.eventPreview.deleteConfirmDescription.replace('{title}', event.title || t.calendarView.untitled)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteEvent.isPending}>{t.eventPreview.deleteConfirmCancel}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteEvent.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async (e) => {
+                // Stay open until the request settled: a failure keeps the dialog (and the event) in view.
+                e.preventDefault();
+                await handleDelete();
+                setShowDeleteConfirm(false);
+              }}
+            >
+              {deleteEvent.isPending ? t.eventPreview.deleting : t.eventPreview.deleteConfirmAction}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Removing a guest asks whether to let them know. */}
+      <AlertDialog open={!!guestToRemove} onOpenChange={(open) => { if (!open) setGuestToRemove(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t.eventPreview.removeGuestTitle.replace('{name}', guestToRemove?.name ?? '')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t.eventPreview.removeGuestDescription.replace('{name}', guestToRemove?.name ?? '')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:flex-wrap">
+            <AlertDialogCancel>{t.eventPreview.removeGuestCancel}</AlertDialogCancel>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (guestToRemove) saveAttendees(guestToRemove.next, false);
+                setGuestToRemove(null);
+              }}
+            >
+              {t.eventPreview.removeGuestSilently}
+            </Button>
+            <AlertDialogAction
+              onClick={() => {
+                if (guestToRemove) saveAttendees(guestToRemove.next, true);
+                setGuestToRemove(null);
+              }}
+            >
+              {t.eventPreview.removeGuestNotify}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Header — title + actions (3-dots dropdown + close X). Mirrors
           TaskDetailPanel's header geometry so both panels feel identical. */}
       <div className="group/header relative px-3 md:px-4 py-3 flex-shrink-0">
         <div className="absolute top-3 right-3 md:right-4 flex items-center gap-0.5 md:gap-1 flex-shrink-0">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none focus-visible:outline-none">
+              <Button
+                variant="ghost"
+                aria-label={t.eventPreview.moreActions}
+                title={t.eventPreview.moreActions}
+                className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none focus-visible:outline-none"
+              >
                 <EllipsisVertical className="h-4 w-4 text-gray-500" />
               </Button>
             </DropdownMenuTrigger>
@@ -4142,7 +4404,7 @@ function EventDetailPanel({
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-                onClick={() => hasAttendees ? setShowDeleteDialog(true) : handleDelete()}
+                onClick={() => (hasAttendees ? setShowDeleteDialog(true) : setShowDeleteConfirm(true))}
               >
                 <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
                 {t.eventPreview.deleteEvent}
@@ -4218,41 +4480,53 @@ function EventDetailPanel({
               : 'border-transparent hover:border-gray-200 dark:hover:border-gray-700 cursor-pointer',
           )}
           role="presentation"
-          onClick={() => { if (!isEditingDescription) setIsEditingDescription(true); }}
+          onClick={() => { if (!isEditingDescription) startEditingDescription(); }}
         >
-          <div
-            ref={descriptionRef}
-            role="textbox"
-            aria-multiline="true"
-            aria-label={t.eventPreview.addDescription}
-            tabIndex={0}
-            contentEditable={isEditingDescription}
-            suppressContentEditableWarning
-            onBlur={isEditingDescription ? handleDescriptionSave : undefined}
-            onKeyDown={(e) => {
-              // Keyboard users enter edit mode with Enter (mouse users click).
-              if (!isEditingDescription) {
+          {isEditingDescription ? (
+            <textarea
+              ref={descriptionRef}
+              aria-label={t.eventPreview.addDescription}
+              placeholder={t.eventPreview.addDescription}
+              value={descriptionDraft}
+              rows={1}
+              onChange={(e) => setDescriptionDraft(e.target.value)}
+              onBlur={handleDescriptionSave}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  skipDescriptionSaveRef.current = true;
+                  setDescriptionDraft(event.description ?? '');
+                  setIsEditingDescription(false);
+                  return;
+                }
+                // Enter inserts newlines (descriptions support multi-line) — only
+                // Cmd/Ctrl+Enter commits early.
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+              }}
+              className="block w-full resize-none overflow-hidden text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap min-h-[32px] text-muted-foreground"
+            />
+          ) : (
+            <div
+              role="textbox"
+              aria-readonly="true"
+              aria-multiline="true"
+              aria-label={t.eventPreview.addDescription}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                // Keyboard users enter edit mode with Enter (mouse users click).
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  setIsEditingDescription(true);
+                  startEditingDescription();
                 }
-                return;
-              }
-              if (e.key === 'Escape') {
-                if (descriptionRef.current) descriptionRef.current.textContent = event.description ?? '';
-                setIsEditingDescription(false);
-              }
-              // Enter inserts newlines (descriptions support multi-line) — only
-              // Cmd/Ctrl+Enter commits early.
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                (e.target as HTMLDivElement).blur();
-              }
-            }}
-            className="w-full text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap min-h-[32px] text-muted-foreground"
-          >
-            {isEditingDescription ? null : (descriptionDraft || t.eventPreview.addDescription)}
-          </div>
+              }}
+              className="w-full text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap min-h-[32px] text-muted-foreground"
+            >
+              {descriptionDraft || t.eventPreview.addDescription}
+            </div>
+          )}
         </div>
       </div>
 
@@ -4278,23 +4552,23 @@ function EventDetailPanel({
                   <CircleDot className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">{t.eventPreview.fieldType}</span>
                 </div>
-                <Popover>
+                <Popover open={openSelector === 'type'} onOpenChange={(open) => setOpenSelector(open ? 'type' : null)}>
                   <PopoverTrigger asChild>
                     <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
                       <span
-                        className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none capitalize ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow"
+                        className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow"
                         style={{ backgroundColor: `${color}20`, color }}
                       >
-                        {event.type}
+                        {labelFor(typeLabels, event.type)}
                       </span>
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-1" align="start">
-                    {EVENT_TYPE_OPTIONS.map(({ label, value }) => (
+                    {typeOptions.map(({ label, value }) => (
                       <Button
                         variant="ghost"
                         key={value}
-                        onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { type: value as CalendarEvent['type'] } })}
+                        onClick={() => patchEvent({ type: value })}
                         className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[140px]"
                       >
                         <span>{label}</span>
@@ -4311,7 +4585,7 @@ function EventDetailPanel({
                   <CalendarDays className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">{t.eventPreview.fieldCalendar}</span>
                 </div>
-                <Popover>
+                <Popover open={openSelector === 'calendar'} onOpenChange={(open) => setOpenSelector(open ? 'calendar' : null)}>
                   <PopoverTrigger asChild>
                     <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
                       {calendar ? (
@@ -4328,11 +4602,17 @@ function EventDetailPanel({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-1" align="start">
-                    {calendars.map((cal) => (
+                    {movableCalendars.map((cal) => (
                       <Button
                         variant="ghost"
                         key={cal.id}
-                        onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { calendarId: cal.id } })}
+                        onClick={() => {
+                          if (cal.id === event.calendarId) {
+                            setOpenSelector(null);
+                            return;
+                          }
+                          patchEvent({ calendarId: cal.id }, t.eventPreview.calendarChangeFailed);
+                        }}
                         className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[160px]"
                       >
                         <span className="inline-flex items-center gap-2">
@@ -4370,12 +4650,12 @@ function EventDetailPanel({
                   <Flag className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">{t.eventPreview.fieldPriority}</span>
                 </div>
-                <Popover>
+                <Popover open={openSelector === 'priority'} onOpenChange={(open) => setOpenSelector(open ? 'priority' : null)}>
                   <PopoverTrigger asChild>
                     <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
                       {event.priority ? (
                         <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-muted ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow">
-                          {priorityLabels[event.priority] ?? event.priority}
+                          {labelFor(priorityLabels, event.priority)}
                         </span>
                       ) : (
                         <span className="text-muted-foreground group-hover/field:underline">{t.eventPreview.setPriority}</span>
@@ -4383,14 +4663,14 @@ function EventDetailPanel({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-1" align="start">
-                    {EVENT_PRIORITY_OPTIONS.map(({ label, value }) => (
+                    {priorityOptions.map(({ label, value }) => (
                       <Button
                         variant="ghost"
                         key={value}
-                        onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { priority: value } })}
+                        onClick={() => patchEvent({ priority: value })}
                         className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[140px]"
                       >
-                        <span>{priorityLabels[value] ?? label}</span>
+                        <span>{label}</span>
                         {event.priority === value && <Check className="h-3.5 w-3.5 text-primary" />}
                       </Button>
                     ))}
@@ -4398,13 +4678,44 @@ function EventDetailPanel({
                 </Popover>
               </div>
 
-              {/* Location — inline text editor */}
+              {/* Status — popover selector (confirmed / tentative / cancelled) */}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 w-32 flex-shrink-0">
+                  <CircleDot className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">{t.eventPreview.fieldStatus}</span>
+                </div>
+                <Popover open={openSelector === 'status'} onOpenChange={(open) => setOpenSelector(open ? 'status' : null)}>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
+                      <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-muted ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow">
+                        {labelFor(statusLabels, event.status ?? 'confirmed')}
+                      </span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-1" align="start">
+                    {statusOptions.map(({ label, value }) => (
+                      <Button
+                        variant="ghost"
+                        key={value}
+                        onClick={() => patchEvent({ status: value })}
+                        className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[140px]"
+                      >
+                        <span>{label}</span>
+                        {(event.status ?? 'confirmed') === value && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </Button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Location — inline text editor. Emptying it sends null: an
+                  omitted field would leave the stored location untouched. */}
               <EventInlineTextField
                 icon={MapPin}
                 label={t.eventPreview.fieldLocation}
                 value={event.location ?? ''}
                 placeholder={t.eventPreview.setLocation}
-                onSave={(next) => event.id && updateEvent.mutate({ id: event.id, data: { location: next || undefined } })}
+                onSave={(next) => patchEvent({ location: next || null })}
               />
 
               {/* Meeting — empty-state click auto-generates a WeldMeet link
@@ -4430,16 +4741,7 @@ function EventDetailPanel({
                       variant="ghost"
                       type="button"
                       disabled={isCreatingMeeting || !event.id}
-                      onClick={async () => {
-                        if (!event.id) return;
-                        const result = await createMeetingAndGetUrl(event.title || t.misc.newMeetingTitle);
-                        if (result) {
-                          updateEvent.mutate({
-                            id: event.id,
-                            data: { meetingUrl: result.url, isVirtual: true },
-                          });
-                        }
-                      }}
+                      onClick={handleGenerateMeeting}
                       className="text-muted-foreground group-hover/field:underline disabled:opacity-50 disabled:cursor-wait inline-flex items-center gap-1.5"
                     >
                       {isCreatingMeeting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -4453,14 +4755,20 @@ function EventDetailPanel({
                   quick-create card. Add via search; remove with the X chip. */}
               <EventAttendeesField
                 attendees={event.attendees ?? []}
-                // sendNotification makes calendar-api mail an invite to each newly
-                // added attendee (members, contacts and invited addresses alike).
+                // Adding: sendNotification makes calendar-api mail an invite to
+                // each newly added attendee (members, contacts and invited
+                // addresses alike). Removing asks first whether to let them know.
                 // [] clears the list: an omitted field would leave it untouched.
-                onChange={(next) => event.id && updateEvent.mutate({
-                  id: event.id,
-                  data: { attendees: next },
-                  sendNotification: true,
-                })}
+                onChange={(next) => {
+                  const current = event.attendees ?? [];
+                  const kept = new Set(next.map((a) => a.email.toLowerCase()));
+                  const removed = current.filter((a) => !kept.has(a.email.toLowerCase()));
+                  if (removed.length === 0) {
+                    saveAttendees(next, true);
+                    return;
+                  }
+                  setGuestToRemove({ name: removed.map((a) => a.name || a.email).join(', '), next });
+                }}
               />
 
               {/* Created */}
@@ -4763,6 +5071,8 @@ function EventAttendeesField({
                         </span>
                         <Button
                           variant="ghost"
+                          aria-label={t.eventPreview.removeAttendee.replace('{name}', a.name || a.email)}
+                          title={t.eventPreview.removeAttendee.replace('{name}', a.name || a.email)}
                           onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
@@ -5231,6 +5541,7 @@ function FourDayView({
             const dayKey = format(day, 'yyyy-MM-dd');
             const today = isToday(day);
             const dayEvents = timedEventsForDay(events, day);
+            const placements = layoutDayTimedEvents(dayEvents, hourHeight);
             return (
               <div key={dayKey} data-day-col={dayKey} className={cn('border-r border-border last:border-r-0 relative', today && 'bg-primary/[0.01]')}>
                 {HOURS.map((hour) => (
@@ -5258,6 +5569,7 @@ function FourDayView({
                       key={evt.id || i}
                       event={evt}
                       segment={segment}
+                      placement={placements[i]}
                       color={getEventColor(evt, calendarColorMap)}
                       onClick={(e) => { if (!dragState && !isSlotDragging && !isFourDayResizing && !justDraggedRef.current && !justFourDayResizedRef.current) onSelectEvent(evt, e); }}
                       hourHeight={hourHeight}
@@ -5429,7 +5741,7 @@ interface ScheduleItem {
   date: string;
   /** Display label of `type` ("Task" for reminders). */
   typeLabel: string;
-  /** "Mon, Oct 5" */
+  /** "Mon, Oct 5", or "Mon, Oct 5 – Thu, Oct 8" for a multi-day event. */
   dateLabel: string;
   dateGroup: string;
   color: string;
@@ -5473,7 +5785,7 @@ function ScheduleView({
         type: evt.type,
         typeLabel: evt.sourceType === 'task' ? t.scheduleView.filterTypeTask : (typeLabels[evt.type] ?? evt.type),
         date: format(start, 'yyyy-MM-dd'),
-        dateLabel: format(start, 'EEE, MMM d'),
+        dateLabel: formatScheduleDateLabel(evt),
         dateGroup: getDateGroup(start, now),
         time: formatScheduleTime(start, end, evt.allDay ? t.calendarView.allDay : null, timeFormat),
         color: getEventColor(evt, calendarColorMap),
@@ -5487,7 +5799,7 @@ function ScheduleView({
 
   const headerColumns: HeaderColumn[] = [
     { id: 'color', header: '', width: '24px' },
-    { id: 'date', header: t.scheduleView.colDate, width: 'w-[110px]' },
+    { id: 'date', header: t.scheduleView.colDate, width: 'w-[150px]' },
     { id: 'time', header: t.scheduleView.colTime, width: 'w-[150px]' },
     { id: 'title', header: t.scheduleView.colTitle, width: 'flex-1 min-w-0' },
     { id: 'type', header: t.scheduleView.colType, width: 'w-[100px]' },
@@ -5534,35 +5846,52 @@ function ScheduleView({
   }, [t.scheduleView.groupEarlier, t.scheduleView.groupYesterday, t.scheduleView.groupToday, t.scheduleView.groupTomorrow, t.scheduleView.groupThisWeek, t.scheduleView.groupNextWeek, t.scheduleView.groupLater]);
 
   const renderRow = useCallback((item: ScheduleItem) => {
+    const statusKind = eventStatusKind(item.event);
+    const statusLabel =
+      statusKind === 'cancelled'
+        ? t.calendarView.filterStatusCancelled
+        : statusKind === 'tentative'
+          ? t.calendarView.filterStatusTentative
+          : null;
 
     return (
       <div
         key={item.id}
         role="button"
         tabIndex={0}
-        className="flex items-center gap-2 md:gap-4 px-2 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        data-status={statusLabel ? statusKind : undefined}
+        className={cn(
+          "flex items-center gap-2 md:gap-4 px-2 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          statusRowClass(statusKind),
+        )}
         onClick={(e) => onSelectEvent(item.event, e)}
         onKeyDown={activateOnKey(() => onSelectEvent(item.event))}
       >
-        {/* Color dot */}
+        {/* Color dot (hollow for a tentative event) */}
         <div className="w-[16px] md:w-[24px] shrink-0 flex justify-center">
-          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+          <div className="h-2 w-2 rounded-full" style={statusDotStyle(statusKind, item.color)} />
         </div>
 
-        {/* Date — own column on desktop; stacked above the time on mobile */}
-        <div className="hidden md:block w-[110px] shrink-0">
-          <span className="text-sm text-muted-foreground whitespace-nowrap">{item.dateLabel}</span>
+        {/* Date — own column on desktop; stacked above the time on mobile. A
+            multi-day range may wrap onto a second line. */}
+        <div className="hidden md:block w-[150px] shrink-0">
+          <span className="text-sm text-muted-foreground">{item.dateLabel}</span>
         </div>
 
         {/* Time */}
         <div className="w-[110px] md:w-[150px] shrink-0">
-          <span className="md:hidden text-xs font-medium text-foreground whitespace-nowrap block">{item.dateLabel}</span>
+          <span className="md:hidden text-xs font-medium text-foreground block">{item.dateLabel}</span>
           <span className="text-xs md:text-sm text-muted-foreground whitespace-nowrap">{item.time}</span>
         </div>
 
         {/* Title */}
         <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium truncate block">{item.title}</span>
+          <span className="flex items-baseline gap-2 min-w-0">
+            <span className={cn("text-sm font-medium truncate block", statusTitleClass(statusKind))}>{item.title}</span>
+            {statusLabel ? (
+              <span className="shrink-0 text-xs text-muted-foreground">{statusLabel}</span>
+            ) : null}
+          </span>
           {/* On mobile, show type + location inline under the title since the
              dedicated columns are hidden. */}
           <span className="md:hidden text-xs text-muted-foreground truncate block">
@@ -5585,7 +5914,7 @@ function ScheduleView({
         </div>
       </div>
     );
-  }, [onSelectEvent]);
+  }, [onSelectEvent, t.calendarView.filterStatusCancelled, t.calendarView.filterStatusTentative]);
 
   return (
     <div className="flex-1 min-h-0 overflow-auto">
