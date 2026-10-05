@@ -34,8 +34,9 @@ POOL_TARGET_DEDICATED = "0"
 # production this is provided as the DATABASE_URL_MASTER secret instead.
 # Set your real local master DB URL in `.dev.vars` (gitignored) — do NOT hardcode here.
 DATABASE_URL_MASTER = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
+# simulated and writes mail to disk instead of sending it.
+EMAIL_TRANSPORT = "cloudflare"
 
 # Cloudflare Email Sending binding — the workspace invitation email
 # (@weldsuite/emails workerTransport).
@@ -120,11 +121,14 @@ ENVIRONMENT = "production"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 POOL_TARGET_SHARED = "10"
 POOL_TARGET_DEDICATED = "2"
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.production.workflows]]
 name = "provision-workspace"

@@ -43,15 +43,13 @@
 #     summary model, both through @weldsuite/ai / AI Gateway; same value as
 #     app-api and mail-api. Needs Workers AI + AI Gateway Run permissions.
 #     Optional overrides: AI_GATEWAY_API_TOKEN, CF_AI_GATEWAY)
-#   RESEND_API_KEY (+ optional PUBLIC_APP_URL):
-#     the missed-call notification endChatCall sends (@weldsuite/notifications),
-#     and the EMAIL_TRANSPORT="resend" fallback for meeting invitation mail
-#     (services/weldmeet/invitations.ts, @weldsuite/emails)
+#   RESEND_API_KEY: only used when EMAIL_TRANSPORT is set back to "resend"
+#     (missed-call notifications and meeting invitations, @weldsuite/emails)
+#   PUBLIC_APP_URL (optional): base URL for links in notification mail
 #
 # CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
-# EMAIL_TRANSPORT="resend" below is temporary — flip to "cloudflare" (or unset)
-# once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md,
-# Phase 0).
+# EMAIL_TRANSPORT="cloudflare" sends through Cloudflare Email Service; "resend"
+# is the rollback until Resend is removed (docs/plans/system-email-cloudflare.md).
 
 name = "weldsuite-meet-api"
 main = "src/index.ts"
@@ -79,7 +77,9 @@ ENVIRONMENT = "development"
 MEETING_PORTAL_URL = "http://localhost:3020"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
-EMAIL_TRANSPORT = "resend"
+# Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
+# simulated and writes mail to disk instead of sending it.
+EMAIL_TRANSPORT = "cloudflare"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -223,10 +223,14 @@ ENVIRONMENT = "production"
 MEETING_PORTAL_URL = "https://meet.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
-EMAIL_TRANSPORT = "resend"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

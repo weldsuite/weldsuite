@@ -39,8 +39,6 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
-# Remove once mail.weldsuite.org is onboarded in Cloudflare Email Service (docs/plans/system-email-cloudflare.md, Phase 0).
-SYSTEM_EMAIL_FROM = "noreply@weldsuite.org"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -107,8 +105,6 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
-# Remove once mail.weldsuite.org is onboarded in Cloudflare Email Service (docs/plans/system-email-cloudflare.md, Phase 0).
-SYSTEM_EMAIL_FROM = "noreply@weldsuite.org"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
@@ -128,6 +124,8 @@ service = "weldsuite-realtime-production"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [env.production.observability]
 enabled = true

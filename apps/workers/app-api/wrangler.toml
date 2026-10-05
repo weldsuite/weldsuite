@@ -111,8 +111,9 @@ API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,book
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
+# simulated and writes mail to disk instead of sending it.
+EMAIL_TRANSPORT = "cloudflare"
 # (HELPDESK_WORKFLOW_WORKER_URL moved to desk-api with /api/helpdesk-workflows.)
 # (AGENT_RUNTIME_URL / AGENT_COMPUTER_ENABLED moved to agent-api with WeldAgent.)
 # Comma-separated workspace ids that publish first-party hosted WeldApps
@@ -533,8 +534,9 @@ WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
 # Cloudflare Flagship feature-flag binding.
 # app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.
 [[env.production.flagship]]
