@@ -49,7 +49,7 @@ import { useCreateBookingPage } from '@/hooks/queries/use-calendar-queries';
 import type { BookingDateOverride, WeeklyAvailability, TimeRange } from '@/hooks/queries/use-calendar-queries';
 import { findAvailabilityProblem } from '@weldsuite/core-api-client/schemas/booking-pages';
 import type { AvailabilityProblem } from '@weldsuite/core-api-client/schemas/booking-pages';
-import { WEEK_STARTS_ON } from '../../lib/calendar-format';
+import { WEEK_STARTS_ON, useTimeFormat } from '../../lib/calendar-format';
 import { DEFAULT_AVAILABILITY, DURATION_OPTIONS } from '../../types';
 import {
   HOURS as SHARED_HOURS,
@@ -58,6 +58,7 @@ import {
   TimeLabelColumn,
   TimeGridScroll,
   TimeGridInner,
+  AvailabilityBlock,
 } from '@/app/weldcalendar/components/calendar-shared';
 import { useSetAtom } from 'jotai';
 import { draftBookingPageTitleAtom } from '../../lib/draft-booking-page';
@@ -838,77 +839,6 @@ function NowIndicator({ hourHeight }: Readonly<{ hourHeight: number }>) {
   );
 }
 
-function AvailabilityBlock({
-  block,
-  hourHeight,
-  duration,
-  bufferBefore,
-  bufferAfter,
-}: Readonly<{
-  block: TimeRange;
-  hourHeight: number;
-  duration: number;
-  bufferBefore: number;
-  bufferAfter: number;
-}>) {
-  const [startH, startM] = block.start.split(':').map(Number);
-  const [endH, endM] = block.end.split(':').map(Number);
-  const blockStartMin = startH * 60 + startM;
-  const blockEndMin = endH * 60 + endM;
-  const totalMin = blockEndMin - blockStartMin;
-  const slotWithBuffer = duration + bufferBefore + bufferAfter;
-  const slotCount = Math.floor(totalMin / slotWithBuffer);
-  const startHourVal = startH + startM / 60;
-  const topPx = startHourVal * hourHeight;
-  const blockHeightPx = (totalMin / 60) * hourHeight;
-  const slotWithBufferPx = (slotWithBuffer / 60) * hourHeight;
-  const bufferBeforePx = (bufferBefore / 60) * hourHeight;
-  const bufferAfterPx = (bufferAfter / 60) * hourHeight;
-  const durationPx = (duration / 60) * hourHeight;
-
-  return (
-    <div
-      className="absolute left-[2px] right-[2px] rounded-md overflow-hidden border border-sky-300 dark:border-sky-700 bg-sky-50/50 dark:bg-sky-950/20"
-      style={{ top: `${topPx}px`, height: `${blockHeightPx}px` }}
-    >
-      {/* Individual slot blocks with buffer */}
-      {Array.from({ length: slotCount }, (_, i) => {
-        const slotTop = i * slotWithBufferPx;
-        return (
-          <div key={i}>
-            {/* Buffer before */}
-            {bufferBefore > 0 && (
-              <div
-                className="absolute left-[3px] right-[3px] bg-amber-100/50 dark:bg-amber-900/20 border border-dashed border-amber-300/50 dark:border-amber-700/50 rounded-[3px]"
-                style={{ top: `${slotTop + 1}px`, height: `${bufferBeforePx - 2}px` }}
-              />
-            )}
-            {/* Appointment slot */}
-            <div
-              className="absolute left-[3px] right-[3px] bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800 rounded-[4px]"
-              style={{
-                top: `${slotTop + bufferBeforePx + 1}px`,
-                height: `${durationPx - 2}px`,
-              }}
-            >
-              {i === 0 && (
-                <CalendarClock className="h-3 w-3 text-sky-500 absolute top-1 left-1" />
-              )}
-            </div>
-            {/* Buffer after */}
-            {bufferAfter > 0 && (
-              <div
-                className="absolute left-[3px] right-[3px] bg-amber-100/50 dark:bg-amber-900/20 border border-dashed border-amber-300/50 dark:border-amber-700/50 rounded-[3px]"
-                style={{ top: `${slotTop + bufferBeforePx + durationPx + 1}px`, height: `${bufferAfterPx - 2}px` }}
-              />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function WeekPreview({
   weekDays,
   getBlocks,
@@ -923,13 +853,14 @@ function WeekPreview({
   bufferAfter: number;
 }>) {
   const { containerRef, hourHeight } = usePreviewHourHeight();
+  const timeFormat = useTimeFormat();
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <WeekDayHeader days={weekDays} />
       <TimeGridScroll ref={containerRef}>
         <TimeGridInner days={weekDays}>
-          <TimeLabelColumn hourHeight={hourHeight} />
+          <TimeLabelColumn hourHeight={hourHeight} timeFormat={timeFormat} />
           {weekDays.map((day) => (
             <div key={day.toISOString()} className="border-r border-border last:border-r-0 relative">
               {SHARED_HOURS.map((hour) => (
@@ -943,6 +874,7 @@ function WeekPreview({
                   duration={duration}
                   bufferBefore={bufferBefore}
                   bufferAfter={bufferAfter}
+                  timeFormat={timeFormat}
                 />
               ))}
               {isToday(day) && <NowIndicator hourHeight={hourHeight} />}

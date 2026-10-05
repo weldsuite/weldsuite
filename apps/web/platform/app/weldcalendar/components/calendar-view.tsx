@@ -108,6 +108,7 @@ import {
   labelFor,
 } from '../lib/event-form-schema';
 import { applyEventFilters, matchesEventSearch, mergeSearchResults } from '../lib/event-filters';
+import { buildEventFilterConfigs } from '../lib/event-filter-configs';
 import { formatEventWhen } from '../lib/event-when';
 import { getCurrentSlot, getNotifiableGuests, isSameSlot } from '../lib/event-reschedule';
 import { isEditableTarget, isEscapeHandledElsewhere } from '../lib/escape-guard';
@@ -167,6 +168,10 @@ function isWorkingHour(day: Date, hour: number, workingHours: WorkingHours | nul
   const [closeH, closeM] = dayConfig.closeTime.split(':').map(Number);
   return hour >= openH && hour < (closeM > 0 ? closeH + 1 : closeH);
 }
+
+// Match object-panel / FloatingDrawer default width so the calendar event
+// panel sits in the same ModuleContent row slot at the same size.
+export const EVENT_PANEL_WIDTH = 400;
 
 function getEventColor(event: CalendarEvent, calendarColorMap: Record<string, string>): string {
   const calColor = event.calendarId ? calendarColorMap[event.calendarId] : undefined;
@@ -459,53 +464,7 @@ export function CalendarView() {
   const { data: calendarsData } = useUserCalendars();
   const allCalendars = useMemo(() => calendarsData?.data || [], [calendarsData]);
 
-  const calendarFilterConfigs: FilterConfig[] = useMemo(() => [
-    {
-      field: 'type',
-      label: t.calendarView.filterType,
-      options: [
-        { value: 'meeting', label: t.calendarView.filterTypeMeeting },
-        { value: 'event', label: t.calendarView.filterTypeEvent },
-        { value: 'call', label: t.calendarView.filterTypeCall },
-        { value: 'appointment', label: t.calendarView.filterTypeAppointment },
-        { value: 'reminder', label: t.calendarView.filterTypeTask },
-        { value: 'other', label: t.calendarView.filterTypeOther },
-      ],
-    },
-    {
-      field: 'calendar',
-      label: t.calendarView.filterCalendar,
-      options: allCalendars.map((c) => ({ value: c.id, label: c.name })),
-    },
-    {
-      field: 'status',
-      label: t.calendarView.filterStatus,
-      options: [
-        { value: 'confirmed', label: t.calendarView.filterStatusConfirmed },
-        { value: 'tentative', label: t.calendarView.filterStatusTentative },
-        { value: 'cancelled', label: t.calendarView.filterStatusCancelled },
-      ],
-    },
-    {
-      field: 'priority',
-      label: t.calendarView.filterPriority,
-      options: [
-        { value: 'low', label: t.calendarView.filterPriorityLow },
-        { value: 'normal', label: t.calendarView.filterPriorityNormal },
-        { value: 'high', label: t.calendarView.filterPriorityHigh },
-        { value: 'urgent', label: t.calendarView.filterPriorityUrgent },
-      ],
-    },
-    {
-      field: 'allDay',
-      label: t.calendarView.filterAllDay,
-      options: [
-        { value: 'true', label: t.calendarView.filterAllDayYes },
-        { value: 'false', label: t.calendarView.filterAllDayNo },
-      ],
-    },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [allCalendars]);
+  const calendarFilterConfigs: FilterConfig[] = useMemo(() => buildEventFilterConfigs(allCalendars), [allCalendars]);
 
   // Listen for mini-calendar date navigation
   useEffect(() => {
@@ -970,10 +929,6 @@ export function CalendarView() {
     setPinDialogOpen(false);
     setPendingDrop(null);
   }, []);
-
-  // Match object-panel / FloatingDrawer default width so the calendar event
-  // panel sits in the same ModuleContent row slot at the same size.
-  const EVENT_PANEL_WIDTH = 400;
 
   const handleSelectEvent = useCallback((event: CalendarEvent) => {
     // Task-backed events open the standard task object panel (same in-flow

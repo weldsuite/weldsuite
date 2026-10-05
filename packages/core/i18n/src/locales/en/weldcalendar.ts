@@ -670,6 +670,7 @@ export const weldcalendar = {
       copyLinkFailed: 'Could not copy the link',
       openPublicLink: 'Open the public booking page',
       searchAvailabilityPlaceholder: 'Search availability...',
+      clickToSchedule: 'Click to schedule',
     },
 
     // Miscellaneous shared strings

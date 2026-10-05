@@ -8,13 +8,13 @@ import {
 } from 'date-fns';
 import { useOrganization } from '@clerk/clerk-react';
 import { toast } from 'sonner';
-import { ChevronLeft, ChevronRight, CalendarClock, Copy, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Search } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { cn } from '@/lib/utils';
 import { useParams } from '@/lib/router';
-import { useBookingPage } from '@/hooks/queries/use-calendar-queries';
-import type { WeeklyAvailability, TimeRange } from '@/hooks/queries/use-calendar-queries';
+import { useBookingPage, useCalendarEventsRange, useUserCalendars } from '@/hooks/queries/use-calendar-queries';
+import type { CalendarEvent, WeeklyAvailability, TimeRange } from '@/hooks/queries/use-calendar-queries';
 import { FilterPills } from '@/components/entity-list';
 import type { ActiveFilter, FilterConfig } from '@/components/entity-list';
 import {
@@ -24,9 +24,22 @@ import {
   TimeLabelColumn,
   TimeGridScroll,
   TimeGridInner,
+  AvailabilityBlock,
 } from '@/app/weldcalendar/components/calendar-shared';
 import { getTranslations } from '@/lib/i18n';
-import { WEEK_STARTS_ON } from '@/app/weldcalendar/lib/calendar-format';
+import { WEEK_STARTS_ON, useTimeFormat } from '@/app/weldcalendar/lib/calendar-format';
+import type { TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
+import { getCalendarDateRange } from '@/app/weldcalendar/lib/date-range';
+import { timedEventsForDay } from '@/app/weldcalendar/lib/event-days';
+import { applyEventFilters } from '@/app/weldcalendar/lib/event-filters';
+import { buildEventFilterConfigs } from '@/app/weldcalendar/lib/event-filter-configs';
+import type { TimedSegment } from '@/app/weldcalendar/lib/event-days';
+import { EVENT_TYPE_COLORS } from '@/app/weldcalendar/lib/event-form-schema';
+import { formatEventTimeRange } from '@/app/weldcalendar/lib/schedule';
+import { EventDialog } from '@/app/weldcalendar/components/event-dialog';
+import { EventDetailPanel, EVENT_PANEL_WIDTH } from '@/app/weldcalendar/components/calendar-view';
+import { isEditableTarget, isEscapeHandledElsewhere } from '@/app/weldcalendar/lib/escape-guard';
+import { useObjectPanel } from '@/components/object-panel';
 import { buildBookingPageUrl } from '@/lib/weldcalendar/booking-portal-url';
 
 export default function BookingPageViewPage() {
@@ -36,6 +49,7 @@ export default function BookingPageViewPage() {
   const bookingPage = data?.data;
   const t = getTranslations('weldcalendar');
   const { organization } = useOrganization();
+  const timeFormat = useTimeFormat();
   const orgSlug = organization?.slug || organization?.id || '';
   // Public link guests book through (the booking portal, never the platform).
   const publicUrl = bookingPage?.slug && orgSlug ? buildBookingPageUrl(orgSlug, bookingPage.slug) : null;
@@ -79,7 +93,90 @@ export default function BookingPageViewPage() {
     return () => observer.disconnect();
   }, []);
 
-  const filterConfigs: FilterConfig[] = useMemo(() => [], []);
+
+  // Scheduling yourself into a slot: clicking one opens the regular event
+  // dialog on that slot's time. The saved event lands on the owner's calendar,
+  // which is also what takes the slot off the public booking page.
+  const { data: calendarsData } = useUserCalendars();
+  const calendars = useMemo(() => calendarsData?.data || [], [calendarsData]);
+  const defaultCalendar = calendars.find((c) => c.isOwn && c.isDefault) || calendars.find((c) => c.isOwn);
+  // Same range (and so the same cache entry) as the main calendar's week view.
+  const weekRange = useMemo(() => getCalendarDateRange(currentWeekStart, 'week'), [currentWeekStart]);
+  const { data: eventsData } = useCalendarEventsRange(weekRange.start, weekRange.end);
+  const allEvents = useMemo(() => eventsData?.data || [], [eventsData]);
+  // The toolbar filter narrows the events drawn over the availability, with
+  // the same fields as on the main calendar.
+  const filterConfigs: FilterConfig[] = useMemo(() => buildEventFilterConfigs(calendars), [calendars]);
+  const events = useMemo(() => applyEventFilters(allEvents, activeFilters), [allEvents, activeFilters]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [slot, setSlot] = useState<{ start: Date; end: Date } | null>(null);
+  // A scheduled event opens in the same details panel as on the main calendar;
+  // the dialog is only for creating one, or for the panel's "Edit".
+  const [panelOpen, setPanelOpen] = useState(false);
+  const reopenPanelAfterDialogRef = useRef(false);
+  const { open: openObjectPanel, closeAll: closeObjectPanels } = useObjectPanel();
+
+  const calendarColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const cal of calendars) {
+      if (cal.color) map[cal.id] = cal.color;
+    }
+    return map;
+  }, [calendars]);
+
+  const openSlot = (day: Date, startMinutes: number, endMinutes: number) => {
+    const start = new Date(day);
+    start.setHours(0, startMinutes, 0, 0);
+    const end = new Date(day);
+    end.setHours(0, endMinutes, 0, 0);
+    setPanelOpen(false);
+    setSelectedEvent(null);
+    setSlot({ start, end });
+    setDialogOpen(true);
+  };
+
+  const openEvent = (event: CalendarEvent) => {
+    // Task-backed events use the standard task panel, as on the main calendar.
+    if (event.sourceType === 'task' && event.sourceId) {
+      setPanelOpen(false);
+      setSelectedEvent(null);
+      openObjectPanel({ type: 'task', id: event.sourceId });
+      return;
+    }
+    closeObjectPanels();
+    setSelectedEvent(event);
+    setPanelOpen(true);
+  };
+
+  // The panel edits inline: follow the refreshed event so it never shows the
+  // snapshot taken at click time, and close once the event is gone.
+  useEffect(() => {
+    if (!panelOpen) return;
+    setSelectedEvent((prev) => {
+      if (!prev?.id) return prev;
+      const next = allEvents.find((e) => e.id === prev.id);
+      if (!next) return prev;
+      return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
+    });
+  }, [allEvents, panelOpen]);
+
+  // Escape closes the panel, unless a popup or an inline editor wants the key.
+  useEffect(() => {
+    if (!panelOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || isEscapeHandledElsewhere(e) || isEditableTarget(e.target)) return;
+      setPanelOpen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [panelOpen]);
+
+  const eventColor = (event: CalendarEvent) =>
+    event.color
+    || (event.calendarId ? calendarColorMap[event.calendarId] : undefined)
+    || EVENT_TYPE_COLORS[event.type]
+    || '#6b7280';
 
   const weekDays = useMemo(() =>
     Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i)),
@@ -155,13 +252,16 @@ export default function BookingPageViewPage() {
 
         <div className="flex items-center gap-2">
           {publicUrl && (
-            <div className="flex items-center gap-1 h-8 rounded-md border border-input pl-2.5 pr-0.5 max-w-[320px]">
+            // Same surface as the outline buttons and the view select next to it.
+            <div className="flex items-center gap-1 h-8 rounded-md border bg-background dark:bg-input/30 dark:border-input pl-3 pr-0.5 max-w-[360px]">
               <a
                 href={publicUrl}
                 target="_blank"
                 rel="noreferrer"
                 title={t.bookingView.openPublicLink}
-                className="truncate text-xs text-muted-foreground hover:text-foreground"
+                // Nudged up 1px: the link is lowercase with descenders ("booking-page"),
+                // so its ink sits lower than the capitalised labels beside it.
+                className="truncate text-[13px] leading-5 -translate-y-px hover:underline underline-offset-4"
               >
                 {publicUrl.replace(/^https?:\/\//, '')}
               </a>
@@ -173,7 +273,7 @@ export default function BookingPageViewPage() {
                 title={t.bookingView.copyLink}
                 aria-label={t.bookingView.copyLink}
               >
-                <Copy className="h-3.5 w-3.5" />
+                <Copy className="h-4 w-4" />
               </Button>
             </div>
           )}
@@ -238,7 +338,7 @@ export default function BookingPageViewPage() {
 
         <TimeGridScroll ref={containerRef}>
           <TimeGridInner days={weekDays}>
-            <TimeLabelColumn hourHeight={hourHeight} />
+            <TimeLabelColumn hourHeight={hourHeight} timeFormat={timeFormat} />
 
             {weekDays.map((day) => {
               const blocks = getAvailabilityBlocks(day);
@@ -248,61 +348,30 @@ export default function BookingPageViewPage() {
                   {HOURS.map((hour) => (
                     <div key={hour} className="border-b border-border" style={{ height: hourHeight }} />
                   ))}
-                  {blocks.map((block: TimeRange) => {
-                    const [startH, startM] = block.start.split(':').map(Number);
-                    const [endH, endM] = block.end.split(':').map(Number);
-                    const blockStartMin = startH * 60 + startM;
-                    const blockEndMin = endH * 60 + endM;
-                    const totalMin = blockEndMin - blockStartMin;
-                    const slotWithBuffer = duration + bufferBefore + bufferAfter;
-                    const slotCount = Math.floor(totalMin / slotWithBuffer);
-                    const startHourVal = startH + startM / 60;
-                    const topPx = startHourVal * hourHeight;
-                    const blockHeightPx = (totalMin / 60) * hourHeight;
-                    const slotWithBufferPx = (slotWithBuffer / 60) * hourHeight;
-                    const bufferBeforePx = (bufferBefore / 60) * hourHeight;
-                    const bufferAfterPx = (bufferAfter / 60) * hourHeight;
-                    const durationPx = (duration / 60) * hourHeight;
-
-                    return (
-                      <div
-                        key={`${block.start}-${block.end}`}
-                        className="absolute left-[2px] right-[2px] rounded-md overflow-hidden border border-sky-300 dark:border-sky-700 bg-sky-50/50 dark:bg-sky-950/20"
-                        style={{ top: `${topPx}px`, height: `${blockHeightPx}px` }}
-                      >
-                        {Array.from({ length: slotCount }, (_, i) => {
-                          const slotTop = i * slotWithBufferPx;
-                          return (
-                            <div key={i}>
-                              {bufferBefore > 0 && (
-                                <div
-                                  className="absolute left-[3px] right-[3px] bg-amber-100/50 dark:bg-amber-900/20 border border-dashed border-amber-300/50 dark:border-amber-700/50 rounded-[3px]"
-                                  style={{ top: `${slotTop + 1}px`, height: `${bufferBeforePx - 2}px` }}
-                                />
-                              )}
-                              <div
-                                className="absolute left-[3px] right-[3px] bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800 rounded-[4px]"
-                                style={{
-                                  top: `${slotTop + bufferBeforePx + 1}px`,
-                                  height: `${durationPx - 2}px`,
-                                }}
-                              >
-                                {i === 0 && (
-                                  <CalendarClock className="h-3 w-3 text-sky-500 absolute top-1 left-1" />
-                                )}
-                              </div>
-                              {bufferAfter > 0 && (
-                                <div
-                                  className="absolute left-[3px] right-[3px] bg-amber-100/50 dark:bg-amber-900/20 border border-dashed border-amber-300/50 dark:border-amber-700/50 rounded-[3px]"
-                                  style={{ top: `${slotTop + bufferBeforePx + durationPx + 1}px`, height: `${bufferAfterPx - 2}px` }}
-                                />
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
+                  {blocks.map((block: TimeRange) => (
+                    <AvailabilityBlock
+                      key={`${block.start}-${block.end}`}
+                      block={block}
+                      hourHeight={hourHeight}
+                      duration={duration}
+                      bufferBefore={bufferBefore}
+                      bufferAfter={bufferAfter}
+                      timeFormat={timeFormat}
+                      onSlotClick={(startMinutes, endMinutes) => openSlot(day, startMinutes, endMinutes)}
+                      slotHint={t.bookingView.clickToSchedule}
+                    />
+                  ))}
+                  {timedEventsForDay(events, day).map(({ event, segment }) => (
+                    <ScheduledEvent
+                      key={event.id}
+                      event={event}
+                      segment={segment}
+                      hourHeight={hourHeight}
+                      color={eventColor(event)}
+                      timeFormat={timeFormat}
+                      onClick={() => openEvent(event)}
+                    />
+                  ))}
                   {/* Current time indicator on today's column */}
                   {isTodayCol && (() => {
                     const now = new Date();
@@ -323,6 +392,79 @@ export default function BookingPageViewPage() {
           </TimeGridInner>
         </TimeGridScroll>
       </div>
+
+      <EventDetailPanel
+        event={selectedEvent}
+        isOpen={panelOpen}
+        calendars={calendars}
+        calendarColorMap={calendarColorMap}
+        width={EVENT_PANEL_WIDTH}
+        onClose={() => setPanelOpen(false)}
+        onEdit={() => {
+          reopenPanelAfterDialogRef.current = true;
+          setPanelOpen(false);
+          setDialogOpen(true);
+        }}
+      />
+
+      <EventDialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          // Cancelling (or saving) the edit goes back to the panel it was opened from.
+          if (!open && reopenPanelAfterDialogRef.current) {
+            reopenPanelAfterDialogRef.current = false;
+            setPanelOpen(true);
+          }
+        }}
+        onDeleted={() => {
+          reopenPanelAfterDialogRef.current = false;
+          setSelectedEvent(null);
+        }}
+        event={selectedEvent}
+        defaultStart={slot?.start}
+        defaultEnd={slot?.end}
+        defaultTitle={bookingPage.name}
+        calendars={calendars}
+        defaultCalendarId={defaultCalendar?.id}
+      />
     </div>
+  );
+}
+
+/** An event already on the calendar, drawn over the availability it takes up. */
+function ScheduledEvent({
+  event,
+  segment,
+  hourHeight,
+  color,
+  timeFormat,
+  onClick,
+}: Readonly<{
+  event: CalendarEvent;
+  segment: TimedSegment;
+  hourHeight: number;
+  color: string;
+  timeFormat: TimeFormat;
+  onClick: () => void;
+}>) {
+  const startHours = segment.start.getHours() + segment.start.getMinutes() / 60;
+  const durationHours = (segment.end.getTime() - segment.start.getTime()) / 3_600_000;
+  const heightPx = Math.max(durationHours * hourHeight, 22);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="absolute left-[3px] right-[3px] rounded-[6px] px-2.5 py-1.5 text-white text-[12px] leading-tight overflow-hidden hover:brightness-95 transition-[filter] z-[2] border border-white/10 text-left flex flex-col items-start justify-start cursor-pointer"
+      style={{ backgroundColor: color, top: `${startHours * hourHeight}px`, height: `${heightPx}px` }}
+    >
+      <span className="font-semibold truncate block max-w-full">{event.title}</span>
+      {heightPx > 30 && (
+        <span className="text-white/70 text-[12px] block mt-[3px]">
+          {formatEventTimeRange(segment.start, segment.end, timeFormat)}
+        </span>
+      )}
+    </button>
   );
 }

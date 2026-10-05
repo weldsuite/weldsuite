@@ -513,6 +513,14 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
   pointer-events: none;
 }
 
+/* Pointer-through tooltips: a tooltip that floats over other hover targets
+   (the slot above a booking-page slot) must not take the pointer. Marking the
+   content alone is not enough, Radix wraps it in a positioned div that would
+   still catch the hover. */
+[data-radix-popper-content-wrapper]:has(> [data-pointer-through]) {
+  pointer-events: none;
+}
+
 /* Three-dot "thinking" pulse for in-flight agent messages. Each dot is offset
    by 0.15s so they bounce in sequence. See message-item.tsx. */
 @keyframes weldchat-bounce {

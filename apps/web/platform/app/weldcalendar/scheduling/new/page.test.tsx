@@ -16,6 +16,10 @@ vi.mock('@/hooks/queries/use-calendar-queries', () => ({
   useCreateBookingPage: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('@/components/entity-list', () => ({ FilterPills: () => null }));
+// The week preview reads the 12h/24h preference; undefined means 12h.
+vi.mock('@/hooks/queries/use-settings-queries', () => ({
+  useUserPreferences: () => ({ data: undefined }),
+}));
 
 import { BookingPageEditor } from './page';
 

@@ -670,6 +670,7 @@ export const weldcalendar = {
       copyLinkFailed: 'Kon de link niet kopiëren',
       openPublicLink: 'Open de openbare boekingspagina',
       searchAvailabilityPlaceholder: 'Beschikbaarheid zoeken...',
+      clickToSchedule: 'Klik om in te plannen',
     },
 
     // Miscellaneous shared strings
