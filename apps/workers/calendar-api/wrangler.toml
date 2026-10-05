@@ -84,12 +84,15 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded
-# (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# First worker on Cloudflare Email Service (mail.weldsuite.org is onboarded).
+# Set back to "resend" to fall back without a code change
+# (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.send_email]]
 name = "SEND_EMAIL"
+# calendar-api only sends system mail, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
