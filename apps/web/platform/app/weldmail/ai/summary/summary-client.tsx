@@ -150,7 +150,6 @@ export function SummaryClient({ initialSummary }: Readonly<SummaryClientProps>) 
                 <div>
                   <p className="text-sm text-muted-foreground">{t.mail.ai.totalEmails}</p>
                   <p className="text-2xl font-bold">{summary.totalEmails}</p>
-                  <p className="text-xs text-muted-foreground mt-1">+15% from yesterday</p>
                 </div>
                 <Mail className="h-8 w-8 text-primary opacity-20" />
               </div>

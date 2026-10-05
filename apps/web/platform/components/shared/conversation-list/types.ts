@@ -39,6 +39,12 @@ export interface ConversationListProps {
   emptyMessage?: string;
   isLoading?: boolean;
   footer?: ReactNode;
+  /**
+   * When set, the search box belongs to the caller: every change is reported
+   * here and the list is not filtered locally (the caller searches its whole
+   * data set, not just the page that is loaded).
+   */
+  onSearchChange?: (query: string) => void;
 }
 
 export interface ConversationListItemProps {

@@ -50,6 +50,13 @@ export const forwardMailMessageSchema = z.object({
   to: z.array(z.string().email()).min(1),
   body: z.string().optional(),
   htmlBody: z.string().optional(),
+  /** Ids of the original's attachments to leave out; the rest are forwarded. */
+  excludeAttachmentIds: z.array(z.string()).max(100).optional(),
+  /** Attach the original as an .eml file instead of quoting it. */
+  asAttachment: z.boolean().optional(),
+  /** Sender's IANA time zone and locale, for the quoted Date line. */
+  timeZone: z.string().max(64).optional(),
+  locale: z.string().max(35).optional(),
   attachments: z
     .array(
       z.object({

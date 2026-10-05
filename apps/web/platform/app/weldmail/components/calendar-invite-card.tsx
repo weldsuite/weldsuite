@@ -11,11 +11,10 @@ import {
   type CalendarEvent,
 } from '@/hooks/queries/use-calendar-queries';
 import { parseIcs, type ParsedIcsEvent } from '../lib/parse-ics';
+import { fetchMailAttachment, saveMailAttachment } from '../lib/download-attachment';
 
 interface CalendarInviteCardProps {
-  /** Direct (already-authenticated) URL to the .ics attachment. */
-  downloadUrl: string;
-  /** Attachment id — used as a cache/dedupe key across re-renders. */
+  /** Attachment id — the .ics is fetched through mail-api with the member's session. */
   attachmentId: string;
   /** File name of the .ics — shown on the fallback download chip. */
   fileName: string;
@@ -54,7 +53,7 @@ function formatEventWhen(event: ParsedIcsEvent): string {
  * falls back silently (renders nothing) if the payload isn't a real VEVENT so
  * the plain attachment link still shows.
  */
-export function CalendarInviteCard({ downloadUrl, attachmentId, fileName, size }: Readonly<CalendarInviteCardProps>) {
+export function CalendarInviteCard({ attachmentId, fileName, size }: Readonly<CalendarInviteCardProps>) {
   const { t } = useI18n();
   const [event, setEvent] = useState<ParsedIcsEvent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,9 +68,7 @@ export function CalendarInviteCard({ downloadUrl, attachmentId, fileName, size }
     setEvent(null);
     (async () => {
       try {
-        const res = await fetch(downloadUrl);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = await res.text();
+        const text = await (await fetchMailAttachment(attachmentId)).text();
         const parsed = parseIcs(text);
         if (!cancelled) setEvent(parsed);
       } catch {
@@ -83,7 +80,7 @@ export function CalendarInviteCard({ downloadUrl, attachmentId, fileName, size }
     return () => {
       cancelled = true;
     };
-  }, [downloadUrl, attachmentId]);
+  }, [attachmentId]);
 
   if (loading) {
     return (
@@ -98,16 +95,19 @@ export function CalendarInviteCard({ downloadUrl, attachmentId, fileName, size }
   // Fall back to a plain download chip so the attachment is never lost.
   if (!event) {
     return (
-      <a
-        href={downloadUrl}
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        type="button"
+        onClick={() => {
+          saveMailAttachment(attachmentId, fileName).catch(() =>
+            toast.error(t.mail.messageDetail.failedToDownloadAttachment),
+          );
+        }}
         className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-border bg-white dark:bg-card hover:bg-gray-50 dark:hover:bg-secondary transition-colors text-sm group"
       >
         <FileDown className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
         <span className="text-gray-700 truncate max-w-[200px]">{fileName}</span>
         <span className="text-gray-400 text-xs whitespace-nowrap">{formatBytes(size)}</span>
-      </a>
+      </button>
     );
   }
 

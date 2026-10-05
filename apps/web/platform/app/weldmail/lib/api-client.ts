@@ -264,16 +264,13 @@ async function applyMessageMove(
     }
     case 'inbox':
     case 'restore': {
+      // INBOX is a location: adding it takes the mail out of trash, spam
+      // and the archive in the same write.
       const add = await appApi<{ id: string; labels: string[] }>(
         `/mail-messages/${messageId}/labels/add`,
         { method: 'POST', body: JSON.stringify({ labels: ['INBOX'] }) },
       );
       if (!add.success) return { success: false, error: add.error, errorCode: add.errorCode };
-      // Pull out of trash/archive on the way back to inbox.
-      await appApi(`/mail-messages/${messageId}/labels/remove`, {
-        method: 'POST',
-        body: JSON.stringify({ labels: ['TRASH', 'ARCHIVE', 'SPAM'] }),
-      });
       return { success: true, data: { moved: true, fromFolder: 'TRASH', toFolder: 'INBOX', action } };
     }
     case 'trash': {
@@ -410,6 +407,12 @@ export const mailApi = {
           size: number;
           fileKey: string;
         }>;
+        /** Original attachments the sender removed; the rest go along. */
+        excludeAttachmentIds?: string[];
+        /** Attach the original as an .eml instead of quoting it. */
+        asAttachment?: boolean;
+        timeZone?: string;
+        locale?: string;
       },
     ) =>
       mutate(
@@ -462,46 +465,25 @@ export const mailApi = {
       mutate(applyMessageMove(messageId, 'trash')).then(toMoved),
     restore: (_accountId: string, messageId: string) =>
       mutate(applyMessageMove(messageId, 'restore')).then(toMoved),
+  },
 
+  attachments: {
     /**
-     * Stats. app-api returns `{ total, unread, inboxUnread, starred }` —
-     * the legacy shape had more breakdowns (sent/spam/scheduled/etc).
-     * We fill those with 0 here so the inbox UI doesn't NaN; richer
-     * counts can land when the stats endpoint grows.
+     * Fetch an attachment's bytes through mail-api, with the member's session.
+     * The stored object URL carries no auth at all, so the app never links to
+     * it.
      */
-    stats: async (accountId: string) => {
-      const result = await appApi<{ total: number; unread: number; inboxUnread: number; starred: number }>(
-        `/mail-messages/stats${buildQuery({ accountId })}`,
-      );
-      if (!result.success || !result.data) {
-        return {
-          success: result.success,
-          error: result.error,
-          errorCode: result.errorCode,
-          errorDetails: result.errorDetails,
-        } as ApiResponse<{
-          total: number; unread: number; inboxUnread: number; starredUnread: number;
-          sentUnread: number; drafts: number; spam: number; trashUnread: number;
-          snoozed: number; scheduled: number; importantUnread: number; archiveUnread: number;
-        }>;
+    download: async (attachmentId: string): Promise<ApiResponse<Blob>> => {
+      try {
+        const token = await getAuthToken();
+        const response = await fetch(apiUrl(`${APP_BASE}/mail-attachments/${attachmentId}/download`), {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) return errorResponse<Blob>(await response.json().catch(() => null));
+        return { success: true, data: await response.blob() };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'Network error' };
       }
-      return {
-        success: true as const,
-        data: {
-          total: result.data.total,
-          unread: result.data.unread,
-          inboxUnread: result.data.inboxUnread,
-          starredUnread: result.data.starred,
-          sentUnread: 0,
-          drafts: 0,
-          spam: 0,
-          trashUnread: 0,
-          snoozed: 0,
-          scheduled: 0,
-          importantUnread: 0,
-          archiveUnread: 0,
-        },
-      };
     },
   },
 

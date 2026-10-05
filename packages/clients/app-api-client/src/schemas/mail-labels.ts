@@ -48,6 +48,12 @@ export const listMailLabelThreadsQuery = z.object({
   labelSlug: z.string().min(1),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  /** Free text over subject, body and participants; searches the whole mailbox. */
+  search: z.string().max(200).optional(),
+  from: z.string().max(200).optional(),
+  to: z.string().max(200).optional(),
+  subject: z.string().max(200).optional(),
+  hasAttachment: z.boolean().optional(),
 });
 
 export type CreateMailLabelInput = z.infer<typeof createMailLabelSchema>;

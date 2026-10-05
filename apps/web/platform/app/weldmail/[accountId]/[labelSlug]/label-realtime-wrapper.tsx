@@ -6,6 +6,7 @@ import { useMailRealtime } from '../../hooks/useMailRealtime';
 import { getSystemLabelConfig } from '../../lib/label-config';
 import type { NewEmailEvent } from '../../hooks/mail-types';
 import type { ThreadSummary } from '../../lib/thread-utils';
+import type { MailThreadSearch } from '@/hooks/queries/use-mail-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface LabelRealtimeWrapperProps {
@@ -20,6 +21,8 @@ interface LabelRealtimeWrapperProps {
   pageSize: number;
   onRefetch?: () => void;
   onThreadLabelUpdate?: (threadId: string, labelName: string, action: 'add' | 'remove') => void;
+  /** Passed to the list so its search box and filters query the server. */
+  onServerFilterChange?: (filter: MailThreadSearch) => void;
 }
 
 /**
@@ -39,6 +42,7 @@ export function LabelRealtimeWrapper({
   pageSize,
   onRefetch,
   onThreadLabelUpdate,
+  onServerFilterChange,
 }: Readonly<LabelRealtimeWrapperProps>) {
   const { t } = useI18n();
   const params = useParams();
@@ -186,6 +190,7 @@ export function LabelRealtimeWrapper({
         totalCount={totalCount}
         pageSize={pageSize}
         onThreadLabelUpdate={onThreadLabelUpdate}
+        onServerFilterChange={onServerFilterChange}
       />
     </div>
   );

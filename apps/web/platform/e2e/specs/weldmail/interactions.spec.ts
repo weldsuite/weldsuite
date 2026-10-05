@@ -173,10 +173,11 @@ test.describe('WeldMail · settings labels', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('WeldMail · settings accounts', () => {
-  test('/weldmail/settings/accounts renders', async ({ page }) => {
+  // The old stub page is gone: mail accounts are managed in the WeldMail app
+  // settings, and the old path (linked from onboarding) forwards there.
+  test('/weldmail/settings/accounts forwards to the WeldMail app settings', async ({ page }) => {
     await page.goto('/weldmail/settings/accounts');
-    await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
-    await expect(page).toHaveURL(/\/weldmail\/settings\/accounts/);
+    await expect(page).toHaveURL(/\/settings\/apps\/weldmail/, { timeout: 15_000 });
   });
 });
 

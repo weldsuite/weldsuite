@@ -32,6 +32,15 @@ const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
+/** True when a key event comes from a text field or a rich-text editor. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable || target.closest('[contenteditable=""], [contenteditable="true"]')) {
+    return true
+  }
+  return target.matches("input, textarea, select")
+}
+
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
   open: boolean
@@ -100,6 +109,8 @@ function SidebarProvider({
         event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
         (event.metaKey || event.ctrlKey)
       ) {
+        // Ctrl/Cmd+B is "bold" while typing: leave it to the field.
+        if (isEditableTarget(event.target)) return
         event.preventDefault()
         toggleSidebar()
       }

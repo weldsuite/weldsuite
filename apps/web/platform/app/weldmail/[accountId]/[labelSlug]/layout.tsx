@@ -2,6 +2,7 @@
 import { useCallback, useMemo } from 'react';
 import { useParams } from '@/lib/router';
 import { useMailListPage } from '../../hooks/use-mail-list-page';
+import { MAIL_SEARCH_PAGE_SIZE, useMailThreadSearch } from '../../hooks/use-mail-thread-search';
 import { LabelRealtimeWrapper } from './label-realtime-wrapper';
 import { useMailLabelThreads, useMailDrafts, mailKeys } from '@/hooks/queries/use-mail-queries';
 import { getLabelDisplayName } from '../../lib/label-config';
@@ -29,14 +30,20 @@ export default function LabelLayout({
   const params = useParams<{ accountId: string; labelSlug: string }>();
   const accountId = params.accountId;
   const labelSlug = decodeURIComponent(params.labelSlug);
-  const currentPage = useMailListPage();
+  const urlPage = useMailListPage();
   const queryClient = useQueryClient();
 
   const isDraftsView = labelSlug === 'drafts';
 
+  // The list's search box and Filter panel run on the server. A search shows
+  // its matches as a single page, whatever page of the folder was open.
+  const { search: threadSearch, isSearching, setSearch } = useMailThreadSearch();
+  const currentPage = isSearching ? 1 : urlPage;
+  const pageSize = isSearching ? MAIL_SEARCH_PAGE_SIZE : PAGE_SIZE;
+
   // Thread list for all labels except drafts
   const threadsQuery = useMailLabelThreads(
-    { accountId, labelSlug, page: currentPage, pageSize: PAGE_SIZE },
+    { accountId, labelSlug, page: currentPage, pageSize, ...threadSearch },
     !isDraftsView,
   );
 
@@ -105,7 +112,7 @@ export default function LabelLayout({
     page: currentPage,
     pageSize: PAGE_SIZE,
     serverTotalCount,
-    enabled: !isDraftsView,
+    enabled: !isDraftsView && !isSearching,
   });
 
   const {
@@ -123,16 +130,17 @@ export default function LabelLayout({
   const listThreads = useToppedUpThreadList(
     visibleThreads,
     nextPageThreads,
-    PAGE_SIZE,
+    pageSize,
     hidden,
   );
 
   const totalCount = useMemo<number>(() => {
     if (isDraftsView) return draftsQuery.data?.data?.length ?? 0;
+    if (isSearching) return Math.min(serverTotalCount, MAIL_SEARCH_PAGE_SIZE);
     return Math.max(0, serverTotalCount - hiddenCount);
-  }, [isDraftsView, draftsQuery.data, serverTotalCount, hiddenCount]);
+  }, [isDraftsView, isSearching, draftsQuery.data, serverTotalCount, hiddenCount]);
 
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   const error = useMemo<string | null>(() => {
     if (isDraftsView) {
@@ -146,11 +154,10 @@ export default function LabelLayout({
     if (isDraftsView) {
       queryClient.invalidateQueries({ queryKey: mailKeys.drafts(accountId) });
     } else {
-      queryClient.invalidateQueries({
-        queryKey: mailKeys.threadsByLabel({ accountId, labelSlug, page: currentPage, pageSize: PAGE_SIZE }),
-      });
+      // Every page and every search of this folder: the prefix matches them all.
+      queryClient.invalidateQueries({ queryKey: [...mailKeys.all, 'threads-by-label'] });
     }
-  }, [isDraftsView, accountId, labelSlug, currentPage, queryClient]);
+  }, [isDraftsView, accountId, queryClient]);
 
   const displayName = getLabelDisplayName(labelSlug);
 
@@ -164,8 +171,9 @@ export default function LabelLayout({
       currentPage={currentPage}
       totalPages={totalPages}
       totalCount={totalCount}
-      pageSize={PAGE_SIZE}
+      pageSize={pageSize}
       onRefetch={handleRefetch}
+      onServerFilterChange={isDraftsView ? undefined : setSearch}
     />
   );
 
