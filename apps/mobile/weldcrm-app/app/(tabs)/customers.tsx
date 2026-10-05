@@ -33,6 +33,7 @@ import {
   Trash2,
 } from 'lucide-react-native';
 import { api, type CustomerRecord, type PipelineWithStages, type OpportunityRecord } from '@/services/api';
+import type { PaginatedResponse } from '@weldsuite/mobile-ui/types';
 
 type ViewMode = 'table' | 'pipeline';
 
@@ -140,6 +141,9 @@ const formatDealValue = (value: string): string | undefined =>
 const apiErrorMessage = (error: string | { message?: string } | null | undefined, fallback: string): string =>
   typeof error === 'string' ? error : (error?.message || fallback);
 
+// API returns items in 'items' field for paginated responses
+const pageItems = <T,>(page: PaginatedResponse<T> | undefined): T[] => page?.items || page?.data || [];
+
 const buildColumns = (pipeline: PipelineWithStages, opportunities: OpportunityRecord[]): Column[] =>
   pipeline.stages.map(stage => ({
     id: stage.id,
@@ -207,8 +211,7 @@ export default function CustomersScreen() {
       ]);
 
       if (customersRes.success && customersRes.data) {
-        // API returns items in 'items' field for paginated responses
-        setCustomers(customersRes.data.items || customersRes.data.data || []);
+        setCustomers(pageItems(customersRes.data));
       }
 
       if (pipelinesRes.success && pipelinesRes.data) {
@@ -216,14 +219,13 @@ export default function CustomersScreen() {
       }
 
       if (opportunitiesRes.success && opportunitiesRes.data) {
-        // API returns items in 'items' field for paginated responses
-        setOpportunities(opportunitiesRes.data.items || opportunitiesRes.data.data || []);
+        setOpportunities(pageItems(opportunitiesRes.data));
       }
 
       // Build pipeline columns from real data (fallback to default columns if no pipelines exist)
       const firstPipeline = pipelinesRes.success ? pipelinesRes.data?.[0] : undefined;
       if (firstPipeline) {
-        const opportunityData = opportunitiesRes.data?.items || opportunitiesRes.data?.data || [];
+        const opportunityData = pageItems(opportunitiesRes.data);
         setColumns(buildColumns(firstPipeline, opportunityData)); // Use first pipeline
       } else {
         setColumns(DEFAULT_COLUMNS);
