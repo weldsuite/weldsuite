@@ -4,6 +4,7 @@ import { Hand, Pin, EllipsisVertical, Monitor, Volume2, VolumeX, ZoomIn, RotateC
 import { ParticipantNameTag } from './participant-name-tag';
 import { ParticipantAvatar } from './participant-avatar';
 import { ParticipantContextMenu } from './participant-context-menu';
+import { useSpeakerOutput } from '../hooks/use-speaker-output';
 import type { MeetingClient, MeetingPeer } from '../types';
 
 // ─── Camera-off tile palette ─────────────────────────────────────────────────
@@ -175,6 +176,7 @@ function TileNameTag({ participant, name, isSelf, ringing, localMuted, onClickDe
 export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false, onRemoveParticipant }: ParticipantTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  useSpeakerOutput(audioRef);
   const [volume, setVolume] = useState(100);
   const [localMuted, setLocalMuted] = useState(false);
   const [showControls, setShowControls] = useState(false);
@@ -395,6 +397,7 @@ function clampScreenOffset(x: number, y: number, scale: number, w: number, h: nu
 export function ScreenShareTile({ participant, isSelf, onClick, focused }: ScreenShareTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const shareAudioRef = useRef<HTMLAudioElement>(null);
+  useSpeakerOutput(shareAudioRef);
   const containerRef = useRef<HTMLDivElement>(null);
   const name = participant?.name || 'Participant';
 
