@@ -30,6 +30,10 @@ export const createTaskSchema = z.object({
   tags: z.array(z.string()).optional(),
   customerId: z.string().nullable().optional(),
   contactId: z.string().nullable().optional(),
+  // CRM person link (new Companies/People model; `contactId` is the legacy
+  // equivalent kept during the migration). Used when a task is created from a
+  // person panel (WeldCRM) — see `personId` filter support in the list route.
+  personId: z.string().nullable().optional(),
   isBillable: z.boolean().optional(),
   dependsOn: z.array(z.string()).optional(),
   blocks: z.array(z.string()).optional(),
@@ -58,6 +62,7 @@ export const updateTaskSchema = z.object({
   assigneeIds: z.array(z.string()).nullish(),
   customerId: createTaskSchema.shape.customerId,
   contactId: createTaskSchema.shape.contactId,
+  personId: createTaskSchema.shape.personId,
   startDate: createTaskSchema.shape.startDate,
   dueDate: createTaskSchema.shape.dueDate,
   estimatedHours: createTaskSchema.shape.estimatedHours,

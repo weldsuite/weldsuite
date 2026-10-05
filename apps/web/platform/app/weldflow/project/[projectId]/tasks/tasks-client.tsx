@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useTransition, useEffect, useLayoutEffect, useCallback, useRef, useContext } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { flushSync } from 'react-dom';
 import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -565,6 +566,9 @@ export function TasksClient({
   // Entity mode: board is embedded inside a CRM panel scoped to a company/person.
   // Tasks span multiple projects; project-only features are suppressed.
   const isEntityMode = !!entityScope;
+  // Only needed in entity mode, to pre-fill the "Add Task" dialog's assignee
+  // the way the My Tasks dialog does (defaults to the current user).
+  const { userId: currentUserId } = useAuth();
 
   const priorityConfig = useMemo(() => ({
     low: { label: t.projects.tasks.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
@@ -921,22 +925,39 @@ export function TasksClient({
     };
 
     // If the user picked a project stage in the dialog, prefer its id+systemStatus.
+    // (In entity mode `projectStages` is never populated, so this is always a no-op there.)
     const pickedStage = projectStages.find(s => s.id === data.status);
     const resolvedStageId = pickedStage?.id;
     const resolvedStatus = pickedStage?.systemStatus ?? statusMap[data.status] ?? 'todo';
 
     setIsCreatingTask(true);
-    const result = await tasksApi.create(projectId, {
-      title: data.title,
-      description: data.description,
-      stageId: resolvedStageId,
-      status: resolvedStatus,
-      priority: data.priority,
-      assigneeIds: data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined),
-      dueDate: data.dueDate?.toISOString(),
-      labels: data.labels,
-      repeat: data.repeat ? { frequency: data.repeat.frequency } : undefined,
-    });
+    // Entity mode has no single project to create into — create via the global
+    // /tasks endpoint instead, linked to the CRM company/person this panel is
+    // scoped to (customerId / personId), same as My Tasks does for its tasks.
+    const result = isEntityMode
+      ? await tasksApi.createGlobal({
+          title: data.title,
+          description: data.description,
+          status: resolvedStatus,
+          priority: data.priority,
+          assigneeIds: data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined),
+          dueDate: data.dueDate?.toISOString(),
+          labels: data.labels,
+          repeat: data.repeat ? { frequency: data.repeat.frequency } : undefined,
+          customerId: entityScope!.kind === 'company' ? entityScope!.id : undefined,
+          personId: entityScope!.kind === 'person' ? entityScope!.id : undefined,
+        })
+      : await tasksApi.create(projectId, {
+          title: data.title,
+          description: data.description,
+          stageId: resolvedStageId,
+          status: resolvedStatus,
+          priority: data.priority,
+          assigneeIds: data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined),
+          dueDate: data.dueDate?.toISOString(),
+          labels: data.labels,
+          repeat: data.repeat ? { frequency: data.repeat.frequency } : undefined,
+        });
     setIsCreatingTask(false);
 
     if (result.success && result.data) {
@@ -1988,6 +2009,7 @@ export function TasksClient({
         availableStatuses={projectStages.map(s => ({ id: s.id, label: s.name, color: s.color }))}
         onCreateLabel={handleCreateLabel}
         hideRecord
+        defaultAssignee={isEntityMode ? currentUserId ?? undefined : undefined}
         onSave={handleTaskDialogSave}
         projectId={projectId}
         onUpdate={(taskId, data) => {

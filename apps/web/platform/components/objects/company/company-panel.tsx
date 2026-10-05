@@ -15,16 +15,14 @@
  *   - Sidebar: company chat (locked-open in fullscreen).
  */
 
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   Bookmark,
   Briefcase,
   Building,
-  Check,
   Diamond,
   EllipsisVertical,
-  Flag,
   Globe,
   Languages,
   Mail,
@@ -44,6 +42,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
+import { useComposeSafe } from '@/contexts/compose-context';
 import {
   ObjectPanelTabs,
   useObjectPanel,
@@ -67,7 +66,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/component
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
-import { PropertyRow } from '@/components/objects/_shared/property-row';
+import {
+  PropertyRow,
+  MemberPropertyRow,
+  StatusPropertyRow,
+  TagsPropertyRow,
+} from '@/components/objects/_shared/property-row';
 import { NotesTab } from '@/components/objects/_shared/notes-tab';
 import { ActivityTab } from '@/components/objects/_shared/activity-tab';
 import { DealsTab } from '@/components/objects/_shared/deals-tab';
@@ -78,17 +82,7 @@ import { FilesTab } from '@/components/objects/_shared/files-tab';
 import { AuditTab } from '@/components/objects/_shared/audit-tab';
 import { EmailsTab } from '@/components/objects/_shared/emails-tab';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
-import { MemberSelect } from '@/components/team/member-select';
-import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@weldsuite/ui/components/command';
-import { companyStatusConfig } from '@/app/weldcrm/companies/config/company-grid-config';
-import { cn } from '@/lib/utils';
+import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import {
   useCompany,
   useCompanyPeople,
@@ -182,7 +176,17 @@ function CompanyActions({
   onResetTabs: () => void;
 }) {
   const st = useTranslations();
+  const compose = useComposeSafe();
   if (!company) return null;
+
+  const handleCompose = () => {
+    if (!company.email) return;
+    if (compose) {
+      compose.openCompose({ to: company.email });
+      return;
+    }
+    window.location.href = `mailto:${company.email}`;
+  };
 
   return (
     <div className="flex items-center gap-0.5">
@@ -193,7 +197,7 @@ function CompanyActions({
               variant="ghost"
               size="icon"
               className="p-1.5 hover:bg-muted rounded-md transition-colors"
-              onClick={() => { window.location.href = `mailto:${company.email}`; }}
+              onClick={handleCompose}
               aria-label={st('sweep.entities.composeEmail')}
             >
               <Mail className="h-4 w-4 text-muted-foreground" />
@@ -333,116 +337,6 @@ function formatAddress(addr?: Record<string, unknown> | null): string {
   return parts.join(', ');
 }
 
-const STATUS_OPTIONS = ['active', 'prospect', 'inactive', 'churned', 'suspended'] as const;
-
-function StatusBadge({ value }: { value: string }) {
-  const style = companyStatusConfig[value];
-  const label = style?.label ?? value;
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
-        style?.bg ?? 'bg-muted',
-        style?.color ?? 'text-foreground',
-      )}
-    >
-      {label}
-    </span>
-  );
-}
-
-function StatusPropertyRow({
-  value,
-  onChange,
-}: {
-  value: string | null | undefined;
-  onChange: (next: string | null) => void;
-}) {
-  const st = useTranslations();
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Flag className="h-4 w-4" />
-        <span>{st('sweep.entities.fieldStatus')}</span>
-      </div>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            className="text-sm min-w-0 text-left cursor-pointer rounded px-1.5 -mx-1.5 py-0.5 hover:bg-muted/40 transition-colors flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring h-auto"
-          >
-            {value ? (
-              <StatusBadge value={value} />
-            ) : (
-              <span className="text-muted-foreground/70">{st('sweep.entities.setStatusPlaceholder')}</span>
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-56 p-0" align="start">
-          <Command>
-            <CommandInput placeholder={st('sweep.entities.searchEllipsisPlaceholder')} />
-            <CommandList className="max-h-[260px] p-1">
-              <CommandEmpty>{st('sweep.entities.noStatusesFound')}</CommandEmpty>
-              {STATUS_OPTIONS.map((opt) => {
-                const isSelected = opt === value;
-                return (
-                  <CommandItem
-                    key={opt}
-                    value={companyStatusConfig[opt]?.label ?? opt}
-                    onSelect={() => {
-                      onChange(opt);
-                      setOpen(false);
-                    }}
-                    className="flex items-center justify-between gap-2 px-1.5"
-                  >
-                    <StatusBadge value={opt} />
-                    {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                  </CommandItem>
-                );
-              })}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-      <div />
-    </div>
-  );
-}
-
-function MemberPropertyRow({
-  icon: Icon,
-  label,
-  value,
-  placeholder,
-  onChange,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  placeholder: string;
-  onChange: (next: string) => void;
-}) {
-  return (
-    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Icon className="h-4 w-4" />
-        <span>{label}</span>
-      </div>
-      <div className="min-w-0 -mx-2">
-        <MemberSelect
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          variant="assignee"
-        />
-      </div>
-      <div />
-    </div>
-  );
-}
-
 function CompanyDetailsTab({
   company,
   onUpdateField,
@@ -453,6 +347,7 @@ function CompanyDetailsTab({
   onUpdateFieldAsync: (patch: Record<string, unknown>) => Promise<void>;
 }) {
   const st = useTranslations();
+  const { options: statusOptions } = useCustomerStatusOptions();
   return (
     <div className="p-4 space-y-1">
       <PropertyRow
@@ -503,11 +398,11 @@ function CompanyDetailsTab({
         placeholder={st('sweep.entities.setManagerPlaceholder')}
         onChange={(v) => onUpdateField({ accountManagerId: v || null })}
       />
-      <PropertyRow
+      <TagsPropertyRow
         icon={Tag}
         label={st('sweep.entities.fieldTags')}
-        value={company.tags?.length ? company.tags.join(', ') : null}
-        readOnly
+        value={company.tags}
+        onChange={(next) => onUpdateField({ tags: next })}
       />
       <PropertyRow
         icon={Building}
@@ -518,6 +413,7 @@ function CompanyDetailsTab({
       <StatusPropertyRow
         value={company.status}
         onChange={(v) => onUpdateField({ status: v ?? '' })}
+        options={statusOptions}
       />
       <PropertyRow
         icon={Receipt}

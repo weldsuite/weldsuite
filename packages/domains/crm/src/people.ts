@@ -10,8 +10,12 @@
  */
 
 import { eq, and, desc, isNull, like, or, sql, inArray, ilike, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { computeChanges } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { assertValidMemberFields } from './member-validation';
+
+export { InvalidMemberIdError, isValidWorkspaceMember } from './member-validation';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
   syncValuesForEntity,
@@ -171,6 +175,66 @@ async function buildPeopleConditions(
   return conditions;
 }
 
+/**
+ * Built-in grid columns sortable server-side, keyed by the column id used in
+ * `person-grid-config.ts`. Returns null for an unrecognised key so the caller
+ * falls back to the default `createdAt DESC` order rather than throwing on
+ * an unknown sort field.
+ */
+function resolveBuiltInPersonSort(sort: string | undefined): AnyPgColumn | null {
+  if (!sort) return null;
+  const { people } = schema;
+  switch (sort) {
+    case 'name':
+      return people.displayName;
+    case 'title':
+      return people.title;
+    case 'department':
+      return people.department;
+    case 'email':
+      return people.email;
+    case 'directPhone':
+      return people.directPhone;
+    case 'mobilePhone':
+      return people.mobilePhone;
+    case 'status':
+      return people.status;
+    case 'role':
+      return people.role;
+    case 'isSupplier':
+      return people.isSupplier;
+    case 'isLead':
+      return people.isLead;
+    case 'isDecisionMaker':
+      return people.isDecisionMaker;
+    case 'isBillingContact':
+      return people.isBillingContact;
+    case 'lifecycleStage':
+      return people.lifecycleStage;
+    case 'source':
+      return people.source;
+    case 'leadScore':
+      return people.leadScore;
+    case 'preferredLanguage':
+      return people.preferredLanguage;
+    case 'ownerId':
+      return people.ownerId;
+    case 'lastContactedAt':
+      return people.lastContactedAt;
+    case 'nextFollowUpDate':
+      return people.nextFollowUpDate;
+    case 'createdAt':
+      return people.createdAt;
+    default:
+      return null;
+  }
+}
+
+/** `ORDER BY <column> ASC|DESC NULLS LAST` — blank cells always sort last. */
+function orderByNullsLast(column: AnyPgColumn, direction: 'asc' | 'desc'): SQL {
+  return direction === 'asc' ? sql`${column} ASC NULLS LAST` : sql`${column} DESC NULLS LAST`;
+}
+
 export async function listPeople(
   db: Database,
   params: ListPeopleQuery,
@@ -184,6 +248,43 @@ export async function listPeople(
   const conditions = [...base];
 
   const filterOnly = and(...conditions);
+
+  // Sorting by a built-in field invalidates the keyset cursor, which is keyed
+  // on (createdAt, id) — those columns no longer describe the row order. Fall
+  // back to OFFSET paging for an explicit sort only, so the default path
+  // keeps its keyset performance. `cursor` carries the numeric offset in this
+  // mode, which keeps the response envelope identical for callers.
+  const builtInSort = resolveBuiltInPersonSort(params.sort);
+
+  if (builtInSort) {
+    const sortDir = params.sortDir ?? 'asc';
+    const offset = params.cursor ? Math.max(0, Number.parseInt(params.cursor, 10) || 0) : 0;
+    const [rows, countResult] = await Promise.all([
+      db
+        .select()
+        .from(people)
+        .where(filterOnly)
+        .orderBy(
+          orderByNullsLast(builtInSort, sortDir),
+          // Stable tie-break: rows sharing a value (or both null) keep a
+          // deterministic order across pages, otherwise OFFSET can repeat or
+          // skip rows between requests.
+          desc(people.id),
+        )
+        .limit(limit + 1)
+        .offset(offset),
+      db.select({ count: sql<number>`count(*)` }).from(people).where(filterOnly),
+    ]);
+
+    const hasMore = rows.length > limit;
+    const data = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      data: await hydrateCustomFields(db, 'person', data),
+      totalCount: Number(countResult[0]?.count ?? 0),
+      hasMore,
+      cursor: hasMore ? String(offset + limit) : null,
+    };
+  }
 
   if (params.cursor) {
     const [cursorRow] = await db
@@ -343,11 +444,39 @@ async function insertPersonRow(
   return created;
 }
 
+/**
+ * Thrown by `createPerson` when the given email already belongs to another
+ * (non-deleted) person. Callers that intentionally de-duplicate by email
+ * themselves first (e.g. `findOrCreatePersonByEmail`) pass
+ * `allowDuplicateEmail: true` to skip this check.
+ */
+export class PersonDuplicateEmailError extends Error {
+  readonly isConflict = true as const;
+  constructor(readonly existingPersonId: string) {
+    super('A person with this email already exists.');
+    this.name = 'PersonDuplicateEmailError';
+  }
+}
+
 export async function createPerson(
   db: Database,
   input: CreatePersonInput,
+  options: { allowDuplicateEmail?: boolean } = {},
 ): Promise<PersonRow> {
-  const { personCompanies } = schema;
+  const { personCompanies, people } = schema;
+
+  await assertValidMemberFields(db, input);
+
+  const email = input.email?.trim();
+  if (email && !options.allowDuplicateEmail) {
+    const [existing] = await db
+      .select({ id: people.id })
+      .from(people)
+      .where(and(sql`LOWER(${people.email}) = ${email.toLowerCase()}`, isNull(people.deletedAt)))
+      .limit(1);
+    if (existing) throw new PersonDuplicateEmailError(existing.id);
+  }
+
   const created = await insertPersonRow(db, input);
 
   if (input.companyIds?.length) {
@@ -405,13 +534,19 @@ export async function findOrCreatePersonByEmail(
     }
   }
 
-  return createPerson(db, {
-    email,
-    firstName: firstName || undefined,
-    lastName: lastName || undefined,
-    // Email-guest identity (mail / meet participant) — not a CRM member.
-    inCrm: false,
-  });
+  return createPerson(
+    db,
+    {
+      email,
+      firstName: firstName || undefined,
+      lastName: lastName || undefined,
+      // Email-guest identity (mail / meet participant) — not a CRM member.
+      inCrm: false,
+    },
+    // Already de-duplicated by the lookup above; a race here would just
+    // mirror this function's pre-existing (non-atomic) best-effort behavior.
+    { allowDuplicateEmail: true },
+  );
 }
 
 export class PersonVersionConflictError extends Error {
@@ -448,11 +583,14 @@ export async function updatePerson(
     throw new PersonVersionConflictError();
   }
 
+  await assertValidMemberFields(db, input);
+
   const {
     ifVersion: _ignored,
     companyIds: _ignore2,
     primaryCompanyId: _ignore3,
     dateOfBirth,
+    nextFollowUpDate,
     ...rest
   } = input;
 
@@ -463,6 +601,9 @@ export async function updatePerson(
   for (const [k, v] of Object.entries(rest)) if (v !== undefined) updates[k] = v;
   if (dateOfBirth !== undefined) {
     updates.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : null;
+  }
+  if (nextFollowUpDate !== undefined) {
+    updates.nextFollowUpDate = nextFollowUpDate ? new Date(nextFollowUpDate) : null;
   }
 
   if (
@@ -1271,6 +1412,8 @@ export async function bulkUpdatePeople(
   ) {
     return { updated: 0, failed: ids.map((id) => ({ id, reason: 'No fields to update' })), changedRows: [] };
   }
+
+  await assertValidMemberFields(db, setFields);
 
   const beforeConditions: SQL[] = [isNull(people.deletedAt)];
   if (ownerScope) beforeConditions.push(eq(people.ownerId, ownerScope));

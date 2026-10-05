@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import {
   createFile,
   getFile,
+  listFiles,
   softDeleteFile,
   toggleStar,
   hasFileNameConflict,
@@ -78,6 +79,28 @@ describe('files service · pglite integration', () => {
     // Once deleted, a new file can take the original name without
     // collision.
     expect(await hasFileNameConflict(db, 'gone.pdf', null)).toBe(false);
+  });
+
+  it('listFiles filters by entityType + entityId (CRM company/person panel attachments)', async () => {
+    const companyFile = await createFile(
+      db,
+      baseParams({ fileName: 'contract.pdf', entityType: 'company', entityId: 'cus_entity_a' }),
+    );
+    await createFile(
+      db,
+      baseParams({ fileName: 'other-company.pdf', entityType: 'company', entityId: 'cus_entity_b' }),
+    );
+    const personFile = await createFile(
+      db,
+      baseParams({ fileName: 'id-scan.pdf', entityType: 'person', entityId: 'per_entity_a' }),
+    );
+    await createFile(db, baseParams({ fileName: 'unlinked.pdf' }));
+
+    const companyRows = await listFiles(db, { entityType: 'company', entityId: 'cus_entity_a' });
+    expect(companyRows.map((r) => r.id)).toEqual([companyFile.id]);
+
+    const personRows = await listFiles(db, { entityType: 'person', entityId: 'per_entity_a' });
+    expect(personRows.map((r) => r.id)).toEqual([personFile.id]);
   });
 
   it('toggleStar flips the isStarred flag', async () => {

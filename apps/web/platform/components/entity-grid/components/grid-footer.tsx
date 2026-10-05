@@ -68,15 +68,19 @@ export function GridFooter() {
             )}
             {visibleColumns.map((column, index) => {
                 const isFirstColumn = index === 0;
+                // calcFieldType lets a column (e.g. employeeCount, stored as
+                // free text to allow ranges like "11-50") opt into numeric
+                // aggregations without changing its cell editor/display type.
+                const calcFieldType = column.calcFieldType ?? column.type;
                 const selectedCalculation = fieldCalculations[column.id];
                 const calculationResult = selectedCalculation
                   ? getCalculationResult(
                       column.id,
-                      column.type,
+                      calcFieldType,
                       selectedCalculation
                     )
                   : null;
-                const options = getCalculationOptions(column.type);
+                const options = getCalculationOptions(calcFieldType);
 
                 return (
                   <td

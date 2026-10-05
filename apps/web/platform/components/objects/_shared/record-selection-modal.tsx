@@ -163,7 +163,10 @@ export function RecordSelectionModal({
             : client.get<{ data?: ApiCompany[] }>(`/companies?limit=50${searchParam}`),
           kind === 'company'
             ? Promise.resolve({ data: [] as ApiPerson[] })
-            : client.get<{ data?: ApiPerson[] }>(`/people?limit=50${searchParam}`),
+            // inCrm=true matches the People table's own filter — mail/helpdesk
+            // auto-create contacts with inCrm=false so they don't clutter
+            // record pickers like this one either.
+            : client.get<{ data?: ApiPerson[] }>(`/people?limit=50&inCrm=true${searchParam}`),
         ]);
         if (controller.signal.aborted) return;
         const untitledCompanyLabel = t('sweep.entities.untitledCompany');

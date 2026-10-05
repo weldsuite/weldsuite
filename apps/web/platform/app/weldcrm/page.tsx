@@ -60,6 +60,7 @@ import { localeConfig } from '@/lib/i18n/locales';
 import { useLocale } from '@/hooks/use-preferences';
 import { useWorkspaceMembers, type WorkspaceMember } from '@/hooks/queries/use-settings-queries';
 import { useCompanies } from '@/components/objects/company/use-company-data';
+import { usePeople } from '@/components/objects/person/use-person-data';
 import { useDebounce } from '@/hooks/use-debounce';
 
 type CompanyOption = { id: string; name: string; avatar?: string };
@@ -278,6 +279,13 @@ export default function CrmTasksClient() {
     limit: 100,
     search: customerSearch || undefined,
   });
+  // inCrm: true matches the People table's own filter — mail/helpdesk
+  // auto-created contacts shouldn't clutter the task record picker either.
+  const { data: peopleData } = usePeople({
+    limit: 100,
+    search: customerSearch || undefined,
+    inCrm: true,
+  });
   const createTaskMutation = useCreateTask();
   const toggleTaskMutation = useToggleTask();
   const updateTaskMutation = useUpdateTask();
@@ -285,6 +293,9 @@ export default function CrmTasksClient() {
 
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  // Set when "New task" is clicked from a specific board column, so the
+  // dialog can pre-select that column's status instead of always "To Do".
+  const [newTaskStatus, setNewTaskStatus] = useState<Task['status'] | undefined>(undefined);
   // The task detail drawer is now rendered globally by <ObjectPanelHost />.
   // Opening it just pushes the task id onto the object-panel stack.
   const { open: openObjectPanel } = useObjectPanel();
@@ -385,6 +396,21 @@ export default function CrmTasksClient() {
     () => availableCompanyObjects.map((c) => c.name),
     [availableCompanyObjects]
   );
+
+  const availablePersonObjects = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; avatar?: string }>();
+    for (const task of tasks) {
+      if (task.linkedPerson) {
+        map.set(task.linkedPerson.id, task.linkedPerson);
+      }
+    }
+    for (const person of peopleData?.data || []) {
+      if (person.displayName) {
+        map.set(person.id, { id: person.id, name: person.displayName, avatar: person.avatarUrl || undefined });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [tasks, peopleData]);
 
   // Filter configurations
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -587,7 +613,13 @@ export default function CrmTasksClient() {
     setShowAddDialog(open);
     if (!open) {
       setEditingTask(null);
+      setNewTaskStatus(undefined);
     }
+  }, []);
+
+  const handleCreateTaskClick = useCallback((status?: Task['status']) => {
+    setNewTaskStatus(status);
+    setShowAddDialog(true);
   }, []);
 
   const handleSaveTask = useCallback((data: Parameters<typeof createTaskMutation.mutate>[0]) => {
@@ -1083,7 +1115,7 @@ export default function CrmTasksClient() {
           leftActionButtons={<>{groupByMenu}{viewToggle}</>}
           createButton={{
             label: t('crm.tasks.newTask'),
-            onClick: () => setShowAddDialog(true),
+            onClick: () => handleCreateTaskClick(),
           }}
           emptyState={{
             icon: (
@@ -1118,7 +1150,7 @@ export default function CrmTasksClient() {
             description: t('crm.tasks.emptyState.description'),
             action: {
               label: t('crm.tasks.newTask'),
-              onClick: () => setShowAddDialog(true),
+              onClick: () => handleCreateTaskClick(),
             },
           }}
           noResultsState={{
@@ -1132,7 +1164,7 @@ export default function CrmTasksClient() {
           filterConfigs={filterConfigs}
           onTaskClick={openTaskPanel}
           onStatusChange={handleStatusChange}
-          onCreateTask={() => setShowAddDialog(true)}
+          onCreateTask={handleCreateTaskClick}
           viewToggle={viewToggle}
           statusLabels={statusLabels}
           priorityLabels={priorityLabels}
@@ -1147,11 +1179,13 @@ export default function CrmTasksClient() {
         editingTask={editingTask}
         availableAssignees={availableAssignees}
         availableCompanies={availableCompanyObjects}
+        availablePeople={availablePersonObjects}
         onRecordSearchChange={setCustomerSearch}
         recordRequired
         availableLabels={availableLabels}
         onCreateLabel={handleCreateLabel}
         defaultAssignee={user?.id}
+        defaultStatus={editingTask ? undefined : newTaskStatus}
         onSave={handleSaveTask}
         onUpdate={handleUpdateTask}
         isPending={createTaskMutation.isPending || updateTaskMutation.isPending}

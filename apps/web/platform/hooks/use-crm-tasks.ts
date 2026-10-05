@@ -29,6 +29,12 @@ export interface Task {
     name: string;
     avatar?: string;
   };
+  /** CRM person this task is linked to — mutually exclusive with `linkedCompany`. */
+  linkedPerson?: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
   dueDate?: Date;
   createdAt: Date;
   completedAt?: Date;
@@ -55,7 +61,7 @@ export const crmTasksKeys = {
 
 export type RawTask = Omit<
   Task,
-  'dueDate' | 'createdAt' | 'completedAt' | 'duration' | 'linkedCompany'
+  'dueDate' | 'createdAt' | 'completedAt' | 'duration' | 'linkedCompany' | 'linkedPerson'
 > & {
   dueDate?: string | null;
   createdAt: string;
@@ -66,6 +72,8 @@ export type RawTask = Omit<
   durationMinutes?: number | null;
   /** Server-resolved CRM company for `customerId` (flow-api `/tasks`). */
   linkedCompany?: { id: string; name: string; avatar?: string | null } | null;
+  /** Server-resolved CRM person for `personId` (flow-api `/tasks`). */
+  linkedPerson?: { id: string; name: string; avatar?: string | null } | null;
 };
 
 function crmStatusToTaskStatus(s?: Task['status'] | 'in-progress' | 'blocked'): string | undefined {
@@ -76,7 +84,7 @@ function crmStatusToTaskStatus(s?: Task['status'] | 'in-progress' | 'blocked'): 
 }
 
 export function hydrate(task: RawTask): Task {
-  const { linkedCompany, duration, durationMinutes, ...rest } = task;
+  const { linkedCompany, linkedPerson, duration, durationMinutes, ...rest } = task;
   return {
     ...rest,
     dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
@@ -86,6 +94,10 @@ export function hydrate(task: RawTask): Task {
     // The API resolves `customerId` to the company record (id, name, avatar).
     linkedCompany: linkedCompany
       ? { id: linkedCompany.id, name: linkedCompany.name, avatar: linkedCompany.avatar ?? undefined }
+      : undefined,
+    // Same resolution for `personId` — a task links to a company XOR a person.
+    linkedPerson: linkedPerson
+      ? { id: linkedPerson.id, name: linkedPerson.name, avatar: linkedPerson.avatar ?? undefined }
       : undefined,
   };
 }
@@ -137,6 +149,8 @@ export function useCreateTask() {
       /** Minutes. */
       duration?: number;
       linkedCompanyId?: string;
+      /** CRM person link — mutually exclusive with `linkedCompanyId`. */
+      personId?: string;
       labels?: string[];
       repeat?: Task['repeat'];
     }) => {
@@ -150,6 +164,7 @@ export function useCreateTask() {
           assigneeId: data.assigneeId,
           assigneeIds: data.assigneeIds,
           customerId: data.linkedCompanyId,
+          personId: data.personId,
           duration: data.duration,
           dueDate: data.dueDate ? data.dueDate.toISOString() : undefined,
           startDate: data.startDate ? data.startDate.toISOString() : undefined,
@@ -235,6 +250,8 @@ export function useUpdateTask() {
         assignee?: Task['assignee'] | null;
         assignees?: Task['assignees'] | null;
         linkedCompany?: Task['linkedCompany'] | null;
+        /** CRM person link — mutually exclusive with `linkedCompany`. */
+        linkedPerson?: Task['linkedPerson'] | null;
       };
     }) => {
       const client = await getClient();
@@ -250,6 +267,10 @@ export function useUpdateTask() {
       if (data.linkedCompany !== undefined) {
         payload.customerId = data.linkedCompany?.id ?? null;
         delete payload.linkedCompany;
+      }
+      if (data.linkedPerson !== undefined) {
+        payload.personId = data.linkedPerson?.id ?? null;
+        delete payload.linkedPerson;
       }
       await client.patch<{ data: { id: string } }>(`/tasks/${taskId}`, payload);
     },

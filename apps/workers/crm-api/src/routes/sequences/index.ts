@@ -24,7 +24,10 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const w = schema.workflows;
 const e = schema.sequenceEnrollments;
-const p = schema.parties;
+// Sequences enroll People directly (not the `parties` wrapper table — most
+// people never get a wrapping party row, see packages/core/db/src/schema/
+// parties.ts). `sequence_enrollments.customerId` stores a `people.id`.
+const ppl = schema.people;
 
 app.get('/', requirePermission('contacts:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -131,14 +134,11 @@ app.get('/:id/enrollments', requirePermission('contacts:read'), async (c) => {
   const q = c.req.query();
   const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [eq(e.sequenceId, id), isNull(p.deletedAt)];
+  const conditions: any[] = [eq(e.sequenceId, id), isNull(ppl.deletedAt)];
   if (q.status) conditions.push(eq(e.status, q.status));
   if (q.search) {
     const term = `%${q.search}%`;
-    // After the companies/people refactor, party rows carry a `displayName`
-    // instead of separate companyName/fullName/email columns. Search by
-    // displayName; per-field search can be added back via snapshot JSONB.
-    conditions.push(like(p.displayName, term));
+    conditions.push(or(like(ppl.displayName, term), like(ppl.email, term))!);
   }
   if (q.cursor) {
     const [cur] = await db
@@ -172,19 +172,21 @@ app.get('/:id/enrollments', requirePermission('contacts:read'), async (c) => {
           failedAt: e.failedAt,
           errorMessage: e.errorMessage,
           customerSnapshot: e.customerSnapshot,
-          customerEmail: sql<string | null>`${e.customerSnapshot}->>'email'`,
-          customerFullName: sql<string | null>`coalesce(${e.customerSnapshot}->>'fullName', ${p.displayName})`,
+          customerEmail: sql<string | null>`coalesce(${e.customerSnapshot}->>'email', ${ppl.email})`,
+          customerFirstName: sql<string | null>`coalesce(${e.customerSnapshot}->>'firstName', ${ppl.firstName})`,
+          customerLastName: sql<string | null>`coalesce(${e.customerSnapshot}->>'lastName', ${ppl.lastName})`,
+          customerFullName: sql<string | null>`coalesce(${e.customerSnapshot}->>'fullName', ${ppl.displayName})`,
           customerCompanyName: sql<string | null>`${e.customerSnapshot}->>'companyName'`,
         })
         .from(e)
-        .innerJoin(p, eq(e.customerId, p.id))
+        .innerJoin(ppl, eq(e.customerId, ppl.id))
         .where(where)
         .orderBy(desc(e.enrolledAt), desc(e.id))
         .limit(limit + 1),
       db
         .select({ count: sql<number>`count(*)` })
         .from(e)
-        .innerJoin(p, eq(e.customerId, p.id))
+        .innerJoin(ppl, eq(e.customerId, ppl.id))
         .where(and(...filterConditions)),
     ]);
     const hasMore = rows.length > limit;
@@ -261,16 +263,27 @@ async function triggerSequenceWorkflow(
   }
 }
 
-const enrollSchema = z.object({
-  customerIds: z.array(z.string()).min(1),
-});
+// `personIds` is the current field — sequences enroll People directly.
+// `customerIds` is kept accepted for any caller still sending the pre-refactor
+// name (the WeldCRM dialog itself now sends `personIds`); at least one of the
+// two must be present.
+const enrollSchema = z
+  .object({
+    personIds: z.array(z.string()).min(1).optional(),
+    customerIds: z.array(z.string()).min(1).optional(),
+  })
+  .refine((data) => (data.personIds?.length ?? 0) > 0 || (data.customerIds?.length ?? 0) > 0, {
+    message: 'personIds (or customerIds) must include at least one id',
+  });
 
 /**
- * POST /sequences/:id/enroll — bulk-enroll customers. Each new row starts as
+ * POST /sequences/:id/enroll — bulk-enroll people. Each new row starts as
  * `pending` if the sequence is still a draft, or `active` (and triggers the
  * workflow immediately) if the sequence is already running. The
  * `(sequenceId, customerId)` unique constraint makes the call idempotent —
- * re-enrolling an existing customer no-ops without erroring.
+ * re-enrolling an existing person no-ops without erroring. If none of the
+ * given ids resolve to a live person row, the call fails loudly (400) rather
+ * than silently reporting `enrolled: 0`.
  */
 app.post(
   '/:id/enroll',
@@ -281,7 +294,7 @@ app.post(
     const workspaceId = c.get('workspaceId');
     const userId = c.get('userId');
     const sequenceId = c.req.param('id');
-    const { customerIds } = c.req.valid('json');
+    const { personIds, customerIds } = c.req.valid('json');
 
     try {
       const [sequence] = await db
@@ -292,31 +305,67 @@ app.post(
       if (!sequence) return error.notFound(c, 'Sequence', sequenceId);
 
       const isActiveSequence = sequence.status === 'active';
-      const ids = Array.from(new Set(customerIds));
+      const ids = Array.from(new Set([...(personIds ?? []), ...(customerIds ?? [])]));
 
-      const parties = await db
+      const people = await db
         .select({
-          id: p.id,
-          displayName: p.displayName,
+          id: ppl.id,
+          displayName: ppl.displayName,
+          email: ppl.email,
+          firstName: ppl.firstName,
+          lastName: ppl.lastName,
+          fullName: ppl.fullName,
+          directPhone: ppl.directPhone,
+          mobilePhone: ppl.mobilePhone,
+          primaryAddress: ppl.primaryAddress,
         })
-        .from(p)
-        .where(and(inArray(p.id, ids), isNull(p.deletedAt)));
-      const partyById = new Map(parties.map((row) => [row.id, row]));
+        .from(ppl)
+        .where(and(inArray(ppl.id, ids), isNull(ppl.deletedAt)));
+      const personById = new Map(people.map((row) => [row.id, row]));
+
+      const knownIds = ids.filter((id) => personById.has(id));
+      if (knownIds.length === 0) {
+        return error.badRequest(c, 'No matching people found to enroll', { ids });
+      }
+
+      // Primary employer name, when any — used for the `{{contact.companyName}}`
+      // template variable. Best-effort: a person without a company just omits it.
+      const companyNameByPersonId = new Map<string, string>();
+      if (knownIds.length > 0) {
+        const employments = await db
+          .select({
+            personId: schema.personCompanies.personId,
+            companyName: schema.companies.displayName,
+          })
+          .from(schema.personCompanies)
+          .innerJoin(schema.companies, eq(schema.personCompanies.companyId, schema.companies.id))
+          .where(
+            and(
+              inArray(schema.personCompanies.personId, knownIds),
+              eq(schema.personCompanies.isPrimary, true),
+              isNull(schema.personCompanies.endedAt),
+            ),
+          );
+        for (const row of employments) {
+          if (row.companyName) companyNameByPersonId.set(row.personId, row.companyName);
+        }
+      }
 
       const alreadyEnrolled = await db
         .select({ customerId: e.customerId })
         .from(e)
-        .where(and(eq(e.sequenceId, sequenceId), inArray(e.customerId, ids)));
+        .where(and(eq(e.sequenceId, sequenceId), inArray(e.customerId, knownIds)));
       const enrolledSet = new Set(alreadyEnrolled.map((r) => r.customerId));
 
-      const toEnroll = ids.filter((id) => partyById.has(id) && !enrolledSet.has(id));
+      const toEnroll = knownIds.filter((id) => !enrolledSet.has(id));
       if (toEnroll.length === 0) {
         return success(c, { enrolled: 0, enrollmentIds: [] });
       }
 
       const now = new Date();
       const enrollmentRows = toEnroll.map((customerId) => {
-        const party = partyById.get(customerId)!;
+        const person = personById.get(customerId)!;
+        const primaryAddress = person.primaryAddress as { city?: string; country?: string } | null;
         return {
           id: generateId('senr'),
           sequenceId,
@@ -325,9 +374,16 @@ app.post(
           status: isActiveSequence ? 'active' : 'pending',
           enrolledBy: userId,
           enrolledAt: now,
-          customerSnapshot: party.displayName
-            ? { fullName: party.displayName, companyName: party.displayName }
-            : null,
+          customerSnapshot: {
+            email: person.email ?? undefined,
+            firstName: person.firstName ?? undefined,
+            lastName: person.lastName ?? undefined,
+            fullName: person.fullName ?? person.displayName ?? undefined,
+            companyName: companyNameByPersonId.get(customerId),
+            phone: person.directPhone ?? person.mobilePhone ?? undefined,
+            city: primaryAddress?.city,
+            country: primaryAddress?.country,
+          },
         };
       });
 
@@ -363,6 +419,13 @@ app.post(
  * POST /sequences/:id/launch — activate a draft sequence. Flips the workflow
  * status to `active`, converts every `pending` enrollment to `active`, and
  * triggers EXECUTE_SEQUENCE for each newly-active enrollment.
+ *
+ * Enforces the same "launch checklist" the editor UI shows (at least one
+ * step, at least one enrolled person). The Sequences list row's "Activate"
+ * action calls this route (not the generic PATCH /workflows/:id/status,
+ * which exempts `__type:sequence` workflows from its own WeldConnect-MVP
+ * validation — see connect-api's `rejectUnsupportedActivation` — and so has
+ * no equivalent check of its own) so both launch paths agree.
  */
 app.post('/:id/launch', requirePermission('contacts:update'), async (c) => {
   const db = c.get('tenantDb');
@@ -372,11 +435,24 @@ app.post('/:id/launch', requirePermission('contacts:update'), async (c) => {
 
   try {
     const [sequence] = await db
-      .select({ id: w.id, status: w.status })
+      .select({ id: w.id, status: w.status, steps: w.steps })
       .from(w)
       .where(and(eq(w.id, sequenceId), isNull(w.deletedAt)))
       .limit(1);
     if (!sequence) return error.notFound(c, 'Sequence', sequenceId);
+
+    const stepCount = Array.isArray(sequence.steps) ? sequence.steps.length : 0;
+    if (stepCount === 0) {
+      return error.badRequest(c, 'Add at least one step before launching this sequence');
+    }
+
+    const [enrolledCountRes] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(e)
+      .where(and(eq(e.sequenceId, sequenceId), sql`${e.status} != 'unenrolled'`));
+    if (Number(enrolledCountRes?.count ?? 0) === 0) {
+      return error.badRequest(c, 'Enroll at least one person before launching this sequence');
+    }
 
     await db
       .update(w)

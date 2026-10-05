@@ -5,17 +5,29 @@
  */
 
 import type { ImportFieldDef } from '@/app/weldcrm/components/import-entities-dialog';
+import { companyColumns } from './company-grid-config';
 
 type Tfn = (path: string, params?: Record<string, unknown>) => string;
 
 /** A row is importable if at least one of these mapped columns has a value. */
 export const COMPANY_IMPORT_REQUIRE_ONE_OF = ['partyCode', 'name', 'email'];
 
+/**
+ * The grid column's own display name as an alias, when the export writes a
+ * different header than the import field's label (e.g. the grid's "Company"
+ * column vs. the import field's "Name"). Keeps the app's own CSV/Excel
+ * export auto-mappable on re-import without hand-maintaining a second list.
+ */
+function gridAlias(accessorKey: string): string[] {
+  const column = companyColumns.find((c) => c.id === accessorKey);
+  return column ? [column.name] : [];
+}
+
 export function getCompanyImportFields(t: Tfn): ImportFieldDef[] {
   const f = (key: string) => t(`crm.importExport.fields.company.${key}`);
   return [
     { header: f('partyCode'), accessorKey: 'partyCode' },
-    { header: f('name'), accessorKey: 'name' },
+    { header: f('name'), accessorKey: 'name', aliases: gridAlias('name') },
     { header: f('tradingName'), accessorKey: 'tradingName' },
     { header: f('email'), accessorKey: 'email' },
     { header: f('alternateEmails'), accessorKey: 'alternateEmails', multiValue: true },
@@ -26,7 +38,7 @@ export function getCompanyImportFields(t: Tfn): ImportFieldDef[] {
     { header: f('vatNumber'), accessorKey: 'vatNumber' },
     { header: f('registrationNumber'), accessorKey: 'registrationNumber' },
     { header: f('industry'), accessorKey: 'industry' },
-    { header: f('employeeCount'), accessorKey: 'employeeCount' },
+    { header: f('employeeCount'), accessorKey: 'employeeCount', aliases: gridAlias('employeeCount') },
     { header: f('status'), accessorKey: 'status' },
     { header: f('lifecycleStage'), accessorKey: 'lifecycleStage' },
     { header: f('segment'), accessorKey: 'segment' },
@@ -41,6 +53,18 @@ export function getCompanyImportFields(t: Tfn): ImportFieldDef[] {
     { header: f('tags'), accessorKey: 'tags', multiValue: true },
     { header: f('notes'), accessorKey: 'notes' },
     { header: f('internalNotes'), accessorKey: 'internalNotes' },
+    {
+      header: f('isSupplier'),
+      accessorKey: 'isSupplier',
+      valueType: 'boolean',
+      aliases: gridAlias('isSupplier'),
+    },
+    {
+      header: f('isLead'),
+      accessorKey: 'isLead',
+      valueType: 'boolean',
+      aliases: gridAlias('isLead'),
+    },
   ];
 }
 

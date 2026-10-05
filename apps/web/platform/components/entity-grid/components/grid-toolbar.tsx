@@ -31,6 +31,7 @@ import {
 } from '@weldsuite/ui/components/popover';
 import {
   Command,
+  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -77,15 +78,18 @@ export function GridToolbar({
   const {
   state,
   setFilters,
-  setSortConfig,
   setColumns,
   getVisibleColumns,
   handleSort,
+  clearSort,
   setIsExporting,
 } = useGridContext();
 
   const { sortConfig, filters, columns } = state;
   const visibleColumns = getVisibleColumns();
+  // Only columns the grid can actually sort server-side (location/currency
+  // placeholders etc. opt out via `sortable: false`).
+  const sortableColumns = visibleColumns.filter((c) => c.sortable !== false);
   // Search open state lifted from <SearchIconButton/> so the toolbar can hide
   // sibling buttons + let the search field expand to the full row on mobile.
   const [searchOpen, setSearchOpen] = useState(!!searchValue);
@@ -136,7 +140,7 @@ export function GridToolbar({
                 <CommandInput placeholder={t('sweep.entities.searchColumnsPlaceholder')} />
                 <CommandList className="max-h-[400px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
                   <CommandGroup heading={t('sweep.entities.sortByHeading')}>
-                    {visibleColumns.map((column) => (
+                    {sortableColumns.map((column) => (
                       <div
                         key={column.id}
                         className="group relative flex items-center justify-between px-2 py-1.5 text-sm rounded-sm hover:bg-accent  cursor-default"
@@ -186,7 +190,7 @@ export function GridToolbar({
                       <div className="p-1">
                         <CommandItem
                           onSelect={() => {
-                            setSortConfig({ field: null, direction: null });
+                            clearSort();
                             toast.success(t('sweep.entities.sortCleared'));
                           }}
                           className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 data-[selected=true]:bg-red-50 dark:data-[selected=true]:bg-red-950 data-[selected=true]:text-red-600"
@@ -430,6 +434,21 @@ function GridFilterPills<TEntity>({
     return FILTER_OPERATORS.find((o) => o.value === operator)?.label || operator;
   };
 
+  // Single/multi-select columns (e.g. Status) carry a fixed `options` list
+  // and a `selectConfig` of display labels — the filter value should be
+  // picked from those, not typed as free text, since the stored value is
+  // the option's slug/key (e.g. "active"), not its label ("Active").
+  const getFilterColumnOptions = (fieldId: string): string[] | null => {
+    const column = columns.find((c) => c.id === fieldId);
+    if (!column || (column.type !== 'single-select' && column.type !== 'multi-select')) return null;
+    return column.options ?? null;
+  };
+
+  const getValueLabel = (fieldId: string, value: string): string => {
+    const column = columns.find((c) => c.id === fieldId);
+    return column?.selectConfig?.[value]?.label ?? value;
+  };
+
   const needsValue = (operator: string) => operator !== 'is_empty' && operator !== 'is_not_empty';
 
   return (
@@ -486,32 +505,53 @@ function GridFilterPills<TEntity>({
                 <PopoverTrigger asChild>
                   <Button variant="ghost" className="flex items-center px-2 h-full hover:bg-muted transition-colors">
                     {filter.value ? (
-                      <span className="text-foreground">{String(filter.value)}</span>
+                      <span className="text-foreground">{getValueLabel(filter.field, String(filter.value))}</span>
                     ) : (
                       <span className="text-muted-foreground/60">{t('sweep.entities.enterValue')}</span>
                     )}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-auto min-w-40 p-2">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (textInputValue.trim()) {
-                        updateValue(index, textInputValue.trim());
-                      }
-                    }}
-                  >
-                    <Input
-                      autoFocus
-                      value={textInputValue}
-                      onChange={(e) => setTextInputValue(e.target.value)}
-                      placeholder={t('sweep.entities.enterValueEllipsis')}
-                      className="h-8 text-sm"
-                    />
-                    <Button type="submit" size="sm" className="w-full mt-2 h-7 text-xs">
-                      {t('sweep.entities.apply')}
-                    </Button>
-                  </form>
+                  {getFilterColumnOptions(filter.field) ? (
+                    // Single/multi-select column — pick from its configured
+                    // options instead of typing free text (a filter on e.g.
+                    // Status would otherwise never match anything, since the
+                    // stored value is the status slug, not what's displayed).
+                    <Command>
+                      <CommandInput placeholder={t('sweep.entities.searchEllipsisPlaceholder')} />
+                      <CommandList className="max-h-56">
+                        <CommandEmpty>{t('sweep.entities.noOptionFound')}</CommandEmpty>
+                        <CommandGroup>
+                          {getFilterColumnOptions(filter.field)!.map((option) => (
+                            <CommandItem key={option} onSelect={() => updateValue(index, option)}>
+                              <span>{getValueLabel(filter.field, option)}</span>
+                              {filter.value === option && <Check className="h-3.5 w-3.5 text-primary ml-auto" />}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  ) : (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (textInputValue.trim()) {
+                          updateValue(index, textInputValue.trim());
+                        }
+                      }}
+                    >
+                      <Input
+                        autoFocus
+                        value={textInputValue}
+                        onChange={(e) => setTextInputValue(e.target.value)}
+                        placeholder={t('sweep.entities.enterValueEllipsis')}
+                        className="h-8 text-sm"
+                      />
+                      <Button type="submit" size="sm" className="w-full mt-2 h-7 text-xs">
+                        {t('sweep.entities.apply')}
+                      </Button>
+                    </form>
+                  )}
                 </PopoverContent>
               </Popover>
             </>

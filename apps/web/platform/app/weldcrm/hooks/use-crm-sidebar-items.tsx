@@ -36,6 +36,7 @@ import { getTemplateStages } from '../components/pipeline-templates';
 import { useRouter } from '@/lib/router';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   useCreatePipeline,
   useUpdatePipeline,
@@ -97,11 +98,18 @@ function getListIconFromName(name?: string | null): LucideIcon {
   return LIST_ICON_MAP[name] || Building2;
 }
 
-function getListIconName(icon: LucideIcon): string {
+// `CreateListDialog` is shared with pipeline creation and defaults its icon
+// picker to the pipeline icon set's first entry (lucide's `Building`, not
+// `Building2`) — that component isn't in LIST_ICON_MAP at all, so every new
+// list that didn't get a manually-picked icon fell through to this
+// function's fallback. Without a kind-aware fallback that always produced
+// 'Building2', even for a brand-new person list. Falling back per `kind`
+// fixes the default while leaving an explicit, matching icon pick alone.
+function getListIconName(icon: LucideIcon, kind: ListKind = 'company'): string {
   for (const [name, component] of Object.entries(LIST_ICON_MAP)) {
     if (component === icon) return name;
   }
-  return 'Building2';
+  return kind === 'person' ? 'User' : 'Building2';
 }
 
 function getIconFromName(name?: string | null): LucideIcon {
@@ -147,6 +155,10 @@ export function useCrmSidebarItems(isActive: boolean): {
   const [createPipelineDialogOpen, setCreatePipelineDialogOpen] = React.useState(false);
   const [renameListDialogOpen, setRenameListDialogOpen] = React.useState(false);
   const [renamingList, setRenamingList] = React.useState<{ id: string; name: string; type: 'list' | 'pipeline' } | null>(null);
+  const [listToDelete, setListToDelete] = React.useState<{ id: string; name: string; memberCount: number | null } | null>(null);
+  const [deleteListPending, setDeleteListPending] = React.useState(false);
+  const [pipelineToDelete, setPipelineToDelete] = React.useState<{ id: string; name: string; dealCount: number | null } | null>(null);
+  const [deletePipelinePending, setDeletePipelinePending] = React.useState(false);
 
   // Fetch pipelines and lists when active
   React.useEffect(() => {
@@ -206,7 +218,7 @@ export function useCrmSidebarItems(isActive: boolean): {
     icon: LucideIcon,
     kind: ListKind = 'company',
   ) => {
-    const iconName = getListIconName(icon);
+    const iconName = getListIconName(icon, kind);
     try {
       const result = await createListMutation.mutateAsync({
         name,
@@ -240,10 +252,40 @@ export function useCrmSidebarItems(isActive: boolean): {
     }
   };
 
+  // Opens the delete confirmation for a sidebar list, looking up its current
+  // member count first so the dialog can warn how many rows are affected.
+  // Falls back to generic copy (no count) if the lookup fails.
+  const handleRequestDeleteList = async (pageId: string) => {
+    const page = customerPages.find((p) => p.id === pageId);
+    if (!page) return;
+    setListToDelete({ id: pageId, name: page.title, memberCount: null });
+    try {
+      const client = await getClient();
+      const result = await client.get<{ data?: { memberCount?: number } }>(`/lists/${pageId}`);
+      const memberCount = result.data?.memberCount;
+      if (typeof memberCount === 'number') {
+        setListToDelete((prev) => (prev && prev.id === pageId ? { ...prev, memberCount } : prev));
+      }
+    } catch (error) {
+      console.error('Failed to load list member count:', error);
+    }
+  };
+
+  const handleConfirmDeleteList = async () => {
+    if (!listToDelete) return;
+    setDeleteListPending(true);
+    try {
+      await handleDeleteCustomerPage(listToDelete.id);
+      setListToDelete(null);
+    } finally {
+      setDeleteListPending(false);
+    }
+  };
+
   const handleDuplicateCustomerPage = async (pageId: string) => {
     const page = customerPages.find((p) => p.id === pageId);
     if (!page) return;
-    const iconName = getListIconName(page.icon);
+    const iconName = getListIconName(page.icon, page.kind ?? 'company');
     try {
       const result = await createListMutation.mutateAsync({
         name: `${page.title} (Copy)`,
@@ -254,6 +296,23 @@ export function useCrmSidebarItems(isActive: boolean): {
       });
       const created = result.data;
       if (created?.id) {
+        // No server-side duplicate endpoint exists yet — copy membership by
+        // reading the source list's members and bulk-adding them to the new
+        // one. A static list's members are a flat entityId set, so this is
+        // a straight copy regardless of kind.
+        try {
+          const client = await getClient();
+          const membersResult = await client.get<{ data?: Array<{ entityId: string }> }>(
+            `/lists/${pageId}/members`,
+          );
+          const entityIds = (membersResult.data ?? []).map((m) => m.entityId);
+          if (entityIds.length > 0) {
+            await client.post(`/lists/${created.id}/members`, { entityIds });
+          }
+        } catch (membersError) {
+          console.error('Failed to copy list members:', membersError);
+          toast.error(t('crm.sidebar.listDuplicateMembersFailed'));
+        }
         toast.success(t('crm.sidebar.listDuplicated'));
         router.push(`/weldcrm/lists/${created.id}`);
       } else {
@@ -278,7 +337,8 @@ export function useCrmSidebarItems(isActive: boolean): {
   };
 
   const handleChangeCustomerIcon = async (pageId: string, icon: LucideIcon) => {
-    const iconName = getListIconName(icon);
+    const page = customerPages.find((p) => p.id === pageId);
+    const iconName = getListIconName(icon, page?.kind ?? 'company');
     try {
       await updateListMutation.mutateAsync({ id: pageId, data: { icon: iconName } });
       setCustomerPages((prev) =>
@@ -428,14 +488,54 @@ export function useCrmSidebarItems(isActive: boolean): {
     if (pageId === 'all-pipelines') return;
     try {
       await deletePipelineMutation.mutateAsync(pageId);
-      setPipelinePages((prev) => prev.filter((p) => p.id !== pageId));
+      // `/weldcrm` is the My Tasks board, not a CRM landing page — landing
+      // there after deleting a pipeline was disorienting. Prefer another
+      // remaining pipeline; fall back to Companies (a real CRM home) only
+      // when none are left.
+      const remaining = pipelinePages.filter((p) => p.id !== pageId);
+      setPipelinePages(remaining);
       toast.success(t('crm.sidebar.dealDeleted'));
-      // Pipelines have no index page — the board lives at /weldcrm/pipeline/:id.
-      // After deleting one, fall back to the CRM landing.
-      router.push('/weldcrm');
+      if (remaining[0]) {
+        router.push(`/weldcrm/pipeline/${remaining[0].id}`);
+      } else {
+        router.push('/weldcrm/companies');
+      }
     } catch (error) {
       console.error('Failed to delete pipeline:', error);
       toast.error(t('crm.sidebar.dealDeleteFailed'));
+    }
+  };
+
+  // Opens the delete confirmation for a sidebar pipeline, looking up its
+  // current deal count first so the dialog can warn how many deals are
+  // affected. Falls back to generic copy (no count) if the lookup fails.
+  const handleRequestDeletePipeline = async (pageId: string) => {
+    if (pageId === 'all-pipelines') return;
+    const page = pipelinePages.find((p) => p.id === pageId);
+    if (!page) return;
+    setPipelineToDelete({ id: pageId, name: page.title, dealCount: null });
+    try {
+      const client = await getClient();
+      const result = await client.get<{ pagination?: { totalCount?: number } }>(
+        `/opportunities?pipeline=${encodeURIComponent(pageId)}&limit=1`,
+      );
+      const dealCount = result.pagination?.totalCount;
+      if (typeof dealCount === 'number') {
+        setPipelineToDelete((prev) => (prev && prev.id === pageId ? { ...prev, dealCount } : prev));
+      }
+    } catch (error) {
+      console.error('Failed to load pipeline deal count:', error);
+    }
+  };
+
+  const handleConfirmDeletePipeline = async () => {
+    if (!pipelineToDelete) return;
+    setDeletePipelinePending(true);
+    try {
+      await handleDeletePipelinePage(pipelineToDelete.id);
+      setPipelineToDelete(null);
+    } finally {
+      setDeletePipelinePending(false);
     }
   };
 
@@ -672,7 +772,7 @@ export function useCrmSidebarItems(isActive: boolean): {
     iconStyle: 'colored-square' as const,
     iconColor: page.iconColor,
     id: page.id,
-    onDelete: () => handleDeleteCustomerPage(page.id),
+    onDelete: () => handleRequestDeleteList(page.id),
     onDuplicate: () => handleDuplicateCustomerPage(page.id),
     onRename: () => handleRenameCustomerList(page.id),
     onChangeColor: (color: string) => handleChangeCustomerColor(page.id, color),
@@ -689,7 +789,7 @@ export function useCrmSidebarItems(isActive: boolean): {
     iconStyle: 'colored-square' as const,
     iconColor: page.iconColor,
     id: page.id,
-    onDelete: () => handleDeletePipelinePage(page.id),
+    onDelete: () => handleRequestDeletePipeline(page.id),
     onDuplicate: () => handleDuplicatePipelinePage(page.id),
     onRename: () => handleRenamePipeline(page.id),
     onChangeColor: (color: string) => handleChangePipelineColor(page.id, color),
@@ -745,6 +845,42 @@ export function useCrmSidebarItems(isActive: boolean): {
         onOpenChange={setRenameListDialogOpen}
         currentName={renamingList?.name || ''}
         onRename={handleConfirmRename}
+      />
+      <ConfirmDialog
+        open={!!listToDelete}
+        onOpenChange={(open) => {
+          if (!open) setListToDelete(null);
+        }}
+        title={t('crm.sidebar.deleteListTitle', { name: listToDelete?.name ?? '' })}
+        description={
+          listToDelete?.memberCount == null
+            ? t('crm.sidebar.deleteListDescriptionGeneric')
+            : listToDelete.memberCount === 1
+              ? t('crm.sidebar.deleteListDescriptionWithMembersSingular')
+              : t('crm.sidebar.deleteListDescriptionWithMembersPlural', { count: listToDelete.memberCount })
+        }
+        variant="destructive"
+        confirmLabel={t('crm.sidebar.deleteListConfirm')}
+        loading={deleteListPending}
+        onConfirm={handleConfirmDeleteList}
+      />
+      <ConfirmDialog
+        open={!!pipelineToDelete}
+        onOpenChange={(open) => {
+          if (!open) setPipelineToDelete(null);
+        }}
+        title={t('crm.sidebar.deletePipelineTitle', { name: pipelineToDelete?.name ?? '' })}
+        description={
+          pipelineToDelete?.dealCount == null
+            ? t('crm.sidebar.deletePipelineDescriptionGeneric')
+            : pipelineToDelete.dealCount === 1
+              ? t('crm.sidebar.deletePipelineDescriptionWithDealsSingular')
+              : t('crm.sidebar.deletePipelineDescriptionWithDealsPlural', { count: pipelineToDelete.dealCount })
+        }
+        variant="destructive"
+        confirmLabel={t('crm.sidebar.deletePipelineConfirm')}
+        loading={deletePipelinePending}
+        onConfirm={handleConfirmDeletePipeline}
       />
     </>
   );

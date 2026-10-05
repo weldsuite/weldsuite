@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 
 export interface BreadcrumbSegment {
   label: string;
@@ -9,6 +9,8 @@ export interface BreadcrumbSegment {
 interface BreadcrumbContextValue {
   breadcrumbs: BreadcrumbSegment[];
   setBreadcrumbs: (segments: BreadcrumbSegment[]) => void;
+  /** Breadcrumbs to fall back to once the page that set them unmounts. */
+  defaultBreadcrumbs: BreadcrumbSegment[];
 }
 
 const BreadcrumbContext = createContext<BreadcrumbContextValue | null>(null);
@@ -27,7 +29,7 @@ export function BreadcrumbProvider({ children, defaultBreadcrumbs = [] }: Breadc
   }, []);
 
   return (
-    <BreadcrumbContext.Provider value={{ breadcrumbs, setBreadcrumbs }}>
+    <BreadcrumbContext.Provider value={{ breadcrumbs, setBreadcrumbs, defaultBreadcrumbs }}>
       {children}
     </BreadcrumbContext.Provider>
   );
@@ -60,7 +62,7 @@ export function useBreadcrumbs(
   segments: BreadcrumbSegment[],
   options?: { enabled?: boolean },
 ) {
-  const { setBreadcrumbs } = useBreadcrumbContext();
+  const { setBreadcrumbs, defaultBreadcrumbs } = useBreadcrumbContext();
   const enabled = options?.enabled !== false;
   const segmentsKey = JSON.stringify(segments);
 
@@ -72,6 +74,19 @@ export function useBreadcrumbs(
     // directly would re-run this effect (and re-render the header) every time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setBreadcrumbs, segmentsKey, enabled]);
+
+  // Reset to the provider's default once this page unmounts — otherwise the
+  // last page to call useBreadcrumbs (e.g. Sequences) keeps its breadcrumb
+  // showing on every page after it, until a full reload resets the
+  // provider's initial state. Separate effect with no deps on `segments` so
+  // this only fires on true unmount, not on every content change.
+  const defaultBreadcrumbsRef = useRef(defaultBreadcrumbs);
+  defaultBreadcrumbsRef.current = defaultBreadcrumbs;
+  useEffect(() => {
+    if (!enabled) return;
+    return () => setBreadcrumbs(defaultBreadcrumbsRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setBreadcrumbs, enabled]);
 }
 
 /**
@@ -90,6 +105,16 @@ export function useOptionalBreadcrumbs(segments: BreadcrumbSegment[]) {
     // Keyed by content (segmentsKey), not array reference — see useBreadcrumbs above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setBreadcrumbs, segmentsKey]);
+
+  // See useBreadcrumbs above — reset to the provider's default on unmount so
+  // this page's breadcrumb doesn't stick around on whatever's shown next.
+  const defaultBreadcrumbsRef = useRef(context?.defaultBreadcrumbs ?? []);
+  defaultBreadcrumbsRef.current = context?.defaultBreadcrumbs ?? [];
+  useEffect(() => {
+    if (!setBreadcrumbs) return;
+    return () => setBreadcrumbs(defaultBreadcrumbsRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setBreadcrumbs]);
 }
 
 /**

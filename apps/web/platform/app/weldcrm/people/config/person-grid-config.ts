@@ -270,14 +270,14 @@ export const personColumns: GridColumnDef<Person>[] = [
   {
     id: 'ownerId',
     name: 'Owner',
-    type: 'text',
-    width: 160,
+    type: 'member',
+    width: 180,
     icon: Briefcase,
     visible: false,
     editable: true,
     sortable: true,
-    getValue: (p) => p.ownerId ?? '',
-    setValue: (_p, v) => ({ ownerId: (v as string) || undefined }),
+    getValue: (p) => p.ownerId ?? null,
+    setValue: (_p, v) => ({ ownerId: (v as string | null) || null }),
   },
   {
     id: 'lastContactedAt',

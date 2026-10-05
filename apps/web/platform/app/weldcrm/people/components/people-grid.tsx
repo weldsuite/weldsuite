@@ -1,7 +1,9 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
   EntityGrid,
   type EntityGridActions,
@@ -34,7 +36,7 @@ import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel
 interface PeopleGridProps {
   people: Person[];
   totalCount: number;
-  searchParams?: { search?: string; status?: string; filter?: string; companyId?: string };
+  searchParams?: { search?: string; status?: string; filter?: string; companyId?: string; sort?: string; sortDir?: string };
   onLoadMore?: () => void;
   hasMore?: boolean;
   isFetchingMore?: boolean;
@@ -46,6 +48,8 @@ interface PeopleGridProps {
    */
   listContext?: {
     listId: string;
+    /** Drives the "Remove from list" copy in the bulk-select delete bar. */
+    listName?: string;
     removeMember: (entityId: string) => Promise<void>;
     removeFailedMessage?: string;
   };
@@ -88,6 +92,27 @@ export function PeopleGrid({
   const importMut = useImportPeople();
   const { open: openObjectPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldcrm/people');
+
+  // Shares its cache with the grid's Owner-column member picker (same
+  // queryKey) — resolves the Owner column's userId to a name for CSV/Excel
+  // export instead of writing the raw id.
+  const { getClient } = useAppApiClient();
+  const { data: teamMembersData } = useQuery({
+    queryKey: ['team-members', 'list'],
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: Array<{ userId: string; name: string | null; email?: string | null }> }>(
+        '/team-members',
+      );
+    },
+  });
+  const memberNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of teamMembersData?.data ?? []) {
+      map[m.userId] = m.name?.trim() || m.email || m.userId;
+    }
+    return map;
+  }, [teamMembersData]);
 
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -138,8 +163,9 @@ export function PeopleGrid({
         }
         const stamp = new Date().toISOString().slice(0, 10);
         const columns = [...personColumns, ...customColumns];
-        if (format === 'csv') await exportToCSV(rows, columns, `people-${stamp}.csv`);
-        else await exportToExcel(rows, columns, `people-${stamp}.xlsx`, 'People');
+        const exportContext = { memberNameById };
+        if (format === 'csv') await exportToCSV(rows, columns, `people-${stamp}.csv`, exportContext);
+        else await exportToExcel(rows, columns, `people-${stamp}.xlsx`, 'People', exportContext);
         toast.success(
           t('crm.importExport.exportSuccess', {
             n: rows.length,
@@ -151,7 +177,7 @@ export function PeopleGrid({
         toast.error(t('crm.importExport.exportFailed'));
       }
     },
-    [exportMut, exportFilter, customColumns, t],
+    [exportMut, exportFilter, customColumns, memberNameById, t],
   );
 
   const actions: EntityGridActions<Person> = useMemo(() => ({
@@ -226,6 +252,7 @@ export function PeopleGrid({
           hasMore={hasMore}
           isFetchingMore={isFetchingMore}
           toolbarActions={toolbarActions}
+          listName={listContext?.listName}
         />
       )}
       <QuickAddPersonDialog open={isQuickAddOpen} onOpenChange={setIsQuickAddOpen} />

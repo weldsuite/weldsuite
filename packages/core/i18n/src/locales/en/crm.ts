@@ -966,8 +966,17 @@ export const crm = {
       listCreateFailed: 'Failed to create list',
       listDeleted: 'List deleted',
       listDeleteFailed: 'Failed to delete list',
+      deleteListTitle: 'Delete "{name}"?',
+      deleteListDescriptionWithMembersSingular:
+        'This list has 1 member. Deleting the list won’t delete it — only the list itself. This can’t be undone.',
+      deleteListDescriptionWithMembersPlural:
+        'This list has {count} members. Deleting the list won’t delete them — only the list itself. This can’t be undone.',
+      deleteListDescriptionGeneric:
+        'Deleting this list can’t be undone. The companies or people in it won’t be deleted.',
+      deleteListConfirm: 'Delete list',
       listDuplicated: 'List duplicated',
       listDuplicateFailed: 'Failed to duplicate list',
+      listDuplicateMembersFailed: 'List duplicated, but copying its members failed',
       listRenamed: 'List renamed',
       listRenameFailed: 'Failed to rename list',
       listColorUpdateFailed: 'Failed to update list color',
@@ -976,6 +985,13 @@ export const crm = {
       dealCreateFailed: 'Failed to create deal',
       dealDeleted: 'Deal deleted',
       dealDeleteFailed: 'Failed to delete deal',
+      deletePipelineTitle: 'Delete "{name}"?',
+      deletePipelineDescriptionWithDealsSingular:
+        'This pipeline has 1 deal. It will stay in your CRM but won’t be assigned to a pipeline anymore. This can’t be undone.',
+      deletePipelineDescriptionWithDealsPlural:
+        'This pipeline has {count} deals. They will stay in your CRM but won’t be assigned to a pipeline anymore. This can’t be undone.',
+      deletePipelineDescriptionGeneric: 'Deleting this pipeline can’t be undone.',
+      deletePipelineConfirm: 'Delete pipeline',
       dealDuplicated: 'Deal duplicated',
       dealDuplicateFailed: 'Failed to duplicate deal',
       dealRenamed: 'Deal renamed',
@@ -1963,6 +1979,8 @@ export const crm = {
       noKeyMappedDesc: 'Map at least one of: {fields}, so rows can be created or matched.',
       someRowsSkipped: 'Some rows will be skipped',
       someRowsSkippedDesc: '{n} rows have no usable value and will be skipped.',
+      missingCreateFieldTitle: 'Some rows may be skipped',
+      missingCreateFieldDesc: '{n} rows have no {fields} — they will only import if they match an existing record; otherwise they will be skipped.',
       fileStats: '{name} — {rows} rows, {valid} valid',
       backBtn: 'Back',
       importBtn: 'Import {n}',
@@ -1983,7 +2001,11 @@ export const crm = {
       createdN: 'Created {n}.',
       updatedN: 'Updated {n}.',
       failedToProcess: 'Some rows failed',
-      failedN: '{n} rows could not be imported.',
+      // {count} (not {n}) — both forms are substituted by the `plural()`
+      // helper, not `t()`. Keep in sync: only `import-entities-dialog.tsx`'s
+      // result-step "N rows could not be imported" alert uses these.
+      failedN: '{count} rows could not be imported.',
+      failedNOne: '{count} row could not be imported.',
       errorDetailsHeading: 'Errors',
       rowPrefix: 'Row {n}:',
       doneButton: 'Done',
@@ -2027,6 +2049,8 @@ export const crm = {
           tags: 'Tags',
           notes: 'Notes',
           internalNotes: 'Internal notes',
+          isSupplier: 'Supplier',
+          isLead: 'Lead',
         },
         person: {
           partyCode: 'Party code',
@@ -2057,6 +2081,8 @@ export const crm = {
           interests: 'Interests',
           notes: 'Notes',
           internalNotes: 'Internal notes',
+          isSupplier: 'Supplier',
+          isLead: 'Lead',
         },
       },
     },
@@ -2110,21 +2136,21 @@ export const crm = {
 
     enrollCustomersDialog: {
       dialogTitle: 'Add People to Sequence',
-      searchPlaceholder: 'Search customers...',
-      noCustomersFound: 'No customers found',
+      searchPlaceholder: 'Search people...',
+      noCustomersFound: 'No people found',
       typeToSearch: 'Type to search...',
       customerTypeCompany: 'Company',
       customerTypeIndividual: 'Individual',
-      selectedCount: '{count} customer selected',
-      selectedCountPlural: '{count} customers selected',
+      selectedCount: '{count} person selected',
+      selectedCountPlural: '{count} people selected',
       cancelButton: 'Cancel',
-      enrollButton: 'Enroll {count} Customer',
-      enrollButtonPlural: 'Enroll {count} Customers',
+      enrollButton: 'Enroll {count} Person',
+      enrollButtonPlural: 'Enroll {count} People',
       enrollingLabel: 'Enrolling...',
-      enrolledSuccess: '{count} customer enrolled',
-      enrolledSuccessPlural: '{count} customers enrolled',
-      alreadyEnrolled: 'Customers are already enrolled',
-      enrollFailed: 'Failed to enroll customers',
+      enrolledSuccess: '{count} person enrolled',
+      enrolledSuccessPlural: '{count} people enrolled',
+      alreadyEnrolled: 'People are already enrolled',
+      enrollFailed: 'Failed to enroll people',
     },
 
     enrichmentSection: {

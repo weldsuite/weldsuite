@@ -127,14 +127,20 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
     }
   }, [getClient, t]);
 
+  // Goes through the sequences `/launch` endpoint — not the generic
+  // PATCH /workflows/:id/status — so the same "has steps / has people
+  // enrolled" launch checklist the editor enforces also applies here. The
+  // generic status route exempts __type:sequence workflows from its own
+  // validation, so calling it directly let a sequence go live with zero
+  // steps or zero enrollments.
   const handleActivate = useCallback(async (id: string) => {
     try {
       const client = await getClient();
-      await client.patch(`/workflows/${id}/status`, { status: 'active' });
+      await client.post(`/sequences/${id}/launch`, {});
       setSequences((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'active' } : s)));
       toast.success(t('crm.sequences.activatedSuccess'));
-    } catch {
-      toast.error(t('crm.sequences.activateFailed'));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('crm.sequences.activateFailed'));
     }
   }, [getClient, t]);
 

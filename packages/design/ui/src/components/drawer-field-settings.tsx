@@ -13,6 +13,13 @@ interface DrawerFieldSettingsProps {
   label?: string;
   /** When set, prevents toggling additional fields ON once this many are visible. */
   maxVisible?: number;
+  /**
+   * Trigger button tooltip/aria title. Defaults to "Configure visible
+   * fields" — callers that use this picker for something other than object
+   * fields (e.g. the person panel's tab visibility) should override it so
+   * the affordance matches what it actually configures.
+   */
+  title?: string;
 }
 
 export function DrawerFieldSettings({
@@ -22,6 +29,7 @@ export function DrawerFieldSettings({
   onReset,
   label = 'Visible fields',
   maxVisible,
+  title = 'Configure visible fields',
 }: DrawerFieldSettingsProps) {
   const visibleCount = fields.reduce(
     (n, f) => n + (f.required || fieldVisibility[f.id] ? 1 : 0),
@@ -32,7 +40,7 @@ export function DrawerFieldSettings({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Configure visible fields">
+        <Button variant="ghost" size="icon" className="h-8 w-8" title={title}>
           <Settings2 className="h-4 w-4" />
         </Button>
       </PopoverTrigger>

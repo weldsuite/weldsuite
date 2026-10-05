@@ -51,7 +51,7 @@ import {
   hydrateCustomFields,
   hydrateCustomFieldsOne,
 } from '@weldsuite/core-domain/custom-field-values';
-import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
+import { getMasterDb, masterSchema, schema, type Database } from '@weldsuite/worker-kit/db';
 import { createFile } from '@weldsuite/core-domain/files';
 import {
   accessibleProjectIds,
@@ -237,8 +237,43 @@ async function fetchLinkedCompanyMap(
 }
 
 /**
+ * CRM link: `tasks.person_id` holds a person id — the counterpart to
+ * `fetchLinkedCompanyMap` above. A task links to a company XOR a person, but
+ * both are resolved the same way so the client can tell which one applies.
+ */
+async function fetchLinkedPersonMap(
+  db: Database,
+  taskResults: ReadonlyArray<{ personId?: unknown }>,
+): Promise<Map<string, { id: string; name: string; avatar: string | null }>> {
+  const personIds = new Set<string>();
+  for (const row of taskResults) {
+    if (typeof row.personId === 'string' && row.personId) personIds.add(row.personId);
+  }
+  const personMap = new Map<string, { id: string; name: string; avatar: string | null }>();
+  if (personIds.size > 0) {
+    const { people } = schema;
+    const personRows = await db
+      .select({
+        id: people.id,
+        name: people.displayName,
+        avatar: people.avatarUrl,
+      })
+      .from(people)
+      .where(and(inArray(people.id, [...personIds]), isNull(people.deletedAt)));
+    for (const person of personRows) {
+      personMap.set(person.id, {
+        id: person.id,
+        name: person.name,
+        avatar: person.avatar ?? null,
+      });
+    }
+  }
+  return personMap;
+}
+
+/**
  * Enrich task rows with assignee info from workspaceMembers, the
- * currently-scheduled calendar slot (if any) and the linked CRM company.
+ * currently-scheduled calendar slot (if any) and the linked CRM company/person.
  */
 export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
   if (taskResults.length === 0) return taskResults;
@@ -251,6 +286,7 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
   const eventMap = await fetchTaskScheduledSlots(db, taskIds);
 
   const companyMap = await fetchLinkedCompanyMap(db, taskResults);
+  const personMap = await fetchLinkedPersonMap(db, taskResults);
 
   return taskResults.map((task: any) => {
     const ids: string[] =
@@ -276,6 +312,7 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
       scheduledEnd: scheduled?.endTime ?? null,
       autoScheduled: scheduled?.autoScheduled ?? null,
       linkedCompany: task.customerId ? (companyMap.get(task.customerId) ?? null) : null,
+      linkedPerson: task.personId ? (personMap.get(task.personId) ?? null) : null,
     };
   });
 }
@@ -497,6 +534,7 @@ async function insertTask(
     isBillable: data.isBillable ?? true,
     customerId: data.customerId ?? null,
     contactId: data.contactId ?? null,
+    personId: data.personId ?? null,
     customFields: data.customFields,
     dependsOn: data.dependsOn,
     blocks: data.blocks,
@@ -964,6 +1002,7 @@ const PATCHABLE_TASK_COLUMNS = [
   'assigneeId',
   'customerId',
   'contactId',
+  'personId',
   'startDate',
   'dueDate',
   'estimatedHours',

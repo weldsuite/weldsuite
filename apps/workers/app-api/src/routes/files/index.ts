@@ -37,6 +37,8 @@ app.get('/', requirePermission('files:read'), zValidator('query', listFilesQuery
       folderId,
       rootOnly,
       type: q.type,
+      entityType: q.entityType,
+      entityId: q.entityId,
     });
     const normalized = normalizeGenericFiles(rows, c.env.R2_PUBLIC_URL);
     const { items, pagination } = queryArray<UnifiedFile>(normalized, {

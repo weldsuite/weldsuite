@@ -3,9 +3,10 @@
  *
  * Thin wrapper over the existing `EntityAuditPanel`, which already does
  * the right thing: fetches via `useEntityAuditLogs(entityType, entityId)`
- * and renders a timeline. Customer-detail uses entityType='customer' for
- * the legacy customer entity; we follow the same convention since the
- * audit log writes haven't been renamed.
+ * and renders a timeline. crm-api's companies/people routes publish entity
+ * events with entityType 'company' / 'person' (the Companies/People model),
+ * not the legacy 'customer' / 'contact' types — map directly so the audit
+ * log endpoint (`/api/audit-logs/company|person/<id>`) actually finds rows.
  */
 
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
@@ -16,6 +17,5 @@ interface AuditTabProps {
 }
 
 export function AuditTab({ entityId, entityKind }: AuditTabProps) {
-  const entityType = entityKind === 'company' ? 'customer' : 'contact';
-  return <EntityAuditPanel entityType={entityType} entityId={entityId} />;
+  return <EntityAuditPanel entityType={entityKind} entityId={entityId} />;
 }

@@ -46,6 +46,23 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, '').trim();
 }
 
+/**
+ * Notes are always created with the generic `subject: 'Note'` (see
+ * `NotesView.handleCreate`) — the real title lives in the first heading (or
+ * line) of the note's HTML `description`, same as the Notes page itself
+ * derives it. Falls back to the stored subject when there's no content yet.
+ */
+function getNoteDisplaySubject(activity: { subject: string; description?: string }): string {
+  const html = activity.description || '';
+  const headingMatch = html.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
+  if (headingMatch?.[1]) {
+    const title = stripHtml(headingMatch[1]);
+    if (title) return title;
+  }
+  const firstLine = stripHtml(html).split('\n')[0]?.trim();
+  return firstLine || activity.subject;
+}
+
 // ────────────────────────────────────────────────────────────────────
 // Tone + icon mapping (mirrors the team-member-panel activity tab)
 
@@ -286,7 +303,9 @@ function ActivityRow({ activity, userMap, isFirst }: Readonly<{ activity: Activi
   const createdAt = new Date(activity.createdAt);
 
   const userName = userMap.get(activity.assignedToId) || t('sweep.weldcrm.contactDetailView.system');
-  const subject = stripHtml(activity.subject || '');
+  const subject = stripHtml(
+    activity.type === 'note' ? getNoteDisplaySubject(activity) : activity.subject || '',
+  );
 
   return (
     <li className="group relative">

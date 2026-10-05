@@ -1,20 +1,47 @@
 import * as XLSX from 'xlsx';
 import { GridColumnDef } from '../types';
 
+/** Extra context export formatting needs that isn't on the column/entity itself. */
+export interface ExportContext {
+  /** Resolves a `member`-type column's stored userId to a display name. */
+  memberNameById?: Record<string, string>;
+}
+
+/**
+ * Column value → export cell string. Shared by CSV and Excel so both stay in
+ * sync: a `member` column exports the member's name (never the raw user id),
+ * and an array value (multi-select / tags) exports as a readable
+ * semicolon-joined list instead of `JSON.stringify` (which rendered an empty
+ * tag list as the literal text `[]`).
+ */
+function formatExportValue<TEntity>(
+  col: GridColumnDef<TEntity>,
+  entity: TEntity,
+  context?: ExportContext,
+): string {
+  const value = col.getValue(entity);
+  if (value === null || value === undefined || value === '') return '';
+
+  if (col.type === 'member' && typeof value === 'string') {
+    return context?.memberNameById?.[value] ?? value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v)).join('; ');
+  }
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
 // Export entities to CSV
 export async function exportToCSV<TEntity>(
   entities: TEntity[],
   columns: GridColumnDef<TEntity>[],
-  filename: string
+  filename: string,
+  context?: ExportContext,
 ): Promise<void> {
   const headers = columns.map((col) => col.name);
   const rows = entities.map((entity) =>
-    columns.map((col) => {
-      const value = col.getValue(entity);
-      if (value === null || value === undefined) return '';
-      if (typeof value === 'object') return JSON.stringify(value);
-      return String(value);
-    })
+    columns.map((col) => formatExportValue(col, entity, context))
   );
 
   const csvContent = [
@@ -39,16 +66,12 @@ export async function exportToExcel<TEntity>(
   entities: TEntity[],
   columns: GridColumnDef<TEntity>[],
   filename: string,
-  sheetName: string = 'Data'
+  sheetName: string = 'Data',
+  context?: ExportContext,
 ): Promise<void> {
   const headers = columns.map((col) => col.name);
   const rows = entities.map((entity) =>
-    columns.map((col) => {
-      const value = col.getValue(entity);
-      if (value === null || value === undefined) return '';
-      if (typeof value === 'object') return JSON.stringify(value);
-      return value;
-    })
+    columns.map((col) => formatExportValue(col, entity, context))
   );
 
   const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);

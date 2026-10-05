@@ -12,8 +12,12 @@
  */
 
 import { eq, and, desc, isNull, like, or, sql, inArray, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { computeChanges } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { assertValidMemberFields } from './member-validation';
+
+export { InvalidMemberIdError, isValidWorkspaceMember } from './member-validation';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
   syncValuesForEntity,
@@ -224,6 +228,67 @@ async function resolveCustomSort(db: Database, sort: string | undefined) {
   return defs.find((d) => d.slug === slug) ?? null;
 }
 
+/**
+ * Built-in grid columns sortable server-side, keyed by the column id used in
+ * `company-grid-config.ts`. Returns null for an unrecognised key (including
+ * `custom:<slug>` keys, which `resolveCustomSort` handles separately) so the
+ * caller falls back to the default `createdAt DESC` order rather than
+ * throwing on an unknown sort field.
+ */
+function resolveBuiltInCompanySort(sort: string | undefined): AnyPgColumn | null {
+  if (!sort) return null;
+  const { companies } = schema;
+  switch (sort) {
+    case 'name':
+      return companies.displayName;
+    case 'email':
+      return companies.email;
+    case 'phone':
+      return companies.phone;
+    case 'industry':
+      return companies.industry;
+    case 'status':
+      return companies.status;
+    case 'website':
+      return companies.website;
+    case 'isSupplier':
+      return companies.isSupplier;
+    case 'isLead':
+      return companies.isLead;
+    case 'vatNumber':
+      return companies.vatNumber;
+    case 'registrationNumber':
+      return companies.registrationNumber;
+    case 'employeeCount':
+      return companies.employeeCount;
+    case 'lifecycleStage':
+      return companies.lifecycleStage;
+    case 'segment':
+      return companies.segment;
+    case 'source':
+      return companies.source;
+    case 'leadScore':
+      return companies.leadScore;
+    case 'preferredLanguage':
+      return companies.preferredLanguage;
+    case 'ownerId':
+      return companies.ownerId;
+    case 'lastContactDate':
+      return companies.lastContactDate;
+    case 'nextFollowUpDate':
+      return companies.nextFollowUpDate;
+    case 'createdAt':
+      return companies.createdAt;
+    default:
+      return null;
+  }
+}
+
+/** `ORDER BY <column> ASC|DESC NULLS LAST` — blank cells always sort last. */
+function orderByNullsLast(column: AnyPgColumn, direction: 'asc' | 'desc'): SQL {
+  return direction === 'asc' ? sql`${column} ASC NULLS LAST` : sql`${column} DESC NULLS LAST`;
+}
+
 export async function listCompanies(
   db: Database,
   params: ListCompaniesQuery,
@@ -238,14 +303,26 @@ export async function listCompanies(
 
   const filterOnly = and(...conditions);
 
-  // Sorting by a custom field invalidates the keyset cursor, which is keyed on
-  // (createdAt, id) — those columns no longer describe the row order. Fall back
-  // to OFFSET paging for custom sorts only, so the default path keeps its
-  // keyset performance. `cursor` carries the numeric offset in this mode, which
-  // keeps the response envelope identical for callers.
+  // Sorting by a custom or built-in field invalidates the keyset cursor,
+  // which is keyed on (createdAt, id) — those columns no longer describe the
+  // row order. Fall back to OFFSET paging for an explicit sort only, so the
+  // default path keeps its keyset performance. `cursor` carries the numeric
+  // offset in this mode, which keeps the response envelope identical for
+  // callers.
   const customSort = await resolveCustomSort(db, params.sort);
+  const builtInSort = customSort ? null : resolveBuiltInCompanySort(params.sort);
 
-  if (customSort) {
+  if (customSort || builtInSort) {
+    const sortDir = params.sortDir ?? 'asc';
+    const orderBy = customSort
+      ? customFieldOrderBy(
+          'company',
+          companies.id,
+          customSort as unknown as Parameters<typeof customFieldOrderBy>[2],
+          sortDir,
+        )
+      : orderByNullsLast(builtInSort!, sortDir);
+
     const offset = params.cursor ? Math.max(0, Number.parseInt(params.cursor, 10) || 0) : 0;
     const [rows, countResult] = await Promise.all([
       db
@@ -253,12 +330,7 @@ export async function listCompanies(
         .from(companies)
         .where(filterOnly)
         .orderBy(
-          customFieldOrderBy(
-            'company',
-            companies.id,
-            customSort as unknown as Parameters<typeof customFieldOrderBy>[2],
-            params.sortDir ?? 'asc',
-          ),
+          orderBy,
           // Stable tie-break: rows sharing a value (or both null) keep a
           // deterministic order across pages, otherwise OFFSET can repeat or
           // skip rows between requests.
@@ -431,6 +503,7 @@ export async function createCompany(
   db: Database,
   input: CreateCompanyInput,
 ): Promise<CompanyRow> {
+  await assertValidMemberFields(db, input);
   const created = await insertCompanyRow(db, input);
   // Phase 1 dual-write: mirror the customFields blob into the typed values table.
   await syncValuesForEntity(db, 'company', created.id, input.customFields);
@@ -471,12 +544,28 @@ export async function updateCompany(
     throw new CompanyVersionConflictError();
   }
 
-  const { ifVersion: _ignored, ...rest } = input;
+  await assertValidMemberFields(db, input);
+
+  const {
+    ifVersion: _ignored,
+    lastContactDate,
+    nextFollowUpDate,
+    ...rest
+  } = input;
   const updates: Record<string, unknown> = {
     updatedAt: new Date(),
     version: existing.version + 1,
   };
   for (const [k, v] of Object.entries(rest)) if (v !== undefined) updates[k] = v;
+
+  // Timestamp columns — the schema accepts a lenient ISO string (or null to
+  // clear), the DB column wants a Date.
+  if (lastContactDate !== undefined) {
+    updates.lastContactDate = lastContactDate ? new Date(lastContactDate) : null;
+  }
+  if (nextFollowUpDate !== undefined) {
+    updates.nextFollowUpDate = nextFollowUpDate ? new Date(nextFollowUpDate) : null;
+  }
 
   if (rest.name !== undefined || rest.tradingName !== undefined) {
     updates.displayName = deriveDisplayName({
@@ -1171,6 +1260,8 @@ export async function bulkUpdateCompanies(
   ) {
     return { updated: 0, failed: ids.map((id) => ({ id, reason: 'No fields to update' })), changedRows: [] };
   }
+
+  await assertValidMemberFields(db, setFields);
 
   // Read the before-snapshot for each id so the route can emit events.
   const beforeConditions: SQL[] = [isNull(companies.deletedAt)];

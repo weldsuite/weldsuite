@@ -12,7 +12,7 @@ import { hasAppPermission, hasPermission } from '@weldsuite/permissions';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEventRaw, type EntityType } from '@weldsuite/entity-events';
-import { listPeople, createPerson, getPerson } from '@weldsuite/crm-domain/people';
+import { listPeople, createPerson, getPerson, isValidWorkspaceMember } from '@weldsuite/crm-domain/people';
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
 import { reindexAgentRoutines, routineIndexSync } from './routine-index';
 import type { Database } from '@weldsuite/worker-kit/db';
@@ -431,9 +431,12 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     parameters: createPersonParams,
     async execute(ctx, raw) {
       const args = createPersonParams.parse(raw);
+      // Background agent jobs can outlive the invoker's membership; leave the
+      // owner unset then instead of failing the tool on the owner check.
+      const ownerIsMember = await isValidWorkspaceMember(ctx.db, ctx.actorUserId);
       const person = await createPerson(ctx.db, {
         ...args,
-        ownerId: ctx.actorUserId,
+        ownerId: ownerIsMember ? ctx.actorUserId : undefined,
         inCrm: true,
       });
       await emitAgentEntityEvent(ctx, 'person', person.id, {

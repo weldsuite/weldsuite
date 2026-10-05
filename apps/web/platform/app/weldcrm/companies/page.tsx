@@ -11,6 +11,8 @@ function CompaniesPageContent() {
   const search = searchParams.get('search') || undefined;
   const status = searchParams.get('status') || undefined;
   const filter = searchParams.get('filter');
+  const sort = searchParams.get('sort') || undefined;
+  const sortDir = (searchParams.get('sortDir') as 'asc' | 'desc' | null) || undefined;
 
   const filters: Omit<ListCompaniesQuery, 'cursor'> = useMemo(() => {
     const f: Omit<ListCompaniesQuery, 'cursor'> = { limit: 50 };
@@ -18,8 +20,12 @@ function CompaniesPageContent() {
     if (status) f.status = status;
     if (filter === 'suppliers') f.isSupplier = true;
     else if (filter === 'leads') f.isLead = true;
+    if (sort) {
+      f.sort = sort;
+      if (sortDir) f.sortDir = sortDir;
+    }
     return f;
-  }, [search, status, filter]);
+  }, [search, status, filter, sort, sortDir]);
 
   const {
     data: infiniteData,
@@ -45,7 +51,7 @@ function CompaniesPageContent() {
     <CompaniesGrid
       companies={rows}
       totalCount={totalCount}
-      searchParams={{ search, status, filter: filter ?? undefined }}
+      searchParams={{ search, status, filter: filter ?? undefined, sort, sortDir }}
       onLoadMore={handleLoadMore}
       hasMore={!!hasNextPage}
       isFetchingMore={isFetchingNextPage}

@@ -6,14 +6,37 @@ import { z } from 'zod';
 // Opportunities map 1:1 to the `crm_opportunities` table.
 // ============================================================================
 
+// Non-negative — a deal amount below zero is always a data-entry mistake.
+const nonNegativeAmountSchema = z
+  .union([z.string(), z.number()])
+  .optional()
+  .refine(
+    (v) => {
+      if (v === undefined) return true;
+      const n = typeof v === 'number' ? v : Number(v);
+      return !Number.isNaN(n) && n >= 0;
+    },
+    { message: 'Amount must be zero or greater' },
+  );
+
+// ISO-4217 code shape (3 uppercase letters, e.g. USD/EUR) — empty string
+// still allowed so the field can be cleared.
+const currencySchema = z
+  .string()
+  .max(3)
+  .optional()
+  .refine((v) => !v || /^[A-Z]{3}$/.test(v), {
+    message: 'Currency must be a 3-letter ISO 4217 code (e.g. USD, EUR)',
+  });
+
 export const createOpportunitySchema = z.object({
   name: z.string().min(1).max(255),
   customerId: z.string(),
   primaryContactId: z.string().nullish(),
   description: z.string().optional(),
 
-  amount: z.union([z.string(), z.number()]).optional(),
-  currency: z.string().max(3).optional(),
+  amount: nonNegativeAmountSchema,
+  currency: currencySchema,
   expectedRevenue: z.union([z.string(), z.number()]).optional(),
   recurringRevenue: z.union([z.string(), z.number()]).optional(),
   contractLength: z.number().int().optional(),

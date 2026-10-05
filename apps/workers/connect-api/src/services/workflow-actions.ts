@@ -9,7 +9,7 @@
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { createCompany } from '@weldsuite/crm-domain/companies';
+import { createCompany, isValidWorkspaceMember } from '@weldsuite/crm-domain/companies';
 
 type CompanyRow = typeof schema.companies.$inferSelect;
 
@@ -58,6 +58,14 @@ export async function createCustomerFromWorkflow(
     if (existing) return { created: false, company: existing };
   }
 
+  // Schedule runs have no human behind them, and the run's user may have left
+  // the workspace since the workflow was built; leave the owner unset then
+  // rather than failing the step on the owner check.
+  const ownerId =
+    input.userId && input.userId !== 'system' && (await isValidWorkspaceMember(db, input.userId))
+      ? input.userId
+      : undefined;
+
   const company = await createCompany(db, {
     name: input.name,
     email: input.email,
@@ -66,8 +74,7 @@ export async function createCustomerFromWorkflow(
     notes: input.notes,
     status: input.status || DEFAULT_WORKFLOW_CUSTOMER_STATUS,
     source: 'weldconnect',
-    // Schedule runs have no human behind them; leave the owner unset then.
-    ownerId: input.userId && input.userId !== 'system' ? input.userId : undefined,
+    ownerId,
   });
   return { created: true, company };
 }

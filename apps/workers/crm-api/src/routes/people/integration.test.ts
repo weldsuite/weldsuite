@@ -16,6 +16,19 @@ let db: Database;
 beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
+
+  // The route defaults a new row's ownerId to the acting user
+  // (`data.ownerId ?? userId`), and createPerson/updatePerson now validate
+  // ownerId/accountManagerId against workspace_members (TASK-914). In
+  // production the acting user is always a real member (Clerk +
+  // workspaceDbMiddleware guarantee it); here the harness's default test
+  // identity isn't backed by a row, so seed one.
+  await db.insert(schema.workspaceMembers).values({
+    id: 'wm_user_test_default',
+    userId: 'user_test_default',
+    name: 'Test User',
+    role: 'MEMBER',
+  });
 }, 60_000);
 
 describe('/api/people · pglite integration', () => {

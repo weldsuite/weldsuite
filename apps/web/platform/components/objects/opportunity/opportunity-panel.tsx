@@ -78,6 +78,7 @@ import {
   type Opportunity,
 } from './use-opportunity-data';
 import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
+import { useCompany } from '@/components/objects/company/use-company-data';
 import { OPPORTUNITY_TABS, type OpportunityTab } from './opportunity-tabs';
 
 const OPPORTUNITY_PANEL_WIDTH = 400;
@@ -408,10 +409,13 @@ function formatMoney(amount: string | undefined, currency: string | undefined): 
   }
 }
 
+// Matches the kanban card's close-date format (`deal-card.tsx`) plus a year,
+// so the same date doesn't read as "10/20/2026" here and "Oct 20" on the
+// card (TASK-920).
 function formatDate(iso: string | undefined): string | null {
   if (!iso) return null;
   try {
-    return new Date(iso).toLocaleDateString();
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
     return iso;
   }
@@ -593,6 +597,12 @@ function OpportunityCompanyTab({
   onOpenCompany: (companyId: string) => void;
 }) {
   const t = useTranslations();
+  // `customerName` is a denormalized mirror filled in at create/update time;
+  // deals created before that existed (or ones where the lookup missed)
+  // still have it null. Resolve the real company record by id instead of
+  // falling straight to "(unknown company)".
+  const companyQuery = useCompany(opportunity.customerId ?? '', !opportunity.customerName && !!opportunity.customerId);
+  const resolvedCompany = companyQuery.data?.data;
   if (!opportunity.customerId) {
     return (
       <div className="p-6 text-sm text-muted-foreground text-center">
@@ -600,7 +610,11 @@ function OpportunityCompanyTab({
       </div>
     );
   }
-  const name = opportunity.customerName || t('sweep.entities.unknownCompany');
+  const name =
+    opportunity.customerName ||
+    resolvedCompany?.displayName ||
+    resolvedCompany?.name ||
+    t('sweep.entities.unknownCompany');
   return (
     <ul className="p-2 space-y-0.5">
       <li>
