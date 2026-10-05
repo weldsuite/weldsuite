@@ -161,6 +161,35 @@ function replyTargetFor(message: Message): ReplyTarget {
 }
 
 /**
+ * Author name for an optimistic message: the member directory entry, else the
+ * first non-empty fallback (signed-in user's name, their last message's name).
+ */
+function optimisticAuthorName(
+  userId: string | null | undefined,
+  membersMap: Map<string, string>,
+  fallbacks: ReadonlyArray<string | null | undefined>,
+): string {
+  const memberName = userId ? membersMap.get(userId) : undefined;
+  return memberName || fallbacks.find(Boolean) || 'You';
+}
+
+/** `metadata.replyTo` for an optimistic reply, mirroring what the server stores. */
+function optimisticReplyMetadata(reply: ReplyTarget | null): Message['metadata'] {
+  if (!reply) return null;
+  return {
+    replyTo: {
+      messageId: reply.messageId,
+      rootId: reply.rootId,
+      depth: reply.depth + 1,
+      authorId: reply.authorId,
+      authorName: reply.authorName,
+      authorAvatar: reply.authorAvatar,
+      content: reply.content,
+    },
+  };
+}
+
+/**
  * Classify a `type: 'system'` message that represents a call event so it can be
  * themed green (made/connected) or red (missed) in the conversation, à la
  * WhatsApp. Backend content strings: "<name> started a voice/video call",
@@ -1876,25 +1905,13 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     const optimistic: Message = {
       id: tempId,
       authorId: userId ?? '',
-      authorName: (userId && membersMap.get(userId)) || user?.fullName || ownLast?.authorName || 'You',
+      authorName: optimisticAuthorName(userId, membersMap, [user?.fullName, ownLast?.authorName]),
       authorAvatar: user?.imageUrl ?? ownLast?.authorAvatar,
       content: trimmed,
       createdAt: new Date().toISOString(),
       hasAttachments: files.length > 0,
       pending: true,
-      metadata: reply
-        ? {
-            replyTo: {
-              messageId: reply.messageId,
-              rootId: reply.rootId,
-              depth: reply.depth + 1,
-              authorId: reply.authorId,
-              authorName: reply.authorName,
-              authorAvatar: reply.authorAvatar,
-              content: reply.content,
-            },
-          }
-        : null,
+      metadata: optimisticReplyMetadata(reply),
     };
     pendingSendsRef.current.set(tempId, { message: optimistic });
     setMessages((prev) => [...prev, optimistic]);
