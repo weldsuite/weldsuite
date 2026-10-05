@@ -126,8 +126,9 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 AGENT_RUNTIME_URL = "https://agent-runtime-test.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"

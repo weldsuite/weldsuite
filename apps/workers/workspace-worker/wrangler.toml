@@ -77,11 +77,14 @@ NEON_DEFAULT_REGION = "aws-eu-central-1"
 APP_URL = "https://app-test.weldsuite.org"
 POOL_TARGET_SHARED = "2"
 POOL_TARGET_DEDICATED = "0"
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.send_email]]
 name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.test.workflows]]
 name = "provision-workspace-test"
