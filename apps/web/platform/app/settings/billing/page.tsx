@@ -351,16 +351,18 @@ function computeBillingUsage(
 }
 
 // Subtitle under "Current plan": renewal / cancellation date, or the raw status.
+// `renewalDate` is null when the subscription has no period end (the Free plan).
 function describePlanStatus(
   subscription: BillingSubscriptionResponse | null,
-  renewalDate: string,
+  renewalDate: string | null,
   ts: BillingStrings,
 ): string {
   if (subscription?.status === 'active' && !subscription?.cancelAtPeriodEnd) {
-    return ts.renews.replace('{date}', renewalDate);
+    if (renewalDate) return ts.renews.replace('{date}', renewalDate);
+    return subscription.planSlug === 'free' ? ts.freePlanNoRenewal : '';
   }
   if (subscription?.cancelAtPeriodEnd) {
-    return ts.cancels.replace('{date}', renewalDate);
+    return renewalDate ? ts.cancels.replace('{date}', renewalDate) : ts.canceling;
   }
   return subscription?.status || ts.accessDeniedPlans;
 }
@@ -581,7 +583,7 @@ export default function BillingSettingsPage() {
 
   const renewalDate = subscription?.currentPeriodEnd
     ? format(new Date(subscription.currentPeriodEnd), 'MMMM do, yyyy')
-    : st('sweep.settings.billingPage.notAvailable');
+    : null;
 
   const { membersUsed, membersTotal, membersPercentage, creditsBalance } = computeBillingUsage(subscription, planLimits);
 
@@ -660,7 +662,9 @@ export default function BillingSettingsPage() {
               {(creditsWallet?.currentBalance ?? creditsBalance).toLocaleString()}
               <span className="text-sm font-normal text-muted-foreground ml-1">{ts.creditsWallet.creditsUnit}</span>
             </p>
-            {creditsWallet?.isLow && (
+            {creditsWallet?.currentBalance === 0 ? (
+              <p className="text-xs text-muted-foreground mt-1">{ts.creditsWallet.noCredits}</p>
+            ) : creditsWallet?.isLow && (
               <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-1">{ts.creditsWallet.lowBalance}</p>
             )}
           </div>

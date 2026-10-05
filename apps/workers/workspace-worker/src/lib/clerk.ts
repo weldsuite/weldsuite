@@ -47,3 +47,30 @@ export async function syncClerkSeatLimit(
     console.error('[Clerk Sync] Error syncing seat limit to Clerk:', err);
   }
 }
+
+/**
+ * True when a failed Clerk create-organization response was rejected because
+ * of the `slug` field (already taken, or not an acceptable slug), as opposed
+ * to any other failure. Clerk answers 4xx with
+ * `{ errors: [{ code, message, long_message, meta: { param_name } }] }`.
+ */
+export function isClerkSlugError(status: number, body: string): boolean {
+  if (status < 400 || status >= 500) return false;
+  try {
+    const parsed = JSON.parse(body) as {
+      errors?: Array<{
+        code?: string;
+        message?: string;
+        long_message?: string;
+        meta?: { param_name?: string };
+      }>;
+    };
+    return (parsed.errors ?? []).some(
+      (e) =>
+        e.meta?.param_name === 'slug' ||
+        /slug/i.test(`${e.message ?? ''} ${e.long_message ?? ''}`),
+    );
+  } catch {
+    return false;
+  }
+}

@@ -777,9 +777,12 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
     }
   };
 
-  // Filter excluded plans for display (show all plans including current)
+  // Filter excluded plans for display (show all plans including current).
+  // Free is only listed as the current plan: it has no Stripe price and
+  // POST /billing/checkout rejects it, so it can never be a target.
   const displayPlans = allPlans.filter(p =>
-    !excludePlans.includes(p.name.toLowerCase())
+    !excludePlans.includes(p.name.toLowerCase()) &&
+    (p.slug !== 'free' || p.id === subscription?.planId)
   );
 
 
@@ -902,8 +905,7 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
   };
 
   const getPlanFeatures = (plan: Billing.BillingPlan): string[] => {
-    const key = plan.name.toLowerCase();
-    return PLAN_FEATURES[key] || [];
+    return PLAN_FEATURES[plan.slug] ?? PLAN_FEATURES[plan.name.toLowerCase()] ?? [];
   };
 
   const isPlanHighlighted = (plan: Billing.BillingPlan): boolean => {
