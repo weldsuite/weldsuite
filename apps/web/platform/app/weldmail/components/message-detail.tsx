@@ -784,7 +784,7 @@ function RecipientsPopover({ allRecipients, open, onOpenChange, onSelect }: Read
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" className="text-sm text-blue-600 hover:underline">
+        <Button variant="link" className="h-auto p-0 text-sm text-blue-600">
           +{allRecipients.length - 1}
         </Button>
       </PopoverTrigger>
@@ -2217,12 +2217,12 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-muted-foreground" />
           </Button>
           {/* Desktop close/done buttons */}
-          <div className="hidden md:flex items-center border border-border rounded-md overflow-hidden">
-            <Button variant="ghost" size="icon" className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={() => window.history.back()}>
+          <div className="hidden md:flex h-7 items-center border border-border rounded-md overflow-hidden">
+            <Button variant="ghost" size="icon-sm" className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={() => window.history.back()}>
               <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
             </Button>
-            <div className="w-px h-5 bg-border" />
-            <Button variant="ghost" size="icon" className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={handleArchiveAndNext}>
+            <div className="w-px h-4 bg-border" />
+            <Button variant="ghost" size="icon-sm" className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={handleArchiveAndNext}>
               <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
             </Button>
           </div>
@@ -2238,7 +2238,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             variant="ghost"
             size="icon"
             onClick={handleToggleStar}
-            className={cn("p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isStarred && "text-yellow-500")}
+            className={cn("md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isStarred && "text-yellow-500")}
           >
             <Star className={cn("h-4 w-4", isStarred ? "fill-current" : "text-gray-500 dark:text-muted-foreground")} />
           </Button>
@@ -2247,7 +2247,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             variant="ghost"
             size="icon"
             onClick={handleTogglePin}
-            className={cn("hidden md:flex p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isPinned && "text-blue-500")}
+            className={cn("hidden md:flex md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isPinned && "text-blue-500")}
             title={isPinned ? t.mail.messageDetail.unpin : t.mail.messageDetail.pin}
           >
             <Pin className={cn("h-4 w-4", isPinned ? "fill-current" : "text-gray-500 dark:text-muted-foreground")} />
@@ -2256,19 +2256,19 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             variant="ghost"
             size="icon"
             onClick={handleArchive}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors"
+            className="md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors"
             title={threadId ? t.mail.messageDetail.archiveConversation : t.mail.messageDetail.archivedSingle}
           >
             <Archive className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
           </Button>
           {/* Snooze button - hidden on mobile */}
-          <Button variant="ghost" size="icon" className="hidden md:flex p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors" onClick={() => toast.success(t.mail.messageDetail.snoozeComingSoon)}>
+          <Button variant="ghost" size="icon" className="hidden md:flex md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors" onClick={() => toast.success(t.mail.messageDetail.snoozeComingSoon)}>
             <Clock className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
           </Button>
           {/* Labels popover - hidden on mobile */}
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" className="hidden md:flex p-1.5 hover:bg-gray-100 dark:hover:bg-secondary data-[state=open]:bg-gray-100 dark:data-[state=open]:bg-secondary rounded-md transition-colors items-center gap-1 text-gray-500 dark:text-muted-foreground">
+              <Button variant="ghost" className="hidden md:flex h-7 p-1.5 has-[>svg]:px-1.5 hover:bg-gray-100 dark:hover:bg-secondary data-[state=open]:bg-gray-100 dark:data-[state=open]:bg-secondary rounded-md transition-colors items-center gap-1 text-gray-500 dark:text-muted-foreground">
                 <Tag className="h-4 w-4" />
                 {messageLabels.length > 0 && (
                   <span className="inline-flex items-center justify-center size-5 text-[10px] font-mono font-medium text-muted-foreground bg-muted border border-border rounded-md">
@@ -2288,8 +2288,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           </Popover>
           <Button
             variant="ghost"
+            size="icon"
             onClick={handleDelete}
-            className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-md transition-colors group/delete"
+            className="md:size-7 p-1.5 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-md transition-colors group/delete"
             title={threadId ? t.mail.messageDetail.deleteConversation : t.mail.messageDetail.movedSingleToTrash}
           >
             <Trash2 className="h-4 w-4 text-gray-500 dark:text-muted-foreground group-hover/delete:text-red-500 transition-colors" />
@@ -2328,7 +2329,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
         {/* Sender Header */}
         <div className="px-3 md:px-4 py-3 md:py-4">
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <SenderAvatar
                 avatarUrl={getSenderAvatarUrl(newestMessage)}
@@ -2337,19 +2338,19 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 fallbackClassName="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-xs flex-shrink-0"
               />
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                   <Button
-                    variant="ghost"
+                    variant="link"
                     onClick={() => customerPanel.openPanel(newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from)), extractName(fromDisplayString(newestMessage.from)))}
-                    className="font-semibold text-gray-900 dark:text-foreground text-[14.5px] hover:underline focus:outline-none max-w-full shrink min-w-0"
+                    className="h-auto p-0 font-semibold text-gray-900 dark:text-foreground text-[14.5px] focus:outline-none max-w-full shrink min-w-0"
                   >
                     <span className="truncate">{extractName(fromDisplayString(newestMessage.from))}</span>
                   </Button>
                   <span className="text-[14.5px] text-gray-500 dark:text-muted-foreground">{t.mail.messageDetail.toWord}</span>
                   <Button
-                    variant="ghost"
+                    variant="link"
                     onClick={() => customerPanel.openPanel(primaryToEmail, emailToDisplayName(primaryToEmail))}
-                    className="text-[14.5px] text-blue-600 hover:underline focus:outline-none max-w-full shrink min-w-0"
+                    className="h-auto p-0 text-[14.5px] text-blue-600 focus:outline-none max-w-full shrink min-w-0"
                     title={primaryToEmail}
                   >
                     <span className="truncate">{primaryToEmail}</span>
@@ -2368,8 +2369,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-gray-500 flex-shrink-0">
-              <span className="text-sm text-gray-700">{format(new Date(newestMessage.date ?? 0), 'd MMM, HH:mm')}</span>
+            <div className="flex items-center gap-2 text-gray-500 dark:text-muted-foreground flex-shrink-0">
+              <span className="text-sm text-gray-700 dark:text-muted-foreground">{format(new Date(newestMessage.date ?? 0), 'd MMM, HH:mm')}</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="p-1 hover:bg-gray-100 data-[state=open]:bg-gray-100 rounded-md transition-colors focus:outline-none focus-visible:outline-none">
