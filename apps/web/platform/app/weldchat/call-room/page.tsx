@@ -101,6 +101,7 @@ export default function CallRoomPage() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(callType === 'voice');
   const [duration, setDuration] = useState(0);
+  const [reconnecting, setReconnecting] = useState(false);
   const [, forceUpdate] = useState(0);
 
   const durationRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -125,10 +126,19 @@ export default function CallRoomPage() {
 
         m.self.on('roomJoined', () => {
           setStatus('connected');
-          durationRef.current = setInterval(() => setDuration(increment), 1000);
+          setReconnecting(false);
+          // Also fires when the SDK reconnects: keep the one running timer.
+          durationRef.current ??= setInterval(() => setDuration(increment), 1000);
         });
 
-        m.self.on('roomLeft', () => {
+        m.self.on('roomLeft', ({ state }) => {
+          // 'disconnected' is a dropped connection the SDK is already restoring
+          // (it rejoins by itself), not the end of the call.
+          if (state === 'disconnected') {
+            setReconnecting(true);
+            return;
+          }
+          setReconnecting(false);
           setStatus('ended');
           if (durationRef.current) clearInterval(durationRef.current);
         });
@@ -256,6 +266,17 @@ export default function CallRoomPage() {
         </span>
         <span className="text-sm text-zinc-400 font-mono">{formatDuration(duration)}</span>
       </div>
+
+      {reconnecting && (
+        <div
+          data-testid="call-room-reconnecting"
+          role="status"
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500/15 text-amber-200 text-sm"
+        >
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>{t.weldchat.callRoom.reconnecting}</span>
+        </div>
+      )}
 
       {/* Participant grid */}
       <div className={`flex-1 grid ${gridCols} gap-2 p-4 auto-rows-fr`}>

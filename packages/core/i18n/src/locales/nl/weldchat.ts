@@ -58,6 +58,7 @@ export const weldchat = {
     },
     callRoom: {
       connecting: 'Verbinden...',
+      reconnecting: 'Verbinding verbroken. Opnieuw verbinden…',
       callEnded: 'Gesprek beëindigd',
       unableToJoin: 'Kan gesprek niet starten',
       callLinkExpired: 'De gesprekslink is mogelijk verlopen.',
@@ -70,6 +71,9 @@ export const weldchat = {
     calling: {
       ringing: 'Gaat over…',
       autoEnded: 'Gesprek automatisch beëindigd na 3 minuten alleen.',
+      reconnecting: 'Verbinding verbroken. Opnieuw verbinden…',
+      reconnected: 'Je bent weer in het gesprek',
+      connectionLost: 'Opnieuw verbinden met het gesprek is niet gelukt. Bel opnieuw om verder te gaan.',
     },
     callOverlay: {
       microphone: 'Microfoon',

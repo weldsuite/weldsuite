@@ -13,7 +13,7 @@
  *      user to a call, `leaveOtherActiveCalls` removes them from every other
  *      ringing/active call: evicts the live RTK session (their old call window
  *      drops via `roomLeft`), marks them left, and ends any call that is now
- *      empty.
+ *      empty, once RealtimeKit confirms nobody is connected to it.
  *
  * The `participants` column is a denormalised JSONB array, so uniqueness can't
  * be a DB constraint — these helpers are the single chokepoint that keeps it
@@ -27,7 +27,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { publishChatCallParticipantLeft } from '@weldsuite/chat-domain/realtime/weldchat-call-publisher';
-import { endChatCall, RING_TIMEOUT_MS, wasAnswered } from '@weldsuite/chat-domain/call-lifecycle';
+import { endChatCallIfEmpty, RING_TIMEOUT_MS, wasAnswered } from '@weldsuite/chat-domain/call-lifecycle';
 
 /** A ringing/active call older than this with nobody left in it is dead. */
 const STALE_CALL_MS = 60_000;
@@ -145,7 +145,9 @@ export async function evictRtkSessions(
  * Discord-style "one call at a time": remove `userId` from every *other*
  * ringing/active call they are still in. For each such call it evicts the live
  * RTK session (the old call window drops via `roomLeft`), marks the participant
- * left, publishes participant-left, and ends the call if nobody active remains.
+ * left, publishes participant-left, and ends the call if nobody active remains
+ * and RealtimeKit agrees: our list alone never ends a call, it can be missing
+ * someone who is still talking (see endChatCallIfEmpty).
  *
  * Best-effort and self-contained — logs and swallows its own errors so it can
  * be fired from a `waitUntil` without risking the join response.
@@ -205,7 +207,10 @@ export async function leaveOtherActiveCalls(
 
       if (stillActive.length === 0) {
         try {
-          await endChatCall(db, env, orgId, call.id, call, userId);
+          // Unanswered: the only connection there can be is the one evicted above.
+          await endChatCallIfEmpty(db, env, orgId, call.id, call, userId, {
+            endWhenAlone: !wasAnswered(call),
+          });
         } catch {
           /* best effort */
         }

@@ -38,6 +38,7 @@ import {
 } from '@weldsuite/chat-domain/realtime/weldchat-call-publisher';
 import {
   endChatCall,
+  endChatCallIfEmpty,
   scheduleRingTimeout,
   teardownRtkMeeting,
   wasAnswered,
@@ -80,15 +81,31 @@ function disabledCallMessage(
 }
 
 /**
- * Ends a stale call so a new one can start. Best effort: failures are swallowed.
+ * Ends a call that looks abandoned so a new one can start, unless RealtimeKit
+ * still has people in its room: our participant list alone never ends a call
+ * (see endChatCallIfEmpty). In a DM one remaining connection does not count,
+ * that is the requester's own leftover or someone waiting alone, and the new
+ * call rings them. Returns false when the call was kept, so the caller joins
+ * it (or reports a conflict) instead of starting a second one.
  * No missed-call push: the new call is about to ring the same people.
  */
-async function endStaleCall(db: Database, env: Env, orgId: string, call: ChatCallRow): Promise<void> {
+async function endStaleCall(
+  db: Database,
+  env: Env,
+  orgId: string,
+  call: ChatCallRow,
+  isDm: boolean,
+): Promise<boolean> {
   try {
-    await endChatCall(db, env, orgId, call.id, call, call.initiatorId, {
+    const outcome = await endChatCallIfEmpty(db, env, orgId, call.id, call, call.initiatorId, {
       sendMissedIfUnanswered: false,
+      endWhenAlone: isDm,
     });
-  } catch { /* best effort */ }
+    return outcome === 'ended';
+  } catch {
+    // The end itself failed half-way. Best effort, as before: let the new call start.
+    return true;
+  }
 }
 
 interface IncomingCallParams {
@@ -308,10 +325,14 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
         .limit(1);
 
       // A live call blocks the new one; a stale one is ended so it can start.
-      if (!fullCall || !isAbandonedCall(fullCall, { isDm: channel?.type === 'dm', requesterId: userId })) {
+      const isDm = channel?.type === 'dm';
+      if (
+        !fullCall ||
+        !isAbandonedCall(fullCall, { isDm, requesterId: userId }) ||
+        !(await endStaleCall(db, c.env, orgId, fullCall, isDm))
+      ) {
         return error.conflict(c, 'A call is already active in this channel');
       }
-      await endStaleCall(db, c.env, orgId, fullCall);
     }
 
     // Get initiator info
@@ -442,11 +463,18 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
 
     const existingCall = activeCallResult[0];
     if (existingCall) {
-      const isStale = isAbandonedCall(existingCall, { isDm: channel?.type === 'dm', requesterId: userId });
+      const isDm = channel?.type === 'dm';
+      // A call that looks abandoned is ended so the new one can start (and
+      // ring), unless RealtimeKit still has people in it: then it is live
+      // after all and the caller joins it like any other ongoing call.
+      const replaced =
+        isAbandonedCall(existingCall, { isDm, requesterId: userId }) &&
+        (await endStaleCall(db, c.env, orgId, existingCall, isDm));
 
-      if (isStale) {
-        await endStaleCall(db, c.env, orgId, existingCall);
-      } else if (existingCall.cfAppId) {
+      if (!replaced) {
+        if (!existingCall.cfAppId) {
+          return error.conflict(c, 'A call is already active in this channel');
+        }
         // A call is already active in this channel — JOIN it instead of
         // erroring, so the caller "just joins" the ongoing call.
         const joined = await joinExistingCall({
@@ -461,8 +489,6 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
           waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
         });
         return success(c, joined, 200);
-      } else {
-        return error.conflict(c, 'A call is already active in this channel');
       }
     }
 
@@ -720,6 +746,10 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
 
 /**
  * POST /:callId/leave - Leave a call
+ * When our list shows nobody left, the call is ended only if RealtimeKit
+ * confirms the room is empty: the list can be wrong, and ending kicks whoever
+ * is still inside. If someone is, the call stays and RealtimeKit's own
+ * meeting.ended webhook ends it once the room empties.
  */
 app.post('/:callId/leave', requirePermission('channels:read'), async (c) => {
   const orgId = c.get('orgId');
@@ -757,9 +787,14 @@ app.post('/:callId/leave', requirePermission('channels:read'), async (c) => {
     }
 
     // Auto-end call if no active participants remain (skip if already ended —
-    // e.g. the one-call-at-a-time eviction tore it down first).
+    // e.g. the one-call-at-a-time eviction tore it down first). A call nobody
+    // answered can only hold the leaver's own connection (a client that
+    // reports the leave before RealtimeKit has let go of it), so that one
+    // must not keep the callee ringing.
     if (activeParticipants.length === 0 && (call.status === 'active' || call.status === 'ringing')) {
-      await endChatCall(c.get('tenantDb'), c.env, orgId, callId, call, userId);
+      await endChatCallIfEmpty(c.get('tenantDb'), c.env, orgId, callId, call, userId, {
+        endWhenAlone: !wasAnswered(call),
+      });
     }
 
     return success(c, { ok: true });
@@ -957,7 +992,8 @@ app.get('/active', requirePermission('channels:read'), async (c) => {
  *
  * Also performs stale-call detection: if a call has been ringing for >60s
  * with no participants, or active for >5 min with no active participants,
- * it is automatically ended.
+ * it is automatically ended, but only once RealtimeKit confirms the room is
+ * empty. If people are still in it the call is returned as usual.
  */
 app.get('/active/:channelId', requirePermission('channels:read'), async (c) => {
   const orgId = c.get('orgId');
@@ -1000,12 +1036,13 @@ app.get('/active/:channelId', requirePermission('channels:read'), async (c) => {
 
       if (isStaleRinging || isStaleActive) {
         // Auto-end orphaned call
+        let outcome: Awaited<ReturnType<typeof endChatCallIfEmpty>> = 'unknown';
         try {
-          await endChatCall(c.get('tenantDb'), c.env, orgId, call.id, call, call.initiatorId);
+          outcome = await endChatCallIfEmpty(c.get('tenantDb'), c.env, orgId, call.id, call, call.initiatorId);
         } catch (e) {
           console.error('[Chat:Calls] Failed to auto-end stale call:', e);
         }
-        return success(c, null);
+        if (outcome === 'ended') return success(c, null);
       }
       return success(c, { ...call, participants: dedupeParticipants(call.participants) });
     }

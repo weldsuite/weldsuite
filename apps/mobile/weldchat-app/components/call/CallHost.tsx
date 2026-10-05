@@ -69,6 +69,11 @@ function formatDuration(totalSeconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+function getBarStatus(reconnecting: boolean, connected: boolean, duration: number): string {
+  if (reconnecting) return 'Reconnecting…';
+  return connected ? formatDuration(duration) : 'Ringing';
+}
+
 /** Height of the minimized call bar's body (below the status-bar inset). */
 export const CALL_BAR_BODY_HEIGHT = 60;
 /** Rounded top corners of the app page peeking out below the bar. */
@@ -133,6 +138,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
   connectedRef.current = connected;
   const [duration, setDuration] = useState(0);
   const startedAtRef = useRef(0);
+  const [reconnecting, setReconnecting] = useState(false);
 
   const [audioEnabled, setAudioEnabled] = useState(true);
   useEffect(() => {
@@ -190,8 +196,19 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
 
   useEffect(() => {
     if (!meeting) return;
-    const onJoined = () => markConnected();
-    const onLeft = () => {
+    // Also fires when the SDK got back in after a dropped connection.
+    const onJoined = () => {
+      setReconnecting(false);
+      markConnected();
+    };
+    const onLeft = (payload?: { state?: string }) => {
+      // 'disconnected' is a dropped connection the SDK is already restoring
+      // (it rejoins by itself), not a leave: stay in the call. Hanging up here
+      // threw people out on a short network drop.
+      if (payload?.state === 'disconnected') {
+        setReconnecting(true);
+        return;
+      }
       void handleLeave();
     };
     meeting.self.on('roomJoined', onJoined);
@@ -279,6 +296,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
               peerAvatar={session.peerAvatar ?? undefined}
               callType={session.callType}
               duration={duration}
+              reconnecting={reconnecting}
               onMinimize={minimizeCall}
               onLeave={handleLeave}
             />
@@ -296,7 +314,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
       {minimized && (
         <MinimizedCallBar
           peerName={session.peerName}
-          status={connected ? formatDuration(duration) : 'Ringing'}
+          status={getBarStatus(reconnecting, connected, duration)}
           isMuted={!audioEnabled}
           onToggleMute={toggleMute}
           onExpand={expandCall}

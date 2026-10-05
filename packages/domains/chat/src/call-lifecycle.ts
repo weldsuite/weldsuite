@@ -12,11 +12,15 @@
  *
  * Shared by chat (chat-calls routes, still in app-api) and meet (the RTK
  * webhook in meet-api), hence a package (docs/plans/app-api-module-split.md).
+ *
+ * Only an explicit hang-up-for-all or a decline ends a call unconditionally.
+ * Everything automatic asks RealtimeKit first: see {@link endChatCallIfEmpty}.
  */
 
 import { eq } from 'drizzle-orm';
 import {
   endMeeting as endRtkMeeting,
+  getLiveParticipantCount,
   kickAllParticipants as kickAllRtkParticipants,
 } from '@weldsuite/cloudflare-realtime';
 import { sendMissedCallNotification } from '@weldsuite/notifications';
@@ -172,6 +176,77 @@ export async function endChatCall(
   }
 }
 
+// ============================================================================
+// End call, but only when the room is empty
+// ============================================================================
+
+/**
+ * - `ended`: RealtimeKit reported an empty room and the call was ended.
+ * - `occupied`: someone is still connected, nothing was touched.
+ * - `unknown`: RealtimeKit could not be asked, nothing was touched.
+ */
+export type EndIfEmptyOutcome = 'ended' | 'occupied' | 'unknown';
+
+export interface EndIfEmptyOptions {
+  sendMissedIfUnanswered?: boolean;
+  /**
+   * Also end when exactly one connection is left in the room. For a call that
+   * looks unanswered, or abandoned by everyone but one person: the caller
+   * still waiting in the room (start-and-join puts them there before anyone is
+   * rung) must not keep it alive. A second connection means two people are
+   * talking, whatever our list says.
+   */
+  endWhenAlone?: boolean;
+}
+
+/**
+ * End a call that LOOKS finished, after asking RealtimeKit whether anyone is
+ * still in the room. Every automatic end goes through here: the last
+ * participant leaving, the one-call-at-a-time eviction, the stale-call sweeps,
+ * the ring timeout and the `meeting.ended` webhook.
+ *
+ * Ending kicks everyone, so it must never be decided from `participants`
+ * alone. That list drifts: a leave webhook for a dropped connection lands
+ * after the SDK reconnected the same person, a second tab closes, a join's
+ * write is lost. Acting on it ended live calls for everybody in them.
+ * RealtimeKit knows who is connected; while it reports anyone, the call stays.
+ * When the room really is empty RealtimeKit ends its own session about a
+ * minute later and sends `meeting.ended`, which arrives here again and ends
+ * ours. A call nobody has connected to yet (rung, never joined) has no
+ * RealtimeKit session, which counts as empty.
+ *
+ * Not for an explicit hang-up-for-all or a decline: that is {@link endChatCall}.
+ */
+export async function endChatCallIfEmpty(
+  db: Database,
+  env: CallLifecycleEnv,
+  orgId: string,
+  callId: string,
+  call: Parameters<typeof endChatCall>[4],
+  endedBy: string,
+  options?: EndIfEmptyOptions,
+): Promise<EndIfEmptyOutcome> {
+  if (call.cfAppId) {
+    let live: number;
+    try {
+      live = await getLiveParticipantCount(env, call.cfAppId);
+    } catch (err) {
+      console.error('[CallLifecycle] RTK live participant check failed, keeping the call', {
+        callId,
+        cfAppId: call.cfAppId,
+        err,
+      });
+      return 'unknown';
+    }
+    if (live > (options?.endWhenAlone ? 1 : 0)) return 'occupied';
+  }
+
+  await endChatCall(db, env, orgId, callId, call, endedBy, {
+    sendMissedIfUnanswered: options?.sendMissedIfUnanswered,
+  });
+  return 'ended';
+}
+
 /** Fan a missed-call notification out to the other members of a DM channel. */
 async function notifyMissedDmCall(
   db: Database,
@@ -254,7 +329,17 @@ export function scheduleRingTimeout(
 
         // Still only the initiator (or empty) after the ring window — treat as missed.
         if (fresh.status === 'ringing' || participants.filter((p) => !p.leftAt).length <= 1) {
-          await endChatCall(db, env, orgId, callId, fresh, fresh.initiatorId);
+          // The caller is waiting in the room, so one connection is expected.
+          // A second one is the callee: they answered and our list missed it.
+          const outcome = await endChatCallIfEmpty(db, env, orgId, callId, fresh, fresh.initiatorId, {
+            endWhenAlone: true,
+          });
+          // RealtimeKit could not be asked. An unanswered call that never ends
+          // swallows the next call in the DM and never sends its missed-call
+          // push, and the list is rarely wrong this early, so fall back to it.
+          if (outcome === 'unknown') {
+            await endChatCall(db, env, orgId, callId, fresh, fresh.initiatorId);
+          }
         }
       } catch (e) {
         console.error('[CallLifecycle] Ring timeout handler failed:', e);

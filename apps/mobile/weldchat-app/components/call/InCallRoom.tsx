@@ -43,6 +43,7 @@ function JoinedCallBody({
   peerAvatar,
   callType,
   duration,
+  reconnecting,
   onMinimize,
   onLeave,
 }: Readonly<{
@@ -51,6 +52,8 @@ function JoinedCallBody({
   peerAvatar?: string;
   callType: 'voice' | 'video';
   duration: number;
+  /** The connection dropped and the SDK is restoring it. */
+  reconnecting?: boolean;
   onMinimize: () => void;
   onLeave: () => void;
 }>) {
@@ -115,7 +118,7 @@ function JoinedCallBody({
             {peerName || (isVideo ? 'Video call' : 'Voice call')}
           </Text>
           <Text style={[styles.headerSubtitle, { color: colors.muted }]}>
-            {formatDuration(duration)}
+            {reconnecting ? 'Reconnecting…' : formatDuration(duration)}
           </Text>
         </View>
         <View style={styles.headerBtn} />
@@ -188,6 +191,7 @@ export function InCallRoom({
   peerAvatar,
   callType,
   duration,
+  reconnecting,
   onMinimize,
   onLeave,
 }: Readonly<{
@@ -196,6 +200,8 @@ export function InCallRoom({
   peerAvatar?: string;
   callType: 'voice' | 'video';
   duration: number;
+  /** The connection dropped and the SDK is restoring it. */
+  reconnecting?: boolean;
   onMinimize: () => void;
   onLeave: () => void;
 }>) {
@@ -207,6 +213,7 @@ export function InCallRoom({
         peerAvatar={peerAvatar}
         callType={callType}
         duration={duration}
+        reconnecting={reconnecting}
         onMinimize={onMinimize}
         onLeave={onLeave}
       />
