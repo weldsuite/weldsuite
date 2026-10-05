@@ -1,6 +1,9 @@
 import React from 'react';
 import { format, isToday, setHours } from 'date-fns';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { cn } from '@/lib/utils';
+import type { TimeRange } from '@/hooks/queries/use-calendar-queries';
+import { formatClockCompact } from '../lib/calendar-format';
 import type { TimeFormat } from '../lib/calendar-format';
 
 /**
@@ -172,5 +175,169 @@ export function TimeGridInner({
     >
       {children}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** Diagonal hatch (sky-500) marking buffer time around a bookable slot. */
+const BUFFER_HATCH = 'repeating-linear-gradient(135deg, rgb(14 165 233 / 0.3) 0 1px, transparent 1px 6px)';
+
+/**
+ * One availability window of a booking page, drawn in a day column: a single
+ * tinted block labelled with its hours, split by hairlines into the slots a
+ * guest can book. Buffer time between slots is hatched instead of filled.
+ *
+ * With `onSlotClick` each slot becomes a button reporting its start / end as
+ * minutes since midnight; without it the block is purely decorative. A
+ * hovered slot turns into one solid area (no dividers or hour gridlines
+ * running through it) showing `slotHint`.
+ */
+export function AvailabilityBlock({
+  block,
+  hourHeight,
+  duration,
+  bufferBefore,
+  bufferAfter,
+  timeFormat = '12h',
+  onSlotClick,
+  slotHint,
+}: Readonly<{
+  block: TimeRange;
+  hourHeight: number;
+  duration: number;
+  bufferBefore: number;
+  bufferAfter: number;
+  timeFormat?: TimeFormat;
+  onSlotClick?: (startMinutes: number, endMinutes: number) => void;
+  /** Shown inside a clickable slot while it is hovered, e.g. "Click to schedule". */
+  slotHint?: string;
+}>) {
+  const [startH, startM] = block.start.split(':').map(Number);
+  const [endH, endM] = block.end.split(':').map(Number);
+  const totalMin = endH * 60 + endM - (startH * 60 + startM);
+  const slotWithBuffer = duration + bufferBefore + bufferAfter;
+  const slotCount = Math.floor(totalMin / slotWithBuffer);
+  const pxPerMin = hourHeight / 60;
+  const topPx = (startH * 60 + startM) * pxPerMin;
+  const blockHeightPx = totalMin * pxPerMin;
+  const slotWithBufferPx = slotWithBuffer * pxPerMin;
+  const bufferBeforePx = bufferBefore * pxPerMin;
+  const bufferAfterPx = bufferAfter * pxPerMin;
+  const durationPx = duration * pxPerMin;
+  const hasBuffer = bufferBefore + bufferAfter > 0;
+  const rangeLabel = (fromMin: number, toMin: number) =>
+    `${formatClockCompact(new Date(2000, 0, 1, 0, fromMin), timeFormat)} – ${formatClockCompact(new Date(2000, 0, 1, 0, toMin), timeFormat)}`;
+  const blockStartMin = startH * 60 + startM;
+
+  const slotStartMin = (i: number) => blockStartMin + i * slotWithBuffer + bufferBefore;
+
+  return (
+    <div
+      className="absolute left-[3px] right-[3px] rounded-[6px] overflow-hidden bg-sky-500/[0.07]"
+      style={{ top: `${topPx}px`, height: `${blockHeightPx}px` }}
+    >
+      {Array.from({ length: slotCount }, (_, i) => {
+        const slotTop = i * slotWithBufferPx;
+        return (
+          <React.Fragment key={i}>
+            {bufferBefore > 0 && (
+              <div
+                className="absolute inset-x-0"
+                style={{ top: `${slotTop}px`, height: `${bufferBeforePx}px`, backgroundImage: BUFFER_HATCH }}
+              />
+            )}
+            <AvailabilitySlot
+              // Back-to-back slots need a divider; buffers already separate them.
+              divided={i > 0 && !hasBuffer}
+              first={i === 0}
+              top={slotTop + bufferBeforePx}
+              height={durationPx}
+              label={rangeLabel(slotStartMin(i), slotStartMin(i) + duration)}
+              hint={slotHint}
+              onClick={onSlotClick ? () => onSlotClick(slotStartMin(i), slotStartMin(i) + duration) : undefined}
+            />
+            {bufferAfter > 0 && (
+              <div
+                className="absolute inset-x-0"
+                style={{ top: `${slotTop + bufferBeforePx + durationPx}px`, height: `${bufferAfterPx}px`, backgroundImage: BUFFER_HATCH }}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
+      {blockHeightPx - bufferBeforePx >= 20 && (
+        <div
+          // Steps aside while the slot it sits in is hovered, leaving that
+          // slot to its "click to schedule" hint.
+          className="absolute inset-x-2 truncate text-[11px] font-medium leading-none text-sky-700 dark:text-sky-300 tabular-nums pointer-events-none transition-opacity [[data-first-slot]:hover~&]:opacity-0"
+          style={{ top: `${bufferBeforePx + 6}px` }}
+        >
+          {rangeLabel(blockStartMin, blockStartMin + totalMin)}
+        </div>
+      )}
+      {/* Outline drawn last so a hovered (opaque) slot cannot cover it. */}
+      <div className="absolute inset-0 rounded-[6px] ring-1 ring-inset ring-sky-500/25 pointer-events-none" />
+    </div>
+  );
+}
+
+/** One bookable slot inside an `AvailabilityBlock`; a button when clickable. */
+function AvailabilitySlot({
+  divided,
+  first,
+  top,
+  height,
+  label,
+  hint,
+  onClick,
+}: Readonly<{
+  divided: boolean;
+  /** The block's first slot, where the block's hours label sits. */
+  first: boolean;
+  top: number;
+  height: number;
+  label: string;
+  hint?: string;
+  onClick?: () => void;
+}>) {
+  const className = cn(
+    'absolute inset-x-0 bg-sky-500/[0.13]',
+    // The divider also goes when the slot above is hovered, so that slot
+    // reads as one clean area.
+    divided && 'border-t border-sky-500/25 [:hover+&]:border-transparent',
+  );
+  const style = { top: `${top}px`, height: `${height}px` };
+  if (!onClick) return <div className={className} style={style} />;
+  return (
+    // The tooltip sits over the neighbouring slot, so it must never take the
+    // pointer: otherwise moving onto that slot hovers the tooltip instead.
+    // `data-pointer-through` (globals.css) covers Radix's wrapper around it.
+    <Tooltip disableHoverableContent>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          data-first-slot={first || undefined}
+          onClick={onClick}
+          className={cn(
+            className,
+            // Opaque on hover: a see-through tint would leave the hour
+            // gridlines underneath showing through the slot.
+            'group/slot flex items-center justify-center cursor-pointer transition-colors hover:border-transparent hover:bg-[color-mix(in_srgb,var(--color-sky-500)_32%,var(--background))] focus-visible:outline-none focus-visible:bg-[color-mix(in_srgb,var(--color-sky-500)_38%,var(--background))]',
+          )}
+          style={style}
+        >
+          {hint && height >= 20 && (
+            <span className="truncate px-2 text-[12px] font-medium text-sky-700 dark:text-sky-200 opacity-0 transition-opacity group-hover/slot:opacity-100">
+              {hint}
+            </span>
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent data-pointer-through side="top" sideOffset={4} className="tabular-nums pointer-events-none">
+        {label}
+      </TooltipContent>
+    </Tooltip>
   );
 }
