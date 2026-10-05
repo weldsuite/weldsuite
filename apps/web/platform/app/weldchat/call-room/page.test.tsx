@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 type Handler = (payload?: Record<string, unknown>) => void;
 
 const rtk = vi.hoisted(() => ({
   handlers: new Map<string, (payload?: Record<string, unknown>) => void>(),
+  self: { audioEnabled: true, videoEnabled: true },
 }));
 
 vi.mock('@cloudflare/realtimekit', () => ({
@@ -12,13 +13,27 @@ vi.mock('@cloudflare/realtimekit', () => ({
     init: vi.fn(async () => ({
       self: {
         name: 'Me',
-        audioEnabled: true,
-        videoEnabled: false,
+        get audioEnabled() {
+          return rtk.self.audioEnabled;
+        },
+        get videoEnabled() {
+          return rtk.self.videoEnabled;
+        },
         on: (event: string, handler: Handler) => {
           rtk.handlers.set(event, handler);
         },
-        enableAudio: vi.fn(),
-        disableAudio: vi.fn(),
+        enableAudio: vi.fn(async () => {
+          rtk.self.audioEnabled = true;
+        }),
+        disableAudio: vi.fn(async () => {
+          rtk.self.audioEnabled = false;
+        }),
+        enableVideo: vi.fn(async () => {
+          rtk.self.videoEnabled = true;
+        }),
+        disableVideo: vi.fn(async () => {
+          rtk.self.videoEnabled = false;
+        }),
       },
       participants: { joined: { on: vi.fn(), toArray: () => [] } },
       join: vi.fn(async () => undefined),
@@ -66,6 +81,8 @@ async function renderJoinedRoom() {
 
 beforeEach(() => {
   rtk.handlers.clear();
+  rtk.self.audioEnabled = true;
+  rtk.self.videoEnabled = false;
   window.history.replaceState({}, '', '/weldchat/call-room?token=tok_1&type=voice');
 });
 
@@ -107,5 +124,37 @@ describe('CallRoomPage · connection drops', () => {
 
     expect(screen.getByTestId('call-room-ended')).toBeTruthy();
     expect(screen.queryByTestId('call-room-reconnecting')).toBeNull();
+  });
+});
+
+describe('CallRoomPage · controls', () => {
+  it('mutes and unmutes the microphone', async () => {
+    await renderJoinedRoom();
+    const mute = screen.getByTestId('call-room-mute');
+
+    fireEvent.click(mute);
+    expect(rtk.self.audioEnabled).toBe(false);
+
+    fireEvent.click(mute);
+    expect(rtk.self.audioEnabled).toBe(true);
+  });
+
+  it('turns the camera off and on in a video call', async () => {
+    rtk.self.videoEnabled = true;
+    window.history.replaceState({}, '', '/weldchat/call-room?token=tok_1&type=video');
+    await renderJoinedRoom();
+    const video = screen.getByTestId('call-room-video');
+
+    fireEvent.click(video);
+    expect(rtk.self.videoEnabled).toBe(false);
+
+    fireEvent.click(video);
+    expect(rtk.self.videoEnabled).toBe(true);
+  });
+
+  it('has no camera button in a voice call', async () => {
+    await renderJoinedRoom();
+
+    expect(screen.queryByTestId('call-room-video')).toBeNull();
   });
 });

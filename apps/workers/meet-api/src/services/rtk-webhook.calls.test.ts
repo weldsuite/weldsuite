@@ -122,6 +122,21 @@ describe('meeting.ended for a call', () => {
     expect(kickAllParticipants).not.toHaveBeenCalled();
   });
 
+  it('leaves a call that has already ended alone', async () => {
+    const { callId, cfAppId, mapping } = await seed('ended_twice', [participant(ALICE), participant(BOB)]);
+    const endedAt = new Date('2026-10-02T10:30:00.000Z');
+    await state.db
+      .update(schema.chatCalls)
+      .set({ status: 'ended', endedAt })
+      .where(eq(schema.chatCalls.id, callId));
+
+    await handleMeetingEnded(env, mapping, cfAppId);
+
+    expect((await readCall(callId)).endedAt).toEqual(endedAt);
+    expect(getLiveParticipantCount).not.toHaveBeenCalled();
+    expect(kickAllParticipants).not.toHaveBeenCalled();
+  });
+
   it('still ends the call when RealtimeKit cannot be asked: it reported the end itself', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.mocked(getLiveParticipantCount).mockRejectedValue(new Error('RTK 503'));

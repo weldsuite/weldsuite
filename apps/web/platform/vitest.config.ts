@@ -19,6 +19,7 @@ export default defineConfig({
       'lib/**/*.test.{ts,tsx}',
       'components/**/*.test.{ts,tsx}',
       'hooks/**/*.test.{ts,tsx}',
+      'contexts/**/*.test.{ts,tsx}',
     ],
     exclude: [
       '**/node_modules/**',
@@ -37,6 +38,7 @@ export default defineConfig({
         'lib/**/*.{ts,tsx}',
         'components/**/*.{ts,tsx}',
         'hooks/**/*.{ts,tsx}',
+        'contexts/**/*.{ts,tsx}',
       ],
       exclude: [
         '**/*.test.{ts,tsx}',
