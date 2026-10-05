@@ -258,33 +258,44 @@ export async function handleMeetingEnded(
     }
     console.log(`[RTK Webhook] Ended session ${logSafe(mapping.sessionId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
   } else if (mapping.type === 'call' && mapping.callId) {
-    const { chatCalls } = schema;
-    const [call] = await db
-      .select()
-      .from(chatCalls)
-      .where(eq(chatCalls.id, mapping.callId))
-      .limit(1);
-
-    if (!call || call.status === 'ended') {
-      console.log(`[RTK Webhook] Call ${mapping.callId} already ended or not found`);
-      return;
-    }
-
-    // Same guard as for a session: a late or replayed meeting.ended must not
-    // throw out the people who are in the call's room now.
-    const outcome = await endChatCallIfEmpty(db, env, mapping.orgId, mapping.callId, call, call.initiatorId);
-    if (outcome === 'occupied') {
-      console.log(
-        `[RTK Webhook] meeting.ended for ${logSafe(rtkMeetingId)} ignored: the call has live participants`,
-      );
-      return;
-    }
-    if (outcome === 'unknown') {
-      // RealtimeKit could not be asked, but it is RealtimeKit that reported the end.
-      await endChatCall(db, env, mapping.orgId, mapping.callId, call, call.initiatorId);
-    }
-    console.log(`[RTK Webhook] Ended call ${logSafe(mapping.callId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
+    await handleCallMeetingEnded(env, db, mapping.orgId, mapping.callId, rtkMeetingId);
   }
+}
+
+/** meeting.ended for a WeldChat call. */
+async function handleCallMeetingEnded(
+  env: Env,
+  db: TenantDb,
+  orgId: string,
+  callId: string,
+  rtkMeetingId: string,
+): Promise<void> {
+  const { chatCalls } = schema;
+  const [call] = await db
+    .select()
+    .from(chatCalls)
+    .where(eq(chatCalls.id, callId))
+    .limit(1);
+
+  if (!call || call.status === 'ended') {
+    console.log(`[RTK Webhook] Call ${callId} already ended or not found`);
+    return;
+  }
+
+  // Same guard as for a session: a late or replayed meeting.ended must not
+  // throw out the people who are in the call's room now.
+  const outcome = await endChatCallIfEmpty(db, env, orgId, callId, call, call.initiatorId);
+  if (outcome === 'occupied') {
+    console.log(
+      `[RTK Webhook] meeting.ended for ${logSafe(rtkMeetingId)} ignored: the call has live participants`,
+    );
+    return;
+  }
+  if (outcome === 'unknown') {
+    // RealtimeKit could not be asked, but it is RealtimeKit that reported the end.
+    await endChatCall(db, env, orgId, callId, call, call.initiatorId);
+  }
+  console.log(`[RTK Webhook] Ended call ${logSafe(callId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
 }
 
 /** Match a stored participant against the RTK ids (cfSessionId first, then app-controlled id). */

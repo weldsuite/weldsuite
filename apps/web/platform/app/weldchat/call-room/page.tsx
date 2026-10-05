@@ -268,14 +268,13 @@ export default function CallRoomPage() {
       </div>
 
       {reconnecting && (
-        <div
+        <output
           data-testid="call-room-reconnecting"
-          role="status"
           className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500/15 text-amber-200 text-sm"
         >
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>{t.weldchat.callRoom.reconnecting}</span>
-        </div>
+        </output>
       )}
 
       {/* Participant grid */}
