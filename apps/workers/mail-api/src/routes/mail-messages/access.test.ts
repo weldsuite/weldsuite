@@ -316,7 +316,10 @@ describe('GET /api/mail-messages/stats · access control', () => {
 
   it('returns 200 when accountId is accessible', async () => {
     checkAccountAccess.mockResolvedValueOnce(true);
-    getMessageStats.mockResolvedValueOnce({ total: 0, unread: 0, inboxUnread: 0, starred: 0 });
+    getMessageStats.mockResolvedValueOnce({
+      total: 0, unread: 0, inboxUnread: 0, starred: 0, importantUnread: 0, sentUnread: 0,
+      archiveUnread: 0, trashUnread: 0, spam: 0, snoozed: 0, scheduled: 0, drafts: 0,
+    });
 
     const { request } = makeApp(USER_ASSIGNED);
     const res = await request(`/api/mail-messages/stats?accountId=${ACCOUNT_ID}`);

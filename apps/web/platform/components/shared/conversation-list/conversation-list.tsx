@@ -30,6 +30,7 @@ export function ConversationList({
   emptyMessage,
   isLoading,
   footer,
+  onSearchChange,
 }: ConversationListProps) {
   const t = useTranslations();
   const resolvedEmptyMessage = emptyMessage ?? t('sweep.shared.noConversationsFound');
@@ -41,9 +42,9 @@ export function ConversationList({
     if (searchOpen) searchInputRef.current?.focus();
   }, [searchOpen]);
 
-  // Filter items by search
+  // Filter items by search (unless the caller runs the search itself)
   const filteredItems = items.filter((item) => {
-    if (!searchQuery) return true;
+    if (!searchQuery || onSearchChange) return true;
     const query = searchQuery.toLowerCase();
     return (
       item.name?.toLowerCase().includes(query) ||
@@ -96,7 +97,10 @@ export function ConversationList({
                   type="text"
                   placeholder={t('sweep.shared.searchPlaceholder')}
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    onSearchChange?.(e.target.value);
+                  }}
                   onBlur={() => !searchQuery && setSearchOpen(false)}
                   className="h-8 w-full pl-8 pr-3 text-sm border border-border rounded-md bg-background focus:outline-none"
                 />

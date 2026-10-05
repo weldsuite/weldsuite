@@ -18,10 +18,18 @@
  * and unified); we've collapsed both into `listThreadsByLabel`.
  */
 
-import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
-import { labelCondition } from './labels';
+import {
+  inTrashOrSpamCondition,
+  labelCondition,
+  resolveCustomLabelNames,
+  SYSTEM_LABELS,
+  toSystemLabel,
+} from './labels';
+import { anyRecipientMatches, containsPattern, messageSearchCondition, senderMatches } from './messages';
+import { wakeDueSnoozedMessages } from './snooze';
 import { hasAccessToAccount, isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
 
 const { mailAccounts, mailMessages, people: contacts } = schema;
@@ -33,6 +41,20 @@ export interface ListThreadsByLabelInput {
   accountId?: string;
   page?: number;
   pageSize?: number;
+  /**
+   * Free-text search over subject, body and participants. A search looks
+   * through the whole mailbox (everything but trash and spam) rather than the
+   * folder in `labelSlug`: the mail someone is looking for is usually not in
+   * the folder they happen to have open.
+   */
+  search?: string;
+  /** Sender name or address contains this text. */
+  from?: string;
+  /** A To / Cc recipient's name or address contains this text. */
+  to?: string;
+  /** Subject contains this text. */
+  subject?: string;
+  hasAttachment?: boolean;
 }
 
 export interface ThreadSummary {
@@ -150,6 +172,7 @@ function summarizeThreadMessages(threadMessages: MessageRow[]): {
       for (const l of msg.labels as string[]) labels.add(l);
     }
     if (msg.hasAttachments) hasAttachments = true;
+    if (msg.isStarred) isStarred = true;
     if (!msg.isRead) unreadCount += 1;
   }
   if (labels.has('STARRED')) isStarred = true;
@@ -212,9 +235,31 @@ export async function listThreadsByLabel(
   if (!accountScope) return { threads: [], totalCount: 0 };
   baseConditions.push(accountScope);
 
-  if (input.labelSlug !== 'all') {
-    baseConditions.push(labelCondition(input.labelSlug));
+  // Snoozed mail that came due since the last sweep is back in the inbox
+  // before the list is read. Never worth failing the listing over.
+  await wakeDueSnoozedMessages(db, { scope: accountScope }).catch((err) => {
+    console.error('[mail-threads] waking snoozed mail failed:', err);
+  });
+
+  // Which messages put a thread in this list: the folder's label, or the
+  // whole mailbox for a search. Trash and spam only ever show in their own
+  // folder, so a trashed conversation leaves Sent and Starred as well.
+  const searchCondition = messageSearchCondition(input.search);
+  const system = toSystemLabel(input.labelSlug);
+  if (input.labelSlug !== 'all' && !searchCondition) {
+    const customNames = await resolveCustomLabelNames(db, input.labelSlug, input.accountId);
+    baseConditions.push(labelCondition(input.labelSlug, customNames));
   }
+  if (searchCondition || (system !== SYSTEM_LABELS.TRASH && system !== SYSTEM_LABELS.SPAM)) {
+    baseConditions.push(sql`NOT ${inTrashOrSpamCondition()}`);
+  }
+  if (searchCondition) baseConditions.push(searchCondition);
+  if (input.from?.trim()) baseConditions.push(senderMatches(input.from));
+  if (input.to?.trim()) baseConditions.push(anyRecipientMatches(input.to));
+  if (input.subject?.trim()) {
+    baseConditions.push(ilike(mailMessages.subject, containsPattern(input.subject)));
+  }
+  if (input.hasAttachment) baseConditions.push(eq(mailMessages.hasAttachments, true));
 
   const threadIdExpr = sql<string>`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
   const latestDateExpr = sql<string>`MAX(COALESCE(${mailMessages.receivedDate}, ${mailMessages.sentDate}, ${mailMessages.createdAt}))`;

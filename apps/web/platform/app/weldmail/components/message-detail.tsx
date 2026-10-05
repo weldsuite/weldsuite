@@ -15,7 +15,6 @@ import {
   Tag,
   Loader2,
   AlertTriangle,
-  Send,
   Paperclip,
   Eye,
   Copy,
@@ -59,8 +58,6 @@ import { Calendar } from '@weldsuite/ui/components/calendar';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { usePinnedMessagesSafe } from '@/contexts/pinned-messages-context';
-import { useStarredMessagesSafe } from '@/contexts/starred-messages-context';
 import { useCustomerPanel } from '@/contexts/customer-panel-context';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useMailThreadListSafe } from '@/app/weldmail/contexts/mail-thread-list-context';
@@ -86,7 +83,11 @@ import {
   useGenerateAIReply,
   useMailAttachments,
   useMailAccounts,
+  usePinThread,
+  useToggleMailStar,
 } from '@/hooks/queries/use-mail-queries';
+import { isSystemLabel } from '../lib/label-config';
+import { saveMailAttachment } from '../lib/download-attachment';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { CustomerDetailPanel } from './customer-detail-panel';
 import { CalendarInviteCard } from './calendar-invite-card';
@@ -485,14 +486,16 @@ function isSendShortcut(e: React.KeyboardEvent): boolean {
   return !(e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey);
 }
 
+// `name` is the label as stored on the message (system labels are upper-case).
+// Sent, Drafts and Scheduled are not offered: mail gets those by being sent,
+// never by hand.
 const SYSTEM_LABEL_ITEMS = [
-  { name: 'inbox', Icon: Inbox, labelKey: 'labelInbox', activeClassName: 'bg-gray-100' },
-  { name: 'starred', Icon: Star, labelKey: 'labelStarred', activeClassName: 'bg-gray-100' },
-  { name: 'important', Icon: Flag, labelKey: 'labelImportant', activeClassName: 'bg-gray-100' },
-  { name: 'sent', Icon: Send, labelKey: 'labelSent', activeClassName: 'bg-gray-100' },
-  { name: 'archive', Icon: Archive, labelKey: 'labelArchive', activeClassName: 'bg-gray-100' },
-  { name: 'spam', Icon: AlertTriangle, labelKey: 'labelSpam', activeClassName: 'bg-gray-100' },
-  { name: 'trash', Icon: Trash, labelKey: 'labelTrash', activeClassName: 'bg-gray-200' },
+  { name: 'INBOX', Icon: Inbox, labelKey: 'labelInbox', activeClassName: 'bg-gray-100' },
+  { name: 'STARRED', Icon: Star, labelKey: 'labelStarred', activeClassName: 'bg-gray-100' },
+  { name: 'IMPORTANT', Icon: Flag, labelKey: 'labelImportant', activeClassName: 'bg-gray-100' },
+  { name: 'ARCHIVE', Icon: Archive, labelKey: 'labelArchive', activeClassName: 'bg-gray-100' },
+  { name: 'SPAM', Icon: AlertTriangle, labelKey: 'labelSpam', activeClassName: 'bg-gray-100' },
+  { name: 'TRASH', Icon: Trash, labelKey: 'labelTrash', activeClassName: 'bg-gray-200' },
 ] as const;
 
 function SystemLabelButton({ active, activeClassName, Icon, label, disabled, onClick }: Readonly<{
@@ -520,6 +523,11 @@ function SystemLabelButton({ active, activeClassName, Icon, label, disabled, onC
   );
 }
 
+/** A label the user made, as opposed to a system folder's row in the label list. */
+function isUserLabel(label: MailTypes.Label & { isSystem?: boolean | null }): boolean {
+  return !label.isSystem && !isSystemLabel(label.name.toLowerCase());
+}
+
 function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels, onToggleLabel }: Readonly<{
   messageLabels: string[];
   availableLabels: MailTypes.Label[];
@@ -527,6 +535,9 @@ function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels
   onToggleLabel: (labelName: string) => void;
 }>) {
   const { t } = useI18n();
+  // The label list also carries a row per system folder; those are offered
+  // once, above.
+  const customLabels = availableLabels.filter(isUserLabel);
   return (
     <>
       {/* System Labels */}
@@ -547,13 +558,13 @@ function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels
 
       {/* User Labels */}
       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.customLabels}</div>
-      {availableLabels.length === 0 ? (
+      {customLabels.length === 0 ? (
         <div className="text-sm text-gray-400 py-2 px-2">
           {t.mail.messageDetail.noCustomLabels}
         </div>
       ) : (
         <div className="space-y-0.5">
-          {availableLabels.map((label) => {
+          {customLabels.map((label) => {
             const isApplied = messageLabels.includes(label.name);
             const color = getLabelColor(label.name, label);
             return (
@@ -865,9 +876,14 @@ function QuotedContent({ quotedContent, isHtml, showQuoted, onToggle }: Readonly
 
 function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly<{
   hasLoadedAttachments: boolean;
-  otherAttachments: { id: string; downloadUrl?: string | null; fileName: string; size: number }[];
+  otherAttachments: { id: string; fileName: string; size: number }[];
 }>) {
   const { t } = useI18n();
+  const download = (att: { id: string; fileName: string }) => {
+    saveMailAttachment(att.id, att.fileName).catch(() =>
+      toast.error(t.mail.messageDetail.failedToDownloadAttachment),
+    );
+  };
   return (
     <div className="mt-4 md:mt-6 space-y-2">
       {hasLoadedAttachments ? (
@@ -879,11 +895,10 @@ function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly
             </div>
             <div className="flex flex-wrap gap-2">
               {otherAttachments.map((att) => (
-                <a
+                <button
+                  type="button"
                   key={att.id}
-                  href={att.downloadUrl ?? undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={() => download(att)}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-border bg-white dark:bg-card hover:bg-gray-50 dark:hover:bg-secondary transition-colors text-sm group"
                 >
                   <FileDown className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
@@ -891,7 +906,7 @@ function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly
                   <span className="text-gray-400 text-xs whitespace-nowrap">
                     {formatAttachmentSize(att.size)}
                   </span>
-                </a>
+                </button>
               ))}
             </div>
           </>
@@ -1124,6 +1139,41 @@ function ComposeToRow({ to, autoFocus, onToChange, onMinimize, onExpand }: Reado
   );
 }
 
+/**
+ * The forwarded message's own files, shown in the forward box so the sender
+ * sees what goes along and can leave some out.
+ */
+function ForwardedAttachmentChips({ attachments, onRemove }: Readonly<{
+  attachments: { id: string; fileName: string }[];
+  onRemove: (id: string) => void;
+}>) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+      {attachments.map((att) => (
+        <div
+          key={att.id}
+          className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs max-w-[180px]"
+        >
+          <Paperclip className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+          <span className="truncate">{att.fileName}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-4 w-4 p-0 hover:bg-muted-foreground/20"
+            onClick={() => onRemove(att.id)}
+            title={t.mail.messageDetail.removeAttachment}
+            aria-label={t.mail.messageDetail.removeAttachment}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AttachedFileChips({ files, onRemove }: Readonly<{
   files: File[];
   onRemove: (index: number) => void;
@@ -1243,6 +1293,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const router = useRouter();
   const pathname = usePathname();
   const archiveThreadMutation = useArchiveThread();
+  const toggleStarMutation = useToggleMailStar();
+  const pinThreadMutation = usePinThread();
   const trashThreadMutation = useTrashThread();
   const markThreadAsSpamMutation = useMarkThreadAsSpam();
   const deleteDraftMutation = useDeleteMailDraft();
@@ -1253,6 +1305,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const [isReplying, setIsReplying] = useState(false);
   const [isReplyingAll, setIsReplyingAll] = useState(false);
   const [isForwarding, setIsForwarding] = useState(false);
+  // Forward the original as an .eml file instead of quoting it.
+  const [forwardAsAttachment, setForwardAsAttachment] = useState(false);
+  // Original attachments the sender removed from the forward.
+  const [excludedForwardAttachmentIds, setExcludedForwardAttachmentIds] = useState<string[]>([]);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
   const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -1320,7 +1376,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           const labels = result.data as Array<MailTypes.Label & { isSystem?: boolean | null }>;
           setUserLabels(
             labels
-              .filter((l) => !l.isSystem)
+              .filter((l) => !l.isSystem && !isSystemLabel(l.name.toLowerCase()))
               .map((l) => ({ id: l.id ?? '', name: l.name, color: l.color }))
           );
         }
@@ -1331,19 +1387,35 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     fetchLabels();
   }, [accountId]);
 
-  // Use shared pinned messages context
-  const pinnedContext = usePinnedMessagesSafe();
-  const isPinned = pinnedContext?.isPinned(message.id) ?? false;
-
-  // Use shared starred messages context
-  const starredContext = useStarredMessagesSafe();
-  const isStarred = starredContext?.isStarred(message.id) ?? message.isStarred;
+  // Star and pin are server state: the STARRED / PINNED system labels (the
+  // star also has its `isStarred` column). The override only bridges the
+  // moment between the click and the refetch.
+  const serverStarred = Boolean(message.isStarred) || (message.labels ?? []).includes('STARRED');
+  const serverPinned = [message, ...thread].some((m) => (m.labels ?? []).includes('PINNED'));
+  const [starOverride, setStarOverride] = useState<boolean | null>(null);
+  const [pinOverride, setPinOverride] = useState<boolean | null>(null);
+  useEffect(() => setStarOverride(null), [message.id, serverStarred]);
+  useEffect(() => setPinOverride(null), [message.id, serverPinned]);
+  const isStarred = starOverride ?? serverStarred;
+  const isPinned = pinOverride ?? serverPinned;
 
   const handleTogglePin = () => {
-    if (pinnedContext) {
-      pinnedContext.togglePin(message.id);
-      toast.success(isPinned ? t.mail.messageDetail.emailUnpinned : t.mail.messageDetail.emailPinned);
+    const next = !isPinned;
+    setPinOverride(next);
+    const onError = () => {
+      setPinOverride(null);
+      toast.error(t.mail.messageDetail.failedToUpdateLabels);
+    };
+    const onSuccess = () =>
+      toast.success(next ? t.mail.messageDetail.emailPinned : t.mail.messageDetail.emailUnpinned);
+    if (threadId) {
+      pinThreadMutation.mutate({ accountId, threadId, on: next }, { onSuccess, onError });
+      return;
     }
+    const request = next
+      ? mailApi.messages.addLabel(accountId, message.id, 'PINNED')
+      : mailApi.messages.removeLabel(accountId, message.id, 'PINNED');
+    request.then((result) => (result.success ? onSuccess() : onError())).catch(onError);
   };
 
   // Compute the newest message (shown at top) and older messages (shown in thread)
@@ -1377,6 +1449,15 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   );
   const attachments = attachmentsData?.data || [];
 
+  // The files of the message being forwarded; they go along unless removed.
+  const { data: forwardAttachmentsData } = useMailAttachments(
+    message.id,
+    isForwarding && !!message.hasAttachments,
+  );
+  const forwardedAttachments = (forwardAttachmentsData?.data ?? []).filter(
+    (att) => !att.isInline && !excludedForwardAttachmentIds.includes(att.id),
+  );
+
   // Calendar invites (.ics) get a dedicated "Add to Weld Calendar" card; the
   // remaining attachments render as the usual download chips.
   const isIcsAttachment = (att: { contentType?: string | null; fileName?: string | null }) =>
@@ -1388,7 +1469,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // The two parts carry byte-identical payloads, so collapse by content size;
   // genuinely different invites differ in size.
   const calendarInvites = (() => {
-    const ics = attachments.filter((att) => isIcsAttachment(att) && att.downloadUrl);
+    const ics = attachments.filter((att) => isIcsAttachment(att));
     const seenSizes = new Set<number>();
     return ics.filter((att) => {
       const size = att.size;
@@ -1416,6 +1497,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         setComposeData({ to, subject: `Re: ${message.subject}`, body: '' });
       } else if (action === 'forward' || action === 'forwardAttachment') {
         setIsForwarding(true);
+        setForwardAsAttachment(action === 'forwardAttachment');
+        setExcludedForwardAttachmentIds([]);
         setIsReplying(false);
         setIsReplyingAll(false);
         setReplyToMessageId(newestMessage.id);
@@ -1480,6 +1563,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setIsReplying(false);
     setIsReplyingAll(false);
     setIsForwarding(false);
+    setForwardAsAttachment(false);
+    setExcludedForwardAttachmentIds([]);
     setReplyToMessageId(null);
     setComposeData({ to: '', subject: '', body: '' });
     setAttachedFiles([]);
@@ -1552,6 +1637,12 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         body: textContent || undefined,
         htmlBody: htmlContent || undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
+        excludeAttachmentIds:
+          excludedForwardAttachmentIds.length > 0 ? excludedForwardAttachmentIds : undefined,
+        asAttachment: forwardAsAttachment || undefined,
+        // The quoted "Date:" line is written in the sender's own time.
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        locale: navigator.language,
       });
       if (result.success) {
         toast.success(t.mail.messageDetail.emailForwarded);
@@ -1567,13 +1658,20 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
   };
 
-  const handleToggleStar = async () => {
-    if (starredContext) {
-      starredContext.toggleStar(message.id);
-      toast.success(isStarred ? t.mail.messageDetail.starRemoved : t.mail.messageDetail.starAdded);
-    }
-    // Also call the API for persistence
-    await mailApi.messages.update(accountId, message.id, { isStarred: !isStarred });
+  const handleToggleStar = () => {
+    const next = !isStarred;
+    setStarOverride(next);
+    toggleStarMutation.mutate(
+      { id: message.id, isStarred: next },
+      {
+        onSuccess: () =>
+          toast.success(next ? t.mail.messageDetail.starAdded : t.mail.messageDetail.starRemoved),
+        onError: () => {
+          setStarOverride(null);
+          toast.error(t.mail.messageDetail.failedToUpdateLabels);
+        },
+      },
+    );
   };
 
   const handleDelete = async () => {
@@ -1732,7 +1830,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         // Remove label (works for both system and user labels)
         const result = await mailApi.messages.removeLabel(accountId, message.id, labelName);
         if (result.success) {
-          const newLabels = messageLabels.filter((l) => l !== labelName);
+          const newLabels = result.data?.labels ?? messageLabels.filter((l) => l !== labelName);
           setMessageLabels(newLabels);
           onLabelsChange?.(newLabels);
           toast.success(t.mail.messageDetail.labelRemoved.replace('{label}', labelName));
@@ -1743,7 +1841,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         // Add label (works for both system and user labels)
         const result = await mailApi.messages.addLabel(accountId, message.id, labelName);
         if (result.success) {
-          const newLabels = [...messageLabels, labelName];
+          // A location label (Inbox, Archive, Spam, Trash) replaces the
+          // previous one, so the server's array is the truth.
+          const newLabels = result.data?.labels ?? [...messageLabels, labelName];
           setMessageLabels(newLabels);
           onLabelsChange?.(newLabels);
           toast.success(t.mail.messageDetail.labelAdded.replace('{label}', labelName));
@@ -1927,6 +2027,18 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             suppressContentEditableWarning
           />
         </div>
+        {isForwarding && forwardAsAttachment && (
+          <div className="flex items-center gap-1.5 px-3 pb-2 text-xs text-muted-foreground">
+            <Paperclip className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{t.mail.messageDetail.forwardedAsAttachmentNote}</span>
+          </div>
+        )}
+        {isForwarding && !forwardAsAttachment && forwardedAttachments.length > 0 && (
+          <ForwardedAttachmentChips
+            attachments={forwardedAttachments}
+            onRemove={(id) => setExcludedForwardAttachmentIds((prev) => [...prev, id])}
+          />
+        )}
         {attachedFiles.length > 0 && (
           <AttachedFileChips
             files={attachedFiles}
@@ -1949,14 +2061,14 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             onInsert={insertInlineAi}
           />
         ) : (
-          <div className="flex items-center justify-between px-3 py-3 border-t border-border/50">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-3 border-t border-border/50">
             <ComposeToolbar
               activeFormats={activeFormats}
               onCommand={execCommand}
               onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
               onOpenAi={openInlineAi}
             />
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 ml-auto">
               <Button variant="outline" size="sm" onClick={cancelCompose}>
                 {t.mail.messageDetail.cancelButton}
               </Button>
@@ -2067,6 +2179,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const handleForwardToggle = () => {
     const wasForwarding = isForwarding && replyToMessageId === newestMessage.id;
     setIsForwarding(!wasForwarding);
+    setForwardAsAttachment(false);
+    setExcludedForwardAttachmentIds([]);
     setIsReplying(false);
     setIsReplyingAll(false);
     setReplyToMessageId(!wasForwarding ? newestMessage.id : null);
@@ -2214,30 +2328,31 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
         {/* Sender Header */}
         <div className="px-3 md:px-4 py-3 md:py-4">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <SenderAvatar
                 avatarUrl={getSenderAvatarUrl(newestMessage)}
                 sender={fromDisplayString(newestMessage.from)}
                 fallbackChar="?"
                 fallbackClassName="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-xs flex-shrink-0"
               />
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
                   <Button
                     variant="ghost"
                     onClick={() => customerPanel.openPanel(newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from)), extractName(fromDisplayString(newestMessage.from)))}
-                    className="font-semibold text-gray-900 dark:text-foreground text-[14.5px] hover:underline focus:outline-none"
+                    className="font-semibold text-gray-900 dark:text-foreground text-[14.5px] hover:underline focus:outline-none max-w-full shrink min-w-0"
                   >
-                    {extractName(fromDisplayString(newestMessage.from))}
+                    <span className="truncate">{extractName(fromDisplayString(newestMessage.from))}</span>
                   </Button>
                   <span className="text-[14.5px] text-gray-500 dark:text-muted-foreground">{t.mail.messageDetail.toWord}</span>
                   <Button
                     variant="ghost"
                     onClick={() => customerPanel.openPanel(primaryToEmail, emailToDisplayName(primaryToEmail))}
-                    className="text-[14.5px] text-blue-600 hover:underline focus:outline-none"
+                    className="text-[14.5px] text-blue-600 hover:underline focus:outline-none max-w-full shrink min-w-0"
+                    title={primaryToEmail}
                   >
-                    {primaryToEmail}
+                    <span className="truncate">{primaryToEmail}</span>
                   </Button>
                   {allRecipients.length > 1 && (
                     <RecipientsPopover
@@ -2289,7 +2404,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     `/api/mail-messages` exposes read/update/delete only. Restoring this
                     means building that route first — `mailMessages.rawMessage` is
                     nullable, so it also needs a real .eml source. Per-attachment
-                    downloads are unaffected; they use the stored `downloadUrl` below.
+                    downloads are unaffected; they go through
+                    `/api/mail-attachments/:id/download` (see AttachmentsSection).
                   */}
                   <DropdownMenuItem onClick={() => toast.success(t.mail.messageDetail.creatingFilter)}>
                     <ListFilter className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.filterMessagesLikeThis}
@@ -2362,7 +2478,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 <CalendarInviteCard
                   key={att.id}
                   attachmentId={att.id}
-                  downloadUrl={att.downloadUrl ?? ''}
                   fileName={att.fileName}
                   size={att.size}
                 />

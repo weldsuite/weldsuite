@@ -10,6 +10,7 @@
     "./recipient-validation": "./src/recipient-validation.ts",
     "./send": "./src/send.ts",
     "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
+    "./text": "./src/text.ts",
     "./workflows/send-scheduled-email": "./src/workflows/send-scheduled-email.ts"
   },
   "scripts": {
