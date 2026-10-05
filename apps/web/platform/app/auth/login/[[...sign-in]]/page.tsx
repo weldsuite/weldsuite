@@ -18,12 +18,25 @@ import { getTranslations } from '@/lib/i18n';
 
 type LoginStep = 'credentials' | 'two-factor' | 'email-verify' | 'first-factor-verify';
 
+// Auth pages are always light, so pin the OTP slots to the white theme instead of the app theme tokens.
+const OTP_SLOT_CLASS =
+  'h-[52px] flex-1 -ml-px border-l first:ml-0 bg-white dark:bg-white border-gray-200 text-[20px] font-medium text-gray-900 shadow-none data-[active=true]:border-gray-900 data-[active=true]:ring-gray-900/10 [&_.animate-caret-blink]:h-6 [&_.animate-caret-blink]:bg-gray-900 aria-invalid:border-red-500 data-[active=true]:aria-invalid:border-red-500 data-[active=true]:aria-invalid:ring-red-500/15';
+
 function LoginErrorBanner({ error }: Readonly<{ error: string | null }>) {
   if (!error) return null;
   return (
     <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
       {error}
     </div>
+  );
+}
+
+function OtpFieldError({ error }: Readonly<{ error: string | null }>) {
+  if (!error) return null;
+  return (
+    <p role="alert" className="mt-2.5 text-[13px] text-red-600">
+      {error}
+    </p>
   );
 }
 
@@ -546,7 +559,23 @@ export default function LoginPage() {
     return (
       <div className="min-h-screen bg-white flex relative">
         <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
-          <div className="w-full max-w-[448px] mx-auto">
+          <div className="w-full max-w-[420px] mx-auto">
+            <div className="mb-5">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setStep('credentials');
+                  setTwoFactorCode('');
+                  setError(null);
+                }}
+                className="text-gray-500 hover:text-black hover:underline underline-offset-4 inline-flex items-center gap-1 h-auto p-0 has-[>svg]:px-0 hover:bg-transparent dark:hover:bg-transparent transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4 -ml-[4px]" />
+                {t.auth.login.emailVerify.backToLogin}
+              </Button>
+            </div>
+
             <div className="mb-[32px]">
               <h1 className="text-[26px] font-semibold text-gray-900 mb-2">
                 {t.auth.login.emailVerify.title}
@@ -556,8 +585,6 @@ export default function LoginPage() {
               </p>
             </div>
 
-            <LoginErrorBanner error={error} />
-
             <form onSubmit={handleEmailVerifySubmit} className="space-y-[25px]">
               <div>
                 <InputOTP
@@ -566,6 +593,7 @@ export default function LoginPage() {
                   value={twoFactorCode}
                   onChange={(value) => {
                     setTwoFactorCode(value);
+                    if (error) setError(null);
                     if (value.length === 6) {
                       handleEmailVerifySubmit({ preventDefault: () => {} } as React.FormEvent, value);
                     }
@@ -573,15 +601,16 @@ export default function LoginPage() {
                   disabled={isLoading}
                   autoFocus
                 >
-                  <InputOTPGroup>
-                    <InputOTPSlot index={0} />
-                    <InputOTPSlot index={1} />
-                    <InputOTPSlot index={2} />
-                    <InputOTPSlot index={3} />
-                    <InputOTPSlot index={4} />
-                    <InputOTPSlot index={5} />
+                  <InputOTPGroup className="w-full">
+                    <InputOTPSlot index={0} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={1} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={2} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={3} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={4} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={5} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
                   </InputOTPGroup>
                 </InputOTP>
+                <OtpFieldError error={error} />
               </div>
 
               <Button
@@ -594,31 +623,15 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <div className="mt-6 text-center">
+            <div className="mt-8 text-center">
               <Button
                 type="button"
                 variant="ghost"
                 onClick={handleResendEmailCode}
                 disabled={isLoading}
-                className="text-gray-600 hover:text-gray-900"
+                className="text-gray-500 hover:text-gray-500 h-auto p-0 hover:bg-transparent dark:hover:bg-transparent"
               >
-                {t.auth.login.emailVerify.didNotReceive} <span className="font-medium hover:underline">{t.auth.login.emailVerify.resend}</span>
-              </Button>
-            </div>
-
-            <div className="mt-4 text-center">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setStep('credentials');
-                  setTwoFactorCode('');
-                  setError(null);
-                }}
-                className="text-gray-600 hover:text-gray-900 inline-flex items-center gap-1 pl-2 pr-[9px] py-1 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                {t.auth.login.emailVerify.backToLogin}
+                {t.auth.login.emailVerify.didNotReceive} <span className="font-medium hover:text-black hover:underline underline-offset-4 transition-colors">{t.auth.login.emailVerify.resend}</span>
               </Button>
             </div>
           </div>
@@ -632,7 +645,23 @@ export default function LoginPage() {
     return (
       <div className="min-h-screen bg-white flex relative">
         <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
-          <div className="w-full max-w-[448px] mx-auto">
+          <div className="w-full max-w-[420px] mx-auto">
+            <div className="mb-5">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setStep('credentials');
+                  setFirstFactorCode('');
+                  setError(null);
+                }}
+                className="text-gray-500 hover:text-black hover:underline underline-offset-4 inline-flex items-center gap-1 h-auto p-0 has-[>svg]:px-0 hover:bg-transparent dark:hover:bg-transparent transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4 -ml-[4px]" />
+                {t.auth.login.emailVerify.backToLogin}
+              </Button>
+            </div>
+
             <div className="mb-[32px]">
               <h1 className="text-[26px] font-semibold text-gray-900 mb-2">
                 {t.auth.login.emailVerify.title}
@@ -642,8 +671,6 @@ export default function LoginPage() {
               </p>
             </div>
 
-            <LoginErrorBanner error={error} />
-
             <form onSubmit={handleFirstFactorVerifySubmit} className="space-y-[25px]">
               <div>
                 <InputOTP
@@ -652,6 +679,7 @@ export default function LoginPage() {
                   value={firstFactorCode}
                   onChange={(value) => {
                     setFirstFactorCode(value);
+                    if (error) setError(null);
                     if (value.length === 6) {
                       handleFirstFactorVerifySubmit({ preventDefault: () => {} } as React.FormEvent, value);
                     }
@@ -659,15 +687,16 @@ export default function LoginPage() {
                   disabled={isLoading}
                   autoFocus
                 >
-                  <InputOTPGroup>
-                    <InputOTPSlot index={0} />
-                    <InputOTPSlot index={1} />
-                    <InputOTPSlot index={2} />
-                    <InputOTPSlot index={3} />
-                    <InputOTPSlot index={4} />
-                    <InputOTPSlot index={5} />
+                  <InputOTPGroup className="w-full">
+                    <InputOTPSlot index={0} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={1} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={2} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={3} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={4} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
+                    <InputOTPSlot index={5} className={OTP_SLOT_CLASS} aria-invalid={!!error} />
                   </InputOTPGroup>
                 </InputOTP>
+                <OtpFieldError error={error} />
               </div>
 
               <Button
@@ -680,31 +709,15 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <div className="mt-6 text-center">
+            <div className="mt-8 text-center">
               <Button
                 type="button"
                 variant="ghost"
                 onClick={handleResendFirstFactorCode}
                 disabled={isLoading}
-                className="text-gray-600 hover:text-gray-900"
+                className="text-gray-500 hover:text-gray-500 h-auto p-0 hover:bg-transparent dark:hover:bg-transparent"
               >
-                {t.auth.login.emailVerify.didNotReceive} <span className="font-medium hover:underline">{t.auth.login.emailVerify.resend}</span>
-              </Button>
-            </div>
-
-            <div className="mt-4 text-center">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setStep('credentials');
-                  setFirstFactorCode('');
-                  setError(null);
-                }}
-                className="text-gray-600 hover:text-gray-900 inline-flex items-center gap-1 pl-2 pr-[9px] py-1 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                {t.auth.login.emailVerify.backToLogin}
+                {t.auth.login.emailVerify.didNotReceive} <span className="font-medium hover:text-black hover:underline underline-offset-4 transition-colors">{t.auth.login.emailVerify.resend}</span>
               </Button>
             </div>
           </div>
