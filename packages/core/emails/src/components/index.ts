@@ -1,5 +1,4 @@
 export { EmailLayout, type EmailLayoutProps } from './layout';
-export { useEmail, type EmailContextValue } from './context';
 export {
   Actions,
   Button,
@@ -9,10 +8,12 @@ export {
   Heading,
   Kicker,
   LinkFallback,
+  List,
   MultilineText,
   Paragraph,
   Quote,
   Strong,
   TextLink,
   type DetailRow,
+  type ListItem,
 } from './primitives';

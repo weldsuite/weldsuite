@@ -20,8 +20,7 @@
 #     REST API; without them /api/project-analytics charts return empty data)
 #   RESEND_API_KEY (SendDigestWorkflow prefers Resend when set, else it falls
 #     back to the SEND_EMAIL binding; also the task-assignment notification
-#     email) + optional RESEND_TEMPLATE_TASK_ASSIGNED, PUBLIC_APP_URL
-#     (@weldsuite/notifications)
+#     email, @weldsuite/notifications) + optional PUBLIC_APP_URL
 #
 # CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
 
@@ -37,7 +36,9 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
 "next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
 "next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
-"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+# No "react" alias here (unlike most other API workers): this worker sends
+# system email through @weldsuite/emails, which renders with the real react
+# package, not the empty bundle-size shim.
 
 [observability]
 enabled = true
@@ -47,6 +48,8 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
+EMAIL_TRANSPORT = "resend"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -112,6 +115,8 @@ routes = [
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
+EMAIL_TRANSPORT = "resend"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -179,6 +184,8 @@ routes = [
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
+EMAIL_TRANSPORT = "resend"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

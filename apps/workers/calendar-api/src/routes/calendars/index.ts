@@ -52,7 +52,12 @@ import {
   needsCancellationMail,
   softDeleteCalendar,
 } from '../../services/calendar-deletion';
-import { getOrganizerInfo, sendCalendarEventEmails } from '../../services/calendar-mail';
+import {
+  getMemberEmails,
+  getOrganizerInfo,
+  getWorkspaceLanguage,
+  sendCalendarEventEmails,
+} from '../../services/calendar-mail';
 import { cancelMeetingsForEvent } from '../../services/calendar-meeting-sync';
 import { pushCalendarEventToGoogle } from '../../lib/integrations/sync/outbound-calendar-sync';
 
@@ -284,6 +289,7 @@ async function cancelLinkedMeetings(c: CalendarContext, eventIds: string[]): Pro
 async function sendCancellationMails(c: CalendarContext, events: CalendarEventRow[]): Promise<void> {
   const db = c.get('tenantDb');
   const organizers = new Map<string, Awaited<ReturnType<typeof getOrganizerInfo>>>();
+  const workspaceLanguage = await getWorkspaceLanguage(db);
   for (const event of events) {
     try {
       let organizer = organizers.get(event.organizerId);
@@ -291,11 +297,17 @@ async function sendCancellationMails(c: CalendarContext, events: CalendarEventRo
         organizer = await getOrganizerInfo(db, event.organizerId);
         organizers.set(event.organizerId, organizer);
       }
+      const memberEmails = await getMemberEmails(
+        db,
+        (event.attendees ?? []).map((a) => a.email ?? ''),
+      );
       await sendCalendarEventEmails(c.env, {
         kind: 'cancel',
         organizer,
         attendees: event.attendees ?? [],
         sequence: 3,
+        memberEmails,
+        workspaceLanguage,
         event: {
           id: event.id,
           title: event.title,

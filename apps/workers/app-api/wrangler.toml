@@ -22,7 +22,9 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "./src/lib/clerk-shim.ts"
 "next/server" = "./src/lib/next-shim.ts"
 "next/navigation" = "./src/lib/next-shim.ts"
-"react" = "./src/lib/react-shim.ts"
+# No "react" alias here (unlike most other API workers): this worker sends
+# system email through @weldsuite/emails, which renders with the real react
+# package, not the empty bundle-size shim.
 
 [observability]
 enabled = true
@@ -81,8 +83,7 @@ head_sampling_rate = 1
 #   connector OAuth apps — and the GITHUB_APP_* secrets moved to connect-api
 #   with WeldConnect.)
 # - RESEND_API_KEY (notifications + internal email. The task digest moved to
-#   flow-api and the calendar attendee mails to calendar-api, together with
-#   their RESEND_MEETING_*_TEMPLATE_ID vars.)
+#   flow-api and the calendar attendee mails to calendar-api.)
 # - STRIPE_SECRET_KEY (required by /api/billing — must be the SAME Stripe
 #   account billing-worker's webhooks use, since /api/billing/seats relies on
 #   the invoice.paid webhook)
@@ -110,6 +111,8 @@ API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,book
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
+EMAIL_TRANSPORT = "resend"
 # (HELPDESK_WORKFLOW_WORKER_URL moved to desk-api with /api/helpdesk-workflows.)
 # (AGENT_RUNTIME_URL / AGENT_COMPUTER_ENABLED moved to agent-api with WeldAgent.)
 # Comma-separated workspace ids that publish first-party hosted WeldApps
@@ -358,6 +361,8 @@ WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
+# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
+EMAIL_TRANSPORT = "resend"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -527,6 +532,8 @@ WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
+# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
+EMAIL_TRANSPORT = "resend"
 # Cloudflare Flagship feature-flag binding.
 # app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.
 [[env.production.flagship]]

@@ -5,7 +5,14 @@
     "moduleResolution": "bundler",
     "noEmit": true,
     "lib": ["ESNext"],
-    "types": ["@cloudflare/workers-types"]
+    "types": ["@cloudflare/workers-types"],
+    // @weldsuite/emails exports its templates as .tsx source (no build step),
+    // so anything that imports it — even just for its prop types — needs a
+    // jsx mode to resolve those files' types. Matches the emails package's
+    // own tsconfig, including its noUncheckedIndexedAccess override (base.json
+    // sets it true; emails' own templates don't satisfy it).
+    "jsx": "react-jsx",
+    "noUncheckedIndexedAccess": false
   },
   "include": ["src"],
   "exclude": ["node_modules"]

@@ -11,9 +11,20 @@ export interface Env extends KitEnv {
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
 
-  /** Cloudflare `[[send_email]]` binding for outbound mail (commerce portal
-   *  magic-link / sign-in code emails). */
+  // --- Commerce portal mails (services/commerce-portal-mail.ts, @weldsuite/emails) -
+  /** Cloudflare Email Service binding for outbound mail (commerce portal
+   *  magic-link / sign-in code emails). A missing/unconfigured transport is
+   *  a no-op; see `workerTransport`. */
   SEND_EMAIL?: SendEmail;
+  /** Migration switch: "resend" sends through Resend instead of Cloudflare.
+   *  Flip to "cloudflare" (or unset) once mail.weldsuite.org is onboarded
+   *  (docs/plans/system-email-cloudflare.md, Phase 0). */
+  EMAIL_TRANSPORT?: string;
+  /** Resend API key — the fallback transport while EMAIL_TRANSPORT="resend". */
+  RESEND_API_KEY?: string;
+  /** Migration-only sender override (noreply@weldsuite.org) until
+   *  mail.weldsuite.org is onboarded; see `workerTransport`. */
+  SYSTEM_EMAIL_FROM?: string;
   /**
    * Public origin of the B2B commerce portal (no trailing slash), used in
    * magic-link emails. Defaults: production `https://orders.weldsuite.org`,

@@ -59,6 +59,7 @@ export function htmlToText(html: string): string {
     formatters: {
       detailLabel: inlineWithSuffix(': '),
       detailPrevious: inlineWithSuffix(' → '),
+      listItem: inlineWithSuffix(' — '),
       inline: inlineWithSuffix(''),
     },
     selectors: [
@@ -66,6 +67,8 @@ export function htmlToText(html: string): string {
       { selector: 'td[data-text=label]', format: 'detailLabel' },
       { selector: 'td[data-text=value]', format: 'inline' },
       { selector: 'span[data-text=previous]', format: 'detailPrevious' },
+      // <List> rows read "Task · Project — Oct 5".
+      { selector: 'td[data-text=item]', format: 'listItem' },
       { selector: 'img', format: 'skip' },
       // The hidden inbox preview line of <Preview>.
       { selector: '[data-skip-in-text=true]', format: 'skip' },

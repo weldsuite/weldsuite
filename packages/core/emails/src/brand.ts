@@ -27,6 +27,8 @@ export type EmailBrand =
       name: string;
       logoUrl?: string | null;
       accentColor?: string | null;
+      /** False hides the "Sent via WeldSuite" footer (white-label portals). */
+      poweredBy?: boolean;
     };
 
 const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;

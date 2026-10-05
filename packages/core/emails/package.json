@@ -10,7 +10,8 @@
     "./transports/binding": "./src/transports/binding.ts",
     "./transports/rest": "./src/transports/rest.ts",
     "./transports/resend": "./src/transports/resend.ts",
-    "./transports/memory": "./src/transports/memory.ts"
+    "./transports/memory": "./src/transports/memory.ts",
+    "./transports/env": "./src/transports/env.ts"
   },
   "scripts": {
     "previews": "tsx scripts/generate-previews.ts",

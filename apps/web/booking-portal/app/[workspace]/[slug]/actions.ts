@@ -1,7 +1,7 @@
 'use server';
 
 import { eq, and, isNull, desc, sql } from 'drizzle-orm';
-import { buildIcsInvite } from '@weldsuite/transactional-email';
+import type { IcsEvent } from '@weldsuite/emails';
 import {
   cancelBookingMeeting,
   createBookingMeeting,
@@ -30,12 +30,13 @@ import {
   type SlotExclusions,
   type TenantQueryDb,
 } from '@/lib/booking-slots';
-import { calendarLocationOf, needsWeldMeetMeeting } from '@/lib/location';
+import { joinUrlOf, needsWeldMeetMeeting } from '@/lib/location';
 import {
   buildManageUrls,
   createManageToken,
   formatAnswerLines,
   getHostInfo,
+  getWorkspaceBrand,
   isValidManageToken,
   parseQuestions,
   resolveAnswers,
@@ -79,6 +80,18 @@ const SLOT_TAKEN_ERROR = 'This time slot is no longer available. Please choose a
 /** The page's own link for a video booking (a legacy manual link), or null. */
 function customVideoLink(page: { locationType: string | null; locationValue: string | null }): string | null {
   return page.locationType === 'video' ? page.locationValue?.trim() || null : null;
+}
+
+/** `IcsEvent`'s `location` / `meetingUrl` split, from the portal's raw location columns. */
+function icsLocationFields(fields: {
+  locationType: string | null;
+  locationValue: string | null;
+  meetingUrl?: string | null;
+}): Pick<IcsEvent, 'location' | 'meetingUrl'> {
+  if (fields.locationType === 'video') {
+    return { meetingUrl: joinUrlOf(fields) ?? undefined };
+  }
+  return { location: fields.locationValue?.trim() || undefined };
 }
 
 /**
@@ -330,23 +343,23 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
 
     const organizerEmail = host.email ?? BOOKING_FROM_ADDRESS;
     const organizerName = host.name;
+    const { brand, locale } = await getWorkspaceBrand(db, tenant.workspace.name);
 
-    const ics = buildIcsInvite({
+    const icsEvent: IcsEvent = {
       uid: `${eventId}@weldsuite`,
       method: 'REQUEST',
-      summary: `${bookingPage.name} with ${data.bookerName}`,
+      title: `${bookingPage.name} with ${data.bookerName}`,
       description: [
         data.notes || bookingPage.confirmationMessage || `Booked via ${bookingPage.name}`,
         ...formatAnswerLines(questions, answers),
-        ...(meetingUrl ? [`Join: ${meetingUrl}`] : []),
       ].join('\n'),
-      location: calendarLocationOf({
+      ...icsLocationFields({
         locationType: bookingPage.locationType,
         locationValue: bookingPage.locationValue,
         meetingUrl,
       }),
-      startTime: data.startTime,
-      endTime: data.endTime,
+      start: data.startTime,
+      end: data.endTime,
       organizer: { email: organizerEmail, name: organizerName },
       attendees: [
         { email: data.bookerEmail, name: data.bookerName, role: 'REQ-PARTICIPANT' },
@@ -356,7 +369,8 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
           role: 'OPT-PARTICIPANT' as const,
         })),
       ],
-    });
+      product: 'WeldSuite Booking',
+    };
 
     const emailJobs: Promise<void>[] = [
       sendBookingConfirmationEmail({
@@ -371,11 +385,13 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
         workspaceName: tenant.workspace.name,
         confirmationMessage: bookingPage.confirmationMessage,
         timezone: tz,
-        ics,
+        icsEvent,
         hostName: host.name,
         hostEmail: host.email,
         rescheduleUrl: manageUrls?.rescheduleUrl,
         cancelUrl: manageUrls?.cancelUrl,
+        brand,
+        locale,
       }),
       ...guests.map((guest) =>
         sendGuestInviteEmail({
@@ -389,9 +405,11 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
           meetingUrl,
           workspaceName: tenant.workspace.name,
           timezone: tz,
-          ics,
+          icsEvent,
           hostName: host.name,
           hostEmail: host.email,
+          brand,
+          locale,
         }),
       ),
     ];
@@ -478,27 +496,29 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
     const guests = booking.guests ?? [];
 
     const host = await getHostInfo(db, bookingPage?.ownerId ?? '', tenant.workspace.name);
+    const { brand, locale } = await getWorkspaceBrand(db, tenant.workspace.name);
 
-    const ics = buildIcsInvite({
+    const icsEvent: IcsEvent = {
       uid: `${booking.calendarEventId ?? booking.id}@weldsuite`,
       method: 'CANCEL',
       status: 'CANCELLED',
       sequence: 1,
-      summary: `${pageName} with ${booking.bookerName}`,
+      title: `${pageName} with ${booking.bookerName}`,
       description: booking.notes,
-      location: calendarLocationOf({
+      ...icsLocationFields({
         locationType: bookingPage?.locationType ?? null,
         locationValue: bookingPage?.locationValue ?? null,
         meetingUrl,
       }),
-      startTime: startIso,
-      endTime: endIso,
+      start: startIso,
+      end: endIso,
       organizer: { email: host.email ?? BOOKING_FROM_ADDRESS, name: host.name },
       attendees: [
         { email: booking.bookerEmail, name: booking.bookerName, role: 'REQ-PARTICIPANT' },
         ...guests.map((g) => ({ email: g.email, name: g.name, role: 'OPT-PARTICIPANT' as const })),
       ],
-    });
+      product: 'WeldSuite Booking',
+    };
 
     const emailJobs: Promise<void>[] = [
       sendBookingCancellationEmail({
@@ -513,9 +533,11 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
         workspaceName: tenant.workspace.name,
         confirmationMessage: null,
         timezone: tz,
-        ics,
+        icsEvent,
         hostName: host.name,
         hostEmail: host.email,
+        brand,
+        locale,
       }),
       ...guests.map((guest) =>
         sendBookingCancellationEmail({
@@ -530,9 +552,11 @@ export async function cancelBooking(input: CancelBookingInput): Promise<CancelRe
           workspaceName: tenant.workspace.name,
           confirmationMessage: null,
           timezone: tz,
-          ics,
+          icsEvent,
           hostName: host.name,
           hostEmail: host.email,
+          brand,
+          locale,
         }),
       ),
     ];
@@ -650,28 +674,28 @@ export async function rescheduleBooking(
       token: manageToken,
     });
 
-    const ics = buildIcsInvite({
+    const { brand, locale } = await getWorkspaceBrand(db, tenant.workspace.name);
+
+    const icsEvent: IcsEvent = {
       uid: `${booking.calendarEventId ?? booking.id}@weldsuite`,
       method: 'REQUEST',
       sequence: 1,
-      summary: `${bookingPage.name} with ${booking.bookerName}`,
-      description: [
-        booking.notes || bookingPage.confirmationMessage || `Booked via ${bookingPage.name}`,
-        ...(meetingUrl ? [`Join: ${meetingUrl}`] : []),
-      ].join('\n'),
-      location: calendarLocationOf({
+      title: `${bookingPage.name} with ${booking.bookerName}`,
+      description: booking.notes || bookingPage.confirmationMessage || `Booked via ${bookingPage.name}`,
+      ...icsLocationFields({
         locationType: bookingPage.locationType,
         locationValue: bookingPage.locationValue,
         meetingUrl,
       }),
-      startTime: data.startTime,
-      endTime: data.endTime,
+      start: data.startTime,
+      end: data.endTime,
       organizer: { email: host.email ?? BOOKING_FROM_ADDRESS, name: host.name },
       attendees: [
         { email: booking.bookerEmail, name: booking.bookerName, role: 'REQ-PARTICIPANT' },
         ...guests.map((g) => ({ email: g.email, name: g.name, role: 'OPT-PARTICIPANT' as const })),
       ],
-    });
+      product: 'WeldSuite Booking',
+    };
 
     const emailJobs: Promise<void>[] = [
       sendBookingRescheduledEmail({
@@ -686,11 +710,13 @@ export async function rescheduleBooking(
         workspaceName: tenant.workspace.name,
         confirmationMessage: bookingPage.confirmationMessage,
         timezone: tz,
-        ics,
+        icsEvent,
         hostName: host.name,
         hostEmail: host.email,
         rescheduleUrl: manageUrls?.rescheduleUrl,
         cancelUrl: manageUrls?.cancelUrl,
+        brand,
+        locale,
       }),
       ...guests.map((guest) =>
         sendGuestInviteEmail({
@@ -704,9 +730,11 @@ export async function rescheduleBooking(
           meetingUrl,
           workspaceName: tenant.workspace.name,
           timezone: tz,
-          ics,
+          icsEvent,
           hostName: host.name,
           hostEmail: host.email,
+          brand,
+          locale,
         }),
       ),
     ];

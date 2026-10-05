@@ -18,6 +18,7 @@ import {
   Paragraph,
   Strong,
 } from '../../components';
+import { accentOf } from '../../brand';
 import { defineTemplate } from '../../define';
 import { formatWhen, zoneOr } from '../../format';
 import { emailStrings, fill, rich } from '../../i18n';
@@ -64,6 +65,7 @@ export default defineTemplate<CalendarEventEmailProps>({
 
   Component: (props) => {
     const { kind, locale, brand } = props;
+    const accent = accentOf(brand);
     const t = emailStrings(locale).calendar;
     const ended = isEndedKind(kind);
     const zone = zoneOr(props.timezone);
@@ -104,16 +106,16 @@ export default defineTemplate<CalendarEventEmailProps>({
         {meetingUrl || eventUrl ? (
           <Actions>
             {meetingUrl ? (
-              <Button href={meetingUrl}>{isWeldMeetUrl(meetingUrl) ? t.joinWeldMeet : t.joinVideo}</Button>
+              <Button accent={accent} href={meetingUrl}>{isWeldMeetUrl(meetingUrl) ? t.joinWeldMeet : t.joinVideo}</Button>
             ) : null}
             {eventUrl ? (
-              <Button href={eventUrl} variant={meetingUrl ? 'secondary' : 'primary'}>
+              <Button accent={accent} href={eventUrl} variant={meetingUrl ? 'secondary' : 'primary'}>
                 {t.viewInCalendar}
               </Button>
             ) : null}
           </Actions>
         ) : null}
-        {meetingUrl ? <LinkFallback href={meetingUrl} /> : null}
+        {meetingUrl ? <LinkFallback label={emailStrings(locale).layout.linkFallback} href={meetingUrl} /> : null}
       </EmailLayout>
     );
   },

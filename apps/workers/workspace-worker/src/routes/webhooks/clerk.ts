@@ -13,7 +13,8 @@
 import { Hono } from 'hono';
 import { Webhook } from 'svix';
 import { eq, and, isNull, or, ne, sql } from 'drizzle-orm';
-import { sendTemplateEmail } from '@weldsuite/transactional-email';
+import { sendSystemEmail } from '@weldsuite/emails';
+import { workerTransport } from '@weldsuite/emails/transports/binding';
 import type { Env } from '../../index';
 import { getMasterDb, getTenantDbForWorkspace } from '../../db';
 import { generateId } from '../../lib/id';
@@ -759,15 +760,16 @@ async function handleInvitationCreated(
     console.warn('[Clerk Webhook] Could not create invitation in tenant DB:', error);
   }
 
-  // Send our own invitation email via Resend (Clerk's built-in template is
-  // disabled). Failures must never propagate — Clerk would otherwise retry
-  // the webhook and double-write the DB row above.
+  // Send our own invitation email (@weldsuite/emails; Clerk's built-in
+  // template is disabled). Failures must never propagate — Clerk would
+  // otherwise retry the webhook and double-write the DB row above.
   await sendInvitationEmail(env, invitation);
 }
 
 async function sendInvitationEmail(env: Env, invitation: ClerkOrganizationInvitation) {
-  if (!env.RESEND_API_KEY || !env.RESEND_WORKSPACE_INVITATION_TEMPLATE_ID) {
-    console.warn('[Clerk Webhook] Skipping invitation email: RESEND_API_KEY or RESEND_WORKSPACE_INVITATION_TEMPLATE_ID not configured');
+  const transport = workerTransport(env);
+  if (!transport) {
+    console.warn('[Clerk Webhook] Skipping invitation email: no email transport configured');
     return;
   }
 
@@ -824,20 +826,19 @@ async function sendInvitationEmail(env: Env, invitation: ClerkOrganizationInvita
 
     const role = mapClerkRoleToDisplay(invitation.role);
 
-    await sendTemplateEmail(env.RESEND_API_KEY, {
-      from: 'WeldSuite <notifications@mail.weldsuite.org>',
-      to: [invitation.email_address],
-      template: {
-        id: env.RESEND_WORKSPACE_INVITATION_TEMPLATE_ID,
-        variables: {
-          INVITER_NAME: inviterName,
-          INVITER_EMAIL: inviterEmail ?? '',
-          WORKSPACE_NAME: workspaceName,
-          ROLE: role,
-          ACCEPT_URL: acceptUrl,
-          RECIPIENT_EMAIL: invitation.email_address,
-        },
+    await sendSystemEmail(transport, {
+      template: 'workspace.invitation',
+      props: {
+        inviterName,
+        workspaceName,
+        role,
+        acceptUrl,
+        recipientEmail: invitation.email_address,
       },
+      to: invitation.email_address,
+      // Locale: no cheap way to read the workspace's language here (would
+      // need a tenant DB connection just for this) — defaults to English.
+      ...(inviterEmail ? { replyTo: inviterEmail } : {}),
     });
   } catch (error) {
     console.error('[Clerk Webhook] Failed to send invitation email:', error);

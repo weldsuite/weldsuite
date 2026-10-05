@@ -411,10 +411,9 @@ export const manifest: Record<string, SecretEntry[]> = {
     // with the module. `secrets:sync` warns when Doppler does not have one yet.
     "GOOGLE_CALENDAR_CLIENT_ID",
     "GOOGLE_CALENDAR_CLIENT_SECRET",
+    // Calendar attendee mail (@weldsuite/emails): the EMAIL_TRANSPORT="resend"
+    // fallback while mail.weldsuite.org is onboarded.
     "RESEND_API_KEY",
-    "RESEND_MEETING_INVITE_TEMPLATE_ID",
-    "RESEND_MEETING_UPDATE_TEMPLATE_ID",
-    "RESEND_MEETING_CANCEL_TEMPLATE_ID",
   ],
 
   // meet-api: the meet module's API worker (split from app-api). Base
@@ -440,7 +439,6 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CF_REALTIME_APP_SECRET",
     "CF_REALTIME_WEBHOOK_TOKEN",
     "RESEND_API_KEY",
-    "RESEND_TEMPLATE_TASK_ASSIGNED",
   ],
 
   // call-api: the call module's API worker (split from app-api). Base
@@ -522,7 +520,6 @@ export const manifest: Record<string, SecretEntry[]> = {
     "R2_SQL_API_TOKEN",
     "R2_ANALYTICS_BUCKET",
     "RESEND_API_KEY",
-    "RESEND_TEMPLATE_TASK_ASSIGNED",
   ],
 
   // chat-api: the chat module's API worker (split from app-api). Base
@@ -546,7 +543,6 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CF_REALTIME_APP_ID",
     "CF_REALTIME_APP_SECRET",
     "RESEND_API_KEY",
-    "RESEND_TEMPLATE_TASK_ASSIGNED",
   ],
 
   // agent-api: the agent module's API worker (split from app-api). Base
@@ -567,7 +563,6 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Set by hand on app-api before the split (never in this manifest); moved
     // with the module. `secrets:sync` warns when Doppler does not have one yet.
     "RESEND_API_KEY",
-    "RESEND_TEMPLATE_TASK_ASSIGNED",
   ],
 
   // connect-api: the connect module's API worker (split from app-api). Base

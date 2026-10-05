@@ -2,12 +2,15 @@
  * Building blocks for the content of an email. Templates compose these instead
  * of writing markup, so every email gets the same email-client-safe output:
  * tables, inline styles, no flex/grid, absolute links.
+ *
+ * No hooks or React context anywhere in this package: the templates are also
+ * imported from Next.js Server Actions, whose React build has neither. Brand
+ * values (accent color, strings) are passed in as props.
  */
 
 import type { CSSProperties, ReactNode } from 'react';
 import { Button as REButton, Column, Heading as REHeading, Hr, Link, Row, Section, Text } from '@react-email/components';
 import { theme } from '../theme';
-import { useEmail } from './context';
 
 const { color, size, lineHeight, radius, space, font } = theme;
 
@@ -65,12 +68,14 @@ export function Button({
   href,
   children,
   variant = 'primary',
+  accent = color.accent,
 }: {
   href: string;
   children: ReactNode;
   variant?: 'primary' | 'secondary';
+  /** Brand color of the primary button: pass `accentOf(brand)`. */
+  accent?: string;
 }) {
-  const { accent } = useEmail();
   const primary = variant === 'primary';
   return (
     <REButton
@@ -109,9 +114,11 @@ export function Actions({ children }: { children: ReactNode }) {
   );
 }
 
-/** The bare URL under a button, for clients that strip buttons. */
-export function LinkFallback({ href }: { href: string }) {
-  const { t } = useEmail();
+/**
+ * The bare URL under a button, for clients that strip buttons. `label` is
+ * `emailStrings(locale).layout.linkFallback`.
+ */
+export function LinkFallback({ href, label }: { href: string; label: string }) {
   return (
     <Text
       style={{
@@ -122,7 +129,7 @@ export function LinkFallback({ href }: { href: string }) {
         wordBreak: 'break-all',
       }}
     >
-      {t.layout.linkFallback}{' '}
+      {label}{' '}
       <Link href={href} style={{ color: color.muted, textDecoration: 'underline' }}>
         {href}
       </Link>
@@ -201,6 +208,46 @@ export function Details({ rows }: { rows: DetailRow[] }) {
             ) : null}
             {row.value}
           </Column>
+        </Row>
+      ))}
+    </Section>
+  );
+}
+
+export interface ListItem {
+  primary: ReactNode;
+  /** Muted text after the primary text (a project name). */
+  secondary?: ReactNode;
+  /** Right-aligned muted text (a date). */
+  aside?: ReactNode;
+}
+
+/** A titled list of rows separated by hairlines (the task digest sections). */
+export function List({ title, items }: { title: ReactNode; items: ListItem[] }) {
+  if (!items.length) return null;
+  const cell: CSSProperties = {
+    padding: '10px 0',
+    borderBottom: `1px solid ${color.border}`,
+    verticalAlign: 'top',
+    fontSize: size.small,
+    lineHeight: lineHeight.body,
+  };
+  return (
+    <Section style={{ margin: `0 0 ${space.block}px` }}>
+      <Text style={{ margin: '0 0 4px', fontSize: size.small, fontWeight: 600, lineHeight: lineHeight.body, color: color.ink }}>
+        {title}
+      </Text>
+      {items.map((item, i) => (
+        <Row key={i}>
+          <Column data-text="item" style={{ ...cell, color: color.ink }}>
+            {item.primary}
+            {item.secondary ? <span style={{ color: color.muted }}> · {item.secondary}</span> : null}
+          </Column>
+          {item.aside ? (
+            <Column data-text="value" align="right" style={{ ...cell, paddingLeft: 16, whiteSpace: 'nowrap', color: color.muted }}>
+              {item.aside}
+            </Column>
+          ) : null}
         </Row>
       ))}
     </Section>

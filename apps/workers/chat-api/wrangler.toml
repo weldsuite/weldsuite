@@ -24,8 +24,8 @@
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   CF_REALTIME_APP_ID + CF_REALTIME_APP_SECRET (Cloudflare RealtimeKit:
 #     WeldChat voice/video calls, @weldsuite/cloudflare-realtime)
-#   RESEND_API_KEY (+ optional RESEND_TEMPLATE_TASK_ASSIGNED, PUBLIC_APP_URL):
-#     chat message / DM / missed-call notification emails (@weldsuite/notifications)
+#   RESEND_API_KEY (+ optional PUBLIC_APP_URL): chat message / DM /
+#     missed-call notification emails (@weldsuite/notifications)
 #   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): the WeldAgent
 #     runtime when a room reply runs inline (@weldsuite/ai). When unset,
 #     @weldsuite/ai uses CLOUDFLARE_API_TOKEN.
@@ -45,7 +45,9 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
 "next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
 "next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
-"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+# No "react" alias here (unlike most other API workers): this worker sends
+# system email through @weldsuite/emails, which renders with the real react
+# package, not the empty bundle-size shim.
 
 [observability]
 enabled = true
@@ -59,6 +61,8 @@ R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # inline. Requires matching INTERNAL_API_SECRET on both workers.
 AGENT_RUNTIME_URL = "http://localhost:8795"
 AGENT_COMPUTER_ENABLED = "true"
+# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
+EMAIL_TRANSPORT = "resend"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -78,6 +82,11 @@ remote = true
 [[r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+# Cloudflare Email Sending binding — the notification email channel
+# (@weldsuite/notifications / @weldsuite/emails workerTransport).
+[[send_email]]
+name = "SEND_EMAIL"
 
 # D1 schedule index — shared with workflow-worker. The WeldAgent routine index
 # lives here (@weldsuite/agent-domain/routine-index). Dev uses the test database.
@@ -117,6 +126,8 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 AGENT_RUNTIME_URL = "https://agent-runtime-test.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
+# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
+EMAIL_TRANSPORT = "resend"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -148,6 +159,9 @@ entrypoint = "AgentRuntimeInternal"
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
 
 [[env.test.d1_databases]]
 binding = "SCHEDULE_INDEX"
@@ -191,6 +205,8 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 AGENT_RUNTIME_URL = "https://agent-runtime.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
+# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
+EMAIL_TRANSPORT = "resend"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
@@ -217,6 +233,9 @@ entrypoint = "AgentRuntimeInternal"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
 
 [[env.production.d1_databases]]
 binding = "SCHEDULE_INDEX"

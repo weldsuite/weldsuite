@@ -63,3 +63,17 @@ export function toBase64(bytes: Uint8Array): string {
 export function baseContentType(contentType: string): string {
   return contentType.split(';')[0]!.trim();
 }
+
+/**
+ * Send through `transport` from another address than the system one. Only for
+ * the migration: a worker whose Cloudflare sending domain is not onboarded yet
+ * keeps its old verified sender (`SYSTEM_EMAIL_FROM`).
+ */
+export function withFromAddress(transport: EmailTransport, address: string | undefined): EmailTransport {
+  const email = address?.trim();
+  if (!email) return transport;
+  return {
+    name: transport.name,
+    send: (message) => transport.send({ ...message, from: { ...message.from, email } }),
+  };
+}

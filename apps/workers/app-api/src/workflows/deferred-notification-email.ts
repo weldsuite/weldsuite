@@ -22,6 +22,7 @@ import {
   resolveEmailPresence,
   sendNotificationEmail,
   type DeferredEmailParams,
+  type NotificationEmailOverride,
 } from '@weldsuite/notifications';
 import type { Env } from '../types';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
@@ -30,7 +31,7 @@ export type DeferredNotificationEmailParams = DeferredEmailParams;
 
 export class DeferredNotificationEmailWorkflow extends WorkflowEntrypoint<Env, DeferredNotificationEmailParams> {
   async run(event: WorkflowEvent<DeferredNotificationEmailParams>, step: WorkflowStep) {
-    const { workspaceId, userId, notificationId, to, subject, fallbackText, sendAfter, template } =
+    const { workspaceId, userId, notificationId, to, locale, brand, email, subject, fallbackText, sendAfter } =
       event.payload;
 
     await step.sleepUntil('wait-out-defer-window', new Date(sendAfter));
@@ -38,12 +39,6 @@ export class DeferredNotificationEmailWorkflow extends WorkflowEntrypoint<Env, D
     await step.do('send-if-still-away', {
       retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
     }, async () => {
-      const apiKey = this.env.RESEND_API_KEY;
-      if (!apiKey) {
-        console.log('[DeferredEmail] RESEND_API_KEY unset, skipping');
-        return;
-      }
-
       const db = await getTenantDbForWorkspace(this.env, workspaceId);
 
       // Read state first — it is the cheaper signal and the more decisive one.
@@ -70,7 +65,14 @@ export class DeferredNotificationEmailWorkflow extends WorkflowEntrypoint<Env, D
         return;
       }
 
-      await sendNotificationEmail({ apiKey, to, subject, fallbackText, template });
+      // Instances created before `email`/`locale` existed (in-flight across
+      // the deploy that added them) wake up with only the old `subject` /
+      // `fallbackText` fields — fall back to the generic notification
+      // template built from those instead of dropping the mail.
+      const emailSpec: NotificationEmailOverride =
+        email ?? { template: 'notification', props: { title: subject ?? 'Notification', body: fallbackText } };
+
+      await sendNotificationEmail(this.env, { to, locale: locale ?? 'en', email: emailSpec, brand });
 
       console.log(`[DeferredEmail] Sent ${notificationId} to a still-absent recipient`);
     });
