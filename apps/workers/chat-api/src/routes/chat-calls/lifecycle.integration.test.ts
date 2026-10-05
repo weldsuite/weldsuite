@@ -316,6 +316,32 @@ describe('POST /start-and-join · an abandoned call in the channel', () => {
     expect(addParticipant).toHaveBeenCalledWith(expect.anything(), cfAppId, expect.anything());
   });
 
+  it('neither replaces nor joins the call when RealtimeKit cannot be asked', async () => {
+    // Joining a call that may be dead would leave the caller alone in it
+    // without ringing anyone; the client gets a conflict and can retry.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(getLiveParticipantCount).mockRejectedValue(new Error('RTK 503'));
+    const { channelId, callId } = await seed([participant(ALICE), left(BOB)]);
+
+    const res = await start(ALICE, channelId);
+
+    expect(res.status).toBe(409);
+    expect((await loadCall(callId)).status).toBe('active');
+    expect(createMeeting).not.toHaveBeenCalled();
+    expect(addParticipant).not.toHaveBeenCalled();
+    expect(kickAllParticipants).not.toHaveBeenCalled();
+  });
+
+  it('still joins a live call that does not look abandoned without asking RealtimeKit', async () => {
+    const { channelId, callId } = await seed([participant(ALICE), participant(BOB)]);
+
+    const res = await start(ALICE, channelId);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: { callId: string } }).data.callId).toBe(callId);
+    expect(getLiveParticipantCount).not.toHaveBeenCalled();
+  });
+
   it('in a channel, joins the existing call when even one connection is left in it', async () => {
     // A channel (not a DM): any connection means the call is in use.
     vi.mocked(getLiveParticipantCount).mockResolvedValue(1);

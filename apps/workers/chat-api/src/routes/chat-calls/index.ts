@@ -42,6 +42,7 @@ import {
   scheduleRingTimeout,
   teardownRtkMeeting,
   wasAnswered,
+  type EndIfEmptyOutcome,
 } from '@weldsuite/chat-domain/call-lifecycle';
 import { canAccessChannel } from '../../services/chat/channel-access';
 import {
@@ -85,8 +86,10 @@ function disabledCallMessage(
  * still has people in its room: our participant list alone never ends a call
  * (see endChatCallIfEmpty). In a DM one remaining connection does not count,
  * that is the requester's own leftover or someone waiting alone, and the new
- * call rings them. Returns false when the call was kept, so the caller joins
- * it (or reports a conflict) instead of starting a second one.
+ * call rings them. Only `ended` lets the new call start. On `occupied` the
+ * call is live after all, so the caller joins it (or gets a conflict). On
+ * `unknown` nothing may be assumed: joining a call that may be dead would
+ * leave the caller alone in it without ringing anyone.
  * No missed-call push: the new call is about to ring the same people.
  */
 async function endStaleCall(
@@ -95,16 +98,15 @@ async function endStaleCall(
   orgId: string,
   call: ChatCallRow,
   isDm: boolean,
-): Promise<boolean> {
+): Promise<EndIfEmptyOutcome> {
   try {
-    const outcome = await endChatCallIfEmpty(db, env, orgId, call.id, call, call.initiatorId, {
+    return await endChatCallIfEmpty(db, env, orgId, call.id, call, call.initiatorId, {
       sendMissedIfUnanswered: false,
       endWhenAlone: isDm,
     });
-    return outcome === 'ended';
   } catch {
     // The end itself failed half-way. Best effort, as before: let the new call start.
-    return true;
+    return 'ended';
   }
 }
 
@@ -329,7 +331,7 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
       if (
         !fullCall ||
         !isAbandonedCall(fullCall, { isDm, requesterId: userId }) ||
-        !(await endStaleCall(db, c.env, orgId, fullCall, isDm))
+        (await endStaleCall(db, c.env, orgId, fullCall, isDm)) !== 'ended'
       ) {
         return error.conflict(c, 'A call is already active in this channel');
       }
@@ -466,13 +468,15 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
       const isDm = channel?.type === 'dm';
       // A call that looks abandoned is ended so the new one can start (and
       // ring), unless RealtimeKit still has people in it: then it is live
-      // after all and the caller joins it like any other ongoing call.
-      const replaced =
-        isAbandonedCall(existingCall, { isDm, requesterId: userId }) &&
-        (await endStaleCall(db, c.env, orgId, existingCall, isDm));
+      // after all and the caller joins it like any other ongoing call. If
+      // RealtimeKit cannot be asked the call is neither replaced nor joined:
+      // joining one that is in fact dead would ring nobody.
+      const outcome = isAbandonedCall(existingCall, { isDm, requesterId: userId })
+        ? await endStaleCall(db, c.env, orgId, existingCall, isDm)
+        : 'occupied';
 
-      if (!replaced) {
-        if (!existingCall.cfAppId) {
+      if (outcome !== 'ended') {
+        if (outcome === 'unknown' || !existingCall.cfAppId) {
           return error.conflict(c, 'A call is already active in this channel');
         }
         // A call is already active in this channel — JOIN it instead of
