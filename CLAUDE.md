@@ -75,7 +75,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 
 ### Packages (`packages/`), grouped by role
 
-All internal packages are scoped **`@weldsuite/*`** and live under category folders: **`config/`** (eslint-config, typescript-config), **`core/`** (db, permissions, i18n, ai, realtime, credits, entity-events, feature-flags, notifications, email, transactional-email, cloudflare-realtime, cloudflare-registrar, cloudflare-zones, neon-provisioning, workflow-integrations, df3-noise-suppression), **`clients/`** (api-client, app-api-client, core-api-client), **`design/`** (ui, mobile-ui, site-components, weldmeet-ui), **`sdk/`** (app-sdk, cli, helpdesk-widget-sdk, the published, permissive-licensed ones). Imports use the package **name** (`@weldsuite/db`), never the path, so the category folder is transparent to consumers.
+All internal packages are scoped **`@weldsuite/*`** and live under category folders: **`config/`** (eslint-config, typescript-config), **`core/`** (db, permissions, i18n, ai, realtime, credits, entity-events, feature-flags, notifications, email, emails, transactional-email, cloudflare-realtime, cloudflare-registrar, cloudflare-zones, neon-provisioning, workflow-integrations, df3-noise-suppression), **`clients/`** (api-client, app-api-client, core-api-client), **`design/`** (ui, mobile-ui, site-components, weldmeet-ui), **`sdk/`** (app-sdk, cli, helpdesk-widget-sdk, the published, permissive-licensed ones). Imports use the package **name** (`@weldsuite/db`), never the path, so the category folder is transparent to consumers.
 
 - `@weldsuite/db`, Drizzle schema (~198 files; shared by ALL apps), `packages/core/db`
 - `@weldsuite/app-api-client`, Typed client + shared Zod schemas for `app-api` (the current stack)
@@ -87,6 +87,7 @@ All internal packages are scoped **`@weldsuite/*`** and live under category fold
 - `@weldsuite/ai`, AI integration (Vercel AI SDK via Cloudflare AI Gateway). *(The old `agent-runtime` / `agent-tools` packages were removed in the AI teardown.)*
 - `@weldsuite/credits`, `@weldsuite/entity-events`, `@weldsuite/feature-flags`, `@weldsuite/notifications`, Platform primitives
 - `@weldsuite/email`, `@weldsuite/transactional-email`, Email sending
+- `@weldsuite/emails`, **System emails** (calendar, booking, notifications, invites, …): React Email templates on one shared layout, en/nl, sent via Cloudflare Email Service from `notifications@mail.weldsuite.org`. Design/add an email: `.claude/skills/weldsuite-email`. Migration off Resend: `docs/plans/system-email-cloudflare.md`.
 - `@weldsuite/realtime`, `@weldsuite/cloudflare-realtime`, Realtime helpers
 - `@weldsuite/cloudflare-registrar`, `@weldsuite/cloudflare-zones`, `@weldsuite/cloudflare-deploy`, `@weldsuite/neon-provisioning`, Infra abstractions
 - **All Cloudflare REST access goes through the official `cloudflare` SDK**, imported via `cloudflare/tree-shakable` (`createClient({ resources: [...] })`). Never `new Cloudflare()` — the full client bundles every resource in the API (~2 MB vs ~73 KB). Don't hand-roll `api.cloudflare.com` paths; add the resource to the relevant `@weldsuite/cloudflare-*` package instead.

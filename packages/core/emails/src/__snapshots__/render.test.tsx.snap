@@ -1,0 +1,341 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`'booking.confirmed' / 'inPersonWithLogo' / 'en' > matches the text snapshot 1`] = `
+"Booking confirmed: Studio visit on Wednesday, October 14, 2026
+
+Booking confirmed
+
+Studio visit
+
+Hi Lisa Bakker, your meeting with Acme Studio is confirmed. The invitation is attached, so you can add it to your calendar.
+
+Date: Wednesday, October 14, 2026
+
+Time: 2:00 PM – 3:00 PM GMT+2
+
+Host: Acme Studio
+
+Location: Keizersgracht 123, Amsterdam
+
+Need to make a change? Reply to this email to reach Acme Studio.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking.confirmed' / 'inPersonWithLogo' / 'nl' > matches the text snapshot 1`] = `
+"Afspraak bevestigd: Studio visit op woensdag 14 oktober 2026
+
+Afspraak bevestigd
+
+Studio visit
+
+Hoi Lisa Bakker, je afspraak met Acme Studio is bevestigd. De uitnodiging zit in de bijlage, zodat je hem aan je agenda kunt toevoegen.
+
+Datum: woensdag 14 oktober 2026
+
+Tijd: 14:00 – 15:00 CEST
+
+Organisator: Acme Studio
+
+Locatie: Keizersgracht 123, Amsterdam
+
+Iets wijzigen? Beantwoord deze e-mail om Acme Studio te bereiken.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking.confirmed' / 'video' / 'en' > matches the text snapshot 1`] = `
+"Booking confirmed: 30 minute intro call on Wednesday, October 14, 2026
+
+Acme Studio
+
+Booking confirmed
+
+30 minute intro call
+
+Hi Lisa Bakker, your meeting with Mark Visser (Acme Studio) is confirmed. The invitation is attached, so you can add it to your calendar.
+
+Date: Wednesday, October 14, 2026
+
+Time: 10:30 AM – 11:00 AM GMT+2
+
+Host: Mark Visser (Acme Studio)
+
+Location: Video call
+
+Join video call https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Or open this link: https://meet.weldsuite.org/r/xyz-abcd-efg
+
+A note from Mark Visser
+
+Looking forward to it!
+Please have your project brief ready.
+
+Need to make a change? You can reschedule https://book.weldsuite.org/manage/abc?action=reschedule or cancel https://book.weldsuite.org/manage/abc?action=cancel this booking, or reply to this email to reach Mark Visser.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking.confirmed' / 'video' / 'nl' > matches the text snapshot 1`] = `
+"Afspraak bevestigd: 30 minute intro call op woensdag 14 oktober 2026
+
+Acme Studio
+
+Afspraak bevestigd
+
+30 minute intro call
+
+Hoi Lisa Bakker, je afspraak met Mark Visser (Acme Studio) is bevestigd. De uitnodiging zit in de bijlage, zodat je hem aan je agenda kunt toevoegen.
+
+Datum: woensdag 14 oktober 2026
+
+Tijd: 10:30 – 11:00 CEST
+
+Organisator: Mark Visser (Acme Studio)
+
+Locatie: Videogesprek
+
+Deelnemen aan videogesprek https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Of open deze link: https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Een bericht van Mark Visser
+
+Looking forward to it!
+Please have your project brief ready.
+
+Iets wijzigen? Je kunt deze afspraak verplaatsen https://book.weldsuite.org/manage/abc?action=reschedule of annuleren https://book.weldsuite.org/manage/abc?action=cancel, of beantwoord deze e-mail om Mark Visser te bereiken.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'allDayUpdate' / 'en' > matches the text snapshot 1`] = `
+"Updated: Company offsite
+
+Tom Jansen updated an event.
+
+Company offsite
+
+When: Monday, November 2, 2026 – Tuesday, November 3, 2026 (all day)
+
+Where: Utrecht
+
+View in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'allDayUpdate' / 'nl' > matches the text snapshot 1`] = `
+"Gewijzigd: Company offsite
+
+Tom Jansen heeft een afspraak gewijzigd.
+
+Company offsite
+
+Wanneer: maandag 2 november 2026 – dinsdag 3 november 2026 (hele dag)
+
+Waar: Utrecht
+
+Bekijken in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'cancel' / 'en' > matches the text snapshot 1`] = `
+"Cancelled: Quarterly planning
+
+Sanne de Vries cancelled an event.
+
+Quarterly planning
+
+When: Monday, October 12, 2026 at 3:00 PM – 4:30 PM GMT+2
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'cancel' / 'nl' > matches the text snapshot 1`] = `
+"Geannuleerd: Quarterly planning
+
+Sanne de Vries heeft een afspraak geannuleerd.
+
+Quarterly planning
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 16:30 CEST
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'invite' / 'en' > matches the text snapshot 1`] = `
+"Invitation: Quarterly planning
+
+Sanne de Vries invited you to an event.
+
+Quarterly planning
+
+When: Monday, October 12, 2026 at 3:00 PM – 4:30 PM GMT+2
+
+Where: Room 2.14, Amsterdam office
+
+Agenda:
+1. Q3 results
+2. Q4 goals
+3. Hiring plan
+
+Join WeldMeet meeting https://meet.weldsuite.org/r/abc-defg-hij
+
+View in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+Or open this link: https://meet.weldsuite.org/r/abc-defg-hij
+
+If you didn't expect this invitation, you can ignore this email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'invite' / 'nl' > matches the text snapshot 1`] = `
+"Uitnodiging: Quarterly planning
+
+Sanne de Vries heeft je uitgenodigd voor een afspraak.
+
+Quarterly planning
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 16:30 CEST
+
+Waar: Room 2.14, Amsterdam office
+
+Agenda:
+1. Q3 results
+2. Q4 goals
+3. Hiring plan
+
+Deelnemen aan WeldMeet-vergadering https://meet.weldsuite.org/r/abc-defg-hij
+
+Bekijken in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+Of open deze link: https://meet.weldsuite.org/r/abc-defg-hij
+
+Had je deze uitnodiging niet verwacht? Dan kun je deze e-mail negeren.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'removed' / 'en' > matches the text snapshot 1`] = `
+"You were removed from: Quarterly planning
+
+Sanne de Vries removed you from an event.
+
+Quarterly planning
+
+When: Monday, October 12, 2026 at 3:00 PM – 4:30 PM GMT+2
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'removed' / 'nl' > matches the text snapshot 1`] = `
+"Je bent verwijderd uit: Quarterly planning
+
+Sanne de Vries heeft je verwijderd uit een afspraak.
+
+Quarterly planning
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 16:30 CEST
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'reschedule' / 'en' > matches the text snapshot 1`] = `
+"Rescheduled: Quarterly planning
+
+Sanne de Vries moved an event to a new time.
+
+Quarterly planning
+
+When: Monday, October 12, 2026 at 3:00 PM – 4:30 PM GMT+2 → Tuesday, October 13, 2026 at 11:00 AM – 12:30 PM GMT+2
+
+Join video meeting https://zoom.us/j/123456789
+
+Or open this link: https://zoom.us/j/123456789
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'reschedule' / 'nl' > matches the text snapshot 1`] = `
+"Verplaatst: Quarterly planning
+
+Sanne de Vries heeft een afspraak naar een nieuw tijdstip verplaatst.
+
+Quarterly planning
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 16:30 CEST → dinsdag 13 oktober 2026 om 11:00 – 12:30 CEST
+
+Deelnemen aan videovergadering https://zoom.us/j/123456789
+
+Of open deze link: https://zoom.us/j/123456789
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'notification' / 'mention' / 'en' > matches the text snapshot 1`] = `
+"Sanne mentioned you in #marketing
+
+Sanne mentioned you in #marketing
+
+@Tom can you check the copy for the October newsletter before Friday?
+
+Open in WeldSuite https://app.weldsuite.org/weldchat
+
+Or open this link: https://app.weldsuite.org/weldchat
+
+You're receiving this because email notifications are on. · Notification settings https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'notification' / 'mention' / 'nl' > matches the text snapshot 1`] = `
+"Sanne mentioned you in #marketing
+
+Sanne mentioned you in #marketing
+
+@Tom can you check the copy for the October newsletter before Friday?
+
+Openen in WeldSuite https://app.weldsuite.org/weldchat
+
+Of open deze link: https://app.weldsuite.org/weldchat
+
+Je ontvangt deze e-mail omdat e-mailmeldingen aan staan. · Meldingsinstellingen https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'notification' / 'taskAssigned' / 'en' > matches the text snapshot 1`] = `
+"Tom assigned you a task
+
+Tom assigned you a task
+
+Prepare Q4 budget review
+
+View task https://app.weldsuite.org/weldflow/tasks/123
+
+Or open this link: https://app.weldsuite.org/weldflow/tasks/123
+
+You're receiving this because email notifications are on. · Notification settings https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'notification' / 'taskAssigned' / 'nl' > matches the text snapshot 1`] = `
+"Tom assigned you a task
+
+Tom assigned you a task
+
+Prepare Q4 budget review
+
+View task https://app.weldsuite.org/weldflow/tasks/123
+
+Of open deze link: https://app.weldsuite.org/weldflow/tasks/123
+
+Je ontvangt deze e-mail omdat e-mailmeldingen aan staan. · Meldingsinstellingen https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;

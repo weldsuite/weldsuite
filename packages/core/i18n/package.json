@@ -19,7 +19,9 @@
     "./client": "./src/client.tsx",
     "./locales": "./src/locales/index.ts",
     "./locales/en": "./src/locales/en/index.ts",
-    "./locales/nl": "./src/locales/nl/index.ts"
+    "./locales/nl": "./src/locales/nl/index.ts",
+    "./locales/en/emails": "./src/locales/en/emails.ts",
+    "./locales/nl/emails": "./src/locales/nl/emails.ts"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
