@@ -23,6 +23,7 @@ import {
   type PermissionKind,
 } from './permission-help';
 import type { VirtualBackgroundType } from '../hooks/use-virtual-background';
+import { refreshSpeakerDevices, useSpeakerDevices } from '../hooks/use-speaker-output';
 
 // ─── Tooltip ─────────────────────────────────────────────────────────────────
 
@@ -209,6 +210,9 @@ function useMeetingDevices(meeting: MeetingClient | null) {
 
     let cancelled = false;
     async function loadDevices() {
+      // The speaker list only fills in once the site has device permission,
+      // which RTK may obtain without the browser firing `devicechange`.
+      void refreshSpeakerDevices();
       try {
         const all = await rtk.self.getAllDevices();
         if (cancelled) return;
@@ -364,7 +368,33 @@ function BlockedMediaButton({
   );
 }
 
-/** Chevron dropdown listing input devices (microphone / camera). */
+/** One radio list of devices inside a `DeviceMenu`. */
+function DeviceRadioGroup({
+  devices,
+  activeId,
+  onChange,
+  fallbackPrefix,
+}: {
+  devices: MediaDeviceInfo[];
+  activeId: string;
+  onChange: (deviceId: string) => void;
+  fallbackPrefix: string;
+}) {
+  return (
+    <DropdownMenuRadioGroup value={activeId} onValueChange={onChange}>
+      {devices.map((d) => (
+        <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
+          <span className="truncate">{d.label || `${fallbackPrefix} ${d.deviceId.slice(0, 8)}`}</span>
+        </DropdownMenuRadioItem>
+      ))}
+    </DropdownMenuRadioGroup>
+  );
+}
+
+/**
+ * Chevron dropdown listing input devices (microphone / camera). The microphone
+ * menu also lists the speakers (`output`), where the browser can switch them.
+ */
 function DeviceMenu({
   tooltip,
   off,
@@ -372,6 +402,7 @@ function DeviceMenu({
   activeId,
   onChange,
   fallbackPrefix,
+  output,
 }: {
   tooltip: string;
   off: boolean;
@@ -379,8 +410,14 @@ function DeviceMenu({
   activeId: string;
   onChange: (deviceId: string) => void;
   fallbackPrefix: string;
+  output?: {
+    devices: MediaDeviceInfo[];
+    activeId: string;
+    onChange: (deviceId: string) => void;
+  };
 }) {
-  if (devices.length === 0) return null;
+  const hasOutputs = !!output && output.devices.length > 0;
+  if (devices.length === 0 && !hasOutputs) return null;
   return (
     <DropdownMenu>
       <CallTooltip label={tooltip}>
@@ -388,6 +425,7 @@ function DeviceMenu({
         <Button
           variant="secondary"
           size="icon"
+          aria-label={tooltip}
           className={cn("group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 hidden md:flex items-center justify-center transition-colors", off ? `${OFF_STATE_CLASSES} border-red-400/20 data-[state=open]:bg-red-200 dark:data-[state=open]:bg-red-500/30` : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110")}
         >
           <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
@@ -395,13 +433,22 @@ function DeviceMenu({
       </DropdownMenuTrigger>
       </CallTooltip>
       <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-        <DropdownMenuRadioGroup value={activeId} onValueChange={onChange}>
-          {devices.map((d) => (
-            <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
-              <span className="truncate">{d.label || `${fallbackPrefix} ${d.deviceId.slice(0, 8)}`}</span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+        {hasOutputs && devices.length > 0 && (
+          <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Microphone</DropdownMenuLabel>
+        )}
+        <DeviceRadioGroup devices={devices} activeId={activeId} onChange={onChange} fallbackPrefix={fallbackPrefix} />
+        {hasOutputs && (
+          <>
+            {devices.length > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Speaker</DropdownMenuLabel>
+            <DeviceRadioGroup
+              devices={output.devices}
+              activeId={output.activeId}
+              onChange={output.onChange}
+              fallbackPrefix="Speaker"
+            />
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -679,6 +726,7 @@ export function CallControlsBar({
     handleDeviceChange,
     handleVideoDeviceChange,
   } = useMeetingDevices(meeting);
+  const speaker = useSpeakerDevices();
   const [selectedResolutionIdx, setSelectedResolutionIdx] = useState(
     SCREEN_RESOLUTIONS.findIndex((r) => r.width === 1920 && r.height === 1080 && r.frameRate === 60),
   );
@@ -725,6 +773,7 @@ export function CallControlsBar({
           activeId={activeDeviceId}
           onChange={handleDeviceChange}
           fallbackPrefix="Microphone"
+          output={{ devices: speaker.devices, activeId: speaker.activeDeviceId, onChange: speaker.setDeviceId }}
         />
       </div>
 

@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
+import { useSpeakerOutput } from '@weldsuite/weldmeet-ui';
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -27,6 +28,7 @@ function formatDuration(seconds: number): string {
  */
 function RemotePiPAudio({ participant }: Readonly<{ participant: RTKParticipant | RTKSelf }>) {
   const ref = useRef<HTMLAudioElement>(null);
+  useSpeakerOutput(ref);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
