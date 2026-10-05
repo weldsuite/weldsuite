@@ -27,14 +27,17 @@ export default function MeetingRoomScreen() {
     });
   }, [session?.authToken, initMeeting]);
 
-  // When the SFU room ends or the user disconnects, leave the session and bounce back.
+  // When the SFU room ends or the user leaves, leave the session and bounce back.
   useEffect(() => {
     if (!meeting) return;
-    const handleLeft = async () => {
+    const handleLeft = async (payload?: { state?: string }) => {
+      // 'disconnected' is a dropped connection the SDK is already restoring
+      // (it rejoins by itself), not a leave: stay in the room.
+      if (payload?.state === 'disconnected') return;
       await leave();
       router.back();
     };
-    // RTK emits 'roomLeft' when the local user disconnects.
+    // RTK emits 'roomLeft' when the local user leaves, is removed or loses the connection.
     meeting.self.on('roomLeft', handleLeft);
     return () => {
       meeting.self.off('roomLeft', handleLeft);

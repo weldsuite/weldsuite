@@ -347,6 +347,38 @@ export async function endMeeting(
 }
 
 /**
+ * How many people are connected to the meeting right now, according to
+ * RealtimeKit itself. 0 when the meeting has no live session: nobody joined
+ * yet, or everyone left (RealtimeKit answers 404 once the session is gone).
+ *
+ * This is the only trustworthy answer to "is anyone still in the room?". Our
+ * own participant list is fed by join / leave calls and webhooks that arrive
+ * late, twice or not at all, so it must never decide on its own that a room
+ * is empty. Throws on any other failure; a caller that cannot tell must not
+ * end the meeting.
+ */
+export async function getLiveParticipantCount(
+  env: CloudflareRealtimeEnv,
+  meetingId: string,
+): Promise<number> {
+  const { client, accountId, appId } = realtime(env);
+  const res = await call('get RTK active session', async () => {
+    try {
+      return await client.realtimeKit.activeSession.getActiveSession(meetingId, {
+        account_id: accountId,
+        app_id: appId,
+      });
+    } catch (err) {
+      if (err instanceof APIError && err.status === 404) return null;
+      throw err;
+    }
+  });
+  const session = res?.data;
+  if (!session || session.status !== 'LIVE') return 0;
+  return session.live_participants ?? 0;
+}
+
+/**
  * Disconnect every participant currently in the meeting's live session.
  *
  * {@link endMeeting} only flips the meeting INACTIVE, which does not drop

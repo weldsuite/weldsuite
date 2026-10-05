@@ -12,7 +12,11 @@
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import type { Env } from '../../types';
 
-export { endMeetingSession, isMeetingPast } from '@weldsuite/meet-domain/meeting-lifecycle';
+export {
+  endMeetingSession,
+  endMeetingSessionIfEmpty,
+  isMeetingPast,
+} from '@weldsuite/meet-domain/meeting-lifecycle';
 
 function getPublisher(env: Env): RealtimePublisher {
   return new RealtimePublisher(env.REALTIME!);

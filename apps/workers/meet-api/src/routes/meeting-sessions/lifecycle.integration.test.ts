@@ -4,6 +4,10 @@
  * TASK-719: the host's Leave used to end the RTK meeting without disconnecting
  * anyone, never stamped leftAt on the participants, and (once kicks work) every
  * kicked client's /leave would have re-run the end and overwritten endedAt.
+ *
+ * Automatic ends (last leave, inactivity sweep, stale session on start) also
+ * ask RealtimeKit whether the room is empty: our own participant list drifts,
+ * and trusting it kicked everyone out of a live meeting.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
@@ -15,14 +19,21 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
 import type { Env } from '../../types';
 import { meetingSessionsRoutes } from './index';
-import { endMeeting, kickAllParticipants, kickParticipants } from '@weldsuite/cloudflare-realtime';
+import {
+  endMeeting,
+  getLiveParticipantCount,
+  kickAllParticipants,
+  kickParticipants,
+} from '@weldsuite/cloudflare-realtime';
 import { isGuestRemovedFromSession } from '@weldsuite/db/schema/meeting-sessions';
+import { fakeKv } from '../../test/fakes';
 
 vi.mock('@weldsuite/cloudflare-realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/cloudflare-realtime')>()),
   kickAllParticipants: vi.fn(),
   kickParticipants: vi.fn(),
   endMeeting: vi.fn(),
+  getLiveParticipantCount: vi.fn(),
 }));
 
 const ORGANIZER = 'user_organizer';
@@ -40,6 +51,8 @@ beforeEach(() => {
   vi.mocked(kickAllParticipants).mockReset().mockResolvedValue(2);
   vi.mocked(kickParticipants).mockReset().mockResolvedValue(undefined);
   vi.mocked(endMeeting).mockReset().mockResolvedValue(undefined);
+  // By default RealtimeKit reports an empty room.
+  vi.mocked(getLiveParticipantCount).mockReset().mockResolvedValue(0);
 });
 
 afterEach(() => {
@@ -93,7 +106,7 @@ async function seed(
 
 function appFor(userId: string, ...perms: string[]) {
   const env = {
-    WORKSPACE_CACHE: { delete: async () => undefined } as unknown as KVNamespace,
+    WORKSPACE_CACHE: fakeKv(),
     REALTIME: { fetch: async () => new Response('{}') } as unknown as Fetcher,
   } satisfies Partial<Env>;
   return createTestApp('/api/meeting-sessions', meetingSessionsRoutes, {
@@ -294,7 +307,7 @@ describe('POST /api/meeting-sessions/:id/leave', () => {
     expect(endMeeting).not.toHaveBeenCalled();
   });
 
-  it('still auto-ends when the last participant leaves', async () => {
+  it('still auto-ends when the last participant leaves and RealtimeKit reports the room empty', async () => {
     const { meetingId, sessionId } = await seed([
       participant(ORGANIZER, { leftAt: new Date().toISOString() }),
       participant(GUEST),
@@ -304,11 +317,106 @@ describe('POST /api/meeting-sessions/:id/leave', () => {
     const res = await post(request, `/api/meeting-sessions/${sessionId}/leave`);
 
     expect(res.status).toBe(200);
+    expect(getLiveParticipantCount).toHaveBeenCalledWith(expect.anything(), CF_APP_ID);
     const session = await loadSession(sessionId);
     expect(session.status).toBe('ended');
     expect(session.participants?.every((p) => !!p.leftAt)).toBe(true);
     expect((await loadMeeting(meetingId)).activeSessionId).toBeNull();
     expect(endMeeting).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not end or kick when our list says everyone left but RealtimeKit still has people in the room', async () => {
+    // The organizer is in the call, but a late leave webhook for their old
+    // connection marked them as left. The guest now leaves.
+    const { meetingId, sessionId } = await seed([
+      participant(ORGANIZER, { leftAt: new Date().toISOString() }),
+      participant(GUEST),
+    ]);
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(1);
+    const { request } = appFor(GUEST, 'sessions:read');
+
+    const res = await post(request, `/api/meeting-sessions/${sessionId}/leave`);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { ok: true } });
+    const session = await loadSession(sessionId);
+    expect(session.status).toBe('active');
+    expect(session.endedAt).toBeNull();
+    expect(session.participants?.find((p) => p.userId === GUEST)?.leftAt).toBeTruthy();
+    expect((await loadMeeting(meetingId)).activeSessionId).toBe(sessionId);
+    expect(kickAllParticipants).not.toHaveBeenCalled();
+    expect(endMeeting).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session when RealtimeKit cannot be asked', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { sessionId } = await seed([participant(GUEST)]);
+    vi.mocked(getLiveParticipantCount).mockRejectedValue(new Error('Failed to get RTK active session: 500'));
+    const { request } = appFor(GUEST, 'sessions:read');
+
+    const res = await post(request, `/api/meeting-sessions/${sessionId}/leave`);
+
+    expect(res.status).toBe(200);
+    expect((await loadSession(sessionId)).status).toBe('active');
+    expect(kickAllParticipants).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[MeetingLifecycle] RTK live participant check failed, keeping the session',
+      expect.objectContaining({ sessionId, cfAppId: CF_APP_ID }),
+    );
+  });
+});
+
+describe('stale-session cleanup', () => {
+  const longAgo = () => new Date(Date.now() - 30 * 60_000);
+  const left = () => ({ leftAt: longAgo().toISOString() });
+
+  /** A session our list considers abandoned: nobody active, untouched for 30 minutes. */
+  async function seedAbandoned() {
+    const seeded = await seed([participant(ORGANIZER, left()), participant(GUEST, left())]);
+    await db
+      .update(schema.meetingSessions)
+      .set({ createdAt: longAgo(), updatedAt: longAgo() })
+      .where(eq(schema.meetingSessions.id, seeded.sessionId));
+    return seeded;
+  }
+
+  it('GET /active ends an abandoned session once RealtimeKit confirms the room is empty', async () => {
+    const { meetingId, sessionId } = await seedAbandoned();
+    const { request } = appFor('user_late', 'sessions:read');
+
+    const res = await request(`/api/meeting-sessions/active?meetingId=${meetingId}`);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: null });
+    expect((await loadSession(sessionId)).status).toBe('ended');
+  });
+
+  it('GET /active returns the session instead of ending it while people are still in the room', async () => {
+    const { meetingId, sessionId } = await seedAbandoned();
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(2);
+    const { request } = appFor('user_late', 'sessions:read');
+
+    const res = await request(`/api/meeting-sessions/active?meetingId=${meetingId}`);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { id: string; status: string } | null };
+    expect(body.data).toMatchObject({ id: sessionId, status: 'active' });
+    expect((await loadSession(sessionId)).status).toBe('active');
+    expect(kickAllParticipants).not.toHaveBeenCalled();
+    expect(endMeeting).not.toHaveBeenCalled();
+  });
+
+  it('POST /start reports a conflict instead of ending a session people are still in', async () => {
+    const { meetingId, sessionId } = await seedAbandoned();
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(2);
+    const { request } = appFor('user_late', 'sessions:read', 'sessions:create');
+
+    const res = await postJson(request, '/api/meeting-sessions/start', { meetingId });
+
+    expect(res.status).toBe(409);
+    expect((await loadSession(sessionId)).status).toBe('active');
+    expect((await loadMeeting(meetingId)).activeSessionId).toBe(sessionId);
+    expect(kickAllParticipants).not.toHaveBeenCalled();
   });
 });
 

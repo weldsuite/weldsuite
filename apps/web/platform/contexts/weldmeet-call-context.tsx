@@ -200,6 +200,12 @@ export interface PreviewDeviceIds {
 /** How long the recorder may stay `STARTING` before we give up and tell the host. */
 const RECORDING_START_TIMEOUT_MS = 60_000;
 
+/** One toast for the whole reconnect: "reconnecting" is replaced by "back in the meeting". */
+const RECONNECT_TOAST_ID = 'weldmeet-reconnecting';
+
+/** How long a deliberate leave waits for RealtimeKit before telling the backend anyway. */
+const RTK_LEAVE_TIMEOUT_MS = 2_000;
+
 export interface CallCaption {
   id: string;
   peerId: string;
@@ -755,12 +761,17 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   }, [meeting, queryClient]);
 
   const cleanup = useCallback(() => {
+    toast.dismiss(RECONNECT_TOAST_ID);
     if (meeting) {
       // Stop the local hardware tracks BEFORE leaving — RTK's leave() does not
       // reliably release the camera/mic, so the device indicator would otherwise
       // stay on after the meeting ends.
       stopLocalMediaTracks(meeting);
-      meeting.leave().catch(() => { /* ignore */ });
+      // Also reached after the room was already left (a deliberate leave does
+      // that first), so a leave() that throws must not abort the teardown.
+      Promise.resolve()
+        .then(() => meeting.leave())
+        .catch(() => { /* ignore */ });
     }
     // Restore getUserMedia first, then dispose the suppressor.
     try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
@@ -1019,12 +1030,32 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       throw err;
     }
 
-    m.self.on('roomJoined', () => {
+    m.self.on('roomJoined', (payload) => {
       setStatus('connected');
+      // The SDK got back in by itself after a dropped connection: no join chime.
+      if (payload?.reconnected) {
+        // An explicit duration: the "reconnecting" toast this replaces never expires.
+        toast.success(getTranslations('weldmeet').inCall.connection.reconnected, {
+          id: RECONNECT_TOAST_ID,
+          duration: 4000,
+        });
+        return;
+      }
       playCallJoinSound();
     });
 
     m.self.on('roomLeft', ({ state }) => {
+      // 'disconnected' is not a leave: the connection dropped and the SDK is
+      // already reconnecting (it emits roomJoined { reconnected: true } once
+      // back). Leaving here threw people out of the meeting on a short network
+      // drop, and their /leave could end the session for everyone else.
+      if (state === 'disconnected') {
+        toast.loading(getTranslations('weldmeet').inCall.connection.reconnecting, {
+          id: RECONNECT_TOAST_ID,
+          duration: Infinity,
+        });
+        return;
+      }
       const intent = exitIntentRef.current;
       const mId = meetingIdRef.current;
       const sId = sessionIdRef.current;
@@ -1035,6 +1066,10 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       // too, so that case shows the same message.
       if ((state === 'ended' || state === 'kicked') && intent === null) {
         toast.info(getTranslations('weldmeet').leaveMenu.hostEnded);
+      }
+      // The SDK gave up reconnecting; only a fresh join gets the user back in.
+      if (state === 'failed' && intent === null) {
+        toast.error(getTranslations('weldmeet').inCall.connection.lost);
       }
       cleanup();
     });
@@ -1219,16 +1254,29 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     const sId = sessionId;
     exitIntentRef.current = 'leave';
     playCallLeaveSound();
+    // Refs are cleared first so the roomLeft below does not send its own /leave.
+    meetingIdRef.current = null;
+    sessionIdRef.current = null;
+    // Leave the room BEFORE telling the backend: it ends the session only once
+    // RealtimeKit reports the room empty, which it never does while we are
+    // still connected. Bounded, so a dead connection cannot hold up the leave.
+    if (meeting) {
+      stopLocalMediaTracks(meeting);
+      await Promise.race([
+        Promise.resolve()
+          .then(() => meeting.leave())
+          .catch(() => { /* ignore */ }),
+        new Promise((resolve) => setTimeout(resolve, RTK_LEAVE_TIMEOUT_MS)),
+      ]);
+    }
     const client = await getClient();
     try {
       await client.post(`/meeting-sessions/${sId}/leave`);
     } catch { /* best effort */ }
-    meetingIdRef.current = null;
-    sessionIdRef.current = null;
     cleanup();
     queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
     queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
-  }, [meetingId, sessionId, getClient, cleanup, queryClient]);
+  }, [meetingId, sessionId, meeting, getClient, cleanup, queryClient]);
 
   const endMeetingAction = useCallback(async () => {
     if (!meetingId || !sessionId) return;

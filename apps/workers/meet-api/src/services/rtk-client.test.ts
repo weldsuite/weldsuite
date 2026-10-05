@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createMeeting,
   generateSessionSummary,
+  getLiveParticipantCount,
   getRecording,
   getSessionSummary,
   getSessionTranscript,
@@ -153,5 +154,34 @@ describe('recordings and session artifacts', () => {
     await generateSessionSummary(env, 'sess_x');
     expect(seen.at(-1)).toMatchObject({ method: 'POST' });
     expect(seen.at(-1)!.url).toContain('/sessions/sess_x/summary');
+  });
+});
+
+describe('getLiveParticipantCount', () => {
+  const env = (status: number, body: unknown): CloudflareRealtimeEnv => ({
+    CF_ACCOUNT_ID: 'acct',
+    CF_REALTIME_APP_ID: 'app',
+    CF_REALTIME_APP_SECRET: 'secret',
+    RTK_FETCH: async () =>
+      new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
+  });
+
+  it('returns the live count of the active session', async () => {
+    const { env: e, seen } = rtk(() => ({ success: true, data: { id: 's', status: 'LIVE', live_participants: 3 } }));
+    expect(await getLiveParticipantCount(e, 'rtk_live')).toBe(3);
+    expect(seen[0]!.method).toBe('GET');
+    expect(seen[0]!.url).toContain('/meetings/rtk_live/active-session');
+  });
+
+  it('treats an ended session and a meeting without a live session (404) as an empty room', async () => {
+    const ended = env(200, { success: true, data: { id: 's', status: 'ENDED', live_participants: 0 } });
+    expect(await getLiveParticipantCount(ended, 'rtk_x')).toBe(0);
+    const none = env(404, { success: false, errors: [{ code: 404, message: 'No active session' }] });
+    expect(await getLiveParticipantCount(none, 'rtk_x')).toBe(0);
+  });
+
+  it('throws when RealtimeKit cannot answer, so the caller never assumes an empty room', async () => {
+    const forbidden = env(403, { success: false, errors: [{ code: 403, message: 'Forbidden' }] });
+    await expect(getLiveParticipantCount(forbidden, 'rtk_x')).rejects.toThrow(/Failed to get RTK active session: 403/);
   });
 });
