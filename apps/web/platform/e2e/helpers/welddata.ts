@@ -12,7 +12,7 @@
  * test app-api, matching the rest of the suite.
  */
 
-import type { Page } from '@playwright/test';
+import type { Page, Request, Route } from '@playwright/test';
 
 const NOW = '2026-06-15T10:00:00.000Z';
 
@@ -170,6 +170,17 @@ export interface WelddataMockState {
   runColumnCount: number;
 }
 
+/** One intercepted WeldData API request plus its response helpers. */
+interface WelddataRequest {
+  route: Route;
+  req: Request;
+  method: string;
+  /** Request path with any `/api` prefix stripped. */
+  p: string;
+  json: (status: number, data: unknown) => Promise<void>;
+  listResp: (data: unknown[]) => Promise<void>;
+}
+
 /**
  * Install all WeldData route mocks on a page. Returns a mutable state object the
  * test can assert against (captured payloads, run counts).
@@ -229,26 +240,15 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
     }),
   );
 
-  await page.route('**/welddata/**', async (route) => {
-    const req = route.request();
-    // Only intercept API calls — never the SPA's own page navigations
-    // (`/welddata`, `/welddata/lists/:id` are document requests that must load
-    // the real app, not our JSON).
-    const rt = req.resourceType();
-    if (rt !== 'fetch' && rt !== 'xhr') return route.continue();
-    const method = req.method();
-    // Strip an optional `/api` prefix so matching is host/prefix agnostic.
-    const p = new URL(req.url()).pathname.replace(/^\/api/, '');
-    const json = (status: number, data: unknown) =>
-      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
-    const listResp = (data: unknown[]) =>
-      json(200, { data, pagination: { totalCount: data.length, hasMore: false, cursor: null } });
-
-    // --- search ---
+  // Each handler returns the fulfilment when the request is its own, or
+  // undefined so the next handler gets a look.
+  const handleSearch = ({ method, p, json }: WelddataRequest) => {
     if (method === 'POST' && p === '/welddata/search/people') return json(200, { data: PEOPLE_SEARCH });
     if (method === 'POST' && p === '/welddata/search/companies') return json(200, { data: COMPANY_SEARCH });
+    return undefined;
+  };
 
-    // --- lists collection ---
+  const handleListCollection = ({ req, method, p, json, listResp }: WelddataRequest) => {
     if (p === '/welddata/lists' && method === 'GET') return listResp(lists);
     if (p === '/welddata/lists' && method === 'POST') {
       const body = req.postDataJSON();
@@ -265,27 +265,33 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
       lists.push(created);
       return json(201, { data: created });
     }
+    return undefined;
+  };
 
-    // --- single list ---
-    let m = p.match(/^\/welddata\/lists\/([^/]+)$/);
+  const handleSingleList = ({ route, method, p, json }: WelddataRequest) => {
+    const m = p.match(/^\/welddata\/lists\/([^/]+)$/);
     if (m && method === 'GET') {
-      const list = lists.find((l) => l.id === m![1]) ?? lists[0];
+      const list = lists.find((l) => l.id === m[1]) ?? lists[0];
       return json(200, { data: list });
     }
     if (m && (method === 'PATCH' || method === 'DELETE')) {
       return method === 'DELETE' ? route.fulfill({ status: 204, body: '' }) : json(200, { data: lists[0] });
     }
+    return undefined;
+  };
 
-    // --- leads ---
-    m = p.match(/^\/welddata\/lists\/([^/]+)\/leads$/);
+  const handleLeads = ({ req, method, p, json, listResp }: WelddataRequest) => {
+    const m = p.match(/^\/welddata\/lists\/([^/]+)\/leads$/);
     if (m && method === 'GET') return listResp(leadsByList[m[1]] ?? []);
     if (m && method === 'POST') {
       state.lastAddLeads = { listId: m[1], body: req.postDataJSON() };
       return json(201, { data: { added: 1, skipped: 0 } });
     }
+    return undefined;
+  };
 
-    // --- columns ---
-    m = p.match(/^\/welddata\/lists\/([^/]+)\/columns$/);
+  const handleColumnsAndCells = ({ req, method, p, json }: WelddataRequest) => {
+    let m = p.match(/^\/welddata\/lists\/([^/]+)\/columns$/);
     if (m && method === 'GET') return json(200, { data: columnsByList[m[1]] ?? [] });
     if (m && method === 'POST') {
       const body = req.postDataJSON();
@@ -294,11 +300,12 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
       });
     }
 
-    // --- cells ---
     m = p.match(/^\/welddata\/lists\/([^/]+)\/cells$/);
     if (m && method === 'GET') return json(200, { data: cellsByList[m[1]] ?? [] });
+    return undefined;
+  };
 
-    // --- runs / convert / delete ---
+  const handleActions = ({ route, method, p, json }: WelddataRequest) => {
     if (method === 'POST' && /\/columns\/[^/]+\/run$/.test(p)) {
       state.runColumnCount++;
       return json(200, { data: { queued: 1 } });
@@ -313,9 +320,35 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
     if (method === 'DELETE' && /\/leads\/[^/]+$/.test(p)) {
       return route.fulfill({ status: 204, body: '' });
     }
+    return undefined;
+  };
 
-    // Fallback — should not be hit; keep it benign so it never errors the UI.
-    return json(200, { data: [] });
+  await page.route('**/welddata/**', async (route) => {
+    const req = route.request();
+    // Only intercept API calls — never the SPA's own page navigations
+    // (`/welddata`, `/welddata/lists/:id` are document requests that must load
+    // the real app, not our JSON).
+    const rt = req.resourceType();
+    if (rt !== 'fetch' && rt !== 'xhr') return route.continue();
+    const method = req.method();
+    // Strip an optional `/api` prefix so matching is host/prefix agnostic.
+    const p = new URL(req.url()).pathname.replace(/^\/api/, '');
+    const json = (status: number, data: unknown) =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
+    const listResp = (data: unknown[]) =>
+      json(200, { data, pagination: { totalCount: data.length, hasMore: false, cursor: null } });
+    const ctx: WelddataRequest = { route, req, method, p, json, listResp };
+
+    return (
+      handleSearch(ctx) ??
+      handleListCollection(ctx) ??
+      handleSingleList(ctx) ??
+      handleLeads(ctx) ??
+      handleColumnsAndCells(ctx) ??
+      handleActions(ctx) ??
+      // Fallback — should not be hit; keep it benign so it never errors the UI.
+      json(200, { data: [] })
+    );
   });
 
   return state;

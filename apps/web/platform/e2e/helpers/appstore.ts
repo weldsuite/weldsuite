@@ -18,7 +18,7 @@
  * real test app-api / 404s harmlessly, matching the rest of the suite.
  */
 
-import type { Page } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 
 const NOW = '2026-01-15T10:00:00.000Z';
 
@@ -190,6 +190,38 @@ export async function mockAppStore(
     lastInstallBody: null,
   };
 
+  const fulfillJson = (route: Route, status: number, data: unknown) =>
+    route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(data),
+    });
+
+  const handleInstall = (route: Route, code: string) => {
+    state.installs.push(code);
+    try {
+      state.lastInstallBody = route.request().postDataJSON() as Record<string, unknown>;
+    } catch {
+      state.lastInstallBody = null;
+    }
+    if (options.failInstall) {
+      return fulfillJson(route, 500, { error: 'Install failed (mock)' });
+    }
+    const app = state.apps.find((a) => a.code === code);
+    if (app) app.isInstalled = true;
+    return fulfillJson(route, 200, { success: true, data: { code, installed: true } });
+  };
+
+  const handleUninstall = (route: Route, code: string) => {
+    state.uninstalls.push(code);
+    if (options.failUninstall) {
+      return fulfillJson(route, 500, { error: 'Uninstall failed (mock)' });
+    }
+    const app = state.apps.find((a) => a.code === code);
+    if (app) app.isInstalled = false;
+    return route.fulfill({ status: 204, body: '' });
+  };
+
   await page.route('**/settings/**', async (route) => {
     const req = route.request();
     // Only intercept API calls — never document navigations.
@@ -199,12 +231,7 @@ export async function mockAppStore(
     const method = req.method();
     // Strip an optional `/api` prefix so matching is host/prefix agnostic.
     const p = new URL(req.url()).pathname.replace(/^\/api/, '');
-    const json = (status: number, data: unknown) =>
-      route.fulfill({
-        status,
-        contentType: 'application/json',
-        body: JSON.stringify(data),
-      });
+    const json = (status: number, data: unknown) => fulfillJson(route, status, data);
 
     // --- reads ---
     if (p === '/settings/available-apps' && method === 'GET') {
@@ -220,32 +247,13 @@ export async function mockAppStore(
     // --- install ---
     let m = p.match(/^\/settings\/apps\/([^/]+)\/install$/);
     if (m && method === 'POST') {
-      const code = m[1];
-      state.installs.push(code);
-      try {
-        state.lastInstallBody = req.postDataJSON() as Record<string, unknown>;
-      } catch {
-        state.lastInstallBody = null;
-      }
-      if (options.failInstall) {
-        return json(500, { error: 'Install failed (mock)' });
-      }
-      const app = state.apps.find((a) => a.code === code);
-      if (app) app.isInstalled = true;
-      return json(200, { success: true, data: { code, installed: true } });
+      return handleInstall(route, m[1]);
     }
 
     // --- uninstall ---
     m = p.match(/^\/settings\/apps\/([^/]+)$/);
     if (m && method === 'DELETE') {
-      const code = m[1];
-      state.uninstalls.push(code);
-      if (options.failUninstall) {
-        return json(500, { error: 'Uninstall failed (mock)' });
-      }
-      const app = state.apps.find((a) => a.code === code);
-      if (app) app.isInstalled = false;
-      return route.fulfill({ status: 204, body: '' });
+      return handleUninstall(route, m[1]);
     }
 
     // Every other /settings/* call (shell role, members, custom-fields, …) is

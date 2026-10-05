@@ -223,8 +223,8 @@ describe('social publishing · double-post guards', () => {
     ).rejects.toBeInstanceOf(SocialPublishConflictError);
   });
 
-  it('two concurrent publishes claim the slot atomically — only one submits', async () => {
-    if (!available) return;
+  it('two concurrent publishes claim the slot atomically — only one submits', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_race', 'draft', null);
     const calls = stubPostPeer();
@@ -245,8 +245,8 @@ describe('social publishing · double-post guards', () => {
     expect(creates).toHaveLength(1);
   });
 
-  it('cancelPost deletes the live PostPeer post and returns the row to draft', async () => {
-    if (!available) return;
+  it('cancelPost deletes the live PostPeer post and returns the row to draft', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_cancel', 'scheduled', 'pp_cancel', new Date('2030-06-01T14:00:00Z'));
     const calls = stubPostPeer();
@@ -358,8 +358,8 @@ describe('social publishing · double-post guards', () => {
     expect(row.status).toBe('scheduled');
   });
 
-  it('cancelPost refuses to cancel an already-published post', async () => {
-    if (!available) return;
+  it('cancelPost refuses to cancel an already-published post', async ({ skip }) => {
+    if (!available) skip();
     await seedAccount();
     await seedPost('spo_pub_cancel', 'published', 'pp_pub');
     const calls = stubPostPeer();
@@ -605,8 +605,8 @@ describe('social publishing · account sync', () => {
       .onConflictDoNothing();
   }
 
-  it('re-binds a reconnected channel instead of colliding on the unique index', async () => {
-    if (!available) return;
+  it('re-binds a reconnected channel instead of colliding on the unique index', async ({ skip }) => {
+    if (!available) skip();
     await seedProfileSetting('org_1');
 
     // Existing row from an earlier sync, under the OLD integration id.

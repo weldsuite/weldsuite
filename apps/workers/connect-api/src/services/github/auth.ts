@@ -69,6 +69,17 @@ interface CachedToken {
 
 const tokenCache = new Map<number, CachedToken>();
 
+/**
+ * GitHub installation ids are positive integers. Validate before interpolating
+ * one into a request path, since callers parse it from a query string.
+ */
+function installationUrl(installationId: number): string {
+  if (!Number.isSafeInteger(installationId) || installationId <= 0) {
+    throw new Error(`Invalid GitHub installation id: ${installationId}`);
+  }
+  return `https://api.github.com/app/installations/${installationId}`;
+}
+
 export async function getInstallationToken(
   appId: string,
   privateKeyPem: string,
@@ -85,7 +96,7 @@ export async function getInstallationToken(
   const appJwt = await mintAppJwt(appId, privateKeyPem);
 
   const resp = await fetch(
-    `https://api.github.com/app/installations/${installationId}/access_tokens`,
+    `${installationUrl(installationId)}/access_tokens`,
     {
       method: 'POST',
       headers: {
@@ -139,7 +150,7 @@ export async function fetchInstallationMeta(
   const appJwt = await mintAppJwt(appId, privateKeyPem);
 
   const resp = await fetch(
-    `https://api.github.com/app/installations/${installationId}`,
+    installationUrl(installationId),
     {
       headers: {
         Authorization: `Bearer ${appJwt}`,
