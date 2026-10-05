@@ -107,9 +107,9 @@ function ProductRating({ rating, reviewCount }: ProductRatingProps) {
           </svg>
         ))}
       </div>
-      {reviewCount && (
+      {reviewCount ? (
         <span className="text-xs text-gray-500">({reviewCount})</span>
-      )}
+      ) : null}
     </div>
   );
 }
