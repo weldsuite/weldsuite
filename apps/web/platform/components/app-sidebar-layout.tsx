@@ -365,7 +365,7 @@ function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, state
               alt={appName}
               width={64}
               height={64}
-              className={appLogo.iconClassName || "h-5 w-5 shrink-0"}
+              className={appLogo.iconClassName || "h-5 w-5 shrink-0 object-contain"}
             />
           )}
           {state === "expanded" && (

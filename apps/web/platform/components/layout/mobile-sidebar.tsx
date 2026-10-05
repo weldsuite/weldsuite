@@ -348,7 +348,7 @@ export function MobileSidebar({ installedApps }: MobileSidebarProps) {
                     alt={moduleInfo.name}
                     width={48}
                     height={48}
-                    className={moduleInfo.logo.iconClassName || 'h-5 w-5 shrink-0'}
+                    className={moduleInfo.logo.iconClassName || 'h-5 w-5 shrink-0 object-contain'}
                   />
                 ) : (
                   <moduleInfo.icon className="h-5 w-5 shrink-0" />
