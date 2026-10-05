@@ -75,6 +75,25 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=5120
         run: pnpm test:coverage
 
+      # Module workers and domain packages report coverage one by one as they
+      # get a `test:coverage` script. A workspace that is not listed here (and in
+      # sonar.javascript.lcov.reportPaths) reads as 0% covered to Sonar, however
+      # well it is tested.
+      - name: Coverage · chat-domain
+        continue-on-error: true
+        working-directory: packages/domains/chat
+        run: pnpm test:coverage
+
+      - name: Coverage · chat-api
+        continue-on-error: true
+        working-directory: apps/workers/chat-api
+        run: pnpm test:coverage
+
+      - name: Coverage · meet-api
+        continue-on-error: true
+        working-directory: apps/workers/meet-api
+        run: pnpm test:coverage
+
       # Two heaps share this runner: the scanner JVM, and the "bridge" Node
       # process that analyses JS/TS. Both need a deliberate size, and they have
       # to be sized against each other.
