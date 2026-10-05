@@ -12,6 +12,7 @@ import { listsRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 let db: Database;
 
@@ -81,5 +82,45 @@ describe('/api/lists · pglite integration', () => {
     });
     const res = await request('/api/lists/list_missing');
     expect(res.status).toBe(404);
+  });
+
+  it('memberCount reflects actual membership on both GET / and GET /:id', async () => {
+    const { request } = createTestApp('/api/lists', listsRoutes, {
+      context: {
+        permissions: permissions('companies:create', 'companies:read', 'companies:update'),
+        tenantDb: db,
+      },
+    });
+
+    const createRes = await request('/api/lists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Member Count List', kind: 'company' }),
+    });
+    const created = (await createRes.json()) as { data: { id: string } };
+    const listId = created.data.id;
+
+    const companyId = generateId('cust');
+    await db.insert(schema.companies).values({
+      id: companyId,
+      name: 'Acme',
+      displayName: 'Acme',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await request(`/api/lists/${listId}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entityIds: [companyId] }),
+    });
+
+    const listRes = await request('/api/lists?kind=company');
+    const listBody = (await listRes.json()) as { data: Array<{ id: string; memberCount: number }> };
+    expect(listBody.data.find((row) => row.id === listId)?.memberCount).toBe(1);
+
+    const detailRes = await request(`/api/lists/${listId}`);
+    const detailBody = (await detailRes.json()) as { data: { memberCount: number } };
+    expect(detailBody.data.memberCount).toBe(1);
   });
 });

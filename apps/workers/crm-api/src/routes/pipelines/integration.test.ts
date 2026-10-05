@@ -74,4 +74,30 @@ describe('/api/pipelines · pglite integration', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  // ---------------------------------------------------------------------------
+  // TASK-922: Duplicate/Import round-trip a pipeline's own nullable columns
+  // (e.g. an unset description) straight back into this schema. `null` must
+  // be accepted like a missing field, not rejected as a type error.
+  // ---------------------------------------------------------------------------
+
+  it('POST / accepts an explicit null description (Duplicate/Import round-trip)', async () => {
+    const { request } = createTestApp('/api/pipelines', pipelinesRoutes, {
+      context: { permissions: permissions('pipelines:create'), tenantDb: db },
+    });
+    const res = await request('/api/pipelines', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Imported pipeline',
+        description: null,
+        icon: null,
+        color: null,
+        template: null,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string } };
+    expect(body.data.id).toMatch(/^pl_/);
+  });
 });

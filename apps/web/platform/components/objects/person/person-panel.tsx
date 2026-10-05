@@ -16,13 +16,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Archive,
   Briefcase,
   Bookmark,
   Building,
-  ChevronRight,
-  EllipsisVertical,
   ExternalLink,
-  Flag,
+  EllipsisVertical,
   Languages,
   Mail,
   MapPin,
@@ -58,7 +57,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { useComposeSafe } from '@/contexts/compose-context';
-import { PropertyRow } from '@/components/objects/_shared/property-row';
+import {
+  PropertyRow,
+  MemberPropertyRow,
+  StatusPropertyRow,
+  TagsPropertyRow,
+} from '@/components/objects/_shared/property-row';
+import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import { NotesTab } from '@/components/objects/_shared/notes-tab';
 import { ActivityTab } from '@/components/objects/_shared/activity-tab';
 import { DealsTab } from '@/components/objects/_shared/deals-tab';
@@ -78,6 +83,8 @@ import {
   useDeletePerson,
   useAddPersonToCrm,
   usePersonChannel,
+  useArchivePerson,
+  useUnarchivePerson,
 } from './use-person-data';
 import { LinkCompanyPopover } from './link-company-popover';
 import { PersonChat } from './person-chat';
@@ -142,9 +149,11 @@ function PersonTitle({ person }: { person?: Person }) {
 function PersonActions({
   person,
   onDelete,
+  onArchiveToggle,
 }: {
   person?: Person;
   onDelete: () => void;
+  onArchiveToggle: () => void;
 }) {
   const st = useTranslations();
   const compose = useComposeSafe();
@@ -227,6 +236,10 @@ function PersonActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuItem onClick={onArchiveToggle}>
+            <Archive className="h-4 w-4 mr-0.5" />
+            {person.archivedAt ? st('sweep.entities.unarchive') : st('sweep.entities.archive')}
+          </DropdownMenuItem>
           <DropdownMenuItem
             className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
             onClick={onDelete}
@@ -305,6 +318,7 @@ function PersonPanelTabsBar({
           onToggle={toggle}
           onReset={resetToDefaults}
           label={st('sweep.entities.visibleTabs')}
+          title={st('sweep.entities.configureTabs')}
         />
       </div>
     </div>
@@ -334,6 +348,7 @@ function PersonDetailsTab({
   onUpdateFieldAsync: (patch: Record<string, unknown>) => Promise<void>;
 }) {
   const st = useTranslations();
+  const { options: statusOptions } = useCustomerStatusOptions();
   return (
     <div className="p-4 space-y-1">
       <PropertyRow
@@ -387,32 +402,30 @@ function PersonDetailsTab({
         value={person.mobilePhone}
         onSave={(v) => onUpdateField({ mobilePhone: v })}
       />
-      <PropertyRow
+      <MemberPropertyRow
         icon={User}
         label={st('sweep.entities.fieldOwner')}
-        value={person.ownerId}
-        readOnly
-        placeholder={st('sweep.entities.unassigned')}
+        value={person.ownerId ?? ''}
+        placeholder={st('sweep.entities.setOwnerPlaceholder')}
+        onChange={(v) => onUpdateField({ ownerId: v || null })}
       />
-      <PropertyRow
+      <MemberPropertyRow
         icon={Briefcase}
         label={st('sweep.entities.fieldManager')}
-        value={person.accountManagerId}
-        readOnly
-        placeholder={st('sweep.entities.unassigned')}
+        value={person.accountManagerId ?? ''}
+        placeholder={st('sweep.entities.setManagerPlaceholder')}
+        onChange={(v) => onUpdateField({ accountManagerId: v || null })}
       />
-      <PropertyRow
+      <TagsPropertyRow
         icon={Tag}
         label={st('sweep.entities.fieldTags')}
-        value={person.tags?.length ? person.tags.join(', ') : null}
-        readOnly
+        value={person.tags}
+        onChange={(next) => onUpdateField({ tags: next })}
       />
-      <PropertyRow
-        icon={Flag}
-        label={st('sweep.entities.fieldStatus')}
+      <StatusPropertyRow
         value={person.status}
-        readOnly
-        accessory={<ChevronRight className="h-3.5 w-3.5 rotate-90 text-muted-foreground" />}
+        onChange={(v) => onUpdateField({ status: v ?? '' })}
+        options={statusOptions}
       />
       <PropertyRow
         icon={Smile}
@@ -606,6 +619,8 @@ export function PersonPanel(props: ObjectPanelComponentProps) {
 
   const updateMut = useUpdatePerson();
   const deleteMut = useDeletePerson();
+  const archiveMut = useArchivePerson();
+  const unarchiveMut = useUnarchivePerson();
 
   const handleUpdateField = useCallback((patch: Record<string, unknown>) => {
     if (!person) return;
@@ -628,6 +643,17 @@ export function PersonPanel(props: ObjectPanelComponentProps) {
         toast.error(err instanceof Error ? err.message : st('sweep.entities.deleteFailed')),
     });
   }, [person, deleteMut, onClose, st]);
+
+  const handleArchiveToggle = useCallback(() => {
+    if (!person) return;
+    const mut = person.archivedAt ? unarchiveMut : archiveMut;
+    mut.mutate(person.id, {
+      onSuccess: () =>
+        toast.success(person.archivedAt ? st('sweep.entities.unarchived') : st('sweep.entities.archived')),
+      onError: (err: unknown) =>
+        toast.error(err instanceof Error ? err.message : st('sweep.entities.archiveUpdateFailed')),
+    });
+  }, [person, archiveMut, unarchiveMut, st]);
 
   const initial: PersonTab['id'] = useMemo(() => {
     if (initialTab && PERSON_TABS.some((t) => t.id === initialTab)) {
@@ -653,7 +679,7 @@ export function PersonPanel(props: ObjectPanelComponentProps) {
       {...shell.entityDetailViewProps}
       avatar={<PersonAvatar person={person} onUpload={(url) => handleUpdateField({ avatarUrl: url })} />}
       title={<PersonTitle person={person} />}
-      actions={<PersonActions person={person} onDelete={handleDelete} />}
+      actions={<PersonActions person={person} onDelete={handleDelete} onArchiveToggle={handleArchiveToggle} />}
       tabs={
         <PersonPanelTabsBar
           activeTab={activeTab}

@@ -115,12 +115,16 @@ interface TaskDialogProps {
   editingTask: Task | null;
   availableAssignees: string[] | { id: string; name: string; avatar?: string }[];
   availableCompanies: Array<string | { id: string; name: string; avatar?: string; type?: string }>;
+  /** Offered alongside companies in the record picker — a task can link to a person instead. */
+  availablePeople?: Array<string | { id: string; name: string; avatar?: string; type?: string }>;
   onRecordSearchChange?: (query: string) => void;
   recordRequired?: boolean;
   availableLabels?: LabelOption[];
   onCreateLabel?: (data: { name: string; color: string }) => Promise<LabelOption | null>;
   defaultRecord?: string;
   defaultAssignee?: string;
+  /** Pre-selects the status field — e.g. the column a board "New task" button was clicked in. */
+  defaultStatus?: Task['status'];
   recordLabel?: string;
   hideRecord?: boolean;
   projectId?: string;
@@ -137,6 +141,7 @@ interface TaskDialogProps {
     dueDate?: Date;
     duration?: number;
     linkedCompanyId?: string;
+    personId?: string;
     labels?: string[];
     repeat?: {
       frequency: 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom';
@@ -152,6 +157,7 @@ interface TaskDialogProps {
     dueDate?: Date;
     duration?: number;
     linkedCompany?: { id: string; name: string } | null;
+    linkedPerson?: { id: string; name: string } | null;
     labels?: string[];
     repeat?: {
       frequency: 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom';
@@ -250,6 +256,7 @@ interface TaskFormState {
   duration: number | null;
   record: string | null;
   recordName: string | null;
+  recordType: 'company' | 'person' | null;
   repeat: RepeatValue | null;
   repeatInterval: number;
   repeatUnit: RepeatUnitValue;
@@ -261,18 +268,20 @@ function getInitialFormState(
   editingTask: Task | null,
   defaultAssignee: string | undefined,
   defaultRecord: string | undefined,
+  defaultStatus: Task['status'] | undefined,
 ): TaskFormState {
   if (!editingTask) {
     return {
       title: '',
       description: '',
-      status: 'todo',
+      status: defaultStatus ?? 'todo',
       priority: null,
       assigneeList: defaultAssignee ? [defaultAssignee] : [],
       dueDate: undefined,
       duration: 30,
       record: defaultRecord || null,
       recordName: defaultRecord || null,
+      recordType: defaultRecord ? 'company' : null,
       repeat: null,
       repeatInterval: 1,
       repeatUnit: 'days',
@@ -289,8 +298,9 @@ function getInitialFormState(
       (editingTask.assignee?.id ? [editingTask.assignee.id] : []),
     dueDate: editingTask.dueDate,
     duration: editingTask.duration ?? null,
-    record: editingTask.linkedCompany?.id || null,
-    recordName: editingTask.linkedCompany?.name || null,
+    record: editingTask.linkedPerson?.id || editingTask.linkedCompany?.id || null,
+    recordName: editingTask.linkedPerson?.name || editingTask.linkedCompany?.name || null,
+    recordType: editingTask.linkedPerson ? 'person' : editingTask.linkedCompany ? 'company' : null,
     repeat: editingTask.repeat?.frequency || null,
     repeatInterval: editingTask.repeat?.interval || 1,
     repeatUnit: editingTask.repeat?.unit || 'days',
@@ -764,7 +774,7 @@ function RecordPopover({
   recordRequired: boolean | undefined;
   isSearching: boolean;
   onSearchChange: ((value: string) => void) | undefined;
-  onChange: (company: { id: string; name: string } | null) => void;
+  onChange: (company: CompanyOption | null) => void;
 }>) {
   const tCrm = getTranslations('crm');
   return (
@@ -939,6 +949,7 @@ export function TaskDialog({
   editingTask,
   availableAssignees,
   availableCompanies,
+  availablePeople = [],
   onRecordSearchChange,
   recordRequired,
   availableLabels = [],
@@ -946,6 +957,7 @@ export function TaskDialog({
   onCreateLabel,
   defaultRecord,
   defaultAssignee,
+  defaultStatus,
   recordLabel = 'Select record',
   hideRecord,
   projectId,
@@ -966,6 +978,7 @@ export function TaskDialog({
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [record, setRecord] = useState<string | null>(null);
   const [recordName, setRecordName] = useState<string | null>(null);
+  const [recordType, setRecordType] = useState<'company' | 'person' | null>(null);
   const [duration, setDuration] = useState<number | null>(30);
   const [repeat, setRepeat] = useState<RepeatValue | null>(null);
   const [repeatInterval, setRepeatInterval] = useState<number>(1);
@@ -1010,9 +1023,15 @@ export function TaskDialog({
   }, []);
 
   const normalizedCompanies: CompanyOption[] = availableCompanies.map((c) =>
-    typeof c === 'string' ? { id: c, name: c, avatar: undefined as string | undefined, type: undefined as string | undefined } : c
+    typeof c === 'string' ? { id: c, name: c, avatar: undefined as string | undefined, type: 'company' } : { ...c, type: 'company' }
   );
-  const selectedCompany = record ? normalizedCompanies.find((c) => c.id === record) : undefined;
+  const normalizedPeople: CompanyOption[] = availablePeople.map((p) =>
+    typeof p === 'string' ? { id: p, name: p, avatar: undefined as string | undefined, type: 'person' } : { ...p, type: 'person' }
+  );
+  // The record picker offers both — a task can link to either a company or a
+  // person, distinguished by `type` on each option (see RecordPopover).
+  const recordOptions: CompanyOption[] = [...normalizedCompanies, ...normalizedPeople];
+  const selectedCompany = record ? recordOptions.find((c) => c.id === record) : undefined;
   const selectedCompanyLabel = selectedCompany?.name ?? recordName ?? record;
 
   const { uploadFile, isUploading, progress, currentFileName } = useFileUpload({
@@ -1150,7 +1169,7 @@ export function TaskDialog({
   useEffect(() => {
     if (open) {
       isSubmittingRef.current = false;
-      const initial = getInitialFormState(editingTask, defaultAssignee, defaultRecord);
+      const initial = getInitialFormState(editingTask, defaultAssignee, defaultRecord, defaultStatus);
       setTitle(initial.title);
       setDescription(initial.description);
       setStatus(initial.status);
@@ -1160,6 +1179,7 @@ export function TaskDialog({
       setDuration(initial.duration);
       setRecord(initial.record);
       setRecordName(initial.recordName);
+      setRecordType(initial.recordType);
       setRepeat(initial.repeat);
       setRepeatInterval(initial.repeatInterval);
       setRepeatUnit(initial.repeatUnit);
@@ -1176,7 +1196,7 @@ export function TaskDialog({
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [open, editingTask, defaultRecord, defaultAssignee, syncDescriptionToDiv]);
+  }, [open, editingTask, defaultRecord, defaultAssignee, defaultStatus, syncDescriptionToDiv]);
 
   useLayoutEffect(() => {
     if (buttonContainerRef.current) {
@@ -1194,6 +1214,7 @@ export function TaskDialog({
     setDueDate(undefined);
     setRecord(defaultRecord || null);
     setRecordName(defaultRecord || null);
+    setRecordType(defaultRecord ? 'company' : null);
     setRepeat(null);
     setRepeatInterval(1);
     setRepeatUnit('days');
@@ -1228,6 +1249,7 @@ export function TaskDialog({
         duration,
         record,
         recordName,
+        recordType,
         repeat,
         repeatInterval,
         repeatUnit,
@@ -1236,10 +1258,13 @@ export function TaskDialog({
       finalDescription,
     );
 
+    const isPersonRecord = recordType === 'person';
+
     if (editingTask) {
       onUpdate(editingTask.id, {
         ...common,
-        linkedCompany: record ? { id: record, name: selectedCompanyLabel || '' } : null,
+        linkedCompany: record && !isPersonRecord ? { id: record, name: selectedCompanyLabel || '' } : null,
+        linkedPerson: record && isPersonRecord ? { id: record, name: selectedCompanyLabel || '' } : null,
       });
     } else {
       // TODO (GitHub: task_mo35kz3u7abmh1uo): plumb `createOnGithub` and `githubRepoLinkId` through
@@ -1251,14 +1276,16 @@ export function TaskDialog({
         ...common,
         assigneeId: assigneeList[0] || undefined,
         assigneeIds: assigneeList.length > 0 ? assigneeList : undefined,
-        linkedCompanyId: record || undefined,
+        linkedCompanyId: record && !isPersonRecord ? record : undefined,
+        personId: record && isPersonRecord ? record : undefined,
       });
     }
   };
 
-  const handleRecordChange = (company: { id: string; name: string } | null) => {
+  const handleRecordChange = (company: CompanyOption | null) => {
     setRecord(company?.id ?? null);
     setRecordName(company?.name ?? null);
+    setRecordType(company ? (company.type === 'person' ? 'person' : 'company') : null);
   };
 
   const resizeTextarea = useCallback((textarea: HTMLTextAreaElement | null, maxHeight: number) => {
@@ -1446,7 +1473,7 @@ export function TaskDialog({
             {!hideRecord && (
               <RecordPopover
                 record={record}
-                companies={normalizedCompanies}
+                companies={recordOptions}
                 selectedCompany={selectedCompany}
                 selectedCompanyLabel={selectedCompanyLabel}
                 defaultLabel={effectiveRecordLabel}

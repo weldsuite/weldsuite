@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Plus, EyeOff, Trash2 } from 'lucide-react';
+import { Plus, EyeOff, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -22,11 +22,26 @@ interface StageHeaderProps {
   onAddDeal: (stageId: string, stageName: string) => void;
   confettiEnabled?: boolean;
   onConfettiChange?: (stageId: string, enabled: boolean) => void;
+  /** Controlled by the parent board and persisted to the pipeline's settings — not local state, so it survives a reload. */
+  trackTimeInStage?: boolean;
+  onTrackTimeChange?: (stageId: string, enabled: boolean) => void;
+  onRenameStage?: (stageId: string) => void;
+  onHideStage?: (stageId: string) => void;
+  onDeleteStage?: (stageId: string) => void;
 }
 
-export function StageHeader({ stage, onAddDeal, confettiEnabled = false, onConfettiChange }: StageHeaderProps) {
+export function StageHeader({
+  stage,
+  onAddDeal,
+  confettiEnabled = false,
+  onConfettiChange,
+  trackTimeInStage = false,
+  onTrackTimeChange,
+  onRenameStage,
+  onHideStage,
+  onDeleteStage,
+}: StageHeaderProps) {
   const t = useTranslations();
-  const [trackTimeInStage, setTrackTimeInStage] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const headerRef = React.useRef<HTMLDivElement>(null);
   const [dropdownWidth, setDropdownWidth] = React.useState<number>(0);
@@ -82,7 +97,7 @@ export function StageHeader({ stage, onAddDeal, confettiEnabled = false, onConfe
                 <input
                   type="checkbox"
                   checked={trackTimeInStage}
-                  onChange={(e) => setTrackTimeInStage(e.target.checked)}
+                  onChange={(e) => onTrackTimeChange?.(stage.id, e.target.checked)}
                   className="sr-only peer"
                 />
                 <div className="w-7 h-4 bg-gray-300 peer-checked:bg-blue-500 rounded-full transition-colors"></div>
@@ -103,11 +118,18 @@ export function StageHeader({ stage, onAddDeal, confettiEnabled = false, onConfe
               </label>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-sm">
+            <DropdownMenuItem className="text-sm" onClick={() => onRenameStage?.(stage.id)}>
+              <Pencil className="h-4 w-4 mr-2" />
+              {t('sweep.weldcrm.stageHeader.renameStage')}
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-sm" onClick={() => onHideStage?.(stage.id)}>
               <EyeOff className="h-4 w-4 mr-2" />
               {t('sweep.weldcrm.stageHeader.hideStage')}
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-sm text-red-600 dark:text-red-400">
+            <DropdownMenuItem
+              className="text-sm text-red-600 dark:text-red-400"
+              onClick={() => onDeleteStage?.(stage.id)}
+            >
               <Trash2 className="h-4 w-4 mr-2" />
               {t('sweep.weldcrm.stageHeader.deleteStage')}
             </DropdownMenuItem>

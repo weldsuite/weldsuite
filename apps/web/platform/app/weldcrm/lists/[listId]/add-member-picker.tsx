@@ -430,8 +430,11 @@ export function AddMemberPicker({ listId, kind }: Readonly<AddMemberPickerProps>
   const companiesQuery = useCompanies(
     isCompany && open ? { limit: 25, search: debounced || undefined } : undefined,
   );
+  // inCrm: true — mail/helpdesk auto-create contacts with inCrm=false so they
+  // don't clutter the People table; this picker should offer the same set
+  // the People page does, not every auto-created contact.
   const peopleQuery = usePeople(
-    !isCompany && open ? { limit: 25, search: debounced || undefined } : undefined,
+    !isCompany && open ? { limit: 25, search: debounced || undefined, inCrm: true } : undefined,
   );
 
   const results = useMemo<PickedEntity[]>(() => {

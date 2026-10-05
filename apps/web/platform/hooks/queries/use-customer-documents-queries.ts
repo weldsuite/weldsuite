@@ -1,41 +1,26 @@
 /**
  * Entity-attached documents (customer / person "Files" tab).
  *
- * STUBBED — this surface has no backend on any worker.
+ * Backed by the same `files` table / `/api/files` + `/api/storage` endpoints
+ * as WeldDrive (`hooks/queries/use-drive-queries.ts`), scoped via the
+ * `files.entityType` + `files.entityId` columns:
+ *  - List: `GET /api/files?entityType=company|person&entityId=<id>`.
+ *  - Upload: the existing 3-step broker (`POST /storage/generate-upload-url`
+ *    → `PUT` to the presigned URL → `POST /files` to persist the row), same
+ *    flow as `hooks/use-file-upload.ts` + `useCreateDriveFile`, just inlined
+ *    here so the upload mutation can carry entityType/entityId end to end.
+ *  - Download: `GET /api/files/:id/content` via the `downloadFile` helper
+ *    exported from `app/welddrive/components/drive-file-card.tsx` (reused
+ *    directly by `files-tab.tsx`, same as `FileListView` already does for
+ *    its icon/formatting helpers).
  *
- * These hooks used to call the legacy unified client's `files.*` methods, which
- * targeted `/api/files/*` on the obsolete api-worker. api-worker never mounted
- * `/api/files` (nor did core-api), so every call 404'd: the Files tab has never
- * worked in production, and no document has ever been stored through it.
- *
- * There is no app-api successor to repoint at:
- *  - `/api/files` is the *Drive* surface — folder-scoped, with no
- *    `entityType`/`entityId` filter, so "documents attached to this customer"
- *    cannot be queried;
- *  - `/api/storage/generate-upload-url` does broker an entity-scoped R2 key, but
- *    its `confirm-upload` partner returns a synthesised id **without inserting a
- *    row**, so uploads would not be listable afterwards;
- *  - there is no `/files/:id/url` presign route (`/files/:id/content` streams
- *    bytes instead).
- *
- * Why stub instead of delete: `components/objects/_shared/files-tab.tsx` still
- * renders this, so the exports must keep their signatures. Why stub instead of
- * leaving it on the legacy client: the legacy import is what keeps api-worker
- * alive, and these calls reach nothing either way.
- *
- * Behaviour of the stubs:
- *  - list hooks resolve to an empty page. This is ACCURATE, not a white lie —
- *    the upload path never worked, so there are no rows to list.
- *  - write hooks REJECT with a clear message. They must never resolve, or the
- *    tab would report a successful upload that stored nothing.
- *
- * TODO(weldflow-files): to restore the Files tab, build an entity-attached
- * document surface on app-api (list by entityType+entityId, presign upload,
- * confirm-upload that actually inserts, presign download) and repoint these six
- * hooks at it. A client-side repoint alone cannot fix this.
+ * `files.entityType`/`entityId` were already present on the schema (used by
+ * nothing else yet) — no DB migration was needed for this.
  */
 
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAppApi } from '@/lib/api/use-app-api';
+import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 
 const customerDocumentKeys = {
   all: ['crm', 'customer-documents'] as const,
@@ -43,37 +28,45 @@ const customerDocumentKeys = {
   forPerson: (personId: string) => [...customerDocumentKeys.all, 'person', personId] as const,
 };
 
-/** Empty page, shaped like the list response `files-tab.tsx` destructures. */
-const EMPTY_PAGE = { items: [] as unknown[] };
+export type DocumentEntityKind = 'Customer' | 'Contact';
 
-const UNAVAILABLE =
-  'Attaching files to a customer or contact is not available yet — this feature has no backend.';
+/** Maps the Files-tab's `Customer`/`Contact` kind to the `files.entityType` value. */
+function toFilesEntityType(entityKind: DocumentEntityKind | undefined): 'company' | 'person' {
+  return entityKind === 'Contact' ? 'person' : 'company';
+}
 
 export function useCustomerDocuments(customerId: string, enabled = true) {
+  const { files } = useAppApi();
   return useQuery({
     queryKey: customerDocumentKeys.forCustomer(customerId),
-    queryFn: async () => EMPTY_PAGE,
+    queryFn: async (): Promise<{ items: UnifiedFile[] }> => {
+      const res = await files.list({ entityType: 'company', entityId: customerId });
+      return { items: res.data ?? [] };
+    },
     enabled: !!customerId && enabled,
   });
 }
 
 /**
- * Person-scoped documents. Stored with entityType='Contact' to stay
- * compatible with files uploaded before the Companies/People refactor.
+ * Person-scoped documents. Stored with entityType='person' (the Companies/People
+ * model — see `files.entityType`).
  */
 export function usePersonDocuments(personId: string, enabled = true) {
+  const { files } = useAppApi();
   return useQuery({
     queryKey: customerDocumentKeys.forPerson(personId),
-    queryFn: async () => EMPTY_PAGE,
+    queryFn: async (): Promise<{ items: UnifiedFile[] }> => {
+      const res = await files.list({ entityType: 'person', entityId: personId });
+      return { items: res.data ?? [] };
+    },
     enabled: !!personId && enabled,
   });
 }
 
-export type DocumentEntityKind = 'Customer' | 'Contact';
-
 export function useGenerateDocumentUploadUrl() {
+  const { storage } = useAppApi();
   return useMutation({
-    mutationFn: async (_params: {
+    mutationFn: (params: {
       // `customerId` is kept as the param name for backwards-compat with the
       // existing customer-detail callers, but is reused for personId when
       // `entityKind='Contact'`.
@@ -82,44 +75,70 @@ export function useGenerateDocumentUploadUrl() {
       fileName: string;
       contentType: string;
       fileSize: number;
-      description?: string;
-      tags?: string;
-    }): Promise<never> => {
-      throw new Error(UNAVAILABLE);
-    },
+    }) =>
+      storage.generateUploadUrl({
+        fileName: params.fileName,
+        contentType: params.contentType,
+        fileSize: params.fileSize,
+        folder: 'documents',
+        entityType: toFilesEntityType(params.entityKind),
+        entityId: params.customerId,
+        isPublic: false,
+      }),
   });
 }
 
+/**
+ * Persists the `files` row after the browser has PUT the bytes to the
+ * presigned URL (`useGenerateDocumentUploadUrl`). Unlike the generic
+ * `/storage/confirm-upload` (which only validates the R2 object landed and
+ * returns an ephemeral, non-persisted id), this calls `POST /api/files` so
+ * the upload is actually listable afterwards.
+ */
 export function useConfirmDocumentUpload() {
+  const { files } = useAppApi();
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (_params: {
-      uploadToken: string;
+    mutationFn: (params: {
       fileKey: string;
-      etag?: string;
+      fileName: string;
+      contentType: string;
+      fileSize: number;
       customerId: string;
       entityKind?: DocumentEntityKind;
-    }): Promise<never> => {
-      throw new Error(UNAVAILABLE);
-    },
-  });
-}
-
-export function useDocumentDownloadUrl() {
-  return useMutation({
-    mutationFn: async (_fileId: string): Promise<never> => {
-      throw new Error(UNAVAILABLE);
+    }) =>
+      files.create({
+        fileName: params.fileName,
+        mimeType: params.contentType,
+        fileSize: params.fileSize,
+        fileType: 'file',
+        storagePath: params.fileKey,
+        fileKey: params.fileKey,
+        entityType: toFilesEntityType(params.entityKind),
+        entityId: params.customerId,
+      }),
+    onSuccess: (_data, variables) => {
+      const key =
+        variables.entityKind === 'Contact'
+          ? customerDocumentKeys.forPerson(variables.customerId)
+          : customerDocumentKeys.forCustomer(variables.customerId);
+      qc.invalidateQueries({ queryKey: key });
     },
   });
 }
 
 export function useDeleteCustomerDocument() {
+  const { files } = useAppApi();
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (_params: {
-      fileId: string;
-      customerId: string;
-      entityKind?: DocumentEntityKind;
-    }): Promise<never> => {
-      throw new Error(UNAVAILABLE);
+    mutationFn: (params: { fileId: string; customerId: string; entityKind?: DocumentEntityKind }) =>
+      files.delete(params.fileId),
+    onSuccess: (_data, variables) => {
+      const key =
+        variables.entityKind === 'Contact'
+          ? customerDocumentKeys.forPerson(variables.customerId)
+          : customerDocumentKeys.forCustomer(variables.customerId);
+      qc.invalidateQueries({ queryKey: key });
     },
   });
 }

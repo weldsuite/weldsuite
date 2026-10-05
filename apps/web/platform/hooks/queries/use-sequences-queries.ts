@@ -93,15 +93,15 @@ export function useEnrollCustomers() {
   return useMutation({
     mutationFn: async ({
       sequenceId,
-      customerIds,
+      personIds,
     }: {
       sequenceId: string;
-      customerIds: string[];
+      personIds: string[];
     }) => {
       const client = await getClient();
       return client.post<SingleResponse<{ enrolled: number; enrollmentIds: string[] }>>(
         `/sequences/${sequenceId}/enroll`,
-        { customerIds },
+        { personIds },
       );
     },
     onSuccess: (_data, variables) => {

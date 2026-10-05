@@ -22,6 +22,32 @@ const addressSchema = z
   })
   .passthrough();
 
+// `linkedinUrl` accepts a bare domain/path as well as a full URL and
+// normalizes it to `https://…`; a non-empty value that still isn't a
+// resolvable URL (e.g. "not-a-url") is rejected. Lenient on READ — only new
+// writes go through this schema, existing stored values aren't re-checked.
+function normalizeUrlValue(raw: string): string {
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+}
+
+function isValidUrlValue(raw: string): boolean {
+  try {
+    const url = new URL(normalizeUrlValue(raw));
+    return url.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
+const linkedinUrlSchema = z
+  .string()
+  .max(500)
+  .refine((v) => v === '' || isValidUrlValue(v), {
+    message: 'LinkedIn must be a valid URL (e.g. linkedin.com/in/jane)',
+  })
+  .transform((v) => (v === '' ? v : normalizeUrlValue(v)))
+  .optional();
+
 export const createPersonSchema = z.object({
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
@@ -48,7 +74,7 @@ export const createPersonSchema = z.object({
 
   // Visual
   avatarUrl: z.string().max(1000).optional(),
-  linkedinUrl: z.string().max(500).optional(),
+  linkedinUrl: linkedinUrlSchema,
   twitterHandle: z.string().max(100).optional(),
 
   // Sales
@@ -60,6 +86,10 @@ export const createPersonSchema = z.object({
   lifecycleStage: z.string().optional(),
   rating: z.string().optional(),
   source: z.string().optional(),
+
+  // Follow-up — lenient string (grid's date editor sends an ISO string, or
+  // null to clear), parsed by the service.
+  nextFollowUpDate: z.string().nullish(),
 
   // Status flags
   isSupplier: z.boolean().optional(),
@@ -120,6 +150,17 @@ export const listPeopleQuery = z.object({
    * only shows real CRM contacts; mail surfaces omit it to see every identity.
    */
   inCrm: z.coerce.boolean().optional(),
+  /**
+   * Sort key. Built-in sortable grid columns are addressed by their column id
+   * (e.g. `title`, `email`, `status`); custom fields use `custom:<slug>` (the
+   * same key the grid uses for its columns). Omitting this keeps the
+   * historical `createdAt DESC, id DESC` ordering.
+   */
+  sort: z.string().optional(),
+  // Optional rather than .default('asc'): a zod default makes the field
+  // REQUIRED on the inferred output type, which would break every existing
+  // caller that constructs this query object. The service defaults to 'asc'.
+  sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
 export const personDetailQuery = z.object({
@@ -198,6 +239,8 @@ export const importPersonRecordSchema = z.object({
   interests: z.array(z.string()).optional(),
   notes: z.string().max(10000).optional(),
   internalNotes: z.string().max(10000).optional(),
+  isSupplier: z.boolean().optional(),
+  isLead: z.boolean().optional(),
   // User-defined custom fields, keyed by definition slug. Values are
   // already coerced (number/boolean/array) client-side per field type.
   customFields: z.record(z.unknown()).optional(),

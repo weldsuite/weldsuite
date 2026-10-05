@@ -25,8 +25,21 @@
  */
 
 import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
+import { Check, Flag, X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
+import { Button } from '@weldsuite/ui/components/button';
+import { Badge } from '@weldsuite/ui/components/badge';
+import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@weldsuite/ui/components/command';
+import { MemberSelect } from '@/components/team/member-select';
+import { STATUS_STYLE_MAP } from '@/hooks/queries/use-weldcrm-customer-statuses';
 
 type PropertyRowType = 'text' | 'email' | 'phone' | 'url' | 'address';
 
@@ -223,6 +236,230 @@ export function PropertyRow({
       <div className="text-muted-foreground">
         {!isEditing && accessory ? accessory : null}
       </div>
+    </div>
+  );
+}
+
+// ─── MemberPropertyRow ──────────────────────────────────────────────────────
+// Owner / Manager picker row — shared by the company and person panels so
+// both show the member's name (via `MemberSelect`) instead of a raw user id.
+
+export interface MemberPropertyRowProps {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (next: string) => void;
+}
+
+export function MemberPropertyRow({ icon: Icon, label, value, placeholder, onChange }: MemberPropertyRowProps) {
+  return (
+    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Icon className="h-4 w-4" />
+        <span>{label}</span>
+      </div>
+      <div className="min-w-0 -mx-2">
+        <MemberSelect value={value} onChange={onChange} placeholder={placeholder} variant="assignee" />
+      </div>
+      <div />
+    </div>
+  );
+}
+
+// ─── StatusPropertyRow ──────────────────────────────────────────────────────
+// Status picker row — shared by the company and person panels. Options are
+// supplied by the caller (built-in + workspace custom statuses merged via
+// `useCustomerStatusOptions()`), so this component stays presentation-only.
+// A stored value that isn't in `options` (e.g. a status later renamed or
+// deleted from Settings) still renders gracefully as plain text.
+
+export interface StatusOption {
+  value: string;
+  label: string;
+  color?: string;
+}
+
+function StatusBadge({ value, options }: { value: string; options: StatusOption[] }) {
+  const opt = options.find((o) => o.value === value);
+  const style = opt?.color ? STATUS_STYLE_MAP[opt.color] : undefined;
+  const label = opt?.label ?? value;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
+        style?.bg ?? 'bg-muted',
+        style?.color ?? 'text-foreground',
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+export interface StatusPropertyRowProps {
+  value: string | null | undefined;
+  onChange: (next: string | null) => void;
+  options: StatusOption[];
+}
+
+export function StatusPropertyRow({ value, onChange, options }: StatusPropertyRowProps) {
+  const st = useTranslations();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Flag className="h-4 w-4" />
+        <span>{st('sweep.entities.fieldStatus')}</span>
+      </div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            className="text-sm min-w-0 text-left cursor-pointer rounded px-1.5 -mx-1.5 py-0.5 hover:bg-muted/40 transition-colors flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring h-auto"
+          >
+            {value ? (
+              <StatusBadge value={value} options={options} />
+            ) : (
+              <span className="text-muted-foreground/70">{st('sweep.entities.setStatusPlaceholder')}</span>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-56 p-0" align="start">
+          <Command>
+            <CommandInput placeholder={st('sweep.entities.searchEllipsisPlaceholder')} />
+            <CommandList className="max-h-[260px] p-1">
+              <CommandEmpty>{st('sweep.entities.noStatusesFound')}</CommandEmpty>
+              {options.map((opt) => {
+                const isSelected = opt.value === value;
+                return (
+                  <CommandItem
+                    key={opt.value}
+                    value={opt.label}
+                    onSelect={() => {
+                      onChange(opt.value);
+                      setOpen(false);
+                    }}
+                    className="flex items-center justify-between gap-2 px-1.5"
+                  >
+                    <StatusBadge value={opt.value} options={options} />
+                    {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                  </CommandItem>
+                );
+              })}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      <div />
+    </div>
+  );
+}
+
+// ─── TagsPropertyRow ────────────────────────────────────────────────────────
+// Editable tags row — chips + an inline text input, matching the row
+// geometry of `PropertyRow`. Enter (or a comma) commits the current draft as
+// a new tag; Backspace on an empty draft removes the last chip.
+
+export interface TagsPropertyRowProps {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value?: string[] | null;
+  placeholder?: string;
+  onChange: (next: string[]) => void;
+}
+
+export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChange }: TagsPropertyRowProps) {
+  const t = useTranslations();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const tags = value ?? [];
+
+  useEffect(() => {
+    if (isEditing) inputRef.current?.focus();
+  }, [isEditing]);
+
+  const commitDraft = () => {
+    const next = draft.trim();
+    if (next && !tags.includes(next)) onChange([...tags, next]);
+    setDraft('');
+  };
+
+  const removeTag = (tag: string) => onChange(tags.filter((x) => x !== tag));
+
+  return (
+    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-start group/row min-h-[32px] py-0.5">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground h-7">
+        <Icon className="h-4 w-4" />
+        <span>{label}</span>
+      </div>
+      <div
+        className={cn(
+          'min-w-0 -mx-2 px-2 rounded-[9px] box-border flex flex-wrap items-center gap-1 min-h-[32px] py-1',
+          !isEditing && 'cursor-text hover:bg-muted/50 transition-colors',
+          isEditing && 'border border-border bg-background focus-within:ring-1 focus-within:ring-primary',
+        )}
+        onClick={() => setIsEditing(true)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (!isEditing && e.key === 'Enter') setIsEditing(true);
+        }}
+      >
+        {tags.length === 0 && !isEditing && (
+          <span className="text-muted-foreground/70 text-sm">
+            {placeholder ?? t('sweep.entities.setFieldPlaceholder', { label })}
+          </span>
+        )}
+        {tags.map((tag) => (
+          <Badge key={tag} variant="secondary" className="gap-1 text-xs">
+            {tag}
+            {isEditing && (
+              <button
+                type="button"
+                // Keep focus on the text input across this click so the
+                // input's onBlur-commit doesn't unmount the button mid-click.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeTag(tag);
+                }}
+                className="ml-0.5 -mr-0.5 rounded hover:bg-muted-foreground/20"
+                aria-label={t('sweep.entities.unlink')}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </Badge>
+        ))}
+        {isEditing && (
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                commitDraft();
+              } else if (e.key === 'Backspace' && !draft && tags.length > 0) {
+                removeTag(tags[tags.length - 1]!);
+              } else if (e.key === 'Escape') {
+                setDraft('');
+                setIsEditing(false);
+              }
+            }}
+            onBlur={() => {
+              commitDraft();
+              setIsEditing(false);
+            }}
+            placeholder={t('sweep.entities.fieldTagsPlaceholder')}
+            className="bg-transparent border-0 outline-none text-sm flex-1 min-w-[80px]"
+          />
+        )}
+      </div>
+      <div />
     </div>
   );
 }

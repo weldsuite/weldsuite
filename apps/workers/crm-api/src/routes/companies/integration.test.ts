@@ -26,6 +26,19 @@ beforeAll(async () => {
   // Stub the entity-event queue bindings on the env so the route's
   // publishEntityEvent helper no-ops cleanly. Real publishing is
   // covered by the mock-based test in index.test.ts.
+
+  // The route defaults a new row's ownerId to the acting user
+  // (`data.ownerId ?? userId`), and createCompany/updateCompany now
+  // validate ownerId/accountManagerId against workspace_members
+  // (TASK-914). In production the acting user is always a real member
+  // (Clerk + workspaceDbMiddleware guarantee it); here the harness's
+  // default test identity isn't backed by a row, so seed one.
+  await db.insert(schema.workspaceMembers).values({
+    id: 'wm_user_test_default',
+    userId: 'user_test_default',
+    name: 'Test User',
+    role: 'MEMBER',
+  });
 }, 60_000);
 
 describe('/api/companies · pglite integration', () => {

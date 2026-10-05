@@ -26,6 +26,7 @@ import {
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useI18n } from '@weldsuite/i18n/provider';
 
 import { cn } from '@/lib/utils';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -63,6 +64,16 @@ export interface ImportFieldDef {
   header: string;
   /** Field key sent to the server (matches the create schema). */
   accessorKey: string;
+  /**
+   * Extra header text(s) that should also auto-map to this field — notably
+   * the grid column's own display name, which is often worded differently
+   * from the import field's label (e.g. the Companies grid's "Company"
+   * column vs. the import field's "Name"; "Employees" vs. "Employee
+   * count"). Without this, re-importing the app's own CSV/Excel export
+   * requires manually remapping every such column. Compared the same way
+   * as `header`/`accessorKey` (normalized, substring-tolerant).
+   */
+  aliases?: string[];
   /** Split the cell on `,`/`;` into an array (tags, interests). */
   multiValue?: boolean;
   /**
@@ -90,6 +101,15 @@ interface ImportEntitiesDialogProps {
   fields: ImportFieldDef[];
   /** A row is importable if at least one of these mapped fields has a value. */
   requireOneOf: string[];
+  /**
+   * Fields the server needs to CREATE a new row (not just to match an
+   * existing one) — e.g. Companies require `name` on create, but a row
+   * missing it can still "valid" per `requireOneOf` because it matches an
+   * existing company by party code/email. When set, rows that are valid
+   * per `requireOneOf` but missing every field here are called out before
+   * import instead of only surfacing as a per-row server error afterward.
+   */
+  requiredForCreate?: string[];
   /** Example values for the downloadable template, keyed by accessorKey. */
   templateExample?: Record<string, string>;
   /** Base filename (no extension) for the template, e.g. "companies". */
@@ -294,11 +314,13 @@ export function ImportEntitiesDialog({
   entityLabel,
   fields,
   requireOneOf,
+  requiredForCreate,
   templateExample,
   templateName,
   onImportBatch,
 }: Readonly<ImportEntitiesDialogProps>) {
   const t = useTranslations();
+  const { plural } = useI18n();
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [parsedData, setParsedData] = useState<Record<string, unknown>[]>([]);
@@ -427,7 +449,13 @@ export function ImportEntitiesDialog({
               if (used.has(field.accessorKey)) return false;
               const nKey = normalizeString(field.accessorKey);
               const nHeader = normalizeString(field.header);
-              return nKey === nCol || nHeader === nCol || nKey.includes(nCol) || nCol.includes(nKey);
+              if (nKey === nCol || nHeader === nCol || nKey.includes(nCol) || nCol.includes(nKey)) {
+                return true;
+              }
+              return (field.aliases ?? []).some((alias) => {
+                const nAlias = normalizeString(alias);
+                return nAlias === nCol || nAlias.includes(nCol) || nCol.includes(nAlias);
+              });
             });
             if (match) {
               auto[col] = match.accessorKey;
@@ -470,6 +498,19 @@ export function ImportEntitiesDialog({
     () => (hasRequireMapped ? parsedData.filter(rowIsValid) : []),
     [hasRequireMapped, parsedData, rowIsValid],
   );
+
+  // Rows that pass `requireOneOf` (so they count as "valid") but are missing
+  // every `requiredForCreate` field — these only import successfully if they
+  // happen to match an existing row (by party code/email); otherwise the
+  // server rejects them as a create. Surfaced here so the mapping step's
+  // "valid" count isn't misleadingly optimistic.
+  const rowsMissingCreateField = useMemo(() => {
+    if (!requiredForCreate || requiredForCreate.length === 0) return 0;
+    return validRows.filter((row) => {
+      const record = buildRecord(row, mappings, fieldByKey);
+      return !requiredForCreate.some((key) => safeString(record[key]));
+    }).length;
+  }, [validRows, mappings, fieldByKey, requiredForCreate]);
 
   const mappedCount = useMemo(() => Object.values(mappings).filter(Boolean).length, [mappings]);
 
@@ -681,6 +722,19 @@ export function ImportEntitiesDialog({
                       </AlertDescription>
                     </Alert>
                   )}
+
+                  {hasRequireMapped && rowsMissingCreateField > 0 && (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>{t('crm.importExport.missingCreateFieldTitle')}</AlertTitle>
+                      <AlertDescription>
+                        {t('crm.importExport.missingCreateFieldDesc', {
+                          n: rowsMissingCreateField,
+                          fields: requiredForCreate?.map((key) => fieldByKey.get(key)?.header ?? key).join(', ') ?? '',
+                        })}
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
 
                 <ScrollArea className="h-[400px] mt-4">
@@ -803,7 +857,12 @@ export function ImportEntitiesDialog({
                 <Alert variant="destructive">
                   <XCircle className="h-4 w-4" />
                   <AlertTitle>{t('crm.importExport.failedToProcess')}</AlertTitle>
-                  <AlertDescription>{t('crm.importExport.failedN', { n: result.failed })}</AlertDescription>
+                  <AlertDescription>
+                    {plural(result.failed, {
+                      one: t('crm.importExport.failedNOne'),
+                      other: t('crm.importExport.failedN'),
+                    })}
+                  </AlertDescription>
                 </Alert>
               )}
 

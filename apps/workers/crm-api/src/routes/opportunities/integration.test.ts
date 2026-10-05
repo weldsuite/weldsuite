@@ -66,6 +66,39 @@ describe('/api/opportunities · pglite integration', () => {
     );
   });
 
+  it('POST / fills customerName from the linked company (TASK-917: "(unknown company)" on the deal panel)', async () => {
+    const companyId = generateId('co');
+    const now = new Date();
+    await db.insert(schema.companies).values({
+      id: companyId,
+      name: 'Acme Resolved Co',
+      displayName: 'Acme Resolved Co',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: {
+        permissions: permissions('opportunities:create'),
+        tenantDb: db,
+      },
+    });
+
+    const res = await request('/api/opportunities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Deal with company', customerId: companyId }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string } };
+
+    const [row] = await db
+      .select()
+      .from(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, body.data.id))
+      .limit(1);
+    expect(row?.customerName).toBe('Acme Resolved Co');
+  });
+
   it('POST / rejects empty name', async () => {
     const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
       context: {
@@ -284,5 +317,156 @@ describe('/api/opportunities · pglite integration', () => {
       .limit(1);
     expect(row?.stageId).toBe(stageOne);
     expect(row?.stage).toBe('prospecting');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Won/lost <-> stage sync (TASK-919): the two directions must agree —
+  // dragging into a won/lost stage flips status, and marking won/lost moves
+  // the stage.
+  // ---------------------------------------------------------------------------
+
+  async function seedDealWithWonLostStages() {
+    const now = new Date();
+    const pipelineId = generateId('pl');
+    const openStage = generateId('pls');
+    const wonStage = generateId('pls');
+    const lostStage = generateId('pls');
+    await db.insert(schema.crmPipelineStages).values([
+      { id: openStage, name: 'Open', position: 0, pipeline: pipelineId, probability: 25, isWon: false, isLost: false, createdAt: now, updatedAt: now },
+      { id: wonStage, name: 'Won', position: 1, pipeline: pipelineId, probability: 100, isWon: true, isLost: false, createdAt: now, updatedAt: now },
+      { id: lostStage, name: 'Lost', position: 2, pipeline: pipelineId, probability: 0, isWon: false, isLost: true, createdAt: now, updatedAt: now },
+    ]);
+    const dealId = generateId('opp');
+    await db.insert(schema.crmOpportunities).values({
+      id: dealId,
+      name: 'Won/lost sync deal',
+      customerId: 'cust_won_lost_sync',
+      amount: '1000',
+      currency: 'EUR',
+      stage: 'prospecting',
+      stageId: openStage,
+      status: 'open',
+      ownerId: 'user_won_lost_sync',
+      closeDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      probability: 25,
+      pipeline: pipelineId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { dealId, pipelineId, openStage, wonStage, lostStage };
+  }
+
+  it('PATCH /:id moving a deal to an isWon stage sets status=won, actualCloseDate and probability', async () => {
+    const { dealId, wonStage } = await seedDealWithWonLostStages();
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: {
+        userId: 'user_won_lost_sync',
+        permissions: permissions('opportunities:update'),
+        tenantDb: db,
+      },
+    });
+
+    const res = await request(`/api/opportunities/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stageId: wonStage }),
+    });
+    expect(res.status).toBe(200);
+
+    const [row] = await db
+      .select()
+      .from(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, dealId))
+      .limit(1);
+    expect(row?.stageId).toBe(wonStage);
+    expect(row?.status).toBe('won');
+    expect(row?.actualCloseDate).toBeInstanceOf(Date);
+    expect(row?.probability).toBe(100);
+  });
+
+  it('PATCH /:id moving a deal out of a won stage back to an open stage reopens it and clears actualCloseDate', async () => {
+    const { dealId, openStage, wonStage } = await seedDealWithWonLostStages();
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: {
+        userId: 'user_won_lost_sync',
+        permissions: permissions('opportunities:update'),
+        tenantDb: db,
+      },
+    });
+
+    await request(`/api/opportunities/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stageId: wonStage }),
+    });
+
+    const res = await request(`/api/opportunities/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stageId: openStage }),
+    });
+    expect(res.status).toBe(200);
+
+    const [row] = await db
+      .select()
+      .from(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, dealId))
+      .limit(1);
+    expect(row?.stageId).toBe(openStage);
+    expect(row?.status).toBe('open');
+    expect(row?.actualCloseDate).toBeNull();
+  });
+
+  it('PATCH /:id with status=won (no stageId) moves the deal to the pipeline\'s isWon stage and stamps actualCloseDate', async () => {
+    const { dealId, wonStage } = await seedDealWithWonLostStages();
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: {
+        userId: 'user_won_lost_sync',
+        permissions: permissions('opportunities:update'),
+        tenantDb: db,
+      },
+    });
+
+    const res = await request(`/api/opportunities/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'won' }),
+    });
+    expect(res.status).toBe(200);
+
+    const [row] = await db
+      .select()
+      .from(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, dealId))
+      .limit(1);
+    expect(row?.status).toBe('won');
+    expect(row?.stageId).toBe(wonStage);
+    expect(row?.actualCloseDate).toBeInstanceOf(Date);
+  });
+
+  it('PATCH /:id with status=lost (no stageId) moves the deal to the pipeline\'s isLost stage', async () => {
+    const { dealId, lostStage } = await seedDealWithWonLostStages();
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: {
+        userId: 'user_won_lost_sync',
+        permissions: permissions('opportunities:update'),
+        tenantDb: db,
+      },
+    });
+
+    const res = await request(`/api/opportunities/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'lost' }),
+    });
+    expect(res.status).toBe(200);
+
+    const [row] = await db
+      .select()
+      .from(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, dealId))
+      .limit(1);
+    expect(row?.status).toBe('lost');
+    expect(row?.stageId).toBe(lostStage);
   });
 });

@@ -1,10 +1,11 @@
 
+import { useMemo } from 'react';
 import { PipelineKanban } from './pipeline-kanban';
 import { useOpportunitiesByPipeline, useOpportunities, useUpdateOpportunityStage, useCreateOpportunity } from '@/hooks/queries/use-opportunities-queries';
-import { usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
+import { usePipeline, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
 import { useCompanies } from '@/components/objects/company/use-company-data';
 import { usePeople } from '@/components/objects/person/use-person-data';
-import { DEFAULT_PIPELINE_SETTINGS } from '@/app/weldcrm/pipeline/pipeline-settings-types';
+import { DEFAULT_PIPELINE_SETTINGS, type PipelineViewSettings } from '@/app/weldcrm/pipeline/pipeline-settings-types';
 import { PageLoader } from '@/components/page-loader';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { toast } from 'sonner';
@@ -25,6 +26,15 @@ export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelin
 
   // Fetch pipeline stages
   const { data: stagesResult, isLoading: stagesLoading } = usePipelineStages(pipelineId);
+
+  // Fetch the pipeline's own persisted settings (confetti/calculations/hidden
+  // stages/etc. — TASK-921) instead of always starting from the hardcoded
+  // defaults, which is why those toggles reset on every reload.
+  const { data: pipelineResult } = usePipeline(pipelineId || '', !!pipelineId);
+  const initialSettings: PipelineViewSettings = useMemo(() => {
+    const persisted = (pipelineResult?.data?.settings ?? {}) as Partial<PipelineViewSettings>;
+    return { ...DEFAULT_PIPELINE_SETTINGS, ...persisted };
+  }, [pipelineResult]);
 
   // Fetch companies and people for lookup
   const { data: companiesResult, isLoading: companiesLoading } = useCompanies();
@@ -116,7 +126,7 @@ export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelin
       onDealCreate={handleDealCreate}
       pipelineId={pipelineId}
       pipelineName={pipelineName}
-      initialSettings={DEFAULT_PIPELINE_SETTINGS}
+      initialSettings={initialSettings}
     />
   );
 }

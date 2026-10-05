@@ -19,18 +19,39 @@ import { Button } from '@weldsuite/ui/components/button';
  * does not reset itself.
  */
 
+function isValidWebsiteValue(raw: string): boolean {
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return url.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
 const schema = z
   .object({
     name: z.string().min(1, 'Name is required').max(255),
     email: z.string().email().optional().or(z.literal('')),
-    website: z.string().optional().or(z.literal('')),
+    website: z
+      .string()
+      .optional()
+      .or(z.literal(''))
+      .refine((v) => !v || isValidWebsiteValue(v), {
+        message: 'Must be a valid URL (e.g. acme.com or https://acme.com)',
+      }),
     industry: z.string().optional().or(z.literal('')),
     tradingName: z.string().optional().or(z.literal('')),
     registrationNumber: z.string().optional().or(z.literal('')),
     vatNumber: z.string().optional().or(z.literal('')),
     phone: z.string().optional().or(z.literal('')),
     mobile: z.string().optional().or(z.literal('')),
-    employeeCount: z.string().optional().or(z.literal('')),
+    employeeCount: z
+      .string()
+      .optional()
+      .or(z.literal(''))
+      .refine((v) => !v || /^\d+(-\d+)?\+?$/.test(v), {
+        message: 'Must be a number or a range (e.g. 42 or 11-50)',
+      }),
     customFields: z.record(z.string()).optional(),
   })
   .passthrough();
@@ -91,6 +112,12 @@ export function QuickAddCompanyForm({ initialName, onCreated, onCancel }: Readon
 
       {form.formState.errors.name && (
         <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
+      )}
+      {form.formState.errors.website && (
+        <p className="text-xs text-destructive">{form.formState.errors.website.message}</p>
+      )}
+      {form.formState.errors.employeeCount && (
+        <p className="text-xs text-destructive">{form.formState.errors.employeeCount.message}</p>
       )}
 
       <DialogFooter>

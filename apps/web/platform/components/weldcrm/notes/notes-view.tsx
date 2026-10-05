@@ -38,6 +38,7 @@ import {
 } from '@/hooks/queries/use-notes-queries';
 import { toast } from 'sonner';
 import { RecordSelectionModal, type SelectableRecord, type RecordKind } from '@/components/objects/_shared/record-selection-modal';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useObjectPanel } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useUser } from '@clerk/clerk-react';
@@ -462,6 +463,8 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [showRecordSelection, setShowRecordSelection] = useState(false);
+  const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
+  const [isDeletingNote, setIsDeletingNote] = useState(false);
 
   // Auto-open new-note flow when ?new=1 is present (e.g. from onboarding checklist)
   useEffect(() => {
@@ -550,7 +553,11 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
         sortOrder: 5,
         filter: (n) => {
           const d = new Date(n.createdAt);
-          return isThisYear(d) && !isThisMonth(d);
+          // A date can be outside the current month (e.g. Sep 29 when today
+          // is Oct 5) while still falling in the current ISO week — without
+          // excluding isThisWeek too, that note matched both "this week" and
+          // "this year" and was listed twice.
+          return isThisYear(d) && !isThisMonth(d) && !isThisWeek(d, { weekStartsOn: 1 });
         },
       },
       {
@@ -653,6 +660,24 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
       toast.error(t('sweep.weldcrm.notesView.failedToDeleteNote'));
     }
   }, [deleteNoteMutation, t]);
+
+  // All delete entry points (row menu, bulk/list delete, the editor dialog's
+  // delete action) go through this instead of calling handleDelete directly,
+  // so a note is never removed without the user confirming first.
+  const requestDelete = useCallback((noteId: string) => {
+    setNoteToDelete(noteId);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!noteToDelete) return;
+    setIsDeletingNote(true);
+    try {
+      await handleDelete(noteToDelete);
+      setNoteToDelete(null);
+    } finally {
+      setIsDeletingNote(false);
+    }
+  }, [noteToDelete, handleDelete]);
 
   const handleToggleFavorite = useCallback(async (noteId: string) => {
     const current = notes.find((n) => n.id === noteId);
@@ -798,7 +823,7 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={(e) => { e.stopPropagation(); handleDelete(note.id); }}
+              onClick={(e) => { e.stopPropagation(); requestDelete(note.id); }}
               className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
             >
               <Trash2 className="mr-0.5 h-4 w-4 text-red-500" />
@@ -808,7 +833,7 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
         </DropdownMenu>
       </div>
     </div>
-  ), [openEditDialog, handleDelete, handleToggleFavorite, openPanel, t]);
+  ), [openEditDialog, requestDelete, handleToggleFavorite, openPanel, t]);
 
   // Header column definitions
   const headerColumns: HeaderColumn[] = useMemo(() => [
@@ -839,7 +864,7 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
         groups={groupConfigs}
         maxFilters={3}
         applyFilters={applyFilters}
-        onDeleteItem={(id) => handleDelete(id)}
+        onDeleteItem={(id) => requestDelete(id)}
         renderRow={renderNoteRow}
         searchPlaceholder={t('sweep.weldcrm.notesView.searchPlaceholder')}
         searchFields={['content']}
@@ -899,9 +924,21 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
               }}
               onDelete={() => {
                 if (selectedNote) {
-                  handleDelete(selectedNote.id);
+                  requestDelete(selectedNote.id);
                 }
               }}
+            />
+            <ConfirmDialog
+              open={!!noteToDelete}
+              onOpenChange={(open) => {
+                if (!open) setNoteToDelete(null);
+              }}
+              title={t('sweep.weldcrm.notesView.deleteNoteTitle')}
+              description={t('sweep.weldcrm.notesView.deleteNoteDescription')}
+              variant="destructive"
+              confirmLabel={t('sweep.weldcrm.notesView.delete')}
+              loading={isDeletingNote}
+              onConfirm={confirmDelete}
             />
             <RecordSelectionModal
               open={showRecordSelection}

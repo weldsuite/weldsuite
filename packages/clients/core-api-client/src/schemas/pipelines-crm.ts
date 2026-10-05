@@ -8,11 +8,14 @@ import { z } from 'zod';
 
 export const createPipelineSchema = z.object({
   name: z.string().min(1).max(255),
-  description: z.string().max(1000).optional(),
-  icon: z.string().max(100).optional(),
-  color: z.string().max(50).optional(),
-  template: z.string().max(100).optional(),
-  settings: z.unknown().optional(),
+  // Export/duplicate round-trips a pipeline's own nullable columns (e.g. an
+  // unset description) straight back into this schema, so these accept
+  // `null` as well as `undefined`, not just a missing field.
+  description: z.string().max(1000).nullish(),
+  icon: z.string().max(100).nullish(),
+  color: z.string().max(50).nullish(),
+  template: z.string().max(100).nullish(),
+  settings: z.unknown().nullish(),
   isDefault: z.boolean().optional(),
 });
 

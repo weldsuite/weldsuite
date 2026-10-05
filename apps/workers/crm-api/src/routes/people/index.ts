@@ -236,6 +236,12 @@ app.post(
       });
       return success(c, created, 201);
     } catch (err) {
+      if (err instanceof peopleService.PersonDuplicateEmailError) {
+        return error.conflict(c, err.message, { existingPersonId: err.existingPersonId });
+      }
+      if (err instanceof peopleService.InvalidMemberIdError) {
+        return error.badRequest(c, err.message, { field: err.field });
+      }
       console.error('[app-api/people] create failed:', err);
       return error.internal(c, 'Failed to create person');
     }
@@ -275,6 +281,9 @@ app.patch(
     } catch (err) {
       if (err instanceof peopleService.PersonVersionConflictError) {
         return error.conflict(c, err.message);
+      }
+      if (err instanceof peopleService.InvalidMemberIdError) {
+        return error.badRequest(c, err.message, { field: err.field });
       }
       console.error('[app-api/people] update failed:', err);
       return error.internal(c, 'Failed to update person');
@@ -429,6 +438,9 @@ app.post(
       }
       return success(c, { updated: result.updated, failed: result.failed });
     } catch (err) {
+      if (err instanceof peopleService.InvalidMemberIdError) {
+        return error.badRequest(c, err.message, { field: err.field });
+      }
       console.error('[app-api/people] bulk-update failed:', err);
       return error.internal(c, 'Failed to bulk-update people');
     }

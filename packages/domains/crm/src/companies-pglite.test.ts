@@ -159,6 +159,22 @@ describe('companies service · pglite integration', () => {
     const ownerA = 'user_scope_a';
     const ownerB = 'user_scope_b';
 
+    // createCompany/updateCompany/bulkUpdateCompanies now validate ownerId
+    // against workspace_members (TASK-914) — seed both test owners as real
+    // members so the ownership-scope assertions below still exercise the
+    // scoping logic rather than tripping the new validation.
+    beforeAll(async () => {
+      const { workspaceMembers } = schema;
+      for (const userId of [ownerA, ownerB]) {
+        await db.insert(workspaceMembers).values({
+          id: `wm_${userId}`,
+          userId,
+          name: userId,
+          role: 'MEMBER',
+        });
+      }
+    });
+
     it('listCompanies with ownerScope only returns owned rows', async () => {
       await createCompany(db, { name: 'Scope A Co', ownerId: ownerA });
       await createCompany(db, { name: 'Scope B Co', ownerId: ownerB });

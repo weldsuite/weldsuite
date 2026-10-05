@@ -36,6 +36,11 @@ export const listFilesQuery = z.object({
   folderId: z.string().optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
+  // Filter to files attached to a specific CRM/other record (e.g. a WeldCRM
+  // company or person panel's Files tab), via the `files.entityType` +
+  // `files.entityId` columns. Both must be set together.
+  entityType: z.string().optional(),
+  entityId: z.string().optional(),
 });
 
 export const createFileSchema = z.object({

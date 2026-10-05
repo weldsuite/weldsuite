@@ -155,3 +155,32 @@ export function useCreatePipelineStage() {
     },
   });
 }
+
+export function useUpdatePipelineStage() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<PipelineStage> }) => {
+      const client = await getClient();
+      const res = await client.patch<DetailResponse<PipelineStage>>(`/pipeline-stages/${id}`, data);
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: pipelineKeys.stages() });
+    },
+  });
+}
+
+export function useDeletePipelineStage() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      await client.delete<void>(`/pipeline-stages/${id}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: pipelineKeys.stages() });
+    },
+  });
+}

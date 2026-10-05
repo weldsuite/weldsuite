@@ -8,7 +8,7 @@ import {
   GridSelectionBar,
   GridPagination,
 } from './components';
-import { EntityGridProps } from './types';
+import { EntityGridProps, GridSortConfig } from './types';
 
 export function EntityGrid<TEntity>({
   config,
@@ -37,6 +37,27 @@ export function EntityGrid<TEntity>({
   useEffect(() => {
     setSearchValue(searchParams?.search || '');
   }, [searchParams?.search]);
+
+  // Sort — synced to the `sort`/`sortDir` URL params the same way search is,
+  // so a paginated grid (which only ever holds one fetched page) can ask its
+  // caller to re-fetch the whole result set in the new order rather than
+  // reordering just the visible rows.
+  const sortField = searchParams?.sort || null;
+  const sortDirection = (searchParams?.sortDir as 'asc' | 'desc' | undefined) || null;
+  const initialSort: GridSortConfig = { field: sortField, direction: sortField ? sortDirection : null };
+
+  const handleSortChange = useCallback((sort: GridSortConfig) => {
+    const params = new URLSearchParams(searchParamsHook?.toString() || '');
+    if (sort.field) {
+      params.set('sort', sort.field);
+      if (sort.direction) params.set('sortDir', sort.direction);
+      else params.delete('sortDir');
+    } else {
+      params.delete('sort');
+      params.delete('sortDir');
+    }
+    router.push(`?${params.toString()}`);
+  }, [router, searchParamsHook]);
 
   // Debounced search that updates URL params
   const handleSearchChange = useCallback((value: string) => {
@@ -82,6 +103,8 @@ export function EntityGrid<TEntity>({
       actions={actions}
       entities={entities}
       pagination={pagination}
+      initialSort={initialSort}
+      onSortChange={handleSortChange}
     >
       <div
         data-testid="entity-grid"
@@ -98,7 +121,10 @@ export function EntityGrid<TEntity>({
             createButtonLabel={`New ${config.entityName.toLowerCase()}`}
             searchValue={searchValue}
             onSearchChange={hideToolbarSearch ? undefined : handleSearchChange}
-            searchPlaceholder={`Search ${config.entityName.toLowerCase()}s...`}
+            // Use the config's own plural (e.g. "Companies", "People")
+            // rather than naively appending "s" to the singular name, which
+            // mangled irregular plurals ("Search companys...").
+            searchPlaceholder={`Search ${(config.entityNamePlural || `${config.entityName}s`).toLowerCase()}...`}
             hideFilter={hideToolbarFilter}
             extraActions={toolbarActions}
           />
