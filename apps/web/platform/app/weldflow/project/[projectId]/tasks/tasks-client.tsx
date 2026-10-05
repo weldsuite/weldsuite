@@ -1657,7 +1657,7 @@ export function TasksClient({
         <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
+              <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
                 {task.dueDate ? (
                   <span className="font-mono text-gray-600 dark:text-muted-foreground">{formatDateShort(task.dueDate)}</span>
                 ) : (
@@ -1695,7 +1695,7 @@ export function TasksClient({
               <Button
                 variant="ghost"
                 className={cn(
-                  'cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded-[6px] pl-0.5 py-0.5 transition-shadow',
+                  'h-auto cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded-[6px] pl-0.5 py-0.5 transition-shadow',
                   // When multiple avatars are stacked (no name shown), match the left-side padding
                   task.assignees && task.assignees.length > 1 ? 'pr-0.5' : 'pr-1.5',
                 )}
