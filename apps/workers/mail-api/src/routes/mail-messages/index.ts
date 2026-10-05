@@ -98,6 +98,10 @@ const forwardBody = z.object({
   body: z.string().optional(),
   htmlBody: z.string().optional(),
   attachments: z.array(forwardAttachmentSchema).optional(),
+  excludeAttachmentIds: z.array(z.string()).max(100).optional(),
+  asAttachment: z.boolean().optional(),
+  timeZone: z.string().max(64).optional(),
+  locale: z.string().max(35).optional(),
 });
 
 // ---------------------------------------------------------------------------

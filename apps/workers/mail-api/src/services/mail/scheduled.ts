@@ -25,6 +25,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
+import { looksLikeHtml, plainTextBody } from '@weldsuite/mail-domain/text';
 import { sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput } from '@weldsuite/mail-domain/send';
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
@@ -115,8 +116,11 @@ export async function scheduleEmail(
   const smtpMessageId = `<${messageId}@scheduled.weldsuite.org>`;
   const now = new Date();
   // Sanitize before storing; the delivery workflow re-sends this stored copy.
-  const htmlBody = sanitizeEmailHtml(data.htmlBody) || undefined;
-  const textPreview = (data.body || (htmlBody ?? '').replace(/<[^>]*>/g, '')).slice(0, 200);
+  // Same body rules as an immediate send (see @weldsuite/mail-domain/text).
+  const rawHtml = data.htmlBody ?? (data.body && looksLikeHtml(data.body) ? data.body : undefined);
+  const htmlBody = sanitizeEmailHtml(rawHtml) || undefined;
+  const textBody = plainTextBody(data.body, htmlBody);
+  const textPreview = (textBody ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
 
   await db.insert(mailMessages).values({
     id: messageId,
@@ -129,7 +133,7 @@ export async function scheduleEmail(
     bcc: data.bcc?.map((email) => ({ email })),
     subject: data.subject || '(No subject)',
     preview: textPreview,
-    textBody: data.body,
+    textBody,
     htmlBody,
     sentDate: now,
     isRead: true,

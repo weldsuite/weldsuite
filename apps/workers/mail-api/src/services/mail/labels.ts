@@ -14,6 +14,7 @@
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { generateId } from '@weldsuite/worker-kit/id';
 
 const { mailMessages, mailLabels } = schema;
@@ -31,6 +32,7 @@ export const SYSTEM_LABELS = {
   SNOOZED: 'SNOOZED',
   SCHEDULED: 'SCHEDULED',
   PROMOTIONS: 'PROMOTIONS',
+  PINNED: 'PINNED',
 } as const;
 
 export type SystemLabel = (typeof SYSTEM_LABELS)[keyof typeof SYSTEM_LABELS];
@@ -48,6 +50,7 @@ const SLUG_TO_SYSTEM_LABEL: Record<string, string> = {
   snoozed: 'SNOOZED',
   scheduled: 'SCHEDULED',
   promotions: 'PROMOTIONS',
+  pinned: 'PINNED',
 };
 
 export function isSystemLabelSlug(slug: string): boolean {
@@ -58,26 +61,138 @@ export function toSystemLabel(slug: string): string | null {
   return SLUG_TO_SYSTEM_LABEL[slug.toLowerCase()] ?? null;
 }
 
+/** The value a label is stored as: system slugs upper-cased, user labels as typed. */
+export function normalizeLabel(label: string): string {
+  return toSystemLabel(label) ?? label;
+}
+
+/**
+ * Where a message lives. A message sits in at most one of these, so trashing,
+ * archiving or marking spam takes it out of the inbox instead of adding a
+ * second folder (Gmail-style location labels).
+ */
+export const LOCATION_LABELS = ['INBOX', 'ARCHIVE', 'TRASH', 'SPAM'] as const;
+export type LocationLabel = (typeof LOCATION_LABELS)[number];
+
+export function isLocationLabel(label: string): label is LocationLabel {
+  return (LOCATION_LABELS as readonly string[]).includes(label);
+}
+
+/**
+ * Labels a move to any location clears: the other locations, the promotions
+ * tab, and a pending snooze (a snoozed mail that is trashed must not wake up
+ * in the inbox).
+ */
+const CLEARED_BY_MOVE: readonly string[] = [...LOCATION_LABELS, 'PROMOTIONS', 'SNOOZED'];
+
+/** Mail the mailbox sent or is still writing; a restore never puts it in the inbox. */
+const OUTGOING_LABELS: readonly string[] = ['SENT', 'DRAFT', 'DRAFTS', 'SCHEDULED'];
+
+function hasLabel(label: string): SQL {
+  return sql`${mailMessages.labels} @> ${JSON.stringify([label])}::jsonb`;
+}
+
+/** Messages in the trash or in spam: left out of every other folder listing. */
+export function inTrashOrSpamCondition(): SQL {
+  return sql`(COALESCE(${mailMessages.labels}, '[]'::jsonb) @> '["TRASH"]'::jsonb OR COALESCE(${mailMessages.labels}, '[]'::jsonb) @> '["SPAM"]'::jsonb)`;
+}
+
 /**
  * JSONB containment predicate — matches messages whose `labels` array
  * holds the given label. Accepts both system slugs (resolved up-case) and
  * raw user labels.
+ *
+ * A user label is matched by the names in `customNames` as well, which is how
+ * the `/invoices` folder finds messages labelled `Invoices`
+ * (see `resolveCustomLabelNames`). Starred and important also accept the
+ * boolean column, for mail flagged before the label and the column were kept
+ * in step.
  */
-export function labelCondition(labelSlug: string) {
+export function labelCondition(labelSlug: string, customNames: string[] = []): SQL {
   const systemLabel = toSystemLabel(labelSlug);
-  const label = systemLabel ?? labelSlug;
-  return sql`${mailMessages.labels} @> ${JSON.stringify([label])}::jsonb`;
+  if (systemLabel === SYSTEM_LABELS.STARRED) {
+    return sql`(${hasLabel(systemLabel)} OR ${mailMessages.isStarred} = true)`;
+  }
+  if (systemLabel === SYSTEM_LABELS.IMPORTANT) {
+    return sql`(${hasLabel(systemLabel)} OR ${mailMessages.isImportant} = true)`;
+  }
+  if (systemLabel) return hasLabel(systemLabel);
+
+  const names = [...new Set([labelSlug, ...customNames])];
+  if (names.length === 1) return hasLabel(names[0]!);
+  return sql`(${sql.join(names.map(hasLabel), sql` OR `)})`;
 }
 
+/**
+ * The stored label names a non-system slug stands for. Folder links carry the
+ * label name lower-cased while messages carry it as typed, so the slug is
+ * matched against `mail_labels` case-insensitively (label names are unique per
+ * account that way). Empty for system slugs.
+ */
+export async function resolveCustomLabelNames(
+  db: Database,
+  labelSlug: string,
+  accountId?: string,
+): Promise<string[]> {
+  if (toSystemLabel(labelSlug)) return [];
+  const conditions: SQL[] = [
+    isNull(mailLabels.deletedAt)!,
+    sql`LOWER(${mailLabels.name}) = LOWER(${labelSlug})`,
+  ];
+  if (accountId) conditions.push(eq(mailLabels.accountId, accountId));
+  const rows = await db
+    .selectDistinct({ name: mailLabels.name })
+    .from(mailLabels)
+    .where(and(...conditions));
+  return rows.map((r) => r.name);
+}
+
+/**
+ * Add labels the way every write path must: system slugs normalised, no
+ * duplicates, and a location label replacing the previous location.
+ */
 export function addLabels(existing: string[] | null, ...labels: string[]): string[] {
-  const set = new Set(existing ?? []);
-  for (const l of labels) set.add(l);
-  return Array.from(set);
+  let next = [...new Set(existing ?? [])];
+  for (const raw of labels) {
+    const label = normalizeLabel(raw);
+    if (isLocationLabel(label)) next = next.filter((l) => !CLEARED_BY_MOVE.includes(l));
+    if (!next.includes(label)) next.push(label);
+  }
+  return next;
 }
 
 export function removeLabels(existing: string[] | null, ...labels: string[]): string[] {
-  const toRemove = new Set(labels);
+  const toRemove = new Set(labels.map(normalizeLabel));
   return (existing ?? []).filter((l) => !toRemove.has(l));
+}
+
+/** The boolean columns on `mail_messages` that mirror a system label. */
+export interface LabelFlags {
+  isStarred?: boolean;
+  isImportant?: boolean;
+  isTrash?: boolean;
+  isSpam?: boolean;
+}
+
+/**
+ * The flag columns to write alongside a label change, for the labels it
+ * touched only: starring sets `isStarred`, a move sets `isTrash` / `isSpam` to
+ * match the new location. Untouched flags are left alone.
+ */
+export function flagsForLabelChange(labels: string[], action: 'add' | 'remove'): LabelFlags {
+  const flags: LabelFlags = {};
+  const on = action === 'add';
+  for (const raw of labels) {
+    const label = normalizeLabel(raw);
+    if (label === SYSTEM_LABELS.STARRED) flags.isStarred = on;
+    else if (label === SYSTEM_LABELS.IMPORTANT) flags.isImportant = on;
+    else if (on && isLocationLabel(label)) {
+      flags.isTrash = label === SYSTEM_LABELS.TRASH;
+      flags.isSpam = label === SYSTEM_LABELS.SPAM;
+    } else if (label === SYSTEM_LABELS.TRASH) flags.isTrash = false;
+    else if (label === SYSTEM_LABELS.SPAM) flags.isSpam = false;
+  }
+  return flags;
 }
 
 // ===========================================================================
@@ -126,7 +241,19 @@ export interface CreateMailLabelInput {
   aiConfidence?: number;
 }
 
+/**
+ * A user label may not take a system folder's name in any casing: `starred`
+ * on a message always means the system label, so a custom "Starred" could
+ * never be told apart from it.
+ */
+function assertNotReservedName(name: string): void {
+  if (isSystemLabelSlug(name.trim())) {
+    throw new MailLabelError('DUPLICATE_NAME', 'This name is reserved for a system folder');
+  }
+}
+
 export async function createMailLabel(db: Database, data: CreateMailLabelInput) {
+  assertNotReservedName(data.name);
   // Case-insensitive duplicate check within the account.
   const [existing] = await db
     .select({ id: mailLabels.id })
@@ -194,6 +321,7 @@ async function assertLabelNameAvailable(
   id: string,
   name: string,
 ): Promise<void> {
+  assertNotReservedName(name);
   const [collision] = await db
     .select({ id: mailLabels.id })
     .from(mailLabels)
@@ -225,30 +353,46 @@ export async function updateMailLabel(
 
   if (existing.isSystem) assertSystemLabelPatchAllowed(data);
 
-  const renamed = Boolean(data.name) && data.name !== existing.name;
-  if (data.name && renamed) await assertLabelNameAvailable(db, existing, id, data.name);
+  const newName = data.name && data.name !== existing.name ? data.name : null;
+  if (newName) await assertLabelNameAvailable(db, existing, id, newName);
 
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   for (const [k, v] of Object.entries(data)) if (v !== undefined) patch[k] = v;
-  await db
-    .update(mailLabels)
-    .set(patch as typeof mailLabels.$inferInsert)
-    .where(eq(mailLabels.id, id));
 
-  // If the label was renamed, rewrite every message's JSONB labels array so
-  // the rename is visible without rebuilding the index. Single SQL pass.
-  if (data.name && renamed) {
-    await db.execute(sql`
-      UPDATE mail_messages
-      SET labels = (
-        SELECT jsonb_agg(CASE WHEN value = ${existing.name} THEN to_jsonb(${data.name}::text) ELSE value END)
-        FROM jsonb_array_elements(labels)
-      )
-      WHERE account_id = ${existing.accountId}
-        AND labels @> ${JSON.stringify([existing.name])}::jsonb
-        AND deleted_at IS NULL
-    `);
-  }
+  // A rename rewrites the label row and every message carrying the old name as
+  // one unit: a label that is renamed but still stored under its old name on
+  // its messages has lost all of them.
+  await atomically(db, (handle) => {
+    const statements: unknown[] = [
+      handle
+        .update(mailLabels)
+        .set(patch as typeof mailLabels.$inferInsert)
+        .where(eq(mailLabels.id, id)),
+    ];
+    if (newName) {
+      statements.push(
+        handle
+          .update(mailMessages)
+          .set({
+            // `value` is a jsonb element, so the old name is compared as jsonb
+            // too: a bare text parameter is not valid JSON and fails the cast.
+            labels: sql`(
+              SELECT jsonb_agg(CASE WHEN value = to_jsonb(${existing.name}::text) THEN to_jsonb(${newName}::text) ELSE value END)
+              FROM jsonb_array_elements(${mailMessages.labels})
+            )`,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(mailMessages.accountId, existing.accountId),
+              hasLabel(existing.name),
+              isNull(mailMessages.deletedAt),
+            ),
+          ),
+      );
+    }
+    return statements;
+  });
 
   const [after] = await db.select().from(mailLabels).where(eq(mailLabels.id, id));
   return { before: existing, after: after! };
@@ -286,10 +430,56 @@ export async function deleteMailLabel(db: Database, id: string) {
 // Bulk apply / unapply against mail_messages.labels (JSONB)
 // ===========================================================================
 
+function textArray(values: readonly string[]): SQL {
+  return sql`ARRAY[${sql.join(values.map((v) => sql`${v}`), sql`, `)}]::text[]`;
+}
+
+/**
+ * Move messages to one location in a single statement: every other location
+ * label (and PROMOTIONS / SNOOZED) is dropped, the new one is added once, and
+ * `is_trash` / `is_spam` follow it. Moving to the inbox puts sent, scheduled
+ * and draft copies back where they were instead of listing them as received
+ * mail.
+ */
+export async function moveMessagesToLocation(
+  db: Database,
+  messageIds: string[],
+  location: LocationLabel,
+): Promise<{ affected: number; accountIds: string[] }> {
+  if (messageIds.length === 0) return { affected: 0, accountIds: [] };
+  const cleared = sql`(COALESCE(${mailMessages.labels}, '[]'::jsonb) - ${textArray(CLEARED_BY_MOVE)})`;
+  const target = sql`${JSON.stringify([location])}::jsonb`;
+  const isOutgoing = sql.join(
+    OUTGOING_LABELS.map((l) => sql`${cleared} @> ${JSON.stringify([l])}::jsonb`),
+    sql` OR `,
+  );
+  const nextLabels =
+    location === SYSTEM_LABELS.INBOX
+      ? sql`CASE WHEN ${isOutgoing} THEN ${cleared} ELSE ${cleared} || ${target} END`
+      : sql`${cleared} || ${target}`;
+
+  const rows = await db
+    .update(mailMessages)
+    .set({
+      labels: nextLabels,
+      isTrash: location === SYSTEM_LABELS.TRASH,
+      isSpam: location === SYSTEM_LABELS.SPAM,
+      snoozedUntil: null,
+      updatedAt: new Date(),
+    })
+    .where(and(inArray(mailMessages.id, messageIds), isNull(mailMessages.deletedAt)))
+    .returning({ accountId: mailMessages.accountId });
+  return { affected: rows.length, accountIds: [...new Set(rows.map((r) => r.accountId))] };
+}
+
 /**
  * Append `labelName` to every message's labels JSONB array — but only on
  * rows where it isn't already present. Returns the count of affected rows
  * plus the set of accountIds touched, so the caller can bump label counts.
+ *
+ * System slugs are normalised (`starred` → `STARRED`), the mirrored flag
+ * column is written with the label, and a location label is a move (see
+ * `moveMessagesToLocation`).
  */
 export async function bulkAddLabelToMessages(
   db: Database,
@@ -297,22 +487,26 @@ export async function bulkAddLabelToMessages(
   messageIds: string[],
 ): Promise<{ affected: number; accountIds: string[] }> {
   if (messageIds.length === 0) return { affected: 0, accountIds: [] };
+  const label = normalizeLabel(labelName);
+  if (isLocationLabel(label)) return moveMessagesToLocation(db, messageIds, label);
+
   const rows = await db
     .update(mailMessages)
     .set({
-      labels: sql`COALESCE(${mailMessages.labels}, '[]'::jsonb) || ${JSON.stringify([labelName])}::jsonb`,
+      labels: sql`COALESCE(${mailMessages.labels}, '[]'::jsonb) || ${JSON.stringify([label])}::jsonb`,
+      ...flagsForLabelChange([label], 'add'),
       updatedAt: new Date(),
     })
     .where(
       and(
         inArray(mailMessages.id, messageIds),
         isNull(mailMessages.deletedAt),
-        sql`NOT COALESCE(${mailMessages.labels}, '[]'::jsonb) @> ${JSON.stringify([labelName])}::jsonb`,
+        sql`NOT COALESCE(${mailMessages.labels}, '[]'::jsonb) @> ${JSON.stringify([label])}::jsonb`,
       ),
     )
     .returning({ accountId: mailMessages.accountId });
   const accountIds = [...new Set(rows.map((r) => r.accountId))];
-  await updateLabelMessageCount(db, labelName, accountIds, rows.length);
+  await updateLabelMessageCount(db, label, accountIds, rows.length);
   return { affected: rows.length, accountIds };
 }
 
@@ -322,22 +516,33 @@ export async function bulkRemoveLabelFromMessages(
   messageIds: string[],
 ): Promise<{ affected: number; accountIds: string[] }> {
   if (messageIds.length === 0) return { affected: 0, accountIds: [] };
+  const label = normalizeLabel(labelName);
+  // Starred / important may live on the column alone (mail flagged before the
+  // label and the column were kept in step), so those rows are un-flagged too.
+  const flagColumn =
+    label === SYSTEM_LABELS.STARRED
+      ? mailMessages.isStarred
+      : label === SYSTEM_LABELS.IMPORTANT
+        ? mailMessages.isImportant
+        : null;
+  const carriesLabel = sql`COALESCE(${mailMessages.labels}, '[]'::jsonb) @> ${JSON.stringify([label])}::jsonb`;
   const rows = await db
     .update(mailMessages)
     .set({
-      labels: sql`COALESCE(${mailMessages.labels}, '[]'::jsonb) - ${labelName}::text`,
+      labels: sql`COALESCE(${mailMessages.labels}, '[]'::jsonb) - ${label}::text`,
+      ...flagsForLabelChange([label], 'remove'),
       updatedAt: new Date(),
     })
     .where(
       and(
         inArray(mailMessages.id, messageIds),
         isNull(mailMessages.deletedAt),
-        sql`COALESCE(${mailMessages.labels}, '[]'::jsonb) @> ${JSON.stringify([labelName])}::jsonb`,
+        flagColumn ? sql`(${carriesLabel} OR ${flagColumn} = true)` : carriesLabel,
       ),
     )
     .returning({ accountId: mailMessages.accountId });
   const accountIds = [...new Set(rows.map((r) => r.accountId))];
-  await updateLabelMessageCount(db, labelName, accountIds, -rows.length);
+  await updateLabelMessageCount(db, label, accountIds, -rows.length);
   return { affected: rows.length, accountIds };
 }
 
@@ -346,10 +551,9 @@ export async function bulkRemoveLabelFromMessages(
  * the count of messages whose JSONB array changed.
  *
  * System slugs are normalised (`archive` → `ARCHIVE`) so callers can
- * pass either form. Adding `ARCHIVE` also strips `INBOX` (and adding
- * `INBOX` strips `ARCHIVE` and `PROMOTIONS`) so a conversation cannot sit
- * in the inbox and the archive or promotions at once — Gmail-style
- * location labels.
+ * pass either form. Adding a location label (`INBOX`, `ARCHIVE`, `TRASH`,
+ * `SPAM`) moves the conversation there, so it cannot sit in the inbox and
+ * the trash at once — Gmail-style location labels.
  */
 export async function applyLabelToThread(
   db: Database,
@@ -358,7 +562,6 @@ export async function applyLabelToThread(
   labelName: string,
   action: 'add' | 'remove',
 ): Promise<{ affected: number }> {
-  const normalized = toSystemLabel(labelName) ?? labelName;
   const messages = await db
     .select({ id: mailMessages.id })
     .from(mailMessages)
@@ -371,20 +574,11 @@ export async function applyLabelToThread(
     );
   if (messages.length === 0) return { affected: 0 };
   const ids = messages.map((m) => m.id);
-  if (action === 'add') {
-    const added = await bulkAddLabelToMessages(db, normalized, ids);
-    let affected = added.affected;
-    if (normalized === SYSTEM_LABELS.ARCHIVE) {
-      const removed = await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.INBOX, ids);
-      affected = Math.max(affected, removed.affected);
-    } else if (normalized === SYSTEM_LABELS.INBOX) {
-      await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.ARCHIVE, ids);
-      await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.PROMOTIONS, ids);
-    }
-    return { affected };
-  }
-  const removed = await bulkRemoveLabelFromMessages(db, normalized, ids);
-  return { affected: removed.affected };
+  const result =
+    action === 'add'
+      ? await bulkAddLabelToMessages(db, labelName, ids)
+      : await bulkRemoveLabelFromMessages(db, labelName, ids);
+  return { affected: result.affected };
 }
 
 async function updateLabelMessageCount(
@@ -399,7 +593,7 @@ async function updateLabelMessageCount(
     SET message_count = GREATEST(0, message_count + ${delta}),
         updated_at = NOW()
     WHERE name = ${labelName}
-      AND account_id = ANY(ARRAY[${sql.join(accountIds.map((id) => sql`${id}`), sql`, `)}]::text[])
+      AND account_id = ANY(${textArray(accountIds)})
       AND deleted_at IS NULL
   `);
 }

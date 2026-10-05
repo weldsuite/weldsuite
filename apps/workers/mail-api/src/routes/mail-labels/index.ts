@@ -111,6 +111,14 @@ const threadsQuery = z.object({
   labelSlug: z.string().min(1),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  search: z.string().max(200).optional(),
+  from: z.string().max(200).optional(),
+  to: z.string().max(200).optional(),
+  subject: z.string().max(200).optional(),
+  hasAttachment: z
+    .string()
+    .transform((v) => v === 'true')
+    .optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -150,6 +158,11 @@ app.get(
         labelSlug: q.labelSlug,
         page: q.page,
         pageSize: q.pageSize,
+        search: q.search,
+        from: q.from,
+        to: q.to,
+        subject: q.subject,
+        hasAttachment: q.hasAttachment,
       });
       return success(c, result);
     } catch (err) {
