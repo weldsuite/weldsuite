@@ -108,6 +108,20 @@ describe('mergeRejoin', () => {
     expect(merged.stints).toBeUndefined();
   });
 
+  it('records the latest join and carries the tracked connections, with or without a recorded leave', () => {
+    const tracked = { ...base, peerIds: ['peer_old'] };
+    const sameStint = mergeRejoin(tracked, rejoin());
+    expect(sameStint).toMatchObject({
+      joinedAt: '2026-10-02T10:00:00.000Z',
+      lastJoinAt: '2026-10-02T10:30:00.000Z',
+      peerIds: ['peer_old'],
+    });
+
+    const newStint = mergeRejoin({ ...tracked, leftAt: '2026-10-02T10:10:00.000Z' }, rejoin());
+    expect(newStint).toMatchObject({ lastJoinAt: '2026-10-02T10:30:00.000Z', peerIds: ['peer_old'] });
+    expect(mergeRejoin(base, rejoin()).peerIds).toBeUndefined();
+  });
+
   it('never adds a negative stint', () => {
     const prev = { ...base, leftAt: '2026-10-02T09:00:00.000Z' };
     expect(mergeRejoin(prev, rejoin()).priorSeconds).toBe(0);

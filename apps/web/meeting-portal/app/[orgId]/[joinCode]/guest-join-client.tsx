@@ -104,10 +104,13 @@ import { ErrorScreen, EndedScreen, RejectedScreen } from './components/error-scr
 import { GuestMeetingRoom } from './components/guest-meeting-room';
 import { LandingScreen } from './components/landing-screen';
 import type { PermState } from './components/prejoin-media-controls';
-import { ConnectingScreen, LoadingScreen, WaitingScreen } from './components/waiting-screen';
+import { ConnectingScreen, LoadingScreen, ReconnectingNotice, WaitingScreen } from './components/waiting-screen';
 import { WaitlistedScreen } from './components/waitlisted-screen';
 
 type GuestJoinBody = Parameters<typeof guestJoinMeeting>[1];
+
+/** How long a deliberate leave waits for RealtimeKit before telling the backend anyway. */
+const RTK_LEAVE_TIMEOUT_MS = 2_000;
 
 const MEETING_NOT_FOUND_MESSAGE =
   'This meeting link is invalid or no longer exists. Check the link with the person who invited you.';
@@ -164,6 +167,8 @@ export default function GuestJoinClient() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [duration, setDuration] = useState(0);
+  // The connection dropped and the RTK SDK is getting the guest back in.
+  const [reconnecting, setReconnecting] = useState(false);
   // Whether the guest wants their mic on. Survives a browser-level block so
   // the mic comes back by itself once access is allowed again (TASK-713).
   const micWantedRef = useRef(true);
@@ -701,13 +706,23 @@ export default function GuestJoinClient() {
       };
 
       const onRoomJoined = () => {
-        if (isCurrent()) setState('connected');
+        if (!isCurrent()) return;
+        setReconnecting(false);
+        setState('connected');
       };
       const onWaitlisted = () => {
         if (isCurrent()) setState('waitlisted');
       };
       const onRoomLeft = ({ state }: { state?: string }) => {
         if (!isCurrent()) return;
+        // 'disconnected' is not a leave: the connection dropped and the SDK is
+        // already reconnecting (roomJoined fires again once it is back). Keep
+        // the client; dropping it here ended the call on a short network drop.
+        if (state === 'disconnected') {
+          setReconnecting(true);
+          return;
+        }
+        setReconnecting(false);
         // This client is done: handle its first roomLeft only, and drop its
         // listeners so nothing it emits later can touch the UI again.
         detachRtkClient();
@@ -903,11 +918,18 @@ export default function GuestJoinClient() {
       // Stop the local hardware tracks first — RTK's leave() does not reliably
       // release the camera/mic, so the device indicator would otherwise stay on.
       stopLocalMediaTracks(rtkClient);
-      Promise.resolve()
-        .then(() => rtkClient.leave())
-        .catch(() => { /* ignore */ });
+      // Leave the room before telling the backend: it ends the session only
+      // once RealtimeKit reports the room empty. Bounded, so a dead connection
+      // cannot hold up the leave.
+      await Promise.race([
+        Promise.resolve()
+          .then(() => rtkClient.leave())
+          .catch(() => { /* ignore */ }),
+        new Promise((resolve) => setTimeout(resolve, RTK_LEAVE_TIMEOUT_MS)),
+      ]);
     }
     setRtkClient(null);
+    setReconnecting(false);
     releaseNoiseSuppression();
 
     if (meetingId && guestToken) {
@@ -1115,6 +1137,8 @@ export default function GuestJoinClient() {
 
   // Connected
   return (
+    <>
+    {reconnecting && <ReconnectingNotice />}
     <GuestMeetingRoom
       rtkClient={rtkClient}
       meetingTitle={meetingTitle || meetingInfo?.title || ''}
@@ -1134,5 +1158,6 @@ export default function GuestJoinClient() {
       hostControls={hostControls}
       onHostControlsBroadcast={setHostControls}
     />
+    </>
   );
 }

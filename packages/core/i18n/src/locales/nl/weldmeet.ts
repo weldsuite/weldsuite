@@ -62,6 +62,11 @@ export const weldmeet = {
     },
   },
   inCall: {
+    connection: {
+      reconnecting: 'Verbinding verbroken. Opnieuw verbinden…',
+      reconnected: 'Je bent weer in de vergadering',
+      lost: 'Opnieuw verbinden met de vergadering is niet gelukt. Neem opnieuw deel om verder te gaan.',
+    },
     recording: {
       started: 'Opname gestart. Alle deelnemers worden op de hoogte gebracht.',
       startTimedOut: 'De opname is niet op tijd gestart. Probeer het opnieuw.',

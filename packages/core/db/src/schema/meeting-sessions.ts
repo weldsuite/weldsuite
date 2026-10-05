@@ -55,6 +55,21 @@ export interface MeetingSessionParticipant {
   firstJoinedAt?: string;
   priorSeconds?: number;
   stints?: number;
+  /**
+   * When the most recent join token was issued. Set on every rejoin, also one
+   * that keeps `joinedAt` (see {@link mergeRejoin}); absent on a first join,
+   * where it equals `joinedAt`. A RealtimeKit connection that started before
+   * this moment belongs to an earlier join, so its leave must not mark this
+   * entry as left.
+   */
+  lastJoinAt?: string;
+  /**
+   * RealtimeKit peer ids (one per live connection: a tab, a device, or the
+   * connection the SDK re-established after a drop) currently in the room,
+   * kept by the `meeting.participantJoined` / `meeting.participantLeft`
+   * webhooks. The participant has left only when the last one is gone.
+   */
+  peerIds?: string[];
 }
 
 /**
@@ -66,6 +81,10 @@ export interface MeetingSessionParticipant {
  *   join, the previous stint's length is added to `priorSeconds`.
  * - Previous entry never left (reconnect before the leave was recorded): it is
  *   the same stint, so the original `joinedAt` is kept and nothing is added.
+ *
+ * Either way `lastJoinAt` records this join and the connections still tracked
+ * on the previous entry carry over, so the leave of an old connection is
+ * recognised as such instead of evicting the participant who just came back.
  */
 export function mergeRejoin(
   prev: MeetingSessionParticipant | undefined,
@@ -74,9 +93,15 @@ export function mergeRejoin(
   if (!prev) return next;
   const firstJoinedAt = prev.firstJoinedAt ?? prev.joinedAt;
 
+  const carried = {
+    lastJoinAt: next.joinedAt,
+    ...(prev.peerIds?.length ? { peerIds: prev.peerIds } : {}),
+  };
+
   if (!prev.leftAt) {
     return {
       ...next,
+      ...carried,
       joinedAt: prev.joinedAt,
       firstJoinedAt,
       ...(prev.priorSeconds !== undefined ? { priorSeconds: prev.priorSeconds } : {}),
@@ -88,6 +113,7 @@ export function mergeRejoin(
   const stintSeconds = Number.isFinite(stintMs) && stintMs > 0 ? Math.round(stintMs / 1000) : 0;
   return {
     ...next,
+    ...carried,
     firstJoinedAt,
     priorSeconds: (prev.priorSeconds ?? 0) + stintSeconds,
     stints: (prev.stints ?? 1) + 1,

@@ -61,6 +61,11 @@ export const weldmeet = {
     },
   },
   inCall: {
+    connection: {
+      reconnecting: 'Conexión perdida. Reconectando…',
+      reconnected: 'Has vuelto a la reunión',
+      lost: 'No se pudo reconectar a la reunión. Vuelve a unirte para continuar.',
+    },
     recording: {
       started: 'Grabación iniciada. Se notificará a todos los participantes.',
       startTimedOut: 'La grabación no se inició a tiempo. Inténtalo de nuevo.',

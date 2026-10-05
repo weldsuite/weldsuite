@@ -29,6 +29,10 @@
 #   After deploying, re-run POST /api/webhooks/cloudflare-realtime/setup once per
 #   env: it now registers recording.statusUpdate, meeting.transcript and
 #   meeting.summary too (idempotent, replaces the event list).
+#   Also meeting.participantJoined: it is what marks a participant as present
+#   again after the SDK reconnects them. Until /setup has been re-run for an env,
+#   that env keeps the old event list and such a participant shows as "left" in
+#   the attendance list (the meeting itself is not affected).
 #
 # Secrets beyond the base set (same values as app-api). The hand-set ones are in
 # scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
