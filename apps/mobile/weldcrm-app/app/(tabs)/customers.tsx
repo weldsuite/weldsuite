@@ -196,7 +196,7 @@ export default function CustomersScreen() {
   const filteredCustomers = customers.filter(c => matchesCustomerQuery(c, (searchQuery || customerSearch).toLowerCase()));
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, []);
 
   const loadData = useCallback(async () => {
@@ -241,7 +241,7 @@ export default function CustomersScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData();
+    void loadData();
   }, [loadData]);
 
   const openCustomerSelect = (columnId: string) => {
@@ -330,7 +330,7 @@ export default function CustomersScreen() {
   const handleCallCustomer = () => {
     if (actionMenuCustomer?.phone || actionMenuCustomer?.mobile) {
       const phoneNumber = actionMenuCustomer.phone || actionMenuCustomer.mobile;
-      Linking.openURL(`tel:${phoneNumber}`);
+      void Linking.openURL(`tel:${phoneNumber}`);
     } else {
       toast.error('No phone number available');
     }
@@ -339,7 +339,7 @@ export default function CustomersScreen() {
 
   const handleEmailCustomer = () => {
     if (actionMenuCustomer?.email) {
-      Linking.openURL(`mailto:${actionMenuCustomer.email}`);
+      void Linking.openURL(`mailto:${actionMenuCustomer.email}`);
     }
     setIsActionMenuVisible(false);
   };

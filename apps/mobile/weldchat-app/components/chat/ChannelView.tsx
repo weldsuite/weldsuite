@@ -354,7 +354,7 @@ function SwipeableMessage({
 
   const fireHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   const fireReply = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onSwipeReply();
   };
 
@@ -1897,7 +1897,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     setMentionQuery(null);
     setReplyTo(null);
     setPendingFiles([]);
-    clearDraft();
+    void clearDraft();
     onSend();
 
     const tempId = `pending-${randomUUID()}`;
@@ -1973,7 +1973,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
 
   const handleEmojiSelect = useCallback((emoji: string) => {
     if (selectedMessage) {
-      handleReaction(emoji);
+      void handleReaction(emoji);
     } else {
       setInput((prev) => prev + emoji);
     }
@@ -2142,7 +2142,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     setReplyTo(null);
     setInput('');
     setMentionQuery(null);
-    clearDraft();
+    void clearDraft();
     router.push({
       pathname: '/thread/[messageId]',
       params: { messageId: replyTo.rootId, channelId, draft },
@@ -2193,7 +2193,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     // An optimistic row has no server id yet — nothing to act on.
     const onLongPress = () => {
       if (item.pending) return;
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setSelectedMessage(item);
       setShowActions(true);
     };
@@ -2376,7 +2376,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
         saveDraft(text);
       } else {
         // Input cleared — delete the draft
-        clearDraft();
+        void clearDraft();
       }
     }
     setMentionQuery(detectMentionQuery(text));
