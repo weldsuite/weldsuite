@@ -18,6 +18,8 @@ import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
+import { useTranslations } from '@weldsuite/i18n/client';
+import { isApiError } from '@weldsuite/api-client';
 
 interface ChannelCreateDialogProps {
   open: boolean;
@@ -29,7 +31,10 @@ export function ChannelCreateDialog({
   onOpenChange,
 }: Readonly<ChannelCreateDialogProps>) {
   const { t } = useI18n();
+  const st = useTranslations();
   const [name, setName] = useState('');
+  /** Server-side name rejection (duplicate / empty), shown under the field instead of a generic toast. */
+  const [nameError, setNameError] = useState<string | null>(null);
   const [isPrivate, setIsPrivate] = useState(false);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [memberSearch, setMemberSearch] = useState('');
@@ -77,6 +82,7 @@ export function ChannelCreateDialog({
 
   const reset = () => {
     setName('');
+    setNameError(null);
     setIsPrivate(false);
     setSelectedMembers([]);
     setMemberSearch('');
@@ -85,10 +91,12 @@ export function ChannelCreateDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    setNameError(null);
     createChannel(
       {
-        name: name.trim(),
+        name: trimmedName,
         type: isPrivate ? 'private' : 'public',
         memberIds: isPrivate && selectedMembers.length > 0 ? selectedMembers : undefined,
       },
@@ -102,7 +110,17 @@ export function ChannelCreateDialog({
               params: { channelId: data.data.id },
             });
         },
-        onError: () => toast.error(t.weldchat.channelCreate.createFailed),
+        onError: (err) => {
+          // 409 = a channel with this name exists, 400 = the server rejected the
+          // name itself: both belong next to the field.
+          if (isApiError(err) && (err.status === 409 || err.status === 400)) {
+            setNameError(
+              err.message || st('sweep.weldchat.channelCreate.duplicateName'),
+            );
+            return;
+          }
+          toast.error(t.weldchat.channelCreate.createFailed);
+        },
       },
     );
   };
@@ -125,10 +143,20 @@ export function ChannelCreateDialog({
             <Input
               id="channel-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameError(null);
+              }}
               placeholder={t.weldchat.channelCreate.namePlaceholder}
               autoFocus
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? 'channel-name-error' : undefined}
             />
+            {nameError && (
+              <p id="channel-name-error" role="alert" className="text-sm text-destructive">
+                {nameError}
+              </p>
+            )}
           </div>
           <div className="flex items-center justify-between">
             <div>

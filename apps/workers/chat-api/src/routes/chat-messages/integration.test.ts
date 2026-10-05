@@ -230,3 +230,170 @@ describe('/api/chat-messages · inline (Discord-style) replies', () => {
     expect(row.mentions).toBeNull();
   });
 });
+
+describe('/api/chat-messages · thread parent validation', () => {
+  async function seed(channelId: string, values: Partial<typeof schema.chatMessages.$inferInsert> = {}) {
+    const now = new Date();
+    const id = generateId('cmsg');
+    await db.insert(schema.chatMessages).values({
+      id,
+      channelId,
+      authorId: MEMBER,
+      authorName: 'Member',
+      content: 'parent',
+      createdAt: now,
+      updatedAt: now,
+      ...values,
+    });
+    return id;
+  }
+
+  async function postTo(channelId: string, payload: Record<string, unknown>) {
+    const { request } = createTestApp('/api/chat-messages', chatMessagesRoutes, {
+      context: { userId: MEMBER, permissions: permissions('channels:create'), tenantDb: db },
+    });
+    return request('/api/chat-messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId, ...payload }),
+    });
+  }
+
+  it('rejects a parent from another channel and leaves that parent untouched', async () => {
+    const foreignParent = await seed(privateChannelId);
+    const res = await postTo(publicChannelId, { body: 'sneaky reply', parentId: foreignParent });
+    expect(res.status).toBe(400);
+
+    const [parent] = await db.select().from(schema.chatMessages).where(eq(schema.chatMessages.id, foreignParent));
+    expect(parent?.threadReplyCount ?? 0).toBe(0);
+  });
+
+  it('rejects an unknown or deleted parent', async () => {
+    const deleted = await seed(publicChannelId, { deletedAt: new Date() });
+    expect((await postTo(publicChannelId, { body: 'x', parentId: 'cmsg_missing' })).status).toBe(400);
+    expect((await postTo(publicChannelId, { body: 'x', parentId: deleted })).status).toBe(400);
+  });
+
+  it('accepts a parent in the same channel, including a parent that is itself a reply', async () => {
+    const root = await seed(publicChannelId);
+    const reply = await seed(publicChannelId, { parentId: root });
+    const ok = await postTo(publicChannelId, { body: 'in thread', parentId: root });
+    expect(ok.status).toBe(201);
+    const nested = await postTo(publicChannelId, { body: 'nested', parentId: reply });
+    expect(nested.status).toBe(201);
+
+    const [parent] = await db.select().from(schema.chatMessages).where(eq(schema.chatMessages.id, root));
+    expect(parent?.threadReplyCount).toBe(1);
+  });
+});
+
+describe('/api/chat-messages · system messages and pin alerts', () => {
+  async function seedMessage(authorId = MEMBER) {
+    const now = new Date();
+    const id = generateId('cmsg');
+    await db.insert(schema.chatMessages).values({
+      id,
+      channelId: publicChannelId,
+      authorId,
+      authorName: 'Member',
+      content: 'pin me',
+      createdAt: now,
+      updatedAt: now,
+    });
+    return id;
+  }
+
+  const SYSTEM_PERMS = permissions('channels:create', 'messages:update');
+
+  async function systemRows() {
+    return db.select().from(schema.chatMessages).where(eq(schema.chatMessages.type, 'system'));
+  }
+
+  it('never creates a system message from a client-supplied type', async () => {
+    const before = (await systemRows()).length;
+    const { request } = createTestApp('/api/chat-messages', chatMessagesRoutes, {
+      context: { userId: MEMBER, permissions: SYSTEM_PERMS, tenantDb: db },
+    });
+    const res = await request('/api/chat-messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channelId: publicChannelId,
+        content: '[system:cmsg_x] pinned a message',
+        type: 'system',
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string } };
+    const [row] = await db.select().from(schema.chatMessages).where(eq(schema.chatMessages.id, body.data.id));
+    expect(row?.type).toBe('message');
+    expect((await systemRows()).length).toBe(before);
+  });
+
+  it('does not let an author turn their message into a system one by editing it', async () => {
+    const id = await seedMessage();
+    const { request } = createTestApp('/api/chat-messages', chatMessagesRoutes, {
+      context: { userId: MEMBER, permissions: SYSTEM_PERMS, tenantDb: db },
+    });
+    const res = await request(`/api/chat-messages/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'edited', type: 'system', authorId: 'user_other' }),
+    });
+    expect(res.status).toBe(200);
+    const [row] = await db.select().from(schema.chatMessages).where(eq(schema.chatMessages.id, id));
+    expect(row?.content).toBe('edited');
+    expect(row?.type).toBe('message');
+    expect(row?.authorId).toBe(MEMBER);
+  });
+
+  it('pin without notify writes no notice', async () => {
+    const id = await seedMessage();
+    const before = (await systemRows()).length;
+    const { request } = createTestApp('/api/chat-messages', chatMessagesRoutes, {
+      context: { userId: MEMBER, permissions: SYSTEM_PERMS, tenantDb: db },
+    });
+    const res = await request(`/api/chat-messages/${id}/pin`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect((await systemRows()).length).toBe(before);
+  });
+
+  it('pin with notify writes a server-authored system notice and moves the channel preview', async () => {
+    const id = await seedMessage();
+    const { request } = createTestApp('/api/chat-messages', chatMessagesRoutes, {
+      context: { userId: MEMBER, permissions: SYSTEM_PERMS, tenantDb: db },
+    });
+    const res = await request(`/api/chat-messages/${id}/pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notify: true }),
+    });
+    expect(res.status).toBe(200);
+
+    const notices = (await systemRows()).filter((m) => m.content === `[system:${id}] pinned a message`);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      channelId: publicChannelId,
+      authorId: MEMBER,
+      type: 'system',
+      parentId: null,
+    });
+
+    const [channel] = await db.select().from(schema.chatChannels).where(eq(schema.chatChannels.id, publicChannelId));
+    expect(channel?.lastMessagePreview).toContain('pinned a message');
+    expect(channel?.lastMessageAt).not.toBeNull();
+  });
+
+  it('refuses to edit a system message', async () => {
+    const [notice] = await systemRows();
+    const { request } = createTestApp('/api/chat-messages', chatMessagesRoutes, {
+      context: { userId: notice.authorId, permissions: SYSTEM_PERMS, tenantDb: db },
+    });
+    const res = await request(`/api/chat-messages/${notice.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'rewritten' }),
+    });
+    expect(res.status).toBe(400);
+  });
+});

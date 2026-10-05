@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Hash, Lock, X, Clock, Plus, Smile, AtSign, Baseline, User, Users, type LucideIcon } from 'lucide-react';
+import { Hash, Lock, X, Clock, User, Users, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import {
@@ -24,6 +24,8 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { MAX_SCHEDULE_DAYS, checkScheduleTime, latestScheduleDate } from '../lib/schedule-limit';
+import { renderMessageContent } from '../lib/render-message-content';
 
 /** A channel, group, DM, or user picked as a forward target. */
 interface ForwardTarget {
@@ -105,6 +107,15 @@ export function ForwardMessageDialog({
     () => (membersData?.data ?? []) as RawMemberOption[],
     [membersData],
   );
+
+  // userId → name, so mentions in the quoted message render as chips.
+  const memberNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) {
+      if (m.userId && m.name) map.set(m.userId, m.name);
+    }
+    return map;
+  }, [members]);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -215,13 +226,19 @@ export function ForwardMessageDialog({
     const [hh, mm] = scheduleTime.split(':').map((v) => Number.parseInt(v, 10) || 0);
     const when = new Date(scheduleDate);
     when.setHours(hh, mm, 0, 0);
-    const delay = when.getTime() - Date.now();
-    if (delay <= 0) {
+    const check = checkScheduleTime(when);
+    if (check === 'past') {
       toast.error(t.weldchat.forwardMessage.pickFutureTime);
       return;
     }
+    if (check === 'too-far') {
+      // A longer in-memory timer would overflow and send the message right away.
+      toast.error(st('sweep.weldchat.forwardMessage.scheduleTooFar', { days: MAX_SCHEDULE_DAYS }));
+      return;
+    }
+    const delay = when.getTime() - Date.now();
     // Resolve DMs now so they exist when the scheduled send fires.
-    // Note: scheduling is in-memory and lost on reload — kept simple per current scope.
+    // Note: scheduling is in-memory and lost on reload — the popover says so.
     const targetChannelIds = await resolveChannelIds();
     setTimeout(() => {
       forwardMessage({
@@ -360,7 +377,7 @@ export function ForwardMessageDialog({
             </PopoverContent>
           </Popover>
 
-          {/* Message textarea with in-field toolbar */}
+          {/* Message textarea */}
           <div className="rounded-md border border-input bg-transparent dark:bg-input/30 transition-[color,box-shadow] focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]">
             <Textarea
               value={extraMessage}
@@ -369,52 +386,6 @@ export function ForwardMessageDialog({
               rows={2}
               className="resize-none min-h-[48px] border-0 bg-transparent dark:bg-transparent focus-visible:ring-0 focus-visible:border-0 shadow-none"
             />
-            <div className="flex items-center gap-0 px-2 pb-1.5">
-              <Button
-                variant="ghost"
-                type="button"
-                title={st('sweep.weldchat.forwardMessage.addAttachment')}
-                className={cn(
-                  "p-1.5 rounded-lg transition-colors",
-                  "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
-                )}
-              >
-                <Plus className="h-[18px] w-[18px]" />
-              </Button>
-              <Button
-                variant="ghost"
-                type="button"
-                title={st('sweep.weldchat.forwardMessage.emoji')}
-                className={cn(
-                  "p-1.5 rounded-lg transition-colors",
-                  "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
-                )}
-              >
-                <Smile className="h-[18px] w-[18px]" />
-              </Button>
-              <Button
-                variant="ghost"
-                type="button"
-                title={st('sweep.weldchat.forwardMessage.mentionSomeone')}
-                className={cn(
-                  "p-1.5 rounded-lg transition-colors",
-                  "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
-                )}
-              >
-                <AtSign className="h-[18px] w-[18px]" />
-              </Button>
-              <Button
-                variant="ghost"
-                type="button"
-                title={st('sweep.weldchat.forwardMessage.formatting')}
-                className={cn(
-                  "p-1.5 rounded-lg transition-colors",
-                  "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
-                )}
-              >
-                <Baseline className="h-[18px] w-[18px]" />
-              </Button>
-            </div>
           </div>
 
           {/* Original message preview */}
@@ -428,7 +399,7 @@ export function ForwardMessageDialog({
               <div className="min-w-0 flex-1 leading-snug">
                 <div className="text-sm font-semibold text-foreground">{originalAuthor}</div>
                 <div className="text-sm text-foreground/80 break-words whitespace-pre-wrap line-clamp-4 mt-0.5">
-                  {messageContent}
+                  {renderMessageContent(messageContent, memberNames)}
                 </div>
               </div>
             </div>
@@ -455,7 +426,7 @@ export function ForwardMessageDialog({
                   disabled={(date) => {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    return date < today;
+                    return date < today || date > latestScheduleDate();
                   }}
                   initialFocus
                 />
@@ -468,6 +439,9 @@ export function ForwardMessageDialog({
                     className="h-8"
                   />
                 </div>
+                <p className="max-w-[17rem] px-3 pb-3 text-xs text-muted-foreground">
+                  {st('sweep.weldchat.forwardMessage.scheduleOpenTabNote', { days: MAX_SCHEDULE_DAYS })}
+                </p>
                 <div className="flex items-center justify-end gap-2 p-3 pt-0">
                   <Button variant="outline" size="sm" onClick={() => setScheduleOpen(false)}>
                     {t.weldchat.forwardMessage.cancel}

@@ -404,6 +404,10 @@ export const sweep = {
     "breadcrumb": {
       "chat": "Chat"
     },
+    "channelCreate": {
+      "duplicateName": "A channel with this name already exists.",
+      "settingsSaveFailed": "Could not save the channel settings."
+    },
     "channelEmptyState": {
       "directMessageFallback": "Direct message",
       "groupFallback": "Group",
@@ -460,11 +464,9 @@ export const sweep = {
       "download": "Download"
     },
     "forwardMessage": {
-      "addAttachment": "Add attachment",
       "couldNotOpenDm": "Could not open DM with {name}",
-      "emoji": "Emoji",
-      "formatting": "Formatting",
-      "mentionSomeone": "Mention someone"
+      "scheduleOpenTabNote": "Scheduled messages are only sent while WeldSuite stays open in this tab. You can schedule up to {days} days ahead.",
+      "scheduleTooFar": "Pick a time within the next {days} days"
     },
     "groupConversation": {
       "defaultName": "Group Chat"
@@ -477,6 +479,12 @@ export const sweep = {
     },
     "inviteExternal": {
       "addedToChannel": "{name} added to the channel"
+    },
+    "invitePeople": {
+      "descriptionBoth": "Add teammates or external guests to this channel.",
+      "descriptionGuest": "Invite an external guest to this channel by email.",
+      "descriptionMembers": "Add teammates to this channel.",
+      "invalidEmail": "Enter a valid email address."
     },
     "mentionAutocomplete": {
       "noMatches": "No matches.",
@@ -493,6 +501,13 @@ export const sweep = {
       "numberedList": "Numbered list",
       "strikethrough": "Strikethrough",
       "underline": "Underline"
+    },
+    "messageMenus": {
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "deleteDescription": "This message will be permanently deleted for everyone. This cannot be undone.",
+      "deleteTitle": "Delete message?",
+      "reactionFailed": "Couldn't add the reaction"
     },
     "relativeTime": {
       "daysAgo": "{count}d ago",
@@ -515,6 +530,11 @@ export const sweep = {
       "addDirectMessagesSrOnly": "Add Direct Messages",
       "archive": "Archive",
       "archiveAll": "Archive all",
+      "archiveChannelDescription": "\"{name}\" will be archived for everyone. You can unarchive it from its menu.",
+      "archiveChannelTitle": "Archive channel?",
+      "archiveDmDescription": "Your conversation with {name} will be archived. You can unarchive it from its menu.",
+      "archiveDmTitle": "Archive conversation?",
+      "archivedTitle": "{name} (archived)",
       "channels": "Channels",
       "delete": "Delete",
       "deleteCancel": "Cancel",
@@ -522,6 +542,8 @@ export const sweep = {
       "deleteChannelTitle": "Delete channel?",
       "deleteDmDescription": "Your conversation with {name} and all of its messages will be permanently deleted. This cannot be undone.",
       "deleteDmTitle": "Delete conversation?",
+      "deleteSectionDescription": "The section \"{name}\" will be removed. Its channels are not deleted; they move back to the default section.",
+      "deleteSectionTitle": "Delete section?",
       "directMessageDisplayFallback": "Direct Message",
       "directMessageFallback": "Direct message",
       "directMessagesGroup": "Direct Messages",
@@ -533,7 +555,12 @@ export const sweep = {
       "otherChannels": "Other Channels",
       "removeFromSection": "Remove from section",
       "rename": "Rename",
+      "savedItems": "Saved items",
+      "search": "Search",
+      "selfDmFallback": "You",
+      "selfDmLabel": "{name} (you)",
       "settings": "Settings",
+      "unarchive": "Unarchive",
       "unknownMember": "Unknown",
       "unmute": "Unmute",
       "unmuteAll": "Unmute all"

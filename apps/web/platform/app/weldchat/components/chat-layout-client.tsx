@@ -19,6 +19,8 @@ import { PinnedMessagesPanel } from './pinned-messages-panel';
 import { ThreadPanel } from './thread-panel';
 import { BookmarksPanel } from './bookmarks-panel';
 import { ChatFiltersPanel } from './chat-filters-panel';
+import { parseWeldChatPath } from '../lib/route-segments';
+import { threadAfterChannelChange, threadMessageIdFor, type OpenThread } from '../lib/thread-state';
 import { ChatContext, type RightPanel, type ReplyTo, type EditingMessage, type ChatFilters } from './chat-context';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { useObjectPanel } from '@/components/object-panel';
@@ -30,33 +32,23 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   const st = useTranslations();
   const pathname = usePathname();
 
-  // Extract channelId from URL for right panel components.
-  // The first path segment after `/weldchat/` is treated as a channel id UNLESS
-  // it's one of the reserved sibling routes (activity, drafts, directories,
-  // bookmarks, search, thread, …). Those don't represent a real channel and
-  // shouldn't trigger the members / entity panels.
-  const RESERVED_TOP_SEGMENTS = new Set([
-    'activity',
-    'drafts',
-    'directories',
-    'bookmarks',
-    'search',
-    'thread',
-  ]);
-  const channelIdMatch = pathname?.match(/\/weldchat\/([^/]+)/);
-  const dmMatch = pathname?.match(/\/weldchat\/dm\/([^/]+)/);
-  const rawChannelSegment = channelIdMatch?.[1] ?? '';
-  const isReservedRoute = RESERVED_TOP_SEGMENTS.has(rawChannelSegment);
-  const currentChannelId =
-    dmMatch?.[1] || (!isReservedRoute ? rawChannelSegment : '') || '';
-  const isChannelPage = !!rawChannelSegment && !isReservedRoute && !dmMatch?.[1];
+  // Extract the open conversation from the URL for the right panel components.
+  // Sibling routes (`dm`, `activity`, `drafts`, `directories`, `bookmarks`,
+  // `search`, `thread`) are not conversations and never count as a channel id,
+  // so they trigger no channel fetches or panels.
+  const { channelId: currentChannelId, isChannelPage, isDmPage } = parseWeldChatPath(pathname);
 
   // Initial value picked by the effect below once the current channel has
   // been fetched — entity channels default to the linked-entity view, normal
   // channels default to the member list.
-  const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  const [rawRightPanel, setRightPanel] = useState<RightPanel>(null);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
-  const [threadMessageId, setThreadMessageId] = useState<string | null>(null);
+  // The thread remembers the channel it was opened in: a thread is only valid
+  // there, so switching channels must never carry it (and its parent message)
+  // into the new channel's composer.
+  const [thread, setThread] = useState<OpenThread | null>(null);
+  const threadMessageId = threadMessageIdFor(thread, currentChannelId);
+  const rightPanel: RightPanel = rawRightPanel === 'thread' && !threadMessageId ? null : rawRightPanel;
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
   const [editingMessage, setEditingMessage] = useState<EditingMessage | null>(null);
   const [filters, setFilters] = useState<ChatFilters>({ type: 'all', search: '', from: [], date: undefined });
@@ -73,6 +65,17 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   useEffect(() => {
     setRightPanel((prev) => (prev === 'members' ? null : prev));
   }, [isChannelPage, currentChannelId]);
+
+  // Drop a thread that belongs to the previous channel, and a half-made reply /
+  // edit, which also point at a message of the old channel. The panel itself is
+  // derived from the thread (see `rightPanel`), so it is never closed
+  // imperatively here: a thread opened for the NEW channel in the same commit
+  // (a jump link to a thread reply) must survive.
+  useEffect(() => {
+    setThread((prev) => threadAfterChannelChange(prev, currentChannelId));
+    setReplyTo(null);
+    setEditingMessage(null);
+  }, [currentChannelId]);
 
   // Auto-open the global ChannelPanel on every desktop channel page. Track
   // the last channelId we opened for in a ref so we only auto-open ONCE per
@@ -100,6 +103,19 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
     return () => clearTimeout(tid);
   }, [isChannelPage, currentChannelId, openObjectPanel]);
 
+  // The auto-open above skips phones, but narrowing the window afterwards would
+  // leave the fixed-width panel open and squeeze the chat column to a sliver.
+  // Close it as soon as the viewport drops below the desktop breakpoint.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(max-width: 767px)');
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (event.matches) closeAllObjectPanels();
+    };
+    query.addEventListener('change', handleChange);
+    return () => query.removeEventListener('change', handleChange);
+  }, [closeAllObjectPanels]);
+
   // The ChannelPanel lives in the GLOBAL object-panel stack (rendered by
   // <ObjectPanelHost /> at the app-shell level), so without this it survives
   // navigation OUT of WeldChat and keeps appearing across the whole platform.
@@ -121,7 +137,6 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   const isInlineCall = callStatus !== 'idle' && callStatus !== 'ended' && callChannelId === currentChannelId && !callFullscreen && !callPiP;
 
   // Pre-read localStorage to know if the member detail panel should be open on mount
-  const isDmPage = !!dmMatch?.[1];
   const dmPanelSavedOpen = isDmPage && localStorage.getItem('weldchat-dm-member-panel') !== 'false';
   const [memberDetailWidth, setMemberDetailWidth] = useState(dmPanelSavedOpen ? 480 : 0);
 
@@ -202,11 +217,11 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   // thread collapses the details panel (the user can reopen it afterwards).
   const openThread = useCallback((messageId: string) => {
     closeAllObjectPanels();
-    setThreadMessageId(messageId);
+    setThread({ channelId: currentChannelId, messageId });
     setRightPanel('thread');
-  }, [closeAllObjectPanels]);
+  }, [closeAllObjectPanels, currentChannelId]);
   const closeThread = useCallback(() => {
-    setThreadMessageId(null);
+    setThread(null);
     setRightPanel(null);
   }, []);
   // Clicking a person opens the registered `team-member` object panel — the
@@ -329,7 +344,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
                     {effectiveRightPanel === 'bookmarks' && <BookmarksPanel />}
                     {effectiveRightPanel === 'filters' && <ChatFiltersPanel />}
                     {effectiveRightPanel === 'thread' && threadMessageId && (
-                      <ThreadPanel channelId={currentChannelId} messageId={threadMessageId} />
+                      <ThreadPanel key={`${currentChannelId}:${threadMessageId}`} channelId={currentChannelId} messageId={threadMessageId} />
                     )}
                   </div>
                 </div>

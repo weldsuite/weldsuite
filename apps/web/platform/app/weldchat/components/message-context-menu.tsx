@@ -26,7 +26,6 @@ import {
   useDeleteMessage,
   useToggleReaction,
   useMarkChannelUnread,
-  useSendMessage,
 } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import {
@@ -44,9 +43,11 @@ import { replyToFromMessage } from './reply-chain';
 import { ForwardMessageDialog } from './forward-message-dialog';
 import { ReplacePinDialog } from './replace-pin-dialog';
 import { PinDurationDialog } from './pin-duration-dialog';
+import { DeleteMessageDialog } from './delete-message-dialog';
+import { useMessageMenuPermissions } from '../hooks/use-message-menu-permissions';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
-import { useAuth } from '@clerk/clerk-react';
+import { useTranslations } from '@weldsuite/i18n/client';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👀'];
 
@@ -65,6 +66,8 @@ interface MessageContextMenuProps {
 
 export function MessageContextMenu({ message, channelId, readBy, children }: Readonly<MessageContextMenuProps>) {
   const { t } = useI18n();
+  const st = useTranslations();
+  const { canReact, canReplyInThread, canEdit, canDelete } = useMessageMenuPermissions(message, channelId);
   const { data: pinnedData } = usePinnedMessages(channelId);
   const { mutate: pinMessage } = usePinMessage();
   const { mutate: unpinMessage } = useUnpinMessage();
@@ -73,21 +76,26 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
   const { mutate: deleteBookmark } = useDeleteBookmark();
   const existingBookmark = (bookmarksData?.data || []).find((bk) => bk.messageId === message.id);
   const isBookmarked = !!existingBookmark;
-  const { mutate: deleteMessage } = useDeleteMessage();
+  // mutateAsync: the optimistic removal unmounts this component, and mutate-level
+  // callbacks die with their observer, so the toasts run from the returned promise.
+  const { mutateAsync: deleteMessage } = useDeleteMessage();
   const { mutate: toggleReaction } = useToggleReaction();
   const { mutate: markUnread } = useMarkChannelUnread();
-  const { mutate: sendMessage } = useSendMessage();
   const { setReplyTo, openThread, setEditingMessage } = useChatContext();
-  const { userId } = useAuth();
-  const isOwn = !!userId && message.authorId === userId;
   const [showForwardDialog, setShowForwardDialog] = useState(false);
   const [showReplacePinDialog, setShowReplacePinDialog] = useState(false);
   const [showPinDurationDialog, setShowPinDurationDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [pendingReplaceId, setPendingReplaceId] = useState<string | null>(null);
   const pinnedMessages: ChatMessage[] = pinnedData?.data ?? [];
 
   const handleReaction = (emoji: string) => {
-    toggleReaction({ channelId, messageId: message.id, emoji, hasReacted: false });
+    // The hook rolls the optimistic update back on failure; tell the user why
+    // the reaction vanished (e.g. reactions switched off for this channel).
+    toggleReaction(
+      { channelId, messageId: message.id, emoji, hasReacted: false },
+      { onError: () => toast.error(st('sweep.weldchat.messageMenus.reactionFailed')) },
+    );
   };
 
   const handleCopyLink = () => {
@@ -123,10 +131,8 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
   };
 
   const handlePinWithDuration = (expiresAt?: string, notify?: boolean) => {
+    // With `notify` the server posts the "pinned a message" notice itself.
     const pinAndAlert = () => {
-      if (notify) {
-        sendMessage({ channelId, content: `[system:${message.id}] pinned a message` });
-      }
       pinMessage({ channelId, messageId: message.id, expiresAt, notify });
     };
 
@@ -146,12 +152,10 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
   };
 
   const handleDelete = () => {
-    deleteMessage(
-      { channelId, messageId: message.id },
-      {
-        onSuccess: () => toast.success(t.weldchat.messageContextMenu.messageDeleted),
-        onError: () => toast.error(t.weldchat.messageContextMenu.messageDeleteFailed),
-      },
+    setShowDeleteDialog(false);
+    deleteMessage({ channelId, messageId: message.id }).then(
+      () => toast.success(t.weldchat.messageContextMenu.messageDeleted),
+      () => toast.error(t.weldchat.messageContextMenu.messageDeleteFailed),
     );
   };
 
@@ -176,6 +180,8 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent className="w-56" onCloseAutoFocus={handleCloseAutoFocus}>
+          {canReact && (
+          <>
           <ContextMenuSub>
             <ContextMenuSubTrigger>
               <Smile className="h-4 w-4 mr-0.5" />
@@ -197,6 +203,8 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
             </ContextMenuSubContent>
           </ContextMenuSub>
           <ContextMenuSeparator />
+          </>
+          )}
           <ContextMenuItem onClick={handleMarkUnread}>
             <MailOpen className="h-4 w-4 mr-0.5" />
             {t.weldchat.messageContextMenu.markAsUnread}
@@ -210,10 +218,12 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
             <Reply className="h-4 w-4 mr-0.5" />
             {t.weldchat.messageContextMenu.reply}
           </ContextMenuItem>
-          <ContextMenuItem onClick={() => { focusComposerOnCloseRef.current = true; openThread(message.id); }}>
-            <MessageSquare className="h-4 w-4 mr-0.5" />
-            {t.weldchat.messageContextMenu.replyInThread}
-          </ContextMenuItem>
+          {canReplyInThread && (
+            <ContextMenuItem onClick={() => { focusComposerOnCloseRef.current = true; openThread(message.id); }}>
+              <MessageSquare className="h-4 w-4 mr-0.5" />
+              {t.weldchat.messageContextMenu.replyInThread}
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onClick={() => setShowForwardDialog(true)}>
             <Forward className="h-4 w-4 mr-0.5" />
             {t.weldchat.messageContextMenu.forwardMessage}
@@ -270,17 +280,19 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
               </ContextMenuSub>
             </>
           )}
-          <ContextMenuSeparator />
-          {isOwn ? (
+          {(canEdit || canDelete) && <ContextMenuSeparator />}
+          {canEdit && (
             <ContextMenuItem onClick={handleEdit}>
               <Pencil className="h-4 w-4 mr-0.5" />
               {t.weldchat.messageContextMenu.editMessage}
             </ContextMenuItem>
-          ) : null}
-          <ContextMenuItem onClick={handleDelete} className="text-destructive focus:text-destructive focus:bg-red-500/10">
-            <Trash2 className="h-4 w-4 mr-0.5 text-red-500" />
-            {t.weldchat.messageContextMenu.deleteMessage}
-          </ContextMenuItem>
+          )}
+          {canDelete && (
+            <ContextMenuItem onClick={() => setShowDeleteDialog(true)} className="text-destructive focus:text-destructive focus:bg-red-500/10">
+              <Trash2 className="h-4 w-4 mr-0.5 text-red-500" />
+              {t.weldchat.messageContextMenu.deleteMessage}
+            </ContextMenuItem>
+          )}
         </ContextMenuContent>
       </ContextMenu>
 
@@ -291,6 +303,12 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
         originalAuthor={message.authorName ?? ''}
         messageId={message.id}
         sourceChannelId={channelId}
+      />
+
+      <DeleteMessageDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        onConfirm={handleDelete}
       />
 
       <ReplacePinDialog

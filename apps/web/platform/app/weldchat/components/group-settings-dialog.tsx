@@ -104,6 +104,9 @@ import {
   type WeldchatGroupFilters,
 } from '../lib/group-filter';
 import { useI18n } from '@/lib/i18n/provider';
+import { useTranslations } from '@weldsuite/i18n/client';
+import { isApiError } from '@weldsuite/api-client';
+import { toast } from 'sonner';
 
 export interface GroupSettingsTarget {
   groupKey: string;
@@ -175,6 +178,7 @@ function describeChannelMode(
 
 export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<GroupSettingsDialogProps>) {
   const { t } = useI18n();
+  const st = useTranslations();
 
   const NAV: { key: SectionKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = useMemo(
     () => [
@@ -312,11 +316,13 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
   const handleSave = () => {
     if (!target) return;
 
-    // Save channel-level fields first (single-channel mode only).
+    // Save channel-level fields first (single-channel mode only). Resolves
+    // false when the server rejects them (e.g. a duplicate or empty name), so
+    // the dialog stays open with the draft instead of closing as if it saved.
     const saveChannel = () =>
-      new Promise<void>((resolve) => {
+      new Promise<boolean>((resolve) => {
         if (!isSingleChannel || !sourceChannel || !channelDirty) {
-          resolve();
+          resolve(true);
           return;
         }
         const diff: Record<string, unknown> = {};
@@ -325,7 +331,15 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
         });
         updateChannel(
           { channelId: sourceChannel.id, ...(diff as Partial<UpdateChannelRequest>) },
-          { onSuccess: () => resolve(), onError: () => resolve() },
+          {
+            onSuccess: () => resolve(true),
+            onError: (err) => {
+              toast.error(
+                (isApiError(err) && err.message) || st('sweep.weldchat.channelCreate.settingsSaveFailed'),
+              );
+              resolve(false);
+            },
+          },
         );
       });
 
@@ -348,9 +362,11 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
         );
       });
 
-    void saveChannel()
-      .then(savePrefs)
-      .then(() => onOpenChange(false));
+    void saveChannel().then(async (channelSaved) => {
+      if (!channelSaved) return;
+      await savePrefs();
+      onOpenChange(false);
+    });
   };
 
   const requestClose = () => {

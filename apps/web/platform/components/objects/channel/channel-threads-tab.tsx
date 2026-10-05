@@ -8,7 +8,8 @@ import {
   type ActiveFilter,
   type FilterConfig,
 } from '@/components/entity-list';
-import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
+import { useWorkspaceMembers, type ChatMessage } from '@/hooks/queries/use-weldchat-queries';
+import { renderMessageContent } from '@/app/weldchat/lib/render-message-content';
 
 interface ChannelThreadsTabProps {
   channelId: string;
@@ -30,6 +31,16 @@ type ThreadItem = {
 export function ChannelThreadsTab({ channelId, messages }: ChannelThreadsTabProps) {
   const st = useTranslations();
   const navigate = useNavigate();
+  const { data: membersData } = useWorkspaceMembers();
+
+  // userId → name, so mentions in a thread preview render as chips.
+  const memberNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of membersData?.data ?? []) {
+      if (m.userId && m.name) map.set(m.userId, m.name);
+    }
+    return map;
+  }, [membersData]);
 
   const threads: ThreadItem[] = useMemo(
     () =>
@@ -144,7 +155,7 @@ export function ChannelThreadsTab({ channelId, messages }: ChannelThreadsTabProp
             </div>
             {t.content && (
               <div className="text-xs text-muted-foreground whitespace-pre-wrap break-words mt-0.5 line-clamp-2">
-                {t.content}
+                {renderMessageContent(t.content, memberNames)}
               </div>
             )}
             <div className="text-[11px] text-primary mt-1">
@@ -159,7 +170,7 @@ export function ChannelThreadsTab({ channelId, messages }: ChannelThreadsTabProp
         </div>
       </div>
     ),
-    [navigate, st],
+    [navigate, st, memberNames],
   );
 
   return (

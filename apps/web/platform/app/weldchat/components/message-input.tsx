@@ -24,7 +24,15 @@ import { useClipRecorder } from '@/hooks/weldchat/use-clip-recorder';
 import { useDraftAutosave } from '@/hooks/weldchat/use-draft-autosave';
 import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
 import { renderChatTokens, encodeEntityToken } from '../lib/render-tokens';
-import { RESULT_TYPE_LABEL } from '@/lib/search/result-types';
+import {
+  contentToFragment,
+  editorToContent,
+  extractMentions,
+  getMentionQueryAtCaret,
+  loadContentIntoEditor,
+  placeCaretAtEnd,
+  replaceMentionQuery,
+} from '../lib/composer-content';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -73,16 +81,6 @@ interface MessageInputProps {
   }) => Promise<void> | void;
 }
 
-/** HTML-escape a string for inclusion in attribute values / chip body. */
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 /**
  * Render raw content (with `<@…>` tokens) as React nodes for the reply preview.
  * Entity tokens render as a static (non-clickable) violet chip — clicks are
@@ -108,97 +106,6 @@ function renderReplyPreview(text: string, membersMap: Map<string, string>): Reac
     ),
     renderText: (t, key) => <span key={key}>{t}</span>,
   });
-}
-
-/** Convert raw content (with `<@…>` tokens) to HTML with badge spans. */
-function contentToHtml(text: string, membersMap: Map<string, string>): string {
-  return text.replace(/<@([^>]+)>/g, (full, body: string) => {
-    const colonIdx = body.indexOf(':');
-    if (colonIdx > 0) {
-      const prefix = body.slice(0, colonIdx);
-      const rest = body.slice(colonIdx + 1);
-      // Entity token? type prefix in the SET, body has `id|label?`.
-      // We don't need the SET on the client here — the renderer below handles it.
-      // But we identify entity tokens by checking if `prefix` is a known type
-      // (anything in our RESULT_TYPE_LABEL map qualifies).
-      if (Object.prototype.hasOwnProperty.call(RESULT_TYPE_LABEL, prefix)) {
-        const pipeIdx = rest.indexOf('|');
-        const id = pipeIdx === -1 ? rest : rest.slice(0, pipeIdx);
-        const label = pipeIdx === -1 ? '' : rest.slice(pipeIdx + 1);
-        const display = label || `${prefix}:${id}`;
-        const safeDisplay = escapeHtml(display);
-        const safeData = escapeHtml(`${prefix}:${id}`);
-        const safeLabel = escapeHtml(label);
-        return `<span class="entity-mention-badge" contenteditable="false" data-entity="${safeData}" data-label="${safeLabel}">${safeDisplay}</span>`;
-      }
-      // <@userId:DisplayName> → user mention with display override
-      const safeName = escapeHtml(rest || prefix);
-      return `<span class="mention-badge" contenteditable="false" data-userid="${escapeHtml(body)}">@${safeName}</span>`;
-    }
-    // <@userId>  (special-case `everyone` so the chip stays correct even if
-    // a workspace member ever has the literal userId 'everyone')
-    const name = body === 'everyone' ? 'everyone' : (membersMap.get(body) ?? body);
-    return `<span class="mention-badge" contenteditable="false" data-userid="${escapeHtml(body)}">@${escapeHtml(name)}</span>`;
-  });
-}
-
-/** Extract raw content from the contentEditable div innerHTML, preserving formatting as markdown. */
-function htmlToContent(html: string): string {
-  const div = document.createElement('div');
-  div.innerHTML = html;
-
-  // Replace entity-mention badges with `<@type:id|Label>` tokens FIRST so
-  // they are not picked up by the user-mention selector below.
-  div.querySelectorAll('.entity-mention-badge').forEach((badge) => {
-    const entity = (badge as HTMLElement).dataset.entity; // "type:id"
-    const label = (badge as HTMLElement).dataset.label || badge.textContent || '';
-    if (entity) {
-      const colonIdx = entity.indexOf(':');
-      if (colonIdx > 0) {
-        const type = entity.slice(0, colonIdx);
-        const id = entity.slice(colonIdx + 1);
-        // encodeEntityToken sanitizes label (strips `|`/`>`, trims, max 80 chars).
-        // We pass it as EntitySheetType — runtime-checked at parse time later.
-        const token = encodeEntityToken(type as never, id, label);
-        badge.replaceWith(token);
-      }
-    }
-  });
-
-  // Replace user-mention badges with `<@userId>` tokens
-  div.querySelectorAll('.mention-badge').forEach((badge) => {
-    const userId = (badge as HTMLElement).dataset.userid;
-    if (userId) badge.replaceWith(`<@${userId}>`);
-  });
-
-  // Convert formatting to markdown
-  div.querySelectorAll('b, strong').forEach((el) => {
-    el.replaceWith(`**${el.textContent}**`);
-  });
-  div.querySelectorAll('i, em').forEach((el) => {
-    el.replaceWith(`*${el.textContent}*`);
-  });
-  div.querySelectorAll('u').forEach((el) => {
-    el.replaceWith(`__${el.textContent}__`);
-  });
-  div.querySelectorAll('s, strike, del').forEach((el) => {
-    el.replaceWith(`~~${el.textContent}~~`);
-  });
-  div.querySelectorAll('code').forEach((el) => {
-    el.replaceWith(`\`${el.textContent}\``);
-  });
-
-  // Convert lists to text
-  div.querySelectorAll('ul').forEach((ul) => {
-    const items = Array.from(ul.querySelectorAll('li')).map((li) => `• ${li.textContent}`).join('\n');
-    ul.replaceWith(items);
-  });
-  div.querySelectorAll('ol').forEach((ol) => {
-    const items = Array.from(ol.querySelectorAll('li')).map((li, i) => `${i + 1}. ${li.textContent}`).join('\n');
-    ol.replaceWith(items);
-  });
-
-  return div.innerText;
 }
 
 /** Send fields for a Discord-style inline reply (nothing when not replying). */
@@ -252,7 +159,6 @@ export function MessageInput({
   const editingMessage =
     contextEditingMessage && ownsRequest(contextEditingMessage.parentId) ? contextEditingMessage : null;
   const [content, setContent] = useState('');
-  const [mentions, setMentions] = useState<string[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
@@ -294,8 +200,8 @@ export function MessageInput({
       if (!editorRef.current || editorRef.current.innerText.trim().length > 0) return;
       setContent(restoredContent);
       if (restoredAttachments.length > 0) setAttachments(restoredAttachments);
-      // Render the content into the contentEditable editor.
-      editorRef.current.innerText = restoredContent;
+      // Render the content into the contentEditable editor (mentions as chips).
+      loadContentIntoEditor(editorRef.current, restoredContent, membersMap.current);
     },
   });
 
@@ -318,9 +224,10 @@ export function MessageInput({
     if (!parentId) return;
     const draft = takeThreadDraft(parentId);
     if (!draft || !editorRef.current || editorRef.current.innerText.trim().length > 0) return;
-    editorRef.current.innerText = draft;
+    loadContentIntoEditor(editorRef.current, draft, membersMap.current);
     setContent(draft);
     editorRef.current.focus();
+    placeCaretAtEnd(editorRef.current);
   }, [parentId]);
 
   // Auto-focus the input when the user clicks "Reply" on a message — they
@@ -340,11 +247,11 @@ export function MessageInput({
 
   const clearInput = useCallback(() => {
     setContent('');
-    setMentions([]);
     setAttachments([]);
     setReplyTo(null);
     setEditingMessage(null);
     setSlashQuery(null);
+    setMentionQuery(null);
     if (editorRef.current) {
       editorRef.current.innerHTML = '';
     }
@@ -352,19 +259,32 @@ export function MessageInput({
     deleteSavedDraft();
   }, [setReplyTo, setEditingMessage, deleteSavedDraft]);
 
+  // Esc / the banner's X on an edit: drop the edit AND the text it loaded, so
+  // the old message text isn't left behind as if it were a new draft.
+  const cancelEditing = useCallback(() => {
+    setEditingMessage(null);
+    setContent('');
+    setMentionQuery(null);
+    setSlashQuery(null);
+    if (editorRef.current) editorRef.current.innerHTML = '';
+  }, [setEditingMessage]);
+
   useEffect(() => {
     if (!editingMessage) return;
     setReplyTo(null);
     if (editorRef.current) {
-      editorRef.current.innerText = editingMessage.content;
+      loadContentIntoEditor(editorRef.current, editingMessage.content, membersMap.current);
       setContent(editingMessage.content);
       editorRef.current.focus();
+      placeCaretAtEnd(editorRef.current);
     }
   }, [editingMessage?.messageId, setReplyTo]);
 
   // Discord-style nudge: replying deep into a reply chain in the channel
   // suggests continuing the conversation in a thread on the chain's root.
-  const { data: channelData } = useChannel(parentId ? '' : channelId);
+  const { data: channelData } = useChannel(channelId);
+  // The channel can switch file attachments off (default: on until told otherwise).
+  const attachmentsEnabled = channelData?.data?.attachmentsEnabled !== false;
   const [dismissedThreadSuggestions, setDismissedThreadSuggestions] = useState<Set<string>>(new Set());
   const threadRootId = replyTo?.rootId ?? null;
   const showThreadSuggestion =
@@ -379,7 +299,6 @@ export function MessageInput({
     if (!threadRootId) return;
     stashThreadDraft(threadRootId, content);
     setContent('');
-    setMentions([]);
     setMentionQuery(null);
     setReplyTo(null);
     if (editorRef.current) editorRef.current.innerHTML = '';
@@ -421,7 +340,7 @@ export function MessageInput({
   );
 
   const handleSend = useCallback(() => {
-    const raw = editorRef.current ? htmlToContent(editorRef.current.innerHTML) : content;
+    const raw = editorRef.current ? editorToContent(editorRef.current) : content;
     const trimmed = raw.trim();
     if (uploadingCount > 0) return;
     if (!trimmed && attachments.length === 0) return;
@@ -449,7 +368,7 @@ export function MessageInput({
 
     if (onSubmitOverride) {
       void Promise.resolve(
-        onSubmitOverride({ content: trimmed, mentions, attachments }),
+        onSubmitOverride({ content: trimmed, mentions: extractMentions(trimmed), attachments }),
       );
       clearInput();
       return;
@@ -457,6 +376,7 @@ export function MessageInput({
 
     // Discord-style reply: stays where it was written (channel or this thread)
     // and quotes the message it answers, instead of opening a thread on it.
+    const mentions = extractMentions(trimmed);
     sendMessage({
       channelId,
       content: trimmed,
@@ -467,7 +387,7 @@ export function MessageInput({
       _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     });
     clearInput();
-  }, [content, channelId, parentId, mentions, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t]);
+  }, [content, channelId, parentId, attachments, uploadingCount, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, handleCreateTaskCommand, clearInput, onSubmitOverride, t]);
 
   const handleClipReady = useCallback((clipAttachment: ChatClipAttachment) => {
     sendMessage({
@@ -637,23 +557,14 @@ export function MessageInput({
     if (!innerText || innerText === '\n') {
       editorRef.current.innerHTML = '';
     }
-    const raw = htmlToContent(editorRef.current.innerHTML);
+    const raw = editorToContent(editorRef.current);
     setContent(raw);
     onKeystroke();
 
-    const text = editorRef.current.innerText;
-    const atIndex = text.lastIndexOf('@');
-    if (atIndex >= 0 && (atIndex === 0 || text[atIndex - 1] === ' ' || text[atIndex - 1] === '\n')) {
-      const query = text.substring(atIndex + 1);
-      if (!query.includes(' ') && !query.includes('\n')) {
-        setMentionQuery(query);
-      } else {
-        setMentionQuery(null);
-      }
-    } else {
-      setMentionQuery(null);
-    }
+    // The mention popup follows the "@query" the caret is at the end of.
+    setMentionQuery(getMentionQueryAtCaret(editorRef.current));
 
+    const text = editorRef.current.innerText;
     if (text.startsWith('/')) {
       const firstSpace = text.indexOf(' ');
       // /invite stays open past the first space so we can show the agent picker
@@ -671,8 +582,8 @@ export function MessageInput({
     if (e.key === 'Escape' && (replyTo || editingMessage)) {
       e.preventDefault();
       e.stopPropagation();
-      setReplyTo(null);
-      setEditingMessage(null);
+      if (editingMessage) cancelEditing();
+      else setReplyTo(null);
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -696,45 +607,27 @@ export function MessageInput({
         sel?.addRange(range);
       }
     }
-  }, [handleSend, replyTo, editingMessage, setReplyTo, setEditingMessage]);
+  }, [handleSend, replyTo, editingMessage, setReplyTo, cancelEditing]);
 
   const handleMentionSelect = useCallback((selection: MentionSelection) => {
-    if (!editorRef.current) return;
+    const editor = editorRef.current;
+    if (!editor) return;
 
-    const sel = window.getSelection();
-    const text = editorRef.current.innerText;
-    const atIndex = text.lastIndexOf('@');
-    if (atIndex < 0) {
-      setMentionQuery(null);
-      return;
-    }
-
-    const before = text.substring(0, atIndex);
     let token: string;
-    let mentionEntry: string;
     if (selection.kind === 'user') {
       token = `<@${selection.userId}>`;
-      mentionEntry = selection.userId;
     } else if (selection.kind === 'entity') {
       token = encodeEntityToken(selection.type, selection.id, selection.title);
-      mentionEntry = `entity:${selection.type}:${selection.id}`;
     } else {
-      token = `<@everyone>`;
-      mentionEntry = 'everyone';
+      token = '<@everyone>';
     }
 
-    const newContent = `${before}${token} `;
-    setContent(newContent);
-    setMentions((prev) => (prev.includes(mentionEntry) ? prev : [...prev, mentionEntry]));
-
-    editorRef.current.innerHTML = contentToHtml(newContent, membersMap.current) + '&nbsp;';
-
-    const range = document.createRange();
-    range.selectNodeContents(editorRef.current);
-    range.collapse(false);
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-
+    // Swap only the "@query" at the caret for the chip. The rest of the editor
+    // (earlier chips, formatting, typed text) is left exactly as it was.
+    const chip = contentToFragment(token, membersMap.current).firstChild;
+    if (chip && replaceMentionQuery(editor, chip)) {
+      setContent(editorToContent(editor));
+    }
     setMentionQuery(null);
   }, []);
 
@@ -751,7 +644,8 @@ export function MessageInput({
       sel.removeAllRanges();
       sel.addRange(range);
     } else {
-      editorRef.current.innerHTML += '@';
+      editorRef.current.appendChild(document.createTextNode('@'));
+      placeCaretAtEnd(editorRef.current);
     }
     setMentionQuery('');
   }, []);
@@ -843,7 +737,7 @@ export function MessageInput({
   // can feed files in identically.
   const uploadFiles = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files);
-    if (list.length === 0) return;
+    if (list.length === 0 || !attachmentsEnabled) return;
     setUploadingCount((n) => n + list.length);
     try {
       const client = await getClient();
@@ -887,7 +781,7 @@ export function MessageInput({
       console.error('File upload failed:', err);
       setUploadingCount((n) => n - list.length);
     }
-  }, [getClient, t]);
+  }, [getClient, t, attachmentsEnabled]);
 
   // Pasting a screenshot (or an image copied from another app) into the
   // contentEditable would otherwise inline an <img> that htmlToContent
@@ -899,7 +793,8 @@ export function MessageInput({
       .filter((file): file is File => file !== null);
     if (files.length === 0) return;
     e.preventDefault();
-    if (editingMessage) return; // edits can't change attachments
+    // Edits can't change attachments, and a channel can turn attachments off.
+    if (editingMessage || !attachmentsEnabled) return;
     const stamp = Date.now();
     const named = files.map((file, i) => {
       // Clipboard images arrive as a generic "image.png" (or unnamed);
@@ -910,7 +805,7 @@ export function MessageInput({
       return new File([file], `pasted-image-${stamp}${suffix}.${ext}`, { type: file.type });
     });
     void uploadFiles(named);
-  }, [editingMessage, uploadFiles]);
+  }, [editingMessage, attachmentsEnabled, uploadFiles]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -956,7 +851,7 @@ export function MessageInput({
       } else {
         editorRef.current.innerText += emoji;
       }
-      setContent(htmlToContent(editorRef.current.innerHTML));
+      setContent(editorToContent(editorRef.current));
     }
     setEmojiPickerOpen(false);
   };
@@ -1037,6 +932,7 @@ export function MessageInput({
           containerTopPadding
         )}
         role="presentation"
+        data-chat-composer-root=""
         onClick={(e) => {
           // Focus editor when clicking anywhere in the container (but not on buttons/popovers)
           const target = e.target as HTMLElement;
@@ -1057,7 +953,7 @@ export function MessageInput({
                   <Button
                     type="button"
                     variant="ghost"
-                    onClick={() => setEditingMessage(null)}
+                    onClick={cancelEditing}
                     className="shrink-0 p-1.5 -m-1 -mr-[6px] rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors"
                   >
                     <X className="h-3.5 w-3.5 text-gray-900 dark:text-foreground" />
@@ -1168,12 +1064,14 @@ export function MessageInput({
               {slashQuery !== null && (
                 <SlashCommandPalette
                   query={slashQuery}
+                  onDismiss={() => setSlashQuery(null)}
                   onSelect={(cmd) => {
                     setContent(cmd);
                     setSlashQuery(null);
                     if (editorRef.current) {
                       editorRef.current.innerText = cmd;
                       editorRef.current.focus();
+                      placeCaretAtEnd(editorRef.current);
                     }
                   }}
                 />
@@ -1265,6 +1163,7 @@ export function MessageInput({
             <div className="flex items-center justify-between mt-auto">
               {/* Left - Plus and Emoji */}
               <div className="flex items-center gap-0">
+                {attachmentsEnabled && (
                 <Button
                   variant="ghost"
                   onClick={() => fileInputRef.current?.click()}
@@ -1274,6 +1173,7 @@ export function MessageInput({
                 >
                   <Plus className="h-[18px] w-[18px]" />
                 </Button>
+                )}
                 <Popover open={emojiPickerOpen} onOpenChange={setEmojiPickerOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -1317,6 +1217,8 @@ export function MessageInput({
                 >
                   <Baseline className="h-[18px] w-[18px]" />
                 </Button>
+                {attachmentsEnabled && (
+                <>
                 <div className="w-px h-4 bg-gray-200 dark:bg-border mx-1" />
                 <Button
                   variant="ghost"
@@ -1429,6 +1331,8 @@ export function MessageInput({
                     </div>
                   )}
                 </div>
+                </>
+                )}
               </div>
 
               {/* Right - Send */}

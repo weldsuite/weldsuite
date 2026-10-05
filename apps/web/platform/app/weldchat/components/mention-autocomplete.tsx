@@ -174,26 +174,43 @@ export function MentionAutocomplete({
   }, [trimmed, flatItems.length]);
 
   // -- Keyboard --------------------------------------------------------------
+  // Listens in the CAPTURE phase on `document`, ahead of the composer's own
+  // (React) key handler. Enter / Tab / arrows are consumed here with
+  // stopPropagation, so Enter picks the highlighted item instead of also
+  // sending the half-typed message. Escape closes the popup (see below).
   useEffect(() => {
     if (!onDismiss && flatItems.length === 0) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Only react to keys typed in the composer this popup belongs to.
+      const composer = ref.current?.closest('[data-chat-composer-root]');
+      if (composer && e.target instanceof Node && !composer.contains(e.target)) return;
+
       if (e.key === 'Escape') {
+        // Consumed while the popup is showing, so it doesn't also cancel a
+        // pending reply/edit; a second Escape (popup gone) reaches the composer.
+        if (ref.current) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
         onDismiss?.();
         return;
       }
-      if (flatItems.length === 0) return;
+      if (flatItems.length === 0 || e.isComposing) return;
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
+        e.stopPropagation();
         setActiveIndex((i) => (i + 1) % flatItems.length);
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
+        e.stopPropagation();
         setActiveIndex((i) => (i - 1 + flatItems.length) % flatItems.length);
       } else if (e.key === 'Enter' || e.key === 'Tab') {
         const item = flatItems[activeIndex];
         if (!item) return;
         e.preventDefault();
+        e.stopPropagation();
         if (item.kind === 'user') {
           onSelect({ kind: 'user', userId: item.userId, name: item.name });
         } else if (item.kind === 'entity') {
@@ -204,8 +221,8 @@ export function MentionAutocomplete({
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
   }, [flatItems, activeIndex, onSelect, onDismiss]);
 
   // -- Click outside to dismiss --------------------------------------------
