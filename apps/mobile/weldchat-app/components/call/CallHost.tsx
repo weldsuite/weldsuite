@@ -157,8 +157,8 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
   const toggleMute = useCallback(() => {
     const m = meetingRef.current;
     if (!m) return;
-    if (m.self.audioEnabled) m.self.disableAudio();
-    else m.self.enableAudio();
+    if (m.self.audioEnabled) void m.self.disableAudio();
+    else void m.self.enableAudio();
   }, []);
 
   const handleLeave = useCallback(async () => {

@@ -180,10 +180,10 @@ export default function CallRoomPage() {
   const toggleMute = useCallback(() => {
     if (!meeting) return;
     if (meeting.self.audioEnabled) {
-      meeting.self.disableAudio();
+      void meeting.self.disableAudio();
       setIsMuted(true);
     } else {
-      meeting.self.enableAudio();
+      void meeting.self.enableAudio();
       setIsMuted(false);
     }
   }, [meeting]);
@@ -191,10 +191,10 @@ export default function CallRoomPage() {
   const toggleVideo = useCallback(() => {
     if (!meeting) return;
     if (meeting.self.videoEnabled) {
-      meeting.self.disableVideo();
+      void meeting.self.disableVideo();
       setIsVideoOff(true);
     } else {
-      meeting.self.enableVideo();
+      void meeting.self.enableVideo();
       setIsVideoOff(false);
     }
   }, [meeting]);

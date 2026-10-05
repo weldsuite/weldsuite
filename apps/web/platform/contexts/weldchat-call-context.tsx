@@ -775,7 +775,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     cleanup();
     patchActiveCallsCache(endedCallId);
     if (chId) {
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
     }
   }, [callId, channelId, getClient, leaveRoom, cleanup, queryClient, patchActiveCallsCache]);
 
@@ -793,7 +793,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     cleanup();
     patchActiveCallsCache(endedCallId);
     if (chId) {
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
     }
   }, [callId, channelId, getClient, cleanup, queryClient, patchActiveCallsCache]);
 
@@ -810,11 +810,11 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
   const toggleMute = useCallback(() => {
     if (!meeting) return;
     if (meeting.self.audioEnabled) {
-      meeting.self.disableAudio();
+      void meeting.self.disableAudio();
       setIsMuted(true);
       playMuteSound();
     } else {
-      meeting.self.enableAudio();
+      void meeting.self.enableAudio();
       setIsMuted(false);
       playUnmuteSound();
     }
@@ -823,10 +823,10 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
   const toggleVideo = useCallback(() => {
     if (!meeting) return;
     if (meeting.self.videoEnabled) {
-      meeting.self.disableVideo();
+      void meeting.self.disableVideo();
       setIsVideoOff(true);
     } else {
-      meeting.self.enableVideo();
+      void meeting.self.enableVideo();
       setIsVideoOff(false);
     }
     playCameraToggleSound();
@@ -892,7 +892,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
 
   const stopScreenShare = useCallback(() => {
     if (!meeting) return;
-    meeting.self.disableScreenShare();
+    void meeting.self.disableScreenShare();
     setIsScreenSharing(false);
     playScreenShareSound();
   }, [meeting]);

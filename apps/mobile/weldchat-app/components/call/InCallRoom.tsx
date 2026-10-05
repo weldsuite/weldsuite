@@ -90,13 +90,13 @@ function JoinedCallBody({
   }, [meeting]);
 
   const toggleMute = useCallback(() => {
-    if (meeting.self.audioEnabled) meeting.self.disableAudio();
-    else meeting.self.enableAudio();
+    if (meeting.self.audioEnabled) void meeting.self.disableAudio();
+    else void meeting.self.enableAudio();
   }, [meeting]);
 
   const toggleVideo = useCallback(() => {
-    if (meeting.self.videoEnabled) meeting.self.disableVideo();
-    else meeting.self.enableVideo();
+    if (meeting.self.videoEnabled) void meeting.self.disableVideo();
+    else void meeting.self.enableVideo();
   }, [meeting]);
 
   const initial = (peerName ?? '?').trim()[0]?.toUpperCase() ?? '?';
