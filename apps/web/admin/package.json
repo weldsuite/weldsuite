@@ -18,7 +18,9 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-tooltip": "^1.2.7",
     "@tailwindcss/postcss": "^4.2.0",
+    "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/emails": "workspace:*",
     "@weldsuite/i18n": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/realtime-registrar": "workspace:*",
@@ -35,7 +37,6 @@
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.2.0",
     "tw-animate-css": "^1.3.6",
-    "@weldsuite/credits": "workspace:*",
     "zod": "^3.25.76"
   },
   "devDependencies": {

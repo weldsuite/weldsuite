@@ -8,16 +8,16 @@
  *     `sendChatDmNotification`, `sendMissedCallNotification`,
  *     `sendWeldAgentReplyNotification`, `sendWeldAgentRunNotification`.
  *
- * Each helper inserts a `notifications` row, fans out via @weldsuite/realtime (in-app),
- * Resend (email — template-aware), and Expo (push), respecting the
- * recipient's `notificationPreferences`.
+ * Each helper inserts a `notifications` row, fans out via @weldsuite/realtime
+ * (in-app), @weldsuite/emails (email — template-aware), and Expo (push),
+ * respecting the recipient's `notificationPreferences`.
  */
 
 export { createAndDeliverNotification, appCodesForCategory, EMAIL_DEFER_MINUTES } from './orchestrator';
 export { resolveEmailPresence, presenceFromStatus, type EmailPresence } from './presence';
 // Exported for the deferred-email workflow, which sends the same mail on the
 // same `from` address minutes later — it must not grow its own copy.
-export { sendNotificationEmail } from './channels/email';
+export { sendNotificationEmail, type SendNotificationEmailParams } from './channels/email';
 export {
   sendExpoPush,
   isExpoPushToken,
@@ -43,6 +43,7 @@ export type {
   NotificationEnv,
   DeferredEmailWorkflow,
   DeferredEmailParams,
+  NotificationEmailOverride,
   ChannelPreferences,
   CreateNotificationParams,
   NotificationCategory,

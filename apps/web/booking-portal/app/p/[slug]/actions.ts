@@ -1,7 +1,7 @@
 'use server';
 
 import { eq, and, isNull, desc, sql } from 'drizzle-orm';
-import { buildIcsInvite } from '@weldsuite/transactional-email';
+import type { EmailBrand, IcsEvent } from '@weldsuite/emails';
 import { personalAccounts } from '@weldsuite/db/schema/master';
 import { masterDb } from '@weldsuite/db/lib/master';
 import {
@@ -74,6 +74,21 @@ async function hostNameForAccount(personalAccountId: string): Promise<string> {
 /** The page's own link for a video booking, or null. */
 function customVideoLink(page: { locationType: string | null; locationValue: string | null }): string | null {
   return page.locationType === 'video' ? page.locationValue?.trim() || null : null;
+}
+
+/**
+ * Personal booking pages have no workspace — just the account's display name
+ * — so the brand is name-only (no logo, no accent color) and mail always goes
+ * out in English: personal accounts don't carry a language preference.
+ */
+function personalBrand(hostName: string): EmailBrand {
+  return { kind: 'workspace', name: hostName };
+}
+
+/** `IcsEvent`'s `location` / `meetingUrl` split. Personal pages have no WeldMeet
+ * integration, so a video page's own link is still a `location`, not a `meetingUrl`. */
+function icsLocationFields(page: { locationValue: string | null }): Pick<IcsEvent, 'location'> {
+  return { location: page.locationValue?.trim() || undefined };
 }
 
 /** Serialises bookings of one page for the length of the transaction. */
@@ -236,15 +251,17 @@ export async function createPersonalBooking(input: CreatePersonalBookingInput): 
       return { success: false, error: SLOT_TAKEN_ERROR };
     }
 
-    const ics = buildIcsInvite({
+    const brand = personalBrand(hostName);
+
+    const icsEvent: IcsEvent = {
       uid: `${eventId}@weldsuite`,
       method: 'REQUEST',
-      summary: `${bookingPage.name} with ${data.bookerName}`,
+      title: `${bookingPage.name} with ${data.bookerName}`,
       description:
         data.notes || bookingPage.confirmationMessage || `Booked via ${bookingPage.name}`,
-      location: bookingPage.locationValue,
-      startTime: data.startTime,
-      endTime: data.endTime,
+      ...icsLocationFields(bookingPage),
+      start: data.startTime,
+      end: data.endTime,
       organizer: { email: BOOKING_FROM_ADDRESS, name: hostName },
       attendees: [
         { email: data.bookerEmail, name: data.bookerName, role: 'REQ-PARTICIPANT' },
@@ -254,7 +271,8 @@ export async function createPersonalBooking(input: CreatePersonalBookingInput): 
           role: 'OPT-PARTICIPANT' as const,
         })),
       ],
-    });
+      product: 'WeldSuite Booking',
+    };
 
     const emailJobs: Promise<void>[] = [
       sendBookingConfirmationEmail({
@@ -268,7 +286,8 @@ export async function createPersonalBooking(input: CreatePersonalBookingInput): 
         workspaceName: hostName,
         confirmationMessage: bookingPage.confirmationMessage,
         timezone: tz,
-        ics,
+        icsEvent,
+        brand,
       }),
       ...guests.map((guest) =>
         sendGuestInviteEmail({
@@ -281,7 +300,8 @@ export async function createPersonalBooking(input: CreatePersonalBookingInput): 
           locationValue: bookingPage.locationValue,
           workspaceName: hostName,
           timezone: tz,
-          ics,
+          icsEvent,
+          brand,
         }),
       ),
     ];
@@ -349,22 +369,25 @@ export async function cancelPersonalBooking(input: CancelPersonalBookingInput): 
     const pageName = bookingPage?.name ?? 'your meeting';
     const guests = booking.guests ?? [];
 
-    const ics = buildIcsInvite({
+    const brand = personalBrand(hostName);
+
+    const icsEvent: IcsEvent = {
       uid: `${booking.calendarEventId ?? booking.id}@weldsuite`,
       method: 'CANCEL',
       status: 'CANCELLED',
       sequence: 1,
-      summary: `${pageName} with ${booking.bookerName}`,
+      title: `${pageName} with ${booking.bookerName}`,
       description: booking.notes,
-      location: bookingPage?.locationValue ?? null,
-      startTime: startIso,
-      endTime: endIso,
+      ...icsLocationFields({ locationValue: bookingPage?.locationValue ?? null }),
+      start: startIso,
+      end: endIso,
       organizer: { email: BOOKING_FROM_ADDRESS, name: hostName },
       attendees: [
         { email: booking.bookerEmail, name: booking.bookerName, role: 'REQ-PARTICIPANT' },
         ...guests.map((g) => ({ email: g.email, name: g.name, role: 'OPT-PARTICIPANT' as const })),
       ],
-    });
+      product: 'WeldSuite Booking',
+    };
 
     const emailJobs: Promise<void>[] = [
       sendBookingCancellationEmail({
@@ -378,7 +401,8 @@ export async function cancelPersonalBooking(input: CancelPersonalBookingInput): 
         workspaceName: hostName,
         confirmationMessage: null,
         timezone: tz,
-        ics,
+        icsEvent,
+        brand,
       }),
       ...guests.map((guest) =>
         sendBookingCancellationEmail({
@@ -392,7 +416,8 @@ export async function cancelPersonalBooking(input: CancelPersonalBookingInput): 
           workspaceName: hostName,
           confirmationMessage: null,
           timezone: tz,
-          ics,
+          icsEvent,
+          brand,
         }),
       ),
     ];
@@ -484,21 +509,24 @@ export async function reschedulePersonalBooking(
       return { success: false, error: SLOT_TAKEN_ERROR };
     }
 
-    const ics = buildIcsInvite({
+    const brand = personalBrand(hostName);
+
+    const icsEvent: IcsEvent = {
       uid: `${booking.calendarEventId ?? booking.id}@weldsuite`,
       method: 'REQUEST',
       sequence: 1,
-      summary: `${bookingPage.name} with ${booking.bookerName}`,
+      title: `${bookingPage.name} with ${booking.bookerName}`,
       description: booking.notes || bookingPage.confirmationMessage || `Booked via ${bookingPage.name}`,
-      location: bookingPage.locationValue,
-      startTime: data.startTime,
-      endTime: data.endTime,
+      ...icsLocationFields(bookingPage),
+      start: data.startTime,
+      end: data.endTime,
       organizer: { email: BOOKING_FROM_ADDRESS, name: hostName },
       attendees: [
         { email: booking.bookerEmail, name: booking.bookerName, role: 'REQ-PARTICIPANT' },
         ...guests.map((g) => ({ email: g.email, name: g.name, role: 'OPT-PARTICIPANT' as const })),
       ],
-    });
+      product: 'WeldSuite Booking',
+    };
 
     const emailJobs: Promise<void>[] = [
       sendBookingRescheduledEmail({
@@ -512,7 +540,8 @@ export async function reschedulePersonalBooking(
         workspaceName: hostName,
         confirmationMessage: bookingPage.confirmationMessage,
         timezone: tz,
-        ics,
+        icsEvent,
+        brand,
       }),
       ...guests.map((guest) =>
         sendGuestInviteEmail({
@@ -525,7 +554,8 @@ export async function reschedulePersonalBooking(
           locationValue: bookingPage.locationValue,
           workspaceName: hostName,
           timezone: tz,
-          ics,
+          icsEvent,
+          brand,
         }),
       ),
     ];

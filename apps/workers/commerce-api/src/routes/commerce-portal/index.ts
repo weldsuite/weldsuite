@@ -25,7 +25,7 @@ import {
   storeChallenge,
   type PortalChallenge,
 } from '@weldsuite/commerce-domain/portal-tokens';
-import { sendPortalMagicLinkEmail } from '../../services/commerce-portal-mail';
+import { sendPortalMagicLinkEmail, type CommercePortalBrand } from '../../services/commerce-portal-mail';
 import { findCompanyParty, loadPortalSettings } from '../../services/commerce-portal';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -162,6 +162,7 @@ async function issueChallengeAndEmail(opts: {
   email: string;
   accessIds: string[];
   companyName?: string | null;
+  settings?: CommercePortalBrand | null;
 }): Promise<void> {
   const allowed = await consumeRateLimit(opts.env, opts.workspaceId, opts.email);
   if (!allowed) return;
@@ -183,6 +184,7 @@ async function issueChallengeAndEmail(opts: {
       token,
       otp,
       companyName: opts.companyName,
+      settings: opts.settings,
     });
   }
 }
@@ -269,6 +271,7 @@ app.post('/access/invite', requirePermission('companies:update'), zValidator('js
 
     const slug = workspaceId ? await workspaceSlug(c.env, workspaceId) : null;
     if (workspaceId) {
+      const settings = await loadPortalSettings(db);
       await issueChallengeAndEmail({
         env: c.env,
         workspaceId,
@@ -276,6 +279,7 @@ app.post('/access/invite', requirePermission('companies:update'), zValidator('js
         email,
         accessIds: [accessId],
         companyName: company.displayName,
+        settings,
       });
     }
 

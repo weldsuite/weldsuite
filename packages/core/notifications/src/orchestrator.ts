@@ -1,7 +1,7 @@
 /**
  * Multi-channel notification orchestrator — inserts a `notifications` row,
- * then fans out to realtime-worker (in-app), Resend (email), and Expo
- * (push) based on the recipient's resolved channel preferences.
+ * then fans out to realtime-worker (in-app), `@weldsuite/emails` (email), and
+ * Expo (push) based on the recipient's resolved channel preferences.
  *
  * Each channel branch is wrapped in try/catch: a channel-level failure
  * never breaks the others, and never bubbles back to the caller (callers
@@ -10,12 +10,14 @@
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
+import { type EmailBrand, type EmailLocale, type EmailModule, resolveEmailLocale } from '@weldsuite/emails';
+import { workerTransport } from '@weldsuite/emails/transports/binding';
 import { getChannelPreferences } from './preferences';
 import { resolveEmailPresence } from './presence';
 import { publishInAppNotification } from './channels/in-app';
 import { sendNotificationEmail } from './channels/email';
 import { sendExpoPush, type ExpoPushMessage } from './channels/push';
-import type { CreateNotificationParams, NotificationEnv } from './types';
+import type { CreateNotificationParams, NotificationEmailOverride, NotificationEnv } from './types';
 
 /**
  * How long an absent recipient has to come back before the email goes out.
@@ -99,6 +101,43 @@ function androidDelivery(
   return { priority: 'default' };
 }
 
+/**
+ * Which WeldSuite module a notification's email is branded as (From display
+ * name + logo context), from its category. Keep simple: substring match on
+ * the category id, else the generic WeldSuite brand.
+ */
+function emailModuleForCategory(category: string): EmailModule {
+  const c = category.toLowerCase();
+  if (c.includes('chat')) return 'WeldChat';
+  if (c.includes('task') || c.includes('project') || c.includes('flow')) return 'WeldFlow';
+  if (c.includes('agent')) return 'WeldAgent';
+  if (c.includes('helpdesk') || c.includes('desk')) return 'WeldDesk';
+  if (c.includes('meet') || c.includes('call')) return 'WeldMeet';
+  return 'WeldSuite';
+}
+
+function emailBrandForCategory(category: string): EmailBrand {
+  return { kind: 'weldsuite', module: emailModuleForCategory(category) };
+}
+
+/** The `notification` template spec built from the notification's own title/
+ *  body/actionUrl, used when a helper does not supply a richer `email` override. */
+function defaultEmailSpec<Env extends NotificationEnv>(
+  params: CreateNotificationParams<Env>,
+): NotificationEmailOverride {
+  const baseUrl = params.env.PUBLIC_APP_URL?.trim();
+  const actionUrl = params.actionUrl ? (baseUrl ? `${baseUrl}${params.actionUrl}` : params.actionUrl) : undefined;
+  return {
+    template: 'notification',
+    props: {
+      title: params.title,
+      body: params.body,
+      actionUrl,
+      settingsUrl: baseUrl ? `${baseUrl}/settings/notifications` : undefined,
+    },
+  };
+}
+
 /** Deliver the notification to the user's live in-app topic. Never throws. */
 async function deliverInApp<Env extends NotificationEnv>(
   params: CreateNotificationParams<Env>,
@@ -147,10 +186,12 @@ async function sendOrDeferEmail<Env extends NotificationEnv>(
   params: CreateNotificationParams<Env>,
   id: string,
   now: Date,
-  apiKey: string,
   to: string,
+  locale: EmailLocale,
+  brand: EmailBrand,
+  email: NotificationEmailOverride,
 ): Promise<void> {
-  const { env, workspaceId, userId, title, body, emailTemplate } = params;
+  const { env, workspaceId, userId } = params;
   if (env.DEFERRED_NOTIFICATION_EMAIL) {
     await env.DEFERRED_NOTIFICATION_EMAIL.create({
       // One instance per notification: idempotent under retries, and the
@@ -161,21 +202,15 @@ async function sendOrDeferEmail<Env extends NotificationEnv>(
         userId,
         notificationId: id,
         to,
-        subject: title,
-        fallbackText: body,
+        locale,
+        brand,
+        email,
         sendAfter: new Date(now.getTime() + EMAIL_DEFER_MINUTES * 60_000).toISOString(),
-        template: emailTemplate,
       },
     });
     return;
   }
-  await sendNotificationEmail({
-    apiKey,
-    to,
-    subject: title,
-    fallbackText: body,
-    template: emailTemplate,
-  });
+  await sendNotificationEmail(env, { to, locale, email, brand });
 }
 
 /** Email the recipient (immediately or deferred). Never throws. */
@@ -183,18 +218,33 @@ async function deliverEmail<Env extends NotificationEnv>(
   params: CreateNotificationParams<Env>,
   id: string,
   now: Date,
-  apiKey: string,
 ): Promise<void> {
   try {
-    const [member] = await params.db
-      .select({ email: schema.workspaceMembers.email })
-      .from(schema.workspaceMembers)
-      .where(eq(schema.workspaceMembers.userId, params.userId))
-      .limit(1);
+    const [[member], [userPrefs], [wsSettings]] = await Promise.all([
+      params.db
+        .select({ email: schema.workspaceMembers.email })
+        .from(schema.workspaceMembers)
+        .where(eq(schema.workspaceMembers.userId, params.userId))
+        .limit(1),
+      params.db
+        .select({ language: schema.userPreferences.language })
+        .from(schema.userPreferences)
+        .where(eq(schema.userPreferences.userId, params.userId))
+        .limit(1),
+      params.db
+        .select({ language: schema.workspaceSettings.language })
+        .from(schema.workspaceSettings)
+        .where(isNull(schema.workspaceSettings.deletedAt))
+        .limit(1),
+    ]);
 
-    if (member?.email) {
-      await sendOrDeferEmail(params, id, now, apiKey, member.email);
-    }
+    if (!member?.email) return;
+
+    const locale = resolveEmailLocale(userPrefs?.language, wsSettings?.language);
+    const brand = emailBrandForCategory(params.category);
+    const email = params.email ?? defaultEmailSpec(params);
+
+    await sendOrDeferEmail(params, id, now, member.email, locale, brand, email);
   } catch (err) {
     console.error('[Notifications] Email send failed:', err);
   }
@@ -406,7 +456,7 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
   });
 
   if (channels.inApp) await deliverInApp(params, id, now);
-  if (willEmail && env.RESEND_API_KEY) await deliverEmail(params, id, now, env.RESEND_API_KEY);
+  if (willEmail && workerTransport(env)) await deliverEmail(params, id, now);
   if (channels.push) await deliverPush(params);
 
   return id;

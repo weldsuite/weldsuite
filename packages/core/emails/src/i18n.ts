@@ -54,7 +54,7 @@ export function rich(template: string, values: Record<string, ReactNode>): React
   let last = 0;
   for (const match of template.matchAll(PLACEHOLDER)) {
     const key = match[1];
-    if (!(key in values)) continue;
+    if (key === undefined || !(key in values)) continue;
     if (match.index > last) parts.push(template.slice(last, match.index));
     parts.push(createElement(Fragment, { key: `${key}-${match.index}` }, values[key]));
     last = match.index + match[0].length;

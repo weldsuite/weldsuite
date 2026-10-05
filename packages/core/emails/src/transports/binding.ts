@@ -9,7 +9,7 @@
 import { EmailMessage } from 'cloudflare:email';
 import { CloudflareSendProvider } from '@weldsuite/email/providers/cloudflare/send';
 import type { SendEmail } from '@weldsuite/email/providers/cloudflare';
-import { attachmentBytes, type EmailTransport, type OutgoingEmail, type SendResult } from '../transport';
+import { attachmentBytes, withFromAddress, type EmailTransport, type OutgoingEmail, type SendResult } from '../transport';
 import { resendTransport } from './resend';
 
 export function bindingTransport(binding: SendEmail): EmailTransport {
@@ -48,11 +48,14 @@ export interface SystemEmailEnv {
   SEND_EMAIL?: SendEmail;
   /**
    * Migration switch: `resend` sends through Resend instead of Cloudflare
-   * (needs RESEND_API_KEY). Anything else, or unset, means Cloudflare.
-   * Removed together with Resend at the end of the migration.
+   * (needs RESEND_API_KEY). Anything else, or unset, means Cloudflare when the
+   * worker has a SEND_EMAIL binding. Removed together with Resend at the end
+   * of the migration.
    */
   EMAIL_TRANSPORT?: string;
   RESEND_API_KEY?: string;
+  /** Migration only: send from this address instead of the system one. See `withFromAddress`. */
+  SYSTEM_EMAIL_FROM?: string;
 }
 
 /**
@@ -61,8 +64,14 @@ export interface SystemEmailEnv {
  * undefined as "skip sending", like the old `if (!RESEND_API_KEY) return`.
  */
 export function workerTransport(env: SystemEmailEnv): EmailTransport | undefined {
-  if (env.EMAIL_TRANSPORT?.trim().toLowerCase() === 'resend' && env.RESEND_API_KEY) {
-    return resendTransport({ apiKey: env.RESEND_API_KEY });
-  }
-  return env.SEND_EMAIL ? bindingTransport(env.SEND_EMAIL) : undefined;
+  const forceResend = env.EMAIL_TRANSPORT?.trim().toLowerCase() === 'resend';
+  // Resend when switched to it, or as the fallback for a worker that has no
+  // SEND_EMAIL binding yet; the binding otherwise.
+  const transport =
+    (forceResend || !env.SEND_EMAIL) && env.RESEND_API_KEY
+      ? resendTransport({ apiKey: env.RESEND_API_KEY })
+      : env.SEND_EMAIL
+        ? bindingTransport(env.SEND_EMAIL)
+        : undefined;
+  return transport ? withFromAddress(transport, env.SYSTEM_EMAIL_FROM) : undefined;
 }

@@ -51,9 +51,11 @@ import {
   pinRescheduledSource,
   unpinEvent,
 } from '../../services/calendar-events';
+import { workerTransport } from '@weldsuite/emails/transports/binding';
 import {
   getMemberEmails,
   getOrganizerInfo,
+  getWorkspaceLanguage,
   nextIcsSequence,
   sendCalendarEventEmails,
   type AttendeeLike,
@@ -285,15 +287,15 @@ function mailEventFromRow(row: CalendarEventRow): CalendarMailEvent {
  * into the authenticated calendar, external guests (no account) do not.
  */
 function queueMail(c: EventContext, opts: SendOptions): void {
-  if (!c.env.RESEND_API_KEY || opts.attendees.length === 0) return;
+  if (!workerTransport(c.env) || opts.attendees.length === 0) return;
   const db = c.get('tenantDb');
   c.executionCtx.waitUntil(
     (async () => {
-      const memberEmails =
-        opts.kind === 'cancel' || opts.kind === 'removed'
-          ? undefined
-          : await getMemberEmails(db, opts.attendees.map((a) => a.email ?? ''));
-      await sendCalendarEventEmails(c.env, { ...opts, memberEmails });
+      const [memberEmails, workspaceLanguage] = await Promise.all([
+        getMemberEmails(db, opts.attendees.map((a) => a.email ?? '')),
+        getWorkspaceLanguage(db),
+      ]);
+      await sendCalendarEventEmails(c.env, { ...opts, memberEmails, workspaceLanguage });
     })(),
   );
 }

@@ -1,9 +1,10 @@
 /**
  * SendDigestWorkflow — Cloudflare Workflow
  *
- * Per-user workflow that queries overdue/due-today/due-this-week tasks,
- * renders an HTML email, and sends it via Resend (or the Cloudflare send
- * binding as fallback).
+ * Per-user workflow that queries overdue/due-today/due-this-week tasks and
+ * sends the 'flow.digest' system email (@weldsuite/emails) through whichever
+ * transport the worker is configured with (`workerTransport`: Resend during
+ * the migration, else the Cloudflare `SEND_EMAIL` binding).
  *
  * Triggered by the hourly digest sweep cron handler (flow-api's
  * src/cron/digest-sweep.ts).
@@ -12,29 +13,28 @@
  * Ported from apps/api-worker/src/workflows/send-digest.ts (W4 legacy-worker
  * phase-out). Hosted in flow-api under the workflow names
  * `send-digest-v3[-dev]` (bound as SEND_DIGEST and re-exported from flow-api's
- * src/index.ts). app-api keeps its old `send-digest-v2*` names and re-exports
- * this class only while their in-flight instances drain
- * (docs/plans/app-api-module-split.md, "Workflows draining in app-api"). The
- * Resend call is inlined (raw fetch, same request shape as
- * @weldsuite/transactional-email) so the worker doesn't grow a package
- * dependency for one call.
+ * src/index.ts). app-api's old `send-digest-v2*` instances finished draining
+ * and were removed from app-api on 2026-09-29 (see its src/index.ts).
+ *
+ * Step boundaries: Workflow step outputs must be JSON-serializable, so the
+ * first step queries tasks and builds the plain-object email props; the
+ * second step builds the transport (not serializable) and sends.
  */
 
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { eq, and, isNull, lt, between, notInArray } from 'drizzle-orm';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
-import * as cfEmail from '@weldsuite/worker-email';
+import { resolveEmailLocale, sendSystemEmail, type EmailBrand, type EmailLocale, type FlowDigestEmailProps } from '@weldsuite/emails';
+import { workerTransport, type SystemEmailEnv } from '@weldsuite/emails/transports/binding';
 
 /**
  * The bindings the workflow reads: tenant DB resolution, the environment name
- * (platform links), Resend and the Cloudflare send binding fallback
- * (@weldsuite/worker-email). Any worker Env with them fits.
+ * (platform links), and the system-email transport (@weldsuite/emails).
+ * Any worker Env with them fits.
  */
-export interface SendDigestEnv extends DbEnv, cfEmail.WorkerEmailEnv {
+export interface SendDigestEnv extends DbEnv, SystemEmailEnv {
   ENVIRONMENT: string;
-  /** Resend API key — preferred over the SEND_EMAIL binding when set. */
-  RESEND_API_KEY?: string;
 }
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -54,35 +54,6 @@ interface DigestTask {
   priority: string;
   projectName?: string | null;
   type: 'project' | 'personal';
-}
-
-// ── Resend (inline fetch client, mirrors @weldsuite/transactional-email) ─
-
-interface ResendSendParams {
-  from: string;
-  to: string[];
-  subject: string;
-  html?: string;
-  text?: string;
-  headers?: Record<string, string>;
-}
-
-async function sendViaResend(apiKey: string, params: ResendSendParams): Promise<{ id: string }> {
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(params),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Resend API error ${res.status}: ${body}`);
-  }
-
-  return res.json() as Promise<{ id: string }>;
 }
 
 // ── Date Helpers ─────────────────────────────────────────────────────────
@@ -222,115 +193,14 @@ async function queryStandaloneTasks(
   return result;
 }
 
-// ── Email Template ───────────────────────────────────────────────────────
-
-function formatDate(date: Date | null): string {
-  if (!date) return '—';
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(date));
-}
-
-function priorityColor(priority: string): string {
-  switch (priority) {
-    case 'critical': return '#dc2626';
-    case 'high': return '#ea580c';
-    case 'medium': return '#ca8a04';
-    case 'low': return '#2563eb';
-    default: return '#6b7280';
-  }
-}
-
-function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function renderTaskRow(t: DigestTask): string {
-  const project = t.projectName
-    ? `<span style="color:#6b7280;font-size:12px;"> &middot; ${escapeHtml(t.projectName)}</span>`
-    : t.type === 'personal'
-      ? `<span style="color:#6b7280;font-size:12px;"> &middot; Personal</span>`
-      : '';
-
-  return `
-    <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">
-        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${priorityColor(t.priority)};margin-right:8px;vertical-align:middle;"></span>
-        <span style="font-size:14px;color:#1e293b;">${escapeHtml(t.title)}</span>
-        ${project}
-      </td>
-      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-size:13px;color:#64748b;white-space:nowrap;">
-        ${formatDate(t.dueDate)}
-      </td>
-    </tr>`;
-}
-
-function renderSection(title: string, tasks: DigestTask[], accentColor: string, badgeColor: string): string {
-  if (tasks.length === 0) return '';
-  return `
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-      <tr>
-        <td colspan="2" style="padding:0 0 8px 0;">
-          <span style="font-size:15px;font-weight:600;color:${accentColor};">${title}</span>
-          <span style="display:inline-block;background:${badgeColor};color:#fff;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;margin-left:8px;">${tasks.length}</span>
-        </td>
-      </tr>
-      ${tasks.map(renderTaskRow).join('')}
-    </table>`;
-}
-
-function buildDigestHtml(params: {
-  firstName: string;
-  dateStr: string;
-  overdue: DigestTask[];
-  dueToday: DigestTask[];
-  dueThisWeek: DigestTask[];
-  workspaceName: string;
-  logoUrl: string | null;
-  primaryColor: string;
-  platformUrl: string;
-}): string {
-  const { firstName, dateStr, overdue, dueToday, dueThisWeek, workspaceName, logoUrl, primaryColor, platformUrl } = params;
-
-  const logoHtml = logoUrl
-    ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(workspaceName)}" style="max-height:32px;max-width:160px;" />`
-    : `<span style="font-size:18px;font-weight:700;color:${primaryColor};">${escapeHtml(workspaceName)}</span>`;
-
-  const sectionsHtml = [
-    renderSection('Overdue', overdue, '#dc2626', '#dc2626'),
-    renderSection('Due Today', dueToday, '#d97706', '#d97706'),
-    renderSection('This Week', dueThisWeek, '#2563eb', '#2563eb'),
-  ].join('');
-
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:32px 16px;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-        <tr><td style="padding:24px 32px;border-bottom:1px solid #e2e8f0;">${logoHtml}</td></tr>
-        <tr><td style="padding:24px 32px 8px;">
-          <h1 style="margin:0;font-size:20px;font-weight:600;color:#0f172a;">Daily Task Digest</h1>
-          <p style="margin:4px 0 0;font-size:13px;color:#94a3b8;">${escapeHtml(dateStr)}</p>
-        </td></tr>
-        <tr><td style="padding:16px 32px 24px;">
-          <p style="margin:0;font-size:15px;color:#334155;">Hi ${escapeHtml(firstName)},</p>
-          <p style="margin:8px 0 0;font-size:14px;color:#64748b;">Here&rsquo;s a summary of your upcoming and overdue tasks.</p>
-        </td></tr>
-        <tr><td style="padding:0 32px 16px;">${sectionsHtml}</td></tr>
-        <tr><td style="padding:8px 32px 32px;" align="center">
-          <a href="${escapeHtml(platformUrl)}/task" style="display:inline-block;background:${primaryColor};color:#fff;font-size:14px;font-weight:600;padding:10px 28px;border-radius:8px;text-decoration:none;">View All Tasks</a>
-        </td></tr>
-        <tr><td style="padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;">
-          <p style="margin:0;font-size:12px;color:#94a3b8;text-align:center;">
-            You&rsquo;re receiving this as a member of ${escapeHtml(workspaceName)}.
-            <a href="${escapeHtml(platformUrl)}/settings/notifications" style="color:${primaryColor};text-decoration:underline;">Manage in Settings</a>
-          </p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+/** Map the internal query shape to the email template's plain-object task shape. */
+function toEmailTasks(tasks: DigestTask[]): FlowDigestEmailProps['overdue'] {
+  return tasks.map((t) => ({
+    title: t.title,
+    projectName: t.projectName ?? null,
+    personal: t.type === 'personal',
+    dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+  }));
 }
 
 // ── Platform URL Helper ──────────────────────────────────────────────────
@@ -345,27 +215,46 @@ function getPlatformUrl(environment: string): string {
   return urls[environment] || 'https://app.weldsuite.org';
 }
 
+/** What step 1 hands step 2 — must be JSON-serializable (no transports, no Dates). */
+interface PreparedDigestEmail {
+  skip: boolean;
+  to?: string;
+  props?: FlowDigestEmailProps;
+  locale?: EmailLocale;
+  brand?: EmailBrand;
+  fromName?: string;
+  headers?: Record<string, string>;
+  totalTasks?: number;
+}
+
 // ── Workflow ─────────────────────────────────────────────────────────────
 
 export class SendDigestWorkflow extends WorkflowEntrypoint<SendDigestEnv, SendDigestParams> {
   async run(event: WorkflowEvent<SendDigestParams>, step: WorkflowStep) {
     const { workspaceId, userId, email, name, timezone } = event.payload;
 
-    // Step 1: Query tasks and render email HTML
-    const emailData = await step.do('query-and-render', {
+    // Step 1: Query tasks and build the email props (serializable plain object).
+    const emailData: PreparedDigestEmail = await step.do('query-and-prepare', {
       retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
     }, async () => {
       const db = await getTenantDbForWorkspace(this.env, workspaceId);
 
-      // Get workspace branding
+      // Get workspace branding + locale
       const [wsSettings] = await db
         .select({
           timezone: schema.workspaceSettings.timezone,
           logoUrl: schema.workspaceSettings.logoUrl,
           tradingName: schema.workspaceSettings.tradingName,
           primaryColor: schema.workspaceSettings.primaryColor,
+          language: schema.workspaceSettings.language,
         })
         .from(schema.workspaceSettings)
+        .limit(1);
+
+      const [userPref] = await db
+        .select({ language: schema.userPreferences.language })
+        .from(schema.userPreferences)
+        .where(eq(schema.userPreferences.userId, userId))
         .limit(1);
 
       const wsTimezone = wsSettings?.timezone || timezone || 'UTC';
@@ -373,6 +262,7 @@ export class SendDigestWorkflow extends WorkflowEntrypoint<SendDigestEnv, SendDi
       const logoUrl = wsSettings?.logoUrl || null;
       const primaryColor = wsSettings?.primaryColor || '#2563eb';
       const platformUrl = getPlatformUrl(this.env.ENVIRONMENT);
+      const locale = resolveEmailLocale(userPref?.language, wsSettings?.language);
 
       // Get digest config
       const [digestSettings] = await db.select().from(schema.taskDigestSettings).limit(1);
@@ -404,25 +294,31 @@ export class SendDigestWorkflow extends WorkflowEntrypoint<SendDigestEnv, SendDi
       const totalTasks = overdue.length + dueToday.length + dueThisWeek.length;
       if (totalTasks === 0) {
         console.log(`[Digest] No tasks for ${email}, skipping`);
-        return { skip: true } as const;
+        return { skip: true };
       }
 
-      const dateStr = new Intl.DateTimeFormat('en-US', {
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: wsTimezone,
-      }).format(new Date());
-
-      const firstName = name.split(' ')[0];
-      const html = buildDigestHtml({ firstName, dateStr, overdue, dueToday, dueThisWeek, workspaceName, logoUrl, primaryColor, platformUrl });
-
-      const subject = `Daily Task Digest — ${overdue.length > 0 ? `${overdue.length} overdue` : `${totalTasks} tasks`}`;
-      const from = `${workspaceName} <digest@mail.weldsuite.org>`;
+      const firstName = name.split(' ')[0] || name;
       const unsubscribeUrl = `${platformUrl}/settings/notifications`;
 
+      const props: FlowDigestEmailProps = {
+        firstName,
+        workspaceName,
+        overdue: toEmailTasks(overdue),
+        dueToday: toEmailTasks(dueToday),
+        dueThisWeek: toEmailTasks(dueThisWeek),
+        timezone: wsTimezone,
+        date: new Date().toISOString(),
+        tasksUrl: `${platformUrl}/task`,
+        settingsUrl: unsubscribeUrl,
+      };
+
       return {
-        skip: false as const,
-        html,
-        subject,
-        from,
+        skip: false,
+        to: email,
+        props,
+        locale,
+        brand: { kind: 'workspace', name: workspaceName, logoUrl, accentColor: primaryColor },
+        fromName: workspaceName,
         headers: {
           'List-Unsubscribe': `<${unsubscribeUrl}>`,
           'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
@@ -431,29 +327,29 @@ export class SendDigestWorkflow extends WorkflowEntrypoint<SendDigestEnv, SendDi
       };
     });
 
-    // Step 2: Send the email
-    if (emailData.skip) return;
+    if (emailData.skip || !emailData.to || !emailData.props) return;
 
+    // Step 2: Build the transport (not serializable) and send.
     await step.do('send-email', {
       retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
     }, async () => {
-      const params = {
-        from: emailData.from,
-        to: [email],
-        subject: emailData.subject,
-        html: emailData.html,
-        headers: emailData.headers,
-      };
-
-      if (this.env.RESEND_API_KEY) {
-        const result = await sendViaResend(this.env.RESEND_API_KEY, params);
-        console.log(`[Digest] Sent to ${email} via Resend: ${result.id}`);
-        return { provider: 'resend', messageId: result.id };
-      } else {
-        const result = await cfEmail.sendEmail(this.env, params);
-        console.log(`[Digest] Sent to ${email} via Cloudflare send binding: ${result.messageId}`);
-        return { provider: 'cloudflare', messageId: result.messageId };
+      const transport = workerTransport(this.env);
+      if (!transport) {
+        console.log(`[Digest] No email transport configured, skipping send to ${emailData.to}`);
+        return { skipped: true };
       }
+
+      const result = await sendSystemEmail(transport, {
+        template: 'flow.digest',
+        props: emailData.props!,
+        to: emailData.to!,
+        locale: emailData.locale,
+        brand: emailData.brand,
+        fromName: emailData.fromName,
+        headers: emailData.headers,
+      });
+      console.log(`[Digest] Sent to ${emailData.to} via ${result.transport}: ${result.messageId}`);
+      return { transport: result.transport, messageId: result.messageId };
     });
   }
 }

@@ -419,8 +419,8 @@ describe('DELETE /api/calendars/:id · events, meetings and attendee mail', () =
         .map(([, init]) => JSON.parse(String(init?.body)) as { to: string[]; html: string })
         .find((m) => m.to.includes('tz-guest@example.com'));
       expect(mail).toBeDefined();
-      expect(mail?.html).toContain('10:00 AM GMT+2');
-      expect(mail?.html).toContain('11:00 AM GMT+2');
+      // The zone is written once, at the end of the range.
+      expect(mail?.html).toContain('10:00 AM – 11:00 AM GMT+2');
       expect(mail?.html).not.toContain('UTC');
     });
   });

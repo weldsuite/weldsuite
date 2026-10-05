@@ -1,12 +1,12 @@
 /**
  * Task-assignment notification — fires when a user is added as the assignee
- * of a task (project task or CRM task). Uses a Resend template when
- * `env.RESEND_TEMPLATE_TASK_ASSIGNED` is set, otherwise plain text.
+ * of a task (project task or CRM task). Its email renders with the richer
+ * `task.assigned` template (@weldsuite/emails).
  *
  * Skips self-assignment.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
 import { createAndDeliverNotification } from '../orchestrator';
 import type { Database, NotificationEnv } from '../types';
@@ -27,10 +27,8 @@ interface TaskAssignmentParams<Env extends NotificationEnv> {
   /** WeldFlow project id — included in the Expo push `data` payload so the
    *  mobile app can deep-link to `/task/{projectId}/{taskId}`. */
   projectId?: string | null;
-  /** Optional template enrichments — surfaced as Resend template variables
-   *  (`project_name`, `task_priority`, `due_date`, `task_description`,
-   *  `company_name`). Missing values fall back to empty strings so the
-   *  template still renders. */
+  /** Optional enrichments surfaced on the `task.assigned` email template.
+   *  Missing values are simply omitted so the template still renders. */
   projectName?: string | null;
   taskPriority?: string | null;
   dueDate?: Date | string | null;
@@ -56,28 +54,20 @@ export async function sendTaskAssignmentNotification<Env extends NotificationEnv
     taskPriority,
     dueDate,
     taskDescription,
-    workspaceName,
   } = params;
 
   if (assigneeId === assignedByUserId) {
     return null;
   }
 
-  // Normalise optional template variables. Dates render as YYYY-MM-DD;
-  // anything else becomes a plain string. Missing values stay empty so the
-  // template renders cleanly without "undefined" leaking through.
-  const formattedDueDate =
-    dueDate instanceof Date
-      ? dueDate.toISOString().slice(0, 10)
-      : typeof dueDate === 'string' && dueDate
-        ? dueDate.slice(0, 10)
-        : '';
+  // ISO date-time for the `task.assigned` template, which formats it in the
+  // recipient's locale + the workspace timezone.
+  const dueDateIso =
+    dueDate instanceof Date ? dueDate.toISOString() : typeof dueDate === 'string' && dueDate ? dueDate : undefined;
 
-  // Resolve assigner + assignee display names for the template variables.
-  // Tolerant of misses: defaults to "Someone" / "there" so the email still
-  // renders if the lookup fails.
+  // Resolve assigner name + the workspace timezone for the email template.
+  // Tolerant of misses: defaults keep the email renderable.
   let assignerName = 'Someone';
-  let assigneeName = 'there';
   try {
     const members = await db
       .select({ userId: schema.workspaceMembers.userId, name: schema.workspaceMembers.name })
@@ -87,18 +77,18 @@ export async function sendTaskAssignmentNotification<Env extends NotificationEnv
   } catch (err) {
     console.error('[Notifications] Failed to resolve assigner name:', err);
   }
+  let timezone: string | undefined;
   try {
-    const [member] = await db
-      .select({ name: schema.workspaceMembers.name })
-      .from(schema.workspaceMembers)
-      .where(eq(schema.workspaceMembers.userId, assigneeId))
+    const [wsSettings] = await db
+      .select({ timezone: schema.workspaceSettings.timezone })
+      .from(schema.workspaceSettings)
+      .where(isNull(schema.workspaceSettings.deletedAt))
       .limit(1);
-    if (member?.name) assigneeName = member.name;
+    if (wsSettings?.timezone) timezone = wsSettings.timezone;
   } catch {
-    // non-fatal
+    // non-fatal — the template falls back to UTC.
   }
 
-  const templateId = env.RESEND_TEMPLATE_TASK_ASSIGNED;
   const baseUrl = env.PUBLIC_APP_URL ?? '';
   const absoluteUrl = baseUrl ? `${baseUrl}${actionUrl}` : actionUrl;
 
@@ -121,22 +111,19 @@ export async function sendTaskAssignmentNotification<Env extends NotificationEnv
       taskId,
       ...(projectId ? { projectId } : {}),
     },
-    emailTemplate: templateId
-      ? {
-          id: templateId,
-          variables: {
-            assignee_name: assigneeName,
-            assigner_name: assignerName,
-            task_title: taskTitle,
-            task_url: absoluteUrl,
-            action_url: absoluteUrl,
-            project_name: projectName ?? '',
-            task_priority: taskPriority ?? '',
-            due_date: formattedDueDate,
-            task_description: taskDescription ?? '',
-            company_name: workspaceName ?? '',
-          },
-        }
-      : undefined,
+    email: {
+      template: 'task.assigned',
+      props: {
+        assignerName,
+        taskTitle,
+        projectName,
+        priority: taskPriority,
+        dueDate: dueDateIso,
+        timezone,
+        description: taskDescription,
+        taskUrl: absoluteUrl,
+        settingsUrl: baseUrl ? `${baseUrl}/settings/notifications` : undefined,
+      },
+    },
   });
 }

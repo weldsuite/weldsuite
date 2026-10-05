@@ -9,6 +9,10 @@
     "declaration": false,
     "declarationMap": false,
     "noUncheckedIndexedAccess": false,
+    // @weldsuite/notifications re-exports prop types from @weldsuite/emails,
+    // which ships its templates as .tsx source (no build step) — anything
+    // that pulls in those types needs a jsx mode to resolve them.
+    "jsx": "react-jsx",
     "types": ["@cloudflare/workers-types", "node"]
   },
   "include": ["src"],

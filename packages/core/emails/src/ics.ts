@@ -71,7 +71,7 @@ function zonedYmd(value: string | Date, timeZone: string): [number, number, numb
     month: '2-digit',
     day: '2-digit',
   }).format(new Date(value));
-  const [y, m, d] = text.split('-').map(Number);
+  const [y = 1970, m = 1, d = 1] = text.split('-').map(Number);
   return [y, m, d];
 }
 

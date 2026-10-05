@@ -27,7 +27,9 @@ Migration plan and status: `docs/plans/system-email-cloudflare.md`.
 | `src/format.ts` | Locale- and timezone-aware dates (`formatWhen`, `formatDate`, `formatTimeRange`). |
 | `src/ics.ts` | `buildIcs` / `icsAttachment` for calendar attachments. |
 | `src/send.ts` | `sendSystemEmail(transport, { template, props, to, locale, brand, replyTo, attachments })`. |
-| `src/transports/` | `binding` (Workers `SEND_EMAIL`), `rest` (Next.js / scripts), `memory` (tests), `resend` (migration fallback only). |
+| `src/transports/` | `binding` (`workerTransport(env)` for Workers), `env` (`transportFromEnv(process.env)` for Next.js / scripts, uses `rest`), `memory` (tests), `resend` (migration fallback only). |
+| Template ids | `calendar.event`, `meet.invitation`, `booking`, `workspace.invitation`, `notification`, `task.assigned`, `flow.digest`, `portal.sign-in`, `hr.portal-invite`, `admin.workspace-deletion`, `internal.enterprise-inquiry`. Reuse one before adding a near-duplicate. |
+| Migration switches | `EMAIL_TRANSPORT=resend` (worker var / env) keeps a sender on Resend; `SYSTEM_EMAIL_FROM` overrides the sender address. Both go away in Phase 5 of the plan. |
 
 ## Design direction: modern and minimal
 
@@ -46,9 +48,15 @@ The look is that of Linear, Vercel or Stripe mail, not a marketing template. Kee
   `position`, CSS variables or `<style>` blocks. Gmail and Outlook drop them.
   If a primitive is missing, add one to `primitives.tsx` built from React Email
   `Section`/`Row`/`Column`/`Text` with inline styles.
+- **No hooks and no React context** (`useState`, `useContext`, `createContext`, …)
+  anywhere in the package. Templates are also imported from Next.js Server
+  Actions, whose React build has none of them, and the build fails. Pass values
+  down as props instead.
 - Every color, size and spacing value comes from `theme`. Colors are hex. A
-  workspace accent color only reaches the email through `useEmail().accent`
-  (buttons), which `accentOf()` has already validated.
+  workspace accent color reaches the email only through
+  `<Button accent={accentOf(brand)}>`. `accentOf()` validates it.
+  `<LinkFallback>` takes its text as
+  `label={emailStrings(locale).layout.linkFallback}`.
 - Images: absolute `https://` URLs, with explicit width/height and alt text.
   SVG doesn't render in Gmail or Outlook; use 2x PNGs (WeldSuite assets go in
   `apps/web/platform/public/email/`).
@@ -135,9 +143,15 @@ if (transport) {
 ```
 
 - The worker needs `[[send_email]] name = "SEND_EMAIL"` in every env block of
-  its `wrangler.toml`, and `nodejs_compat`.
+  its `wrangler.toml`, and `nodejs_compat`. Until Phase 0 of the plan is done,
+  it also needs `EMAIL_TRANSPORT = "resend"` in its vars.
+- Every package or app that depends on `@weldsuite/emails` needs
+  `"jsx": "react-jsx"` in its `tsconfig.json`. The package ships `.tsx`
+  sources, so the consumer's `tsc` compiles them.
 - External recipients get a workspace brand (`{ kind: 'workspace', name, logoUrl, accentColor }`
   from `workspace_settings`), and `replyTo` set to the person they would answer.
-- Next.js apps use `restTransport({ accountId, apiToken })` from
-  `@weldsuite/emails/transports/rest`.
+- Next.js apps use `transportFromEnv(process.env)` from
+  `@weldsuite/emails/transports/env`. List `@weldsuite/emails` and
+  `@weldsuite/email` in `transpilePackages`. A static import works in Server
+  Actions and route handlers; this was verified with a running Next 16 build.
 - Tests use `memoryTransport()` and assert on `transport.sent`.

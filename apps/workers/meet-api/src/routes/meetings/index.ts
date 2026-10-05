@@ -740,14 +740,17 @@ app.post(
         }
       }
 
-      // Inviter (for the email copy) and organizer (for the .ics ORGANIZER).
+      // Inviter (for the email copy) and organizer (for the .ics ORGANIZER),
+      // plus the organizer's preferred timezone when it's on file.
       const people = await db
         .select({
           userId: schema.workspaceMembers.userId,
           name: schema.workspaceMembers.name,
           email: schema.workspaceMembers.email,
+          timezone: schema.userPreferences.timezone,
         })
         .from(schema.workspaceMembers)
+        .leftJoin(schema.userPreferences, eq(schema.userPreferences.userId, schema.workspaceMembers.userId))
         .where(inArray(schema.workspaceMembers.userId, [userId, existing.organizerId]));
       const inviter = people.find((p) => p.userId === userId);
       const organizer = people.find((p) => p.userId === existing.organizerId) ?? inviter;
@@ -761,11 +764,12 @@ app.post(
       const sent = await Promise.all(
         added.map((attendee) =>
           sendEmail
-            ? sendInvitationEmail(env.RESEND_API_KEY, {
+            ? sendInvitationEmail(env, {
                 meeting: existing,
                 organizer: {
                   name: inviter?.name || organizer?.name || 'Someone',
                   email: organizer?.email ?? '',
+                  timezone: organizer?.timezone ?? undefined,
                 },
                 joinUrl,
                 attendee: { email: attendee.email, name: attendee.name },

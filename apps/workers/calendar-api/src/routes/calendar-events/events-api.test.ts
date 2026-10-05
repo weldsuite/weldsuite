@@ -35,7 +35,14 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (_url: string, init: { body: string }) => {
-      sent.push(JSON.parse(init.body) as SentMail);
+      const mail = JSON.parse(init.body) as SentMail;
+      // The Resend transport base64-encodes attachment content (Resend's API
+      // contract); decode it back so assertions can read the .ics as text.
+      mail.attachments = mail.attachments?.map((a) => ({
+        ...a,
+        content: Buffer.from(a.content, 'base64').toString('utf-8'),
+      }));
+      sent.push(mail);
       return new Response('{}', { status: 200 });
     }),
   );
@@ -234,7 +241,8 @@ describe('timezone', () => {
       attendees: [{ email: 'guest@example.com' }],
     });
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].html).toContain('6:00 AM GMT+9');
+    // The zone is written once, at the end of the range.
+    expect(sent[0].html).toContain('6:00 AM – 7:00 AM GMT+9');
   });
 });
 
@@ -269,6 +277,9 @@ describe('nullable update fields', () => {
     expect(row.customerId).toBeNull();
     expect(row.contactId).toBeNull();
     expect(row.meetingUrl).toBeNull();
+    // Creation queued an invite for a@example.com; drain it so it can't land
+    // in the next test's `sent` (fire-and-forget via waitUntil).
+    await settle();
   });
 });
 
@@ -287,10 +298,10 @@ describe('attendees', () => {
 
     await vi.waitFor(() => expect(sent).toHaveLength(2));
     for (const mail of sent) {
-      expect(mail.subject).toBe('Event invitation: Planning');
+      expect(mail.subject).toBe('Invitation: Planning');
       expect(mail.html).toContain(`href="${MEETING_URL}"`);
       // Not workspace members: nothing that leads to the authenticated app.
-      expect(mail.html).not.toContain('app.weldsuite.org');
+      expect(mail.html).not.toContain('/weldcalendar');
       expect(mail.attachments[0].content).toContain('METHOD:REQUEST');
     }
   });
@@ -326,6 +337,9 @@ describe('attendees', () => {
     expect(res.status).toBe(201);
     const id = ((await res.json()) as { data: { id: string } }).data.id;
     expect((await eventRow(id)).attendees).toEqual([{ email: 'ok@example.com' }]);
+    // Creation queued an invite for ok@example.com; drain it so it can't land
+    // in the next test's `sent` (fire-and-forget via waitUntil).
+    await settle();
   });
 
   it('collapses duplicate attendee emails so nobody is invited twice', async () => {
@@ -351,10 +365,10 @@ describe('attendees', () => {
 
     await vi.waitFor(() => expect(sent).toHaveLength(2));
     const bySubject = Object.fromEntries(sent.map((m) => [m.subject, m]));
-    expect(bySubject['Event invitation: Planning'].to).toEqual(['new@example.com']);
-    expect(bySubject['Event invitation: Planning'].html).toContain(`href="${MEETING_URL}"`);
+    expect(bySubject['Invitation: Planning'].to).toEqual(['new@example.com']);
+    expect(bySubject['Invitation: Planning'].html).toContain(`href="${MEETING_URL}"`);
     // The guest who was taken off is told so; the event itself is not cancelled.
-    expect(bySubject['Event cancelled: Planning']).toBeUndefined();
+    expect(bySubject['Cancelled: Planning']).toBeUndefined();
     const removed = bySubject['You were removed from: Planning'];
     expect(removed.to).toEqual(['gone@example.com']);
     expect(removed.html).toContain('removed you from an event');
@@ -386,8 +400,8 @@ describe('attendees', () => {
     });
     await vi.waitFor(() => expect(sent).toHaveLength(2));
     const bySubject = Object.fromEntries(sent.map((m) => [m.subject, m.to[0]]));
-    expect(bySubject['Event rescheduled: Planning']).toBe('stay@example.com');
-    expect(bySubject['Event invitation: Planning']).toBe('new@example.com');
+    expect(bySubject['Rescheduled: Planning']).toBe('stay@example.com');
+    expect(bySubject['Invitation: Planning']).toBe('new@example.com');
   });
 
   it('PATCH re-saving the same times is not a reschedule', async () => {
@@ -410,7 +424,7 @@ describe('attendees', () => {
     sent.length = 0;
     await send(userId, 'PATCH', `/${id}?sendNotification=true`, { meetingUrl: MEETING_URL, isVirtual: true });
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].subject).toBe('Event updated: Planning');
+    expect(sent[0].subject).toBe('Updated: Planning');
     expect(sent[0].html).toContain(`href="${MEETING_URL}"`);
   });
 });
@@ -432,9 +446,10 @@ describe('reschedule notifications', () => {
     });
     expect(res.status).toBe(200);
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].subject).toBe('Event rescheduled: Planning');
+    expect(sent[0].subject).toBe('Rescheduled: Planning');
     expect(sent[0].html).toContain(`href="${MEETING_URL}"`);
-    expect(sent[0].html).toContain('11:00 AM GMT+1');
+    // The zone is written once, at the end of the range.
+    expect(sent[0].html).toContain('11:00 AM – 12:00 PM GMT+1');
     expect(sent[0].attachments[0].content).toContain('DTSTART:20300302T100000Z');
   });
 
@@ -467,7 +482,7 @@ describe('cancel mail', () => {
 
     expect((await send(userId, 'DELETE', `/${id}?sendNotification=true`)).status).toBe(204);
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].subject).toBe('Event cancelled: Planning');
+    expect(sent[0].subject).toBe('Cancelled: Planning');
     expect(sent[0].html).not.toContain(MEETING_URL);
     expect(sent[0].attachments[0].content).toContain('METHOD:CANCEL');
   });

@@ -1,6 +1,6 @@
 # System email: Resend → Cloudflare Email Service, one layout in code
 
-Status: Phase 1 done (2026-10-05). Phase 0 (Cloudflare onboarding + live send spike) still open.
+Status: Phases 1–4 done (2026-10-05): every system email renders from @weldsuite/emails, still delivered through Resend. Open: Phase 0 (Cloudflare onboarding + live send spike, needs a Cloudflare account admin), then flipping EMAIL_TRANSPORT, then Phase 5 (remove Resend).
 
 ## Goal
 
@@ -65,17 +65,18 @@ packages/core/emails/
       primitives.tsx       ← Kicker, Heading, Paragraph, Button, Actions, LinkFallback, Quote, Details, Code, Divider, …
     define.ts              ← defineTemplate({ defaultBrand, subject, Component, previews })
     templates/
-      calendar/event.tsx   ← kind: invite | update | reschedule | cancel | removed        (Phase 1)
-      booking/confirmed.tsx                                                               (Phase 1)
-      notifications/notification.tsx                                                     (Phase 1)
-      meet/…  booking/{rescheduled,cancelled,guest-invite}  workspace/invitation  flow/digest
-      hr/…  commerce/…  admin/…  internal/…                                               (Phases 2–4)
+      calendar/event.tsx   ← kind: invite | update | reschedule | cancel | removed
+      booking/booking.tsx  ← kind: confirmed | rescheduled | cancelled | guest
+      meet/invitation.tsx  workspace/invitation.tsx  notifications/notification.tsx
+      task/assigned.tsx  flow/digest.tsx  portal/sign-in.tsx  hr/portal-invite.tsx
+      admin/workspace-deletion.tsx  internal/enterprise-inquiry.tsx
       index.ts             ← typed registry: id → template
     render.ts              ← renderEmail(id, props, { locale, brand }) → { subject, html, text }
     send.ts                ← sendSystemEmail(transport, { template, props, to, locale, brand, replyTo?, attachments?, headers? })
     transports/
       binding.ts           ← Workers `send_email` binding (reuses @weldsuite/email CloudflareSendProvider) + workerTransport(env)
       rest.ts              ← Cloudflare REST POST /accounts/{id}/email/sending/send via the official SDK, for Next.js apps
+      env.ts               ← transportFromEnv(process.env): REST when CF creds are set, else Resend
       resend.ts            ← migration fallback only, deleted in Phase 5
       memory.ts            ← test transport that records sends
     ics.ts                 ← single ICS builder (merges calendar-api's generateIcs and transactional-email's buildIcsInvite)
@@ -198,37 +199,63 @@ event's timezone. This replaces the hardcoded `en-US` / `en-GB`.
   The direction is recorded in the skill. Get sign-off in the preview before any
   template is migrated.
 
-### Phase 2: Calendar, Meet, Booking
+### Phases 2–4: every sender on the templates, done
 
-- calendar-api: replace `wrapLayout`, the four renderers, `renderCalendarText`,
-  `generateIcs` and `postToResend` with `sendSystemEmail('calendar.*')`. Drop the
-  `RESEND_MEETING_*_TEMPLATE_ID` support.
-- meet-api: `meet.invitation`.
-- booking-portal: the four booking templates through the REST transport. Brand
-  is the workspace; Reply-To is the host.
-- Rollout: a per-worker `EMAIL_TRANSPORT = "cloudflare" | "resend"` var, default
-  `cloudflare` in test. If production deliverability dips, flip it to `resend`
-  without a redeploy of code. The Resend transport lives in `@weldsuite/emails`
-  until Phase 5.
+Phases 2–4 shipped together. Every system email now renders from
+`@weldsuite/emails`. **Senders still go through Resend until Phase 0 is done**:
+see "Rollout switches" below.
 
-### Phase 3: platform mail
+| Template id | Sender |
+|---|---|
+| `calendar.event` | calendar-api `services/calendar-mail.ts` (Resend dashboard template ids dropped) |
+| `meet.invitation` | meet-api `services/weldmeet/invitations.ts` |
+| `booking` (confirmed / rescheduled / cancelled / guest) | booking-portal `lib/booking-emails.ts`, via `transportFromEnv` |
+| `workspace.invitation` | workspace-worker Clerk webhook (replaces the Resend dashboard template) |
+| `notification`, `task.assigned` | `@weldsuite/notifications` + app-api deferred-email workflow. Every notification now has an HTML body; the task-assigned dashboard template is gone. |
+| `flow.digest` | `packages/domains/flow` send-digest workflow, still workspace-branded, with List-Unsubscribe |
+| `hr.portal-invite`, `portal.sign-in` | hr-api `services/weldhr/portal-mail.ts` |
+| `portal.sign-in` (link + code) | commerce-api `services/commerce-portal-mail.ts` |
+| `admin.workspace-deletion` | admin `lib/workspace-deletion-email.ts`, via `transportFromEnv` |
+| `internal.enterprise-inquiry` | app-api billing route |
 
-- workspace-worker: `workspace.invitation` replaces the Resend dashboard template.
-- notifications channel: `notifications.generic` gives every notification HTML
-  (title, body, actor, deep link button) instead of plain text.
-  `notifications.task-assigned` replaces the dashboard template. The deferred
-  workflow in app-api moves along with it.
-- flow digest: `flow.digest`, keeping workspace logo/color branding and the
-  `List-Unsubscribe` headers.
+**Rollout switches** (until Phase 0 is done and verified in test):
+- Workers that sent through Resend have `EMAIL_TRANSPORT = "resend"` in every
+  `[vars]` block. They keep sending through Resend, now with the new templates.
+  To move a worker to Cloudflare, change the var to `"cloudflare"`. To fall back
+  without a code change, set it back to `"resend"`.
+- `workerTransport` also falls back to Resend when a worker has a
+  `RESEND_API_KEY` but no `SEND_EMAIL` binding.
+- hr-api and commerce-api only ever sent through the binding, from
+  `noreply@weldsuite.org`. They have `SYSTEM_EMAIL_FROM = "noreply@weldsuite.org"`,
+  which keeps that verified sender. Remove the var once `mail.weldsuite.org` is
+  onboarded, so they send from `notifications@mail.weldsuite.org` like the rest.
+- The Next.js apps (booking-portal, admin) use Cloudflare REST as soon as
+  `CF_ACCOUNT_ID` and `CF_EMAIL_SEND_TOKEN` are set, and Resend otherwise.
+  `EMAIL_TRANSPORT=resend` forces Resend.
 
-### Phase 4: portals, admin, internal
+**Pitfalls hit and fixed in this phase:**
+- Most API workers alias `react` to an empty shim in `wrangler.toml` to keep
+  React out of their bundle. A worker that bundles `@weldsuite/emails` must not:
+  with the shim, every email fails at runtime while the tests (real React) pass.
+  The alias was removed from calendar, meet, app, agent, chat, flow, hr and
+  commerce, and `packages/core/emails/src/worker-config.test.ts` now fails CI if a
+  worker that reaches the package aliases react again.
+- Next.js Server Actions run on a React build without hooks or context, so the
+  package uses neither (accent and strings are props). Rendering from a Server
+  Action or route handler with a static import was verified on a running Next 16
+  build (admin).
+- Consumers need `"jsx": "react-jsx"` in their tsconfig (the package ships .tsx).
 
-- hr-api, commerce-api, admin deletion mails, the enterprise inquiry.
-- Fold `app-api/services/internal-email.ts` and the inline Resend in
-  `send-digest.ts` into `@weldsuite/emails`.
+Left in place on purpose: app-api's generic `/api/internal/send-email` and
+`/send-transactional-email` relays, which carry caller-supplied HTML.
 
-### Phase 5: remove Resend
+### Phase 5: remove Resend (after Phase 0 is verified in production)
 
+- Flip every `EMAIL_TRANSPORT` to `cloudflare`, drop `SYSTEM_EMAIL_FROM`, set
+  `CF_ACCOUNT_ID` + `CF_EMAIL_SEND_TOKEN` for booking-portal and admin, and watch
+  a week of production mail.
+- Delete `transports/resend.ts`, the `EMAIL_TRANSPORT` switch and the
+  Resend fallback in `workerTransport` / `transportFromEnv`.
 - Delete `packages/core/transactional-email/src/resend.ts` and
   `sendTemplateEmail`. Move or delete the rest of the package (ICS is now in
   `@weldsuite/emails`).

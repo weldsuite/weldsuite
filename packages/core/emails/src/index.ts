@@ -35,11 +35,21 @@ export {
   templates,
   type TemplateId,
   type TemplateProps,
-  type BookingConfirmedEmailProps,
+  type BookingEmailKind,
+  type BookingEmailProps,
   type BookingLocation,
   type CalendarEventEmailProps,
   type CalendarEventKind,
+  type DigestTask,
+  type EnterpriseInquiryEmailProps,
+  type FlowDigestEmailProps,
+  type HrPortalInviteEmailProps,
+  type MeetInvitationEmailProps,
   type NotificationEmailProps,
+  type PortalSignInEmailProps,
+  type TaskAssignedEmailProps,
+  type WorkspaceDeletionEmailProps,
+  type WorkspaceInvitationEmailProps,
 } from './templates';
 export { htmlToText, renderEmail, renderHtml, renderTemplate, type RenderOptions, type RenderedEmail } from './render';
 export { SYSTEM_FROM_ADDRESS, sendSystemEmail, type SendSystemEmailOptions } from './send';

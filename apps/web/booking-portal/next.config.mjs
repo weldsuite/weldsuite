@@ -1,7 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // meet-domain ships TS sources (WeldMeet meetings for bookings).
-  transpilePackages: ["@weldsuite/ui", "@weldsuite/meet-domain"],
+  // meet-domain ships TS sources (WeldMeet meetings for bookings); emails +
+  // its own workspace deps (email, i18n) ship raw .ts/.tsx too.
+  transpilePackages: [
+    "@weldsuite/ui",
+    "@weldsuite/meet-domain",
+    "@weldsuite/emails",
+    "@weldsuite/email",
+    "@weldsuite/i18n",
+  ],
   typescript: {
     // NOTE: kept on because `@weldsuite/db` and `@weldsuite/permissions` have
     // pre-existing type errors that every Next.js app in this monorepo dodges

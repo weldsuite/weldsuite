@@ -14,6 +14,7 @@ import {
   Quote,
   TextLink,
 } from '../../components';
+import { accentOf } from '../../brand';
 import { defineTemplate } from '../../define';
 import { emailStrings } from '../../i18n';
 
@@ -37,6 +38,7 @@ export default defineTemplate<NotificationEmailProps>({
 
   Component: (props) => {
     const { locale, brand } = props;
+    const accent = accentOf(brand);
     const t = emailStrings(locale).notifications;
     const body = props.body?.trim();
 
@@ -61,9 +63,9 @@ export default defineTemplate<NotificationEmailProps>({
         {props.actionUrl ? (
           <>
             <Actions>
-              <Button href={props.actionUrl}>{props.actionLabel?.trim() || t.open}</Button>
+              <Button accent={accent} href={props.actionUrl}>{props.actionLabel?.trim() || t.open}</Button>
             </Actions>
-            <LinkFallback href={props.actionUrl} />
+            <LinkFallback label={emailStrings(locale).layout.linkFallback} href={props.actionUrl} />
           </>
         ) : null}
       </EmailLayout>

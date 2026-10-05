@@ -28,7 +28,7 @@ describe('sendSystemEmail', () => {
   it('always sends from the system address, named after the module by default', async () => {
     const transport = memoryTransport();
     await sendSystemEmail(transport, { ...invite, to: 'guest@example.com' });
-    expect(transport.sent[0].from).toEqual({ email: SYSTEM_FROM_ADDRESS, name: 'WeldCalendar' });
+    expect(transport.sent[0]!.from).toEqual({ email: SYSTEM_FROM_ADDRESS, name: 'WeldCalendar' });
   });
 
   it('names the sender after the workspace for a workspace brand, or after fromName', async () => {
@@ -52,7 +52,7 @@ describe('sendSystemEmail', () => {
       attachments: [ics],
       headers: { 'X-Entity-Ref-ID': 'evt_1' },
     });
-    const sent = transport.sent[0];
+    const sent = transport.sent[0]!;
     expect(sent.to).toEqual([{ email: 'guest@example.com', name: 'Guest' }]);
     expect(sent.subject).toBe('Uitnodiging: Planning');
     expect(sent.html).toContain('heeft je uitgenodigd');
@@ -103,6 +103,7 @@ describe('workerTransport', () => {
     expect(workerTransport({ SEND_EMAIL: binding })?.name).toBe('cloudflare-binding');
     expect(workerTransport({ SEND_EMAIL: binding, EMAIL_TRANSPORT: 'resend', RESEND_API_KEY: 'k' })?.name).toBe('resend');
     expect(workerTransport({ SEND_EMAIL: binding, EMAIL_TRANSPORT: 'resend' })?.name).toBe('cloudflare-binding');
+    expect(workerTransport({ RESEND_API_KEY: 'k' })?.name).toBe('resend');
     expect(workerTransport({})).toBeUndefined();
   });
 });
@@ -123,7 +124,7 @@ describe('restTransport', () => {
     );
     const result = await restTransport({ accountId: 'acc_1', apiToken: 'tok', fetch: fetch as never }).send(sample);
 
-    const [url, init] = fetch.mock.calls[0];
+    const [url, init] = fetch.mock.calls[0]!;
     expect(String(url)).toBe('https://api.cloudflare.com/client/v4/accounts/acc_1/email/sending/send');
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer tok');
     const body = JSON.parse(String(init?.body));
@@ -153,7 +154,7 @@ describe('resendTransport', () => {
   it('posts the Resend payload and throws on an error status', async () => {
     const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => jsonResponse({ id: 're_1' }));
     const result = await resendTransport({ apiKey: 'key', fetch: fetch as never }).send(sample);
-    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body));
     expect(body.from).toBe(`"WeldCalendar" <${SYSTEM_FROM_ADDRESS}>`);
     expect(body.reply_to).toBe('"Host" <host@acme.com>');
     expect(atob(body.attachments[0].content)).toContain('BEGIN:VCALENDAR');
@@ -161,5 +162,27 @@ describe('resendTransport', () => {
 
     const failing = vi.fn(async () => new Response('bad', { status: 422 }));
     await expect(resendTransport({ apiKey: 'key', fetch: failing as never }).send(sample)).rejects.toThrow(/422/);
+  });
+});
+
+describe('transportFromEnv', () => {
+  it('prefers Cloudflare REST, falls back to Resend, and honors the resend switch', async () => {
+    const { transportFromEnv } = await import('./transports/env');
+    const cf = { CF_ACCOUNT_ID: 'acc', CF_EMAIL_SEND_TOKEN: 'tok' };
+    expect(transportFromEnv({ ...cf, RESEND_API_KEY: 'k' })?.name).toBe('cloudflare-rest');
+    expect(transportFromEnv({ ...cf, RESEND_API_KEY: 'k', EMAIL_TRANSPORT: 'resend' })?.name).toBe('resend');
+    expect(transportFromEnv({ RESEND_API_KEY: 'k' })?.name).toBe('resend');
+    expect(transportFromEnv({})).toBeUndefined();
+  });
+});
+
+describe('SYSTEM_EMAIL_FROM', () => {
+  it('replaces the sender address and keeps the display name', async () => {
+    const sent: OutgoingEmail[] = [];
+    const { withFromAddress } = await import('./transport');
+    const inner = { name: 'memory', send: async (e: OutgoingEmail) => (sent.push(e), { messageId: '1', transport: 'memory' }) };
+    await withFromAddress(inner, 'noreply@weldsuite.org').send(sample);
+    expect(sent[0]!.from).toEqual({ email: 'noreply@weldsuite.org', name: 'WeldCalendar' });
+    expect(withFromAddress(inner, '  ')).toBe(inner);
   });
 });

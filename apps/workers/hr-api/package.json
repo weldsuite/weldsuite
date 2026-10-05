@@ -20,6 +20,7 @@
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/commerce-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/emails": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
