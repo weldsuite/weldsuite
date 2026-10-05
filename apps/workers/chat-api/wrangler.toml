@@ -61,8 +61,9 @@ R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # inline. Requires matching INTERNAL_API_SECRET on both workers.
 AGENT_RUNTIME_URL = "http://localhost:8795"
 AGENT_COMPUTER_ENABLED = "true"
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
+# simulated and writes mail to disk instead of sending it.
+EMAIL_TRANSPORT = "cloudflare"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -206,8 +207,9 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 AGENT_RUNTIME_URL = "https://agent-runtime.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
