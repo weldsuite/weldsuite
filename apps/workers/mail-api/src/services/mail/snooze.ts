@@ -1,7 +1,9 @@
 /**
  * Snooze service — moves a message from INBOX to SNOOZED with an
- * `until` timestamp. Auto-unsnooze (when `until` passes) is handled
- * elsewhere by a sweep job; this surface only manages the snooze state.
+ * `until` timestamp. Auto-unsnooze (when `until` passes) is
+ * `wakeDueSnoozedMessages`: the cron sweep (src/cron/snooze-sweep.ts) runs it
+ * for every workspace with a mailbox, and the thread listing runs it for the
+ * mailbox being opened so a due mail is back the moment someone looks.
  *
  * Snooze metadata lives in dedicated `mail_messages` columns
  * (`snoozed_until`, `snoozed_at`, ...). It used to be tucked into the
@@ -15,7 +17,7 @@
  * fallback once the blob column is dropped in Phase 4.
  */
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { addLabels, removeLabels } from './labels';
@@ -144,6 +146,43 @@ export async function resnoozeMessage(
     .where(eq(mailMessages.id, messageId));
 
   return { id: messageId, snoozedUntil: until.toISOString() };
+}
+
+/**
+ * Wake every snoozed message whose time has come: SNOOZED goes, INBOX comes
+ * back, and the mail is unread again so it stands out as it would have on
+ * arrival. One statement, driven by the `snoozed_until` index. `scope`
+ * narrows it to some accounts (an extra condition on `mail_messages`).
+ *
+ * Mail that was trashed or marked spam while snoozed has no SNOOZED label any
+ * more (a move clears it), so it is never brought back.
+ */
+export async function wakeDueSnoozedMessages(
+  db: Database,
+  options: { now?: Date; scope?: SQL } = {},
+): Promise<{ woken: number; accountIds: string[] }> {
+  const now = options.now ?? new Date();
+  const conditions: SQL[] = [
+    isNull(mailMessages.deletedAt)!,
+    lte(mailMessages.snoozedUntil, now),
+    sql`${mailMessages.labels} @> '["SNOOZED"]'::jsonb`,
+  ];
+  if (options.scope) conditions.push(options.scope);
+
+  const rows = await db
+    .update(mailMessages)
+    .set({
+      labels: sql`((${mailMessages.labels} - 'SNOOZED') - 'INBOX') || '["INBOX"]'::jsonb`,
+      isRead: false,
+      snoozedUntil: null,
+      unsnoozeTriggerRunId: null,
+      unsnoozedAt: now,
+      unsnoozedEarly: false,
+      updatedAt: now,
+    })
+    .where(and(...conditions))
+    .returning({ accountId: mailMessages.accountId });
+  return { woken: rows.length, accountIds: [...new Set(rows.map((r) => r.accountId))] };
 }
 
 /**

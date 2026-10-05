@@ -19,6 +19,8 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import * as cfEmail from '@weldsuite/worker-email';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
+import { buildRfc5322 } from '@weldsuite/email/core/mime';
+import { escapeHtml, htmlToText, looksLikeHtml, plainTextBody } from './text';
 import { validateRecipients, type RecipientValidationEnv } from './recipient-validation';
 import { upsertMailContacts, type MailContactsEnv } from './contacts';
 import { hasAccessToAccount, isAdminOrOwner } from './access';
@@ -116,6 +118,18 @@ export interface SendResult {
  */
 export interface SendOptions {
   dryRun?: boolean;
+  /**
+   * Attachments the server supplies itself (a forwarded message's files, a
+   * generated `.eml`) rather than ones the client uploaded. They are sent,
+   * count towards the size cap, and are stored as the sent copy's own objects.
+   */
+  extraAttachments?: InlineAttachment[];
+}
+
+export interface InlineAttachment {
+  filename: string;
+  contentType?: string;
+  content: ArrayBuffer;
 }
 
 /**
@@ -181,8 +195,8 @@ async function transmitEmail(
   env: MailSendEnv,
   account: MailAccountRow,
   data: SendComposeInput,
-  htmlBody: string | undefined,
-  attachments: ResolvedAttachment[],
+  body: { html: string | undefined; text: string | undefined },
+  attachments: InlineAttachment[],
   dryRun: boolean | undefined,
 ): Promise<TransmitResult> {
   if (dryRun) {
@@ -193,8 +207,8 @@ async function transmitEmail(
     from: fromAddress,
     to: data.to,
     subject: data.subject || '(No subject)',
-    html: htmlBody,
-    text: data.body,
+    html: body.html,
+    text: body.text,
     cc: data.cc,
     bcc: data.bcc,
     replyTo: data.replyTo,
@@ -244,6 +258,7 @@ interface SentCopyInput {
   externalMessageId: string;
   threadId: string;
   htmlBody: string | undefined;
+  textBody: string | undefined;
   attachmentCount: number;
   now: Date;
 }
@@ -258,8 +273,8 @@ async function persistSentCopy(
   data: SendComposeInput,
   copy: SentCopyInput,
 ): Promise<SendResult | null> {
-  const { messageId, smtpMessageId, externalMessageId, threadId, htmlBody, attachmentCount, now } = copy;
-  const textPreview = (data.body || (htmlBody ?? '').replace(/<[^>]*>/g, '')).slice(0, 200);
+  const { messageId, smtpMessageId, externalMessageId, threadId, htmlBody, textBody, attachmentCount, now } = copy;
+  const textPreview = (textBody ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
   try {
     await db.insert(mailMessages).values({
       id: messageId,
@@ -273,7 +288,7 @@ async function persistSentCopy(
       bcc: data.bcc?.map((email) => ({ email })),
       subject: data.subject || '(No subject)',
       preview: textPreview,
-      textBody: data.body,
+      textBody,
       htmlBody,
       sentDate: now,
       isRead: true,
@@ -351,6 +366,34 @@ async function upsertRecipientContacts(
   await upsertJob;
 }
 
+/**
+ * Store server-supplied attachments as objects of the sent message, so its
+ * copy keeps working when the message they came from is deleted. Best-effort:
+ * the mail has already gone out, a failed copy only loses the Sent-folder chip.
+ */
+async function storeExtraAttachments(
+  env: MailSendEnv,
+  orgId: string,
+  messageId: string,
+  extras: InlineAttachment[],
+): Promise<ResolvedAttachment[]> {
+  if (extras.length === 0 || !env.STORAGE) return [];
+  const stored: ResolvedAttachment[] = [];
+  for (const [index, att] of extras.entries()) {
+    const safeName = att.filename.replace(/[^\w.\- ]+/g, '_').slice(0, 200) || 'attachment';
+    const fileKey = `workspaces/${orgId}/mail/attachments/${messageId}/${index + 1}_${safeName}`;
+    try {
+      await env.STORAGE.put(fileKey, att.content, {
+        httpMetadata: { contentType: att.contentType || 'application/octet-stream' },
+      });
+      stored.push({ ...att, fileKey });
+    } catch (err) {
+      console.error(`[mail-send] Failed to store attachment ${att.filename} for message ${messageId}:`, err);
+    }
+  }
+  return stored;
+}
+
 function toSmtpMessageId(externalMessageId: string): string {
   const raw = externalMessageId.replace(/^<|>$/g, '');
   return raw.startsWith('<') ? raw : `<${raw}>`;
@@ -389,7 +432,11 @@ export async function sendAndPersist(
   // reply/forward too (they funnel through here), so a forwarded message can't
   // re-emit script from quoted inbound HTML, and shared-mailbox composers can't
   // store XSS for the next reader. Inbound mail is also sanitized at ingest.
-  const htmlBody = sanitizeEmailHtml(data.htmlBody) || undefined;
+  // A client that put its editor HTML in `body` still gets a real HTML part,
+  // and the text/plain part is always tag-free (see ./text).
+  const rawHtml = data.htmlBody ?? (data.body && looksLikeHtml(data.body) ? data.body : undefined);
+  const htmlBody = sanitizeEmailHtml(rawHtml) || undefined;
+  const textBody = plainTextBody(data.body, htmlBody);
 
   // ---- Recipient validation (format + MX) ------------------------------
   // Dry-run keeps the format check but skips the network MX lookup.
@@ -404,10 +451,23 @@ export async function sendAndPersist(
   }
 
   // ---- Attachment resolution (R2) --------------------------------------
-  const resolvedAttachments = await resolveAttachments(env, orgId, data);
+  const extraAttachments = opts?.extraAttachments ?? [];
+  const resolvedAttachments = await resolveAttachments(
+    env,
+    orgId,
+    data,
+    extraAttachments.reduce((total, att) => total + att.content.byteLength, 0),
+  );
 
   // ---- Send via Cloudflare ---------------------------------------------
-  const sendResult = await transmitEmail(env, account, data, htmlBody, resolvedAttachments, opts?.dryRun);
+  const sendResult = await transmitEmail(
+    env,
+    account,
+    data,
+    { html: htmlBody, text: textBody },
+    [...resolvedAttachments, ...extraAttachments],
+    opts?.dryRun,
+  );
 
   const externalMessageId = sendResult.messageId;
   const smtpMessageId = toSmtpMessageId(externalMessageId);
@@ -424,13 +484,15 @@ export async function sendAndPersist(
     externalMessageId,
     threadId,
     htmlBody,
-    attachmentCount: resolvedAttachments.length,
+    textBody,
+    attachmentCount: resolvedAttachments.length + extraAttachments.length,
     now,
   });
   if (replayed) return replayed;
 
   // ---- Persist attachment pointers (best-effort) -----------------------
-  await persistAttachmentPointers(db, messageId, resolvedAttachments, now);
+  const storedExtras = await storeExtraAttachments(env, orgId, messageId, extraAttachments);
+  await persistAttachmentPointers(db, messageId, [...resolvedAttachments, ...storedExtras], now);
 
   // ---- Bump daily counter ----------------------------------------------
   await db
@@ -453,20 +515,31 @@ export async function sendAndPersist(
   };
 }
 
+function tooLarge(): MailSendError {
+  return new MailSendError(
+    'EMAIL_TOO_LARGE',
+    `Email exceeds the ${MAX_EMAIL_SIZE_BYTES / (1024 * 1024)} MB limit (body + attachments).`,
+  );
+}
+
 async function resolveAttachments(
   env: MailSendEnv,
   orgId: string,
   data: SendComposeInput,
+  extraBytes = 0,
 ): Promise<{ filename: string; contentType?: string; content: ArrayBuffer; fileKey: string }[]> {
+  let totalBytes =
+    extraBytes +
+    (data.body ? new TextEncoder().encode(data.body).byteLength : 0) +
+    (data.htmlBody ? new TextEncoder().encode(data.htmlBody).byteLength : 0);
+  if (extraBytes > 0 && totalBytes > MAX_EMAIL_SIZE_BYTES) throw tooLarge();
+
   if (!data.attachments?.length) return [];
   if (!env.STORAGE) {
     throw new MailSendError('STORAGE_BINDING_MISSING', 'Storage binding not configured');
   }
 
   const workspacePrefix = `workspaces/${orgId}/`;
-  let totalBytes =
-    (data.body ? new TextEncoder().encode(data.body).byteLength : 0) +
-    (data.htmlBody ? new TextEncoder().encode(data.htmlBody).byteLength : 0);
 
   const resolved: { filename: string; contentType?: string; content: ArrayBuffer; fileKey: string }[] = [];
   for (const att of data.attachments) {
@@ -485,12 +558,7 @@ async function resolveAttachments(
     }
     const buf = await obj.arrayBuffer();
     totalBytes += buf.byteLength;
-    if (totalBytes > MAX_EMAIL_SIZE_BYTES) {
-      throw new MailSendError(
-        'EMAIL_TOO_LARGE',
-        `Email exceeds the ${MAX_EMAIL_SIZE_BYTES / (1024 * 1024)} MB limit (body + attachments).`,
-      );
-    }
+    if (totalBytes > MAX_EMAIL_SIZE_BYTES) throw tooLarge();
     resolved.push({
       filename: att.filename,
       contentType: att.contentType || obj.httpMetadata?.contentType,
@@ -501,10 +569,126 @@ async function resolveAttachments(
   return resolved;
 }
 
+export interface ForwardInput {
+  to: string[];
+  body?: string;
+  htmlBody?: string;
+  attachments?: SendAttachmentInput[];
+  /** Ids of the original's attachments the sender removed from the forward. */
+  excludeAttachmentIds?: string[];
+  /** Attach the original as an `.eml` file instead of quoting it inline. */
+  asAttachment?: boolean;
+  /** The sender's IANA time zone and locale, for the quoted `Date:` line. */
+  timeZone?: string;
+  locale?: string;
+}
+
+type OriginalMessage = typeof mailMessages.$inferSelect;
+
+function formatAddress(addr: { email?: string; name?: string } | null | undefined): string {
+  if (!addr) return '';
+  return addr.name ? `${addr.name} <${addr.email ?? ''}>` : addr.email ?? '';
+}
+
+/** The quoted `Date:` line, in the sender's locale and time zone (UTC when unknown or invalid). */
+function formatForwardDate(date: Date, timeZone?: string, locale?: string): string {
+  const format = (tz: string | undefined, loc: string | undefined) =>
+    new Intl.DateTimeFormat(loc || 'en-US', {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: tz || 'UTC',
+      timeZoneName: 'short',
+    }).format(date);
+  try {
+    return format(timeZone, locale);
+  } catch {
+    return format(undefined, undefined);
+  }
+}
+
+/** The original's own files, minus the ones the sender removed. Inline images stay in the HTML. */
+async function loadOriginalAttachments(
+  env: MailSendEnv,
+  db: Database,
+  originalMessageId: string,
+  excludeIds: string[],
+): Promise<InlineAttachment[]> {
+  const rows = await db
+    .select()
+    .from(mailAttachments)
+    .where(and(eq(mailAttachments.messageId, originalMessageId), isNull(mailAttachments.deletedAt)));
+  const wanted = rows.filter((r) => !r.isInline && r.storagePath && !excludeIds.includes(r.id));
+  if (wanted.length === 0) return [];
+  if (!env.STORAGE) {
+    throw new MailSendError('STORAGE_BINDING_MISSING', 'Storage binding not configured');
+  }
+
+  const loaded: InlineAttachment[] = [];
+  for (const row of wanted) {
+    const obj = await env.STORAGE.get(row.storagePath!);
+    if (!obj) {
+      throw new MailSendError(
+        'ATTACHMENT_NOT_IN_STORAGE',
+        `Attachment ${row.fileName} not found in storage`,
+      );
+    }
+    loaded.push({
+      filename: row.fileName,
+      contentType: row.contentType || obj.httpMetadata?.contentType,
+      content: await obj.arrayBuffer(),
+    });
+  }
+  return loaded;
+}
+
+/**
+ * The original as an `.eml` file: the raw message when inbound stored it,
+ * otherwise rebuilt from the stored headers, bodies and files.
+ */
+function buildEmlAttachment(original: OriginalMessage, files: InlineAttachment[]): InlineAttachment {
+  const from = original.from as { email?: string; name?: string } | null;
+  const raw =
+    original.rawMessage ||
+    buildRfc5322({
+      from: { email: from?.email ?? 'unknown@invalid', name: from?.name },
+      to: ((original.to as { email?: string; name?: string }[] | null) ?? [])
+        .filter((r): r is { email: string; name?: string } => !!r.email)
+        .map((r) => ({ email: r.email, name: r.name })),
+      cc: ((original.cc as { email?: string; name?: string }[] | null) ?? [])
+        .filter((r): r is { email: string; name?: string } => !!r.email)
+        .map((r) => ({ email: r.email, name: r.name })),
+      subject: original.subject ?? '',
+      text: original.textBody ?? undefined,
+      html: original.htmlBody ?? undefined,
+      messageId: original.messageId,
+      headers: { Date: (original.sentDate ?? original.createdAt).toUTCString() },
+      attachments: files,
+    }).raw;
+  const name = (original.subject ?? '')
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100);
+  return {
+    filename: `${name || 'message'}.eml`,
+    // Sent base64-encoded, which `message/rfc822` parts may not be; mail
+    // clients open the file by its extension.
+    contentType: 'application/octet-stream',
+    content: new TextEncoder().encode(raw).buffer as ArrayBuffer,
+  };
+}
+
 /**
  * Forward variant — looks up the original message, prepends the standard
  * quoted "Forwarded message" block to the user's body, prefixes the
  * subject with `Fwd:` if absent, and hands off to `sendAndPersist`.
+ *
+ * The original's attachments travel with it (the sender can leave some out),
+ * or the whole original goes as an `.eml` file when `asAttachment` is set.
  *
  * Recipients come from the user (not the original); the forwarded
  * message inherits no threading metadata since it's a fresh thread for
@@ -516,7 +700,7 @@ export async function forwardAndPersist(
   orgId: string,
   userId: string,
   originalMessageId: string,
-  data: { to: string[]; body?: string; htmlBody?: string; attachments?: SendAttachmentInput[] },
+  data: ForwardInput,
   waitUntil?: ExecutionContext['waitUntil'],
   opts?: SendOptions,
 ): Promise<SendResult & { forwardedFrom: string }> {
@@ -533,21 +717,59 @@ export async function forwardAndPersist(
     ? original.subject
     : `Fwd: ${original.subject ?? ''}`;
 
-  const originalFrom = original.from as { email?: string; name?: string } | null;
-  const senderLabel = originalFrom?.name
-    ? `${originalFrom.name} <${originalFrom.email ?? ''}>`
-    : originalFrom?.email ?? 'Unknown';
-  const dateLabel = (original.sentDate ?? original.receivedDate ?? original.createdAt ?? new Date()).toString();
+  const originalFiles = await loadOriginalAttachments(
+    env,
+    db,
+    originalMessageId,
+    data.excludeAttachmentIds ?? [],
+  );
 
-  const quotedTextBody = original.textBody
-    ? `\n\n---------- Forwarded message ----------\nFrom: ${senderLabel}\nDate: ${dateLabel}\nSubject: ${original.subject ?? ''}\n\n${original.textBody}`
-    : undefined;
-  const quotedHtmlBody = original.htmlBody
-    ? `<br><br><div style="border-left:2px solid #ccc;padding-left:1em;color:#555"><p>---------- Forwarded message ----------</p><p><b>From:</b> ${senderLabel}<br><b>Date:</b> ${dateLabel}<br><b>Subject:</b> ${original.subject ?? ''}</p>${original.htmlBody}</div>`
-    : undefined;
+  let composedBody = data.body;
+  let composedHtml = data.htmlBody;
+  let extraAttachments: InlineAttachment[];
+  if (data.asAttachment) {
+    // A stored raw message already carries its files; a rebuilt one gets them
+    // from the attachment rows.
+    extraAttachments = [buildEmlAttachment(original, original.rawMessage ? [] : originalFiles)];
+  } else {
+    extraAttachments = originalFiles;
+    const senderLabel =
+      formatAddress(original.from as { email?: string; name?: string } | null) || 'Unknown';
+    const toLabel = ((original.to as { email?: string; name?: string }[] | null) ?? [])
+      .map(formatAddress)
+      .filter(Boolean)
+      .join(', ');
+    const dateLabel = formatForwardDate(
+      original.sentDate ?? original.receivedDate ?? original.createdAt ?? new Date(),
+      data.timeZone,
+      data.locale,
+    );
+    const originalSubject = original.subject ?? '';
+    const originalText = original.textBody || (original.htmlBody ? htmlToText(original.htmlBody) : '');
 
-  const composedBody = quotedTextBody ? `${data.body ?? ''}${quotedTextBody}` : data.body;
-  const composedHtml = quotedHtmlBody ? `${data.htmlBody ?? ''}${quotedHtmlBody}` : data.htmlBody;
+    const headerLines = [
+      `From: ${senderLabel}`,
+      `Date: ${dateLabel}`,
+      `Subject: ${originalSubject}`,
+      ...(toLabel ? [`To: ${toLabel}`] : []),
+    ];
+    const quotedTextBody = `\n\n---------- Forwarded message ----------\n${headerLines.join('\n')}\n\n${originalText}`;
+    // Header values come from the original mail: escaped, or `<sender@x>` is
+    // swallowed as a tag (and a crafted name could inject markup).
+    const quotedHeader = [
+      `<b>From:</b> ${escapeHtml(senderLabel)}`,
+      `<b>Date:</b> ${escapeHtml(dateLabel)}`,
+      `<b>Subject:</b> ${escapeHtml(originalSubject)}`,
+      ...(toLabel ? [`<b>To:</b> ${escapeHtml(toLabel)}`] : []),
+    ].join('<br>');
+    const originalHtml =
+      original.htmlBody ?? `<div style="white-space:pre-wrap">${escapeHtml(originalText)}</div>`;
+    const quotedHtmlBody = `<br><br><div style="border-left:2px solid #ccc;padding-left:1em;color:#555"><p>---------- Forwarded message ----------</p><p>${quotedHeader}</p>${originalHtml}</div>`;
+
+    const noteText = plainTextBody(data.body, data.htmlBody) ?? '';
+    composedBody = `${noteText}${quotedTextBody}`;
+    composedHtml = `${data.htmlBody ?? escapeHtml(noteText).replace(/\n/g, '<br>')}${quotedHtmlBody}`;
+  }
 
   const result = await sendAndPersist(
     env,
@@ -563,7 +785,7 @@ export async function forwardAndPersist(
       attachments: data.attachments,
     },
     waitUntil,
-    opts,
+    { ...opts, extraAttachments },
   );
   return { ...result, forwardedFrom: originalMessageId };
 }

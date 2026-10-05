@@ -213,6 +213,14 @@ export const companyColumns: GridColumnDef<Company>[] = [
     sortable: true,
     getValue: (c) => c.employeeCount ?? '',
     setValue: (_c, v) => ({ employeeCount: (v as string) || undefined }),
+    // Stays free text so a "11-50" range can still be entered/displayed, but
+    // a plain numeric value (the common case) can be summed/averaged in the
+    // Calculate footer — a range parses to null and is treated as empty.
+    calcFieldType: 'number',
+    getCalcValue: (c) => {
+      if (!c.employeeCount || !/^\d+$/.test(c.employeeCount)) return null;
+      return Number.parseInt(c.employeeCount, 10);
+    },
   },
   {
     id: 'lifecycleStage',
@@ -288,14 +296,14 @@ export const companyColumns: GridColumnDef<Company>[] = [
   {
     id: 'ownerId',
     name: 'Owner',
-    type: 'text',
-    width: 160,
+    type: 'member',
+    width: 180,
     icon: Briefcase,
     visible: false,
     editable: true,
     sortable: true,
-    getValue: (c) => c.ownerId ?? '',
-    setValue: (_c, v) => ({ ownerId: (v as string) || undefined }),
+    getValue: (c) => c.ownerId ?? null,
+    setValue: (_c, v) => ({ ownerId: (v as string | null) || null }),
   },
   {
     id: 'lastContactDate',
@@ -340,7 +348,11 @@ export const companyColumns: GridColumnDef<Company>[] = [
     icon: DollarSign,
     visible: false,
     editable: false,
-    sortable: true,
+    // Placeholder column — no `currency` field exists on Company yet
+    // (`annualRevenue.currency` lives in the DB but isn't exposed on the API
+    // type). Not sortable either: every row reads the same `null`, so a
+    // server sort on it would be a confusing no-op.
+    sortable: false,
     getValue: () => null,
   },
 ];

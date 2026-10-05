@@ -2,7 +2,7 @@ import { useBookmarks, useDeleteBookmark } from '@/hooks/queries/use-weldchat-qu
 import { Bookmark, X, Hash } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
-import { Link } from '@tanstack/react-router';
+import { Link } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -44,8 +44,7 @@ export default function BookmarksPage() {
           <div key={bk.id} className="group/bk px-4 py-3 hover:bg-muted/50 transition-colors border-b border-border/50">
             {bk.channelName && (
               <Link
-                to="/weldchat/$channelId"
-                params={{ channelId: bk.channelId }}
+                href={`/weldchat/${bk.channelId}?msg=${bk.messageId}`}
                 className="inline-flex items-center gap-1 text-[11px] text-muted-foreground font-medium hover:text-foreground transition-colors"
               >
                 <Hash className="h-3 w-3" />

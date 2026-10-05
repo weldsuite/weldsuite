@@ -36,6 +36,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { addReaction, removeReaction } from '../../services/chat/reactions';
 import { pinMessage, unpinMessage, listPinnedMessages } from '../../services/chat/pins';
+import { postPinNotice } from '../../services/chat/pin-notice';
 import { uploadChatFile } from '../../services/chat/upload';
 import { ChatFeatureError, postChatMessage } from '../../services/chat/post-message';
 import {
@@ -52,6 +53,9 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.chatMessages;
+
+/** Columns an author may change when editing their own message. */
+const EDITABLE_MESSAGE_FIELDS = ['content', 'htmlContent'] as const;
 
 /** Max chat attachment size (50 MB) — covers voice/video messages. */
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -303,12 +307,18 @@ app.patch('/:id', requirePermission('messages:update'), zValidator('json', updat
     if (existing.authorId !== userId) {
       return error.forbidden(c, 'You can only edit your own messages');
     }
+    if (existing.type === 'system') {
+      return error.badRequest(c, 'System messages cannot be edited');
+    }
     const update: Record<string, any> = {
       updatedAt: new Date(),
       isEdited: true,
       editedAt: new Date(),
     };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    // Only the text is editable. The body schema is a passthrough, so spreading
+    // it into the update let an author rewrite `type` (forging a `system`
+    // notice), `authorId`, `channelId`, pin state, reactions...
+    for (const k of EDITABLE_MESSAGE_FIELDS) if (data[k] !== undefined) update[k] = data[k];
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     const [updated] = await db.select().from(t).where(eq(t.id, id)).limit(1);
     publishEntityEvent({
@@ -467,7 +477,8 @@ app.delete('/:id/reactions/:emoji', requirePermission('messages:update'), async 
 // ============================================================================
 
 /**
- * POST /:id/pin — pin a message. Optional body { expiresAt?, silent? }.
+ * POST /:id/pin — pin a message. Optional body { expiresAt?, silent?, notify? };
+ * `notify: true` also posts a server-authored `type: 'system'` pin notice.
  */
 app.post('/:id/pin', requirePermission('messages:update'), async (c) => {
   const db = c.get('tenantDb');
@@ -481,10 +492,13 @@ app.post('/:id/pin', requirePermission('messages:update'), async (c) => {
 
   // Body is optional — tolerate empty/missing bodies.
   let expiresAt: string | undefined;
+  let notify = false;
   try {
-    const body = await c.req.json().catch(() => undefined);
-    if (body && typeof body === 'object' && typeof (body as any).expiresAt === 'string') {
-      expiresAt = (body as any).expiresAt;
+    const body: unknown = await c.req.json().catch(() => undefined);
+    if (body && typeof body === 'object') {
+      const fields = body as { expiresAt?: unknown; notify?: unknown };
+      if (typeof fields.expiresAt === 'string') expiresAt = fields.expiresAt;
+      notify = fields.notify === true;
     }
   } catch {
     /* no body is fine */
@@ -516,6 +530,28 @@ app.post('/:id/pin', requirePermission('messages:update'), async (c) => {
       entityId: id,
       data: { id, channelId: result.channelId },
     });
+
+    // "Pin with alert": the server writes the channel notice itself (a
+    // `type: 'system'` message by the pinner), never the client.
+    if (notify) {
+      try {
+        const notice = await postPinNotice(db, c.env.REALTIME, {
+          channelId: result.channelId,
+          pinnedMessageId: id,
+          userId,
+        });
+        publishEntityEvent({
+          c,
+          entityType: 'chat_message',
+          action: 'created',
+          entityId: notice.id,
+          data: { id: notice.id, channelId: notice.channelId, authorId: userId },
+        });
+      } catch (e) {
+        // The pin itself succeeded; a missing notice must not fail it.
+        console.error('[app-api/chat-messages] pin notice failed:', e);
+      }
+    }
     return success(c, result);
   } catch (err) {
     console.error('[app-api/chat-messages] pin failed:', err);

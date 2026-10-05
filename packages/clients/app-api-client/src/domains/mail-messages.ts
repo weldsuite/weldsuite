@@ -72,7 +72,16 @@ export interface MailMessageStats {
   total: number;
   unread: number;
   inboxUnread: number;
+  /** Starred messages, read or not. */
   starred: number;
+  importantUnread: number;
+  sentUnread: number;
+  archiveUnread: number;
+  trashUnread: number;
+  spam: number;
+  snoozed: number;
+  scheduled: number;
+  drafts: number;
 }
 
 export interface MailThread {

@@ -67,6 +67,8 @@ export interface ChatReactionInput {
 export interface ChatPinInput {
   expiresAt?: string;
   silent?: boolean;
+  /** Have the server post the "pinned a message" system notice in the channel. */
+  notify?: boolean;
 }
 
 /** Result row of the reaction / pin services — message id + denormalised state. */

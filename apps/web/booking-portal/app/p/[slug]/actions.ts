@@ -1,7 +1,6 @@
 'use server';
 
-import { eq, and, isNull, gte, lte, desc, ne } from 'drizzle-orm';
-import { fromZonedTime } from 'date-fns-tz';
+import { eq, and, isNull, desc, sql } from 'drizzle-orm';
 import { buildIcsInvite } from '@weldsuite/transactional-email';
 import { personalAccounts } from '@weldsuite/db/schema/master';
 import { masterDb } from '@weldsuite/db/lib/master';
@@ -21,12 +20,16 @@ import {
   sendGuestInviteEmail,
 } from '@/lib/booking-emails';
 import { BOOKING_FROM_ADDRESS } from '@/lib/constants';
-import { sanitizeAvailability, weekdayOfDate } from '@/lib/availability';
+import { isCalendarDate } from '@/lib/day-slots';
+import {
+  isPersonalSlotAvailable,
+  loadPersonalDaySlots,
+  type PersonalQueryDb,
+} from '@/lib/personal-slots';
 import {
   cancelPersonalBookingInputSchema,
   createPersonalBookingInputSchema,
   reschedulePersonalBookingInputSchema,
-  weeklyAvailabilitySchema,
   type CancelPersonalBookingInput,
   type CreatePersonalBookingInput,
   type ReschedulePersonalBookingInput,
@@ -43,6 +46,8 @@ export type BookingResult =
       success: true;
       bookingId: string;
       emailDelivery: 'sent' | 'failed' | 'partial';
+      /** The page's own video link, when it has one. Personal pages cannot create WeldMeet meetings. */
+      meetingUrl: string | null;
     }
   | { success: false; error: string };
 
@@ -66,11 +71,23 @@ async function hostNameForAccount(personalAccountId: string): Promise<string> {
   return row?.displayName?.trim() || 'WeldCalendar';
 }
 
+/** The page's own link for a video booking, or null. */
+function customVideoLink(page: { locationType: string | null; locationValue: string | null }): string | null {
+  return page.locationType === 'video' ? page.locationValue?.trim() || null : null;
+}
+
+/** Serialises bookings of one page for the length of the transaction. */
+async function lockBookingPage(tx: PersonalQueryDb, bookingPageId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${bookingPageId}))`);
+}
+
 export async function getPersonalAvailableSlots(
   bookingPageId: string,
   date: string,
-  excludeEventId?: string,
+  // When rescheduling: the booking being moved, so its own slot counts as free.
+  bookingId?: string,
 ): Promise<TimeSlot[]> {
+  if (!isCalendarDate(date)) return [];
   const db = getPersonalDb();
 
   const [bookingPage] = await db
@@ -87,82 +104,23 @@ export async function getPersonalAvailableSlots(
 
   if (!bookingPage) return [];
 
-  const tz = bookingPage.timezone || 'UTC';
-  const availabilityParse = weeklyAvailabilitySchema.safeParse(bookingPage.availability);
-  if (!availabilityParse.success) {
-    console.error(
-      '[booking-portal] personal availability JSONB failed schema validation',
-      bookingPageId,
-      availabilityParse.error.flatten(),
-    );
-    return [];
-  }
-  const availability = sanitizeAvailability(availabilityParse.data);
-
-  // `date` is already a calendar date in the page's timezone: read its weekday directly.
-  const dayName = weekdayOfDate(date);
-  if (!dayName) return [];
-  const daySlots = availability[dayName] ?? [];
-  if (daySlots.length === 0) return [];
-
-  const dayStart = fromZonedTime(`${date}T00:00:00`, tz);
-  const dayEnd = fromZonedTime(`${date}T23:59:59.999`, tz);
-
-  const eventConditions = [
-    isNull(personalCalendarEvents.deletedAt),
-    eq(personalCalendarEvents.personalAccountId, bookingPage.personalAccountId),
-    gte(personalCalendarEvents.startTime, dayStart),
-    lte(personalCalendarEvents.startTime, dayEnd),
-    eq(personalCalendarEvents.status, 'confirmed'),
-  ];
-  if (excludeEventId) {
-    eventConditions.push(ne(personalCalendarEvents.id, excludeEventId));
+  let excludeEventId: string | null = null;
+  if (bookingId) {
+    const [booking] = await db
+      .select({ calendarEventId: personalCalendarBookings.calendarEventId })
+      .from(personalCalendarBookings)
+      .where(
+        and(
+          eq(personalCalendarBookings.id, bookingId),
+          eq(personalCalendarBookings.bookingPageId, bookingPage.id),
+          isNull(personalCalendarBookings.deletedAt),
+        ),
+      )
+      .limit(1);
+    excludeEventId = booking?.calendarEventId ?? null;
   }
 
-  const existingEvents = await db
-    .select({ startTime: personalCalendarEvents.startTime, endTime: personalCalendarEvents.endTime })
-    .from(personalCalendarEvents)
-    .where(and(...eventConditions));
-
-  const duration = bookingPage.duration;
-  const bufferBefore = bookingPage.bufferBefore ?? 0;
-  const bufferAfter = bookingPage.bufferAfter ?? 0;
-  const slots: TimeSlot[] = [];
-
-  for (const range of daySlots) {
-    const rangeStart = fromZonedTime(`${date}T${range.start}:00`, tz);
-    const rangeEnd = fromZonedTime(`${date}T${range.end}:00`, tz);
-    let current = new Date(rangeStart);
-
-    while (current.getTime() + duration * 60000 <= rangeEnd.getTime()) {
-      const slotStart = new Date(current);
-      const slotEnd = new Date(current.getTime() + duration * 60000);
-      const bufferedStart = new Date(slotStart.getTime() - bufferBefore * 60000);
-      const bufferedEnd = new Date(slotEnd.getTime() + bufferAfter * 60000);
-
-      const hasConflict = existingEvents.some((evt) => {
-        const evtStart = new Date(evt.startTime);
-        const evtEnd = evt.endTime
-          ? new Date(evt.endTime)
-          : new Date(evtStart.getTime() + 30 * 60000);
-        return bufferedStart < evtEnd && bufferedEnd > evtStart;
-      });
-
-      const now = new Date();
-      const minNoticeMs = (bookingPage.minNotice ?? 60) * 60000;
-      const tooSoon = slotStart.getTime() - now.getTime() < minNoticeMs;
-
-      slots.push({
-        start: slotStart.toISOString(),
-        end: slotEnd.toISOString(),
-        available: !hasConflict && !tooSoon,
-      });
-
-      current = new Date(current.getTime() + duration * 60000);
-    }
-  }
-
-  return slots;
+  return loadPersonalDaySlots(db, bookingPage, date, excludeEventId);
 }
 
 export async function createPersonalBooking(input: CreatePersonalBookingInput): Promise<BookingResult> {
@@ -190,7 +148,6 @@ export async function createPersonalBooking(input: CreatePersonalBookingInput): 
       return { success: false, error: 'Booking page not found or inactive' };
     }
 
-    const slotDate = data.startTime.slice(0, 10);
     const tz = bookingPage.timezone || 'UTC';
     const guests = data.guests ?? [];
     const hostName = await hostNameForAccount(bookingPage.personalAccountId);
@@ -228,9 +185,8 @@ export async function createPersonalBooking(input: CreatePersonalBookingInput): 
     ];
 
     const insertResult = await db.transaction(async (tx) => {
-      const slots = await getPersonalAvailableSlots(data.bookingPageId, slotDate);
-      const matching = slots.find((s) => s.start === data.startTime && s.end === data.endTime);
-      if (!matching?.available) {
+      await lockBookingPage(tx, bookingPage.id);
+      if (!(await isPersonalSlotAvailable(tx, bookingPage, data.startTime, data.endTime))) {
         return { kind: 'conflict' as const };
       }
 
@@ -338,7 +294,7 @@ export async function createPersonalBooking(input: CreatePersonalBookingInput): 
 
     const emailDelivery = resolveEmailDelivery(failures.length, results.length);
 
-    return { success: true, bookingId, emailDelivery };
+    return { success: true, bookingId, emailDelivery, meetingUrl: customVideoLink(bookingPage) };
   } catch (err) {
     console.error('[booking-portal] Failed to create personal booking:', err);
     return { success: false, error: 'Something went wrong. Please try again.' };
@@ -491,7 +447,6 @@ export async function reschedulePersonalBooking(
 
     if (!bookingPage) return { success: false, error: 'Booking page not found or inactive' };
 
-    const slotDate = data.startTime.slice(0, 10);
     const tz = bookingPage.timezone || booking.timezone || 'UTC';
     const now = new Date();
     const startDate = new Date(data.startTime);
@@ -500,15 +455,15 @@ export async function reschedulePersonalBooking(
     const hostName = await hostNameForAccount(booking.personalAccountId);
 
     const result = await db.transaction(async (tx) => {
-      const slots = await getPersonalAvailableSlots(
-        booking.bookingPageId,
-        slotDate,
-        booking.calendarEventId ?? undefined,
+      await lockBookingPage(tx, bookingPage.id);
+      const free = await isPersonalSlotAvailable(
+        tx,
+        bookingPage,
+        data.startTime,
+        data.endTime,
+        booking.calendarEventId,
       );
-      const matching = slots.find((s) => s.start === data.startTime && s.end === data.endTime);
-      if (!matching?.available) {
-        return { kind: 'conflict' as const };
-      }
+      if (!free) return { kind: 'conflict' as const };
 
       if (booking.calendarEventId) {
         await tx
@@ -587,7 +542,7 @@ export async function reschedulePersonalBooking(
 
     const emailDelivery = resolveEmailDelivery(failures.length, results.length);
 
-    return { success: true, bookingId: booking.id, emailDelivery };
+    return { success: true, bookingId: booking.id, emailDelivery, meetingUrl: customVideoLink(bookingPage) };
   } catch (err) {
     console.error('[booking-portal] Failed to reschedule personal booking:', err);
     return { success: false, error: 'Something went wrong. Please try again.' };

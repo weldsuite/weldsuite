@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, like, ne, or, sql } from 'drizzle-orm';
 import {
   hasContextPermission,
   requirePermission,
@@ -28,6 +28,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import {
   computeAvailableSlots,
+  type DateOverride,
   type WeeklyAvailability,
 } from '../../services/calendar-slots';
 
@@ -163,6 +164,41 @@ app.patch('/:id', requirePermission('bookings:update'), zValidator('json', updat
   }
 });
 
+// ── GET /:id/delete-impact — what a delete would leave dangling ──────────
+//
+// Deleting a page does not cancel its bookings; the confirmation dialog warns
+// about the upcoming ones. Registered before DELETE /:id (different verb, same
+// path shape) and scoped exactly like it.
+
+app.get('/:id/delete-impact', requirePermission('bookings:delete'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const scope = await scopeFor(c);
+  const conditions: any[] = [eq(t.id, id), isNull(t.deletedAt)];
+  if (scope) conditions.push(eq(t.ownerId, scope));
+  try {
+    const [existing] = await db.select({ id: t.id }).from(t).where(and(...conditions)).limit(1);
+    if (!existing) return error.notFound(c, 'Booking page', id);
+
+    const b = schema.calendarBookings;
+    const [row] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(b)
+      .where(
+        and(
+          eq(b.bookingPageId, id),
+          isNull(b.deletedAt),
+          ne(b.status, 'cancelled'),
+          gte(b.startTime, new Date()),
+        ),
+      );
+    return success(c, { upcomingBookingCount: Number(row?.count ?? 0) });
+  } catch (err) {
+    console.error('[calendar-api/booking-pages] delete impact failed:', err);
+    return error.internal(c, 'Failed to load booking page delete impact');
+  }
+});
+
 app.delete('/:id', requirePermission('bookings:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -239,6 +275,7 @@ app.get('/:id/available-slots', requirePermission('bookings:read'), zValidator('
     const slots = await computeAvailableSlots(
       db,
       {
+        id: page.id,
         ownerId: page.ownerId,
         availability: page.availability as WeeklyAvailability | null,
         timezone: page.timezone,
@@ -246,6 +283,9 @@ app.get('/:id/available-slots', requirePermission('bookings:read'), zValidator('
         bufferBefore: page.bufferBefore,
         bufferAfter: page.bufferAfter,
         minNotice: page.minNotice,
+        maxAdvance: page.maxAdvance,
+        dateOverrides: page.dateOverrides as DateOverride[] | null,
+        maxBookingsPerDay: page.maxBookingsPerDay,
       },
       date,
     );

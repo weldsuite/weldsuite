@@ -24,7 +24,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.lists;
@@ -68,7 +68,6 @@ app.get(
             linkedListId: t.linkedListId,
             createdAt: t.createdAt,
             updatedAt: t.updatedAt,
-            memberCount: sql<number>`(select count(*) from ${lm} where ${lm.listId} = ${t.id})::int`,
           })
           .from(t)
           .where(where)
@@ -78,7 +77,15 @@ app.get(
       ]);
       const hasMore = rawRows.length > q.limit;
       const sliced = hasMore ? rawRows.slice(0, q.limit) : rawRows;
-      const data = sliced.map((r) => ({ ...r, memberCount: Number(r.memberCount ?? 0) }));
+      // A correlated `sql` subquery referencing both the outer and inner
+      // table's `id` column by bare name is ambiguous — Drizzle renders
+      // `${t.id}` as a plain `"id"` identifier here (no table qualifier),
+      // which Postgres resolves against the innermost scope (list_members.id)
+      // instead of the outer lists.id. That silently always counted 0. A
+      // separate GROUP BY query merged by id sidesteps the ambiguity.
+      const listIds = sliced.map((r) => r.id);
+      const memberCounts = await countMembersByList(db, listIds);
+      const data = sliced.map((r) => ({ ...r, memberCount: memberCounts.get(r.id) ?? 0 }));
       const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
       const totalCount = Number(countRes[0]?.count ?? 0);
       return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
@@ -95,12 +102,25 @@ app.get('/:id', requirePermission('companies:read'), async (c) => {
   try {
     const [row] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!row) return error.notFound(c, 'List', id);
-    return success(c, row);
+    const memberCounts = await countMembersByList(db, [id]);
+    return success(c, { ...row, memberCount: memberCounts.get(id) ?? 0 });
   } catch (err) {
     console.error('[app-api/lists] get failed:', err);
     return error.internal(c, 'Failed to fetch list');
   }
 });
+
+/** Member counts for a set of lists, grouped in one query — avoids a
+ * per-row correlated subquery (see note above GET /). */
+async function countMembersByList(db: Database, listIds: string[]): Promise<Map<string, number>> {
+  if (listIds.length === 0) return new Map();
+  const rows = await db
+    .select({ listId: lm.listId, total: sql<number>`count(*)` })
+    .from(lm)
+    .where(inArray(lm.listId, listIds))
+    .groupBy(lm.listId);
+  return new Map(rows.map((row) => [row.listId, Number(row.total)]));
+}
 
 app.post(
   '/',

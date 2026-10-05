@@ -69,6 +69,7 @@ export function AllDayRow({ days, events, getColor, onSelectEvent, allDayLabel, 
             color={getColor(bar.event)}
             time={null}
             title={bar.event.title}
+            status={bar.event.status}
             autoScheduled={bar.event.autoScheduled === true}
             autoScheduledLabel={autoScheduledLabel}
             className={cn(

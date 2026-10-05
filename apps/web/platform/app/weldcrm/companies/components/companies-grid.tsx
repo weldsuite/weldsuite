@@ -1,7 +1,9 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
   EntityGrid,
   type EntityGridActions,
@@ -25,6 +27,11 @@ import { customFieldsToGridColumns } from '@/components/custom-fields/to-grid-co
 import { customFieldsToImportFields } from '@/components/custom-fields/to-import-fields';
 import { useGridViewSettings } from '@/hooks/queries/use-settings-queries';
 import { exportToCSV, exportToExcel } from '@/components/entity-grid/utils/export-utils';
+import {
+  useCustomerStatusOptions,
+  STATUS_STYLE_MAP,
+} from '@/hooks/queries/use-weldcrm-customer-statuses';
+import type { StatusStyle } from '@/components/entity-grid';
 import { QuickAddCompanyDialog } from './quick-add-company-dialog';
 import { ImportEntitiesDialog } from '@/app/weldcrm/components/import-entities-dialog';
 import {
@@ -37,7 +44,7 @@ import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel
 interface CompaniesGridProps {
   companies: Company[];
   totalCount: number;
-  searchParams?: { search?: string; status?: string; filter?: string };
+  searchParams?: { search?: string; status?: string; filter?: string; sort?: string; sortDir?: string };
   onLoadMore?: () => void;
   hasMore?: boolean;
   isFetchingMore?: boolean;
@@ -49,6 +56,8 @@ interface CompaniesGridProps {
    */
   listContext?: {
     listId: string;
+    /** Drives the "Remove from list" copy in the bulk-select delete bar. */
+    listName?: string;
     removeMember: (entityId: string) => Promise<void>;
     removeFailedMessage?: string;
   };
@@ -92,6 +101,27 @@ export function CompaniesGrid({
   const { open: openObjectPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldcrm/companies');
 
+  // Shares its cache with the grid's Owner-column member picker (same
+  // queryKey) — resolves the Owner column's userId to a name for CSV/Excel
+  // export instead of writing the raw id.
+  const { getClient } = useAppApiClient();
+  const { data: teamMembersData } = useQuery({
+    queryKey: ['team-members', 'list'],
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: Array<{ userId: string; name: string | null; email?: string | null }> }>(
+        '/team-members',
+      );
+    },
+  });
+  const memberNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of teamMembersData?.data ?? []) {
+      map[m.userId] = m.name?.trim() || m.email || m.userId;
+    }
+    return map;
+  }, [teamMembersData]);
+
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
 
@@ -113,12 +143,31 @@ export function CompaniesGrid({
   // Saved column visibility/widths per user (persisted by EntityGrid on change).
   const { data: savedView, isLoading: isViewLoading } = useGridViewSettings('company');
 
+  // The Status column's options/labels come from the workspace's configured
+  // customer statuses (Settings > WeldCRM > Customer statuses) — the five
+  // built-ins plus any custom ones — not the hardcoded 5-value list, so a
+  // custom status shows its real label and can be filtered/edited to.
+  const { options: statusOptions } = useCustomerStatusOptions();
+  const companyColumnsWithStatus = useMemo(() => {
+    if (statusOptions.length === 0) return companyColumns;
+    const selectConfig: Record<string, StatusStyle> = {};
+    for (const option of statusOptions) {
+      const style = STATUS_STYLE_MAP[option.color] ?? STATUS_STYLE_MAP.gray!;
+      selectConfig[option.value] = { label: option.label, color: style.color, bg: style.bg };
+    }
+    return companyColumns.map((column) =>
+      column.id === 'status'
+        ? { ...column, options: statusOptions.map((o) => o.value), selectConfig }
+        : column,
+    );
+  }, [statusOptions]);
+
   const gridConfig = useMemo(() => ({
     ...companyGridConfig,
-    columns: [...companyColumns, ...customColumns],
+    columns: [...companyColumnsWithStatus, ...customColumns],
     initialVisibility: savedView?.columnVisibility ?? null,
     initialColumnWidths: savedView?.columnWidths ?? null,
-  }), [customColumns, savedView]);
+  }), [companyColumnsWithStatus, customColumns, savedView]);
 
   // Export honors the active view (search/status/supplier/lead + list scope).
   const exportFilter = useMemo<ExportCompaniesQuery>(() => {
@@ -141,8 +190,9 @@ export function CompaniesGrid({
         }
         const stamp = new Date().toISOString().slice(0, 10);
         const columns = [...companyColumns, ...customColumns];
-        if (format === 'csv') await exportToCSV(rows, columns, `companies-${stamp}.csv`);
-        else await exportToExcel(rows, columns, `companies-${stamp}.xlsx`, 'Companies');
+        const exportContext = { memberNameById };
+        if (format === 'csv') await exportToCSV(rows, columns, `companies-${stamp}.csv`, exportContext);
+        else await exportToExcel(rows, columns, `companies-${stamp}.xlsx`, 'Companies', exportContext);
         toast.success(
           t('crm.importExport.exportSuccess', {
             n: rows.length,
@@ -154,7 +204,7 @@ export function CompaniesGrid({
         toast.error(t('crm.importExport.exportFailed'));
       }
     },
-    [exportMut, exportFilter, customColumns, t],
+    [exportMut, exportFilter, customColumns, memberNameById, t],
   );
 
   const actions: EntityGridActions<Company> = useMemo(() => ({
@@ -230,6 +280,7 @@ export function CompaniesGrid({
           hasMore={hasMore}
           isFetchingMore={isFetchingMore}
           toolbarActions={toolbarActions}
+          listName={listContext?.listName}
         />
       )}
       <QuickAddCompanyDialog open={isQuickAddOpen} onOpenChange={setIsQuickAddOpen} />
@@ -239,6 +290,7 @@ export function CompaniesGrid({
         entityLabel={t('crm.importExport.entityCompanies')}
         fields={importFields}
         requireOneOf={COMPANY_IMPORT_REQUIRE_ONE_OF}
+        requiredForCreate={['name']}
         templateExample={COMPANY_IMPORT_TEMPLATE_EXAMPLE}
         templateName="companies"
         onImportBatch={(records) => importMut.mutateAsync(records as ImportCompanyRecord[])}

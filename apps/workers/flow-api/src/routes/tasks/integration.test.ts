@@ -471,6 +471,92 @@ describe('/api/tasks · CRM company link · pglite integration', () => {
   });
 });
 
+// Covers the WeldCRM My Tasks board bug where the task record picker only
+// offered companies: `personId` is the counterpart to `customerId`, resolved
+// the same way (see `fetchLinkedPersonMap`), and must round-trip through
+// both create and PATCH.
+describe('/api/tasks · CRM person link · pglite integration', () => {
+  const personId = 'person_link_jane';
+
+  beforeAll(async () => {
+    const now = new Date();
+    await db.insert(schema.people).values({
+      id: personId,
+      displayName: 'Jane Doe',
+      avatarUrl: 'https://cdn.example.test/jane.png',
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as typeof schema.people.$inferInsert);
+  });
+
+  type TaskBody = {
+    id: string;
+    personId: string | null;
+    linkedPerson: { id: string; name: string; avatar: string | null } | null;
+  };
+
+  async function create(payload: Record<string, unknown>): Promise<TaskBody> {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:create'), tenantDb: db },
+    });
+    const res = await request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { data: TaskBody }).data;
+  }
+
+  it('persists the person link on create and returns the resolved person', async () => {
+    const created = await create({ title: 'Follow up with Jane', personId });
+    expect(created.personId).toBe(personId);
+    expect(created.linkedPerson).toEqual({
+      id: personId,
+      name: 'Jane Doe',
+      avatar: 'https://cdn.example.test/jane.png',
+    });
+  });
+
+  it('GET /?crmLinked=true and GET /:id both resolve linkedPerson', async () => {
+    const created = await create({ title: 'CRM person row', personId });
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read'), tenantDb: db },
+    });
+    const listRes = await request('/api/tasks?crmLinked=true');
+    const listBody = (await listRes.json()) as { data: TaskBody[] };
+    expect(listBody.data.find((r) => r.id === created.id)?.linkedPerson?.name).toBe('Jane Doe');
+
+    const detailRes = await request(`/api/tasks/${created.id}`);
+    const detailBody = (await detailRes.json()) as { data: TaskBody };
+    expect(detailBody.data.linkedPerson?.id).toBe(personId);
+  });
+
+  it('PATCH /:id writes personId (the picker-added path, not just create)', async () => {
+    const created = await create({ title: 'Link later' });
+    expect(created.personId).toBeNull();
+
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:update', 'tasks:read'), tenantDb: db },
+    });
+    const patchRes = await request(`/api/tasks/${created.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personId }),
+    });
+    expect(patchRes.status).toBe(200);
+    const patched = ((await patchRes.json()) as { data: { id: string; personId: string } }).data;
+    expect(patched.personId).toBe(personId);
+
+    // PATCH echoes the raw body, not the enriched row (same as every other
+    // field here) — confirm the write actually landed via a fresh GET.
+    const getRes = await request(`/api/tasks/${created.id}`);
+    const getBody = ((await getRes.json()) as { data: TaskBody }).data;
+    expect(getBody.personId).toBe(personId);
+    expect(getBody.linkedPerson?.name).toBe('Jane Doe');
+  });
+});
+
 describe('PATCH /api/tasks/:id · mass assignment + relations · pglite integration', () => {
   const now = new Date();
   const json = { 'Content-Type': 'application/json' };

@@ -3,7 +3,7 @@
  * labels, messages, threads, rules, scheduled sends, signatures, snooze,
  * subscriptions, sync, templates, campaigns, WeldMail addresses, mail AI and
  * the mailbox directory) module's API worker, plus the SendScheduledEmail
- * workflow.
+ * workflow and the snooze wake-up cron.
  *
  * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
@@ -12,6 +12,7 @@
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { clerkMiddleware } from '@weldsuite/worker-kit/middleware/clerk';
+import { runSnoozeSweep, SNOOZE_SWEEP_CRON } from './cron/snooze-sweep';
 import { mailAccountsRoutes } from './routes/mail-accounts';
 import { mailAiRoutes } from './routes/mail-ai';
 import { mailAttachmentsRoutes } from './routes/mail-attachments';
@@ -72,4 +73,15 @@ export { SendScheduledEmailWorkflow } from '@weldsuite/mail-domain/workflows/sen
 
 export default {
   fetch: app.fetch,
+
+  scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+    // Every 5 minutes: bring snoozed mail whose time has come back to the inbox.
+    if (event.cron === SNOOZE_SWEEP_CRON) {
+      ctx.waitUntil(
+        runSnoozeSweep(env).catch((err) => {
+          console.error('[SnoozeSweep] Failed:', err);
+        }),
+      );
+    }
+  },
 };

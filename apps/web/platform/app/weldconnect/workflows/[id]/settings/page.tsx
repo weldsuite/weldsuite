@@ -80,11 +80,21 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
 
   return (
     <div className="h-full flex flex-col bg-background overflow-hidden">
-      {/* Header */}
-      {!hideHeader && <div className="bg-background border-b flex-shrink-0">
+      {/*
+       * Header. `hideHeader` callers (e.g. the WeldCRM sequence Settings tab,
+       * which renders its own SequenceWizardNav above this) only want the
+       * Editor/Executions/Settings tab buttons suppressed — they still need
+       * the Save action, so the save button below is NOT gated on
+       * `hideHeader`. Previously the whole bar (tabs AND Save) was gated
+       * together, so hideHeader callers lost the only way to persist
+       * changes (TASK-923).
+       */}
+      <div className="bg-background border-b flex-shrink-0">
         <div className="px-4 py-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
+              {!hideHeader && (
+              <>
               <div className="relative group">
                 <Button
                   variant="outline"
@@ -141,6 +151,8 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
                 </Button>
                 <div className="absolute -bottom-[9px] left-0 right-0 h-0.5 bg-foreground" />
               </div>
+              </>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -162,7 +174,7 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
             </div>
           </div>
         </div>
-      </div>}
+      </div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto">

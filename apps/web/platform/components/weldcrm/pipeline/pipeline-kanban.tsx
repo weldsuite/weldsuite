@@ -36,7 +36,7 @@ import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useCreatePipelineStage } from '@/hooks/queries/use-pipelines-queries';
+import { useCreatePipelineStage, useUpdatePipelineStage, useDeletePipelineStage } from '@/hooks/queries/use-pipelines-queries';
 import { useUpdateOpportunity, useDeleteOpportunity, type Opportunity } from '@/hooks/queries/use-opportunities-queries';
 import { type PipelineViewSettings, DEFAULT_PIPELINE_SETTINGS } from '@/app/weldcrm/pipeline/pipeline-settings-types';
 // import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
@@ -90,6 +90,7 @@ import {
 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { secureRandom } from '@/lib/random';
+import { toast } from 'sonner';
 
 interface Deal {
   id: string;
@@ -319,6 +320,8 @@ export function PipelineKanban({
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const createStageMutation = useCreatePipelineStage();
+  const updateStageMutation = useUpdatePipelineStage();
+  const deleteStageMutation = useDeletePipelineStage();
   const updateOpportunityMutation = useUpdateOpportunity();
   const deleteOpportunityMutation = useDeleteOpportunity();
   const [stages, setStages] = useState<Stage[]>([]);
@@ -332,7 +335,12 @@ export function PipelineKanban({
   const { open: openObjectPanel } = useObjectPanel();
   const [showAddStage, setShowAddStage] = useState(false);
   const [selectedStageForNewDeal, setSelectedStageForNewDeal] = useState<string | null>(null);
-  const [stageCalculations, setStageCalculations] = useState<Record<string, { type: string; value: string | number }>>({});
+  const [stageToDelete, setStageToDelete] = useState<Stage | null>(null);
+  const [stageToRename, setStageToRename] = useState<Stage | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [stageCalculations, setStageCalculations] = useState<Record<string, { type: string; value: string | number }>>(
+    () => initialSettings.stageCalculations ?? {},
+  );
   const [showCustomFormulaModal, setShowCustomFormulaModal] = useState(false);
   const [selectedStageForFormula, setSelectedStageForFormula] = useState<string | null>(null);
   const [showPipelineSettings, setShowPipelineSettings] = useState(false);
@@ -347,17 +355,45 @@ export function PipelineKanban({
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [confettiStages, setConfettiStages] = useState<Set<string>>(new Set());
+  const [confettiStages, setConfettiStages] = useState<Set<string>>(
+    () => new Set(initialSettings.confettiStageIds ?? []),
+  );
   const handleConfettiChange = (stageId: string, enabled: boolean) => {
-    setConfettiStages(prev => {
-      const next = new Set(prev);
-      if (enabled) {
-        next.add(stageId);
-      } else {
-        next.delete(stageId);
-      }
-      return next;
-    });
+    const next = new Set(confettiStages);
+    if (enabled) next.add(stageId); else next.delete(stageId);
+    setConfettiStages(next);
+    updateViewSettings({ confettiStageIds: Array.from(next) });
+  };
+
+  // Per-stage "track time in stage" toggle — used to be a bare `useState`
+  // inside `StageHeader` itself, so it reset on every reload and was never
+  // shared across renders of the same stage (TASK-921).
+  const [trackTimeInStageIds, setTrackTimeInStageIds] = useState<Set<string>>(
+    () => new Set(initialSettings.trackTimeInStageIds ?? []),
+  );
+  const handleTrackTimeChange = (stageId: string, enabled: boolean) => {
+    const next = new Set(trackTimeInStageIds);
+    if (enabled) next.add(stageId); else next.delete(stageId);
+    setTrackTimeInStageIds(next);
+    updateViewSettings({ trackTimeInStageIds: Array.from(next) });
+  };
+
+  // Stages hidden from the board (persisted in the pipeline's own settings —
+  // there's no `hidden` column on `crm_pipeline_stages`).
+  const [hiddenStageIds, setHiddenStageIds] = useState<Set<string>>(
+    () => new Set(initialSettings.hiddenStageIds ?? []),
+  );
+  const handleHideStage = (stageId: string) => {
+    const next = new Set(hiddenStageIds);
+    next.add(stageId);
+    setHiddenStageIds(next);
+    updateViewSettings({ hiddenStageIds: Array.from(next) });
+  };
+  const handleUnhideStage = (stageId: string) => {
+    const next = new Set(hiddenStageIds);
+    next.delete(stageId);
+    setHiddenStageIds(next);
+    updateViewSettings({ hiddenStageIds: Array.from(next) });
   };
 
   const fireConfetti = async () => {
@@ -493,8 +529,15 @@ export function PipelineKanban({
     return rectCollisions;
   };
 
-  // Create a stable key based on deal IDs and stages to detect actual changes
-  const dealsKey = initialDeals.map(d => `${d.id}-${d.stage}`).join(',');
+  // Create a stable key based on deal IDs, stages and the editable fields the
+  // deal panel writes, to detect actual changes. This used to only track
+  // `id`+`stage`, so editing a deal's name/amount/probability/close date in
+  // the panel (which doesn't touch `stage`) left the board's local `stages`
+  // state — and therefore the card — stale until something else forced a
+  // stage recompute (TASK-920).
+  const dealsKey = initialDeals
+    .map(d => `${d.id}-${d.stage}-${d.title}-${d.value}-${d.currency}-${d.probability}-${String(d.expectedCloseDate ?? '')}`)
+    .join(',');
   const stagesKey = initialStages.map(s => s.id || s.name).join(',');
 
   useEffect(() => {
@@ -663,18 +706,19 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
         calculatedValue = '-';
     }
 
-    setStageCalculations(prev => ({
-      ...prev,
-      [stageId]: { type: calculationType, value: calculatedValue }
-    }));
+    const nextCalculations = {
+      ...stageCalculations,
+      [stageId]: { type: calculationType, value: calculatedValue },
+    };
+    setStageCalculations(nextCalculations);
+    updateViewSettings({ stageCalculations: nextCalculations });
   };
 
   const removeCalculation = (stageId: string) => {
-    setStageCalculations(prev => {
-      const newCalcs = { ...prev };
-      delete newCalcs[stageId];
-      return newCalcs;
-    });
+    const nextCalculations = { ...stageCalculations };
+    delete nextCalculations[stageId];
+    setStageCalculations(nextCalculations);
+    updateViewSettings({ stageCalculations: nextCalculations });
   };
 
   const handleCustomFormulaSubmit = (formula: string) => {
@@ -682,10 +726,12 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
 
     // For now, just display the formula as the value
     // In a real implementation, you would parse and evaluate the formula
-    setStageCalculations(prev => ({
-      ...prev,
-      [selectedStageForFormula]: { type: 'custom', value: formula || t('sweep.weldcrm.pipelineKanban.customFormula') }
-    }));
+    const nextCalculations = {
+      ...stageCalculations,
+      [selectedStageForFormula]: { type: 'custom', value: formula || t('sweep.weldcrm.pipelineKanban.customFormula') },
+    };
+    setStageCalculations(nextCalculations);
+    updateViewSettings({ stageCalculations: nextCalculations });
 
     setShowCustomFormulaModal(false);
     setSelectedStageForFormula(null);
@@ -693,18 +739,20 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
 
   const _totalValue = stages.reduce((sum, stage) => sum + stage.value, 0);
 
-  // Filter stages based on search query and active filters
+  // Filter stages based on search query, active filters and the "Hide
+  // stage" toggle (TASK-921) — hidden stages never show on the board.
   const filteredStages = useMemo(() => {
+    const visibleStages = stages.filter(s => !hiddenStageIds.has(s.id));
     const hasSearchQuery = searchQuery.trim() !== '';
     const hasActiveFilters = activeFilters.length > 0;
 
     if (!hasSearchQuery && !hasActiveFilters) {
-      return stages;
+      return visibleStages;
     }
 
     const query = searchQuery.toLowerCase();
 
-    return stages.map(stage => {
+    return visibleStages.map(stage => {
       const filteredDeals = stage.deals.filter(deal => {
         // Apply search query filter
         if (hasSearchQuery) {
@@ -740,7 +788,7 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
         value: filteredDeals.reduce((sum, deal) => sum + (deal.value || 0), 0),
       };
     });
-  }, [stages, searchQuery, activeFilters]);
+  }, [stages, searchQuery, activeFilters, hiddenStageIds]);
 
   const _totalDeals = stages.reduce((sum, stage) => sum + stage.count, 0);
   const _weightedValue = stages.reduce((sum, stage) => {
@@ -840,6 +888,66 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
     }
   };
 
+  const handleRenameStage = async (stageId: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    const previousName = stages.find(s => s.id === stageId)?.name;
+    setStages(prevStages => prevStages.map(s => (s.id === stageId ? { ...s, name: trimmed } : s)));
+    try {
+      await updateStageMutation.mutateAsync({ id: stageId, data: { name: trimmed } });
+    } catch (error) {
+      // Revert on failure.
+      setStages(prevStages =>
+        prevStages.map(s => (s.id === stageId ? { ...s, name: previousName ?? s.name } : s)),
+      );
+      console.error('Failed to rename stage:', error);
+      toast.error(t('sweep.weldcrm.pipelineKanban.renameStageFailed'));
+    }
+  };
+
+  // Deleting a stage that still has deals would orphan them; the server
+  // enforces this too (400), but checking the count we already have locally
+  // lets the menu item explain *why* up front instead of round-tripping.
+  const handleRequestDeleteStage = (stageId: string) => {
+    const stage = stages.find(s => s.id === stageId);
+    if (!stage) return;
+    if (stage.count > 0) {
+      toast.error(
+        t('sweep.weldcrm.pipelineKanban.deleteStageBlocked', { count: stage.count, name: stage.name }),
+      );
+      return;
+    }
+    setStageToDelete(stage);
+  };
+
+  const handleConfirmDeleteStage = async () => {
+    if (!stageToDelete) return;
+    const stageId = stageToDelete.id;
+    try {
+      await deleteStageMutation.mutateAsync(stageId);
+      setStages(prevStages => prevStages.filter(s => s.id !== stageId));
+      // Drop any per-stage UI state pointing at the now-deleted stage.
+      if (stageCalculations[stageId]) {
+        const nextCalculations = { ...stageCalculations };
+        delete nextCalculations[stageId];
+        setStageCalculations(nextCalculations);
+        updateViewSettings({ stageCalculations: nextCalculations });
+      }
+      if (confettiStages.has(stageId)) {
+        const next = new Set(confettiStages);
+        next.delete(stageId);
+        setConfettiStages(next);
+        updateViewSettings({ confettiStageIds: Array.from(next) });
+      }
+      toast.success(t('sweep.weldcrm.pipelineKanban.stageDeleted'));
+    } catch (error) {
+      console.error('Failed to delete stage:', error);
+      toast.error(error instanceof Error ? error.message : t('sweep.weldcrm.pipelineKanban.deleteStageFailed'));
+    } finally {
+      setStageToDelete(null);
+    }
+  };
+
   return (
     <div ref={containerRef} className="flex flex-col h-full overflow-hidden">
       {/* Header - matching EntityList top bar */}
@@ -935,7 +1043,17 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
                         containerRef={containerRef}
                       >
                         <div className="flex flex-col h-full">
-                          <StageHeader stage={stage} onAddDeal={handleOpenAddDeal} confettiEnabled={confettiStages.has(stage.id)} onConfettiChange={handleConfettiChange} />
+                          <StageHeader
+                            stage={stage}
+                            onAddDeal={handleOpenAddDeal}
+                            confettiEnabled={confettiStages.has(stage.id)}
+                            onConfettiChange={handleConfettiChange}
+                            trackTimeInStage={trackTimeInStageIds.has(stage.id)}
+                            onTrackTimeChange={handleTrackTimeChange}
+                            onRenameStage={() => { setStageToRename(stage); setRenameValue(stage.name); }}
+                            onHideStage={handleHideStage}
+                            onDeleteStage={handleRequestDeleteStage}
+                          />
 
                           {/* Deals container */}
                           <div className="flex-1 flex flex-col">
@@ -1025,6 +1143,36 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
                   </Button>
                 </AddStagePopover>
               </div>
+
+              {/* Hidden stages — "Hide stage" has no other way back in. */}
+              {hiddenStageIds.size > 0 && (
+                <div className="flex-shrink-0 self-start mt-1">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground">
+                        {t('sweep.weldcrm.pipelineKanban.hiddenStagesCount', { count: hiddenStageIds.size })}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-56 p-1" align="start">
+                      {stages
+                        .filter((s) => hiddenStageIds.has(s.id))
+                        .map((s) => (
+                          <Button
+                            key={s.id}
+                            variant="ghost"
+                            className="w-full justify-between text-sm"
+                            onClick={() => handleUnhideStage(s.id)}
+                          >
+                            <span className="truncate">{s.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {t('sweep.weldcrm.pipelineKanban.unhide')}
+                            </span>
+                          </Button>
+                        ))}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
             </div>
 
             <DragOverlay dropAnimation={{
@@ -1189,6 +1337,60 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
         />
         </Suspense>
       )}
+
+      {/* Delete Stage confirmation */}
+      <Dialog open={!!stageToDelete} onOpenChange={(open) => !open && setStageToDelete(null)}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>{t('sweep.weldcrm.pipelineKanban.deleteStageDialogTitle')}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {t('sweep.weldcrm.pipelineKanban.deleteStageDialogDescription', { name: stageToDelete?.name ?? '' })}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStageToDelete(null)}>
+              {t('sweep.weldcrm.pipelineKanban.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmDeleteStage}>
+              {t('sweep.weldcrm.pipelineKanban.deleteStageConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename Stage */}
+      <Dialog open={!!stageToRename} onOpenChange={(open) => !open && setStageToRename(null)}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>{t('sweep.weldcrm.pipelineKanban.renameStageDialogTitle')}</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            placeholder={t('sweep.weldcrm.pipelineKanban.renameStageNamePlaceholder')}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && stageToRename) {
+                handleRenameStage(stageToRename.id, renameValue);
+                setStageToRename(null);
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStageToRename(null)}>
+              {t('sweep.weldcrm.pipelineKanban.cancel')}
+            </Button>
+            <Button
+              onClick={() => {
+                if (stageToRename) handleRenameStage(stageToRename.id, renameValue);
+                setStageToRename(null);
+              }}
+            >
+              {t('sweep.weldcrm.pipelineKanban.renameStageSave')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confetti effect */}
     </div>

@@ -30,6 +30,14 @@ interface GridProviderProps<TEntity> {
   actions: EntityGridActions<TEntity>;
   entities: TEntity[];
   pagination?: GridPaginationState;
+  /**
+   * Externally-controlled sort (e.g. synced to the URL by `EntityGrid`). When
+   * provided, every sort change is also reported via `onSortChange` so the
+   * caller can re-fetch server-sorted data — paginated grids can't sort
+   * client-side since they only ever hold one page of rows.
+   */
+  initialSort?: GridSortConfig;
+  onSortChange?: (sort: GridSortConfig) => void;
   children: React.ReactNode;
 }
 
@@ -161,6 +169,8 @@ export function GridProvider<TEntity>({
   actions,
   entities,
   pagination,
+  initialSort,
+  onSortChange,
   children,
 }: GridProviderProps<TEntity>) {
   const t = useTranslations();
@@ -204,7 +214,21 @@ export function GridProvider<TEntity>({
   );
   const [editValue, setEditValue] = useState<unknown>('');
   const [openPopover, setOpenPopover] = useState<OpenPopover | null>(null);
-  const [sortConfig, setSortConfig] = useState<GridSortConfig>({ field: null, direction: null });
+  const [sortConfig, setSortConfig] = useState<GridSortConfig>(
+    initialSort ?? { field: null, direction: null },
+  );
+
+  // Keep local sort state in sync when the controlling caller changes it
+  // externally (e.g. browser back/forward navigating the `sort`/`sortDir`
+  // URL params).
+  useEffect(() => {
+    if (!initialSort) return;
+    setSortConfig((prev) =>
+      prev.field === initialSort.field && prev.direction === initialSort.direction
+        ? prev
+        : initialSort,
+    );
+  }, [initialSort]);
   const [filters, setFilters] = useState<GridFilter[]>([]);
   const [fieldCalculations, setFieldCalculations] = useState<Record<string, CalculationType>>({});
   const [customFieldData, setCustomFieldData] = useState<Record<string, Record<string, unknown>>>({});
@@ -344,7 +368,12 @@ export function GridProvider<TEntity>({
     async (entityId: string, fieldId: string, value: unknown) => {
       const column = columns.find((c) => c.id === fieldId);
       if (!column || !column.setValue) {
+        // Defense in depth — the cell layer already refuses to open an
+        // editor for a column with no `setValue` (or `editable: false`), so
+        // this should be unreachable in practice. If it ever is, surface it
+        // instead of silently dropping the edit.
         console.warn(`Cannot update field ${fieldId}: no setValue defined`);
+        toast.error(t('sweep.entities.updateFailed'));
         return;
       }
 
@@ -469,10 +498,24 @@ export function GridProvider<TEntity>({
     [columns, t]
   );
 
-  // Handle sort
-  const handleSort = useCallback((fieldId: string, direction: 'asc' | 'desc') => {
-    setSortConfig({ field: fieldId, direction });
-  }, []);
+  // Handle sort — reports the change externally (e.g. to sync the URL and
+  // re-fetch server-sorted data) in addition to updating local state so the
+  // toolbar highlights the active sort immediately.
+  const handleSort = useCallback(
+    (fieldId: string, direction: 'asc' | 'desc') => {
+      const next: GridSortConfig = { field: fieldId, direction };
+      setSortConfig(next);
+      onSortChange?.(next);
+    },
+    [onSortChange],
+  );
+
+  // Clear sort — same external reporting as handleSort.
+  const clearSort = useCallback(() => {
+    const next: GridSortConfig = { field: null, direction: null };
+    setSortConfig(next);
+    onSortChange?.(next);
+  }, [onSortChange]);
 
   // Handle hide column
   const handleHideColumn = useCallback((fieldId: string) => {
@@ -518,7 +561,7 @@ export function GridProvider<TEntity>({
         if (column.isCustom) {
           return customFieldData[config.getEntityId(entity)]?.[fieldId];
         }
-        return column.getValue(entity);
+        return column.getCalcValue ? column.getCalcValue(entity) : column.getValue(entity);
       });
 
       return computeCalculation(allValues, fieldType, calculationType);
@@ -574,6 +617,7 @@ export function GridProvider<TEntity>({
     showColumn,
     deleteColumn,
     handleSort,
+    clearSort,
     handleHideColumn,
     handleMoveColumn,
     handleColumnResize,

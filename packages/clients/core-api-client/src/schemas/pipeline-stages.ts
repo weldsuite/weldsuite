@@ -9,10 +9,16 @@ import { z } from 'zod';
 
 export const createPipelineStageSchema = z.object({
   name: z.string().min(1).max(255),
-  description: z.string().max(1000).optional(),
-  position: z.number().int().min(0).default(0),
-  probability: z.number().int().min(0).max(100).optional(),
-  color: z.string().max(50).optional(),
+  // Export/duplicate round-trips a stage's own nullable columns (e.g. an
+  // unset description or color) straight back into this schema, so these
+  // accept `null` as well as `undefined`, not just a missing field.
+  description: z.string().max(1000).nullish(),
+  // `position` is optional server-side: when omitted, the create route
+  // appends the stage after the last open stage (before any isWon/isLost
+  // stage) instead of defaulting to 0.
+  position: z.number().int().min(0).optional(),
+  probability: z.number().int().min(0).max(100).nullish(),
+  color: z.string().max(50).nullish(),
   pipeline: z.string().max(100).default('default'),
   isDefault: z.boolean().optional(),
   isWon: z.boolean().optional(),

@@ -85,6 +85,12 @@ name = "send-scheduled-email-v3-dev"
 binding = "SEND_SCHEDULED_EMAIL"
 class_name = "SendScheduledEmailWorkflow"
 
+# Snooze wake-up sweep (src/cron/snooze-sweep.ts, scheduled() in
+# src/index.ts): snoozed mail whose time has come goes back to the inbox.
+# Keep the expression in step with SNOOZE_SWEEP_CRON.
+[triggers]
+crons = ["*/5 * * * *"]
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -125,6 +131,9 @@ name = "SEND_EMAIL"
 name = "send-scheduled-email-v3-test"
 binding = "SEND_SCHEDULED_EMAIL"
 class_name = "SendScheduledEmailWorkflow"
+
+[env.test.triggers]
+crons = ["*/5 * * * *"]
 
 [env.test.observability]
 enabled = true
@@ -172,6 +181,10 @@ name = "SEND_EMAIL"
 name = "send-scheduled-email-v3"
 binding = "SEND_SCHEDULED_EMAIL"
 class_name = "SendScheduledEmailWorkflow"
+
+# Snooze wake-up sweep (see [triggers] above).
+[env.production.triggers]
+crons = ["*/5 * * * *"]
 
 [env.production.observability]
 enabled = true

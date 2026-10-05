@@ -11,8 +11,11 @@
  *   - DnD reorder is disabled (no single project position sequence).
  *   - Project stages are not fetched (group-by defaults to status labels).
  *   - Project members are derived from task assignees rather than a per-project query.
- *   - "Add task" navigates to /weldflow/my-tasks?customerId=… instead of opening
- *     the create dialog (no single project to create into).
+ *   - "Add task" still opens the normal create dialog, but saves via the global
+ *     `POST /tasks` (tasksApi.createGlobal) with customerId/personId set to this
+ *     entity, instead of the project-scoped `POST /tasks/projects/:projectId`
+ *     (no single project to create into). The dialog's assignee defaults to the
+ *     current user, same as the My Tasks dialog.
  *   - Breadcrumbs are suppressed (panel is not a page).
  *   - There is no ProjectPermissionProvider here; TasksClient treats entity mode
  *     as writable instead of using the (read-only) context default.

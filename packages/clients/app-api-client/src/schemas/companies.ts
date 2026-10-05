@@ -23,6 +23,47 @@ const addressSchema = z
   })
   .passthrough();
 
+// ============================================================================
+// Validation helpers.
+//
+// `website` accepts a bare domain ("acme.com") as well as a full URL and
+// normalizes it to `https://…`; a non-empty value that still isn't a
+// resolvable URL (e.g. "not a url") is rejected rather than silently saved.
+// `employeeCount` accepts a plain number or a "11-50" / "10001+" style range
+// — free text like "abc" is rejected. Both stay lenient on READ (existing
+// stored values aren't re-validated, only new writes go through this schema).
+// ============================================================================
+
+function normalizeWebsiteValue(raw: string): string {
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+}
+
+function isValidWebsiteValue(raw: string): boolean {
+  try {
+    const url = new URL(normalizeWebsiteValue(raw));
+    return url.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
+const websiteSchema = z
+  .string()
+  .max(500)
+  .refine((v) => v === '' || isValidWebsiteValue(v), {
+    message: 'Website must be a valid URL (e.g. acme.com or https://acme.com)',
+  })
+  .transform((v) => (v === '' ? v : normalizeWebsiteValue(v)))
+  .optional();
+
+const employeeCountSchema = z
+  .string()
+  .max(50)
+  .refine((v) => v === '' || /^\d+(-\d+)?\+?$/.test(v), {
+    message: 'Employees must be a number or a range (e.g. 42 or 11-50)',
+  })
+  .optional();
+
 export const createCompanySchema = z.object({
   name: z.string().min(1).max(255),
   tradingName: z.string().max(255).optional(),
@@ -33,8 +74,8 @@ export const createCompanySchema = z.object({
 
   // Profile
   industry: z.string().max(100).optional(),
-  employeeCount: z.string().max(50).optional(),
-  website: z.string().max(500).optional(),
+  employeeCount: employeeCountSchema,
+  website: websiteSchema,
 
   // Contact info
   email: z.string().email().optional().or(z.literal('')),
@@ -63,6 +104,11 @@ export const createCompanySchema = z.object({
   segment: z.string().optional(),
   rating: z.string().optional(),
   source: z.string().optional(),
+
+  // Follow-up — lenient strings (grid's date editor sends an ISO string, or
+  // null to clear), parsed by the service.
+  lastContactDate: z.string().nullish(),
+  nextFollowUpDate: z.string().nullish(),
 
   // Status flags
   isSupplier: z.boolean().optional(),
@@ -197,6 +243,8 @@ export const importCompanyRecordSchema = z.object({
   tags: z.array(z.string()).optional(),
   notes: z.string().max(10000).optional(),
   internalNotes: z.string().max(10000).optional(),
+  isSupplier: z.boolean().optional(),
+  isLead: z.boolean().optional(),
   // User-defined custom fields, keyed by definition slug. Values are
   // already coerced (number/boolean/array) client-side per field type.
   customFields: z.record(z.unknown()).optional(),

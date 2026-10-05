@@ -255,10 +255,9 @@ export function useArchiveMailMessage() {
   const { mailMessages } = useAppApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      mailMessages.update(id, {
-        labels: ['ARCHIVE'],
-      }),
+    // Adding ARCHIVE moves the mail out of the inbox and keeps its other
+    // labels (replacing the whole array dropped them).
+    mutationFn: (id: string) => mailMessages.addLabels(id, { labels: ['ARCHIVE'] }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });
     },
@@ -377,19 +376,12 @@ export function useArchiveThread() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { accountId: string; threadId: string }) => {
+      // ARCHIVE, TRASH, SPAM and INBOX are locations: adding one moves the
+      // thread there, the server drops the previous one in the same write.
       const result = await mailLabels.applyToThread({
         ...vars,
         labelName: 'ARCHIVE',
         action: 'add',
-      });
-      // Archive is a location change: leave the inbox, not just add a
-      // second label. The backend apply-to-thread path also strips INBOX
-      // when adding ARCHIVE; this second call is idempotent and covers
-      // the window where frontend ships before that worker change.
-      await mailLabels.applyToThread({
-        ...vars,
-        labelName: 'INBOX',
-        action: 'remove',
       });
       return { ...result, archivedCount: result.data?.affected ?? 0 };
     },
@@ -418,21 +410,20 @@ export function useTrashThread() {
 }
 
 /**
- * Toggling spam needs both directions — adding the label on first call
- * and removing it on the second. The component passes the desired
- * end state via `isSpam`.
+ * Toggling spam needs both directions. The component passes the desired end
+ * state via `isSpam`: marking spam moves the thread to Spam, "not spam" moves
+ * it back to the inbox (removing the label alone would leave it in no folder).
  */
 export function useMarkThreadAsSpam() {
   const { mailLabels } = useAppApi();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { accountId: string; threadId: string; isSpam?: boolean }) => {
-      const action: 'add' | 'remove' = vars.isSpam === false ? 'remove' : 'add';
       return mailLabels.applyToThread({
         accountId: vars.accountId,
         threadId: vars.threadId,
-        labelName: 'SPAM',
-        action,
+        labelName: vars.isSpam === false ? 'INBOX' : 'SPAM',
+        action: 'add',
       });
     },
     onSuccess: () => {
@@ -443,6 +434,49 @@ export function useMarkThreadAsSpam() {
 
 export function useUpdateThreadLabels() {
   return useApplyLabelToThread();
+}
+
+/** Move a thread back to the inbox (out of trash, spam or the archive). */
+export function useMoveThreadToInbox() {
+  const { mailLabels } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { accountId: string; threadId: string }) =>
+      mailLabels.applyToThread({ ...vars, labelName: 'INBOX', action: 'add' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.all });
+    },
+  });
+}
+
+/**
+ * Star / pin a whole thread. Both are system labels on the thread's messages
+ * (`STARRED`, `PINNED`), so they persist, show in every list and survive a
+ * reload.
+ */
+function useToggleThreadSystemLabel(labelName: 'STARRED' | 'PINNED') {
+  const { mailLabels } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { accountId: string; threadId: string; on: boolean }) =>
+      mailLabels.applyToThread({
+        accountId: vars.accountId,
+        threadId: vars.threadId,
+        labelName,
+        action: vars.on ? 'add' : 'remove',
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.all });
+    },
+  });
+}
+
+export function useStarThread() {
+  return useToggleThreadSystemLabel('STARRED');
+}
+
+export function usePinThread() {
+  return useToggleThreadSystemLabel('PINNED');
 }
 
 // =============================================================================
@@ -492,8 +526,18 @@ export function useDeleteMailLabel() {
   });
 }
 
+/** Server-side narrowing of a thread list: the search box and the Filter panel. */
+export type MailThreadSearch = {
+  /** Free text; searches the whole mailbox, not only the open folder. */
+  search?: string;
+  from?: string;
+  to?: string;
+  subject?: string;
+  hasAttachment?: boolean;
+};
+
 export function useMailLabelThreads(
-  params: { accountId?: string; labelSlug: string; page?: number; pageSize?: number },
+  params: { accountId?: string; labelSlug: string; page?: number; pageSize?: number } & MailThreadSearch,
   enabled = true,
 ) {
   const { mailLabels } = useAppApi();
@@ -505,6 +549,11 @@ export function useMailLabelThreads(
         labelSlug: params.labelSlug,
         page: params.page ?? 1,
         pageSize: params.pageSize ?? 25,
+        search: params.search || undefined,
+        from: params.from || undefined,
+        to: params.to || undefined,
+        subject: params.subject || undefined,
+        hasAttachment: params.hasAttachment || undefined,
       }),
     enabled: !!params.labelSlug && enabled,
   });

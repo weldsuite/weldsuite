@@ -5,6 +5,7 @@ import type {
   CreateCustomerStatusInput,
   UpdateCustomerStatusInput,
 } from '@weldsuite/app-api-client/schemas/customer-statuses';
+import { CUSTOMER_STATUS_OPTIONS } from '@/app/settings/weldcrm/customer-statuses/constants';
 
 interface DataResponse<T> {
   data: T;
@@ -60,6 +61,32 @@ export function useDeleteCustomerStatusMutation() {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: customerStatusKeys.all }),
   });
+}
+
+export interface CustomerStatusOption {
+  value: string;
+  label: string;
+  color: string;
+}
+
+/**
+ * Merge the five locked built-in statuses with the workspace's custom ones
+ * (Settings > WeldCRM > Customer statuses) into a single ordered list for any
+ * CRM status picker. Built-ins come first (matching the settings page order),
+ * then custom statuses by `sortOrder`.
+ *
+ * The person panel reuses this too — there is no dedicated person-status
+ * settings surface, so the company/customer status vocabulary (and its
+ * colors) is the closest existing fit for "Active" vs "active" display.
+ */
+export function useCustomerStatusOptions(): { options: CustomerStatusOption[]; isLoading: boolean } {
+  const { data, isLoading } = useCustomerStatusesQuery();
+  const custom = [...(data?.data ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
+  const options: CustomerStatusOption[] = [
+    ...CUSTOMER_STATUS_OPTIONS,
+    ...custom.map((s) => ({ value: s.slug, label: s.name, color: s.color })),
+  ];
+  return { options, isLoading };
 }
 
 export function useReorderCustomerStatusesMutation() {

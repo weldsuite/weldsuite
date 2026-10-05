@@ -1,9 +1,9 @@
 import { eq, and, isNull } from 'drizzle-orm';
 import { notFound } from 'next/navigation';
-import { calendarBookingPages, calendarBookings } from '@weldsuite/db/schema';
+import { calendarBookingPages, calendarBookings, calendarEvents } from '@weldsuite/db/schema';
 
 import { getTenantDbBySlug } from '@/lib/db';
-import { bookingPagePropsSchema } from '@/lib/schemas';
+import { bookingPagePropsSchema, parseDateOverrides } from '@/lib/schemas';
 import { sanitizeAvailability } from '@/lib/availability';
 import { getHostInfo, isValidManageToken } from '@/lib/booking-server';
 
@@ -75,6 +75,7 @@ export default async function BookingPage({ params, searchParams }: Readonly<Pro
     locationType: bookingPage.locationType,
     locationValue: bookingPage.locationValue,
     availability: sanitizeAvailability(bookingPage.availability),
+    dateOverrides: parseDateOverrides(bookingPage.dateOverrides),
     questions: bookingPage.questions ?? [],
     minNotice: bookingPage.minNotice,
     maxAdvance: bookingPage.maxAdvance,
@@ -107,11 +108,28 @@ export default async function BookingPage({ params, searchParams }: Readonly<Pro
       .where(and(eq(calendarBookings.id, bookingId), isNull(calendarBookings.deletedAt)))
       .limit(1);
     if (booking && booking.bookingPageId === bookingPage.id) {
+      // The join link lives on the booking's calendar event; a page with its own
+      // video link keeps using that.
+      let meetingUrl: string | null = null;
+      if (booking.calendarEventId) {
+        const [event] = await tenant.db
+          .select({ meetingUrl: calendarEvents.meetingUrl })
+          .from(calendarEvents)
+          .where(eq(calendarEvents.id, booking.calendarEventId))
+          .limit(1);
+        meetingUrl = event?.meetingUrl?.trim() || null;
+      }
+      if (!meetingUrl && bookingPage.locationType === 'video') {
+        meetingUrl = bookingPage.locationValue?.trim() || null;
+      }
+
       managedBooking = {
         bookingId: booking.id,
         token,
         bookerName: booking.bookerName,
         bookerEmail: booking.bookerEmail,
+        guests: (booking.guests ?? []).map((g) => g.email),
+        meetingUrl,
         startTime: booking.startTime.toISOString(),
         endTime: booking.endTime.toISOString(),
         cancelled: booking.status === 'cancelled',

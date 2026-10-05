@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAuth } from '@clerk/clerk-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -12,8 +12,8 @@ import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot, type 
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
-import { parseChatTokens } from '../lib/render-tokens';
-import { EntityMentionChip } from './entity-mention-chip';
+import { renderMessageContent } from '../lib/render-message-content';
+import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
 
@@ -36,94 +36,6 @@ function LiveCallTimer({ startedAt }: Readonly<{ startedAt: string }>) {
     : `${m}m ${s.toString().padStart(2, '0')}s`;
 
   return <span className="font-mono tabular-nums">&mdash; {time}</span>;
-}
-
-/** Parse inline markdown formatting into React nodes */
-function parseInlineFormatting(text: string, keyPrefix: string = ''): React.ReactNode[] {
-  // Order matters: longer/more specific patterns first
-  const formatRegex = /(\*\*(.+?)\*\*|\*(.+?)\*|__(.+?)__|~~(.+?)~~|`(.+?)`)/g;
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match;
-  let key = 0;
-
-  while ((match = formatRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.substring(lastIndex, match.index));
-    }
-    const k = `${keyPrefix}f${key++}`;
-    if (match[2]) {
-      // **bold**
-      parts.push(<strong key={k}>{match[2]}</strong>);
-    } else if (match[3]) {
-      // *italic*
-      parts.push(<em key={k}>{match[3]}</em>);
-    } else if (match[4]) {
-      // __underline__
-      parts.push(<span key={k} className="underline">{match[4]}</span>);
-    } else if (match[5]) {
-      // ~~strikethrough~~
-      parts.push(<span key={k} className="line-through">{match[5]}</span>);
-    } else if (match[6]) {
-      // `code`
-      parts.push(<code key={k} className="bg-gray-100 dark:bg-gray-800 text-[13px] px-1 py-0.5 rounded font-mono">{match[6]}</code>);
-    }
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.substring(lastIndex));
-  }
-
-  return parts;
-}
-
-/** Render message content with @mention badges, entity chips, and inline formatting.
- *  Mentions are stored inline in `text`:
- *    <@userId>             → user (existing)
- *    <@userId:DisplayName> → user with name override (existing)
- *    <@type:id|Label>      → entity reference (NEW) — clickable chip
- *  The `members` map resolves userId → display name for the user variants. */
-function renderContent(text: string, members?: Map<string, string>) {
-  const segments = parseChatTokens(text);
-  if (segments.length === 0) return text;
-
-  const parts: React.ReactNode[] = [];
-  const keyCounts = new Map<string, number>();
-  const nextKey = (base: string) => {
-    const n = keyCounts.get(base) ?? 0;
-    keyCounts.set(base, n + 1);
-    return `${base}-${n}`;
-  };
-  segments.forEach((seg, segIdx) => {
-    if (seg.kind === 'text') {
-      parts.push(...parseInlineFormatting(seg.text, `t${segIdx}-`));
-    } else if (seg.kind === 'user') {
-      const isEveryone = seg.userId === 'everyone';
-      const name = isEveryone
-        ? 'everyone'
-        : (seg.displayName ?? members?.get(seg.userId) ?? seg.userId);
-      parts.push(
-        <span
-          key={nextKey(`u-${seg.userId}`)}
-          className="inline-block bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded px-1.5 py-0.5 text-[12px] font-medium align-middle"
-        >
-          @{name}
-        </span>
-      );
-    } else {
-      parts.push(
-        <EntityMentionChip
-          key={nextKey(`e-${seg.entityType}-${seg.entityId}`)}
-          type={seg.entityType}
-          id={seg.entityId}
-          fallbackLabel={seg.label}
-        />
-      );
-    }
-  });
-
-  return parts.length > 0 ? parts : text;
 }
 
 interface ReadByUser {
@@ -165,6 +77,10 @@ function ForwardedMessage({
 }>) {
   const { t } = useI18n();
   const ChannelIcon = forwardedChannelIcon(forwardedFrom.channelType);
+  const renderedForwarded = useMemo(
+    () => renderMessageContent(forwardedFrom.content, membersMap),
+    [forwardedFrom.content, membersMap],
+  );
   const sourceTime = new Date(forwardedFrom.createdAt).toLocaleString();
 
   return (
@@ -194,7 +110,7 @@ function ForwardedMessage({
             </span>
           </div>
           <div className="text-sm whitespace-pre-wrap break-words">
-            {renderContent(forwardedFrom.content, membersMap)}
+            {renderedForwarded}
           </div>
           {forwardedFrom.attachments && forwardedFrom.attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2">
@@ -269,7 +185,7 @@ function SystemMessage({
   hasActiveCall,
 }: Readonly<{
   message: MessageItemMessage;
-  systemMatch: RegExpMatchArray | null | undefined;
+  systemMatch: RegExpMatchArray | null;
   hasActiveCall?: boolean;
 }>) {
   const linkedMessageId = systemMatch?.[1];
@@ -395,11 +311,15 @@ export function MessageItem({
   const { userId } = useAuth();
   const { t } = useI18n();
   const { openUserProfile, openAgentProfile } = useChatContext();
+  // Parsing is not free: render each body once per content/member-map change, not on every row render (hover, menu, …).
+  const renderedContent = useMemo(
+    () => (message.content ? renderMessageContent(message.content, membersMap) : null),
+    [message.content, membersMap],
+  );
   const isMentioned =
     userId &&
     (message.content?.includes(`<@${userId}>`) ||
       message.content?.includes('<@everyone>'));
-  const isSystem = message.type === 'system';
   const handleAuthorClick = () => {
     if (!message.authorId) return;
     // Agent replies open the agent profile panel; human replies open the
@@ -411,11 +331,10 @@ export function MessageItem({
     }
   };
 
-  const systemMatch = message.content?.match(/^\[system(?::([^\]]+))?\] (.+)$/);
-  const isSystemLabel = isSystem || !!systemMatch;
-
-  if (isSystemLabel) {
-    return <SystemMessage message={message} systemMatch={systemMatch} hasActiveCall={hasActiveCall} />;
+  // The `[system…]` prefix is only honoured on real system messages (and the
+  // legacy pin notice), so a member can't type a fake notice.
+  if (isSystemNotice(message)) {
+    return <SystemMessage message={message} systemMatch={matchSystemNotice(message)} hasActiveCall={hasActiveCall} />;
   }
 
   const timeStr = new Date(message.createdAt ?? '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -440,7 +359,7 @@ export function MessageItem({
       onMouseLeave={() => { if (!menuOpen) setIsHovered(false); }}
     >
       {/* Reply reference */}
-      {replyToMessage && !compact && (
+      {replyToMessage && (
         <div className="flex items-center gap-1.5 ml-[13px] mb-0.5 text-xs text-muted-foreground">
           <div className="w-[22px] h-3 border-l-2 border-t-2 border-muted-foreground/40 rounded-tl-md" />
           <div className="flex items-center gap-1.5 -translate-y-[4px]">
@@ -507,7 +426,7 @@ export function MessageItem({
             }
             return (
               <div data-testid="chat-message-content" className="text-sm whitespace-pre-wrap break-words">
-                {renderContent(message.content, membersMap)}
+                {renderedContent}
               </div>
             );
           })()

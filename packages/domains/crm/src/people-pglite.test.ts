@@ -21,7 +21,7 @@ import {
   bulkUpdatePeople,
 } from './people';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import type { Database } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 
@@ -129,6 +129,21 @@ describe('people service · pglite integration', () => {
   // ---------------------------------------------------------------------------
 
   describe('CRM membership', () => {
+    // Several cases here create a person with an explicit `ownerId`, which
+    // createPerson now validates against workspace_members (TASK-914) — seed
+    // every owner id these tests use.
+    beforeAll(async () => {
+      const { workspaceMembers } = schema;
+      for (const userId of ['owner_keep', 'user_scoped_crm', 'other_owner']) {
+        await db.insert(workspaceMembers).values({
+          id: `wm_${userId}`,
+          userId,
+          name: userId,
+          role: 'MEMBER',
+        });
+      }
+    });
+
     it('createPerson defaults to inCrm=true (CRM-created contact)', async () => {
       const p = await createPerson(db, { firstName: 'Crm', lastName: 'Member' });
       expect(p.inCrm).toBe(true);
@@ -208,6 +223,22 @@ describe('people service · pglite integration', () => {
   describe('owner scope isolation', () => {
     const ownerA = 'user_pscope_a';
     const ownerB = 'user_pscope_b';
+
+    // createPerson/updatePerson/bulkUpdatePeople now validate ownerId
+    // against workspace_members (TASK-914) — seed both test owners as real
+    // members so the ownership-scope assertions below still exercise the
+    // scoping logic rather than tripping the new validation.
+    beforeAll(async () => {
+      const { workspaceMembers } = schema;
+      for (const userId of [ownerA, ownerB]) {
+        await db.insert(workspaceMembers).values({
+          id: `wm_${userId}`,
+          userId,
+          name: userId,
+          role: 'MEMBER',
+        });
+      }
+    });
 
     it('listPeople with ownerScope only returns owned rows', async () => {
       await createPerson(db, { firstName: 'Alice', lastName: 'ScopeA', ownerId: ownerA });

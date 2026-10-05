@@ -12,6 +12,7 @@ import { inviteEmailFromQuery, inviteGuestId } from './guest-invite';
 /** Minimal shape this field reads off `/team-members` rows (the query itself is untyped). */
 interface WorkspaceMemberLite {
   id: string;
+  userId?: string;
   name?: string;
   email?: string;
   picture?: string;
@@ -26,6 +27,8 @@ interface GuestResult {
   email: string;
   initial: string;
   type: 'member' | 'contact' | 'invite';
+  /** Members only: the user id a task assignment needs (`id` is the picker's own `member-<row id>` key). */
+  userId?: string;
 }
 
 export function GuestSearchInput({
@@ -34,6 +37,7 @@ export function GuestSearchInput({
   selectedIds,
   selectedEmails = [],
   allowInvite = true,
+  membersOnly = false,
   onSelect,
   onBlurAway,
 }: {
@@ -44,7 +48,9 @@ export function GuestSearchInput({
   selectedEmails?: string[];
   /** Offer "Invite <email>" for a typed address that is not a member or contact. */
   allowInvite?: boolean;
-  onSelect: (guest: { id: string; name: string; email: string }) => void;
+  /** Only workspace members are offered (task assignees: a contact cannot be assigned work). */
+  membersOnly?: boolean;
+  onSelect: (guest: { id: string; name: string; email: string; userId?: string }) => void;
   /** Called when focus leaves the input (click away) — collapses the row. */
   onBlurAway?: () => void;
 }) {
@@ -62,6 +68,7 @@ export function GuestSearchInput({
     () =>
       (membersData?.data || []).map((m) => ({
         id: m.id ?? m.userId,
+        userId: m.userId,
         name: m.name ?? undefined,
         email: m.email ?? undefined,
         picture: m.picture ?? undefined,
@@ -96,11 +103,12 @@ export function GuestSearchInput({
         email,
         initial: (name[0] || email[0] || '?').toUpperCase(),
         type: 'member',
+        userId: m.userId,
       });
     }
 
     // Then contacts
-    for (const c of contacts) {
+    for (const c of membersOnly ? [] : contacts) {
       if (selectedIds.includes(`contact-${c.id}`)) continue;
       const email = c.email ?? '';
       if (!take(email)) continue;
@@ -116,7 +124,7 @@ export function GuestSearchInput({
 
     const listed = items.slice(0, 8);
 
-    if (allowInvite) {
+    if (allowInvite && !membersOnly) {
       const inviteEmail = inviteEmailFromQuery(value, [
         ...selectedEmails,
         ...items.map((r) => r.email),
@@ -132,7 +140,7 @@ export function GuestSearchInput({
       }
     }
     return listed;
-  }, [allowInvite, contacts, members, selectedEmails, selectedIds, value]);
+  }, [allowInvite, contacts, members, membersOnly, selectedEmails, selectedIds, value]);
 
   // The first option is the highlighted one again whenever the list changes.
   useEffect(() => {
@@ -140,7 +148,7 @@ export function GuestSearchInput({
   }, [results.length, value]);
 
   const pick = (item: GuestResult) => {
-    onSelect({ id: item.id, name: item.name, email: item.email });
+    onSelect({ id: item.id, name: item.name, email: item.email, ...(item.userId ? { userId: item.userId } : {}) });
     setOpen(false);
   };
 
@@ -228,10 +236,14 @@ export function GuestSearchInput({
   const hasContacts = results.some((r) => r.type === 'contact');
   const hasInvite = results.some((r) => r.type === 'invite');
 
+  let guestSearchPlaceholder = t.eventPreview.searchMembersContacts;
+  if (membersOnly) guestSearchPlaceholder = t.eventPreview.searchMembersOnly;
+  else if (!allowInvite) guestSearchPlaceholder = t.eventPreview.searchMembersContactsOnly;
+
   return (
     <div className="relative">
       <Input
-        placeholder={allowInvite ? t.eventPreview.searchMembersContacts : t.eventPreview.searchMembersContactsOnly}
+        placeholder={guestSearchPlaceholder}
         value={value}
         onChange={(e) => {
           onChange(e.target.value);

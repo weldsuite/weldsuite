@@ -2519,6 +2519,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/meet-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/meet
       '@weldsuite/transactional-email':
         specifier: workspace:*
         version: link:../../../packages/core/transactional-email

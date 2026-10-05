@@ -13,6 +13,8 @@ interface TimeSlotListProps {
   initialLoading: boolean;
   slotsLoading: boolean;
   slots: TimeSlot[];
+  /** While rescheduling: start of the booking's current slot, shown as "Current" and not pickable. */
+  currentSlotStart?: string | null;
   use24h: boolean;
   timezone: string;
   onUse24hChange: (use24h: boolean) => void;
@@ -56,6 +58,7 @@ function useOverflows(containerRef: RefObject<HTMLDivElement | null>): boolean {
 interface SlotsBodyProps {
   slotsLoading: boolean;
   availableSlots: TimeSlot[];
+  currentSlotStart: string | null;
   containerRef: RefObject<HTMLDivElement | null>;
   overflows: boolean;
   formatTime: (date: Date) => string;
@@ -66,6 +69,7 @@ interface SlotsBodyProps {
 function SlotsBody({
   slotsLoading,
   availableSlots,
+  currentSlotStart,
   containerRef,
   overflows,
   formatTime,
@@ -93,16 +97,25 @@ function SlotsBody({
       style={overflows ? { paddingRight: 8 } : undefined}
       onScroll={(e) => onScrolledChange(e.currentTarget.scrollTop > 0)}
     >
-      {availableSlots.map((slot) => (
-        <button
-          type="button"
-          key={slot.start}
-          onClick={() => onSlotSelect(slot)}
-          className="w-full px-3 py-2.5 md:py-2 text-sm font-medium tabular-nums text-gray-700 dark:text-[#E4E4E7] bg-gray-200/30 dark:bg-[#1F1F23]/40 border border-gray-200 dark:border-[#2E2E33] rounded-lg hover:bg-gray-200/60 dark:hover:bg-[#2E2E33]/60 transition-colors text-center"
-        >
-          {formatTime(new Date(slot.start))}
-        </button>
-      ))}
+      {availableSlots.map((slot) => {
+        const isCurrent = slot.start === currentSlotStart;
+        return (
+          <button
+            type="button"
+            key={slot.start}
+            onClick={() => onSlotSelect(slot)}
+            disabled={isCurrent}
+            className="w-full px-3 py-2.5 md:py-2 text-sm font-medium tabular-nums text-gray-700 dark:text-[#E4E4E7] bg-gray-200/30 dark:bg-[#1F1F23]/40 border border-gray-200 dark:border-[#2E2E33] rounded-lg hover:bg-gray-200/60 dark:hover:bg-[#2E2E33]/60 transition-colors text-center disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-gray-200/30 dark:disabled:hover:bg-[#1F1F23]/40"
+          >
+            {formatTime(new Date(slot.start))}
+            {isCurrent && (
+              <span className="ml-2 text-xs font-normal text-gray-500 dark:text-[#9999A1]">
+                Current
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -117,6 +130,7 @@ export function TimeSlotList({
   initialLoading,
   slotsLoading,
   slots,
+  currentSlotStart = null,
   use24h,
   timezone,
   onUse24hChange,
@@ -167,6 +181,7 @@ export function TimeSlotList({
           <SlotsBody
             slotsLoading={slotsLoading}
             availableSlots={availableSlots}
+            currentSlotStart={currentSlotStart}
             containerRef={containerRef}
             overflows={overflows}
             formatTime={formatTime}

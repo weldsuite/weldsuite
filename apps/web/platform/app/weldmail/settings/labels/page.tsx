@@ -4,6 +4,7 @@ import { useMailAccounts, useMailLabels } from '@/hooks/queries/use-mail-queries
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Mail } from '@/lib/api/types/apps/mail.types';
+import { isSystemLabel } from '../../lib/label-config';
 
 export default function LabelsPage() {
   const { t } = useI18n();
@@ -32,16 +33,21 @@ export default function LabelsPage() {
     );
   }
 
-  const labels: Mail.Label[] = (labelsData?.data || []).map((l) => ({
-    id: l.id,
-    name: l.name,
-    color: l.color ?? undefined,
-    count: l.messageCount || 0,
-    aiEnabled: l.aiEnabled ?? undefined,
-    aiKeywords: l.aiKeywords ?? undefined,
-    aiDescription: l.aiDescription,
-    aiConfidence: l.aiConfidence ?? undefined,
-  }));
+  // Only the labels people made are managed here. The system folders (Inbox,
+  // Sent, Drafts …) also have a row, but the server refuses to rename or
+  // delete those, so offering the buttons only produced errors.
+  const labels: Mail.Label[] = (labelsData?.data || [])
+    .filter((l) => !l.isSystem && !isSystemLabel(l.name.toLowerCase()))
+    .map((l) => ({
+      id: l.id,
+      name: l.name,
+      color: l.color ?? undefined,
+      count: l.messageCount || 0,
+      aiEnabled: l.aiEnabled ?? undefined,
+      aiKeywords: l.aiKeywords ?? undefined,
+      aiDescription: l.aiDescription,
+      aiConfidence: l.aiConfidence ?? undefined,
+    }));
 
   return (
     <div className="container max-w-4xl py-8">

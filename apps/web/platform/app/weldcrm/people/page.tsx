@@ -12,6 +12,8 @@ function PeoplePageContent() {
   const status = searchParams.get('status') || undefined;
   const filter = searchParams.get('filter');
   const companyId = searchParams.get('companyId') || undefined;
+  const sort = searchParams.get('sort') || undefined;
+  const sortDir = (searchParams.get('sortDir') as 'asc' | 'desc' | null) || undefined;
 
   const filters: Omit<ListPeopleQuery, 'cursor'> = useMemo(() => {
     // Only real CRM members — mail/helpdesk auto-create identities with
@@ -22,8 +24,12 @@ function PeoplePageContent() {
     if (companyId) f.companyId = companyId;
     if (filter === 'suppliers') f.isSupplier = true;
     else if (filter === 'leads') f.isLead = true;
+    if (sort) {
+      f.sort = sort;
+      if (sortDir) f.sortDir = sortDir;
+    }
     return f;
-  }, [search, status, filter, companyId]);
+  }, [search, status, filter, companyId, sort, sortDir]);
 
   const {
     data: infiniteData,
@@ -49,7 +55,7 @@ function PeoplePageContent() {
     <PeopleGrid
       people={rows}
       totalCount={totalCount}
-      searchParams={{ search, status, filter: filter ?? undefined, companyId }}
+      searchParams={{ search, status, filter: filter ?? undefined, companyId, sort, sortDir }}
       onLoadMore={handleLoadMore}
       hasMore={!!hasNextPage}
       isFetchingMore={isFetchingNextPage}

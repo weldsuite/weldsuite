@@ -4,7 +4,9 @@ import { useNavigate, useBlocker } from '@tanstack/react-router';
 import { getTranslations } from '@/lib/i18n';
 import {
   format,
+  parse,
   startOfWeek,
+  startOfToday,
   addDays,
   isToday,
 } from 'date-fns';
@@ -44,7 +46,7 @@ import {
 } from '@weldsuite/ui/components/popover';
 import { cn } from '@/lib/utils';
 import { useCreateBookingPage } from '@/hooks/queries/use-calendar-queries';
-import type { WeeklyAvailability, TimeRange } from '@/hooks/queries/use-calendar-queries';
+import type { BookingDateOverride, WeeklyAvailability, TimeRange } from '@/hooks/queries/use-calendar-queries';
 import { findAvailabilityProblem } from '@weldsuite/core-api-client/schemas/booking-pages';
 import type { AvailabilityProblem } from '@weldsuite/core-api-client/schemas/booking-pages';
 import { WEEK_STARTS_ON } from '../../lib/calendar-format';
@@ -59,6 +61,27 @@ import {
 } from '@/app/weldcalendar/components/calendar-shared';
 import { useSetAtom } from 'jotai';
 import { draftBookingPageTitleAtom } from '../../lib/draft-booking-page';
+import {
+  DEFAULT_DURATION_MINUTES,
+  DEFAULT_MAX_ADVANCE_DAYS,
+  DEFAULT_MIN_NOTICE_MINUTES,
+  adjustedAvailabilitySummary,
+  bookedAppointmentSummary,
+  buildSchedulePayload,
+  findOverrideProblem,
+  fromDateOverrides,
+  hasUnsavedBookingChanges,
+  hoursToMinutes,
+  minutesToHours,
+  parseNumberInput,
+  schedulingWindowSummary,
+  toDateOverrides,
+} from '../../lib/booking-editor-settings';
+import type {
+  BookingScheduleSettings,
+  EditableOverride,
+  OverrideProblem,
+} from '../../lib/booking-editor-settings';
 
 export interface BookingPageEditorProps {
   mode?: 'create' | 'edit';
@@ -69,6 +92,13 @@ export interface BookingPageEditorProps {
     availability: WeeklyAvailability;
     bufferBefore: number;
     bufferAfter: number;
+    /** Minutes. */
+    minNotice: number;
+    /** Days. */
+    maxAdvance: number;
+    dateOverrides: BookingDateOverride[];
+    /** null or 0 = unlimited. */
+    maxBookingsPerDay: number | null;
   };
 }
 
@@ -81,10 +111,7 @@ type RepeatMode = 'none' | 'weekly' | 'custom';
 type RepeatUnit = 'weeks' | 'months';
 type RepeatEndType = 'never' | 'date';
 
-interface SpecificDate {
-  date: string;
-  ranges: TimeRange[];
-}
+type SpecificDate = EditableOverride;
 
 type BookingPageDestination =
   | { to: '/weldcalendar/scheduling/$id'; params: { id: string } }
@@ -129,32 +156,30 @@ function nextRangeEnd(start: string): string {
   return `${String(Math.min(h + 1, 23)).padStart(2, '0')}:00`;
 }
 
-const parseDateValue = (value: string): Date | undefined => (value ? new Date(value) : undefined);
+// Parsed as a local date: `new Date('2026-10-05')` is UTC midnight, which shows the
+// previous day west of Greenwich.
+const parseDateKey = (value: string): Date => parse(value, DATE_KEY_FORMAT, new Date());
+const parseDateValue = (value: string): Date | undefined => (value ? parseDateKey(value) : undefined);
 const formatDateValue = (date: Date | undefined): string => (date ? format(date, DATE_KEY_FORMAT) : '');
 
+// The editor's starting values: the stored page when editing, the defaults when
+// creating. Also the baseline the unsaved-changes check compares against.
 function resolveInitialValues(
   initialData: BookingPageEditorProps['initialData'],
   isEdit: boolean,
   defaultTitle: string,
-) {
+): BookingScheduleSettings {
   return {
     title: initialData?.title ?? (isEdit ? '' : defaultTitle),
-    duration: initialData?.duration || 120,
+    duration: initialData?.duration || DEFAULT_DURATION_MINUTES,
     availability: initialData?.availability || DEFAULT_AVAILABILITY,
     bufferBefore: initialData?.bufferBefore || 0,
     bufferAfter: initialData?.bufferAfter || 0,
+    minNotice: initialData?.minNotice ?? DEFAULT_MIN_NOTICE_MINUTES,
+    maxAdvance: initialData?.maxAdvance ?? DEFAULT_MAX_ADVANCE_DAYS,
+    dateOverrides: initialData?.dateOverrides ?? [],
+    maxBookingsPerDay: initialData?.maxBookingsPerDay ?? 0,
   };
-}
-
-function hasUnsavedBookingChanges(
-  isEdit: boolean,
-  initialData: BookingPageEditorProps['initialData'],
-  form: { title: string; duration: number; bufferBefore: number; bufferAfter: number },
-): boolean {
-  if (isEdit && initialData) {
-    return form.title !== initialData.title || form.duration !== initialData.duration || form.bufferBefore !== initialData.bufferBefore || form.bufferAfter !== initialData.bufferAfter;
-  }
-  return form.title.trim() !== '' || form.duration !== 120 || form.bufferBefore !== 0 || form.bufferAfter !== 0;
 }
 
 // Header label mirrors the main calendar / viewer: "May 2026" when the
@@ -187,6 +212,9 @@ function getAvailabilityBlocks(
     const sd = specificDates.find((d) => d.date === dateStr);
     return sd?.ranges || [];
   }
+  // An adjusted date replaces the weekly hours for that date (empty = unavailable).
+  const override = specificDates.find((d) => d.date === format(dayDate, DATE_KEY_FORMAT));
+  if (override) return override.ranges;
   const dayName = format(dayDate, 'EEEE').toLowerCase() as keyof WeeklyAvailability;
   return availability[dayName] || [];
 }
@@ -229,6 +257,7 @@ function appendSpecificRange(dates: SpecificDate[], sdIdx: number): SpecificDate
   return dates.map((sd, i) => {
     if (i !== sdIdx) return sd;
     const lastRange = sd.ranges[sd.ranges.length - 1];
+    if (!lastRange) return { ...sd, ranges: [defaultRange()] };
     return { ...sd, ranges: [...sd.ranges, { start: lastRange.end, end: nextRangeEnd(lastRange.end) }] };
   });
 }
@@ -242,8 +271,8 @@ function removeSpecificRange(dates: SpecificDate[], sdIdx: number, rIdx: number)
 
 const sortByDate = (dates: SpecificDate[]): SpecificDate[] => dates.toSorted((a, b) => a.date.localeCompare(b.date));
 
-function useSpecificDates() {
-  const [dates, setDates] = useState<SpecificDate[]>([]);
+function useSpecificDates(initial: SpecificDate[]) {
+  const [dates, setDates] = useState<SpecificDate[]>(initial);
 
   const addDate = (date: Date | undefined) => {
     if (!date) return;
@@ -254,10 +283,18 @@ function useSpecificDates() {
 
   const changeDate = (sdIdx: number, date: Date | undefined) => {
     if (!date) return;
-    setDates((prev) =>
-      sortByDate(prev.map((sd, i) => (i === sdIdx ? { ...sd, date: format(date, DATE_KEY_FORMAT) } : sd))),
-    );
+    const dateStr = format(date, DATE_KEY_FORMAT);
+    setDates((prev) => {
+      // Two rows for one date would be ambiguous (and share a React key).
+      if (prev.some((sd, i) => i !== sdIdx && sd.date === dateStr)) return prev;
+      return sortByDate(prev.map((sd, i) => (i === sdIdx ? { ...sd, date: dateStr } : sd)));
+    });
   };
+
+  // No hours at all on a date = the whole day is unavailable.
+  const markUnavailable = (sdIdx: number) =>
+    setDates((prev) => prev.map((sd, i) => (i === sdIdx ? { ...sd, ranges: [] } : sd)));
+  const removeDate = (sdIdx: number) => setDates((prev) => prev.filter((_, i) => i !== sdIdx));
 
   const updateRange = (sdIdx: number, rIdx: number, patch: Partial<TimeRange>) =>
     setDates((prev) => patchSpecificRange(prev, sdIdx, rIdx, patch));
@@ -265,7 +302,7 @@ function useSpecificDates() {
   const removeRange = (sdIdx: number, rIdx: number) =>
     setDates((prev) => removeSpecificRange(prev, sdIdx, rIdx));
 
-  return { dates, addDate, changeDate, updateRange, addRange, removeRange };
+  return { dates, addDate, changeDate, markUnavailable, removeDate, updateRange, addRange, removeRange };
 }
 
 type SpecificDatesApi = ReturnType<typeof useSpecificDates>;
@@ -351,18 +388,36 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   const [customDialogOpen, setCustomDialogOpen] = useState(false);
   const [availability, setAvailability] = useState<WeeklyAvailability>(initial.availability);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('weekly');
-  const specific = useSpecificDates();
+  const specific = useSpecificDates(fromDateOverrides(initial.dateOverrides));
   const [bufferBefore, setBufferBefore] = useState(initial.bufferBefore);
   const [bufferAfter, setBufferAfter] = useState(initial.bufferAfter);
+  const [minNotice, setMinNotice] = useState(initial.minNotice);
+  const [maxAdvance, setMaxAdvance] = useState(initial.maxAdvance);
+  const [maxBookingsPerDay, setMaxBookingsPerDay] = useState(initial.maxBookingsPerDay);
   const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: WEEK_STARTS_ON }));
 
   // A range that ends before it starts (Monday 18:00-17:00), or overlaps another
   // one, can never produce a slot. Block saving instead of publishing a page
   // whose days are selectable but empty. The API enforces the same rule.
   const availabilityProblem = repeatMode === 'none' ? null : findAvailabilityProblem(availability);
+  // Adjusted dates are saved whatever the repeat mode, so they are always checked.
+  const overrideProblem = findOverrideProblem(specific.dates);
+  const hasScheduleProblem = !!availabilityProblem || !!overrideProblem;
 
-  const hasUnsavedChanges = () =>
-    hasUnsavedBookingChanges(isEdit, initialData, { title, duration, bufferBefore, bufferAfter });
+  // Everything the Schedule tab edits, in the units the API stores.
+  const settings: BookingScheduleSettings = {
+    title,
+    duration,
+    availability,
+    bufferBefore,
+    bufferAfter,
+    minNotice,
+    maxAdvance,
+    dateOverrides: toDateOverrides(specific.dates),
+    maxBookingsPerDay,
+  };
+
+  const hasUnsavedChanges = () => hasUnsavedBookingChanges(initial, settings);
 
   const handleNavigateAway = () => {
     if (editingId) {
@@ -393,22 +448,20 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   // edit mode) and returns the destination route the normal Save flow should
   // navigate to. Does NOT navigate — callers decide.
   const persistBookingPage = async (): Promise<BookingPageDestination> => {
-    if (availabilityProblem) throw new Error('invalid availability');
+    if (hasScheduleProblem) throw new Error('invalid availability');
     const name = resolveBookingName(title);
 
     if (editingId) {
       sessionStorage.setItem(`booking-edit-${editingId}`, JSON.stringify({
-        name, duration, availability, bufferBefore, bufferAfter,
+        name,
+        ...buildSchedulePayload(settings),
       }));
       return { to: '/weldcalendar/scheduling/$id', params: { id: editingId } };
     }
     const result = await createBookingPage.mutateAsync({
       name,
       slug: bookingSlug(name),
-      duration,
-      availability,
-      bufferBefore,
-      bufferAfter,
+      ...buildSchedulePayload(settings),
       timezone: currentTimezone(),
     });
     return destinationForNewPage(result?.data?.id);
@@ -420,11 +473,12 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   // and navigate to the Details page in draft mode (where the Create button
   // actually fires the API).
   const handleContinue = () => {
-    if (availabilityProblem) return;
+    if (hasScheduleProblem) return;
     const name = resolveBookingName(title);
     if (editingId) {
       sessionStorage.setItem(`booking-edit-${editingId}`, JSON.stringify({
-        name, duration, availability, bufferBefore, bufferAfter,
+        name,
+        ...buildSchedulePayload(settings),
       }));
       savedRef.current = true;
       navigate({ to: '/weldcalendar/scheduling/$id', params: { id: editingId } });
@@ -433,10 +487,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
     sessionStorage.setItem('booking-new-draft', JSON.stringify({
       name,
       slug: bookingSlug(name),
-      duration,
-      availability,
-      bufferBefore,
-      bufferAfter,
+      ...buildSchedulePayload(settings),
       timezone: currentTimezone(),
     }));
     savedRef.current = true;
@@ -607,22 +658,36 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
             />
 
             {/* Adjusted availability */}
-            <AdjustedAvailabilitySection specific={specific} />
+            <AdjustedAvailabilitySection specific={specific} problem={overrideProblem} />
 
             {/* Scheduling window */}
-            <CollapsibleSection title={t.bookingEditor.schedulingWindow} summary={t.bookingEditor.schedulingWindowSummary}>
+            <CollapsibleSection
+              title={t.bookingEditor.schedulingWindow}
+              summary={schedulingWindowSummary(minNotice, maxAdvance, t.bookingEditor)}
+            >
               <div className="px-5 pb-4 space-y-4">
                 <div className="space-y-2">
-                  <Label>{t.bookingEditor.minimumNotice}</Label>
+                  <Label htmlFor="booking-min-notice">{t.bookingEditor.minimumNotice}</Label>
                   <div className="flex items-center gap-2">
-                    <Input type="number" defaultValue={4} min={0} className="w-[80px]" />
+                    <NumberField
+                      id="booking-min-notice"
+                      value={minutesToHours(minNotice)}
+                      min={0}
+                      onCommit={(hours) => setMinNotice(hoursToMinutes(hours))}
+                    />
                     <span className="text-sm text-muted-foreground">{t.bookingEditor.hours}</span>
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>{t.bookingEditor.maximumAdvanceBooking}</Label>
+                  <Label htmlFor="booking-max-advance">{t.bookingEditor.maximumAdvanceBooking}</Label>
                   <div className="flex items-center gap-2">
-                    <Input type="number" defaultValue={60} min={1} className="w-[80px]" />
+                    <NumberField
+                      id="booking-max-advance"
+                      value={maxAdvance}
+                      min={1}
+                      integer
+                      onCommit={setMaxAdvance}
+                    />
                     <span className="text-sm text-muted-foreground">{t.bookingEditor.days}</span>
                   </div>
                 </div>
@@ -630,7 +695,10 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
             </CollapsibleSection>
 
             {/* Buffer settings */}
-            <CollapsibleSection title={t.bookingEditor.bookedAppointmentSettings} summary={t.bookingEditor.bookedAppointmentSummary}>
+            <CollapsibleSection
+              title={t.bookingEditor.bookedAppointmentSettings}
+              summary={bookedAppointmentSummary({ bufferBefore, bufferAfter, maxBookingsPerDay }, t.bookingEditor)}
+            >
               <div className="px-5 pb-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -649,9 +717,15 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>{t.bookingEditor.maxBookingsPerDay}</Label>
+                  <Label htmlFor="booking-max-per-day">{t.bookingEditor.maxBookingsPerDay}</Label>
                   <div className="flex items-center gap-2">
-                    <Input type="number" defaultValue={0} min={0} placeholder="0" className="w-[80px]" />
+                    <NumberField
+                      id="booking-max-per-day"
+                      value={maxBookingsPerDay}
+                      min={0}
+                      integer
+                      onCommit={setMaxBookingsPerDay}
+                    />
                     <span className="text-sm text-muted-foreground">{t.bookingEditor.maxBookingsUnlimited}</span>
                   </div>
                 </div>
@@ -665,7 +739,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
           <Button variant="outline" onClick={handleNavigateAway}>
             {t.bookingEditor.cancel}
           </Button>
-          <Button onClick={handleContinue} disabled={isSaving || !!availabilityProblem}>
+          <Button onClick={handleContinue} disabled={isSaving || hasScheduleProblem}>
             {continueButtonLabel(isSaving, isEdit, t.bookingEditor)}
           </Button>
         </div>
@@ -877,6 +951,51 @@ function WeekPreview({
         </TimeGridInner>
       </TimeGridScroll>
     </div>
+  );
+}
+
+/**
+ * A number input that keeps what the user is typing (empty, "1.") while only
+ * committing values that satisfy `min` / `integer`. Reverts to the last
+ * committed value on blur.
+ */
+function NumberField({
+  id,
+  value,
+  min,
+  integer = false,
+  onCommit,
+}: Readonly<{
+  id: string;
+  value: number;
+  min: number;
+  integer?: boolean;
+  onCommit: (value: number) => void;
+}>) {
+  const [text, setText] = useState(String(value));
+
+  // Follow the value when it changes from outside, but not for the edit that caused it.
+  useEffect(() => {
+    setText((prev) => (parseNumberInput(prev) === value ? prev : String(value)));
+  }, [value]);
+
+  const handleChange = (raw: string) => {
+    setText(raw);
+    const parsed = parseNumberInput(raw);
+    if (parsed === null || parsed < min || (integer && !Number.isInteger(parsed))) return;
+    onCommit(parsed);
+  };
+
+  return (
+    <Input
+      id={id}
+      type="text"
+      inputMode={integer ? 'numeric' : 'decimal'}
+      value={text}
+      onChange={(e) => handleChange(e.target.value)}
+      onBlur={() => setText(String(value))}
+      className="w-[80px]"
+    />
   );
 }
 
@@ -1427,7 +1546,7 @@ function SpecificDatesEditor({ specific }: Readonly<{ specific: SpecificDatesApi
         {specific.dates.map((sd, sdIdx) => (
           <div key={sd.date} className="flex items-start py-3 group/sd min-h-[44px]">
             <span className="text-sm font-medium w-[90px] shrink-0 h-9 flex items-center">
-              {new Date(sd.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              {parseDateKey(sd.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </span>
             <div className="flex-1 space-y-2">
               {sd.ranges.map((range, rIdx) => (
@@ -1474,11 +1593,17 @@ function SpecificDatesEditor({ specific }: Readonly<{ specific: SpecificDatesApi
   );
 }
 
-function AdjustedAvailabilitySection({ specific }: Readonly<{ specific: SpecificDatesApi }>) {
+function AdjustedAvailabilitySection({
+  specific,
+  problem,
+}: Readonly<{ specific: SpecificDatesApi; problem: OverrideProblem | null }>) {
   const t = getTranslations('weldcalendar');
 
   return (
-    <CollapsibleSection title={t.bookingEditor.adjustedAvailability} summary={t.bookingEditor.adjustedAvailabilityHint}>
+    <CollapsibleSection
+      title={t.bookingEditor.adjustedAvailability}
+      summary={adjustedAvailabilitySummary(specific.dates.length, t.bookingEditor)}
+    >
       <div className="px-5 pb-4 space-y-3">
         <p className="text-xs text-muted-foreground">{t.bookingEditor.adjustedAvailabilityOverrideHint}</p>
 
@@ -1487,32 +1612,94 @@ function AdjustedAvailabilitySection({ specific }: Readonly<{ specific: Specific
           <div className="divide-y">
             {specific.dates.map((sd, sdIdx) => (
               <div key={sd.date} className="py-2.5 group/adj space-y-1.5">
-                {sd.ranges.map((range, rIdx) => (
-                  <div key={rangeKey(range)} className="flex items-center gap-2">
-                    {rIdx === 0 && (
-                      <DatePickerInput
-                        value={new Date(sd.date)}
-                        onChange={(d) => specific.changeDate(sdIdx, d)}
-                        fullWidth={false}
-                        showIcon={false}
-                      />
-                    )}
-                    {rIdx > 0 && <div className="w-[115px] shrink-0" />}
-                    <TimeRangeInputs
-                      range={range}
-                      onStartChange={(value) => specific.updateRange(sdIdx, rIdx, { start: value })}
-                      onEndChange={(value) => specific.updateRange(sdIdx, rIdx, { end: value })}
+                {sd.ranges.length === 0 && (
+                  <div className="flex items-center gap-2">
+                    <DatePickerInput
+                      value={parseDateKey(sd.date)}
+                      onChange={(d) => specific.changeDate(sdIdx, d)}
+                      fullWidth={false}
+                      showIcon={false}
                     />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 rounded-[11px] hover:bg-destructive/10 hover:text-destructive ml-auto"
-                      onClick={() => specific.removeRange(sdIdx, rIdx)}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
+                    <span className="text-sm text-muted-foreground">{t.bookingEditor.dateUnavailable}</span>
+                    <div className="flex items-center gap-0.5 ml-auto">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 rounded-[11px]"
+                        onClick={() => specific.addRange(sdIdx)}
+                        title={t.bookingEditor.addHoursToDate}
+                        aria-label={t.bookingEditor.addHoursToDate}
+                      >
+                        <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 rounded-[11px] hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => specific.removeDate(sdIdx)}
+                        title={t.bookingEditor.removeDate}
+                        aria-label={t.bookingEditor.removeDate}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                ))}
+                )}
+                {sd.ranges.map((range, rIdx) => {
+                  const rangeInvalid = problem?.dateIndex === sdIdx && problem.index === rIdx;
+                  return (
+                    <div key={rangeKey(range)} className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        {rIdx === 0 && (
+                          <DatePickerInput
+                            value={parseDateKey(sd.date)}
+                            onChange={(d) => specific.changeDate(sdIdx, d)}
+                            fullWidth={false}
+                            showIcon={false}
+                          />
+                        )}
+                        {rIdx > 0 && <div className="w-[115px] shrink-0" />}
+                        <TimeRangeInputs
+                          range={range}
+                          invalid={rangeInvalid}
+                          onStartChange={(value) => specific.updateRange(sdIdx, rIdx, { start: value })}
+                          onEndChange={(value) => specific.updateRange(sdIdx, rIdx, { end: value })}
+                        />
+                        <div className="flex items-center gap-0.5 ml-auto">
+                          {rIdx === 0 && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 rounded-[11px]"
+                              onClick={() => specific.markUnavailable(sdIdx)}
+                              title={t.bookingEditor.markDateUnavailable}
+                              aria-label={t.bookingEditor.markDateUnavailable}
+                            >
+                              <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded-[11px] hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => specific.removeRange(sdIdx, rIdx)}
+                            title={t.bookingPagesSidebar.delete}
+                            aria-label={t.bookingPagesSidebar.delete}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      {rangeInvalid && (
+                        <p role="alert" className="text-xs text-destructive">
+                          {problem.kind === 'end-before-start'
+                            ? t.bookingEditor.availabilityEndBeforeStart
+                            : t.bookingEditor.availabilityOverlap}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ))}
           </div>
@@ -1546,6 +1733,10 @@ function DatePickerInput({
   showPlusIcon?: boolean;
 }>) {
   const [open, setOpen] = useState(false);
+  // Only dates a guest could actually book: today until the end of the year after next.
+  const today = startOfToday();
+  const firstMonth = new Date(today.getFullYear(), 0, 1);
+  const lastMonth = new Date(today.getFullYear() + 2, 11, 31);
   let widthClass = 'w-auto justify-start';
   if (fullWidth) widthClass = 'w-full justify-between';
   else if (showIcon) widthClass = 'flex-1 justify-between';
@@ -1567,9 +1758,11 @@ function DatePickerInput({
           mode="single"
           weekStartsOn={WEEK_STARTS_ON}
           selected={value}
-          defaultMonth={value}
+          defaultMonth={value && value >= firstMonth ? value : undefined}
+          startMonth={firstMonth}
+          endMonth={lastMonth}
           captionLayout="dropdown"
-          disabled={{ before: new Date() }}
+          disabled={[{ before: today }, { after: lastMonth }]}
           onSelect={(date) => {
             onChange(date);
             setOpen(false);

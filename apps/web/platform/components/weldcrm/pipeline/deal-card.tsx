@@ -212,9 +212,12 @@ export function DealCard({
         <Calendar className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
         {expectedCloseDate ? (
           <span className="text-sm text-gray-600 dark:text-muted-foreground">
+            {/* Matches the deal panel's close-date format (opportunity-panel.tsx) so
+                the same date doesn't read "Oct 20" here and "10/20/2026" there (TASK-920). */}
             {new Date(expectedCloseDate).toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
+              year: 'numeric',
             })}
           </span>
         ) : (

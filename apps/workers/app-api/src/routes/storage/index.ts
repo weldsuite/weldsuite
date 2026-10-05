@@ -215,7 +215,11 @@ app.post(
         const folder = data.folder || 'uploads';
         const entityPath =
           data.entityType && data.entityId ? `${data.entityType}/${data.entityId}` : 'general';
-        fileKey = `workspaces/${workspaceId}/${folder}/${entityPath}/${timestamp}_${sanitizedName}`;
+        // Public files are served from the bucket URL without auth, so the key
+        // is the only thing protecting them: it must not be guessable from the
+        // workspace id, upload time and file name alone.
+        const unguessable = crypto.randomUUID().replace(/-/g, '');
+        fileKey = `workspaces/${workspaceId}/${folder}/${entityPath}/${timestamp}_${unguessable}/${sanitizedName}`;
       }
 
       await setPendingUpload(c.env.WORKSPACE_CACHE, uploadToken, {

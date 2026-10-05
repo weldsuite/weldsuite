@@ -78,6 +78,7 @@ function CompanyListView({ listId, listName }: Readonly<{ listId: string; listNa
       toolbarActions={<AddMemberPicker listId={listId} kind="company" />}
       listContext={{
         listId,
+        listName,
         removeMember: removeFromList,
         removeFailedMessage: t('crm.listPage.removeFromListFailed', { listName }),
       }}
@@ -131,6 +132,7 @@ function PersonListView({ listId, listName }: Readonly<{ listId: string; listNam
       toolbarActions={<AddMemberPicker listId={listId} kind="person" />}
       listContext={{
         listId,
+        listName,
         removeMember: removeFromList,
         removeFailedMessage: t('crm.listPage.removeFromListFailed', { listName }),
       }}

@@ -8,7 +8,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
@@ -62,20 +62,43 @@ app.get('/:id', requirePermission('pipelines:read'), async (c) => {
   }
 });
 
+/**
+ * Default `position` for a new stage when the caller doesn't supply one:
+ * append after the last *open* stage, before any isWon/isLost stage, instead
+ * of always landing on `0` (which used to bump every existing stage to the
+ * right of a brand-new one — "Stage adden werkt niet").
+ */
+async function nextOpenStagePosition(
+  db: Variables['tenantDb'],
+  pipeline: string,
+): Promise<number> {
+  const existing = await db
+    .select({ position: t.position, isWon: t.isWon, isLost: t.isLost })
+    .from(t)
+    .where(and(eq(t.pipeline, pipeline), isNull(t.deletedAt)));
+  const openPositions = existing.filter((s) => !s.isWon && !s.isLost).map((s) => s.position);
+  if (openPositions.length > 0) return Math.max(...openPositions) + 1;
+  // No open stages yet: still land before any won/lost stage.
+  const closedPositions = existing.map((s) => s.position);
+  return closedPositions.length > 0 ? Math.min(...closedPositions) : 0;
+}
+
 app.post('/', requirePermission('pipelines:create'), zValidator('json', createPipelineStageSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   const id = generateId('pls');
   const now = new Date();
   try {
+    const pipeline = data.pipeline ?? 'default';
+    const position = data.position ?? (await nextOpenStagePosition(db, pipeline));
     const values: typeof t.$inferInsert = {
       id,
       name: data.name,
       description: data.description,
-      position: data.position ?? 0,
+      position,
       probability: data.probability ?? 0,
       color: data.color,
-      pipeline: data.pipeline ?? 'default',
+      pipeline,
       isDefault: data.isDefault ?? false,
       isWon: data.isWon ?? false,
       isLost: data.isLost ?? false,
@@ -127,6 +150,24 @@ app.delete('/:id', requirePermission('pipelines:delete'), async (c) => {
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Pipeline stage', id);
+    // Guard: deleting a stage that still holds deals would orphan them
+    // (stageId pointing at a soft-deleted stage). Block and tell the caller
+    // how many deals are in the way instead of silently dropping them.
+    const [{ count: dealCount }] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.crmOpportunities)
+      .where(
+        and(
+          or(eq(schema.crmOpportunities.stageId, id), eq(schema.crmOpportunities.stage, id)),
+          isNull(schema.crmOpportunities.deletedAt),
+        ),
+      );
+    if (Number(dealCount) > 0) {
+      return error.badRequest(
+        c,
+        `Cannot delete stage "${existing.name}": it still has ${dealCount} deal(s). Move them to another stage first.`,
+      );
+    }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
     publishEntityEvent({
       c,

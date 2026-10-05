@@ -16,7 +16,8 @@ export type FieldType =
   | 'location'
   | 'company'
   | 'percent'
-  | 'rating';
+  | 'rating'
+  | 'member';
 
 // Status/badge styling configuration
 export interface StatusStyle {
@@ -46,6 +47,22 @@ export interface GridColumnDef<TEntity> {
   getValue: (entity: TEntity) => unknown;
   // Set the value - returns the partial update to apply
   setValue?: (entity: TEntity, value: unknown) => Record<string, unknown>;
+  /**
+   * Value used by the footer's Calculate menu instead of `getValue`, for a
+   * column whose storage shape doesn't match its calculation semantics
+   * (e.g. `employeeCount` is free text — "42" or "11-50" — but a count
+   * should still be summable/averageable when it parses to a plain
+   * number). Falls back to `getValue` when omitted.
+   */
+  getCalcValue?: (entity: TEntity) => unknown;
+  /**
+   * Field type the Calculate menu uses to decide which aggregations to
+   * offer (sum/average only show for 'number' | 'currency' | 'percent').
+   * Defaults to `type`. Set this when `type` drives the cell's editor/
+   * display (e.g. 'text', to keep editing free-form) but the values should
+   * still be treated numerically for aggregation.
+   */
+  calcFieldType?: FieldType;
   // Custom render function (optional)
   render?: (entity: TEntity, value: unknown) => React.ReactNode;
   // Callback to enrich all visible entities for this column
@@ -262,6 +279,7 @@ export interface GridContextValue<TEntity> {
   showColumn: (fieldId: string) => void;
   deleteColumn: (fieldId: string) => void;
   handleSort: (fieldId: string, direction: 'asc' | 'desc') => void;
+  clearSort: () => void;
   handleHideColumn: (fieldId: string) => void;
   handleMoveColumn: (fieldId: string, direction: 'left' | 'right') => void;
   handleColumnResize: (fieldId: string, width: number) => void;

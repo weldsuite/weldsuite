@@ -10,8 +10,8 @@ import {
 } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-import { hasBookableRange, mondayFirstOffset, WEEKDAY_NAMES } from '@/lib/availability';
-import type { WeeklyAvailability } from '@/lib/schemas';
+import { hasBookableDate, mondayFirstOffset } from '@/lib/availability';
+import type { DateOverride, WeeklyAvailability } from '@/lib/schemas';
 
 interface CalendarWidgetProps {
   currentMonth: Date;
@@ -19,6 +19,8 @@ interface CalendarWidgetProps {
   today: Date;
   maxDate: Date;
   availability: WeeklyAvailability;
+  /** Per-date availability that replaces the weekly ranges on its date. */
+  dateOverrides?: readonly DateOverride[];
   /** Appointment length in minutes: a day whose ranges are all shorter has no slots. */
   duration: number;
   emptyDates: Set<string>;
@@ -34,6 +36,7 @@ export function CalendarWidget({
   today,
   maxDate,
   availability,
+  dateOverrides,
   duration,
   emptyDates,
   pendingDates,
@@ -61,7 +64,7 @@ export function CalendarWidget({
     return (
       isBefore(day, today) ||
       day > maxDate ||
-      !hasAvailabilityForDay(day, availability, duration) ||
+      !hasAvailabilityForDay(day, availability, duration, dateOverrides) ||
       emptyDates.has(dayStr) ||
       pendingDates.has(dayStr)
     );
@@ -119,6 +122,9 @@ export function CalendarWidget({
   const prevDisabled =
     currentMonth.getFullYear() === today.getFullYear() &&
     currentMonth.getMonth() <= today.getMonth();
+  // Nothing beyond the page's max advance is bookable, so don't offer those months.
+  const nextDisabled =
+    new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1) > maxDate;
 
   return (
     <div className="flex-1 min-w-0 md:border-r md:border-b-0 md:border-gray-200 dark:md:border-[#26262B] flex flex-col overflow-hidden py-3 px-4 md:px-5">
@@ -155,8 +161,9 @@ export function CalendarWidget({
                 new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1),
               )
             }
+            disabled={nextDisabled}
             aria-label="Next month"
-            className="h-8 w-8 flex items-center justify-center rounded-[10px] text-gray-400 dark:text-[#6E6E76] hover:text-gray-600 dark:hover:text-[#C4C4CA] hover:bg-gray-100 dark:hover:bg-[#1F1F23] transition-colors"
+            className="h-8 w-8 flex items-center justify-center rounded-[10px] text-gray-400 dark:text-[#6E6E76] hover:text-gray-600 dark:hover:text-[#C4C4CA] hover:bg-gray-100 dark:hover:bg-[#1F1F23] transition-colors disabled:opacity-30 disabled:pointer-events-none"
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -336,17 +343,18 @@ function isInMonth(day: Date, month: Date): boolean {
 }
 
 /**
- * True when the weekday has at least one range long enough for an appointment.
- * A day whose ranges are invalid (end before start) or shorter than the
- * appointment can never have slots, so it is not selectable.
+ * True when the date has at least one range long enough for an appointment: the
+ * date's override when it has one (an empty override closes the day), else its
+ * weekday's ranges. A day whose ranges are invalid (end before start) or
+ * shorter than the appointment can never have slots, so it is not selectable.
  */
 export function hasAvailabilityForDay(
   date: Date,
   availability: WeeklyAvailability,
   duration: number,
+  dateOverrides?: readonly DateOverride[] | null,
 ): boolean {
-  const dayName = WEEKDAY_NAMES[date.getDay()];
-  return !!dayName && hasBookableRange(availability[dayName], duration);
+  return hasBookableDate(format(date, 'yyyy-MM-dd'), availability, dateOverrides, duration);
 }
 
 // Re-exported so the orchestrator can use the same `today` zero-time normalisation.

@@ -2,6 +2,7 @@ import { useCallback, useEffect, lazy, Suspense } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useParams } from '@tanstack/react-router';
+import { useMessageDeepLink } from '../lib/message-search';
 import { useQueryClient } from '@tanstack/react-query';
 import { useChannel, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
@@ -27,6 +28,7 @@ export default function GroupConversationPage() {
   const { t } = useI18n();
   const st = useTranslations();
   const { channelId } = useParams({ from: '/weldchat/dm/group/$channelId' });
+  const { targetMessageId, clearTarget } = useMessageDeepLink();
   const { data, isLoading } = useChannel(channelId);
   const queryClient = useQueryClient();
   const { mutate: markAsRead } = useMarkChannelAsRead();
@@ -104,8 +106,8 @@ export default function GroupConversationPage() {
       ) : (
         <>
           <PinnedMessagesBar channelId={channelId} />
-          <MessageList channelId={channelId} client={client} isDm />
-          <MessageInput channelId={channelId} client={client} />
+          <MessageList key={channelId} channelId={channelId} client={client} isDm targetMessageId={targetMessageId} onTargetHandled={clearTarget} />
+          <MessageInput key={channelId} channelId={channelId} client={client} />
         </>
       )}
     </div>

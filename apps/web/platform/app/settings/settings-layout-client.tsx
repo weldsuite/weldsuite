@@ -45,6 +45,29 @@ function makeAppLogoIcon(appCode: string, name: string) {
   };
 }
 
+// The generic "capitalize the first letter" fallback below can't know about
+// the weld* family's internal capitalization (WeldCRM, not Weldcrm). Override
+// just the path segments that need it; everything else keeps the generic
+// behavior.
+const BREADCRUMB_LABEL_OVERRIDES: Record<string, string> = {
+  weldcrm: 'WeldCRM',
+  welddesk: 'WeldDesk',
+  weldmail: 'WeldMail',
+  weldflow: 'WeldFlow',
+  weldconnect: 'WeldConnect',
+  weldstash: 'WeldStash',
+  weldhost: 'WeldHost',
+  weldbooks: 'WeldBooks',
+  weldmeet: 'WeldMeet',
+  weldchat: 'WeldChat',
+  weldagent: 'WeldAgent',
+  weldapps: 'WeldApps',
+  weldpass: 'WeldPass',
+  weldsuite: 'WeldSuite',
+  weldcommerce: 'WeldCommerce',
+  weldsocial: 'WeldSocial',
+};
+
 // Build breadcrumb segments from the current path. The last segment is a leaf
 // (no href); the /settings index page is the profile editor, shown as a leaf.
 function buildBreadcrumbSegments(
@@ -62,8 +85,11 @@ function buildBreadcrumbSegments(
 
   for (let i = 1; i < pathParts.length; i++) {
     const part = pathParts[i];
-    // Capitalize and format the label
-    const label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
+    // Capitalize and format the label, unless it's a known module slug with
+    // its own internal capitalization.
+    const label =
+      BREADCRUMB_LABEL_OVERRIDES[part.toLowerCase()] ??
+      part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
     if (i === pathParts.length - 1) {
       segments.push({ label });
     } else {

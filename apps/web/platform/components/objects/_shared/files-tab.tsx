@@ -1,9 +1,12 @@
 /**
  * `FilesTab` — Files tab for the company / person object panels.
  *
- * Lists files attached to this entity via the unified Files API. Company
- * side uses `entityType='Customer'`; person side uses `entityType='Contact'`.
- * Supports upload via the presigned-URL flow and per-row download + delete.
+ * Lists files attached to this entity via the same `/api/files` store as
+ * WeldDrive, scoped by `files.entityType`/`entityId` (company/person — see
+ * `hooks/queries/use-customer-documents-queries.ts`). The `Customer`/`Contact`
+ * kind below is this component's own prop naming and gets mapped to
+ * `company`/`person` inside those hooks. Supports upload via the
+ * presigned-URL flow and per-row download + delete.
  *
  * Renders through `FileListView` so the list matches the WeldDrive design 1:1.
  */
@@ -27,15 +30,15 @@ import {
   fileCategoryFromContentType,
   type FileListItem,
 } from '@/components/files/file-list-view';
+import { downloadFile } from '@/app/welddrive/components/drive-file-card';
 import {
   useCustomerDocuments,
   usePersonDocuments,
   useGenerateDocumentUploadUrl,
   useConfirmDocumentUpload,
-  useDocumentDownloadUrl,
   useDeleteCustomerDocument,
 } from '@/hooks/queries/use-customer-documents-queries';
-import type { FileResponse } from '@/lib/api/legacy-types';
+import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 
 interface FilesTabProps {
   entityId: string;
@@ -50,19 +53,29 @@ export function FilesTab({ entityId, entityKind }: FilesTabProps) {
   const { data, isLoading } = entityKind === 'company' ? companyQuery : personQuery;
   const generateUrl = useGenerateDocumentUploadUrl();
   const confirmUpload = useConfirmDocumentUpload();
-  const getDownloadUrl = useDocumentDownloadUrl();
   const deleteFile = useDeleteCustomerDocument();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
 
+  // Keep the raw rows around (keyed by id) so download — which needs the
+  // `files` row's url/source, not just what the list row displays — doesn't
+  // need a second fetch.
+  const filesById = useMemo(() => {
+    const map = new Map<string, UnifiedFile>();
+    for (const f of data?.items ?? []) map.set(f.id, f);
+    return map;
+  }, [data]);
+
   const listItems = useMemo<FileListItem[]>(() => {
-    const files = (data?.items ?? []) as FileResponse[];
+    const files = data?.items ?? [];
     return files.map((f) => ({
       id: f.id,
-      name: f.fileName,
-      fileType: fileCategoryFromContentType(f.contentType),
-      fileSize: f.size,
+      name: f.name,
+      fileType: fileCategoryFromContentType(f.mimeType ?? ''),
+      source: f.source,
+      fileSize: f.fileSize,
       createdAt: f.createdAt,
+      isStarred: f.isStarred,
     }));
   }, [data]);
 
@@ -88,9 +101,10 @@ export function FilesTab({ entityId, entityKind }: FilesTabProps) {
         });
         if (!putRes.ok) throw new Error(`Upload failed: ${putRes.status}`);
         await confirmUpload.mutateAsync({
-          uploadToken: presigned.uploadToken,
           fileKey: presigned.fileKey,
-          etag: putRes.headers.get('etag') ?? undefined,
+          fileName: file.name,
+          contentType: file.type || 'application/octet-stream',
+          fileSize: file.size,
           customerId: entityId,
           entityKind: entityKindForApi,
         });
@@ -104,16 +118,19 @@ export function FilesTab({ entityId, entityKind }: FilesTabProps) {
     [entityId, entityKindForApi, generateUrl, confirmUpload, t],
   );
 
+  // `downloadFile` handles its own errors (toasts + console.error) and never
+  // rejects, so this is a thin pass-through — no local try/catch needed.
   const handleDownload = useCallback(
-    async (fileId: string) => {
-      try {
-        const { url } = await getDownloadUrl.mutateAsync(fileId);
-        window.open(url, '_blank', 'noopener,noreferrer');
-      } catch {
-        toast.error(t('sweep.entities.downloadUrlFailed'));
-      }
+    (item: FileListItem) => {
+      const row = filesById.get(item.id);
+      return downloadFile({
+        id: item.id,
+        name: item.name,
+        url: row?.url ?? null,
+        source: row?.source ?? 'drive',
+      });
     },
-    [getDownloadUrl, t],
+    [filesById],
   );
 
   const handleDelete = useCallback(
@@ -135,7 +152,7 @@ export function FilesTab({ entityId, entityKind }: FilesTabProps) {
   const renderRowMenu = useCallback(
     (item: FileListItem) => (
       <>
-        <DropdownMenuItem onClick={() => handleDownload(item.id)}>
+        <DropdownMenuItem onClick={() => handleDownload(item)}>
           <Download className="h-4 w-4 mr-0.5" />
           {t('sweep.entities.download')}
         </DropdownMenuItem>
@@ -159,7 +176,7 @@ export function FilesTab({ entityId, entityKind }: FilesTabProps) {
         items={listItems}
         isLoading={isLoading}
         searchPlaceholder={t('sweep.entities.searchFilesPlaceholder')}
-        onRowClick={(item) => handleDownload(item.id)}
+        onRowClick={(item) => handleDownload(item)}
         renderRowMenu={renderRowMenu}
         actionButtons={
           <Button

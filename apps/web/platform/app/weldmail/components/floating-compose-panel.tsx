@@ -1,7 +1,6 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  useCreateMailDraft,
   useGenerateAIReply,
   useGenerateEmailDraft,
 } from '@/hooks/queries/use-mail-queries';
@@ -63,6 +62,9 @@ import {
   emailSizeExceedsLimit,
   uploadMailAttachments,
 } from '@/app/weldmail/lib/upload-attachments';
+import { buildComposeBodies, type ComposeBodies } from '@/app/weldmail/lib/compose-body';
+import type { DraftFields } from '@/app/weldmail/lib/draft-autosave';
+import { useDraftAutosave } from '@/app/weldmail/lib/use-draft-autosave';
 
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#06b6d4', '#3b82f6', '#10b981',
@@ -112,8 +114,27 @@ function parseRecipients(str: string): string[] {
   return str.split(/[,;]/).map(e => e.trim()).filter(e => e.length > 0);
 }
 
-function toHtmlBody(body: string): string {
-  return body.includes('<') ? body : body.replace(/\n/g, '<br>');
+interface PanelDraftForm {
+  to: string;
+  subject: string;
+  body: string;
+  inReplyTo?: string;
+  cc: string;
+  bcc: string;
+}
+
+// `editorHtml` is the live editor content; `form.body` only follows it on blur.
+function buildPanelDraftFields(form: PanelDraftForm, editorHtml: string | undefined): DraftFields {
+  const { body, htmlBody } = buildComposeBodies(editorHtml ?? form.body);
+  return {
+    subject: form.subject,
+    to: parseRecipients(form.to),
+    cc: parseRecipients(form.cc),
+    bcc: parseRecipients(form.bcc),
+    body,
+    htmlBody,
+    inReplyTo: form.inReplyTo || undefined,
+  };
 }
 
 type UploadedMailAttachments = Awaited<ReturnType<typeof uploadMailAttachments>>;
@@ -130,7 +151,6 @@ export function FloatingComposePanel() {
   const setIsDialerOpen = callContext?.setIsDialerOpen;
   const mobileNav = useMobileNavOptional();
   const { getClient } = useAppApiClient();
-  const createDraftMutation = useCreateMailDraft();
   const generateAIReplyMutation = useGenerateAIReply();
   const generateEmailDraftMutation = useGenerateEmailDraft();
   const agentRight = getAgentRight(mobileNav);
@@ -239,6 +259,44 @@ export function FloatingComposePanel() {
       setAttachedFiles([]);
     }
   }, [composeContext?.isComposeOpen, composeContext?.composeData.attachedFiles]);
+
+  // Hydrate Cc/Bcc the same way (popped out of the full-page compose).
+  const isComposeOpen = composeContext?.isComposeOpen ?? false;
+  const contextCc = composeContext?.composeData.cc;
+  const contextBcc = composeContext?.composeData.bcc;
+  const [ccHydrated, setCcHydrated] = useState(false);
+  useEffect(() => {
+    if (!isComposeOpen) {
+      setCcRecipients('');
+      setBccRecipients('');
+      setShowCcBcc(false);
+      setCcHydrated(false);
+      return;
+    }
+    if (ccHydrated) return;
+    setCcRecipients(contextCc ?? '');
+    setBccRecipients(contextBcc ?? '');
+    setShowCcBcc(Boolean(contextCc || contextBcc));
+    setCcHydrated(true);
+  }, [isComposeOpen, ccHydrated, contextCc, contextBcc]);
+
+  // Autosave the compose as a draft. The first report after the panel opens is
+  // the baseline (a pre-filled reply) and is not saved on its own.
+  const autosave = useDraftAutosave({ accountId, active: isComposeOpen });
+  const { schedule: scheduleDraftSave } = autosave;
+  const draftTo = composeContext?.composeData.to ?? '';
+  const draftSubject = composeContext?.composeData.subject ?? '';
+  const draftBody = composeContext?.composeData.body ?? '';
+  const draftInReplyTo = composeContext?.composeData.inReplyTo;
+  useEffect(() => {
+    if (!isComposeOpen || !ccHydrated) return;
+    scheduleDraftSave(
+      buildPanelDraftFields(
+        { to: draftTo, subject: draftSubject, body: draftBody, inReplyTo: draftInReplyTo, cc: ccRecipients, bcc: bccRecipients },
+        textareaRef.current?.innerHTML,
+      ),
+    );
+  }, [isComposeOpen, ccHydrated, scheduleDraftSave, draftTo, draftSubject, draftBody, draftInReplyTo, ccRecipients, bccRecipients]);
 
   const saveSelection = () => {
     const selection = window.getSelection();
@@ -400,6 +458,8 @@ export function FloatingComposePanel() {
 
   const handleExpand = () => {
     setIsExpanding(true);
+    // The full-page compose keeps updating the draft this panel already made.
+    autosave.handOff();
     router.push(`/weldmail/${accountId}/inbox/compose`);
   };
 
@@ -426,9 +486,16 @@ export function FloatingComposePanel() {
     }
   };
 
+  // Runs once the message is out: the draft it was written in must leave Drafts.
+  const finishSent = async () => {
+    await autosave.discard();
+    window.dispatchEvent(new Event('mail:refresh'));
+    closeCompose();
+  };
+
   const sendScheduledEmail = async (
     targetAccountId: string,
-    bodyContent: string,
+    bodies: ComposeBodies,
     toAddresses: string[],
     sendAt: Date,
   ) => {
@@ -438,9 +505,8 @@ export function FloatingComposePanel() {
       const ccAddresses = ccRecipients ? parseRecipients(ccRecipients) : undefined;
       const bccAddresses = bccRecipients ? parseRecipients(bccRecipients) : undefined;
 
-      const trimmedBodyScheduled = bodyContent.trim();
-      const htmlBodyScheduled = toHtmlBody(bodyContent);
-      if (emailSizeExceedsLimit(trimmedBodyScheduled, htmlBodyScheduled, attachedFiles)) {
+      const { body, htmlBody } = bodies;
+      if (emailSizeExceedsLimit(body, htmlBody, attachedFiles)) {
         showEmailSizeExceeded();
         return;
       }
@@ -454,16 +520,15 @@ export function FloatingComposePanel() {
         cc: ccAddresses,
         bcc: bccAddresses,
         subject: composeData.subject.trim() || t.mail.composePage.noSubject,
-        body: trimmedBodyScheduled,
-        htmlBody: htmlBodyScheduled,
+        body,
+        htmlBody,
         scheduledFor: sendAt,
         inReplyTo: composeData.inReplyTo || undefined,
         attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
       });
       if (result.success) {
         toast.success(t.mail.floatingCompose.emailScheduledFor.replace('{date}', format(sendAt, 'PPp')));
-        window.dispatchEvent(new Event('mail:refresh'));
-        closeCompose();
+        await finishSent();
       } else {
         toast.error(result.error || t.mail.floatingCompose.failedToScheduleEmail);
       }
@@ -474,12 +539,11 @@ export function FloatingComposePanel() {
     }
   };
 
-  const sendEmailNow = async (targetAccountId: string, bodyContent: string, toAddresses: string[]) => {
+  const sendEmailNow = async (targetAccountId: string, bodies: ComposeBodies, toAddresses: string[]) => {
     setIsSending(true);
     try {
-      const trimmedBody = bodyContent.trim();
-      const htmlBody = toHtmlBody(bodyContent);
-      if (emailSizeExceedsLimit(trimmedBody, htmlBody, attachedFiles)) {
+      const { body, htmlBody } = bodies;
+      if (emailSizeExceedsLimit(body, htmlBody, attachedFiles)) {
         showEmailSizeExceeded();
         return;
       }
@@ -493,16 +557,18 @@ export function FloatingComposePanel() {
 
       const result = await mailApi.messages.send(targetAccountId, {
         to: toAddresses,
+        cc: ccRecipients ? parseRecipients(ccRecipients) : undefined,
+        bcc: bccRecipients ? parseRecipients(bccRecipients) : undefined,
         subject: composeData.subject.trim() || t.mail.composePage.noSubject,
-        body: trimmedBody,
+        body,
         htmlBody,
+        inReplyTo: composeData.inReplyTo || undefined,
         attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
       });
 
       if (result.success) {
         toast.success(t.mail.floatingCompose.emailSentSuccessfully);
-        window.dispatchEvent(new Event('mail:refresh'));
-        closeCompose();
+        await finishSent();
       } else {
         toast.error(result.error || t.mail.floatingCompose.failedToSendEmail);
       }
@@ -516,7 +582,7 @@ export function FloatingComposePanel() {
   const handleSend = async () => {
     if (isSending) return;
     // Get body content directly from the ref (may not be synced to context yet)
-    const bodyContent = textareaRef.current?.innerHTML || composeData.body || '';
+    const bodies = buildComposeBodies(textareaRef.current ? textareaRef.current.innerHTML : composeData.body || '');
 
     if (!composeData.to.trim()) {
       toast.error(t.mail.composePage.atLeastOneRecipient);
@@ -526,7 +592,7 @@ export function FloatingComposePanel() {
       toast.error(t.mail.composePage.noAccountSelected);
       return;
     }
-    if (!bodyContent.trim()) {
+    if (!bodies.body) {
       toast.error(t.mail.composePage.enterMessage);
       return;
     }
@@ -534,35 +600,35 @@ export function FloatingComposePanel() {
     const toAddresses = parseRecipients(composeData.to);
 
     if (scheduledTime) {
-      await sendScheduledEmail(accountId, bodyContent, toAddresses, scheduledTime);
+      await sendScheduledEmail(accountId, bodies, toAddresses, scheduledTime);
       return;
     }
-    await sendEmailNow(accountId, bodyContent, toAddresses);
+    await sendEmailNow(accountId, bodies, toAddresses);
   };
 
+  // Creates the draft, or updates the one autosave already made.
   const handleSaveDraft = async () => {
     if (!accountId) {
       toast.error(t.mail.composePage.noAccountSelected);
       return;
     }
-    try {
-      const bodyContent = textareaRef.current?.innerHTML || composeData.body || '';
-      const toAddresses = composeData.to ? composeData.to.split(/[,;]/).map(e => e.trim()).filter(e => e.length > 0) : [];
-      // `mutateAsync` rejects on failure (caught below), so reaching this line
-      // means the draft was created — there's no `success` flag to check.
-      await createDraftMutation.mutateAsync({
-        accountId,
-        subject: composeData.subject || undefined,
-        to: toAddresses.length > 0 ? toAddresses : undefined,
-        cc: ccRecipients ? ccRecipients.split(/[,;]/).map(e => e.trim()).filter(e => e.length > 0) : undefined,
-        bcc: bccRecipients ? bccRecipients.split(/[,;]/).map(e => e.trim()).filter(e => e.length > 0) : undefined,
-        body: bodyContent || undefined,
-        htmlBody: bodyContent.includes('<') ? bodyContent : undefined,
-        inReplyTo: composeData.inReplyTo || undefined,
-      });
+    const saved = await autosave.saveNow(
+      buildPanelDraftFields({ ...composeData, cc: ccRecipients, bcc: bccRecipients }, textareaRef.current?.innerHTML),
+    );
+    if (saved) {
       toast.success(t.mail.floatingCompose.draftSaved);
-    } catch (error) {
-      console.error('Failed to save draft:', error);
+    } else {
+      toast.error(t.mail.floatingCompose.failedToSaveDraft);
+    }
+    handleClose();
+  };
+
+  // Removes the draft autosave made (if any), then closes.
+  const handleDeleteDraft = async () => {
+    const result = await autosave.discard();
+    if (result === 'deleted') {
+      toast.success(t.mail.composePage.draftDeleted);
+    } else if (result === 'failed') {
       toast.error(t.mail.floatingCompose.failedToSaveDraft);
     }
     handleClose();
@@ -684,7 +750,7 @@ export function FloatingComposePanel() {
                   <DropdownMenuItem
                     onSelect={(e) => {
                       e.preventDefault();
-                      handleClose();
+                      void handleDeleteDraft();
                     }}
                     className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950 hover:bg-red-50 dark:hover:bg-red-950"
                   >
@@ -945,6 +1011,11 @@ export function FloatingComposePanel() {
               style={{
                 fontSize: `${fontSize}px`,
                 textAlign: textAlignment,
+              }}
+              onInput={(e) => {
+                scheduleDraftSave(
+                  buildPanelDraftFields({ ...composeData, cc: ccRecipients, bcc: bccRecipients }, e.currentTarget.innerHTML),
+                );
               }}
               onBlur={(e) => {
                 updateComposeData({ body: e.currentTarget.innerHTML });

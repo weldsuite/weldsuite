@@ -10,6 +10,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { ActivityItem, ListActivityQuery } from '@weldsuite/core-api-client/schemas/weldchat-activity';
 import type { DraftItem, UpsertDraftInput } from '@weldsuite/core-api-client/schemas/weldchat-drafts';
 import type { DirectoryChannelItem } from '@weldsuite/core-api-client/schemas/weldchat-directories';
+import { hasDraftContent } from '@/app/weldchat/lib/draft-utils';
 
 // ============================================================================
 // Response shapes (app-api envelopes)
@@ -122,15 +123,19 @@ export function useChatDrafts() {
         client.get<{ data: DirectoryChannelItem[] }>('/chat-directories/channels'),
       ]);
       const nameById = new Map((channelsRes.data ?? []).map((ch) => [ch.id, ch.name]));
-      const data: DraftItem[] = (draftsRes.data ?? []).map((row) => ({
-        id: row.id,
-        channelId: row.channelId ?? null,
-        threadParentMessageId: row.threadParentMessageId ?? null,
-        content: row.content,
-        attachments: row.attachments ?? null,
-        channelName: (row.channelId ? nameById.get(row.channelId) : null) ?? null,
-        updatedAt: row.updatedAt,
-      }));
+      // An emptied draft row is not left-behind work: keep it out of the Drafts
+      // page and the sidebar badge.
+      const data: DraftItem[] = (draftsRes.data ?? [])
+        .filter(hasDraftContent)
+        .map((row) => ({
+          id: row.id,
+          channelId: row.channelId ?? null,
+          threadParentMessageId: row.threadParentMessageId ?? null,
+          content: row.content,
+          attachments: row.attachments ?? null,
+          channelName: (row.channelId ? nameById.get(row.channelId) : null) ?? null,
+          updatedAt: row.updatedAt,
+        }));
       return { data };
     },
   });

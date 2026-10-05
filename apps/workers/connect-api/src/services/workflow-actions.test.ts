@@ -8,6 +8,12 @@ let db: Database;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  await db.insert(schema.workspaceMembers).values({
+    id: 'wm_user_1',
+    userId: 'user_1',
+    name: 'User One',
+    role: 'MEMBER',
+  });
 }, 60_000);
 
 describe('createCustomerFromWorkflow', () => {
@@ -75,6 +81,16 @@ describe('createCustomerFromWorkflow', () => {
       skipIfEmailExists: true,
     });
     expect(company.status).toBe('prospect');
+    expect(company.ownerId).toBeNull();
+  });
+
+  it('leaves the owner unset when the run user is no longer a workspace member', async () => {
+    const { created, company } = await createCustomerFromWorkflow(db, {
+      name: 'Former member run',
+      userId: 'user_gone',
+      skipIfEmailExists: true,
+    });
+    expect(created).toBe(true);
     expect(company.ownerId).toBeNull();
   });
 });

@@ -818,6 +818,7 @@ export const weldchat = {
     },
     messageList: {
       loadOlderMessages: 'Oudere berichten laden',
+      messageNotFound: 'Dat bericht is niet gevonden. Het is mogelijk verwijderd.',
     },
     chatFiltersPanel: {
       attachment: 'bijlage',

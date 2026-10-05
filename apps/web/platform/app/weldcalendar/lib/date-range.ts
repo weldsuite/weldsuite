@@ -8,6 +8,7 @@ import {
   startOfYear,
   endOfYear,
   addDays,
+  addMonths,
 } from 'date-fns';
 import { WEEK_STARTS_ON } from './calendar-format';
 
@@ -72,4 +73,21 @@ export function getCalendarDateRange(date: Date, view: CalendarView): { start: s
         end: endOfMonth(date).toISOString(),
       };
   }
+}
+
+/** Months the mobile Month list renders before / after the current month. */
+export const MOBILE_MONTHS_BACK = 12;
+export const MOBILE_MONTHS_FORWARD = 24;
+
+/**
+ * Range the mobile Month view fetches. That view is one continuous list of
+ * months around today (not a single month grid), so its event dots need the
+ * events of every month it renders. Anchored on `now`, like the list itself.
+ */
+export function getMobileMonthListRange(now: Date): { start: string; end: string } {
+  const anchor = startOfMonth(now);
+  return {
+    start: addMonths(anchor, -MOBILE_MONTHS_BACK).toISOString(),
+    end: endOfMonth(addMonths(anchor, MOBILE_MONTHS_FORWARD)).toISOString(),
+  };
 }

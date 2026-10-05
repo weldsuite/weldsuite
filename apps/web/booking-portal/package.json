@@ -14,6 +14,7 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/meet-domain": "workspace:*",
     "@weldsuite/transactional-email": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "date-fns": "^4.1.0",

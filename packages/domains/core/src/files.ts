@@ -59,6 +59,8 @@ export interface ListFilesParams {
   folderId?: string | null;
   rootOnly?: boolean;
   type?: string;
+  entityType?: string;
+  entityId?: string;
 }
 
 export async function listFiles(db: Database, params: ListFilesParams) {
@@ -69,6 +71,8 @@ export async function listFiles(db: Database, params: ListFilesParams) {
     conditions.push(isNull(files.folderId));
   }
   if (params.type) conditions.push(eq(files.fileType, params.type));
+  if (params.entityType) conditions.push(eq(files.entityType, params.entityType));
+  if (params.entityId) conditions.push(eq(files.entityId, params.entityId));
 
   return db
     .select()

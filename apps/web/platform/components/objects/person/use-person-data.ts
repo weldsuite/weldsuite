@@ -268,7 +268,9 @@ export function useCreatePerson() {
     },
     onError: (err) => {
       console.error('[People] create failed:', err);
-      toast.error(t('sweep.entities.createPersonFailed'));
+      // Surface the server's message when there is one (e.g. the
+      // duplicate-email 409) instead of always showing the generic fallback.
+      toast.error(err instanceof Error && err.message ? err.message : t('sweep.entities.createPersonFailed'));
     },
   });
 }
@@ -330,6 +332,34 @@ export function useDeletePerson() {
     onError: (err) => {
       console.error('[People] delete failed:', err);
       toast.error(t('sweep.entities.deletePersonFailed'));
+    },
+  });
+}
+
+export function useArchivePerson() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.post<DataEnvelope<Person>>(`/people/${id}/archive`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: personKeys.all });
+    },
+  });
+}
+
+export function useUnarchivePerson() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.post<DataEnvelope<Person>>(`/people/${id}/unarchive`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: personKeys.all });
     },
   });
 }

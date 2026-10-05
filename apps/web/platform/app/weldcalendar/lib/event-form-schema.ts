@@ -1,34 +1,68 @@
 import { z } from 'zod';
 
-// The API returns `null` for every column that was never set (`tags`,
-// `attendees`, `customerId`, ...). Optional fields therefore accept null as well
-// as undefined: a strict `.optional()` rejects null and, because the dialog
-// seeds the form from the stored event, made "Update" fail validation silently.
-export const eventFormSchema = z.object({
-  calendarId: z.string().min(1, 'Calendar is required'),
-  title: z.string().min(1, 'Title is required').max(255),
-  description: z.string().nullish(),
-  type: z.enum(['meeting', 'call', 'appointment', 'event', 'reminder', 'other']).default('meeting'),
-  startTime: z.date({ required_error: 'Start time is required', invalid_type_error: 'Start time is required' }),
-  endTime: z.date().optional().nullable(),
-  allDay: z.boolean().default(false),
-  location: z.string().nullish(),
-  isVirtual: z.boolean().default(false),
-  meetingUrl: z.string().url('Must be a valid URL').nullish().or(z.literal('')),
-  status: z.enum(['confirmed', 'tentative', 'cancelled']).default('confirmed'),
-  priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
-  color: z.string().nullish(),
-  attendees: z.array(z.object({
-    email: z.string().email(),
-    name: z.string().nullish(),
-    status: z.string().nullish(),
-    role: z.string().nullish(),
-  })).nullish(),
-  customerId: z.string().nullish(),
-  contactId: z.string().nullish(),
-  notes: z.string().nullish(),
-  tags: z.array(z.string()).nullish(),
-});
+/** Messages of the schema's validation rules (translated by the caller). */
+export interface EventFormMessages {
+  calendarRequired: string;
+  titleRequired: string;
+  titleTooLong: string;
+  startRequired: string;
+  invalidMeetingUrl: string;
+  invalidGuestEmail: string;
+}
+
+const DEFAULT_MESSAGES: EventFormMessages = {
+  calendarRequired: 'Calendar is required',
+  titleRequired: 'Title is required',
+  titleTooLong: 'Title is too long',
+  startRequired: 'Start time is required',
+  invalidMeetingUrl: 'Must be a valid URL',
+  invalidGuestEmail: 'Invalid email address',
+};
+
+export const EVENT_TYPE_VALUES = ['meeting', 'call', 'appointment', 'event', 'reminder', 'other'] as const;
+export const EVENT_PRIORITY_VALUES = ['low', 'normal', 'high', 'urgent'] as const;
+export const EVENT_STATUS_VALUES = ['confirmed', 'tentative', 'cancelled'] as const;
+
+/**
+ * The edit dialog's schema. The API returns `null` for every column that was
+ * never set (`tags`, `attendees`, `customerId`, ...). Optional fields therefore
+ * accept null as well as undefined: a strict `.optional()` rejects null and,
+ * because the dialog seeds the form from the stored event, made "Update" fail
+ * validation silently.
+ *
+ * A factory so the messages can be translated: `buildEventFormSchema(msgs)` with
+ * the `weldcalendar` locale strings; `eventFormSchema` (English) is the type
+ * source and the default for callers that do not translate.
+ */
+export function buildEventFormSchema(messages: EventFormMessages = DEFAULT_MESSAGES) {
+  return z.object({
+    calendarId: z.string().min(1, messages.calendarRequired),
+    title: z.string().min(1, messages.titleRequired).max(255, messages.titleTooLong),
+    description: z.string().nullish(),
+    type: z.enum(EVENT_TYPE_VALUES).default('meeting'),
+    startTime: z.date({ required_error: messages.startRequired, invalid_type_error: messages.startRequired }),
+    endTime: z.date().optional().nullable(),
+    allDay: z.boolean().default(false),
+    location: z.string().nullish(),
+    isVirtual: z.boolean().default(false),
+    meetingUrl: z.string().url(messages.invalidMeetingUrl).nullish().or(z.literal('')),
+    status: z.enum(EVENT_STATUS_VALUES).default('confirmed'),
+    priority: z.enum(EVENT_PRIORITY_VALUES).default('normal'),
+    color: z.string().nullish(),
+    attendees: z.array(z.object({
+      email: z.string().email(messages.invalidGuestEmail),
+      name: z.string().nullish(),
+      status: z.string().nullish(),
+      role: z.string().nullish(),
+    })).nullish(),
+    customerId: z.string().nullish(),
+    contactId: z.string().nullish(),
+    notes: z.string().nullish(),
+    tags: z.array(z.string()).nullish(),
+  });
+}
+
+export const eventFormSchema = buildEventFormSchema();
 
 export type EventFormValues = z.infer<typeof eventFormSchema>;
 // The schema applies `.default()` on several fields, so `zodResolver` types the
@@ -36,27 +70,85 @@ export type EventFormValues = z.infer<typeof eventFormSchema>;
 // are optional until Zod fills them in. `useForm`'s TFieldValues must match.
 export type EventFormInput = z.input<typeof eventFormSchema>;
 
-export const EVENT_TYPE_OPTIONS = [
-  { label: 'Meeting', value: 'meeting' },
-  { label: 'Call', value: 'call' },
-  { label: 'Appointment', value: 'appointment' },
-  { label: 'Event', value: 'event' },
-  { label: 'Reminder', value: 'reminder' },
-  { label: 'Other', value: 'other' },
-] as const;
+export type EventTypeValue = (typeof EVENT_TYPE_VALUES)[number];
+export type EventPriorityValue = (typeof EVENT_PRIORITY_VALUES)[number];
+export type EventStatusValue = (typeof EVENT_STATUS_VALUES)[number];
 
-export const EVENT_PRIORITY_OPTIONS = [
-  { label: 'Low', value: 'low' },
-  { label: 'Normal', value: 'normal' },
-  { label: 'High', value: 'high' },
-  { label: 'Urgent', value: 'urgent' },
-] as const;
+/**
+ * The `weldcalendar` locale strings the type / priority / status names come
+ * from. They are the same keys the toolbar filter uses, so one type has one name
+ * everywhere (`reminder` is "Task" in the filter and so in the panel and the
+ * dialog too). `t.calendarView` satisfies this.
+ */
+export interface EventOptionLabels {
+  filterTypeMeeting: string;
+  filterTypeCall: string;
+  filterTypeAppointment: string;
+  filterTypeEvent: string;
+  filterTypeTask: string;
+  filterTypeOther: string;
+  filterPriorityLow: string;
+  filterPriorityNormal: string;
+  filterPriorityHigh: string;
+  filterPriorityUrgent: string;
+  filterStatusConfirmed: string;
+  filterStatusTentative: string;
+  filterStatusCancelled: string;
+}
 
-export const EVENT_STATUS_OPTIONS = [
-  { label: 'Confirmed', value: 'confirmed' },
-  { label: 'Tentative', value: 'tentative' },
-  { label: 'Cancelled', value: 'cancelled' },
-] as const;
+export interface EventOption<V extends string> {
+  label: string;
+  value: V;
+}
+
+export function getEventTypeLabels(labels: EventOptionLabels): Record<EventTypeValue, string> {
+  return {
+    meeting: labels.filterTypeMeeting,
+    call: labels.filterTypeCall,
+    appointment: labels.filterTypeAppointment,
+    event: labels.filterTypeEvent,
+    reminder: labels.filterTypeTask,
+    other: labels.filterTypeOther,
+  };
+}
+
+export function getEventPriorityLabels(labels: EventOptionLabels): Record<EventPriorityValue, string> {
+  return {
+    low: labels.filterPriorityLow,
+    normal: labels.filterPriorityNormal,
+    high: labels.filterPriorityHigh,
+    urgent: labels.filterPriorityUrgent,
+  };
+}
+
+export function getEventStatusLabels(labels: EventOptionLabels): Record<EventStatusValue, string> {
+  return {
+    confirmed: labels.filterStatusConfirmed,
+    tentative: labels.filterStatusTentative,
+    cancelled: labels.filterStatusCancelled,
+  };
+}
+
+export function getEventTypeOptions(labels: EventOptionLabels): EventOption<EventTypeValue>[] {
+  const names = getEventTypeLabels(labels);
+  return EVENT_TYPE_VALUES.map((value) => ({ value, label: names[value] }));
+}
+
+export function getEventPriorityOptions(labels: EventOptionLabels): EventOption<EventPriorityValue>[] {
+  const names = getEventPriorityLabels(labels);
+  return EVENT_PRIORITY_VALUES.map((value) => ({ value, label: names[value] }));
+}
+
+export function getEventStatusOptions(labels: EventOptionLabels): EventOption<EventStatusValue>[] {
+  const names = getEventStatusLabels(labels);
+  return EVENT_STATUS_VALUES.map((value) => ({ value, label: names[value] }));
+}
+
+/** Name of a stored value; an unknown one (data written by another client) is shown as is. */
+export function labelFor(names: Record<string, string>, value: string | null | undefined): string {
+  if (!value) return '';
+  return names[value] ?? value;
+}
 
 export const EVENT_TYPE_COLORS: Record<string, string> = {
   meeting: '#3b82f6',     // blue

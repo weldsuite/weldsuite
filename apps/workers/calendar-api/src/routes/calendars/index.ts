@@ -303,6 +303,10 @@ async function sendCancellationMails(c: CalendarContext, events: CalendarEventRo
           location: event.location,
           startTime: isoOrNull(event.startTime),
           endTime: isoOrNull(event.endTime),
+          // The event's own zone and all-day flag, like the single-event cancel
+          // and the invitation: without them the mail falls back to UTC.
+          timezone: event.timezone,
+          allDay: event.allDay,
         },
       });
     } catch (err) {

@@ -39,8 +39,11 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { format, addDays } from 'date-fns';
 import { mailApi } from '../../../lib/api-client';
-import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
 import type { MailDraftRow } from '@weldsuite/app-api-client/domains/mail-drafts';
+import { buildComposeBodies, plainTextToHtml, type ComposeBodies } from '@/app/weldmail/lib/compose-body';
+import type { DraftFields } from '@/app/weldmail/lib/draft-autosave';
+import { useDraftAutosave } from '@/app/weldmail/lib/use-draft-autosave';
 import {
   usePersonSearch,
   useRecentCorrespondents,
@@ -88,7 +91,6 @@ interface ComposePageProps {
 }
 
 type ComposeContextValue = ReturnType<typeof useComposeSafe>;
-type SaveDraftResult = { success: boolean; error?: string };
 
 // Everything the send / save-draft flows read from the compose form.
 interface ComposeFormSnapshot {
@@ -115,8 +117,6 @@ const withPendingInput = (recipients: string[], input: string): string[] => {
   const pending = input.trim();
   return pending ? [...recipients, pending] : [...recipients];
 };
-
-const toHtmlBody = (body: string): string => (body.includes('<') ? body : body.replace(/\n/g, '<br>'));
 
 const attachmentsOrUndefined = (attachments: MailAttachmentRef[]): MailAttachmentRef[] | undefined =>
   (attachments.length > 0 ? attachments : undefined);
@@ -183,7 +183,8 @@ function extractDraftFields(draft: MailDraftRow): LoadedDraftFields {
   if (draft.subject) fields.subject = draft.subject;
   if (draft.cc?.length) fields.cc = draft.cc.join(', ');
   if (draft.bcc?.length) fields.bcc = draft.bcc.join(', ');
-  const draftBody = draft.htmlBody || draft.body || '';
+  // A draft made elsewhere may only have a text part; the editor needs markup.
+  const draftBody = draft.htmlBody || (draft.body ? plainTextToHtml(draft.body) : '');
   if (draftBody) fields.body = draftBody;
   if (draft.inReplyTo) fields.inReplyTo = draft.inReplyTo;
   return fields;
@@ -215,17 +216,27 @@ function applyDraftFields(fields: LoadedDraftFields, setters: DraftFieldSetters)
   if (fields.inReplyTo) setters.setInReplyTo(fields.inReplyTo);
 }
 
-function buildDraftPayload(form: ComposeFormSnapshot, editorHtml: string | undefined, inReplyTo: string | undefined) {
-  const allTo = withPendingInput(form.toRecipients, form.toInput);
-  const bodyContent = editorHtml || form.body || '';
+type DraftFormSnapshot = Pick<
+  ComposeFormSnapshot,
+  'toRecipients' | 'toInput' | 'subject' | 'body' | 'ccRecipients' | 'bccRecipients'
+>;
+
+// `editorHtml` is the live editor content. The form's `body` only follows it on
+// blur, so it is just the fallback for when the editor is not mounted.
+function buildDraftFields(
+  form: DraftFormSnapshot,
+  editorHtml: string | undefined,
+  inReplyTo: string | undefined,
+): DraftFields {
+  const { body, htmlBody } = buildComposeBodies(editorHtml ?? form.body);
   return {
-    subject: form.subject || undefined,
-    to: allTo.length > 0 ? allTo : undefined,
-    cc: parseOptionalRecipients(form.ccRecipients),
-    bcc: parseOptionalRecipients(form.bccRecipients),
-    body: bodyContent || undefined,
-    htmlBody: bodyContent.includes('<') ? bodyContent : undefined,
-    inReplyTo: inReplyTo || undefined,
+    subject: form.subject,
+    to: withPendingInput(form.toRecipients, form.toInput),
+    cc: parseRecipients(form.ccRecipients),
+    bcc: parseRecipients(form.bccRecipients),
+    body,
+    htmlBody,
+    inReplyTo,
   };
 }
 
@@ -339,18 +350,25 @@ function useInitEditorFromContext(
 }
 
 // Load draft from API when draftId is provided
-function useLoadDraft(draftId: string | null, onLoaded: (draft: MailDraftRow) => void) {
-  const { getClient } = useAppApiClient();
+function useLoadDraft(
+  draftId: string | null,
+  onLoaded: (draft: MailDraftRow) => void,
+  onFailed: () => void,
+) {
+  const { mailDrafts } = useAppApi();
   const hasLoadedDraft = useRef(false);
   useEffect(() => {
     if (!draftId || hasLoadedDraft.current) return;
     hasLoadedDraft.current = true;
-    getClient().then((client) =>
-      client.get<{ success: boolean; data: MailDraftRow }>(`/mail-drafts/${draftId}`)
-    ).then((result) => {
-      if (result.success && result.data) onLoaded(result.data);
-    });
-  }, [draftId, getClient, onLoaded]);
+    // The API answers `{ data }` (no `success` flag) and rejects on failure.
+    mailDrafts
+      .get(draftId)
+      .then((result) => {
+        if (result.data) onLoaded(result.data);
+        else onFailed();
+      })
+      .catch(onFailed);
+  }, [draftId, mailDrafts, onLoaded, onFailed]);
 }
 
 function useDismissOnOutsideClick(
@@ -660,11 +678,14 @@ function useComposeSend({
   returnUrl,
   editorRef,
   form,
+  onSent,
 }: {
   accountId: string;
   returnUrl: { current: string | null };
   editorRef: React.RefObject<HTMLDivElement | null>;
   form: ComposeFormSnapshot;
+  /** Runs after a send or schedule succeeded, e.g. to remove the draft it came from. */
+  onSent: () => Promise<unknown>;
 }) {
   const { t } = useI18n();
   const cp = t.mail.composePage;
@@ -672,12 +693,12 @@ function useComposeSend({
   const { getClient } = useAppApiClient();
   const [isSending, setIsSending] = useState(false);
 
-  const finishSend = (fallbackUrl: string) => {
+  const finishSend = async (fallbackUrl: string) => {
+    // The message is out, so the draft it was written in must leave Drafts.
+    await onSent();
     window.dispatchEvent(new Event('mail:refresh'));
     router.push(returnUrl.current || fallbackUrl);
   };
-
-  const bodiesFor = (liveBody: string) => ({ trimmedBody: liveBody.trim(), htmlBody: toHtmlBody(liveBody) });
 
   const notifyEmailTooLarge = () =>
     toast.error(cp.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
@@ -696,12 +717,12 @@ function useComposeSend({
     }
   };
 
-  const sendScheduled = async (toAddresses: string[], liveBody: string, scheduledFor: Date) => {
+  const sendScheduled = async (toAddresses: string[], bodies: ComposeBodies, scheduledFor: Date) => {
     setIsSending(true);
     try {
       const client = await getClient();
-      const { trimmedBody, htmlBody } = bodiesFor(liveBody);
-      if (emailSizeExceedsLimit(trimmedBody, htmlBody, form.attachedFiles)) {
+      const { body, htmlBody } = bodies;
+      if (emailSizeExceedsLimit(body, htmlBody, form.attachedFiles)) {
         notifyEmailTooLarge();
         return;
       }
@@ -715,14 +736,14 @@ function useComposeSend({
         cc: parseOptionalRecipients(form.ccRecipients),
         bcc: parseOptionalRecipients(form.bccRecipients),
         subject: form.subject.trim() || cp.noSubject,
-        body: trimmedBody,
+        body,
         htmlBody,
         scheduledFor,
         attachments: attachmentsOrUndefined(uploadedAttachments),
       });
       if (result.success) {
         toast.success(cp.emailScheduledFor.replace('{date}', format(scheduledFor, 'PPp')));
-        finishSend(`/weldmail/${accountId}/sent`);
+        await finishSend(`/weldmail/${accountId}/sent`);
       } else {
         toast.error(result.error || cp.failedToScheduleEmail);
       }
@@ -733,11 +754,11 @@ function useComposeSend({
     }
   };
 
-  const sendNow = async (toAddresses: string[], liveBody: string) => {
+  const sendNow = async (toAddresses: string[], bodies: ComposeBodies) => {
     setIsSending(true);
     try {
-      const { trimmedBody, htmlBody } = bodiesFor(liveBody);
-      if (emailSizeExceedsLimit(trimmedBody, htmlBody, form.attachedFiles)) {
+      const { body, htmlBody } = bodies;
+      if (emailSizeExceedsLimit(body, htmlBody, form.attachedFiles)) {
         notifyEmailTooLarge();
         return;
       }
@@ -750,14 +771,14 @@ function useComposeSend({
         cc: parseOptionalRecipients(form.ccRecipients),
         bcc: parseOptionalRecipients(form.bccRecipients),
         subject: form.subject.trim() || cp.noSubject,
-        body: trimmedBody,
+        body,
         htmlBody,
         attachments: attachmentsOrUndefined(uploadedAttachments),
       });
 
       if (result.success) {
         toast.success(cp.emailSentSuccessfully);
-        finishSend(`/weldmail/${accountId}/sent`);
+        await finishSend(`/weldmail/${accountId}/sent`);
       } else {
         toast.error(result.error || cp.failedToSendEmail);
       }
@@ -771,74 +792,59 @@ function useComposeSend({
   const handleSend = async () => {
     if (isSending) return;
     // Read the editor directly so Ctrl+Enter sends text that has not blurred yet.
-    const liveBody = editorRef.current?.innerHTML || form.body;
+    const bodies = buildComposeBodies(editorRef.current ? editorRef.current.innerHTML : form.body);
     // Commit any pending input
     const toAddresses = withPendingInput(form.toRecipients, form.toInput);
     if (toAddresses.length === 0) {
       toast.error(cp.atLeastOneRecipient);
       return;
     }
-    if (!liveBody.trim()) {
+    if (!bodies.body) {
       toast.error(cp.enterMessage);
       return;
     }
     if (form.scheduledTime) {
-      await sendScheduled(toAddresses, liveBody, form.scheduledTime);
+      await sendScheduled(toAddresses, bodies, form.scheduledTime);
       return;
     }
-    await sendNow(toAddresses, liveBody);
+    await sendNow(toAddresses, bodies);
   };
 
   return { isSending, handleSend };
 }
 
 function useDraftActions({
-  accountId,
-  currentDraftId,
   editorRef,
   form,
   inReplyTo,
+  autosave,
   onClose,
 }: {
-  accountId: string;
-  currentDraftId: string | null;
   editorRef: React.RefObject<HTMLDivElement | null>;
   form: ComposeFormSnapshot;
   inReplyTo: string | undefined;
+  autosave: Pick<ReturnType<typeof useDraftAutosave>, 'saveNow' | 'discard'>;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const cp = t.mail.composePage;
-  const { getClient } = useAppApiClient();
 
+  // Creates the draft, or updates the one autosave already made.
   const handleSaveDraft = async () => {
-    try {
-      const draftData = buildDraftPayload(form, editorRef.current?.innerHTML, inReplyTo);
-      const client = await getClient();
-      const result = currentDraftId
-        ? await client.put<SaveDraftResult>(`/mail-drafts/${currentDraftId}`, draftData)
-        : await client.post<SaveDraftResult>('/mail-drafts', { accountId, ...draftData });
-      if (result.success) {
-        toast.success(cp.draftSaved);
-      } else {
-        toast.error(result.error || cp.failedToSaveDraft);
-      }
-    } catch (error) {
-      console.error('Failed to save draft:', error);
+    const saved = await autosave.saveNow(buildDraftFields(form, editorRef.current?.innerHTML, inReplyTo));
+    if (saved) {
+      toast.success(cp.draftSaved);
+    } else {
       toast.error(cp.failedToSaveDraft);
     }
     onClose();
   };
 
   const handleDeleteDraft = async () => {
-    try {
-      if (currentDraftId) {
-        const client = await getClient();
-        await client.delete(`/mail-drafts/${currentDraftId}`);
-        toast.success(cp.draftDeleted);
-      }
-    } catch (error) {
-      console.error('Failed to delete draft:', error);
+    const result = await autosave.discard();
+    if (result === 'deleted') {
+      toast.success(cp.draftDeleted);
+    } else if (result === 'failed') {
       toast.error(cp.failedToSaveDraft);
     }
     onClose();
@@ -874,7 +880,10 @@ export default function ComposePage(props: ComposePageProps = {}) {
 
   // Use URL params (most reliable) with compose context as fallback
   const returnUrl = useRef<string | null>(returnUrlParam || composeContext?.previousUrl || null);
-  const [currentDraftId] = useState<string | null>(draftId);
+  const [bodyHasText, setBodyHasText] = useState(false);
+  // An opened draft is not the user's form until it has loaded; autosaving the
+  // empty form over it would wipe it.
+  const [draftLoaded, setDraftLoaded] = useState(!draftId);
   const [inReplyTo, setInReplyTo] = useState<string | undefined>(inReplyToParam || composeContext?.composeData.inReplyTo || undefined);
   const isMinimizingRef = useRef(false);
 
@@ -897,7 +906,7 @@ export default function ComposePage(props: ComposePageProps = {}) {
     }
   };
 
-  const applyLoadedDraft = (draft: MailDraftRow) =>
+  const applyLoadedDraft = (draft: MailDraftRow) => {
     applyDraftFields(extractDraftFields(draft), {
       setToRecipients,
       setSubject,
@@ -908,7 +917,12 @@ export default function ComposePage(props: ComposePageProps = {}) {
       setEditorContent,
       setInReplyTo,
     });
-  useLoadDraft(draftId, applyLoadedDraft);
+    setDraftLoaded(true);
+  };
+  const handleDraftLoadFailed = () => toast.error(t.mail.composePage.failedToLoadDraft);
+  useLoadDraft(draftId, applyLoadedDraft, handleDraftLoadFailed);
+
+  const autosave = useDraftAutosave({ accountId, initialDraftId: draftId, enabled: draftLoaded });
 
   const ai = useAiDraft({ accountId, inReplyTo, subject, onSubject: setSubject, onBody: setEditorContent });
   const suggestions = useContactSuggestions(accountId);
@@ -929,6 +943,9 @@ export default function ComposePage(props: ComposePageProps = {}) {
 
     // Get the current body content from the editor
     const currentBody = textareaRef.current?.innerHTML || body;
+
+    // The floating panel keeps updating the draft this page already made.
+    autosave.handOff();
 
     // Transfer data to floating panel
     composeContext.minimizeToPanel({
@@ -956,17 +973,37 @@ export default function ComposePage(props: ComposePageProps = {}) {
     attachedFiles,
     scheduledTime,
   };
-  const { isSending, handleSend } = useComposeSend({ accountId, returnUrl, editorRef: textareaRef, form });
-  const { handleSaveDraft, handleDeleteDraft } = useDraftActions({
+  const { isSending, handleSend } = useComposeSend({
     accountId,
-    currentDraftId,
+    returnUrl,
+    editorRef: textareaRef,
+    form,
+    onSent: autosave.discard,
+  });
+  const { handleSaveDraft, handleDeleteDraft } = useDraftActions({
     editorRef: textareaRef,
     form,
     inReplyTo,
+    autosave,
     onClose: handleClose,
   });
 
-  const hasContent = Boolean(toRecipients.length > 0 || toInput || subject || body);
+  // Reports the form to the autosave. The first report is the baseline (the
+  // pre-filled form, or the draft that was just loaded) and is not saved.
+  const { schedule: scheduleDraftSave } = autosave;
+  const reportDraftChange = (editorHtml: string | undefined) =>
+    scheduleDraftSave(buildDraftFields(form, editorHtml, inReplyTo));
+  useEffect(() => {
+    scheduleDraftSave(
+      buildDraftFields(
+        { toRecipients, toInput, subject, body, ccRecipients, bccRecipients },
+        textareaRef.current?.innerHTML,
+        inReplyTo,
+      ),
+    );
+  }, [scheduleDraftSave, draftLoaded, toRecipients, toInput, subject, body, ccRecipients, bccRecipients, inReplyTo]);
+
+  const hasContent = Boolean(toRecipients.length > 0 || toInput || subject || body || bodyHasText);
 
   return (
     <div
@@ -1094,6 +1131,10 @@ export default function ComposePage(props: ComposePageProps = {}) {
               style={{
                 fontSize: `${fontSize}px`,
                 textAlign: textAlignment,
+              }}
+              onInput={(e) => {
+                setBodyHasText(Boolean(e.currentTarget.textContent?.trim()));
+                reportDraftChange(e.currentTarget.innerHTML);
               }}
               onBlur={(e) => {
                 setBody(e.currentTarget.innerHTML);

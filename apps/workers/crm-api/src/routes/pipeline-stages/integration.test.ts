@@ -12,6 +12,7 @@ import { pipelineStagesRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
@@ -73,5 +74,121 @@ describe('/api/pipeline-stages · pglite integration', () => {
       body: JSON.stringify({ name: '', position: 0 }),
     });
     expect(res.status).toBe(400);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Position default (TASK-921, "Stage adden werkt niet"): a stage created
+  // without a position must land after the last open stage, before any
+  // isWon/isLost stage, not always at 0.
+  // ---------------------------------------------------------------------------
+
+  it('POST / without a position appends after the last open stage, before won/lost stages', async () => {
+    const pipeline = generateId('pl');
+    const { request } = createTestApp('/api/pipeline-stages', pipelineStagesRoutes, {
+      context: { permissions: permissions('pipelines:create'), tenantDb: db },
+    });
+
+    const open1 = await request('/api/pipeline-stages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Open 1', position: 0, pipeline }),
+    });
+    expect(open1.status).toBe(201);
+
+    const open2 = await request('/api/pipeline-stages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Open 2', position: 1, pipeline }),
+    });
+    expect(open2.status).toBe(201);
+
+    const won = await request('/api/pipeline-stages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Won', position: 2, pipeline, isWon: true }),
+    });
+    expect(won.status).toBe(201);
+
+    // No `position` — must land at 2 (after the two open stages), not 0.
+    const res = await request('/api/pipeline-stages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'New open stage', pipeline }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string } };
+    const [row] = await db
+      .select()
+      .from(schema.crmPipelineStages)
+      .where(eq(schema.crmPipelineStages.id, body.data.id))
+      .limit(1);
+    expect(row?.position).toBe(2);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Delete guard (TASK-921): a stage still holding deals must not be
+  // deletable — the deals would be orphaned (stageId pointing nowhere).
+  // ---------------------------------------------------------------------------
+
+  it('DELETE /:id is blocked when the stage still has deals', async () => {
+    const now = new Date();
+    const pipeline = generateId('pl');
+    const stageId = generateId('pls');
+    await db.insert(schema.crmPipelineStages).values({
+      id: stageId,
+      name: 'Occupied stage',
+      position: 0,
+      pipeline,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.crmOpportunities).values({
+      id: generateId('opp'),
+      name: 'Deal in the way',
+      customerId: 'cust_delete_guard',
+      amount: '100',
+      currency: 'EUR',
+      stage: 'prospecting',
+      stageId,
+      status: 'open',
+      ownerId: 'user_delete_guard',
+      closeDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      probability: 0,
+      pipeline,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const { request } = createTestApp('/api/pipeline-stages', pipelineStagesRoutes, {
+      context: { permissions: permissions('pipelines:delete'), tenantDb: db },
+    });
+    const res = await request(`/api/pipeline-stages/${stageId}`, { method: 'DELETE' });
+    expect(res.status).toBe(400);
+
+    const [row] = await db
+      .select()
+      .from(schema.crmPipelineStages)
+      .where(eq(schema.crmPipelineStages.id, stageId))
+      .limit(1);
+    expect(row?.deletedAt).toBeNull();
+  });
+
+  it('DELETE /:id succeeds for an empty stage', async () => {
+    const now = new Date();
+    const stageId = generateId('pls');
+    await db.insert(schema.crmPipelineStages).values({
+      id: stageId,
+      name: 'Empty stage',
+      position: 0,
+      pipeline: generateId('pl'),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const { request } = createTestApp('/api/pipeline-stages', pipelineStagesRoutes, {
+      context: { permissions: permissions('pipelines:delete'), tenantDb: db },
+    });
+    const res = await request(`/api/pipeline-stages/${stageId}`, { method: 'DELETE' });
+    expect(res.status).toBe(204);
   });
 });

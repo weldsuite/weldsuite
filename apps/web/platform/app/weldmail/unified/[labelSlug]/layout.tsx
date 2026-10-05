@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams } from '@/lib/router';
 import { useMailListPage } from '../../hooks/use-mail-list-page';
+import { MAIL_SEARCH_PAGE_SIZE, useMailThreadSearch } from '../../hooks/use-mail-thread-search';
 import { useMailLabelThreads } from '@/hooks/queries/use-mail-queries';
 import { getSystemLabelConfig } from '../../lib/label-config';
 import type { ThreadSummary } from '../../lib/thread-utils';
@@ -38,7 +39,12 @@ export default function UnifiedLabelLayout({
   const { t } = useI18n();
   const params = useParams<{ labelSlug: string }>();
   const labelSlug = decodeURIComponent(params.labelSlug);
-  const currentPage = useMailListPage();
+  const urlPage = useMailListPage();
+
+  // Search box and Filter panel run on the server (see useMailThreadSearch).
+  const { search: threadSearch, isSearching, setSearch } = useMailThreadSearch();
+  const currentPage = isSearching ? 1 : urlPage;
+  const pageSize = isSearching ? MAIL_SEARCH_PAGE_SIZE : PAGE_SIZE;
 
   // Remember that the unified inbox was the last view opened (per-user).
   const { data: preferences } = useUserPreferences();
@@ -54,7 +60,7 @@ export default function UnifiedLabelLayout({
 
   // Unified inbox: omit `accountId` so app-api's /mail-labels/threads
   // aggregates threads across every account the caller can read.
-  const threadsQuery = useMailLabelThreads({ labelSlug, page: currentPage, pageSize: PAGE_SIZE });
+  const threadsQuery = useMailLabelThreads({ labelSlug, page: currentPage, pageSize, ...threadSearch });
 
   const mappedThreads = useMemo<ThreadSummary[]>(() => {
     const apiThreads = threadsQuery.data?.data?.threads ?? [];
@@ -96,6 +102,7 @@ export default function UnifiedLabelLayout({
     page: currentPage,
     pageSize: PAGE_SIZE,
     serverTotalCount,
+    enabled: !isSearching,
   });
 
   // Archive-and-next hides the row immediately so the left list doesn't
@@ -115,12 +122,14 @@ export default function UnifiedLabelLayout({
   const listThreads = useToppedUpThreadList(
     visibleThreads,
     nextPageThreads,
-    PAGE_SIZE,
+    pageSize,
     hidden,
   );
 
-  const totalCount = Math.max(0, serverTotalCount - hiddenCount);
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
+  const totalCount = isSearching
+    ? Math.min(serverTotalCount, MAIL_SEARCH_PAGE_SIZE)
+    : Math.max(0, serverTotalCount - hiddenCount);
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
   const error = threadsQuery.isError ? t.mail.unifiedLayout.failedToLoadConversations : null;
 
   const refetchThreads = useCallback(() => {
@@ -192,9 +201,10 @@ export default function UnifiedLabelLayout({
         currentPage={currentPage}
         totalPages={totalPages}
         totalCount={totalCount}
-        pageSize={PAGE_SIZE}
+        pageSize={pageSize}
         isUnified
         onThreadLabelUpdate={handleThreadLabelUpdate}
+        onServerFilterChange={setSearch}
       />
     </div>
   );

@@ -20,6 +20,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { EntityList } from '@/components/entity-list';
 import { useMailMessagesByCounterparty } from '@/hooks/queries/use-mail-queries';
+import { useComposeSafe } from '@/contexts/compose-context';
 
 interface EmailsTabProps {
   /** Counterparty primary email — used to filter mail messages. */
@@ -51,8 +52,18 @@ function formatMailDate(d: Date, yesterdayLabel: string): string {
 
 export function EmailsTab({ entityEmail, entityKind }: EmailsTabProps) {
   const t = useTranslations();
+  const compose = useComposeSafe();
   const trimmed = entityEmail?.trim();
   const { data, isLoading } = useMailMessagesByCounterparty(trimmed);
+
+  const handleCompose = useCallback(() => {
+    if (!trimmed) return;
+    if (compose) {
+      compose.openCompose({ to: trimmed });
+      return;
+    }
+    window.location.href = `mailto:${trimmed}`;
+  }, [compose, trimmed]);
 
   const messages = useMemo<EmailListItem[]>(() => {
     const rows = (data?.data ?? []) as MessageRow[];
@@ -147,7 +158,7 @@ export function EmailsTab({ entityEmail, entityKind }: EmailsTabProps) {
         <Button
           size="sm"
           className="h-8 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={() => (window.location.href = `mailto:${encodeURIComponent(trimmed)}`)}
+          onClick={handleCompose}
         >
           <Plus className="h-3.5 w-3.5" />
           {t('sweep.entities.compose')}

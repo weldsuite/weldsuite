@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, Settings, AtSign, BookUser } from 'lucide-react';
+import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, ArchiveRestore, Settings, AtSign, BookUser, Search, Bookmark } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 
 /** Hook point for decorating a sidebar group label; currently the identity. */
@@ -49,7 +49,7 @@ function createGroupDmAvatarIcon(
   };
 }
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
-import { useChannels, useDmChannels, useDeleteChannel, useMuteChannel, useArchiveChannel, useCreateSection as useCreateSectionMutation } from '@/hooks/queries/use-weldchat-queries';
+import { useChannels, useDmChannels, useDeleteChannel, useMuteChannel, useArchiveChannel, useUnarchiveChannel, useCreateSection as useCreateSectionMutation } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { useChatActivityUnread, useChatDrafts } from '@/hooks/queries/use-weldchat-extras-queries';
 import { getTranslations } from '@/lib/i18n';
@@ -59,6 +59,8 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { usePathname } from '@/lib/router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
+import { findDmChannelIdForUser, resolveOneToOneDmTarget } from '../lib/dm-links';
+import { parseWeldChatPath } from '../lib/route-segments';
 import { useTopic } from '@weldsuite/realtime/react';
 // Sidebar dialogs are lazy-loaded — they're only rendered when the user
 // opens them, so there's no reason to ship them in the main chunk.
@@ -134,13 +136,80 @@ function resolveLiveGroupChannels(
 
 type Translate = ReturnType<typeof useTranslations>;
 type MuteChannelFn = ReturnType<typeof useMuteChannel>['mutate'];
-type ArchiveChannelFn = ReturnType<typeof useArchiveChannel>['mutate'];
+type UnarchiveChannelFn = ReturnType<typeof useUnarchiveChannel>['mutate'];
 
 interface PendingDelete {
   id: string;
   name: string;
   kind: 'channel' | 'dm';
 }
+
+/** A channel/DM awaiting archive confirmation — same shape as a pending delete. */
+type PendingArchive = PendingDelete;
+
+/** The signed-in user, as the "DM with yourself" row needs them. */
+interface SelfIdentity {
+  id: string | null;
+  name: string;
+  picture?: string;
+}
+
+type RowIcon = MenuItemProps['icon'];
+
+const STATUS_BADGES = { muted: BellOff, archived: Archive } as const;
+type RowStatus = keyof typeof STATUS_BADGES;
+
+const statusIconCache = new WeakMap<RowIcon, Partial<Record<RowStatus, RowIcon>>>();
+
+/**
+ * Row icon with a small corner badge for a muted / archived conversation. Cached
+ * per base icon so the sidebar row does not remount its icon on every render.
+ */
+function withStatusBadge(Icon: RowIcon, status: RowStatus | null): RowIcon {
+  if (!status) return Icon;
+  const cached = statusIconCache.get(Icon)?.[status];
+  if (cached) return cached;
+  const Badge = STATUS_BADGES[status];
+  const Decorated = ({ className }: { className?: string }) => (
+    <span className="relative inline-flex flex-shrink-0">
+      <Icon className={className} />
+      <Badge
+        aria-hidden="true"
+        className="absolute -bottom-1 -right-1 h-2.5 w-2.5 rounded-full bg-sidebar text-muted-foreground"
+      />
+    </span>
+  );
+  statusIconCache.set(Icon, { ...statusIconCache.get(Icon), [status]: Decorated });
+  return Decorated;
+}
+
+function getRowStatus(ch: Pick<ChatChannel, 'isArchived' | 'isMuted'>): RowStatus | null {
+  if (ch.isArchived) return 'archived';
+  return ch.isMuted ? 'muted' : null;
+}
+
+/** Archived rows stay in the list; the suffix makes the state readable, not only the corner badge. */
+function getRowTitle(label: string, ch: Pick<ChatChannel, 'isArchived'>, st: Translate): string {
+  return ch.isArchived ? st('sweep.weldchat.sidebar.archivedTitle', { name: label }) : label;
+}
+
+function getSelfDmLabel(self: SelfIdentity, st: Translate): string {
+  return self.name
+    ? st('sweep.weldchat.sidebar.selfDmLabel', { name: self.name })
+    : st('sweep.weldchat.sidebar.selfDmFallback');
+}
+
+/** Translation keys of the archive-confirmation dialog, per kind of conversation. */
+const ARCHIVE_DIALOG_KEYS = {
+  dm: {
+    title: 'sweep.weldchat.sidebar.archiveDmTitle',
+    description: 'sweep.weldchat.sidebar.archiveDmDescription',
+  },
+  channel: {
+    title: 'sweep.weldchat.sidebar.archiveChannelTitle',
+    description: 'sweep.weldchat.sidebar.archiveChannelDescription',
+  },
+} as const;
 
 interface ActiveCallRecord {
   channelId: string;
@@ -159,9 +228,36 @@ interface SectionEntry {
 interface DmActionHandlers {
   st: Translate;
   muteChannel: MuteChannelFn;
-  archiveChannel: ArchiveChannelFn;
+  unarchiveChannel: UnarchiveChannelFn;
   setSettingsTarget: (target: GroupSettingsTarget) => void;
   setPendingDelete: (target: PendingDelete) => void;
+  setPendingArchive: (target: PendingArchive) => void;
+  /** Identity for the "DM with yourself" row (a 1:1 DM that has no other member). */
+  self: SelfIdentity;
+}
+
+/**
+ * Archive row action: archiving asks first (it hides the conversation for
+ * everyone), unarchiving restores it straight away.
+ */
+function buildArchiveAction(
+  ch: ChatChannel,
+  name: string,
+  kind: PendingArchive['kind'],
+  { st, unarchiveChannel, setPendingArchive }: Pick<DmActionHandlers, 'st' | 'unarchiveChannel' | 'setPendingArchive'>,
+): NonNullable<MenuItemProps['actions']>[number] {
+  if (ch.isArchived) {
+    return {
+      label: st('sweep.weldchat.sidebar.unarchive'),
+      icon: ArchiveRestore,
+      onClick: () => unarchiveChannel(ch.id),
+    };
+  }
+  return {
+    label: st('sweep.weldchat.sidebar.archive'),
+    icon: Archive,
+    onClick: () => setPendingArchive({ id: ch.id, name, kind }),
+  };
 }
 
 /** Translation keys of the delete-confirmation dialog, per kind of conversation. */
@@ -228,8 +324,9 @@ function getDmLabel(
 function buildDmActions(
   dm: DmChannel,
   dmLabel: string,
-  { st, muteChannel, archiveChannel, setSettingsTarget, setPendingDelete }: DmActionHandlers,
+  handlers: DmActionHandlers,
 ): NonNullable<MenuItemProps['actions']> {
+  const { st, muteChannel, setSettingsTarget, setPendingDelete } = handlers;
   return [
     {
       label: dm.isMuted ? st('sweep.weldchat.sidebar.unmute') : st('sweep.weldchat.sidebar.mute'),
@@ -248,11 +345,7 @@ function buildDmActions(
           channels: [dm],
         }),
     },
-    {
-      label: st('sweep.weldchat.sidebar.archive'),
-      icon: Archive,
-      onClick: () => archiveChannel(dm.id),
-    },
+    buildArchiveAction(dm, dmLabel, 'dm', handlers),
     {
       label: st('sweep.weldchat.sidebar.delete'),
       icon: Trash2,
@@ -264,37 +357,42 @@ function buildDmActions(
 function buildDmItems(dms: DmChannel[], handlers: DmActionHandlers): MenuItemProps[] {
   const dmItems: MenuItemProps[] = [];
   const seenDmUsers = new Set<string>();
+  const { self } = handlers;
   for (const dm of dms) {
     const otherMembers = (dm.otherMembers ?? []).filter((m) => m?.userId);
     const isGroup = otherMembers.length > 1;
-    const dmLabel = getDmLabel(dm, otherMembers, isGroup, handlers.st);
+    const target = isGroup ? null : resolveOneToOneDmTarget(dm, otherMembers, self.id);
+    const dmLabel = target?.isSelf ? getSelfDmLabel(self, handlers.st) : getDmLabel(dm, otherMembers, isGroup, handlers.st);
+    const status = getRowStatus(dm);
     const rowProps = {
-      title: dmLabel,
+      title: getRowTitle(dmLabel, dm, handlers.st),
       bold: hasUnreadMessages(dm),
       badge: toBadge(dm.unreadMentionCount || 0),
       actions: buildDmActions(dm, dmLabel, handlers),
       id: dm.id,
     };
 
-    if (isGroup) {
+    if (!target) {
       if (seenDmUsers.has(dm.id)) continue;
       seenDmUsers.add(dm.id);
       dmItems.push({
         ...rowProps,
         href: `/weldchat/dm/group/${dm.id}`,
-        icon: createGroupDmAvatarIcon(otherMembers),
+        icon: withStatusBadge(createGroupDmAvatarIcon(otherMembers), status),
       });
       continue;
     }
 
+    if (seenDmUsers.has(target.key)) continue;
+    seenDmUsers.add(target.key);
     const other = otherMembers[0];
-    const key = other?.userId || dm.id;
-    if (seenDmUsers.has(key)) continue;
-    seenDmUsers.add(key);
+    let avatar: RowIcon = User;
+    if (target.isSelf) avatar = createDmAvatarIcon(self.name || dmLabel, self.picture);
+    else if (other) avatar = createDmAvatarIcon(dmLabel, other.picture);
     dmItems.push({
       ...rowProps,
-      href: `/weldchat/dm/${key}`,
-      icon: other ? createDmAvatarIcon(dmLabel, other.picture) : User,
+      href: `/weldchat/dm/${target.key}`,
+      icon: withStatusBadge(avatar, status),
     });
   }
   return dmItems;
@@ -344,9 +442,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const [settingsTarget, setSettingsTarget] = React.useState<GroupSettingsTarget | null>(null);
   /** Channel/DM awaiting delete confirmation. Deleting is irreversible and takes
    * every message with it, so the row action only ever opens this dialog. */
-  const [pendingDelete, setPendingDelete] = React.useState<
-    { id: string; name: string; kind: 'channel' | 'dm' } | null
-  >(null);
+  const [pendingDelete, setPendingDelete] = React.useState<PendingDelete | null>(null);
+  /** Channel/DM awaiting archive confirmation. Archiving hides it for everyone. */
+  const [pendingArchive, setPendingArchive] = React.useState<PendingArchive | null>(null);
+  /** Section awaiting delete confirmation. */
+  const [pendingSectionDelete, setPendingSectionDelete] = React.useState<{ id: string; name: string } | null>(null);
   /** Per-group session-level collapse override: undefined = use settings.collapsedByDefault, true/false = user toggled. */
   const [collapseToggles, setCollapseToggles] = React.useState<Map<string, boolean>>(new Map());
   /** Per-group manual reordering: maps groupKey -> array of channel ids in user's chosen order. */
@@ -377,7 +477,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const { data: dmsData } = useDmChannels();
   const { mutate: deleteChannel, isPending: isDeletingChannel } = useDeleteChannel();
   const { mutate: muteChannel } = useMuteChannel();
-  const { mutate: archiveChannel } = useArchiveChannel();
+  const { mutate: archiveChannel, isPending: isArchivingChannel } = useArchiveChannel();
+  const { mutate: unarchiveChannel } = useUnarchiveChannel();
   const {
     sections,
     channelSectionMap,
@@ -395,6 +496,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
   const { user } = useUser();
+  const self: SelfIdentity = {
+    id: user?.id ?? null,
+    name: user?.fullName || user?.primaryEmailAddress?.emailAddress || '',
+    picture: user?.imageUrl,
+  };
 
   const t = getTranslations('weldchat');
   const st = useTranslations();
@@ -416,23 +522,14 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   // not really a "left-behind draft" until the user navigates away.
   const pathname = usePathname() ?? '';
   const activeChannelId: string | null = (() => {
-    // /weldchat/dm/group/<channelId>
-    const groupDmMatch = pathname.match(/^\/weldchat\/dm\/group\/([^/]+)/);
-    if (groupDmMatch) return groupDmMatch[1] ?? null;
+    const location = parseWeldChatPath(pathname);
+    if (!location.channelId) return null;
     // /weldchat/dm/<userId>  → resolve to the DM channel
-    const dmMatch = pathname.match(/^\/weldchat\/dm\/([^/]+)/);
-    if (dmMatch) {
-      const targetUserId = dmMatch[1];
-      const dm = dms.find((d) =>
-        d.otherMembers?.some((m) => m.userId === targetUserId),
-      );
-      return dm?.id ?? null;
+    if (location.isDmPage && !location.isGroupDm) {
+      return findDmChannelIdForUser(dms, location.channelId, user?.id);
     }
-    // /weldchat/<channelId>  (excluding the reserved top-level routes)
-    const channelMatch = pathname.match(/^\/weldchat\/([^/]+)/);
-    const reserved = new Set(['activity', 'drafts', 'directories', 'bookmarks', 'search', 'thread']);
-    if (channelMatch && !reserved.has(channelMatch[1] ?? '')) return channelMatch[1] ?? null;
-    return null;
+    // /weldchat/dm/group/<channelId> and /weldchat/<channelId>
+    return location.channelId;
   })();
 
   const draftCount: number = (() => {
@@ -510,9 +607,9 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       const hasUnread = ch.lastMessageAt && (!ch.lastReadAt || new Date(ch.lastMessageAt) > new Date(ch.lastReadAt));
       const mentionCount = ch.unreadMentionCount || 0;
       return {
-      title: ch.name ?? '',
+      title: getRowTitle(ch.name ?? '', ch, st),
       href: `/weldchat/${ch.id}`,
-      icon: ch.type === 'private' ? Lock : Hash,
+      icon: withStatusBadge(ch.type === 'private' ? Lock : Hash, getRowStatus(ch)),
       bold: !!hasUnread,
       badge: mentionCount > 0 ? `${mentionCount}` : undefined,
       activeCall: activeCallChannels.has(ch.id),
@@ -555,11 +652,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
               channels: [ch],
             }),
         },
-        {
-          label: st('sweep.weldchat.sidebar.archive'),
-          icon: Archive,
-          onClick: () => archiveChannel(ch.id),
-        },
+        buildArchiveAction(ch, ch.name ?? '', 'channel', { st, unarchiveChannel, setPendingArchive }),
         {
           label: st('sweep.weldchat.sidebar.delete'),
           icon: Trash2,
@@ -573,9 +666,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const dmItems = buildDmItems(dms, {
     st,
     muteChannel,
-    archiveChannel,
+    unarchiveChannel,
     setSettingsTarget,
     setPendingDelete,
+    setPendingArchive,
+    self,
   });
 
   // Entity-linked channels (tasks, projects, companies, …) are intentionally
@@ -687,7 +782,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   // Build menu groups
   const menuGroups: MenuGroupProps[] = [];
 
-  // Top navigation group (Activity / Drafts / Directories) — no label header.
+  // Top navigation group (Activity / Drafts / Directories / Search / Saved items) — no label header.
   menuGroups.push({
     group: '',
     groupKey: 'weldchat:top-nav',
@@ -711,6 +806,16 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         title: t.directories ?? 'Directories',
         href: '/weldchat/directories',
         icon: BookUser,
+      },
+      {
+        title: st('sweep.weldchat.sidebar.search'),
+        href: '/weldchat/search',
+        icon: Search,
+      },
+      {
+        title: st('sweep.weldchat.sidebar.savedItems'),
+        href: '/weldchat/bookmarks',
+        icon: Bookmark,
       },
     ],
   });
@@ -856,7 +961,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         label: st('sweep.weldchat.sidebar.delete'),
         icon: Trash2,
         onClick: () => {
-          if (section.id) deleteSection(section.id);
+          if (section.id) setPendingSectionDelete({ id: section.id, name: section.name });
         },
         destructive: true,
       });
@@ -960,6 +1065,37 @@ export function useWeldchatSidebarItems(isActive: boolean): {
             deleteChannel(pendingDelete.id, {
               onSettled: () => setPendingDelete(null),
             });
+          }}
+        />
+      )}
+      {pendingArchive && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => { if (!open) setPendingArchive(null); }}
+          title={st(ARCHIVE_DIALOG_KEYS[pendingArchive.kind].title)}
+          description={st(ARCHIVE_DIALOG_KEYS[pendingArchive.kind].description, { name: pendingArchive.name })}
+          confirmLabel={st('sweep.weldchat.sidebar.archive')}
+          cancelLabel={st('sweep.weldchat.sidebar.deleteCancel')}
+          loading={isArchivingChannel}
+          onConfirm={() => {
+            archiveChannel(pendingArchive.id, {
+              onSettled: () => setPendingArchive(null),
+            });
+          }}
+        />
+      )}
+      {pendingSectionDelete && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => { if (!open) setPendingSectionDelete(null); }}
+          title={st('sweep.weldchat.sidebar.deleteSectionTitle')}
+          description={st('sweep.weldchat.sidebar.deleteSectionDescription', { name: pendingSectionDelete.name })}
+          confirmLabel={st('sweep.weldchat.sidebar.delete')}
+          cancelLabel={st('sweep.weldchat.sidebar.deleteCancel')}
+          variant="destructive"
+          onConfirm={() => {
+            deleteSection(pendingSectionDelete.id);
+            setPendingSectionDelete(null);
           }}
         />
       )}

@@ -181,6 +181,20 @@ describe('CreateCalendarDialog colour swatches', () => {
   });
 });
 
+describe('CreateCalendarDialog name (TASK-895)', () => {
+  it('keeps Create off until the calendar has a name, spaces do not count', () => {
+    render(<CreateCalendarDialog open onOpenChange={vi.fn()} />);
+    const create = screen.getByRole('button', { name: 'Create' });
+    expect(create).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: '   ' } });
+    expect(create).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Work' } });
+    expect(create).toBeEnabled();
+  });
+});
+
 describe('CalendarSidebarSection row menu', () => {
   it('opens the row menu from the keyboard and asks before deleting', async () => {
     render(

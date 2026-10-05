@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { Star } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -10,6 +11,8 @@ import {
   ContextMenuTrigger,
 } from '@weldsuite/ui/components/context-menu';
 import { cn } from '@/lib/utils';
+import { useAppApiClient } from '@/lib/api/use-app-api';
+import { MemberSelect } from '@/components/team/member-select';
 import { useGridContext } from '../context';
 import { useIsCellEditing, setEditingCellValue } from '../editing-store';
 import { GridColumnDef, EditorProps, OpenPopover } from '../types';
@@ -225,6 +228,8 @@ interface CellRenderCtx {
   compact: boolean;
   isEditing: boolean;
   isPopoverOpen: boolean;
+  /** `column.editable !== false` — gates every interactive editor below. */
+  canEdit: boolean;
   value: unknown;
   entityId: string;
   /** Enter edit mode, honouring `config.enableInlineEditing`. */
@@ -372,11 +377,12 @@ function renderStarCell(ctx: CellRenderCtx) {
       <Button
         variant="ghost"
         size="icon"
+        disabled={!ctx.canEdit}
         onClick={(e) => {
           e.stopPropagation();
-          ctx.persistValue(!value);
+          if (ctx.canEdit) ctx.persistValue(!value);
         }}
-        className="p-0.5 rounded transition-colors hover:bg-muted"
+        className="p-0.5 rounded transition-colors hover:bg-muted disabled:opacity-70 disabled:cursor-default"
       >
         <Star
           className={cn(
@@ -391,7 +397,39 @@ function renderStarCell(ctx: CellRenderCtx) {
   );
 }
 
+function renderStaticSelectValue(value: string | null | undefined, selectConfig: GridColumnDef<unknown>['selectConfig']) {
+  if (!value) return null;
+  const config = selectConfig?.[value];
+  if (config) {
+    return (
+      <span className={cn('inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none', config.bg, config.color)}>
+        {config.label}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-secondary text-secondary-foreground">
+      {value}
+    </span>
+  );
+}
+
 function renderSelectCell(multi: boolean, ctx: CellRenderCtx) {
+  if (!ctx.canEdit) {
+    return (
+      <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
+        {multi ? (
+          <span className="flex items-center gap-1 flex-wrap">
+            {((ctx.value as string[] | undefined) || []).map((v) => (
+              <React.Fragment key={v}>{renderStaticSelectValue(v, ctx.selectConfig)}</React.Fragment>
+            ))}
+          </span>
+        ) : (
+          renderStaticSelectValue(ctx.value as string | null, ctx.selectConfig)
+        )}
+      </CellWrapper>
+    );
+  }
   const common = {
     onChange: ctx.persistValue,
     onCommit: () => {},
@@ -413,6 +451,13 @@ function renderSelectCell(multi: boolean, ctx: CellRenderCtx) {
 }
 
 function renderCheckboxCell(ctx: CellRenderCtx) {
+  if (!ctx.canEdit) {
+    return (
+      <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
+        <Checkbox checked={!!ctx.value} disabled className="pointer-events-none opacity-70" />
+      </CellWrapper>
+    );
+  }
   return (
     <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
       <CheckboxEditor
@@ -426,6 +471,15 @@ function renderCheckboxCell(ctx: CellRenderCtx) {
 }
 
 function renderDateCell(ctx: CellRenderCtx) {
+  if (!ctx.canEdit) {
+    const date = ctx.value ? new Date(ctx.value as string) : null;
+    const text = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : null;
+    return (
+      <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
+        {text ? <span className="text-[14px] text-foreground/80 truncate">{text}</span> : null}
+      </CellWrapper>
+    );
+  }
   return (
     <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
       <DateEditor
@@ -436,6 +490,61 @@ function renderDateCell(ctx: CellRenderCtx) {
       />
     </CellWrapper>
   );
+}
+
+interface TeamMemberLite {
+  userId: string;
+  name: string | null;
+  email?: string | null;
+  picture?: string | null;
+}
+
+/** Shares its query cache with `MemberSelect` (same queryKey) — no extra fetch. */
+function useTeamMembersForGrid(): TeamMemberLite[] {
+  const { getClient } = useAppApiClient();
+  const { data } = useQuery({
+    queryKey: ['team-members', 'list'],
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: TeamMemberLite[] }>('/team-members');
+    },
+  });
+  return data?.data ?? [];
+}
+
+interface MemberCellProps {
+  ctx: CellRenderCtx;
+}
+
+/** Owner / account-manager column — shows the member's name + a picker, never a raw user id. */
+function MemberCell({ ctx }: MemberCellProps) {
+  const members = useTeamMembersForGrid();
+  const userId = (ctx.value as string | null | undefined) || undefined;
+  const selected = members.find((m) => m.userId === userId);
+  const label = selected ? (selected.name?.trim() || selected.email || selected.userId) : null;
+
+  if (!ctx.canEdit) {
+    return (
+      <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
+        {label ? <span className="text-[14px] text-foreground/80 truncate">{label}</span> : null}
+      </CellWrapper>
+    );
+  }
+
+  return (
+    <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
+      <MemberSelect
+        value={userId}
+        onChange={(next) => ctx.persistValue(next || null)}
+        placeholder="—"
+        variant="assignee"
+      />
+    </CellWrapper>
+  );
+}
+
+function renderMemberCell(ctx: CellRenderCtx) {
+  return <MemberCell ctx={ctx} />;
 }
 
 function renderDefaultCell(ctx: CellRenderCtx) {
@@ -472,6 +581,8 @@ function renderCellByType(type: GridColumnDef<unknown>['type'], ctx: CellRenderC
       return renderSelectCell(true, ctx);
     case 'location':
       return renderLocationCell(ctx);
+    case 'member':
+      return renderMemberCell(ctx);
     default:
       return renderDefaultCell(ctx);
   }
@@ -540,7 +651,10 @@ export function GridCell<TEntity>({
     setEditingCellValue(null);
   };
 
+  const canEdit = column.editable !== false;
+
   const forceStartEditing = () => {
+    if (!canEdit) return;
     setEditingCellValue({ rowId: entityId, fieldId: column.id });
   };
 
@@ -569,6 +683,7 @@ export function GridCell<TEntity>({
     compact,
     isEditing,
     isPopoverOpen,
+    canEdit,
     value,
     entityId,
     startEditing,

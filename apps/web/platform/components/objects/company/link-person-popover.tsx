@@ -56,9 +56,10 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: LinkPersonPopo
 
   // Query the People list; a `limit` of 25 is plenty for a combobox
   // surface. Empty search returns the most-recent people by the server's
-  // default sort.
+  // default sort. inCrm: true matches the People table's own filter so
+  // auto-created mail/helpdesk contacts (inCrm=false) aren't offered here.
   const peopleQuery = usePeople(
-    debounced ? { limit: 25, search: debounced } : { limit: 25 },
+    debounced ? { limit: 25, search: debounced, inCrm: true } : { limit: 25, inCrm: true },
   );
   const people = peopleQuery.data?.data ?? [];
 

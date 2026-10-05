@@ -5,6 +5,7 @@ import { addDays, format, startOfDay } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { toast } from 'sonner';
 
+import { DEFAULT_MAX_ADVANCE_DAYS } from '@/lib/availability';
 import type { BookingPageProps } from '@/lib/schemas';
 import { LAYOUT } from '@/lib/constants';
 
@@ -28,6 +29,7 @@ import {
 } from './components/booking-details-form';
 import { CalendarWidget, hasAvailabilityForDay } from './components/calendar-widget';
 import { CancelledCard, ConfirmationCard } from './components/confirmation-card';
+import { RescheduleConfirm } from './components/reschedule-confirm';
 import { TimeSlotList } from './components/time-slot-list';
 import { getBrowserTimezone } from './components/timezone-picker';
 
@@ -51,7 +53,11 @@ interface State {
   bookingId: string | null;
   /** Signed token that authorises cancelling / rescheduling `bookingId` (workspace pages). */
   manageToken: string | null;
+  /** Join link of the booking's meeting (WeldMeet, or the page's own link). */
+  meetingUrl: string | null;
   isRescheduling: boolean;
+  /** Slot picked while rescheduling, waiting for the booker to confirm it. */
+  pendingReschedule: TimeSlot | null;
   // The slot of the confirmed booking, preserved so "Keep current time"
   // can restore it after the user enters reschedule mode.
   confirmedSlot: TimeSlot | null;
@@ -72,12 +78,20 @@ type Action =
       type: 'booking-confirmed';
       bookingId: string;
       manageToken: string | null;
+      meetingUrl: string | null;
       formState: BookingFormState;
       emailDelivery: 'sent' | 'failed' | 'partial';
     }
   | { type: 'start-reschedule' }
   | { type: 'cancel-reschedule' }
-  | { type: 'reschedule-confirmed'; slot: TimeSlot; emailDelivery: 'sent' | 'failed' | 'partial' }
+  | { type: 'pick-reschedule-slot'; slot: TimeSlot }
+  | { type: 'clear-reschedule-slot' }
+  | {
+      type: 'reschedule-confirmed';
+      slot: TimeSlot;
+      meetingUrl: string | null;
+      emailDelivery: 'sent' | 'failed' | 'partial';
+    }
   | { type: 'booking-cancelled' };
 
 const today = startOfDay(new Date());
@@ -99,6 +113,10 @@ export interface ManagedBooking {
   startTime: string;
   endTime: string;
   cancelled: boolean;
+  /** Extra guests (email addresses) on the booking. */
+  guests: string[];
+  /** Join link of the booking's meeting, when it has one. */
+  meetingUrl: string | null;
   /** Which button of the email was clicked. */
   intent: 'reschedule' | 'cancel' | null;
 }
@@ -125,7 +143,9 @@ function makeInitialState({
     emailDelivery: null,
     bookingId: null,
     manageToken: null,
+    meetingUrl: null,
     isRescheduling: false,
+    pendingReschedule: null,
     confirmedSlot: null,
   };
   if (!initialBooking) return base;
@@ -147,7 +167,13 @@ function makeInitialState({
     isRescheduling: step === 'select-time',
     bookingId: initialBooking.bookingId,
     manageToken: initialBooking.token,
-    formState: { ...initialFormState, name: initialBooking.bookerName, email: initialBooking.bookerEmail },
+    meetingUrl: initialBooking.meetingUrl,
+    formState: {
+      ...initialFormState,
+      name: initialBooking.bookerName,
+      email: initialBooking.bookerEmail,
+      guests: initialBooking.guests,
+    },
   };
 }
 
@@ -190,25 +216,41 @@ function reducer(state: State, action: Action): State {
         emailDelivery: action.emailDelivery,
         bookingId: action.bookingId,
         manageToken: action.manageToken,
+        meetingUrl: action.meetingUrl,
         confirmedSlot: state.selectedSlot,
         isRescheduling: false,
       };
     case 'start-reschedule':
-      return { ...state, step: 'select-time', isRescheduling: true, selectedSlot: null };
+      return {
+        ...state,
+        step: 'select-time',
+        isRescheduling: true,
+        selectedSlot: null,
+        pendingReschedule: null,
+        // Open on the month of the booking being moved.
+        currentMonth: state.selectedDate ?? state.currentMonth,
+      };
     case 'cancel-reschedule':
       return {
         ...state,
         step: 'confirmed',
         isRescheduling: false,
+        pendingReschedule: null,
         selectedSlot: state.confirmedSlot,
       };
+    case 'pick-reschedule-slot':
+      return { ...state, pendingReschedule: action.slot };
+    case 'clear-reschedule-slot':
+      return { ...state, pendingReschedule: null };
     case 'reschedule-confirmed':
       return {
         ...state,
         step: 'confirmed',
         isRescheduling: false,
+        pendingReschedule: null,
         selectedSlot: action.slot,
         confirmedSlot: action.slot,
+        meetingUrl: action.meetingUrl,
         emailDelivery: action.emailDelivery,
       };
     case 'booking-cancelled':
@@ -252,8 +294,25 @@ export function BookingClient({
   const [rescheduling, startRescheduleTransition] = useTransition();
 
   const accentColor = bookingPage.color || '#111827';
-  const maxDate = addDays(today, bookingPage.maxAdvance ?? 60);
+  const maxDate = addDays(today, bookingPage.maxAdvance ?? DEFAULT_MAX_ADVANCE_DAYS);
   const locationLabel = getLocationLabel(bookingPage.locationType);
+  // "Book again" goes to the clean page URL, without the signed booking query.
+  const bookAgainHref =
+    kind === 'personal'
+      ? `/p/${encodeURIComponent(bookingPage.slug)}`
+      : `/${encodeURIComponent(workspaceSlug)}/${encodeURIComponent(bookingPage.slug)}`;
+
+  // Slots of a date. While a booking is being moved, its own slot counts as free.
+  const fetchSlots = (dateStr: string, movingBookingId: string | null): Promise<TimeSlot[]> => {
+    if (kind === 'personal') {
+      return getPersonalAvailableSlots(bookingPage.id, dateStr, movingBookingId ?? undefined);
+    }
+    const manage =
+      movingBookingId && state.manageToken
+        ? { bookingId: movingBookingId, token: state.manageToken }
+        : undefined;
+    return getAvailableSlots(workspaceSlug, bookingPage.id, dateStr, manage);
+  };
 
   // Sync timezone to browser on mount.
   useEffect(() => {
@@ -278,16 +337,28 @@ export function BookingClient({
     }
   }, [state.timezone, state.currentMonth]);
 
-  // Initial load: find first available day.
+  // Initial load: find first available day. A booking opened from an email
+  // link starts on its own day instead (see the reschedule effect below).
   useEffect(() => {
+    if (initialBooking) {
+      dispatch({ type: 'finish-initial' });
+      return;
+    }
     let cancelled = false;
     const fetchInitial = async () => {
       let date = new Date(today);
-      const limit = addDays(today, bookingPage.maxAdvance ?? 60);
+      const limit = addDays(today, bookingPage.maxAdvance ?? DEFAULT_MAX_ADVANCE_DAYS);
 
       while (date <= limit) {
         if (cancelled) return;
-        if (hasAvailabilityForDay(date, bookingPage.availability, bookingPage.duration)) {
+        if (
+          hasAvailabilityForDay(
+            date,
+            bookingPage.availability,
+            bookingPage.duration,
+            bookingPage.dateOverrides,
+          )
+        ) {
           const dateStr = format(date, 'yyyy-MM-dd');
           const result =
             kind === 'personal'
@@ -311,19 +382,45 @@ export function BookingClient({
     return () => {
       cancelled = true;
     };
-  }, [bookingPage.availability, bookingPage.duration, bookingPage.id, bookingPage.maxAdvance, kind, workspaceSlug]);
+  }, [
+    bookingPage.availability,
+    bookingPage.dateOverrides,
+    bookingPage.duration,
+    bookingPage.id,
+    bookingPage.maxAdvance,
+    initialBooking,
+    kind,
+    workspaceSlug,
+  ]);
 
   const handleDateSelect = (date: Date) => {
     dispatch({ type: 'select-date', date });
     const dateStr = format(date, 'yyyy-MM-dd');
+    const movingBookingId = state.isRescheduling ? state.bookingId : null;
     startSlotsTransition(async () => {
-      const result =
-        kind === 'personal'
-          ? await getPersonalAvailableSlots(bookingPage.id, dateStr)
-          : await getAvailableSlots(workspaceSlug, bookingPage.id, dateStr);
+      const result = await fetchSlots(dateStr, movingBookingId);
       dispatch({ type: 'set-slots', date, slots: result });
     });
   };
+
+  // Entering reschedule mode: the slots in state predate the booking (its slot
+  // would still be listed as free, or another day shown), so fetch the booked
+  // day again.
+  useEffect(() => {
+    if (!state.isRescheduling || !state.selectedDate) return;
+    const date = state.selectedDate;
+    const dateStr = format(date, 'yyyy-MM-dd');
+    let ignore = false;
+    startSlotsTransition(async () => {
+      const result = await fetchSlots(dateStr, state.bookingId);
+      if (!ignore) dispatch({ type: 'set-slots', date, slots: result });
+    });
+    return () => {
+      ignore = true;
+    };
+    // Only when the mode opens: picking another day fetches through handleDateSelect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.isRescheduling]);
 
   const handleSubmit = (formState: BookingFormState) => {
     if (!state.selectedSlot) return;
@@ -368,6 +465,7 @@ export function BookingClient({
             'manageToken' in result && typeof result.manageToken === 'string'
               ? result.manageToken
               : null,
+          meetingUrl: result.meetingUrl,
           formState,
           emailDelivery: result.emailDelivery,
         });
@@ -402,12 +500,18 @@ export function BookingClient({
             });
 
       if (result.success) {
-        dispatch({ type: 'reschedule-confirmed', slot, emailDelivery: result.emailDelivery });
+        dispatch({
+          type: 'reschedule-confirmed',
+          slot,
+          meetingUrl: result.meetingUrl,
+          emailDelivery: result.emailDelivery,
+        });
         toast.success('Your meeting has been rescheduled.');
       } else {
         toast.error(result.error);
-        // The slot may have been taken — refresh the day's slots so the picker
-        // reflects reality.
+        // The slot may have been taken: back to the picker, with the day's
+        // slots refreshed so it reflects reality.
+        dispatch({ type: 'clear-reschedule-slot' });
         if (state.selectedDate) handleDateSelect(state.selectedDate);
       }
     });
@@ -434,7 +538,8 @@ export function BookingClient({
 
   const handleSlotSelect = (slot: TimeSlot) => {
     if (state.isRescheduling) {
-      handleReschedule(slot);
+      // Moving a booking is not undone by a stray click: ask first.
+      dispatch({ type: 'pick-reschedule-slot', slot });
     } else {
       dispatch({ type: 'select-slot', slot });
     }
@@ -464,6 +569,8 @@ export function BookingClient({
             selectedDate={state.selectedDate}
             bookerName={state.formState.name}
             bookerEmail={state.formState.email}
+            guests={state.formState.guests}
+            meetingUrl={state.meetingUrl}
             timezone={state.timezone}
             use24h={state.use24h}
             locationLabel={locationLabel}
@@ -481,6 +588,8 @@ export function BookingClient({
             selectedSlot={state.confirmedSlot}
             timezone={state.timezone}
             use24h={state.use24h}
+            bookAgainHref={bookAgainHref}
+            accentColor={accentColor}
           />
         )}
 
@@ -508,7 +617,19 @@ export function BookingClient({
           </div>
         )}
 
-        {state.step === 'select-time' && (
+        {state.step === 'select-time' && state.isRescheduling && state.pendingReschedule && (
+          <RescheduleConfirm
+            slot={state.pendingReschedule}
+            timezone={state.timezone}
+            use24h={state.use24h}
+            accentColor={accentColor}
+            submitting={rescheduling}
+            onConfirm={() => handleReschedule(state.pendingReschedule!)}
+            onBack={() => dispatch({ type: 'clear-reschedule-slot' })}
+          />
+        )}
+
+        {state.step === 'select-time' && !(state.isRescheduling && state.pendingReschedule) && (
           <div className="flex flex-col flex-1 min-h-0 h-full">
             {state.isRescheduling && (
               <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-gray-200 dark:border-[#26262B] bg-gray-50 dark:bg-[#1A1A1E] text-sm">
@@ -542,6 +663,7 @@ export function BookingClient({
                 today={today}
                 maxDate={maxDate}
                 availability={bookingPage.availability}
+                dateOverrides={bookingPage.dateOverrides}
                 duration={bookingPage.duration}
                 emptyDates={state.emptyDates}
                 pendingDates={state.pendingDates}
@@ -554,6 +676,7 @@ export function BookingClient({
                 initialLoading={state.initialLoading}
                 slotsLoading={slotsLoading || rescheduling}
                 slots={state.slots}
+                currentSlotStart={state.isRescheduling ? (state.confirmedSlot?.start ?? null) : null}
                 use24h={state.use24h}
                 timezone={state.timezone}
                 onUse24hChange={(use24h) => dispatch({ type: 'use-24h', use24h })}

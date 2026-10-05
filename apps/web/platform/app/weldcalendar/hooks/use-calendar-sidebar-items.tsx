@@ -125,7 +125,8 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
       : null;
     const realBookingPages: BookingPageSidebarItem[] = bookingPages
       .filter((bp): bp is typeof bp & { id: string } => !!bp.id)
-      .map((bp) => ({ id: bp.id, name: bp.name, slug: bp.slug }));
+      // `isActive` is null/undefined on rows created before the flag existed: treat as active.
+      .map((bp) => ({ id: bp.id, name: bp.name, slug: bp.slug, isActive: bp.isActive !== false }));
     const sidebarBookingPages: BookingPageSidebarItem[] = draftBookingPage
       ? [...realBookingPages, draftBookingPage]
       : realBookingPages;

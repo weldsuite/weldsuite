@@ -9,9 +9,19 @@
 import { and, asc, desc, eq, inArray, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
-import { labelCondition, addLabels, removeLabels, SYSTEM_LABELS } from './labels';
+import {
+  addLabels,
+  bulkAddLabelToMessages,
+  bulkRemoveLabelFromMessages,
+  flagsForLabelChange,
+  labelCondition,
+  moveMessagesToLocation,
+  removeLabels,
+  resolveCustomLabelNames,
+  SYSTEM_LABELS,
+} from './labels';
 
-const { mailMessages, mailAttachments, people: contacts } = schema;
+const { mailMessages, mailAttachments, mailDrafts, people: contacts } = schema;
 
 // ---------------------------------------------------------------------------
 // Read
@@ -44,27 +54,64 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
+/** One of the addresses in a recipient column (`to` / `cc`) matches the LIKE pattern. */
+function recipientMatches(column: SQL, pattern: string): SQL {
+  return sql`EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(${column}) = 'array' THEN ${column} ELSE '[]'::jsonb END) AS recipient
+    WHERE recipient->>'email' ILIKE ${pattern} OR recipient->>'name' ILIKE ${pattern}
+  )`;
+}
+
+/** The LIKE pattern for a "contains this text" filter. */
+export function containsPattern(value: string): string {
+  return `%${escapeLike(value.trim())}%`;
+}
+
+/** The sender's name or address contains the text. */
+export function senderMatches(value: string): SQL {
+  const pattern = containsPattern(value);
+  return sql`(${mailMessages.from}->>'name' ILIKE ${pattern} OR ${mailMessages.from}->>'email' ILIKE ${pattern})`;
+}
+
+/** A To or Cc recipient's name or address contains the text. */
+export function anyRecipientMatches(value: string): SQL {
+  const pattern = containsPattern(value);
+  return sql`(${recipientMatches(sql`${mailMessages.to}`, pattern)} OR ${recipientMatches(sql`${mailMessages.cc}`, pattern)})`;
+}
+
+/**
+ * Free-text mail search: every space-separated term must appear in the
+ * subject, the body, or one of the participants (sender, To, Cc) of a message.
+ * Case-insensitive. Returns undefined for an empty query.
+ */
+export function messageSearchCondition(search: string | undefined): SQL | undefined {
+  const terms = (search ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 10);
+  if (terms.length === 0) return undefined;
+  return and(
+    ...terms.map((term) => {
+      const pattern = containsPattern(term);
+      return or(
+        ilike(mailMessages.subject, pattern),
+        ilike(mailMessages.preview, pattern),
+        ilike(mailMessages.textBody, pattern),
+        senderMatches(term),
+        anyRecipientMatches(term),
+      )!;
+    }),
+  );
+}
+
 /** The WHERE conditions a set of message filters translates to (soft-deleted rows always excluded). */
-function buildMessageConditions(filters: MessageFilters): SQL[] {
+function buildMessageConditions(filters: MessageFilters, labelNames: string[] = []): SQL[] {
   const conditions: SQL[] = [isNull(mailMessages.deletedAt)!];
 
   if (filters.accountId) conditions.push(eq(mailMessages.accountId, filters.accountId));
   if (filters.accessibleAccountIds) {
     conditions.push(inArray(mailMessages.accountId, filters.accessibleAccountIds));
   }
-  if (filters.search?.trim()) {
-    // Case-insensitive, and the sender counts too: people search by who a
-    // mail is from as often as by what it says.
-    const term = `%${escapeLike(filters.search.trim())}%`;
-    conditions.push(
-      or(
-        ilike(mailMessages.subject, term),
-        ilike(mailMessages.preview, term),
-        sql`${mailMessages.from}->>'name' ILIKE ${term}`,
-        sql`${mailMessages.from}->>'email' ILIKE ${term}`,
-      )!,
-    );
-  }
+  const searchCondition = messageSearchCondition(filters.search);
+  if (searchCondition) conditions.push(searchCondition);
   if (filters.isRead !== undefined) conditions.push(eq(mailMessages.isRead, filters.isRead));
   if (filters.isStarred !== undefined) conditions.push(eq(mailMessages.isStarred, filters.isStarred));
   if (filters.isFlagged !== undefined) conditions.push(eq(mailMessages.isFlagged, filters.isFlagged));
@@ -72,14 +119,17 @@ function buildMessageConditions(filters: MessageFilters): SQL[] {
     conditions.push(eq(mailMessages.hasAttachments, filters.hasAttachments));
   }
   if (filters.threadId) conditions.push(eq(mailMessages.threadId, filters.threadId));
-  if (filters.label) conditions.push(labelCondition(filters.label));
+  if (filters.label) conditions.push(labelCondition(filters.label, labelNames));
 
   return conditions;
 }
 
 export async function listMessages(db: Database, filters: MessageFilters) {
   const limit = Math.min(filters.limit ?? 50, 100);
-  const conditions = buildMessageConditions(filters);
+  const labelNames = filters.label
+    ? await resolveCustomLabelNames(db, filters.label, filters.accountId)
+    : [];
+  const conditions = buildMessageConditions(filters, labelNames);
 
   if (filters.cursor) {
     const [cur] = await db
@@ -273,19 +323,79 @@ export async function getThread(db: Database, messageId: string) {
   return { threadId: anchor.threadId, messages: rows };
 }
 
-export async function getMessageStats(db: Database, accountId?: string) {
+export interface MessageStats {
+  total: number;
+  unread: number;
+  inboxUnread: number;
+  /** Starred messages, read or not (the Starred folder badge). */
+  starred: number;
+  importantUnread: number;
+  sentUnread: number;
+  archiveUnread: number;
+  trashUnread: number;
+  spam: number;
+  snoozed: number;
+  scheduled: number;
+  drafts: number;
+}
+
+const EMPTY_STATS: MessageStats = {
+  total: 0,
+  unread: 0,
+  inboxUnread: 0,
+  starred: 0,
+  importantUnread: 0,
+  sentUnread: 0,
+  archiveUnread: 0,
+  trashUnread: 0,
+  spam: 0,
+  snoozed: 0,
+  scheduled: 0,
+  drafts: 0,
+};
+
+/**
+ * Folder counters for the mail sidebar. Trash and spam are counted on their
+ * own and never towards another folder, the same rule the folder listings
+ * follow. Drafts live in `mail_drafts`, so they are counted there.
+ */
+export async function getMessageStats(db: Database, accountId?: string): Promise<MessageStats> {
   const conditions: SQL[] = [isNull(mailMessages.deletedAt)!];
   if (accountId) conditions.push(eq(mailMessages.accountId, accountId));
-  const [row] = await db
-    .select({
-      total: sql<number>`count(*)::int`,
-      unread: sql<number>`count(*) filter (where is_read = false)::int`,
-      inboxUnread: sql<number>`count(*) filter (where labels @> '["INBOX"]'::jsonb AND is_read = false)::int`,
-      starred: sql<number>`count(*) filter (where labels @> '["STARRED"]'::jsonb)::int`,
-    })
-    .from(mailMessages)
-    .where(and(...conditions));
-  return row ?? { total: 0, unread: 0, inboxUnread: 0, starred: 0 };
+  const draftConditions: SQL[] = [isNull(mailDrafts.deletedAt)!];
+  if (accountId) draftConditions.push(eq(mailDrafts.accountId, accountId));
+
+  const labels = sql`COALESCE(${mailMessages.labels}, '[]'::jsonb)`;
+  const has = (label: string) => sql`${labels} @> ${JSON.stringify([label])}::jsonb`;
+  const live = sql`NOT (${has('TRASH')} OR ${has('SPAM')})`;
+  const unread = sql`${mailMessages.isRead} = false`;
+  const count = (condition: SQL) => sql<number>`count(*) filter (where ${condition})::int`;
+
+  const [[row], [draftRow]] = await Promise.all([
+    db
+      .select({
+        total: sql<number>`count(*)::int`,
+        unread: count(unread),
+        inboxUnread: count(sql`${has('INBOX')} AND ${unread}`),
+        starred: count(sql`(${has('STARRED')} OR ${mailMessages.isStarred} = true) AND ${live}`),
+        importantUnread: count(
+          sql`(${has('IMPORTANT')} OR ${mailMessages.isImportant} = true) AND ${live} AND ${unread}`,
+        ),
+        sentUnread: count(sql`${has('SENT')} AND ${live} AND ${unread}`),
+        archiveUnread: count(sql`${has('ARCHIVE')} AND ${unread}`),
+        trashUnread: count(sql`${has('TRASH')} AND ${unread}`),
+        spam: count(has('SPAM')),
+        snoozed: count(sql`${has('SNOOZED')} AND ${live}`),
+        scheduled: count(sql`${has('SCHEDULED')} AND ${mailMessages.sendStatus} = 'scheduled' AND ${live}`),
+      })
+      .from(mailMessages)
+      .where(and(...conditions)),
+    db
+      .select({ drafts: sql<number>`count(*)::int` })
+      .from(mailDrafts)
+      .where(and(...draftConditions)),
+  ]);
+  return { ...EMPTY_STATS, ...row, drafts: draftRow?.drafts ?? 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -320,23 +430,12 @@ export async function updateMessage(
     if (v !== undefined) patch[k] = v;
   }
 
-  // Keep isSpam in sync with system labels (same pattern as trash/restore).
-  // Explicit `labels` in the patch wins when the caller sets both.
-  if (data.isSpam === true && data.labels === undefined) {
-    patch.isSpam = true;
-    patch.labels = addLabels(
-      removeLabels(existing.labels as string[] | null, SYSTEM_LABELS.INBOX),
-      SYSTEM_LABELS.SPAM,
-    );
-  } else if (data.isSpam === false && data.labels === undefined) {
-    patch.isSpam = false;
-    let next = removeLabels(existing.labels as string[] | null, SYSTEM_LABELS.SPAM);
-    const hasTrashOrArchive =
-      next.includes(SYSTEM_LABELS.TRASH) || next.includes(SYSTEM_LABELS.ARCHIVE);
-    if (!hasTrashOrArchive) {
-      next = addLabels(next, SYSTEM_LABELS.INBOX);
-    }
-    patch.labels = next;
+  // The folder listings, thread summaries and counters read the labels array,
+  // so a flag never changes without its system label. Explicit `labels` in
+  // the patch wins when the caller sets both.
+  if (data.labels === undefined) {
+    const synced = labelsForFlagPatch(existing.labels as string[] | null, data);
+    if (synced) Object.assign(patch, synced);
   }
 
   await db
@@ -346,6 +445,48 @@ export async function updateMessage(
 
   const [after] = await db.select().from(mailMessages).where(eq(mailMessages.id, id)).limit(1);
   return after!;
+}
+
+/** Leave a location (`TRASH` / `SPAM`): back to the inbox unless the mail already sits somewhere else. */
+function leaveLocation(labels: string[], location: string): string[] {
+  const next = removeLabels(labels, location);
+  const elsewhere = [SYSTEM_LABELS.TRASH, SYSTEM_LABELS.SPAM, SYSTEM_LABELS.ARCHIVE].some((l) =>
+    next.includes(l),
+  );
+  return elsewhere ? next : addLabels(next, SYSTEM_LABELS.INBOX);
+}
+
+/**
+ * The labels array (and the flags a move implies) that a patch of the boolean
+ * flags leads to. Null when the patch sets none of the mirrored flags.
+ */
+function labelsForFlagPatch(
+  existing: string[] | null,
+  data: UpdateMessageInput,
+): { labels: string[]; isTrash?: boolean; isSpam?: boolean } | null {
+  const mirrored = [data.isStarred, data.isImportant, data.isSpam, data.isTrash];
+  if (mirrored.every((v) => v === undefined)) return null;
+
+  let labels = [...(existing ?? [])];
+  const toggle = (value: boolean | undefined, label: string) => {
+    if (value === undefined) return;
+    labels = value ? addLabels(labels, label) : removeLabels(labels, label);
+  };
+  toggle(data.isStarred, SYSTEM_LABELS.STARRED);
+  toggle(data.isImportant, SYSTEM_LABELS.IMPORTANT);
+  if (data.isSpam === true) labels = addLabels(labels, SYSTEM_LABELS.SPAM);
+  else if (data.isSpam === false) labels = leaveLocation(labels, SYSTEM_LABELS.SPAM);
+  if (data.isTrash === true) labels = addLabels(labels, SYSTEM_LABELS.TRASH);
+  else if (data.isTrash === false) labels = leaveLocation(labels, SYSTEM_LABELS.TRASH);
+
+  const moved = data.isSpam !== undefined || data.isTrash !== undefined;
+  return moved
+    ? {
+        labels,
+        isTrash: labels.includes(SYSTEM_LABELS.TRASH),
+        isSpam: labels.includes(SYSTEM_LABELS.SPAM),
+      }
+    : { labels };
 }
 
 /**
@@ -401,10 +542,10 @@ export async function bulkUpdateMessages(
       await db.update(mailMessages).set({ isRead: false, updatedAt: now }).where(where);
       break;
     case 'star':
-      await db.update(mailMessages).set({ isStarred: true, updatedAt: now }).where(where);
+      await bulkAddLabelToMessages(db, SYSTEM_LABELS.STARRED, messageIds);
       break;
     case 'unstar':
-      await db.update(mailMessages).set({ isStarred: false, updatedAt: now }).where(where);
+      await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.STARRED, messageIds);
       break;
     case 'flag':
       await db.update(mailMessages).set({ isFlagged: true, updatedAt: now }).where(where);
@@ -413,24 +554,10 @@ export async function bulkUpdateMessages(
       await db.update(mailMessages).set({ isFlagged: false, updatedAt: now }).where(where);
       break;
     case 'trash':
-      await db
-        .update(mailMessages)
-        .set({
-          isTrash: true,
-          labels: sql`coalesce(${mailMessages.labels}, '[]'::jsonb) - 'INBOX' || '["TRASH"]'::jsonb`,
-          updatedAt: now,
-        })
-        .where(where);
+      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.TRASH);
       break;
     case 'restore':
-      await db
-        .update(mailMessages)
-        .set({
-          isTrash: false,
-          labels: sql`coalesce(${mailMessages.labels}, '[]'::jsonb) - 'TRASH' || '["INBOX"]'::jsonb`,
-          updatedAt: now,
-        })
-        .where(where);
+      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.INBOX);
       break;
     case 'delete':
       await db.update(mailMessages).set({ deletedAt: now, updatedAt: now }).where(where);
@@ -453,7 +580,7 @@ export async function addMessageLabels(
   const next = addLabels(existing.labels as string[] | null, ...labels);
   await db
     .update(mailMessages)
-    .set({ labels: next, updatedAt: new Date() })
+    .set({ labels: next, ...flagsForLabelChange(labels, 'add'), updatedAt: new Date() })
     .where(eq(mailMessages.id, id));
   return next;
 }
@@ -472,7 +599,7 @@ export async function removeMessageLabels(
   const next = removeLabels(existing.labels as string[] | null, ...labels);
   await db
     .update(mailMessages)
-    .set({ labels: next, updatedAt: new Date() })
+    .set({ labels: next, ...flagsForLabelChange(labels, 'remove'), updatedAt: new Date() })
     .where(eq(mailMessages.id, id));
   return next;
 }

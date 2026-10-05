@@ -801,6 +801,11 @@ export const tasksApi = {
     labels?: string[];
     parentTaskId?: string;
     repeat?: { frequency: string; interval?: number; unit?: string } | null;
+    // CRM entity links — set when creating a task from a company/person panel
+    // (no single project to create into, so this goes through POST /tasks
+    // instead of POST /tasks/projects/:projectId).
+    customerId?: string;
+    personId?: string;
   }) => appApiPost<ApiTask>('/tasks', data),
 
   // `nextTaskId` (on `ApiTask`) is present when this update completed a

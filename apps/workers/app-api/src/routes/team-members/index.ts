@@ -389,12 +389,49 @@ async function getSeatLimitMessage(env: Env, orgId: string): Promise<string | nu
   return null;
 }
 
-type ClerkErrorBody = { errors?: Array<{ code?: string; message?: string }> };
+type ClerkErrorBody = {
+  errors?: Array<{ code?: string; message?: string; long_message?: string }>;
+};
+
+/**
+ * Clerk Backend API error codes for "create organization membership" (see
+ * https://clerk.com/docs/guides/development/errors/backend-api):
+ * `organization_membership_quota_exceeded` (403) and
+ * `already_a_member_in_organization` (400).
+ */
+const CLERK_MEMBERSHIP_QUOTA_CODES = ['organization_membership_quota_exceeded', 'max_allowed_memberships'];
+const CLERK_ALREADY_MEMBER_CODE = 'already_a_member_in_organization';
 
 type GuestDirectAddResult =
   | { status: 'none' }
-  | { status: 'failed' }
+  | { status: 'failed'; httpStatus: number; code?: string; message?: string }
   | { status: 'added'; memberId: string };
+
+export type GuestAddFailure = Extract<GuestDirectAddResult, { status: 'failed' }>;
+
+/**
+ * Map a failed direct guest add to the API error. Known Clerk codes get a
+ * specific answer; anything else keeps the generic error but passes Clerk's
+ * own message through so the failure is diagnosable from the response.
+ */
+export function describeGuestAddFailure(failure: GuestAddFailure): {
+  kind: 'forbidden' | 'conflict' | 'internal';
+  message: string;
+} {
+  const code = failure.code ?? '';
+  if (CLERK_MEMBERSHIP_QUOTA_CODES.some((known) => code.includes(known))) {
+    return {
+      kind: 'forbidden',
+      message:
+        "This workspace's member limit prevents adding this guest. Upgrade your plan or remove a member or pending invitation, then try again.",
+    };
+  }
+  if (code === CLERK_ALREADY_MEMBER_CODE) {
+    return { kind: 'conflict', message: 'This person is already a member of this workspace.' };
+  }
+  const base = 'Failed to add guest to Clerk organization';
+  return { kind: 'internal', message: failure.message ? `${base}: ${failure.message}` : base };
+}
 
 /**
  * For guests: try to short-circuit the email-invitation by adding the
@@ -436,7 +473,13 @@ async function addExistingClerkUserAsGuest(params: {
       membershipResp.status,
       logSafe(JSON.stringify(errBody)),
     );
-    return { status: 'failed' };
+    const clerkError = errBody?.errors?.[0];
+    return {
+      status: 'failed',
+      httpStatus: membershipResp.status,
+      code: clerkError?.code,
+      message: clerkError?.long_message ?? clerkError?.message,
+    };
   }
 
   const membership = (await membershipResp.json()) as { id: string };
@@ -633,7 +676,8 @@ app.post('/invite', async (c) => {
       })
     : { status: 'none' };
   if (direct.status === 'failed') {
-    return error.internal(c, 'Failed to add guest to Clerk organization');
+    const failure = describeGuestAddFailure(direct);
+    return error[failure.kind](c, failure.message);
   }
   if (direct.status === 'added') {
     return success(

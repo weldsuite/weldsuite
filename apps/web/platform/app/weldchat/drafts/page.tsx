@@ -21,6 +21,7 @@ import {
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
+import { getDraftDestination } from '../lib/draft-utils';
 import type { DraftItem } from '@weldsuite/core-api-client/schemas/weldchat-drafts';
 import {
   EmptyStateIllustration,
@@ -160,8 +161,15 @@ export default function DraftsPage() {
   ], [t]);
 
   const handleContinueWriting = useCallback((draft: DraftItem) => {
-    if (draft.channelId) {
-      navigate({ to: '/weldchat/$channelId', params: { channelId: draft.channelId } });
+    const destination = getDraftDestination(draft);
+    if (destination?.kind === 'thread') {
+      // The thread's composer restores the saved draft on mount.
+      navigate({
+        to: '/weldchat/$channelId/thread/$messageId',
+        params: { channelId: destination.channelId, messageId: destination.messageId },
+      });
+    } else if (destination) {
+      navigate({ to: '/weldchat/$channelId', params: { channelId: destination.channelId } });
     }
   }, [navigate]);
 

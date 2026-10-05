@@ -65,7 +65,9 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
-import { mailApi } from '../lib/api-client';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { mailKeys } from '@/hooks/queries/use-mail-queries';
+import { folderCountsFromStats } from '../lib/folder-counts';
 import {
   useUserPreferences,
   useUpdateMailDefaultAccount,
@@ -180,21 +182,6 @@ function KeywordTagInput({
   );
 }
 
-interface MailStats {
-  total: number;
-  unread: number;
-  inboxUnread: number;
-  starredUnread: number;
-  sentUnread: number;
-  drafts: number;
-  spam: number;
-  trashUnread: number;
-  snoozed: number;
-  scheduled: number;
-  importantUnread: number;
-  archiveUnread: number;
-}
-
 const LABEL_COLORS = [
   { key: 'colorRed', value: '#EF4444' },
   { key: 'colorOrange', value: '#F97316' },
@@ -278,7 +265,6 @@ export function useMailSidebarItems(isActive: boolean): {
 
   // Map label name (lowercase) → accountIds that own this label (for unified mode cross-account check)
   const [labelAccountMap] = useState<Record<string, string[]>>({});
-  const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
   const [showMore, setShowMore] = useState(false);
 
   // Agent Auto-Labeling settings
@@ -316,7 +302,8 @@ export function useMailSidebarItems(isActive: boolean): {
   // For static routes like /weldmail/inbox, resolve the default/first account
   const resolvedAccountId = resolveMailAccountId(pathname, isUnified, localEmailAccounts);
 
-  const { mailAccounts, mailLabels } = useAppApi();
+  const { mailAccounts, mailLabels, mailMessages } = useAppApi();
+  const queryClient = useQueryClient();
 
   // Fetch email accounts via app-api
   const fetchAccounts = React.useCallback(() => {
@@ -383,72 +370,38 @@ export function useMailSidebarItems(isActive: boolean): {
       });
   }, [isActive, resolvedAccountId, isUnified, mailLabels]);
 
-  // Fetch label-based badge counts via stats endpoint
-  const fetchStats = React.useCallback(() => {
-    if (!isActive) {
-      setFolderCounts({});
-      return;
-    }
+  // Folder badge counts: one stats query per mailbox in view. They live under
+  // the `['mail']` key, so every mail mutation and every realtime mail event
+  // (new mail, read, move) refreshes them. They used to be fetched once on
+  // mount, which left the badges stale until a reload.
+  const statsAccountIds = React.useMemo(() => {
+    if (!isActive) return [];
+    if (isUnified) return localEmailAccounts.map((acc) => acc.id);
+    return resolvedAccountId ? [resolvedAccountId] : [];
+  }, [isActive, isUnified, localEmailAccounts, resolvedAccountId]);
 
-    const applyStats = (data: MailStats) => {
-      const counts: Record<string, number> = {};
-      if (data.inboxUnread > 0) counts['inbox'] = data.inboxUnread;
-      if (data.starredUnread > 0) counts['starred'] = data.starredUnread;
-      if (data.sentUnread > 0) counts['sent'] = data.sentUnread;
-      if (data.drafts > 0) counts['drafts'] = data.drafts;
-      if (data.scheduled > 0) counts['scheduled'] = data.scheduled;
-      if (data.snoozed > 0) counts['snoozed'] = data.snoozed;
-      if (data.importantUnread > 0) counts['important'] = data.importantUnread;
-      if (data.archiveUnread > 0) counts['archive'] = data.archiveUnread;
-      if (data.spam > 0) counts['spam'] = data.spam;
-      if (data.trashUnread > 0) counts['trash'] = data.trashUnread;
-      setFolderCounts(counts);
+  const statsQueries = useQueries({
+    queries: statsAccountIds.map((id) => ({
+      queryKey: mailKeys.messageStats(id),
+      queryFn: () => mailMessages.stats(id),
+    })),
+  });
+  const statsVersion = statsQueries.map((q) => q.dataUpdatedAt).join(',');
+  const folderCounts = React.useMemo(
+    () => folderCountsFromStats(statsQueries.map((q) => q.data?.data)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- statsQueries is a new array every render; statsVersion changes when its data does
+    [statsVersion],
+  );
+
+  // The legacy `mailApi.*` facade announces its writes with a window event
+  // instead of invalidating queries.
+  React.useEffect(() => {
+    const handler = () => {
+      queryClient.invalidateQueries({ queryKey: [...mailKeys.all, 'messages', 'stats'] });
     };
-
-    if (isUnified && localEmailAccounts.length > 0) {
-      Promise.all(localEmailAccounts.map((acc) => mailApi.messages.stats(acc.id)))
-        .then((results) => {
-          const aggregated: MailStats = {
-            total: 0, unread: 0, inboxUnread: 0, starredUnread: 0,
-            sentUnread: 0, drafts: 0, spam: 0, trashUnread: 0,
-            snoozed: 0, scheduled: 0, importantUnread: 0, archiveUnread: 0,
-          };
-          const keys = Object.keys(aggregated) as Array<keyof MailStats>;
-          for (const result of results) {
-            if (result.success && result.data) {
-              for (const key of keys) {
-                aggregated[key] += result.data[key] || 0;
-              }
-            }
-          }
-          applyStats(aggregated);
-        })
-        .catch(() => {});
-    } else if (resolvedAccountId) {
-      mailApi.messages
-        .stats(resolvedAccountId)
-        .then((result) => {
-          if (result.success && result.data) {
-            applyStats(result.data);
-          }
-        })
-        .catch(() => {});
-    } else {
-      setFolderCounts({});
-    }
-  }, [isActive, resolvedAccountId, isUnified, localEmailAccounts]);
-
-  // Initial fetch + re-fetch on dependency changes
-  React.useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
-
-  // Re-fetch stats when messages change (read, star, trash, label, etc.)
-  React.useEffect(() => {
-    const handler = () => fetchStats();
     window.addEventListener('mail-messages-changed', handler);
     return () => window.removeEventListener('mail-messages-changed', handler);
-  }, [fetchStats]);
+  }, [queryClient]);
 
   const handleCreateLabel = async () => {
     const name = newLabelName.trim();

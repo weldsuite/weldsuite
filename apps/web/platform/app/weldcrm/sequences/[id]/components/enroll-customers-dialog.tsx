@@ -27,24 +27,21 @@ interface EnrollCustomersDialogProps {
 interface CustomerOption {
   id: string;
   name: string;
-  type?: string;
+  email?: string;
 }
 
 /**
- * Loosely-typed shape of a `/companies` search row. `fullName`/`firstName`/
- * `lastName` are legacy contact-style fields kept as a fallback for rows
- * that predate the Companies/People merge; the current `Company` schema
- * only guarantees `name`/`displayName`.
+ * Shape of a `/people` search row — only the fields this dialog needs.
+ * Sequences enroll People directly (the trigger is "Person enrolled" and
+ * steps resolve `{{contact.*}}` off the enrollment's person), not Companies.
  */
-interface CompanySearchRow {
+interface PersonSearchRow {
   id: string;
+  displayName?: string;
   fullName?: string;
-  name?: string;
-  tradingName?: string;
   firstName?: string;
   lastName?: string;
   email?: string;
-  type?: string;
 }
 
 export function EnrollCustomersDialog({
@@ -66,25 +63,25 @@ export function EnrollCustomersDialog({
     setIsSearching(true);
     try {
       const client = await getClient();
-      // `/crm/customers` was retired with the Companies/People refactor —
-      // companies are the identity layer now. Offset paging (`page`/`pageSize`)
-      // gave way to cursor paging, so a plain `limit` is all we need here.
+      // Sequences enroll People — `inCrm=true` matches the WeldCRM People
+      // grid's own filter, so mail-only / helpdesk-only identities that were
+      // never added to the CRM don't show up here either.
       const searchParam = query?.trim() ? `&search=${encodeURIComponent(query.trim())}` : '';
-      const result = await client.get<{ data: CompanySearchRow[] }>(`/companies?limit=50${searchParam}`);
-      const customersList = result.data || [];
-      // Map to CustomerOption format
-      const getCustomerName = (c: CompanySearchRow): string => {
-        if (c.fullName) return c.fullName;
-        if (c.name) return c.name;
-        if (c.tradingName) return c.tradingName;
-        if (c.firstName || c.lastName) return `${c.firstName || ''} ${c.lastName || ''}`.trim();
-        return c.email || 'Unknown Customer';
+      const result = await client.get<{ data: PersonSearchRow[] }>(
+        `/people?limit=50&inCrm=true${searchParam}`,
+      );
+      const peopleList = result.data || [];
+      const getPersonName = (person: PersonSearchRow): string => {
+        if (person.displayName) return person.displayName;
+        if (person.fullName) return person.fullName;
+        if (person.firstName || person.lastName) return `${person.firstName || ''} ${person.lastName || ''}`.trim();
+        return person.email || 'Unknown';
       };
       setCustomers(
-        customersList.map((c) => ({
-          id: c.id,
-          name: getCustomerName(c),
-          type: c.type,
+        peopleList.map((person) => ({
+          id: person.id,
+          name: getPersonName(person),
+          email: person.email,
         }))
       );
     } catch {
@@ -132,7 +129,7 @@ export function EnrollCustomersDialog({
     try {
       const result = await enrollMutation.mutateAsync({
         sequenceId,
-        customerIds: Array.from(selectedIds),
+        personIds: Array.from(selectedIds),
       });
       const enrolled = result?.data?.enrolled ?? 0;
       let enrolledMessage: string;
@@ -145,8 +142,8 @@ export function EnrollCustomersDialog({
       }
       toast.success(enrolledMessage);
       onComplete();
-    } catch {
-      toast.error(t('crm.enrollCustomersDialog.enrollFailed'));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('crm.enrollCustomersDialog.enrollFailed'));
     } finally {
       setIsEnrolling(false);
     }
@@ -188,10 +185,8 @@ export function EnrollCustomersDialog({
           <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
             {customer.name}
           </p>
-          {customer.type && (
-            <p className="text-xs text-gray-500">
-              {customer.type === 'b2b' ? t('crm.enrollCustomersDialog.customerTypeCompany') : t('crm.enrollCustomersDialog.customerTypeIndividual')}
-            </p>
+          {customer.email && (
+            <p className="text-xs text-gray-500 truncate">{customer.email}</p>
           )}
         </div>
       </label>

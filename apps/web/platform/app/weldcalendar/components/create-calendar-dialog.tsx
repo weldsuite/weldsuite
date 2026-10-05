@@ -14,7 +14,7 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { useCreateUserCalendar, useUpdateUserCalendar } from '@/hooks/queries/use-calendar-queries';
 import { getTranslations } from '@/lib/i18n';
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useMemo } from 'react';
 
 /** Swatch colours, each with the i18n key of its accessible name. */
 const CALENDAR_COLORS = [
@@ -30,12 +30,14 @@ const CALENDAR_COLORS = [
   { value: '#6366f1', name: 'indigo' },
 ] as const;
 
-const schema = z.object({
-  name: z.string().min(1, 'Name is required').max(255),
-  color: z.string().optional(),
-});
+/** `nameRequired` is the translated message. The name is trimmed: only spaces is as empty as nothing. */
+const buildSchema = (nameRequired: string) =>
+  z.object({
+    name: z.string().trim().min(1, nameRequired).max(255),
+    color: z.string().optional(),
+  });
 
-type FormValues = z.infer<typeof schema>;
+type FormValues = z.infer<ReturnType<typeof buildSchema>>;
 
 interface CreateCalendarDialogProps {
   open: boolean;
@@ -50,6 +52,7 @@ export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: Reado
   const t = getTranslations('weldcalendar');
   const isEdit = !!editCalendar;
 
+  const schema = useMemo(() => buildSchema(t.createCalendar.nameRequired), [t.createCalendar.nameRequired]);
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { name: '', color: '#3b82f6' },
@@ -67,6 +70,8 @@ export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: Reado
 
   const isPending = createCalendar.isPending || updateCalendar.isPending;
   const selectedColor = form.watch('color');
+  // Without a name there is nothing to create: the button stays off instead of doing nothing.
+  const nameIsEmpty = !form.watch('name')?.trim();
   const colorLabelId = useId();
 
   let submitLabel: string;
@@ -126,7 +131,7 @@ export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: Reado
 
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t.createCalendar.cancel}</Button>
-            <Button type="submit" disabled={isPending}>
+            <Button type="submit" disabled={isPending || nameIsEmpty}>
               {submitLabel}
             </Button>
           </DialogFooter>

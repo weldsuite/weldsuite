@@ -2,8 +2,6 @@
 import { ReactNode, lazy, Suspense } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { PinnedEmailProvider } from '@/contexts/pinned-email-context';
-import { PinnedMessagesProvider } from '@/contexts/pinned-messages-context';
-import { StarredMessagesProvider } from '@/contexts/starred-messages-context';
 import { ComposeProvider } from '@/contexts/compose-context';
 import { CustomerPanelProvider } from '@/contexts/customer-panel-context';
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';
@@ -41,15 +39,11 @@ export function MailLayoutClient({ children }: Readonly<MailLayoutClientProps>) 
   return (
     <BreadcrumbProvider defaultBreadcrumbs={[{ label: t.mail.header.mail, href: '/weldmail' }]}>
       <PinnedEmailProvider>
-        <PinnedMessagesProvider>
-          <StarredMessagesProvider>
-            <ComposeProvider>
-              <CustomerPanelProvider>
-                <MailLayoutContent>{children}</MailLayoutContent>
-              </CustomerPanelProvider>
-            </ComposeProvider>
-          </StarredMessagesProvider>
-        </PinnedMessagesProvider>
+        <ComposeProvider>
+          <CustomerPanelProvider>
+            <MailLayoutContent>{children}</MailLayoutContent>
+          </CustomerPanelProvider>
+        </ComposeProvider>
       </PinnedEmailProvider>
     </BreadcrumbProvider>
   );

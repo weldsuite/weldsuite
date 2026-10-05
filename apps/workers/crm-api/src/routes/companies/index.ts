@@ -172,6 +172,9 @@ app.post(
       });
       return success(c, created, 201);
     } catch (err) {
+      if (err instanceof companiesService.InvalidMemberIdError) {
+        return error.badRequest(c, err.message, { field: err.field });
+      }
       console.error('[app-api/companies] create failed:', err);
       return error.internal(c, 'Failed to create company');
     }
@@ -208,6 +211,9 @@ app.patch(
     } catch (err) {
       if (err instanceof companiesService.CompanyVersionConflictError) {
         return error.conflict(c, err.message);
+      }
+      if (err instanceof companiesService.InvalidMemberIdError) {
+        return error.badRequest(c, err.message, { field: err.field });
       }
       console.error('[app-api/companies] update failed:', err);
       return error.internal(c, 'Failed to update company');
@@ -333,6 +339,9 @@ app.post(
       }
       return success(c, { updated: result.updated, failed: result.failed });
     } catch (err) {
+      if (err instanceof companiesService.InvalidMemberIdError) {
+        return error.badRequest(c, err.message, { field: err.field });
+      }
       console.error('[app-api/companies] bulk-update failed:', err);
       return error.internal(c, 'Failed to bulk-update companies');
     }

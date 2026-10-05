@@ -144,9 +144,36 @@ async function assertChannelAllowsSend(
   if (input.attachments?.length && !flags.attachmentsEnabled) {
     throw new ChatFeatureError('Attachments are disabled in this channel');
   }
+  if (input.parentId) {
+    await assertThreadParentInChannel(db, channelId, input.parentId);
+  }
   const slowModeError = await checkSlowMode(db, channelId, authorUserId, flags.slowModeSeconds);
   if (slowModeError) {
     throw new ChatFeatureError(slowModeError);
+  }
+}
+
+/**
+ * A thread reply must hang off a live message of the SAME channel. Without
+ * this a caller could name any message id as `parentId`: the reply was stored
+ * in the target channel while the foreign parent's reply counter and
+ * participant list moved, and the target channel's `threadsEnabled` flag only
+ * ever guarded the channel being posted to. A parent that is itself a thread
+ * reply is allowed (existing data has them).
+ */
+async function assertThreadParentInChannel(
+  db: Database,
+  channelId: string,
+  parentId: string,
+): Promise<void> {
+  const { chatMessages } = schema;
+  const [parent] = await db
+    .select({ channelId: chatMessages.channelId })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.id, parentId), isNull(chatMessages.deletedAt)))
+    .limit(1);
+  if (!parent || parent.channelId !== channelId) {
+    throw new ChatFeatureError('Thread parent message not found in this channel');
   }
 }
 

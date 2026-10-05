@@ -34,6 +34,15 @@ export interface PipelineViewSettings {
     required: boolean;
     options?: string[];
   }>;
+  // Per-stage UI state that used to live in local component state and reset
+  // on every reload (TASK-921: "toggles and calculations aren't saved").
+  // Keyed by stage id.
+  stageCalculations: Record<string, { type: string; value: string | number }>;
+  confettiStageIds: string[];
+  trackTimeInStageIds: string[];
+  // Stages hidden from the board. `crm_pipeline_stages` has no `hidden`
+  // column, so this lives in the pipeline's own settings JSON instead.
+  hiddenStageIds: string[];
 }
 
 export const DEFAULT_PIPELINE_SETTINGS: PipelineViewSettings = {
@@ -60,4 +69,8 @@ export const DEFAULT_PIPELINE_SETTINGS: PipelineViewSettings = {
   emailNotifications: true,
   slackIntegration: false,
   customFields: [],
+  stageCalculations: {},
+  confettiStageIds: [],
+  trackTimeInStageIds: [],
+  hiddenStageIds: [],
 };

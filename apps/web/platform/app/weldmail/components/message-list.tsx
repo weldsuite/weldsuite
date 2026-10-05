@@ -1,9 +1,7 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from '@/lib/router';
 import { Star, Pin, Archive, Trash2, Tag, Clock, Calendar as CalendarIcon, X, Reply, ReplyAll, Forward, Paperclip, Search, ExternalLink, FolderInput, BellOff, ListChecks, Eye, EyeOff, Inbox, AlertCircle } from 'lucide-react';
-import { usePinnedMessagesSafe } from '@/contexts/pinned-messages-context';
-import { useStarredMessagesSafe } from '@/contexts/starred-messages-context';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -50,7 +48,12 @@ import {
   useSnoozeEmail,
   useMailLabels,
   useBulkMailAction,
+  useStarThread,
+  usePinThread,
+  useToggleMailStar,
+  type MailThreadSearch,
 } from '@/hooks/queries/use-mail-queries';
+import { isSystemLabel } from '../lib/label-config';
 import { useCreateTask } from '@/hooks/queries/use-task-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -292,6 +295,12 @@ interface MessageListProps {
   pageSize?: number;
   isUnified?: boolean;
   onThreadLabelUpdate?: (threadId: string, labelName: string, action: 'add' | 'remove') => void;
+  /**
+   * Reports the search box and the Filter panel's text fields so the caller
+   * can query the server with them. Without it both only narrow the threads
+   * already loaded.
+   */
+  onServerFilterChange?: (filter: MailThreadSearch) => void;
 }
 
 export function MessageList({
@@ -307,6 +316,7 @@ export function MessageList({
   pageSize = 25,
   isUnified = false,
   onThreadLabelUpdate,
+  onServerFilterChange,
 }: Readonly<MessageListProps>) {
   const { t } = useI18n();
   const displayMode = threads ? 'threads' : 'messages';
@@ -325,9 +335,19 @@ export function MessageList({
   const markAsSpam = useMarkAsSpam();
   const snoozeEmail = useSnoozeEmail();
   const bulkAction = useBulkMailAction();
+  const starThread = useStarThread();
+  const pinThread = usePinThread();
+  const toggleMailStar = useToggleMailStar();
   const createTask = useCreateTask();
   const { data: labelsData } = useMailLabels(isUnified ? undefined : accountId, !isUnified && !!accountId);
   const mailLabels = useMemo(() => labelsData?.data ?? [], [labelsData]);
+  // "Label as" offers the labels people made. The label list also has a row
+  // per system folder (Sent, Drafts, Scheduled …), which nobody should be able
+  // to stick on a mail by hand.
+  const userLabels = useMemo(
+    () => mailLabels.filter((l) => !l.isSystem && !isSystemLabel(l.name.toLowerCase())),
+    [mailLabels],
+  );
   const labelColorMap: Record<string, string> = useMemo(
     () =>
       Object.fromEntries(
@@ -359,13 +379,83 @@ export function MessageList({
 
   const activeFilterCount = countActiveFilters(appliedFilter);
 
-  // Use shared pinned/starred contexts
-  const pinnedContext = usePinnedMessagesSafe();
-  const pinnedEmails = pinnedContext?.pinnedMessages ?? new Set<string>();
-  const starredContext = useStarredMessagesSafe();
-  const starredEmails = starredContext?.starredMessages ?? new Set<string>();
-  const isStarred = (emailId: string) => starredEmails.has(emailId);
-  const toggleStar = (emailId: string) => starredContext?.toggleStar(emailId);
+  // Thread id -> ThreadSummary lookup for row and context menu actions
+  const threadMap = useMemo(() => {
+    const map = new Map<string, ThreadSummary>();
+    (threads || []).forEach(t => map.set(t.threadId, t));
+    return map;
+  }, [threads]);
+
+  // The search box and the Filter panel's text fields are sent to the server:
+  // they must find mail that is on another page or in another folder. The
+  // remaining filters (size, date, "doesn't have") still narrow the result
+  // on the client.
+  const [searchQuery, setSearchQuery] = useState('');
+  const serverFilter: MailThreadSearch = {
+    search: [searchQuery, appliedFilter.hasWords].filter((s) => s?.trim()).join(' '),
+    from: appliedFilter.from,
+    to: appliedFilter.to,
+    subject: appliedFilter.subject,
+    hasAttachment: appliedFilter.hasAttachment,
+  };
+  const serverFilterKey = JSON.stringify(serverFilter);
+  useEffect(() => {
+    onServerFilterChange?.(JSON.parse(serverFilterKey) as MailThreadSearch);
+    // onServerFilterChange is a state setter in the layouts; the key carries the change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverFilterKey]);
+
+  // Star and pin are server state (the STARRED / PINNED system labels), so
+  // they survive a reload and show in the Starred folder.
+  const toggleThreadStar = (thread: ThreadSummary) => {
+    const on = !thread.isStarred;
+    const threadAccountId = (isUnified && thread.accountId) ? thread.accountId : accountId;
+    onThreadLabelUpdate?.(thread.threadId, 'STARRED', on ? 'add' : 'remove');
+    starThread.mutate({ accountId: threadAccountId, threadId: thread.threadId, on }, {
+      onSuccess: () => toast.success(on ? t.mail.messageList.conversationStarred : t.mail.messageList.starRemoved),
+      onError: () => {
+        onThreadLabelUpdate?.(thread.threadId, 'STARRED', on ? 'remove' : 'add');
+        toast.error(t.mail.messageList.failedToUpdateLabel);
+      },
+    });
+  };
+  const toggleThreadPin = (thread: ThreadSummary) => {
+    const on = !thread.labels?.includes('PINNED');
+    const threadAccountId = (isUnified && thread.accountId) ? thread.accountId : accountId;
+    onThreadLabelUpdate?.(thread.threadId, 'PINNED', on ? 'add' : 'remove');
+    pinThread.mutate({ accountId: threadAccountId, threadId: thread.threadId, on }, {
+      onSuccess: () => toast.success(on ? t.mail.messageList.conversationPinned : t.mail.messageList.conversationUnpinned),
+      onError: () => {
+        onThreadLabelUpdate?.(thread.threadId, 'PINNED', on ? 'remove' : 'add');
+        toast.error(t.mail.messageList.failedToUpdateLabel);
+      },
+    });
+  };
+  const toggleMessageStar = (item: ConversationItem) => {
+    const on = !item.isStarred;
+    toggleMailStar.mutate({ id: item.id, isStarred: on }, {
+      onSuccess: () => toast.success(on ? t.mail.messageList.emailStarred : t.mail.messageList.starRemoved),
+      onError: () => toast.error(t.mail.messageList.failedToUpdateLabel),
+    });
+  };
+  const toggleMessagePin = (item: ConversationItem) => {
+    const on = !item.labels?.includes('PINNED');
+    const request = on
+      ? mailApi.messages.addLabel(accountId, item.id, 'PINNED')
+      : mailApi.messages.removeLabel(accountId, item.id, 'PINNED');
+    request.then((result) => {
+      if (!result.success) {
+        toast.error(t.mail.messageList.failedToUpdateLabel);
+        return;
+      }
+      toast.success(on ? t.mail.messageList.emailPinned : t.mail.messageList.emailUnpinned);
+      queryClient.invalidateQueries({ queryKey: ['mail'] });
+    }).catch(() => toast.error(t.mail.messageList.failedToUpdateLabel));
+  };
+  const isItemPinned = (id: string) => {
+    if (displayMode === 'threads') return threadMap.get(id)?.labels?.includes('PINNED') ?? false;
+    return messages.find((m) => m.id === id)?.labels?.includes('PINNED') ?? false;
+  };
 
   // Map + filter data to ConversationItem[]. Avatar URLs are projected
   // server-side onto each thread/message (resolved from the shared `contacts`
@@ -394,13 +484,6 @@ export function MessageList({
     }
   }, [displayMode, threads, messages, appliedFilter, labelColorMap, isUnified, t.mail.messageList.scheduledPreview]);
 
-  // Thread id -> ThreadSummary lookup for context menu actions
-  const threadMap = useMemo(() => {
-    const map = new Map<string, ThreadSummary>();
-    (threads || []).forEach(t => map.set(t.threadId, t));
-    return map;
-  }, [threads]);
-
   // URL generation. Must keep `page` so opening a message does not reset the list.
   const getItemUrl = (item: ConversationItem) => {
     if (displayMode === 'threads') {
@@ -425,7 +508,7 @@ export function MessageList({
   const getThreadContextMenu = (item: ConversationItem) => {
     const thread = threadMap.get(item.id);
     if (!thread) return null;
-    const pinned = pinnedEmails.has(thread.threadId);
+    const pinned = thread.labels?.includes('PINNED') ?? false;
     const starred = thread.isStarred;
     const hasUnread = thread.unreadCount > 0;
     const threadAccountId = (isUnified && thread.accountId) ? thread.accountId : accountId;
@@ -579,7 +662,7 @@ export function MessageList({
             {t.mail.messageList.labelAs}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48 max-h-64 overflow-y-auto">
-            {mailLabels.length > 0 ? mailLabels.map((label) => {
+            {userLabels.length > 0 ? userLabels.map((label) => {
               const isApplied = threadLabels.includes(label.name);
               return (
                 <ContextMenuItem key={label.id} onClick={() => {
@@ -611,17 +694,11 @@ export function MessageList({
         <ContextMenuSeparator />
 
         {/* Star / Pin */}
-        <ContextMenuItem onClick={() => {
-          toggleStar(thread.latestMessageId);
-          toast.success(starred ? t.mail.messageList.starRemoved : t.mail.messageList.conversationStarred);
-        }}>
+        <ContextMenuItem onClick={() => toggleThreadStar(thread)}>
           <Star className={cn('h-4 w-4 mr-0.5', starred && 'text-yellow-500 fill-yellow-500')} />
           {starred ? t.mail.messageList.unstar : t.mail.messageList.star}
         </ContextMenuItem>
-        <ContextMenuItem onClick={() => {
-          pinnedContext?.togglePin(thread.threadId);
-          toast.success(pinned ? t.mail.messageList.conversationUnpinned : t.mail.messageList.conversationPinned);
-        }}>
+        <ContextMenuItem onClick={() => toggleThreadPin(thread)}>
           <Pin className={cn('h-4 w-4 mr-0.5', pinned && 'text-blue-500 fill-blue-500')} />
           {pinned ? t.mail.messageList.unpin : t.mail.messageList.pin}
         </ContextMenuItem>
@@ -675,8 +752,8 @@ export function MessageList({
 
   // Context menu for individual messages (non-thread mode)
   const getMessageContextMenu = (item: ConversationItem) => {
-    const pinned = pinnedEmails.has(item.id);
-    const starred = isStarred(item.id);
+    const pinned = item.labels?.includes('PINNED') ?? false;
+    const starred = item.isStarred;
     const itemMessageUrl = getMessageUrl(item.id);
     const msgLabels = item.labels || [];
     const hasUnread = !item.isRead;
@@ -827,7 +904,7 @@ export function MessageList({
             {t.mail.messageList.labelAs}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48 max-h-64 overflow-y-auto">
-            {mailLabels.length > 0 ? mailLabels.map((label) => {
+            {userLabels.length > 0 ? userLabels.map((label) => {
               const isApplied = msgLabels.includes(label.name);
               return (
                 <ContextMenuItem key={label.id} onClick={() => {
@@ -866,17 +943,11 @@ export function MessageList({
         <ContextMenuSeparator />
 
         {/* Star / Pin */}
-        <ContextMenuItem onClick={() => {
-          toggleStar(item.id);
-          toast.success(starred ? t.mail.messageList.starRemoved : t.mail.messageList.emailStarred);
-        }}>
+        <ContextMenuItem onClick={() => toggleMessageStar(item)}>
           <Star className={cn('h-4 w-4 mr-0.5', starred && 'text-yellow-500 fill-yellow-500')} />
           {starred ? t.mail.messageList.unstar : t.mail.messageList.star}
         </ContextMenuItem>
-        <ContextMenuItem onClick={() => {
-          pinnedContext?.togglePin(item.id);
-          toast.success(pinned ? t.mail.messageList.emailUnpinned : t.mail.messageList.emailPinned);
-        }}>
+        <ContextMenuItem onClick={() => toggleMessagePin(item)}>
           <Pin className={cn('h-4 w-4 mr-0.5', pinned && 'text-blue-500 fill-blue-500')} />
           {pinned ? t.mail.messageList.unpin : t.mail.messageList.pin}
         </ContextMenuItem>
@@ -1160,14 +1231,24 @@ export function MessageList({
         const ret = encodeURIComponent(currentMailHref());
         router.push(`${base}?returnUrl=${ret}`);
       }}
-      isPinned={(id) => pinnedEmails.has(id)}
-      onTogglePin={(id) => pinnedContext?.togglePin(id)}
+      onSearchChange={onServerFilterChange ? setSearchQuery : undefined}
+      isPinned={isItemPinned}
+      onTogglePin={(id) => {
+        if (displayMode === 'threads') {
+          const thread = threadMap.get(id);
+          if (thread) toggleThreadPin(thread);
+        } else {
+          const item = items.find((i) => i.id === id);
+          if (item) toggleMessagePin(item);
+        }
+      }}
       onToggleStar={(id) => {
         if (displayMode === 'threads') {
           const thread = threadMap.get(id);
-          if (thread) toggleStar(thread.latestMessageId);
+          if (thread) toggleThreadStar(thread);
         } else {
-          toggleStar(id);
+          const item = items.find((i) => i.id === id);
+          if (item) toggleMessageStar(item);
         }
       }}
       contextMenuItems={displayMode === 'threads' ? getThreadContextMenu : getMessageContextMenu}

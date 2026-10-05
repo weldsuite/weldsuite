@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { getTranslations } from '@/lib/i18n';
 import {
@@ -19,8 +19,11 @@ import { MessageItem, type MessageItemMessage } from './message-item';
 import { MessageSkeleton } from './message-skeleton';
 import { Button } from '@weldsuite/ui/components/button';
 import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { RoomClient } from '@weldsuite/realtime/client';
 import { useChatContext } from './chat-context';
+import { isSystemNotice } from '../lib/system-notice';
+import { flashMessageWhenMounted } from '../lib/jump-to-message';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
 
@@ -58,12 +61,21 @@ interface ReadReceiptEntry {
   userAvatar?: string;
 }
 
+/** Most older pages a message deep link will load while looking for its target. */
+const MAX_JUMP_PAGES = 10;
+/** How long after a jump the list ignores scroll events for its pin-to-bottom decision. */
+const JUMP_SETTLE_MS = 1500;
+
 interface MessageListProps {
   channelId: string;
   parentId?: string;
   showChannel?: boolean;
   client?: RoomClient | null;
   isDm?: boolean;
+  /** Deep-link target (`?msg=`): scrolled to and highlighted once found; channel view only. */
+  targetMessageId?: string;
+  /** Called once the deep link has been handled (jumped to, or reported as not found): clear it from the URL. */
+  onTargetHandled?: () => void;
 }
 
 export function MessageList({
@@ -71,6 +83,8 @@ export function MessageList({
   parentId,
   showChannel,
   isDm,
+  targetMessageId,
+  onTargetHandled,
 }: Readonly<MessageListProps>) {
   const t = getTranslations('weldchat');
   const { userId: currentUserId } = useAuth();
@@ -147,7 +161,7 @@ export function MessageList({
     return map;
   }, [readReceiptsData, currentUserId]);
 
-  const { filters } = useChatContext();
+  const { filters, openThread } = useChatContext();
 
   // Channel pages arrive newest-first; reverse them to chronological (oldest
   // first, newest at bottom). Thread replies are already sorted oldest-first by
@@ -213,7 +227,7 @@ export function MessageList({
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       const text = (m.content || '').toLowerCase();
-      if ((m.type === 'system' || (m.content || '').startsWith('[system')) &&
+      if (isSystemNotice(m) &&
           (text.includes('started a voice call') || text.includes('started a video call') || text.includes('started a call'))) {
         return m.id;
       }
@@ -224,10 +238,18 @@ export function MessageList({
   // --- Auto-scroll logic ---
   // Defaults to false = "pin to bottom". Only set to true when user scrolls up.
   const userScrolledUpRef = useRef(false);
+  // While a deep-link jump is settling (smooth scroll, pages loading above), scroll
+  // events must not flip the list back to "pin to bottom".
+  const jumpHoldUntilRef = useRef(0);
+  const holdPosition = useCallback(() => {
+    userScrolledUpRef.current = true;
+    jumpHoldUntilRef.current = Date.now() + JUMP_SETTLE_MS;
+  }, []);
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
     if (!el) return;
+    if (Date.now() < jumpHoldUntilRef.current) return;
     userScrolledUpRef.current =
       el.scrollHeight - el.scrollTop - el.clientHeight > 150;
   };
@@ -255,6 +277,70 @@ export function MessageList({
     return () => obs.disconnect();
   }, [isLoading]);
 
+  // --- Message deep link (`?msg=<id>`) ---
+  // Resolve the target first: a thread reply isn't in the channel list, so its
+  // thread's parent message is the anchor and the thread opens beside it.
+  const notFoundText = t.messageList.messageNotFound;
+  const jumpEnabled = !parentId && !!targetMessageId;
+  const { data: jumpTargetData, isError: jumpTargetFailed } = useChatMessage(jumpEnabled && targetMessageId ? targetMessageId : '');
+  const jumpTarget = jumpTargetData?.data;
+  const jumpDoneRef = useRef<string | null>(null);
+  const jumpPagesRef = useRef(0);
+  const cancelFlashRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    jumpPagesRef.current = 0;
+    // No link in the URL (any more): the next one jumps again, even to the same message.
+    if (!targetMessageId) jumpDoneRef.current = null;
+  }, [targetMessageId]);
+
+  // The list isn't remounted when the channel/thread changes: drop what belonged to the last one.
+  useEffect(() => {
+    userScrolledUpRef.current = false;
+    jumpHoldUntilRef.current = 0;
+    jumpDoneRef.current = null;
+    jumpPagesRef.current = 0;
+  }, [channelId, parentId]);
+
+  useEffect(() => () => cancelFlashRef.current?.(), []);
+
+  useEffect(() => {
+    if (!jumpEnabled || !targetMessageId || isLoading || isError) return;
+    if (jumpDoneRef.current === targetMessageId) return;
+    if (!jumpTarget && !jumpTargetFailed) return;
+
+    const replyParentId = typeof jumpTarget?.parentId === 'string' ? jumpTarget.parentId : undefined;
+    const anchorId = replyParentId ?? targetMessageId;
+    const otherChannel = !!jumpTarget?.channelId && jumpTarget.channelId !== channelId;
+
+    if (!otherChannel && allMessages.some((m) => m.id === anchorId)) {
+      jumpDoneRef.current = targetMessageId;
+      // Don't let the pin-to-bottom logic pull the view back down.
+      holdPosition();
+      const cancels = [flashMessageWhenMounted(anchorId)];
+      if (replyParentId) {
+        openThread(replyParentId);
+        cancels.push(flashMessageWhenMounted(targetMessageId));
+      }
+      cancelFlashRef.current?.();
+      cancelFlashRef.current = () => cancels.forEach((cancel) => cancel());
+      onTargetHandled?.();
+      return;
+    }
+
+    if (isFetchingNextPage) return;
+    if (!otherChannel && !jumpTargetFailed && hasNextPage && jumpPagesRef.current < MAX_JUMP_PAGES) {
+      jumpPagesRef.current += 1;
+      holdPosition();
+      fetchNextPage?.();
+      return;
+    }
+
+    jumpDoneRef.current = targetMessageId;
+    toast.info(notFoundText);
+    onTargetHandled?.();
+  }, [jumpEnabled, targetMessageId, isLoading, isError, jumpTarget, jumpTargetFailed, channelId, allMessages, isFetchingNextPage, hasNextPage, fetchNextPage, openThread, notFoundText, onTargetHandled, holdPosition]);
+
   if (isLoading)
     return (
       <div className="flex-1 p-4">
@@ -274,6 +360,18 @@ export function MessageList({
   }
 
   return (
+    <>
+    <style>{`
+      @keyframes pinned-flash {
+        0% { background-color: transparent; }
+        10% { background-color: rgba(59, 130, 246, 0.12); }
+        50% { background-color: rgba(59, 130, 246, 0.12); }
+        100% { background-color: transparent; }
+      }
+      .pinned-highlight {
+        animation: pinned-flash 1s ease-out forwards;
+      }
+    `}</style>
     <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-transparent hover:scrollbar-thumb-muted-foreground/20" style={{ scrollbarWidth: 'thin', scrollbarColor: 'transparent transparent' }} onMouseEnter={(e) => { e.currentTarget.style.scrollbarColor = 'rgba(150,150,150,0.2) transparent'; }} onMouseLeave={(e) => { e.currentTarget.style.scrollbarColor = 'transparent transparent'; }}>
       <div data-testid="chat-message-list" className="flex flex-col min-h-full pt-4 pb-8 space-y-1">
         {/* Spacer pushes messages to bottom when content is shorter than viewport */}
@@ -317,11 +415,17 @@ export function MessageList({
             new Date(message.createdAt ?? '').toDateString() !==
               new Date(prevMessage.createdAt ?? '').toDateString();
 
-          // Compact (no avatar/name) only if same author, same date, within 10 min, and valid timestamps
+          const replyToMessage =
+            inlineReplyOf(message) ??
+            (message.parentId ? messages.find((m) => m.id === message.parentId) : undefined);
+
+          // Compact (no avatar/name) only if same author, same date, within 5 min, and valid
+          // timestamps. A message that quotes another one keeps its header so the quote shows.
           const isCompact =
             !!prevMessage &&
+            !replyToMessage &&
             prevMessage.authorId === message.authorId &&
-            prevMessage.type !== 'system' &&
+            !isSystemNotice(prevMessage) &&
             !showDate &&
             !Number.isNaN(timeDiff) &&
             timeDiff >= 0 &&
@@ -348,10 +452,7 @@ export function MessageList({
                 showChannel={showChannel}
                 channelId={channelId}
                 membersMap={membersMap}
-                replyToMessage={
-                  inlineReplyOf(message) ??
-                  (message.parentId ? messages.find((m) => m.id === message.parentId) : undefined)
-                }
+                replyToMessage={replyToMessage}
                 readBy={readByMap.get(message.id)}
                 isDm={isDm}
                 hasActiveCall={hasActiveCall && message.id === lastCallStartedId}
@@ -361,5 +462,6 @@ export function MessageList({
         })}
       </div>
     </div>
+    </>
   );
 }

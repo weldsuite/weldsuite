@@ -29,9 +29,15 @@ vi.mock('./location-autocomplete', () => ({
 // The real picker queries people / members; the dialog only needs its props API.
 vi.mock('./guest-search-input', () => ({
   GuestSearchInput: ({ onSelect }: { onSelect: (g: { id: string; name: string; email: string }) => void }) => (
-    <button type="button" onClick={() => onSelect({ id: 'member-1', name: 'Ada Lovelace', email: 'ada@example.com' })}>
-      pick-ada
-    </button>
+    <>
+      <button type="button" onClick={() => onSelect({ id: 'member-1', name: 'Ada Lovelace', email: 'ada@example.com' })}>
+        pick-ada
+      </button>
+      {/* A typed address arrives with the email as its name. */}
+      <button type="button" onClick={() => onSelect({ id: 'invite-1', name: 'new@example.com', email: 'new@example.com' })}>
+        pick-typed
+      </button>
+    </>
   ),
 }));
 
@@ -202,20 +208,38 @@ describe('EventDialog update (TASK-731)', () => {
     expect(updateEvent).not.toHaveBeenCalled();
   });
 
-  it('rolls an end before the start on the same day over midnight', async () => {
+  it('refuses an end before the start on the same day instead of rolling it to the next day (TASK-895)', async () => {
     renderDialog({
       event: { ...baseEvent, startTime: '2026-10-05T21:00:00.000Z', endTime: '2026-10-05T22:00:00.000Z' } as never,
     });
 
     const start = (screen.getByLabelText('Start') as HTMLInputElement).value; // local 'YYYY-MM-DDTHH:mm'
     const day = start.slice(0, 10);
+    // 00:30 is before the start's clock time on the same date, whatever the test machine's zone.
+    fireEvent.change(screen.getByLabelText('Start'), { target: { value: `${day}T10:00` } });
     fireEvent.change(screen.getByLabelText('End'), { target: { value: `${day}T00:30` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+
+    expect(await screen.findByText('End must be after start')).toBeInTheDocument();
+    expect(updateEvent).not.toHaveBeenCalled();
+  });
+
+  it('accepts a past-midnight event entered with the next day\'s date', async () => {
+    renderDialog({ event: baseEvent as never });
+
+    const day = (screen.getByLabelText('Start') as HTMLInputElement).value.slice(0, 10);
+    const next = new Date(`${day}T00:00:00`);
+    next.setDate(next.getDate() + 1);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    fireEvent.change(screen.getByLabelText('Start'), { target: { value: `${day}T23:00` } });
+    fireEvent.change(screen.getByLabelText('End'), {
+      target: { value: `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}T01:00` },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Update' }));
 
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
     const { startTime, endTime } = updateEvent.mock.calls[0][0].data;
-    expect(new Date(endTime).getTime()).toBeGreaterThan(new Date(startTime).getTime());
-    expect(new Date(endTime).getTime() - new Date(startTime).getTime()).toBeLessThan(24 * 3_600_000);
+    expect(new Date(endTime).getTime() - new Date(startTime).getTime()).toBe(2 * 3_600_000);
   });
 
   it('refuses an end on an earlier day with a validation error and no request', async () => {
@@ -266,6 +290,30 @@ describe('EventDialog update (TASK-731)', () => {
   });
 });
 
+describe('EventDialog labels (TASK-895)', () => {
+  it('names the options like the toolbar filter and keeps no Google placeholder', () => {
+    renderDialog({
+      event: { ...baseEvent, isVirtual: true, meetingUrl: '' } as never,
+    });
+
+    // The type select shows the filter's name for "meeting".
+    expect(screen.getAllByRole('combobox')[0]).toHaveTextContent('Meeting');
+    // The meeting URL field has a neutral placeholder, not a Google Meet one.
+    const url = screen.getByLabelText('Meeting URL') as HTMLInputElement;
+    expect(url.placeholder).not.toContain('google');
+  });
+
+  it('shows the translated validation message for an invalid meeting URL', async () => {
+    renderDialog({ event: { ...baseEvent, isVirtual: true, meetingUrl: '' } as never });
+
+    fireEvent.change(screen.getByLabelText('Meeting URL'), { target: { value: 'not a url' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid URL, starting with https://');
+    expect(updateEvent).not.toHaveBeenCalled();
+  });
+});
+
 describe('EventDialog guests', () => {
   it('adds a guest, asks the notify question, and sends the list with the answer', async () => {
     renderDialog({ event: baseEvent as never });
@@ -284,6 +332,20 @@ describe('EventDialog guests', () => {
     const call = updateEvent.mock.calls[0][0];
     expect(call.sendNotification).toBe(true);
     expect(call.data.attendees).toEqual([expect.objectContaining({ email: 'ada@example.com', name: 'Ada Lovelace' })]);
+  });
+
+  it('stores no name for a typed address, whose name is just the email (TASK-895)', async () => {
+    renderDialog({ event: baseEvent as never });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add guests' }));
+    fireEvent.click(screen.getByRole('button', { name: 'pick-typed' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
+    const [guest] = updateEvent.mock.calls[0][0].data.attendees;
+    expect(guest.email).toBe('new@example.com');
+    expect(guest.name).toBeUndefined();
   });
 
   it('removes a guest and still sends the (now empty) list', async () => {

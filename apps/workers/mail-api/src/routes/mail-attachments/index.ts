@@ -77,6 +77,48 @@ app.post('/associate', requirePermission('messages:update'), zValidator('json', 
   }
 });
 
+/**
+ * GET /:id/download — the attachment's bytes, for members who can read the
+ * mailbox it belongs to. This is the download path the apps use: the object's
+ * storage URL carries no session, signature or expiry, so it must not be the
+ * thing a mail client links to.
+ */
+app.get('/:id/download', requirePermission('messages:read'), async (c) => {
+  const id = c.req.param('id');
+  try {
+    const db = c.get('tenantDb');
+    const userId = c.get('userId');
+    const row = await attachments.getAttachment(db, id);
+    if (!row) return error.notFound(c, 'Attachment', id);
+    const accountId = await getMessageAccountId(db, row.messageId);
+    if (!accountId) return error.notFound(c, 'Attachment', id);
+    const allowed = await checkAccountAccess(db, accountId, userId);
+    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+    if (!c.env.STORAGE) {
+      return c.json(
+        { error: { code: 'STORAGE_BINDING_MISSING', message: 'Storage binding not configured' } },
+        503,
+      );
+    }
+    const object = row.storagePath ? await c.env.STORAGE.get(row.storagePath) : null;
+    if (!object) return error.notFound(c, 'Attachment', id);
+    return new Response(object.body, {
+      headers: {
+        'Content-Type': row.contentType || object.httpMetadata?.contentType || 'application/octet-stream',
+        // Always a download, never rendered on the API origin (the file is
+        // whatever a stranger mailed in).
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(row.fileName)}`,
+        'Content-Length': String(object.size),
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  } catch (err) {
+    console.error('[app-api/mail-attachments] download failed:', err);
+    return error.internal(c, 'Failed to download attachment');
+  }
+});
+
 app.get('/:id', requirePermission('messages:read'), async (c) => {
   const id = c.req.param('id');
   try {
