@@ -62,6 +62,8 @@ import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import type { Env, Variables } from '../../types';
 import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
 import { success, error } from '@weldsuite/worker-kit/response';
+import { sendSystemEmail } from '@weldsuite/emails';
+import { workerTransport } from '@weldsuite/emails/transports/binding';
 import {
   createStripeCustomer,
   updateStripeCustomer,
@@ -88,10 +90,8 @@ import {
   getWorkspaceByOrgId,
   getPlanById,
   mapSubscription,
-  renderEnterpriseInquiryEmail,
   fetchPhoneSubscription,
 } from '../../services/billing';
-import { sendInternalTransactionalEmail } from '../../services/internal-email';
 
 const { workspaces, plans, billingInvoices, billingPayments } = masterSchema;
 
@@ -879,7 +879,9 @@ app.post('/reactivate', canManageBilling, async (c) => {
  * "Contact sales" fallback in billing-settings-section.tsx already opens via
  * `mailto:sales@weldsuite.com`. There is no enterprise_inquiries table and this
  * work item forbids migrations, so email is the whole transport (and matches
- * where the inquiries were already going).
+ * where the inquiries were already going). Sent through @weldsuite/emails
+ * ('internal.enterprise-inquiry'), Reply-To the prospect so sales can answer
+ * directly.
  *
  * Permission: `general:read` — the MEMBER/VIEWER baseline
  * (LEGACY_MEMBER_PERMISSIONS carries `settings:general:read`, which
@@ -898,7 +900,6 @@ const enterpriseInquirySchema = z.object({
 
 /** Fixed internal destination — never derived from the request body. */
 const ENTERPRISE_INQUIRY_TO = 'sales@weldsuite.com';
-const ENTERPRISE_INQUIRY_FROM = 'WeldSuite <noreply@mail.weldsuite.org>';
 
 app.post(
   '/enterprise-inquiry',
@@ -915,23 +916,33 @@ app.post(
     const workspace = await getWorkspaceByOrgId(masterDb, orgId);
     const plan = workspace ? await getPlanById(masterDb, workspace.planId) : null;
 
-    const { subject, html, text } = renderEnterpriseInquiryEmail(inquiry, {
-      orgId,
-      userId,
-      workspaceId: workspace?.id ?? null,
-      planSlug: plan?.slug ?? null,
-    });
+    // A worker with no configured transport (no SEND_EMAIL binding, no
+    // RESEND_API_KEY) is treated the same as a send failure: the inquiry
+    // cannot silently disappear, the caller must be told to email sales directly.
+    const transport = workerTransport(c.env);
 
     try {
-      await sendInternalTransactionalEmail(c.env, {
-        from: ENTERPRISE_INQUIRY_FROM,
-        to: [ENTERPRISE_INQUIRY_TO],
-        subject,
-        html,
-        text,
+      if (!transport) throw new Error('No email transport configured');
+
+      await sendSystemEmail(transport, {
+        template: 'internal.enterprise-inquiry',
+        props: {
+          companyName: inquiry.companyName,
+          teamSize: inquiry.teamSize,
+          contactName: inquiry.contactName,
+          contactEmail: inquiry.contactEmail,
+          useCase: inquiry.useCase,
+          source: inquiry.source,
+          workspaceId: workspace?.id ?? null,
+          orgId,
+          userId,
+          planSlug: plan?.slug ?? null,
+        },
+        to: ENTERPRISE_INQUIRY_TO,
         // Lets sales reply straight to the prospect. The address is validated as
         // an email by the schema, so it cannot inject extra header lines.
-        headers: { 'Reply-To': inquiry.contactEmail },
+        replyTo: inquiry.contactEmail,
+        locale: 'en',
       });
     } catch (err) {
       console.error('[Billing] Enterprise inquiry send failed:', err);

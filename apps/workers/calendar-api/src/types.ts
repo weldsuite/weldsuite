@@ -11,17 +11,18 @@ export interface Env extends KitEnv {
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
 
-  // --- Calendar attendee mails (services/calendar-mail.ts) -------------------
-  /** Resend API key. Calendar attendee mails no-op entirely when it is unset. */
+  // --- Calendar attendee mails (services/calendar-mail.ts, @weldsuite/emails) -
+  /** Cloudflare Email Service binding. Calendar attendee mails no-op entirely
+   *  when neither this nor RESEND_API_KEY is set (see `workerTransport`). */
+  SEND_EMAIL?: SendEmail;
+  /** Migration switch: "resend" sends through Resend instead of Cloudflare.
+   *  Flip to "cloudflare" (or unset) once mail.weldsuite.org is onboarded
+   *  (docs/plans/system-email-cloudflare.md, Phase 0). */
+  EMAIL_TRANSPORT?: string;
+  /** Resend API key — the fallback transport while EMAIL_TRANSPORT="resend". */
   RESEND_API_KEY?: string;
-  /** Resend template ids for the calendar attendee emails (invite /
-   *  reschedule / cancel), read by services/calendar-mail.ts. Each is
-   *  independently optional: when one is unset that mail falls back to the
-   *  inline HTML template, matching the legacy api-worker behaviour. Mail
-   *  no-ops entirely when RESEND_API_KEY is unset. */
-  RESEND_MEETING_INVITE_TEMPLATE_ID?: string;
-  RESEND_MEETING_UPDATE_TEMPLATE_ID?: string;
-  RESEND_MEETING_CANCEL_TEMPLATE_ID?: string;
+  /** Migration-only sender override; see `workerTransport`. */
+  SYSTEM_EMAIL_FROM?: string;
 
   // --- Google Calendar outbound sync (lib/integrations) ----------------------
   /** Google Calendar OAuth app credentials (distinct from GOOGLE_CLIENT_ID,

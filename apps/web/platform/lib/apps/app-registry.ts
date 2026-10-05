@@ -89,7 +89,7 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     lucideIcon: Mail,
     shortName: 'Email',
     icon: '/assets/images/weldmail/icon.svg',
-    logo: makeLogo('weldmail'),
+    logo: makeLogo('weldmail', { iconClassName: 'h-[22px] w-[22px] shrink-0 object-contain' }),
   },
   weldflow: {
     lucideIcon: FolderKanban,
@@ -109,7 +109,7 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     lucideIcon: Globe,
     shortName: 'Hosting',
     icon: '/assets/images/weldhost/icon.svg',
-    logo: makeLogo('weldhost'),
+    logo: makeLogo('weldhost', { iconClassName: 'h-[22px] w-[22px] shrink-0 object-contain' }),
     sidebarIconClass: 'h-[27px] w-[27px]',
   },
   // WeldPass. Icon-only logo like welddata/weldbooks — wordmark variants

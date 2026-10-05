@@ -1,0 +1,15 @@
+{
+  "extends": "@weldsuite/typescript-config/base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "lib": ["ESNext", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["src", "scripts"],
+  "exclude": ["node_modules", "dist"]
+}

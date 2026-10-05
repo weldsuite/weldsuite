@@ -3,18 +3,25 @@
  *
  * White-label: the sender name and every visible string use the workspace's
  * portal name, never "WeldSuite", unless the workspace switched branding back
- * on. A missing SEND_EMAIL binding is a no-op so local runs and tests still
- * record the invite; the caller learns whether anything went out.
+ * on (`poweredBy: !settings.hideWeldsuiteBranding`). Sent through
+ * @weldsuite/emails ('hr.portal-invite' / 'portal.sign-in'); a transport that
+ * isn't configured (no SEND_EMAIL binding, no RESEND_API_KEY) is a no-op so
+ * local runs and tests still record the invite — the caller learns whether
+ * anything went out.
+ *
+ * SYSTEM_EMAIL_FROM pins the sender to the pre-existing
+ * noreply@weldsuite.org address until mail.weldsuite.org is onboarded in
+ * Cloudflare Email Service (docs/plans/system-email-cloudflare.md, Phase 0);
+ * see the `[vars]` comment in wrangler.toml.
  */
 
 import type { Context } from 'hono';
 import { eq, or } from 'drizzle-orm';
 import type { HrPortalAccess, HrPortalSettings } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../../types';
-import { getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
-import { sendEmail } from '@weldsuite/worker-email';
-
-const SENDER_ADDRESS = 'noreply@weldsuite.org';
+import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
+import { resolveEmailLocale, sendSystemEmail, type EmailBrand } from '@weldsuite/emails';
+import { workerTransport } from '@weldsuite/emails/transports/binding';
 
 export function hrPortalOrigin(env: Env): string {
   if (env.HR_PORTAL_URL) return env.HR_PORTAL_URL.replace(/\/$/, '');
@@ -103,34 +110,28 @@ export async function claimPortalHost(
   }
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function brandName(settings: HrPortalSettings): string {
   return settings.displayName?.trim() || (settings.hideWeldsuiteBranding ? 'Your team portal' : 'WeldHR');
 }
 
-function sender(settings: HrPortalSettings): string {
-  // Strip characters that would break the RFC 5322 display name.
-  const name = brandName(settings).replace(/["<>\r\n]/g, '').slice(0, 60);
-  return `${name} <${SENDER_ADDRESS}>`;
+function brandOf(settings: HrPortalSettings): EmailBrand {
+  return {
+    kind: 'workspace',
+    name: brandName(settings),
+    logoUrl: settings.logoUrl,
+    accentColor: settings.primaryColor,
+    poweredBy: !settings.hideWeldsuiteBranding,
+  };
 }
 
-function layout(settings: HrPortalSettings, body: string): string {
-  const color = settings.primaryColor || '#111827';
-  const logo = settings.logoUrl
-    ? `<img src="${escapeHtml(settings.logoUrl)}" alt="${escapeHtml(brandName(settings))}" style="max-height:40px;margin-bottom:16px" />`
-    : `<p style="font-weight:600;font-size:16px;margin:0 0 16px;color:${escapeHtml(color)}">${escapeHtml(brandName(settings))}</p>`;
-  const footer = settings.hideWeldsuiteBranding
-    ? ''
-    : '<p style="color:#9ca3af;font-size:12px;margin-top:24px">Powered by WeldSuite</p>';
-  return `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#111827">${logo}${body}${footer}</div>`;
+/** The workspace's UI language, when it's one extra cheap tenant-DB row away. */
+async function workspaceLanguage(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
+  const [row] = await c
+    .get('tenantDb')
+    .select({ language: schema.workspaceSettings.language })
+    .from(schema.workspaceSettings)
+    .limit(1);
+  return row?.language ?? undefined;
 }
 
 export async function sendHrPortalInviteEmail(
@@ -138,27 +139,29 @@ export async function sendHrPortalInviteEmail(
   params: { access: HrPortalAccess; settings: HrPortalSettings },
 ): Promise<boolean> {
   const { access, settings } = params;
+  const transport = workerTransport(c.env);
+  if (!transport) return false;
   try {
     const slug = await workspaceSlugFor(c.env, c.get('workspaceId'));
     if (!slug) return false;
     const url = hrPortalUrl(c.env, settings, slug);
-    const name = brandName(settings);
-    const greeting = access.displayName ? `Hi ${access.displayName},` : 'Hi,';
-    const purpose =
-      access.kind === 'client'
-        ? 'You now have access to the client portal, where you can follow your team, their results and milestones, and reach our account team.'
-        : 'You now have access to your employee portal: your schedule, attendance, leave, coaching and evaluations in one place.';
-    const subject = `You're invited to ${name}`;
-    const text = [greeting, '', purpose, '', `Sign in with this email address at:`, url].join('\n');
-    const html = layout(
-      settings,
-      `<p>${escapeHtml(greeting)}</p>
-       <p>${escapeHtml(purpose)}</p>
-       ${settings.welcomeMessage ? `<p>${escapeHtml(settings.welcomeMessage)}</p>` : ''}
-       <p><a href="${escapeHtml(url)}" style="display:inline-block;background:${escapeHtml(settings.primaryColor || '#111827')};color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Open the portal</a></p>
-       <p style="color:#6b7280;font-size:13px">Sign in with ${escapeHtml(access.email)}. We'll email you a one-time code.</p>`,
-    );
-    await sendEmail(c.env, { from: sender(settings), to: [access.email], subject, text, html });
+    const language = await workspaceLanguage(c).catch(() => undefined);
+
+    await sendSystemEmail(transport, {
+      template: 'hr.portal-invite',
+      props: {
+        kind: access.kind === 'client' ? 'client' : 'employee',
+        portalName: brandName(settings),
+        recipientName: access.displayName,
+        recipientEmail: access.email,
+        welcomeMessage: settings.welcomeMessage,
+        portalUrl: url,
+      },
+      to: access.email,
+      locale: resolveEmailLocale(language),
+      brand: brandOf(settings),
+      fromName: brandName(settings),
+    });
     return true;
   } catch (err) {
     console.warn('[weldhr] portal invite email skipped:', err);
@@ -167,26 +170,23 @@ export async function sendHrPortalInviteEmail(
 }
 
 export async function sendHrPortalCodeEmail(
-  env: Env,
+  c: Context<{ Bindings: Env; Variables: Variables }>,
   params: { to: string; otp: string; settings: HrPortalSettings },
 ): Promise<boolean> {
   const { settings } = params;
-  const name = brandName(settings);
-  const subject = `Your ${name} sign-in code: ${params.otp}`;
-  const text = [
-    `Your sign-in code is ${params.otp}.`,
-    'It expires in 15 minutes.',
-    '',
-    'If you did not try to sign in, you can ignore this email.',
-  ].join('\n');
-  const html = layout(
-    settings,
-    `<p>Your sign-in code is:</p>
-     <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:8px 0">${escapeHtml(params.otp)}</p>
-     <p style="color:#6b7280;font-size:13px">It expires in 15 minutes. If you did not try to sign in, you can ignore this email.</p>`,
-  );
+  const transport = workerTransport(c.env);
+  if (!transport) return false;
   try {
-    await sendEmail(env, { from: sender(settings), to: [params.to], subject, text, html });
+    const language = await workspaceLanguage(c).catch(() => undefined);
+
+    await sendSystemEmail(transport, {
+      template: 'portal.sign-in',
+      props: { portalName: brandName(settings), code: params.otp, expiresInMinutes: 15 },
+      to: params.to,
+      locale: resolveEmailLocale(language),
+      brand: brandOf(settings),
+      fromName: brandName(settings),
+    });
     return true;
   } catch (err) {
     console.warn('[weldhr] portal sign-in email skipped:', err);

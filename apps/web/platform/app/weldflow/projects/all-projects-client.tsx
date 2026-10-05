@@ -550,7 +550,7 @@ export function AllProjectsClient({
         <div className="w-[130px] min-w-0" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Button
             variant="ghost"
-            className="group/owner flex items-center gap-1.5 max-w-full min-w-0 rounded px-1 py-0.5 -mx-1 cursor-pointer"
+            className="group/owner h-auto flex items-center gap-1.5 max-w-full min-w-0 rounded px-1 py-0.5 -mx-1 cursor-pointer"
             onClick={() => {
               if (project.owner.userId) {
                 setSelectedMember({
@@ -584,7 +584,7 @@ export function AllProjectsClient({
         <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
+              <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
                 {project.dueDate ? (
                   <span className="text-muted-foreground font-mono">{formatDateShort(project.dueDate)}</span>
                 ) : (

@@ -1,0 +1,1039 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`'admin.workspace-deletion' / 'cancelled' / 'en' > matches the text snapshot 1`] = `
+"Your WeldSuite workspace "Acme Studio" is active again
+
+Deletion cancelled
+
+Acme Studio
+
+The scheduled deletion of Acme Studio has been cancelled. The workspace is active again.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'admin.workspace-deletion' / 'cancelled' / 'nl' > matches the text snapshot 1`] = `
+"Je WeldSuite-werkruimte "Acme Studio" is weer actief
+
+Verwijdering geannuleerd
+
+Acme Studio
+
+De geplande verwijdering van Acme Studio is geannuleerd. De werkruimte is weer actief.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'admin.workspace-deletion' / 'scheduled' / 'en' > matches the text snapshot 1`] = `
+"Your WeldSuite workspace "Acme Studio" is scheduled for deletion
+
+Workspace suspended
+
+Acme Studio
+
+Acme Studio has been suspended and will be permanently deleted on Wednesday, November 4, 2026 at 12:00 AM UTC. Access is disabled while it is suspended.
+
+Reason: Unpaid invoices
+
+If you believe this is a mistake, contact WeldSuite support before that date. After it, the workspace and all its data are removed for good.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'admin.workspace-deletion' / 'scheduled' / 'nl' > matches the text snapshot 1`] = `
+"Je WeldSuite-werkruimte "Acme Studio" wordt verwijderd
+
+Werkruimte geschorst
+
+Acme Studio
+
+Acme Studio is geschorst en wordt op woensdag 4 november 2026 om 00:00 UTC definitief verwijderd. Zolang de schorsing duurt, is de werkruimte niet toegankelijk.
+
+Reden: Unpaid invoices
+
+Is dit een vergissing? Neem dan vóór die datum contact op met WeldSuite-support. Daarna worden de werkruimte en alle gegevens definitief verwijderd.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'cancelled' / 'en' > matches the text snapshot 1`] = `
+"Booking cancelled: 30 minute intro call on Wednesday, October 14, 2026
+
+Acme Studio
+
+Booking cancelled
+
+30 minute intro call
+
+Hi Lisa Bakker, your meeting with Mark Visser (Acme Studio) has been cancelled.
+
+Date: Wednesday, October 14, 2026
+
+Time: 10:30 AM – 11:00 AM GMT+2
+
+Host: Mark Visser (Acme Studio)
+
+Was this a mistake, or would you like to book again? Reply to this email to reach Mark Visser.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'cancelled' / 'nl' > matches the text snapshot 1`] = `
+"Afspraak geannuleerd: 30 minute intro call op woensdag 14 oktober 2026
+
+Acme Studio
+
+Afspraak geannuleerd
+
+30 minute intro call
+
+Hoi Lisa Bakker, je afspraak met Mark Visser (Acme Studio) is geannuleerd.
+
+Datum: woensdag 14 oktober 2026
+
+Tijd: 10:30 – 11:00 CEST
+
+Organisator: Mark Visser (Acme Studio)
+
+Was dit een vergissing, of wil je opnieuw boeken? Beantwoord deze e-mail om Mark Visser te bereiken.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'confirmed' / 'en' > matches the text snapshot 1`] = `
+"Booking confirmed: 30 minute intro call on Wednesday, October 14, 2026
+
+Acme Studio
+
+Booking confirmed
+
+30 minute intro call
+
+Hi Lisa Bakker, your meeting with Mark Visser (Acme Studio) is confirmed. The invitation is attached, so you can add it to your calendar.
+
+Date: Wednesday, October 14, 2026
+
+Time: 10:30 AM – 11:00 AM GMT+2
+
+Host: Mark Visser (Acme Studio)
+
+Location: Video call
+
+Join video call https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Or open this link: https://meet.weldsuite.org/r/xyz-abcd-efg
+
+A note from Mark Visser
+
+Looking forward to it.
+Please have your project brief ready.
+
+Need to make a change? You can reschedule https://book.weldsuite.org/manage/abc?action=reschedule or cancel https://book.weldsuite.org/manage/abc?action=cancel this booking, or reply to this email to reach Mark Visser.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'confirmed' / 'nl' > matches the text snapshot 1`] = `
+"Afspraak bevestigd: 30 minute intro call op woensdag 14 oktober 2026
+
+Acme Studio
+
+Afspraak bevestigd
+
+30 minute intro call
+
+Hoi Lisa Bakker, je afspraak met Mark Visser (Acme Studio) is bevestigd. De uitnodiging zit in de bijlage, zodat je hem aan je agenda kunt toevoegen.
+
+Datum: woensdag 14 oktober 2026
+
+Tijd: 10:30 – 11:00 CEST
+
+Organisator: Mark Visser (Acme Studio)
+
+Locatie: Videogesprek
+
+Deelnemen aan videogesprek https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Of open deze link: https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Een bericht van Mark Visser
+
+Looking forward to it.
+Please have your project brief ready.
+
+Iets wijzigen? Je kunt deze afspraak verplaatsen https://book.weldsuite.org/manage/abc?action=reschedule of annuleren https://book.weldsuite.org/manage/abc?action=cancel, of beantwoord deze e-mail om Mark Visser te bereiken.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'confirmedInPersonWithLogo' / 'en' > matches the text snapshot 1`] = `
+"Booking confirmed: Studio visit on Wednesday, October 14, 2026
+
+Booking confirmed
+
+Studio visit
+
+Hi Lisa Bakker, your meeting with Acme Studio is confirmed. The invitation is attached, so you can add it to your calendar.
+
+Date: Wednesday, October 14, 2026
+
+Time: 2:00 PM – 3:00 PM GMT+2
+
+Host: Acme Studio
+
+Location: Keizersgracht 123, Amsterdam
+
+Need to make a change? Reply to this email to reach Acme Studio.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'confirmedInPersonWithLogo' / 'nl' > matches the text snapshot 1`] = `
+"Afspraak bevestigd: Studio visit op woensdag 14 oktober 2026
+
+Afspraak bevestigd
+
+Studio visit
+
+Hoi Lisa Bakker, je afspraak met Acme Studio is bevestigd. De uitnodiging zit in de bijlage, zodat je hem aan je agenda kunt toevoegen.
+
+Datum: woensdag 14 oktober 2026
+
+Tijd: 14:00 – 15:00 CEST
+
+Organisator: Acme Studio
+
+Locatie: Keizersgracht 123, Amsterdam
+
+Iets wijzigen? Beantwoord deze e-mail om Acme Studio te bereiken.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'guest' / 'en' > matches the text snapshot 1`] = `
+"Invitation: 30 minute intro call on Wednesday, October 14, 2026
+
+Acme Studio
+
+You're invited
+
+30 minute intro call
+
+Lisa Bakker added you as a guest to a meeting with Mark Visser (Acme Studio). The invitation is attached.
+
+Date: Wednesday, October 14, 2026
+
+Time: 10:30 AM – 11:00 AM GMT+2
+
+Host: Mark Visser (Acme Studio)
+
+Location: Video call
+
+Join video call https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Or open this link: https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Questions? Reply to this email to reach Mark Visser.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'guest' / 'nl' > matches the text snapshot 1`] = `
+"Uitnodiging: 30 minute intro call op woensdag 14 oktober 2026
+
+Acme Studio
+
+Je bent uitgenodigd
+
+30 minute intro call
+
+Lisa Bakker heeft je als gast toegevoegd aan een afspraak met Mark Visser (Acme Studio). De uitnodiging zit in de bijlage.
+
+Datum: woensdag 14 oktober 2026
+
+Tijd: 10:30 – 11:00 CEST
+
+Organisator: Mark Visser (Acme Studio)
+
+Locatie: Videogesprek
+
+Deelnemen aan videogesprek https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Of open deze link: https://meet.weldsuite.org/r/xyz-abcd-efg
+
+Vragen? Beantwoord deze e-mail om Mark Visser te bereiken.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'rescheduled' / 'en' > matches the text snapshot 1`] = `
+"Booking rescheduled: 30 minute intro call on Thursday, October 15, 2026
+
+Acme Studio
+
+Booking rescheduled
+
+30 minute intro call
+
+Hi Lisa Bakker, your meeting with Mark Visser (Acme Studio) has moved to a new time. The updated invitation is attached.
+
+Date: Thursday, October 15, 2026
+
+Time: 3:00 PM – 3:30 PM GMT+2
+
+Host: Mark Visser (Acme Studio)
+
+Phone: +31 20 123 4567
+
+Need to make a change? You can reschedule https://book.weldsuite.org/manage/abc?action=reschedule or cancel https://book.weldsuite.org/manage/abc?action=cancel this booking, or reply to this email to reach Mark Visser.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'booking' / 'rescheduled' / 'nl' > matches the text snapshot 1`] = `
+"Afspraak verplaatst: 30 minute intro call op donderdag 15 oktober 2026
+
+Acme Studio
+
+Afspraak verplaatst
+
+30 minute intro call
+
+Hoi Lisa Bakker, je afspraak met Mark Visser (Acme Studio) is naar een nieuw tijdstip verplaatst. De bijgewerkte uitnodiging zit in de bijlage.
+
+Datum: donderdag 15 oktober 2026
+
+Tijd: 15:00 – 15:30 CEST
+
+Organisator: Mark Visser (Acme Studio)
+
+Telefoon: +31 20 123 4567
+
+Iets wijzigen? Je kunt deze afspraak verplaatsen https://book.weldsuite.org/manage/abc?action=reschedule of annuleren https://book.weldsuite.org/manage/abc?action=cancel, of beantwoord deze e-mail om Mark Visser te bereiken.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'allDayUpdate' / 'en' > matches the text snapshot 1`] = `
+"Updated: Company offsite
+
+Tom Jansen updated an event.
+
+Company offsite
+
+When: Monday, November 2, 2026 – Tuesday, November 3, 2026 (all day)
+
+Where: Utrecht
+
+View in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'allDayUpdate' / 'nl' > matches the text snapshot 1`] = `
+"Gewijzigd: Company offsite
+
+Tom Jansen heeft een afspraak gewijzigd.
+
+Company offsite
+
+Wanneer: maandag 2 november 2026 – dinsdag 3 november 2026 (hele dag)
+
+Waar: Utrecht
+
+Bekijken in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'cancel' / 'en' > matches the text snapshot 1`] = `
+"Cancelled: Quarterly planning
+
+Sanne de Vries cancelled an event.
+
+Quarterly planning
+
+When: Monday, October 12, 2026 at 3:00 PM – 4:30 PM GMT+2
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'cancel' / 'nl' > matches the text snapshot 1`] = `
+"Geannuleerd: Quarterly planning
+
+Sanne de Vries heeft een afspraak geannuleerd.
+
+Quarterly planning
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 16:30 CEST
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'invite' / 'en' > matches the text snapshot 1`] = `
+"Invitation: Quarterly planning
+
+Sanne de Vries invited you to an event.
+
+Quarterly planning
+
+When: Monday, October 12, 2026 at 3:00 PM – 4:30 PM GMT+2
+
+Where: Room 2.14, Amsterdam office
+
+Agenda:
+1. Q3 results
+2. Q4 goals
+3. Hiring plan
+
+Join WeldMeet meeting https://meet.weldsuite.org/r/abc-defg-hij
+
+View in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+Or open this link: https://meet.weldsuite.org/r/abc-defg-hij
+
+If you didn't expect this invitation, you can ignore this email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'invite' / 'nl' > matches the text snapshot 1`] = `
+"Uitnodiging: Quarterly planning
+
+Sanne de Vries heeft je uitgenodigd voor een afspraak.
+
+Quarterly planning
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 16:30 CEST
+
+Waar: Room 2.14, Amsterdam office
+
+Agenda:
+1. Q3 results
+2. Q4 goals
+3. Hiring plan
+
+Deelnemen aan WeldMeet-vergadering https://meet.weldsuite.org/r/abc-defg-hij
+
+Bekijken in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+Of open deze link: https://meet.weldsuite.org/r/abc-defg-hij
+
+Had je deze uitnodiging niet verwacht? Dan kun je deze e-mail negeren.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'removed' / 'en' > matches the text snapshot 1`] = `
+"You were removed from: Quarterly planning
+
+Sanne de Vries removed you from an event.
+
+Quarterly planning
+
+When: Monday, October 12, 2026 at 3:00 PM – 4:30 PM GMT+2
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'removed' / 'nl' > matches the text snapshot 1`] = `
+"Je bent verwijderd uit: Quarterly planning
+
+Sanne de Vries heeft je verwijderd uit een afspraak.
+
+Quarterly planning
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 16:30 CEST
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'reschedule' / 'en' > matches the text snapshot 1`] = `
+"Rescheduled: Quarterly planning
+
+Sanne de Vries moved an event to a new time.
+
+Quarterly planning
+
+When: Monday, October 12, 2026 at 3:00 PM – 4:30 PM GMT+2 → Tuesday, October 13, 2026 at 11:00 AM – 12:30 PM GMT+2
+
+Join video meeting https://zoom.us/j/123456789
+
+Or open this link: https://zoom.us/j/123456789
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'reschedule' / 'nl' > matches the text snapshot 1`] = `
+"Verplaatst: Quarterly planning
+
+Sanne de Vries heeft een afspraak naar een nieuw tijdstip verplaatst.
+
+Quarterly planning
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 16:30 CEST → dinsdag 13 oktober 2026 om 11:00 – 12:30 CEST
+
+Deelnemen aan videovergadering https://zoom.us/j/123456789
+
+Of open deze link: https://zoom.us/j/123456789
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.digest' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Your tasks: 1 overdue
+
+Acme Studio
+
+Daily digest · Monday, October 5, 2026
+
+Your tasks
+
+Hi Tom, here's what's on your plate.
+
+Overdue · 1
+
+Send invoice to Globex · Finance — Oct 2
+
+Due today · 2
+
+Review homepage copy · Website relaunch — Oct 5
+
+Book dentist · Personal — Oct 5
+
+Due this week · 1
+
+Prepare Q4 budget review · Finance — Oct 9
+
+View all tasks https://app.weldsuite.org/task
+
+You're receiving this as a member of Acme Studio. · Digest settings https://app.weldsuite.org/settings/notifications
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'flow.digest' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je taken: 1 te laat
+
+Acme Studio
+
+Dagelijks overzicht · maandag 5 oktober 2026
+
+Je taken
+
+Hoi Tom, dit staat er voor je klaar.
+
+Te laat · 1
+
+Send invoice to Globex · Finance — 2 okt
+
+Vandaag · 2
+
+Review homepage copy · Website relaunch — 5 okt
+
+Book dentist · Persoonlijk — 5 okt
+
+Deze week · 1
+
+Prepare Q4 budget review · Finance — 9 okt
+
+Alle taken bekijken https://app.weldsuite.org/task
+
+Je ontvangt deze e-mail als lid van Acme Studio. · Instellingen overzicht https://app.weldsuite.org/settings/notifications
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'hr.portal-invite' / 'clientWhiteLabel' / 'en' > matches the text snapshot 1`] = `
+"You're invited to Acme client portal
+
+Acme Staffing
+
+You're invited
+
+Acme client portal
+
+Hi,
+
+You now have access to the client portal, where you can follow your team, their results and milestones, and reach our account team.
+
+Open the portal https://hr.weldsuite.org/acme
+
+Or open this link: https://hr.weldsuite.org/acme
+
+Sign in with buyer@globex.example. We'll email you a one-time code."
+`;
+
+exports[`'hr.portal-invite' / 'clientWhiteLabel' / 'nl' > matches the text snapshot 1`] = `
+"Je bent uitgenodigd voor Acme client portal
+
+Acme Staffing
+
+Je bent uitgenodigd
+
+Acme client portal
+
+Hoi,
+
+Je hebt nu toegang tot het klantportaal, waar je je team, hun resultaten en mijlpalen volgt en ons accountteam bereikt.
+
+Portaal openen https://hr.weldsuite.org/acme
+
+Of open deze link: https://hr.weldsuite.org/acme
+
+Log in met buyer@globex.example. We sturen je een eenmalige code per e-mail."
+`;
+
+exports[`'hr.portal-invite' / 'employee' / 'en' > matches the text snapshot 1`] = `
+"You're invited to Acme employee portal
+
+Acme Staffing
+
+You're invited
+
+Acme employee portal
+
+Hi Lisa,
+
+You now have access to your employee portal: your schedule, attendance, leave, coaching and evaluations in one place.
+
+Welcome to the team! Your first shift schedule is already in the portal.
+
+Open the portal https://hr.weldsuite.org/acme
+
+Or open this link: https://hr.weldsuite.org/acme
+
+Sign in with lisa@example.com. We'll email you a one-time code.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'hr.portal-invite' / 'employee' / 'nl' > matches the text snapshot 1`] = `
+"Je bent uitgenodigd voor Acme employee portal
+
+Acme Staffing
+
+Je bent uitgenodigd
+
+Acme employee portal
+
+Hoi Lisa,
+
+Je hebt nu toegang tot je medewerkersportaal: je rooster, aanwezigheid, verlof, coaching en beoordelingen op één plek.
+
+Welcome to the team! Your first shift schedule is already in the portal.
+
+Portaal openen https://hr.weldsuite.org/acme
+
+Of open deze link: https://hr.weldsuite.org/acme
+
+Log in met lisa@example.com. We sturen je een eenmalige code per e-mail.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.enterprise-inquiry' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Enterprise inquiry: Globex Corporation (200-500)
+
+New enterprise inquiry
+
+Globex Corporation
+
+Team size: 200-500
+
+Contact: Hank Scorpio
+
+Email: hank@globex.example
+
+Source: pricing-dialog
+
+Workspace: ws_123
+
+Clerk org: org_abc
+
+Clerk user: user_def
+
+Current plan: business
+
+Use case
+
+Replace our CRM, helpdesk and project tool for 300 people.
+Need SSO and EU data residency.
+
+Reply to this email to answer Hank Scorpio directly.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.enterprise-inquiry' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Enterprise-aanvraag: Globex Corporation (200-500)
+
+Nieuwe enterprise-aanvraag
+
+Globex Corporation
+
+Teamgrootte: 200-500
+
+Contactpersoon: Hank Scorpio
+
+E-mail: hank@globex.example
+
+Bron: pricing-dialog
+
+Werkruimte: ws_123
+
+Clerk-organisatie: org_abc
+
+Clerk-gebruiker: user_def
+
+Huidig abonnement: business
+
+Toepassing
+
+Replace our CRM, helpdesk and project tool for 300 people.
+Need SSO and EU data residency.
+
+Beantwoord deze e-mail om Hank Scorpio direct te bereiken.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'meet.invitation' / 'instant' / 'en' > matches the text snapshot 1`] = `
+"Sanne de Vries invited you to Quick sync
+
+Sanne de Vries invited you to a video meeting.
+
+Quick sync
+
+Join meeting https://meet.weldsuite.org/ws_123/abc-defg-hij
+
+Or open this link: https://meet.weldsuite.org/ws_123/abc-defg-hij
+
+No account needed. The link opens the meeting in your browser.
+
+If you didn't expect this invitation, you can ignore this email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'meet.invitation' / 'instant' / 'nl' > matches the text snapshot 1`] = `
+"Sanne de Vries heeft je uitgenodigd voor Quick sync
+
+Sanne de Vries heeft je uitgenodigd voor een videovergadering.
+
+Quick sync
+
+Deelnemen https://meet.weldsuite.org/ws_123/abc-defg-hij
+
+Of open deze link: https://meet.weldsuite.org/ws_123/abc-defg-hij
+
+Je hebt geen account nodig. De link opent de vergadering in je browser.
+
+Had je deze uitnodiging niet verwacht? Dan kun je deze e-mail negeren.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'meet.invitation' / 'scheduled' / 'en' > matches the text snapshot 1`] = `
+"Sanne de Vries invited you to Design review
+
+Sanne de Vries invited you to a video meeting.
+
+Design review
+
+When: Monday, October 12, 2026 at 3:00 PM – 3:45 PM GMT+2
+
+Walkthrough of the new onboarding flow.
+
+Join meeting https://meet.weldsuite.org/ws_123/abc-defg-hij
+
+Or open this link: https://meet.weldsuite.org/ws_123/abc-defg-hij
+
+No account needed. The link opens the meeting in your browser.
+
+If you didn't expect this invitation, you can ignore this email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'meet.invitation' / 'scheduled' / 'nl' > matches the text snapshot 1`] = `
+"Sanne de Vries heeft je uitgenodigd voor Design review
+
+Sanne de Vries heeft je uitgenodigd voor een videovergadering.
+
+Design review
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 15:45 CEST
+
+Walkthrough of the new onboarding flow.
+
+Deelnemen https://meet.weldsuite.org/ws_123/abc-defg-hij
+
+Of open deze link: https://meet.weldsuite.org/ws_123/abc-defg-hij
+
+Je hebt geen account nodig. De link opent de vergadering in je browser.
+
+Had je deze uitnodiging niet verwacht? Dan kun je deze e-mail negeren.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'notification' / 'mention' / 'en' > matches the text snapshot 1`] = `
+"Sanne mentioned you in #marketing
+
+Sanne mentioned you in #marketing
+
+@Tom can you check the copy for the October newsletter before Friday?
+
+Open in WeldSuite https://app.weldsuite.org/weldchat
+
+Or open this link: https://app.weldsuite.org/weldchat
+
+You're receiving this because email notifications are on. · Notification settings https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'notification' / 'mention' / 'nl' > matches the text snapshot 1`] = `
+"Sanne mentioned you in #marketing
+
+Sanne mentioned you in #marketing
+
+@Tom can you check the copy for the October newsletter before Friday?
+
+Openen in WeldSuite https://app.weldsuite.org/weldchat
+
+Of open deze link: https://app.weldsuite.org/weldchat
+
+Je ontvangt deze e-mail omdat e-mailmeldingen aan staan. · Meldingsinstellingen https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'notification' / 'taskAssigned' / 'en' > matches the text snapshot 1`] = `
+"Tom assigned you a task
+
+Tom assigned you a task
+
+Prepare Q4 budget review
+
+View task https://app.weldsuite.org/weldflow/tasks/123
+
+Or open this link: https://app.weldsuite.org/weldflow/tasks/123
+
+You're receiving this because email notifications are on. · Notification settings https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'notification' / 'taskAssigned' / 'nl' > matches the text snapshot 1`] = `
+"Tom assigned you a task
+
+Tom assigned you a task
+
+Prepare Q4 budget review
+
+View task https://app.weldsuite.org/weldflow/tasks/123
+
+Of open deze link: https://app.weldsuite.org/weldflow/tasks/123
+
+Je ontvangt deze e-mail omdat e-mailmeldingen aan staan. · Meldingsinstellingen https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'portal.sign-in' / 'code' / 'en' > matches the text snapshot 1`] = `
+"Your Acme employee portal sign-in code: 482913
+
+Acme Staffing
+
+Your sign-in code
+
+Acme employee portal
+
+Enter this code to sign in:
+
+482913
+
+The code expires in 15 minutes.
+
+If you didn't try to sign in, you can ignore this email.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'portal.sign-in' / 'code' / 'nl' > matches the text snapshot 1`] = `
+"Je inlogcode voor Acme employee portal: 482913
+
+Acme Staffing
+
+Je inlogcode
+
+Acme employee portal
+
+Vul deze code in om in te loggen:
+
+482913
+
+De code verloopt over 15 minuten.
+
+Heb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'portal.sign-in' / 'linkAndCode' / 'en' > matches the text snapshot 1`] = `
+"Sign in to Acme order portal
+
+Acme Wholesale
+
+Sign in
+
+Acme order portal
+
+Sign in https://portal.weldsuite.org/acme/auth/callback?token=abc
+
+Or open this link: https://portal.weldsuite.org/acme/auth/callback?token=abc
+
+Or enter this code:
+
+771204
+
+The link and code expire in 15 minutes.
+
+If you didn't try to sign in, you can ignore this email.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'portal.sign-in' / 'linkAndCode' / 'nl' > matches the text snapshot 1`] = `
+"Inloggen bij Acme order portal
+
+Acme Wholesale
+
+Inloggen
+
+Acme order portal
+
+Inloggen https://portal.weldsuite.org/acme/auth/callback?token=abc
+
+Of open deze link: https://portal.weldsuite.org/acme/auth/callback?token=abc
+
+Of vul deze code in:
+
+771204
+
+De link en code verlopen over 15 minuten.
+
+Heb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'task.assigned' / 'full' / 'en' > matches the text snapshot 1`] = `
+"Tom Jansen assigned you: Prepare Q4 budget review
+
+Tom Jansen assigned you a task.
+
+Prepare Q4 budget review
+
+Project: Finance
+
+Priority: High
+
+Due: Friday, October 16, 2026
+
+Collect the numbers from each team lead and draft the summary.
+
+View task https://app.weldsuite.org/weldflow/tasks/123
+
+You're receiving this because email notifications are on. · Notification settings https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'task.assigned' / 'full' / 'nl' > matches the text snapshot 1`] = `
+"Tom Jansen heeft je toegewezen: Prepare Q4 budget review
+
+Tom Jansen heeft je een taak toegewezen.
+
+Prepare Q4 budget review
+
+Project: Finance
+
+Prioriteit: Hoog
+
+Deadline: vrijdag 16 oktober 2026
+
+Collect the numbers from each team lead and draft the summary.
+
+Taak bekijken https://app.weldsuite.org/weldflow/tasks/123
+
+Je ontvangt deze e-mail omdat e-mailmeldingen aan staan. · Meldingsinstellingen https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'task.assigned' / 'minimal' / 'en' > matches the text snapshot 1`] = `
+"Tom Jansen assigned you: Call the supplier
+
+Tom Jansen assigned you a task.
+
+Call the supplier
+
+View task https://app.weldsuite.org/weldflow/tasks/124
+
+You're receiving this because email notifications are on.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'task.assigned' / 'minimal' / 'nl' > matches the text snapshot 1`] = `
+"Tom Jansen heeft je toegewezen: Call the supplier
+
+Tom Jansen heeft je een taak toegewezen.
+
+Call the supplier
+
+Taak bekijken https://app.weldsuite.org/weldflow/tasks/124
+
+Je ontvangt deze e-mail omdat e-mailmeldingen aan staan.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'workspace.invitation' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Sanne de Vries invited you to Acme Studio on WeldSuite
+
+Sanne de Vries invited you to join
+
+Acme Studio
+
+You've been invited to Acme Studio on WeldSuite as Member. Accept the invitation to get started.
+
+Accept invitation https://accounts.weldsuite.org/accept?ticket=abc
+
+Or open this link: https://accounts.weldsuite.org/accept?ticket=abc
+
+This invitation was sent to tom@example.com. If you didn't expect it, you can ignore this email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'workspace.invitation' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Sanne de Vries heeft je uitgenodigd voor Acme Studio op WeldSuite
+
+Sanne de Vries heeft je uitgenodigd voor
+
+Acme Studio
+
+Je bent uitgenodigd voor Acme Studio op WeldSuite als Member. Accepteer de uitnodiging om te beginnen.
+
+Uitnodiging accepteren https://accounts.weldsuite.org/accept?ticket=abc
+
+Of open deze link: https://accounts.weldsuite.org/accept?ticket=abc
+
+Deze uitnodiging is verstuurd naar tom@example.com. Had je hem niet verwacht? Dan kun je deze e-mail negeren.
+
+WeldSuite https://weldsuite.org"
+`;

@@ -141,6 +141,7 @@ app.post('/auth/request', zValidator('json', commercePortalAuthRequestSchema), a
         token,
         otp,
         companyName: company?.displayName,
+        settings,
       });
     }
 

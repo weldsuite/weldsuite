@@ -1,0 +1,46 @@
+{
+  "name": "@weldsuite/emails",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./ics": "./src/ics.ts",
+    "./transports/binding": "./src/transports/binding.ts",
+    "./transports/rest": "./src/transports/rest.ts",
+    "./transports/resend": "./src/transports/resend.ts",
+    "./transports/memory": "./src/transports/memory.ts",
+    "./transports/env": "./src/transports/env.ts"
+  },
+  "scripts": {
+    "previews": "tsx scripts/generate-previews.ts",
+    "dev": "pnpm previews && email dev --dir emails --port 3030",
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@react-email/components": "^1.0.12",
+    "@weldsuite/email": "workspace:*",
+    "@weldsuite/i18n": "workspace:*",
+    "cloudflare": "^7.0.0",
+    "html-to-text": "^9.0.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@react-email/ui": "^6.11.0",
+    "@types/html-to-text": "^9.0.4",
+    "@types/node": "^20",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "react-email": "^6.11.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}

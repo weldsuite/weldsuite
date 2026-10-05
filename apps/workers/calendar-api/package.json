@@ -19,6 +19,7 @@
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/emails": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",

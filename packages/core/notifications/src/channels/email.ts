@@ -1,44 +1,47 @@
 /**
- * Email channel — sends a notification email via Resend, preferring the
- * template path when the caller supplies one. Both branches share the same
- * `from` address; the template path is recommended for any user-visible
- * notification type that has a branded design in the Resend dashboard.
+ * Email channel — renders and sends a notification email through
+ * `@weldsuite/emails`, using whichever transport the host worker has
+ * configured (Cloudflare `SEND_EMAIL` binding, or Resend during the
+ * migration window — see `workerTransport`).
+ *
+ * Exported for the deferred-email workflow, which sends the same mail on the
+ * same `from` address minutes later — it must not grow its own copy.
  */
 
-import * as resend from '@weldsuite/transactional-email';
+import { sendSystemEmail, type EmailBrand, type EmailLocale } from '@weldsuite/emails';
+import { workerTransport, type SystemEmailEnv } from '@weldsuite/emails/transports/binding';
+import type { NotificationEmailOverride } from '../types';
 
-const FROM_ADDRESS = 'WeldSuite <notifications@mail.weldsuite.org>';
-
-interface EmailParams {
-  apiKey: string;
+export interface SendNotificationEmailParams {
   to: string;
-  subject: string;
-  /** Plain-text fallback. Used when no template is supplied, or when the
-   *  template call fails (we don't fall back automatically — that would
-   *  mask config errors — but a future caller could choose to retry). */
-  fallbackText: string;
-  /** Optional Resend template. When set, `sendTemplateEmail` is used. */
-  template?: {
-    id: string;
-    variables: Record<string, string | number | boolean>;
-  };
+  locale: EmailLocale;
+  /** Template + props to render. */
+  email: NotificationEmailOverride;
+  /** Sender module/brand. Defaults to the template's own default brand. */
+  brand?: EmailBrand;
+  replyTo?: string;
 }
 
-export async function sendNotificationEmail(params: EmailParams): Promise<void> {
-  if (params.template) {
-    await resend.sendTemplateEmail(params.apiKey, {
-      from: FROM_ADDRESS,
-      to: [params.to],
-      subject: params.subject,
-      template: params.template,
-    });
+/**
+ * Send a notification email. No-ops (with a warning) when the worker has no
+ * email transport configured — the same "skip sending" behaviour the old
+ * `if (!RESEND_API_KEY) return` had for local dev.
+ */
+export async function sendNotificationEmail(
+  env: SystemEmailEnv,
+  params: SendNotificationEmailParams,
+): Promise<void> {
+  const transport = workerTransport(env);
+  if (!transport) {
+    console.warn('[Notifications] No email transport configured, skipping send');
     return;
   }
 
-  await resend.sendEmail(params.apiKey, {
-    from: FROM_ADDRESS,
-    to: [params.to],
-    subject: params.subject,
-    text: params.fallbackText,
+  await sendSystemEmail(transport, {
+    ...params.email,
+    to: params.to,
+    locale: params.locale,
+    ...(params.brand ? { brand: params.brand } : {}),
+    ...(params.replyTo ? { replyTo: params.replyTo } : {}),
   });
 }

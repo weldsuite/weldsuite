@@ -197,7 +197,7 @@ const CompanyPicker = React.memo(function CompanyPicker({
       }}
     >
       <PopoverTrigger asChild>
-        <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow max-w-full text-left inline-flex items-center gap-1.5 min-w-0">
+        <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow max-w-full text-left inline-flex items-center gap-1.5 min-w-0">
           {linkedCompany?.name ? (
             <>
               <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
@@ -747,7 +747,7 @@ export default function CrmTasksClient() {
         <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", status.color, status.bg)}>
+              <Button variant="ghost" className={cn("h-auto px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", status.color, status.bg)}>
                 {status.label}
               </Button>
             </PopoverTrigger>
@@ -771,7 +771,7 @@ export default function CrmTasksClient() {
         <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority ? priority.color : 'text-gray-400', priority ? priority.bg : '')}>
+              <Button variant="ghost" className={cn("h-auto px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority ? priority.color : 'text-gray-400', priority ? priority.bg : '')}>
                 {priority ? priority.label : '—'}
               </Button>
             </PopoverTrigger>
@@ -808,7 +808,7 @@ export default function CrmTasksClient() {
         <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
+              <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
                 {task.dueDate ? (
                   <span className="font-mono text-gray-600 dark:text-muted-foreground">{formatDate(task.dueDate)}</span>
                 ) : (
@@ -859,7 +859,7 @@ export default function CrmTasksClient() {
                   <Button
                     variant="ghost"
                     className={cn(
-                      'cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded-[6px] pl-0.5 py-0.5 transition-shadow',
+                      'h-auto cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded-[6px] pl-0.5 py-0.5 transition-shadow',
                       multiple ? 'pr-0.5' : 'pr-1.5',
                     )}
                   >

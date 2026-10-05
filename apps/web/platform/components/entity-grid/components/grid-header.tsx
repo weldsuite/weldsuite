@@ -174,7 +174,7 @@ export function GridHeader() {
                     variant="ghost"
                     className={cn(
                       "h-full flex items-center transition-colors gap-1.5 rounded-none",
-                      config.fillViewport ? "justify-center" : "flex-1 text-left"
+                      config.fillViewport ? "justify-center" : "flex-1 justify-start px-0 has-[>svg]:px-0 text-left"
                     )}
                     style={{ height: config.fillViewport ? '21px' : '40px', overflow: 'hidden' }}
                   >
@@ -363,7 +363,7 @@ export function GridHeader() {
                 {showAddButton && (
                 <Popover open={addColumnOpen} onOpenChange={setAddColumnOpen}>
                   <PopoverTrigger asChild>
-                    <Button variant="ghost" className="w-full h-full flex items-center px-3 gap-1.5 text-foreground/80 transition-colors rounded-none">
+                    <Button variant="ghost" className="w-full h-full flex items-center justify-start px-3 gap-1.5 text-foreground/80 transition-colors rounded-none">
                       <Plus className="h-3.5 w-3.5 flex-shrink-0" />
                       <span className="text-[13px] font-medium">{t('sweep.entities.add')}</span>
                     </Button>

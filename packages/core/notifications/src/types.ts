@@ -14,6 +14,8 @@ import type {
   NotificationType,
   NotificationSeverity,
 } from '@weldsuite/db/schema/notifications';
+import type { EmailBrand, EmailLocale, NotificationEmailProps, TaskAssignedEmailProps } from '@weldsuite/emails';
+import type { SystemEmailEnv } from '@weldsuite/emails/transports/binding';
 
 /** Tenant Drizzle handle — same shape both workers construct from
  *  `@weldsuite/db/schema`. */
@@ -49,32 +51,50 @@ export interface DeferredEmailWorkflow {
   }): Promise<unknown>;
 }
 
-/** Payload handed to the deferred-email workflow. */
+/**
+ * Which `@weldsuite/emails` template a notification's email renders with, and
+ * its props. A discriminated union so the props always match the template —
+ * add a case here when a notification helper needs a richer email than the
+ * generic `notification` one.
+ */
+export type NotificationEmailOverride =
+  | { template: 'notification'; props: NotificationEmailProps }
+  | { template: 'task.assigned'; props: TaskAssignedEmailProps };
+
+/**
+ * Payload handed to the deferred-email workflow. Every field must stay
+ * JSON-serializable (the Workflow engine persists it).
+ */
 export interface DeferredEmailParams {
   workspaceId: string;
   userId: string;
   /** Row in `notifications`; re-read on wake to check it is still unread. */
   notificationId: string;
   to: string;
-  subject: string;
-  fallbackText: string;
+  /** Recipient's resolved locale at enqueue time. */
+  locale: EmailLocale;
+  /** Sender module/brand to render with. Omitted falls back to the
+   *  template's own default brand. */
+  brand?: EmailBrand;
+  /**
+   * Template + props to send. Optional only for backward compatibility: an
+   * in-flight workflow instance created before this field existed wakes up
+   * with just `subject`/`fallbackText` below, and the workflow falls back to
+   * the generic `notification` template built from those.
+   */
+  email?: NotificationEmailOverride;
+  /** Old-shape fields; read only as a fallback when `email` is missing. */
+  subject?: string;
+  fallbackText?: string;
   /** ISO timestamp the workflow sleeps until before re-checking. */
   sendAfter: string;
-  template?: {
-    id: string;
-    variables: Record<string, string | number | boolean>;
-  };
 }
 
-export interface NotificationEnv {
+export interface NotificationEnv extends SystemEmailEnv {
   /** realtime-worker service binding — fans in-app notifications out to the
    *  user's WorkspaceHub personal topic. Optional: when missing (local dev
    *  without realtime-worker running), in-app delivery becomes a no-op. */
   REALTIME?: RealtimeBinding;
-  RESEND_API_KEY?: string;
-  /** Resend template id for task-assignment emails. When unset, the email
-   *  falls back to plain text. */
-  RESEND_TEMPLATE_TASK_ASSIGNED?: string;
   /** Absolute base URL for action links in email/push, e.g.
    *  `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;
@@ -115,16 +135,12 @@ export interface CreateNotificationParams<Env extends NotificationEnv = Notifica
   /** userId for actorType='user', contactId for 'contact', null for 'system'. */
   actorId?: string | null;
   /**
-   * Optional Resend template override. When provided AND
-   * `env.RESEND_API_KEY` is set, the email path uses `sendTemplateEmail`
-   * instead of plain text. The template `id` is typically pulled from
-   * an env binding so different environments can point at different
-   * templates.
+   * Optional email template override. When omitted, the email channel
+   * renders the generic `notification` template from `title`/`body`/
+   * `actionUrl`. Set this for a notification type with a richer
+   * `@weldsuite/emails` template (e.g. `task.assigned`).
    */
-  emailTemplate?: {
-    id: string;
-    variables: Record<string, string | number | boolean>;
-  };
+  email?: NotificationEmailOverride;
   /**
    * Channels this notification must never deliver on, regardless of the
    * recipient's preferences. Used for inherently real-time notifications

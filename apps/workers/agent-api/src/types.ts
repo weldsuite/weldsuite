@@ -1,5 +1,6 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { WeldAgentJob } from '@weldsuite/agent-domain/jobs';
+import type { DeferredEmailParams } from '@weldsuite/notifications/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 
 /**
@@ -69,24 +70,20 @@ export interface Env extends KitEnv {
   // service binding declared above.
   /** Resend API key — the notification email channel. Optional locally. */
   RESEND_API_KEY?: string;
-  /** Resend template id for the task-assignment email (NotificationEnv). */
-  RESEND_TEMPLATE_TASK_ASSIGNED?: string;
+  /** Migration switch: `resend` sends system email through Resend instead of
+   *  the SEND_EMAIL binding (@weldsuite/emails workerTransport). Removed
+   *  together with Resend at the end of the migration
+   *  (docs/plans/system-email-cloudflare.md). */
+  EMAIL_TRANSPORT?: string;
+  /** Cloudflare `[[send_email]]` binding — the notification email channel. */
+  SEND_EMAIL?: SendEmail;
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;
   /** CF Workflow that holds a notification email until the recipient has been
    *  away for the defer window. Hosted in app-api (`deferred-notification-email*`
    *  names), bound here cross-script via `script_name` in test/production. */
-  DEFERRED_NOTIFICATION_EMAIL?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    notificationId: string;
-    to: string;
-    subject: string;
-    fallbackText: string;
-    sendAfter: string;
-    template?: { id: string; variables: Record<string, string | number | boolean> };
-  }>;
+  DEFERRED_NOTIFICATION_EMAIL?: Workflow<DeferredEmailParams>;
 }
 
 export type Variables = KitVariables;

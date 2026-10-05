@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import { headers } from 'next/headers';
-import { workspaceMembers } from '@weldsuite/db/schema';
+import { workspaceMembers, workspaceSettings } from '@weldsuite/db/schema';
+import { resolveEmailLocale, type EmailBrand, type EmailLocale } from '@weldsuite/emails';
 
 import type { getTenantDbBySlug } from '@/lib/db';
 import {
@@ -36,6 +37,41 @@ export async function getHostInfo(
   return {
     name: member?.name?.trim() || workspaceName,
     email: member?.email?.trim() || null,
+  };
+}
+
+export interface WorkspaceBrand {
+  brand: EmailBrand;
+  locale: EmailLocale;
+}
+
+/**
+ * The workspace's own brand (logo, accent color) and language for mail to
+ * people outside the workspace (bookers, guests) — they must never see the
+ * WeldSuite brand. Falls back to a name-only brand and English when the
+ * tenant never saved settings.
+ */
+export async function getWorkspaceBrand(db: TenantDb, workspaceName: string): Promise<WorkspaceBrand> {
+  const [settings] = await db
+    .select({
+      logoUrl: workspaceSettings.logoUrl,
+      primaryColor: workspaceSettings.primaryColor,
+      accentColor: workspaceSettings.accentColor,
+      language: workspaceSettings.language,
+    })
+    .from(workspaceSettings)
+    .where(isNull(workspaceSettings.deletedAt))
+    .limit(1);
+
+  return {
+    brand: {
+      kind: 'workspace',
+      name: workspaceName,
+      logoUrl: settings?.logoUrl?.trim() || undefined,
+      // The workspace brand color, as the digest and portals use it.
+      accentColor: settings?.primaryColor?.trim() || settings?.accentColor?.trim() || undefined,
+    },
+    locale: resolveEmailLocale(settings?.language),
   };
 }
 

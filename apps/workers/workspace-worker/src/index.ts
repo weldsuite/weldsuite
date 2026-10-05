@@ -49,11 +49,16 @@ export interface Env {
   CLOUDFLARE_ACCOUNT_ID?: string;
   // Worker name to deliver inbound mail to via Email Routing rules.
   MAIL_INBOUND_WORKER_NAME?: string;
-  // Resend API key — used to send our own workspace invitation email
-  // when Clerk's organizationInvitation.created webhook fires.
+  // --- Workspace invitation email (@weldsuite/emails, 'workspace.invitation') ---
+  // Cloudflare `[[send_email]]` binding — the workspace invitation email,
+  // sent when Clerk's organizationInvitation.created webhook fires.
+  SEND_EMAIL?: SendEmail;
+  // Migration switch: `resend` sends through Resend instead of the SEND_EMAIL
+  // binding. Removed together with Resend at the end of the migration
+  // (docs/plans/system-email-cloudflare.md).
+  EMAIL_TRANSPORT?: string;
+  // Resend API key — the migration-window fallback for the invitation email.
   RESEND_API_KEY?: string;
-  // Resend-hosted template ID for the workspace invitation email.
-  RESEND_WORKSPACE_INVITATION_TEMPLATE_ID?: string;
   // Public URL of the platform SPA, used to build the invitation accept link
   // shown in the email when Clerk doesn't return a ticket URL.
   APP_URL?: string;

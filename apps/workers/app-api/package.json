@@ -35,6 +35,7 @@
     "@weldsuite/data-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/email": "workspace:*",
+    "@weldsuite/emails": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/feature-flags": "workspace:*",
     "@weldsuite/flow-domain": "workspace:*",

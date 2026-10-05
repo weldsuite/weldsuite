@@ -54,7 +54,7 @@ type SetupMethod = 'select' | 'weldmail' | 'custom-domain';
 // --- Icons ---
 
 const WELDMAIL_ICON = (
-  <svg viewBox="0 0 937.21 669.01" className="size-7" fill="#f6663e">
+  <svg viewBox="0 0 937.21 669.01" className="size-5 mx-1 shrink-0" fill="#f6663e">
     <path d="M787.08,0H150.13C67.22,0,0,67.21,0,150.12v368.76c0,82.91,67.22,150.13,150.13,150.13h636.95c82.91,0,150.13-67.22,150.13-150.13V150.12C937.21,67.21,869.99,0,787.08,0ZM780.05,230.53l-180.95,138.23c-39.2,29.91-86.23,44.87-133.25,44.87s-93.98-14.96-133.19-44.87c-.11-.06-.17-.11-.28-.17l-175.45-136.42c-15.98-12.41-18.87-35.41-6.46-51.38,12.46-15.98,35.46-18.81,51.38-6.41l175.34,136.26c52.29,39.77,125.26,39.77,177.49-.06l180.95-138.23c16.04-12.3,39.04-9.18,51.27,6.85,12.3,16.09,9.24,39.03-6.85,51.33Z" />
   </svg>
 );
@@ -91,7 +91,7 @@ function ChooseMethodContent({
           className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
           onClick={() => onSelectMethod('custom-domain')}
         >
-          <AppIcon icon="weldhost" className="size-7" />
+          <AppIcon icon="weldhost" className="size-5 mx-1 shrink-0" />
           <div className="flex flex-col items-start">
             <span className="font-medium">{t.mail.setupPage.customDomainEmail}</span>
             <span className="text-xs text-muted-foreground">{t.mail.setupPage.useYourOwnDomain}</span>

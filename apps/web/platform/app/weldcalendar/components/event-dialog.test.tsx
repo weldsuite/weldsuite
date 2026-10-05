@@ -23,6 +23,10 @@ vi.mock('@/hooks/queries/use-calendar-queries', () => ({
   useUpdateCalendarEvent: () => ({ mutateAsync: updateEvent, isPending: false }),
   useDeleteCalendarEvent: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
+// The start / end pickers read the 12h/24h preference; undefined means 12h.
+vi.mock('@/hooks/queries/use-settings-queries', () => ({
+  useUserPreferences: () => ({ data: undefined }),
+}));
 vi.mock('./location-autocomplete', () => ({
   LocationAutocomplete: ({ id }: { id?: string }) => <input id={id} />,
 }));
@@ -167,6 +171,21 @@ const baseEvent = {
   endTime: '2026-10-05T10:00:00.000Z',
 };
 
+/** `baseEvent` on 14 Oct 2026 at whole local hours, so the pickers show the same thing in any timezone. */
+const localEvent = (startHour: number, endHour: number) => ({
+  ...baseEvent,
+  startTime: new Date(2026, 9, 14, startHour).toISOString(),
+  endTime: new Date(2026, 9, 14, endHour).toISOString(),
+});
+
+/** The time button of the Start / End field (named "<label> <time>"; the date button is just "<label>"). */
+const timeButton = (label: 'Start' | 'End') => screen.getByRole('button', { name: new RegExp(`^${label} \\d`) });
+
+function pickTime(label: 'Start' | 'End', time: string) {
+  fireEvent.click(timeButton(label));
+  fireEvent.click(screen.getByRole('option', { name: time }));
+}
+
 /** What the API returns for a quick-created event: every unset column is null. */
 const nullColumns = {
   tags: null,
@@ -209,15 +228,10 @@ describe('EventDialog update (TASK-731)', () => {
   });
 
   it('refuses an end before the start on the same day instead of rolling it to the next day (TASK-895)', async () => {
-    renderDialog({
-      event: { ...baseEvent, startTime: '2026-10-05T21:00:00.000Z', endTime: '2026-10-05T22:00:00.000Z' } as never,
-    });
+    renderDialog({ event: localEvent(21, 22) as never });
 
-    const start = (screen.getByLabelText('Start') as HTMLInputElement).value; // local 'YYYY-MM-DDTHH:mm'
-    const day = start.slice(0, 10);
-    // 00:30 is before the start's clock time on the same date, whatever the test machine's zone.
-    fireEvent.change(screen.getByLabelText('Start'), { target: { value: `${day}T10:00` } });
-    fireEvent.change(screen.getByLabelText('End'), { target: { value: `${day}T00:30` } });
+    // 12:30 AM on the same date is before the 9 PM start.
+    pickTime('End', '12:30 AM');
     fireEvent.click(screen.getByRole('button', { name: 'Update' }));
 
     expect(await screen.findByText('End must be after start')).toBeInTheDocument();
@@ -225,16 +239,13 @@ describe('EventDialog update (TASK-731)', () => {
   });
 
   it('accepts a past-midnight event entered with the next day\'s date', async () => {
-    renderDialog({ event: baseEvent as never });
+    renderDialog({ event: localEvent(21, 22) as never });
 
-    const day = (screen.getByLabelText('Start') as HTMLInputElement).value.slice(0, 10);
-    const next = new Date(`${day}T00:00:00`);
-    next.setDate(next.getDate() + 1);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    fireEvent.change(screen.getByLabelText('Start'), { target: { value: `${day}T23:00` } });
-    fireEvent.change(screen.getByLabelText('End'), {
-      target: { value: `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}T01:00` },
-    });
+    pickTime('Start', '11:00 PM');
+    // The date button is the one the "End" label points at.
+    fireEvent.click(screen.getByRole('button', { name: 'End' }));
+    fireEvent.click(screen.getByRole('button', { name: /October 15th, 2026/ }));
+    pickTime('End', '1:00 AM');
     fireEvent.click(screen.getByRole('button', { name: 'Update' }));
 
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
@@ -243,14 +254,11 @@ describe('EventDialog update (TASK-731)', () => {
   });
 
   it('refuses an end on an earlier day with a validation error and no request', async () => {
-    renderDialog({ event: baseEvent as never });
+    renderDialog({ event: localEvent(9, 10) as never });
 
-    const start = (screen.getByLabelText('Start') as HTMLInputElement).value;
-    const prevDay = new Date(`${start.slice(0, 10)}T00:00:00`);
-    prevDay.setDate(prevDay.getDate() - 1);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const value = `${prevDay.getFullYear()}-${pad(prevDay.getMonth() + 1)}-${pad(prevDay.getDate())}T10:00`;
-    fireEvent.change(screen.getByLabelText('End'), { target: { value } });
+    // The date button is the one the "End" label points at.
+    fireEvent.click(screen.getByRole('button', { name: 'End' }));
+    fireEvent.click(screen.getByRole('button', { name: /October 13th, 2026/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Update' }));
 
     expect(await screen.findByText('End must be after start')).toBeInTheDocument();
@@ -258,16 +266,12 @@ describe('EventDialog update (TASK-731)', () => {
   });
 
   it('keeps the duration when the start moves', async () => {
-    renderDialog({ event: baseEvent as never });
+    renderDialog({ event: localEvent(9, 10) as never });
 
-    const startInput = screen.getByLabelText('Start') as HTMLInputElement;
-    const endBefore = (screen.getByLabelText('End') as HTMLInputElement).value;
-    const [day, time] = startInput.value.split('T');
-    const [h, m] = time.split(':').map(Number);
-    const newStart = `${day}T${String((h + 2) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    fireEvent.change(startInput, { target: { value: newStart } });
+    expect(timeButton('End')).toHaveTextContent('10:00 AM');
+    pickTime('Start', '11:00 AM');
 
-    expect((screen.getByLabelText('End') as HTMLInputElement).value).not.toBe(endBefore);
+    expect(timeButton('End')).toHaveTextContent('12:00 PM');
     fireEvent.click(screen.getByRole('button', { name: 'Update' }));
     await waitFor(() => expect(updateEvent).toHaveBeenCalledTimes(1));
     const { startTime, endTime } = updateEvent.mock.calls[0][0].data;

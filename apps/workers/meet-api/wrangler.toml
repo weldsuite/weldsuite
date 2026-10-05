@@ -43,10 +43,13 @@
 #     summary model, both through @weldsuite/ai / AI Gateway; same value as
 #     app-api and mail-api. Needs Workers AI + AI Gateway Run permissions.
 #     Optional overrides: AI_GATEWAY_API_TOKEN, CF_AI_GATEWAY)
-#   RESEND_API_KEY (+ optional RESEND_TEMPLATE_TASK_ASSIGNED, PUBLIC_APP_URL):
-#     the missed-call notification endChatCall sends (@weldsuite/notifications)
+#   RESEND_API_KEY: only used when EMAIL_TRANSPORT is set back to "resend"
+#     (missed-call notifications and meeting invitations, @weldsuite/emails)
+#   PUBLIC_APP_URL (optional): base URL for links in notification mail
 #
 # CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
+# EMAIL_TRANSPORT="cloudflare" sends through Cloudflare Email Service; "resend"
+# is the rollback until Resend is removed (docs/plans/system-email-cloudflare.md).
 
 name = "weldsuite-meet-api"
 main = "src/index.ts"
@@ -60,7 +63,9 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
 "next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
 "next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
-"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+# No "react" alias here (unlike most other API workers): invitations.ts
+# renders real system email through @weldsuite/emails, which needs the actual
+# react package, not the empty bundle-size shim.
 
 [observability]
 enabled = true
@@ -72,6 +77,9 @@ ENVIRONMENT = "development"
 MEETING_PORTAL_URL = "http://localhost:3020"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+# Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
+# simulated and writes mail to disk instead of sending it.
+EMAIL_TRANSPORT = "cloudflare"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -86,6 +94,9 @@ queue = "entity-events-dev"
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
 remote = true
+
+[[send_email]]
+name = "SEND_EMAIL"
 
 # R2 bucket for files, documents and generated avatars (participant-resolver.ts).
 [[r2_buckets]]
@@ -139,6 +150,14 @@ routes = [
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -204,6 +223,14 @@ ENVIRONMENT = "production"
 MEETING_PORTAL_URL = "https://meet.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

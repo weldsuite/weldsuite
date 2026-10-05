@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
+import { DateTimeField } from './date-time-field';
 import { LocationAutocomplete } from './location-autocomplete';
 import { GuestSearchInput } from './guest-search-input';
 import {
@@ -60,6 +61,7 @@ import {
   AlertDialogTitle,
 } from '@weldsuite/ui/components/alert-dialog';
 import { normalizeEventTimes } from '../lib/event-times';
+import { useTimeFormat } from '../lib/calendar-format';
 
 interface EventDialogProps {
   open: boolean;
@@ -81,20 +83,6 @@ interface EventDialogProps {
 type FormAttendee = NonNullable<EventFormInput['attendees']>[number];
 
 const isValidDate = (d: Date | null | undefined): d is Date => d instanceof Date && !Number.isNaN(d.getTime());
-
-/** `datetime-local` value, or `date` value for all-day events; '' for a missing / invalid date. */
-function formatInputValue(date: Date | null | undefined, allDay: boolean): string {
-  if (!isValidDate(date)) return '';
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  return allDay ? day : `${day}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-/** Parses a `datetime-local` / `date` input value into a local Date (Invalid Date when empty). */
-function parseInputValue(value: string, allDay: boolean): Date {
-  if (!value) return new Date(Number.NaN);
-  return new Date(allDay && !value.includes('T') ? `${value}T00:00:00` : value);
-}
 
 /** The browser's IANA zone ("Europe/Amsterdam"), sent so the server knows how to render the event's times. */
 function browserTimeZone(): string | undefined {
@@ -133,6 +121,7 @@ function collectErrorMessages(errors: unknown, label: string, out: string[] = []
 export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEnd, defaultType, defaultTitle, defaultDescription, calendars, defaultCalendarId, onDeleted }: Readonly<EventDialogProps>) {
   const isEdit = !!event?.id;
   const t = getTranslations('weldcalendar');
+  const timeFormat = useTimeFormat();
 
   const createEvent = useCreateCalendarEvent();
   const updateEvent = useUpdateCalendarEvent();
@@ -525,19 +514,19 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
           {/* Start / End Time */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startTime">{t.eventDialog.startLabel}</Label>
-              <Input
+              <Label id="startTime-label" htmlFor="startTime">{t.eventDialog.startLabel}</Label>
+              <DateTimeField
                 id="startTime"
-                type={form.watch('allDay') ? 'date' : 'datetime-local'}
-                value={formatInputValue(form.watch('startTime'), !!form.watch('allDay'))}
-                aria-invalid={!!form.formState.errors.startTime}
-                onChange={(e) => {
-                  const allDay = !!form.getValues('allDay');
-                  const next = parseInputValue(e.target.value, allDay);
+                labelId="startTime-label"
+                value={form.watch('startTime')}
+                allDay={!!form.watch('allDay')}
+                timeFormat={timeFormat}
+                invalid={!!form.formState.errors.startTime}
+                onChange={(next) => {
                   const prev = form.getValues('startTime');
                   const end = form.getValues('endTime');
                   // Moving the start moves the end with it, so the duration is kept.
-                  if (isValidDate(next) && isValidDate(prev) && isValidDate(end)) {
+                  if (isValidDate(prev) && isValidDate(end)) {
                     form.setValue('endTime', new Date(end.getTime() + (next.getTime() - prev.getTime())), { shouldDirty: true });
                   }
                   form.setValue('startTime', next, { shouldDirty: true });
@@ -549,15 +538,17 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="endTime">{t.eventDialog.endLabel}</Label>
-              <Input
+              <Label id="endTime-label" htmlFor="endTime">{t.eventDialog.endLabel}</Label>
+              <DateTimeField
                 id="endTime"
-                type={form.watch('allDay') ? 'date' : 'datetime-local'}
-                value={formatInputValue(form.watch('endTime'), !!form.watch('allDay'))}
-                aria-invalid={!!form.formState.errors.endTime}
-                onChange={(e) => {
-                  const next = parseInputValue(e.target.value, !!form.getValues('allDay'));
-                  form.setValue('endTime', isValidDate(next) ? next : null, { shouldDirty: true });
+                labelId="endTime-label"
+                value={form.watch('endTime')}
+                fallback={form.watch('startTime')}
+                allDay={!!form.watch('allDay')}
+                timeFormat={timeFormat}
+                invalid={!!form.formState.errors.endTime}
+                onChange={(next) => {
+                  form.setValue('endTime', next, { shouldDirty: true });
                   form.clearErrors('endTime');
                 }}
               />
@@ -707,7 +698,6 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
                 onClick={() => hasAttendees ? setShowDeleteDialog(true) : setShowDeleteConfirm(true)}
                 disabled={isLoading}
               >
-                <Trash2 className="h-4 w-4 mr-1" />
                 {t.eventDialog.delete}
               </Button>
             )}

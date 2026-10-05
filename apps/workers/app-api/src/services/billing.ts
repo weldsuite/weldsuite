@@ -136,82 +136,12 @@ export async function getPlanById(
 
 // ============================================================================
 // Enterprise sales inquiry
+//
+// Rendering moved to @weldsuite/emails ('internal.enterprise-inquiry',
+// sent via sendSystemEmail in routes/billing/index.ts). Nothing here anymore:
+// the route builds the template props directly from the validated request
+// body and the Clerk-resolved context.
 // ============================================================================
-
-export interface EnterpriseInquiry {
-  companyName: string;
-  contactName: string;
-  contactEmail: string;
-  teamSize: string;
-  useCase?: string;
-  source?: string;
-}
-
-export interface EnterpriseInquiryContext {
-  /** Clerk org id the inquiry was sent from. */
-  orgId: string;
-  /** Clerk user id of the submitter — the authenticated identity, not form input. */
-  userId: string;
-  /** Internal workspace id, when resolvable. */
-  workspaceId?: string | null;
-  /** Current plan slug, for sales triage. */
-  planSlug?: string | null;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/**
- * Render the sales-facing notification for an enterprise inquiry.
- *
- * Every interpolated value is escaped: `useCase` / `companyName` etc. are
- * free-text fields straight from an authenticated-but-untrusted form, and this
- * HTML is rendered in a sales inbox.
- *
- * The workspace/user identifiers come from the request context (Clerk), NOT
- * from the form body — a submitter must not be able to spoof which workspace
- * an inquiry appears to originate from.
- */
-export function renderEnterpriseInquiryEmail(
-  inquiry: EnterpriseInquiry,
-  ctx: EnterpriseInquiryContext,
-): { subject: string; html: string; text: string } {
-  const subject = `Enterprise inquiry — ${inquiry.companyName} (${inquiry.teamSize})`;
-
-  const rows: Array<[string, string]> = [
-    ['Company', inquiry.companyName],
-    ['Team size', inquiry.teamSize],
-    ['Contact', inquiry.contactName],
-    ['Email', inquiry.contactEmail],
-    ['Use case', inquiry.useCase?.trim() || '—'],
-    ['Source', inquiry.source || 'unknown'],
-    ['Workspace', ctx.workspaceId || '—'],
-    ['Clerk org', ctx.orgId],
-    ['Clerk user', ctx.userId],
-    ['Current plan', ctx.planSlug || '—'],
-  ];
-
-  const html = [
-    '<h2>New enterprise inquiry</h2>',
-    '<table cellpadding="6" style="border-collapse:collapse">',
-    ...rows.map(
-      ([label, value]) =>
-        `<tr><td style="border:1px solid #ddd"><strong>${escapeHtml(label)}</strong></td>` +
-        `<td style="border:1px solid #ddd">${escapeHtml(value)}</td></tr>`,
-    ),
-    '</table>',
-  ].join('');
-
-  const text = rows.map(([label, value]) => `${label}: ${value}`).join('\n');
-
-  return { subject, html, text };
-}
 
 /**
  * Subscription payload — identical field set to api-worker's

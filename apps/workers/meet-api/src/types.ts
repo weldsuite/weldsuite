@@ -3,6 +3,7 @@ import type { MeetingAiParams } from '@weldsuite/meet-domain/workflows/meeting-a
 import type { BackfillLegacyRecordingsParams } from '@weldsuite/meet-domain/workflows/backfill-legacy-recordings';
 import type { CopyMeetingRecordingParams } from '@weldsuite/meet-domain/workflows/copy-meeting-recording';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
+import type { DeferredEmailParams } from '@weldsuite/notifications/types';
 
 /**
  * meet-api bindings: the kit's (auth, tenant DB, flags) plus only what
@@ -67,10 +68,20 @@ export interface Env extends KitEnv {
 
   // --- WeldChat call end from the RTK webhook (@weldsuite/chat-domain) ------
   // endChatCall sends the missed-call notification (@weldsuite/notifications).
-  /** Resend API key — the notification email channel. Optional locally. */
+  /** Resend API key — the notification email channel, and the fallback
+   *  transport for meeting invitations (services/weldmeet/invitations.ts,
+   *  @weldsuite/emails) while EMAIL_TRANSPORT="resend". Optional locally. */
   RESEND_API_KEY?: string;
-  /** Resend template id for the task-assignment email (NotificationEnv). */
-  RESEND_TEMPLATE_TASK_ASSIGNED?: string;
+  // --- Meeting invitation mail (services/weldmeet/invitations.ts, @weldsuite/emails) -
+  /** Cloudflare Email Service binding. Invitation mails no-op entirely when
+   *  neither this nor RESEND_API_KEY is set (see `workerTransport`). */
+  SEND_EMAIL?: SendEmail;
+  /** Migration switch: "resend" sends through Resend instead of Cloudflare.
+   *  Flip to "cloudflare" (or unset) once mail.weldsuite.org is onboarded
+   *  (docs/plans/system-email-cloudflare.md, Phase 0). */
+  EMAIL_TRANSPORT?: string;
+  /** Migration-only sender override; see `workerTransport`. */
+  SYSTEM_EMAIL_FROM?: string;
   /** Public meeting portal (`apps/web/meeting-portal`) that the join links in
    *  meeting invitation emails point at. Defaults to https://meet.weldsuite.org. */
   MEETING_PORTAL_URL?: string;
@@ -80,16 +91,7 @@ export interface Env extends KitEnv {
   /** CF Workflow that holds a notification email until the recipient has been
    *  away for the defer window. Hosted in app-api (`deferred-notification-email*`
    *  names), bound here cross-script via `script_name` in test/production. */
-  DEFERRED_NOTIFICATION_EMAIL?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    notificationId: string;
-    to: string;
-    subject: string;
-    fallbackText: string;
-    sendAfter: string;
-    template?: { id: string; variables: Record<string, string | number | boolean> };
-  }>;
+  DEFERRED_NOTIFICATION_EMAIL?: Workflow<DeferredEmailParams>;
 }
 
 export type Variables = KitVariables;

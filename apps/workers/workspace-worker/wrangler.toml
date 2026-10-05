@@ -19,8 +19,7 @@ enabled = true
 # - DATABASE_ENCRYPTION_KEY: 64-char hex key for AES-256-GCM encryption
 # - STRIPE_SECRET_KEY: Stripe secret key (optional)
 # - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
-# - RESEND_API_KEY: Resend API key for the custom workspace invitation email
-# - RESEND_WORKSPACE_INVITATION_TEMPLATE_ID: Resend-hosted template id for the workspace invitation email
+# - RESEND_API_KEY: migration-window fallback for the workspace invitation email
 
 [vars]
 ENVIRONMENT = "development"
@@ -35,6 +34,14 @@ POOL_TARGET_DEDICATED = "0"
 # production this is provided as the DATABASE_URL_MASTER secret instead.
 # Set your real local master DB URL in `.dev.vars` (gitignored) — do NOT hardcode here.
 DATABASE_URL_MASTER = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
+# Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
+# simulated and writes mail to disk instead of sending it.
+EMAIL_TRANSPORT = "cloudflare"
+
+# Cloudflare Email Sending binding — the workspace invitation email
+# (@weldsuite/emails workerTransport).
+[[send_email]]
+name = "SEND_EMAIL"
 
 [[workflows]]
 name = "provision-workspace-dev"
@@ -71,6 +78,14 @@ NEON_DEFAULT_REGION = "aws-eu-central-1"
 APP_URL = "https://app-test.weldsuite.org"
 POOL_TARGET_SHARED = "2"
 POOL_TARGET_DEDICATED = "0"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.test.workflows]]
 name = "provision-workspace-test"
@@ -106,6 +121,14 @@ ENVIRONMENT = "production"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 POOL_TARGET_SHARED = "10"
 POOL_TARGET_DEDICATED = "2"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.production.workflows]]
 name = "provision-workspace"

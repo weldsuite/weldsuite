@@ -3,6 +3,7 @@ import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
 import type { CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
+import type { DeferredEmailParams } from '@weldsuite/notifications/types';
 
 /**
  * App API worker — Cloudflare bindings.
@@ -189,16 +190,7 @@ export interface Env {
    *  notification is still unread. Hosted in app-api itself under the
    *  `deferred-notification-email*` names; dispatched by
    *  `createAndDeliverNotification` in @weldsuite/notifications. */
-  DEFERRED_NOTIFICATION_EMAIL?: Workflow<{
-    workspaceId: string;
-    userId: string;
-    notificationId: string;
-    to: string;
-    subject: string;
-    fallbackText: string;
-    sendAfter: string;
-    template?: { id: string; variables: Record<string, string | number | boolean> };
-  }>;
+  DEFERRED_NOTIFICATION_EMAIL?: Workflow<DeferredEmailParams>;
   // (SEND_DIGEST and IMPORT_TASKS moved to flow-api, SEND_SCHEDULED_EMAIL to
   // mail-api and WELDAGENT_JOB to agent-api with their modules.)
   /** Shared secret for internal service-to-service auth. Consumed by the
@@ -226,10 +218,11 @@ export interface Env {
   /** Resend API key — used by the email channel and internal email.
    *  Optional locally. */
   RESEND_API_KEY?: string;
-  /** Resend template id for the task-assignment email. When unset, the
-   *  helper falls back to a plain-text email. */
-  RESEND_TEMPLATE_TASK_ASSIGNED?: string;
-  // (The calendar attendee mails' RESEND_MEETING_*_TEMPLATE_ID moved to calendar-api.)
+  /** Migration switch: `resend` sends system email through Resend instead of
+   *  the SEND_EMAIL binding (@weldsuite/emails workerTransport). Removed
+   *  together with Resend at the end of the migration
+   *  (docs/plans/system-email-cloudflare.md). */
+  EMAIL_TRANSPORT?: string;
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;

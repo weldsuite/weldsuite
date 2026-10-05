@@ -249,7 +249,7 @@ app.post('/auth/request', zValidator('json', hrPortalAuthRequestSchema), async (
     const otp = randomOtp();
     const challenge: HrPortalChallenge = { workspaceId, email, otpHash: await sha256Hex(otp), attempts: 0 };
     await kvPutJson(c.env, kv.otp(workspaceId, email), challenge, OTP_TTL_SECONDS);
-    c.executionCtx.waitUntil(sendHrPortalCodeEmail(c.env, { to: email, otp, settings }).then(() => undefined));
+    c.executionCtx.waitUntil(sendHrPortalCodeEmail(c, { to: email, otp, settings }).then(() => undefined));
   }
   // Same answer either way — see the file header.
   return success(c, { ok: true });

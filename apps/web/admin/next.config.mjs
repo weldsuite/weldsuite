@@ -4,7 +4,14 @@ const nextConfig = {
   // them itself — otherwise `next build` can't resolve '@weldsuite/ui/components/*'
   // or the extensioned relative re-exports inside transactional-email
   // (`export * from './resend.js'`). Mirrors apps/web/sites.
-  transpilePackages: ['@weldsuite/ui', '@weldsuite/transactional-email', '@weldsuite/realtime-registrar', '@weldsuite/i18n'],
+  transpilePackages: [
+    '@weldsuite/ui',
+    '@weldsuite/transactional-email',
+    '@weldsuite/realtime-registrar',
+    '@weldsuite/i18n',
+    '@weldsuite/emails',
+    '@weldsuite/email',
+  ],
   typescript: {
     ignoreBuildErrors: true,
   },

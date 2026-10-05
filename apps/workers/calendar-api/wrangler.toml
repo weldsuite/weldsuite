@@ -16,15 +16,15 @@
 # too). The hand-set ones are in scripts/secrets/manifest.ts now; add them to
 # Doppler if `secrets:sync` warns they are missing:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
-#   RESEND_API_KEY (calendar attendee mails; they no-op when it is unset)
+#   RESEND_API_KEY (calendar attendee mails, @weldsuite/emails: only used
+#     when EMAIL_TRANSPORT is set back to "resend")
 #   GOOGLE_CALENDAR_CLIENT_ID + GOOGLE_CALENDAR_CLIENT_SECRET (Google Calendar
 #     outbound sync: token refresh before pushing an event to Google)
 #
-# RESEND_MEETING_INVITE_TEMPLATE_ID / RESEND_MEETING_UPDATE_TEMPLATE_ID /
-# RESEND_MEETING_CANCEL_TEMPLATE_ID (calendar attendee mails) are plain Resend
-# template ids, not secrets: add them as [vars] per env once the templates
-# exist. Each is independently optional (unset = the inline HTML template),
-# so they are deliberately left undeclared, as on app-api.
+# Calendar attendee mail (services/calendar-mail.ts) goes through
+# @weldsuite/emails. EMAIL_TRANSPORT="cloudflare" sends through Cloudflare
+# Email Service; "resend" is the rollback until Resend is removed
+# (docs/plans/system-email-cloudflare.md).
 
 name = "weldsuite-calendar-api"
 main = "src/index.ts"
@@ -38,7 +38,9 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
 "next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
 "next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
-"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+# No "react" alias here (unlike most other API workers): calendar-mail.ts
+# renders real system email through @weldsuite/emails, which needs the actual
+# react package, not the empty bundle-size shim.
 
 [observability]
 enabled = true
@@ -46,6 +48,9 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+# Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
+# simulated and writes mail to disk instead of sending it.
+EMAIL_TRANSPORT = "cloudflare"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -60,6 +65,9 @@ queue = "entity-events-dev"
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
 remote = true
+
+[[send_email]]
+name = "SEND_EMAIL"
 
 # Daily 04:00 UTC calendar replan sweep (scheduled() in src/index.ts), moved
 # here from app-api.
@@ -76,6 +84,15 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# On Cloudflare Email Service (mail.weldsuite.org).
+# Set back to "resend" to fall back without a code change
+# (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# calendar-api only sends system mail, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -112,6 +129,14 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
