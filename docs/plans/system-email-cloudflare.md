@@ -1,6 +1,6 @@
 # System email: Resend → Cloudflare Email Service, one layout in code
 
-Status: Phases 1–4 done; mail.weldsuite.org onboarded in Cloudflare Email Service (2026-10-05). Rollout: calendar-api **test** on Cloudflare first; then the rest of test, then production; then Phase 5 (remove Resend).
+Status: Phases 1–4 done; mail.weldsuite.org onboarded in Cloudflare Email Service. Test environment: every worker on Cloudflare (calendar-api verified with Gmail/Outlook 2026-10-05); booking-portal/admin need CF_ACCOUNT_ID + CF_EMAIL_SEND_TOKEN in Vercel. Next: soak in test, then production, then Phase 5 (remove Resend).
 
 ## Goal
 

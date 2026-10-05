@@ -115,8 +115,9 @@ routes = [
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
-# Flip to "cloudflare" once mail.weldsuite.org is onboarded (docs/plans/system-email-cloudflare.md, Phase 0).
-EMAIL_TRANSPORT = "resend"
+# On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
+# fall back without a code change (docs/plans/system-email-cloudflare.md).
+EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -140,6 +141,8 @@ bucket_name = "weldsuite-storage-test"
 
 [[env.test.send_email]]
 name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [[env.test.workflows]]
 name = "send-digest-v3-test"
