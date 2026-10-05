@@ -4,9 +4,8 @@
  * single canonical builder.
  */
 
-import { createMimeMessage } from 'mimetext';
+import { createMimeMessage, Mailbox } from 'mimetext';
 import type { EmailAddress, EmailAttachment, SendOptions } from './types';
-import { formatEmailAddress } from './types';
 
 export interface BuiltEmail {
   raw: string;
@@ -33,7 +32,9 @@ export function buildRfc5322(options: SendOptions): BuiltEmail {
   msg.setRecipients(options.to.map(addrToMimetext), { type: 'To' });
   if (options.cc?.length) msg.setRecipients(options.cc.map(addrToMimetext), { type: 'Cc' });
   if (options.replyTo) {
-    msg.setHeader('Reply-To', formatEmailAddress(options.replyTo));
+    // mimetext validates Reply-To as one of its own Mailbox objects; a
+    // formatted string fails validation and throws on every send.
+    msg.setHeader('Reply-To', new Mailbox(addrToMimetext(options.replyTo)));
   }
 
   msg.setSubject(options.subject);
