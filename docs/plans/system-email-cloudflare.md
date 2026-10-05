@@ -1,6 +1,6 @@
 # System email: Resend → Cloudflare Email Service, one layout in code
 
-Status: Phases 1–4 done (2026-10-05): every system email renders from @weldsuite/emails, still delivered through Resend. Open: Phase 0 (Cloudflare onboarding + live send spike, needs a Cloudflare account admin), then flipping EMAIL_TRANSPORT, then Phase 5 (remove Resend).
+Status: Phases 1–4 done; mail.weldsuite.org onboarded in Cloudflare Email Service (2026-10-05). Rollout: calendar-api **test** on Cloudflare first; then the rest of test, then production; then Phase 5 (remove Resend).
 
 ## Goal
 
