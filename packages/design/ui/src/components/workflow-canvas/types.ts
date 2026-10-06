@@ -128,6 +128,7 @@ export const DEFAULT_CANVAS_LABELS: Required<WorkflowCanvasLabels> = {
     create_customer: 'Create Company',
     create_contact: 'Create Contact',
     update_contact: 'Update Contact',
+    create_task: 'Create Task',
     update_record: 'Update Record',
     delete_record: 'Delete Record',
     query_data: 'Query Data',

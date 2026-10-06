@@ -29,6 +29,7 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'create_customer', name: 'Create Customer', description: 'Create a customer (CRM company)', category: 'data', icon: 'building' },
   { id: 'create_contact', name: 'Create Contact', description: 'Create a CRM contact (person)', category: 'data', icon: 'user-plus' },
   { id: 'update_contact', name: 'Update Contact', description: 'Update a CRM contact (person)', category: 'data', icon: 'user-check' },
+  { id: 'create_task', name: 'Create Task', description: 'Create a WeldFlow project task', category: 'data', icon: 'clipboard-list' },
   // Logic
   { id: 'condition', name: 'Condition', description: 'Branch based on conditions', category: 'logic', icon: 'git-branch' },
   { id: 'loop', name: 'Loop', description: 'Iterate over a list', category: 'logic', icon: 'repeat' },

@@ -1,6 +1,7 @@
 
 import { useState, useRef, useCallback, useId } from 'react';
 import { useCustomFields } from '@/hooks/use-custom-fields';
+import { useProjects } from '@/hooks/queries/use-projects-queries';
 import { AiUnavailable } from '@/components/ai/ai-unavailable';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -1018,6 +1019,221 @@ function PostChatMessageForm({
       </FormField>
 
       <p className="text-xs text-muted-foreground">{cf.ownerPermissionHint}</p>
+    </div>
+  );
+}
+
+const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low', 'none'] as const;
+const TASK_DUE_DATE_QUICK_PICKS = ['today', 'tomorrow', 'in 3 days', 'in 1 week'] as const;
+
+/**
+ * create_task (WeldFlow). Runs as the workflow owner, who needs both
+ * `tasks:create` and write access to the chosen project (checked at run
+ * time by connect-api, not here) — see `ownerPermissionHint` below.
+ */
+function CreateTaskForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  workspaceMembers = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  workspaceMembers?: WorkspaceMember[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const tf = acf.taskFields;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const [assigneesOpen, setAssigneesOpen] = useState(false);
+  const { data: projectsData, isLoading: projectsLoading } = useProjects({ pageSize: 100 });
+  const projects = projectsData?.data ?? [];
+  const selectedAssigneeIds: string[] = (config.assigneeIds as string[] | undefined) || [];
+
+  const getInitials = (name: string) =>
+    name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+
+  const toggleAssignee = (userId: string) => {
+    const next = selectedAssigneeIds.includes(userId)
+      ? selectedAssigneeIds.filter((id) => id !== userId)
+      : [...selectedAssigneeIds, userId];
+    onChange({ ...config, assigneeIds: next });
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">{tf.titleVariablesHint}</p>
+
+      <FormField label={acf.taskProject} required description={acf.taskProjectDesc}>
+        <Select
+          value={(config.projectId as string | undefined) || ''}
+          onValueChange={(value) => onChange({ ...config, projectId: value })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={acf.taskSelectProject} />
+          </SelectTrigger>
+          <SelectContent>
+            {projects.map((project) => (
+              <SelectItem key={project.id} value={project.id}>
+                {project.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!projectsLoading && projects.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{acf.taskNoProjects}</p>
+        )}
+      </FormField>
+
+      <FormField label={tf.labels.title} required>
+        <VariableInput
+          value={(config.title as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, title: v })}
+          placeholder={tf.placeholders.title}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={tf.labels.description}>
+        <VariableInput
+          value={(config.description as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, description: v })}
+          placeholder={tf.placeholders.description}
+          multiline
+          rows={3}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={tf.labels.assignees} description={tf.assigneesDesc}>
+        <Popover open={assigneesOpen} onOpenChange={setAssigneesOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" role="combobox" aria-expanded={assigneesOpen} className="w-full justify-between h-auto min-h-10">
+              {selectedAssigneeIds.length === 0 ? (
+                <span className="text-muted-foreground">{tf.selectAssignees}</span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {selectedAssigneeIds.map((userId) => {
+                    const member = workspaceMembers.find((m) => m.id === userId);
+                    return (
+                      <Badge key={userId} variant="secondary" className="text-xs">
+                        {member?.name || userId}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[350px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder={acf.searchUsers} />
+              <CommandList>
+                <CommandEmpty>{acf.noUsersFound}</CommandEmpty>
+                <CommandGroup>
+                  {workspaceMembers.map((member) => {
+                    const isSelected = selectedAssigneeIds.includes(member.id);
+                    return (
+                      <CommandItem key={member.id} value={`${member.name} ${member.email}`} onSelect={() => toggleAssignee(member.id)}>
+                        <div className="flex items-center gap-3 w-full">
+                          <Checkbox checked={isSelected} />
+                          <Avatar className="h-6 w-6">
+                            <AvatarImage src={member.avatar} alt={member.name} />
+                            <AvatarFallback className="text-xs">{getInitials(member.name)}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="text-sm font-medium truncate">{member.name}</span>
+                            <span className="text-xs text-muted-foreground truncate">{member.email}</span>
+                          </div>
+                          {isSelected && <Check className="h-4 w-4 text-primary" />}
+                        </div>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </FormField>
+
+      <FormField label={tf.labels.dueDate} description={tf.dueDateDesc}>
+        <VariableInput
+          value={(config.dueDate as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, dueDate: v })}
+          placeholder={tf.placeholders.dueDate}
+          {...variableProps}
+        />
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          <span className="text-xs text-muted-foreground self-center mr-1">{tf.dueDateQuickPick}:</span>
+          {TASK_DUE_DATE_QUICK_PICKS.map((pick) => (
+            <Button
+              key={pick}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => onChange({ ...config, dueDate: pick })}
+            >
+              {pick === 'today'
+                ? tf.dueDateIn.today
+                : pick === 'tomorrow'
+                  ? tf.dueDateIn.tomorrow
+                  : pick === 'in 3 days'
+                    ? tf.dueDateIn.in3Days
+                    : tf.dueDateIn.in1Week}
+            </Button>
+          ))}
+        </div>
+      </FormField>
+
+      <FormField label={tf.labels.priority}>
+        <Select
+          value={(config.priority as string | undefined) || 'medium'}
+          onValueChange={(value) => onChange({ ...config, priority: value })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TASK_PRIORITIES.map((priority) => (
+              <SelectItem key={priority} value={priority}>
+                {tf.priorities[priority]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      <FormField label={tf.labels.labels} description={tf.labelsDesc}>
+        <VariableInput
+          value={(config.labels as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, labels: v })}
+          placeholder={tf.placeholders.labels}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={tf.labels.stageId} description={tf.stageIdDesc}>
+        <VariableInput
+          value={(config.stageId as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, stageId: v })}
+          placeholder={tf.placeholders.stageId}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{tf.ownerPermissionHint}</p>
     </div>
   );
 }
@@ -3035,6 +3251,20 @@ export function ActionConfigForm({
             triggerType={triggerType}
             steps={previousSteps}
             workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'create_task':
+        return (
+          <CreateTaskForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            workspaceMembers={workspaceMembers}
             extraVariableGroups={extraVariableGroups}
             excludeGroups={excludeGroups}
           />

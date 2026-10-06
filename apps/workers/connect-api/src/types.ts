@@ -48,9 +48,13 @@ export interface Env extends KitEnv {
    */
   CONNECTOR_WEBHOOK_BASE_URL?: string;
   /** Absolute base URL of the platform SPA, e.g. `https://app.weldsuite.org`
-   *  (workflow-integrations OAuth redirect_uri, workflow webhook URLs,
-   *  connector return URLs). */
+   *  (workflow-integrations OAuth redirect_uri, connector return URLs). */
   PUBLIC_APP_URL?: string;
+  /** Absolute base URL of THIS worker as the outside world reaches it, e.g.
+   *  `https://connect-api.weldsuite.org`. Used to build the external webhook
+   *  receiver URL (`/api/workflows/webhook/:id`, which is mounted here, not
+   *  on the platform SPA). Defaults from ENVIRONMENT — see lib/public-api-base.ts. */
+  CONNECT_API_URL?: string;
 
   // --- GitHub App integration (workflow-github) --------------------------
   /** GitHub App ID (numeric). */

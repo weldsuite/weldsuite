@@ -32,10 +32,14 @@ import type { Env, Variables } from '../../types';
 import { InvalidMemberIdError } from '@weldsuite/crm-domain/people';
 import { canAccessChannel } from '@weldsuite/chat-domain/channel-access';
 import { postSystemChatMessage } from '@weldsuite/chat-domain/post-system-message';
+import { resolveProjectAccess } from '@weldsuite/flow-domain/project-access';
+import { taskAnalyticsPayload } from '@weldsuite/flow-domain/analytics-payload';
 import {
   createContactFromWorkflow,
   createCustomerFromWorkflow,
+  createTaskFromWorkflow,
   personEventData,
+  sendTaskAssignmentNotificationsForWorkflow,
   updateContactFromWorkflow,
 } from '../../services/workflow-actions';
 import { authorizeWorkflowOwner, ownerHolds, WorkflowOwnerForbiddenError } from '../../services/workflow-owner';
@@ -342,3 +346,78 @@ internalWorkflowActionsRoutes.post(
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// POST /create-task — WeldConnect `create_task` step
+// (apps/workers/workflow-worker/src/engine/actions/task.ts). Runs as the
+// workflow owner twice over: `tasks:create` (app `weldflow`) gates the
+// feature, and `resolveProjectAccess` (the same check flow-api's row-level
+// guard runs) gates the specific project. Creates the task through
+// `@weldsuite/flow-domain`'s task service, awaits assignment notifications,
+// and publishes `project_task:created` with the run's chain depth.
+// ---------------------------------------------------------------------------
+
+const createTaskSchema = actorSchema.extend({
+  projectId: z.string().trim().min(1).max(30),
+  task: z.object({
+    title: z.string().trim().min(1).max(500),
+    description: optionalTrimmed(10000),
+    priority: optionalTrimmed(20),
+    stageId: optionalTrimmed(30),
+    assigneeIds: z.array(z.string().trim().min(1).max(30)).max(50).optional(),
+    // ISO date-time string; the worker action resolves relative inputs
+    // ("in 3 days") to an absolute one before this reaches the route.
+    dueDate: optionalTrimmed(50),
+    labels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+    tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+  }),
+});
+
+internalWorkflowActionsRoutes.post('/create-task', zValidator('json', createTaskSchema), async (c) => {
+  const { workspaceId, ownerUserId, chainDepth, projectId, task } = c.req.valid('json');
+  try {
+    const db = await getTenantDbForWorkspace(c.env, workspaceId);
+    const resolved = await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+      permission: 'tasks:create',
+      app: 'weldflow',
+      doing: 'create tasks',
+    });
+    const scopeAll = ownerHolds(resolved, 'projects:scope:all', 'weldflow');
+    const access = await resolveProjectAccess(db, ownerUserId, { scopeAll }, projectId);
+    if (!access.canWrite) {
+      throw new WorkflowOwnerForbiddenError("The workflow's owner does not have write access to this project");
+    }
+
+    const { row, assigneeIds } = await createTaskFromWorkflow(db, { ownerUserId, projectId, task });
+
+    await publishEntityEventRaw({
+      env: c.env,
+      workspaceId,
+      userId: ownerUserId,
+      entityType: 'project_task',
+      action: 'created',
+      entityId: row.id,
+      data: taskAnalyticsPayload(row as unknown as Record<string, unknown>, { projectId }),
+      workflowDepth: chainDepth,
+    });
+
+    await sendTaskAssignmentNotificationsForWorkflow(db, c.env, {
+      assigneeIds,
+      workspaceId,
+      assignedByUserId: ownerUserId,
+      taskId: row.id,
+      taskTitle: row.title,
+      projectId,
+      taskPriority: row.priority ?? null,
+      dueDate: row.dueDate ?? null,
+      taskDescription: row.description ?? null,
+    });
+
+    return c.json({
+      success: true,
+      task: { id: row.id, number: row.number ?? null, projectId: row.projectId ?? projectId, title: row.title },
+    });
+  } catch (err) {
+    return actionFailure(c, 'create-task', err);
+  }
+});

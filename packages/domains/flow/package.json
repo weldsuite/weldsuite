@@ -5,8 +5,11 @@
   "type": "module",
   "private": true,
   "exports": {
+    "./analytics-payload": "./src/analytics-payload.ts",
+    "./project-access": "./src/project-access.ts",
     "./project-stats": "./src/project-stats.ts",
     "./task-numbering": "./src/task-numbering.ts",
+    "./tasks": "./src/tasks.ts",
     "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
     "./workflows/import-tasks": "./src/workflows/import-tasks.ts",
     "./workflows/send-digest": "./src/workflows/send-digest.ts"
@@ -18,8 +21,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/emails": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/worker-email": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"

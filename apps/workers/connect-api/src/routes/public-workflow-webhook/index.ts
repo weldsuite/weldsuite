@@ -3,11 +3,12 @@
  *
  * POST /api/workflows/webhook/:webhookId
  *
- * Ported from apps/api-worker/src/routes/webhooks/workflow-receiver.ts
+ * Originally ported from apps/api-worker/src/routes/webhooks/workflow-receiver.ts
  * (legacy worker phase-out, W3). Mounted BEFORE clerkMiddleware — external
  * systems configured by users POST here and have no Clerk tokens. Security is
- * per-webhook: HMAC signature validation, IP whitelist, and HTTP method
- * allowlist, all preserved 1:1 from the api-worker implementation.
+ * per-webhook: HMAC signature validation (over the raw body, off by default —
+ * see services/weldconnect-mvp.ts docs), IP whitelist, and HTTP method
+ * allowlist.
  *
  * Response shapes are the LEGACY shapes (`{ success, executionId }` /
  * `{ error: string }`) — external callers may parse them, so they are NOT
@@ -19,32 +20,37 @@ import { eq, and, isNull } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
 import {
-  resolveWebhookWorkspace,
   computeWebhookHmacHex,
+  constantTimeEqual,
   updateWebhookStats,
 } from '../../services/workflow-webhook-receiver';
+import { registryDeps, resolveWebhookWorkspace } from '../../services/workflow-webhook-registry';
+import { startRun } from '../../services/workflow-executions';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 type WorkflowWebhookRow = typeof schema.workflowWebhooks.$inferSelect;
 
 /** A request the webhook's security config refuses, with the legacy error body + status. */
-type WebhookRejection = { error: string; status: 401 | 403 | 405 };
+type WebhookRejection = { error: string; status: 401 | 403 | 405 | 413 };
 
-/** Parse request body (JSON preferred, raw text fallback). */
-async function parseWebhookBody(req: { json: () => Promise<unknown>; text: () => Promise<string> }): Promise<unknown> {
+/** Inbound bodies over this size are rejected before they're buffered or hashed. */
+const MAX_BODY_BYTES = 1_000_000; // 1 MB
+
+/** JSON-parse the raw body for `trigger.body`; the raw text when it isn't JSON. */
+function parseWebhookBody(raw: string): unknown {
   try {
-    return await req.json();
+    return JSON.parse(raw);
   } catch {
-    return await req.text();
+    return raw;
   }
 }
 
-/** Validate the HMAC signature when the webhook is configured to require one. */
+/** Validate the HMAC signature (over the RAW body) when the webhook requires one. */
 async function checkWebhookSignature(
   webhook: WorkflowWebhookRow,
   headers: Record<string, string>,
-  body: unknown,
+  rawBody: string,
 ): Promise<WebhookRejection | null> {
   if (!webhook.validateSignature || !webhook.secret) return null;
 
@@ -52,14 +58,11 @@ async function checkWebhookSignature(
   const providedSignature = headers[signatureHeader];
   if (!providedSignature) return { error: 'Missing signature', status: 401 };
 
-  const expectedSignature = await computeWebhookHmacHex(
-    webhook.secret,
-    typeof body === 'string' ? body : JSON.stringify(body),
-  );
+  const expectedSignature = await computeWebhookHmacHex(webhook.secret, rawBody);
 
   const isValid =
-    providedSignature === expectedSignature ||
-    providedSignature === `sha256=${expectedSignature}`;
+    constantTimeEqual(providedSignature, expectedSignature) ||
+    constantTimeEqual(providedSignature, `sha256=${expectedSignature}`);
   return isValid ? null : { error: 'Invalid signature', status: 401 };
 }
 
@@ -89,7 +92,23 @@ app.post('/:webhookId', async (c) => {
   const sourceIp =
     c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
 
-  const body = await parseWebhookBody(c.req);
+  // Reject oversized bodies before buffering them. The Content-Length header
+  // is a fast path (absent/lying senders still hit the actual-size check
+  // below, after a bounded read).
+  const contentLength = Number(c.req.header('content-length') ?? '0');
+  if (contentLength > MAX_BODY_BYTES) {
+    return c.json({ error: 'Payload too large' }, 413);
+  }
+
+  // Read the body ONCE, as raw text — this is the exact byte string the
+  // sender signed. Re-serializing a parsed JSON object (the previous
+  // behaviour) reformats whitespace/key order and makes every real signature
+  // fail to verify.
+  const rawBody = await c.req.text();
+  if (new TextEncoder().encode(rawBody).length > MAX_BODY_BYTES) {
+    return c.json({ error: 'Payload too large' }, 413);
+  }
+  const body = parseWebhookBody(rawBody);
 
   const headers: Record<string, string> = {};
   c.req.raw.headers.forEach((value, key) => {
@@ -102,8 +121,10 @@ app.post('/:webhookId', async (c) => {
     query[key] = value;
   });
 
-  // Webhooks live in tenant DBs — resolve the owning workspace (KV-cached).
-  const workspaceId = await resolveWebhookWorkspace(c.env, webhookId);
+  // Webhooks live in tenant DBs — resolve the owning workspace via the
+  // master registry (KV-cached; never a tenant-DB scan — see
+  // services/workflow-webhook-registry.ts).
+  const workspaceId = await resolveWebhookWorkspace(registryDeps(c.env), webhookId);
   if (!workspaceId) {
     return c.json({ error: 'Webhook not found' }, 404);
   }
@@ -128,7 +149,7 @@ app.post('/:webhookId', async (c) => {
 
   // Validate signature (if configured), allowed methods and IP whitelist
   const rejection =
-    (await checkWebhookSignature(webhook, headers, body)) ??
+    (await checkWebhookSignature(webhook, headers, rawBody)) ??
     checkWebhookMethodAndIp(webhook, sourceIp);
   if (rejection) {
     await updateWebhookStats(db, webhookId, false, sourceIp);
@@ -161,22 +182,22 @@ app.post('/:webhookId', async (c) => {
   }
 
   try {
-    const instance = await executeWorkflow.create({
-      params: {
-        workspaceId,
-        userId: workflow.createdBy || 'webhook',
-        workflowId: webhook.workflowId,
-        triggerId: webhook.triggerId || undefined,
-        triggerType: 'webhook',
-        triggerData: {
-          webhookId: webhook.id,
-          headers,
-          body,
-          query,
-          sourceIp,
-          receivedAt: new Date().toISOString(),
-        },
-        source: 'weldconnect',
+    // startRun pre-creates the `workflow_executions` row (a real `wex_` id)
+    // before starting the CF Workflow instance, same as a manual trigger or a
+    // retry — the legacy response below still reports it as `executionId`.
+    const { executionId } = await startRun(db, executeWorkflow, {
+      workspaceId,
+      userId: workflow.createdBy || 'webhook',
+      workflow,
+      triggerType: 'webhook',
+      triggerId: webhook.triggerId,
+      triggerData: {
+        webhookId: webhook.id,
+        headers,
+        body,
+        query,
+        sourceIp,
+        receivedAt: new Date().toISOString(),
       },
     });
 
@@ -184,7 +205,7 @@ app.post('/:webhookId', async (c) => {
 
     return c.json({
       success: true,
-      executionId: instance.id,
+      executionId,
     });
   } catch (err) {
     console.error('[WebhookReceiver] Failed to dispatch workflow:', err);
