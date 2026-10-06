@@ -329,7 +329,7 @@ function ProvisioningStep({ onComplete, colors }: Readonly<{
 
   useEffect(() => {
     intervalRef.current = setInterval(poll, 2000);
-    poll(); // Initial poll
+    void poll(); // Initial poll
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
@@ -340,7 +340,7 @@ function ProvisioningStep({ onComplete, colors }: Readonly<{
     setPollCount(0);
     setCurrentPhase(0);
     intervalRef.current = setInterval(poll, 2000);
-    poll();
+    void poll();
   };
 
   return (
@@ -622,8 +622,8 @@ export default function SetupScreen() {
   // Persist state changes
   useEffect(() => {
     if (!initialized) return;
-    storage.setItem(STORAGE_KEYS.currentStep, String(currentStep));
-    storage.setItem(STORAGE_KEYS.formData, JSON.stringify(formData));
+    void storage.setItem(STORAGE_KEYS.currentStep, String(currentStep));
+    void storage.setItem(STORAGE_KEYS.formData, JSON.stringify(formData));
   }, [currentStep, formData, initialized]);
 
   const goToStep = (step: number) => {
