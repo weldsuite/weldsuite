@@ -39,12 +39,16 @@ test.describe('Visual regression', () => {
 
   test('command palette open with a query typed', async ({ page }) => {
     await page.goto('/');
+    await expect(page.getByTestId('cmdk-trigger')).toBeVisible({ timeout: 10_000 });
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }),
+      );
+    });
     const input = page.getByTestId('cmdk-input');
-    await expect(input).toBeVisible({ timeout: 10_000 });
-    await input.click();
+    await expect(input).toBeVisible({ timeout: 5_000 });
     await input.fill('settings');
-    // Let the dropdown render fully before snapshotting.
-    await expect(input).toHaveValue('settings');
+    await expect(page.getByTestId('command-palette')).toBeVisible();
     await expect(page).toHaveScreenshot('cmdk-open.png', {
       maxDiffPixelRatio: 0.02,
       fullPage: false,
