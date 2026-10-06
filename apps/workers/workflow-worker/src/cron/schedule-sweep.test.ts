@@ -73,6 +73,17 @@ describe('sweepDueSchedules', () => {
     expect(onFired).toHaveBeenCalledWith(expect.objectContaining({ schedule_id: 'sched_1' }), true, NOW + 60_000, NOW);
   });
 
+  it('passes the due slot (floored to the minute) and the schedule timezone as trigger data', async () => {
+    const slot = Date.UTC(2026, 6, 9, 14, 31, 0);
+    const store = fakeStore([row({ next_run_at: slot + 500, timezone: 'Europe/Amsterdam' })]);
+    const execute = { create: vi.fn(async () => ({})) };
+    await sweepDueSchedules(store, execute, async () => {}, NOW + 20_878);
+    const call = execute.create.mock.calls[0] as unknown as [{ params: { triggerData: Record<string, unknown> } }];
+    const { params } = call[0];
+    expect(params.triggerData.scheduledTime).toBe('2026-07-09T14:31:00.000Z');
+    expect(params.triggerData.timezone).toBe('Europe/Amsterdam');
+  });
+
   it('routes helpdesk-prefixed workflows to the helpdesk source', async () => {
     const store = fakeStore([row({ workflow_id: 'hwf_9', source: 'helpdesk' })]);
     const execute = { create: vi.fn(async () => ({})) };

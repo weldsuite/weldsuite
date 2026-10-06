@@ -1,15 +1,21 @@
 
-import React, { useState, useEffect, useTransition } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
+import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
-import { Loader2, GitPullRequest, History, Settings, type LucideIcon } from 'lucide-react';
+import { Textarea } from '@weldsuite/ui/components/textarea';
+import { AlertTriangle, Loader2, GitPullRequest, History, RotateCw, Settings, type LucideIcon } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { Link, useParams } from '@/lib/router';
 import { toast } from 'sonner';
-import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
+import { useUpdateWorkflow } from '@/hooks/queries/use-automation-queries';
+import { useWorkflowDetail } from '@/hooks/use-workflow-editor-data';
 import type { WorkflowSettings } from '@/lib/db/schema/workflows';
 import { useI18n } from '@/lib/i18n/provider';
+
+const NAME_MAX_LENGTH = 255;
 
 interface WorkflowSettingsContentProps {
   workflowId: string;
@@ -17,65 +23,93 @@ interface WorkflowSettingsContentProps {
   editorHref?: string;
   replaceExecutionsTab?: { label: string; href: string; icon: LucideIcon };
   hideHeader?: boolean;
+  /**
+   * Show the workflow's name and description (WeldConnect). Hosts that name the
+   * workflow elsewhere, like CRM sequences, leave this off.
+   */
+  showGeneral?: boolean;
 }
 
-export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader }: Readonly<WorkflowSettingsContentProps>) {
+export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader, showGeneral }: Readonly<WorkflowSettingsContentProps>) {
   const { t } = useI18n();
-  const { getClient } = useAppApiClient();
-  const [isPending, startTransition] = useTransition();
-  const [isLoading, setIsLoading] = useState(true);
+  const tws = t.weldconnect.workflowSettings;
+  const nameFieldId = useId();
+  const descriptionFieldId = useId();
+  const notifyOnErrorId = useId();
+  const notifyOnCompleteId = useId();
 
-  // Settings state
-  const [maxCreditsPerRun, setMaxCreditsPerRun] = useState<number | undefined>(50);
+  // Same cache entry the editor reads, and the same mutation the editor saves
+  // through: a rename here is what the editor (and its next Save) sees.
+  const { data: workflow, isLoading, isError, refetch } = useWorkflowDetail(workflowId);
+  const updateWorkflow = useUpdateWorkflow();
+  const isPending = updateWorkflow.isPending;
+
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [notifyOnError, setNotifyOnError] = useState(true);
   const [notifyOnComplete, setNotifyOnComplete] = useState(false);
+  const [nameError, setNameError] = useState(false);
 
-  // Load workflow settings on mount
+  // Fill the form when the workflow arrives, and again only when the saved row
+  // itself changed (our own save, or an edit made elsewhere), not on every
+  // background refetch, which would overwrite what is being typed.
+  const loadedVersion = workflow
+    ? `${workflow.id}:${String((workflow as { updatedAt?: unknown }).updatedAt ?? '')}`
+    : undefined;
   useEffect(() => {
-    async function loadWorkflow() {
-      setIsLoading(true);
-      try {
-        const client = await getClient();
-        const workflowResult = await client.get<{ data: { id: string; settings?: WorkflowSettings | null } }>(`/workflows/${workflowId}`);
-        const workflow = workflowResult.data;
-        if (workflow?.settings) {
-          const settings = workflow.settings;
-          setMaxCreditsPerRun(settings.maxCreditsPerRun ?? 50);
-          setNotifyOnError(settings.notifyOnError ?? true);
-          setNotifyOnComplete(settings.notifyOnComplete ?? false);
-        }
-      } catch (error) {
-        console.error('Failed to load workflow:', error);
-        toast.error(t.weldconnect.workflowSettings.toasts.loadFailed);
-      } finally {
-        setIsLoading(false);
-      }
+    if (!workflow) return;
+    const settings = (workflow as { settings?: WorkflowSettings | null }).settings;
+    setName(workflow.name ?? '');
+    setDescription(workflow.description ?? '');
+    setNotifyOnError(settings?.notifyOnError ?? true);
+    setNotifyOnComplete(settings?.notifyOnComplete ?? false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedVersion]);
+
+  const handleSave = async () => {
+    const trimmedName = name.trim();
+    if (showGeneral && !trimmedName) {
+      setNameError(true);
+      toast.error(tws.general.nameRequired);
+      return;
     }
-    loadWorkflow();
-  }, [workflowId, getClient, t.weldconnect.workflowSettings.toasts.loadFailed]);
-
-  // Save settings
-  const handleSave = () => {
-    startTransition(async () => {
-      try {
-        const settings: WorkflowSettings = {
-          maxCreditsPerRun,
-          notifyOnError,
-          notifyOnComplete,
-        };
-
-        const client = await getClient();
-        await client.put<{ data: { id: string } }>(`/workflows/${workflowId}`, { settings });
-        toast.success(t.weldconnect.workflowSettings.toasts.saved);
-      } catch (error) {
-        console.error('Failed to save settings:', error);
-        toast.error(t.weldconnect.workflowSettings.toasts.saveFailed);
-      }
-    });
+    // Keep what the row holds besides the two switches. The per-run credit cap
+    // is no longer shown (nothing enforces it), and older rows can hold a value
+    // the API now rejects (the field used to accept -5), so only pass a sane one.
+    const { maxCreditsPerRun, ...keptSettings } =
+      (workflow as { settings?: WorkflowSettings | null } | null | undefined)?.settings ?? {};
+    if (Number.isInteger(maxCreditsPerRun) && (maxCreditsPerRun as number) >= 1) {
+      (keptSettings as WorkflowSettings).maxCreditsPerRun = maxCreditsPerRun;
+    }
+    try {
+      await updateWorkflow.mutateAsync({
+        id: workflowId,
+        data: {
+          ...(showGeneral ? { name: trimmedName, description: description.trim() } : {}),
+          settings: { ...keptSettings, notifyOnError, notifyOnComplete },
+        },
+      });
+      toast.success(tws.toasts.saved);
+    } catch {
+      toast.error(tws.toasts.saveFailed);
+    }
   };
 
   if (isLoading) {
     return <PageLoader fullScreen={false} />;
+  }
+
+  if (isError || !workflow) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+        <AlertTriangle className="h-10 w-10 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">{tws.toasts.loadFailed}</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <RotateCw className="mr-1.5 h-4 w-4" />
+          {t.weldconnect.workflowEditError.retry}
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -179,60 +213,69 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
       {/* Content */}
       <div className="flex-1 overflow-auto">
         <div className="max-w-2xl mx-auto py-12 px-4">
-          {/* Quotas Section */}
-          <div className="space-y-4">
-            <h2 className="text-base font-semibold">{t.weldconnect.workflowSettings.quotas.title}</h2>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">{t.weldconnect.workflowSettings.quotas.maxCreditsLabel}</p>
-                <p className="text-sm text-muted-foreground">
-                  {t.weldconnect.workflowSettings.quotas.maxCreditsHint}
-                </p>
+          {showGeneral && (
+            <>
+              <div className="space-y-4">
+                <h2 className="text-base font-semibold">{tws.general.title}</h2>
+                <div className="space-y-2">
+                  <Label htmlFor={nameFieldId}>{tws.general.nameLabel}</Label>
+                  <Input
+                    id={nameFieldId}
+                    value={name}
+                    maxLength={NAME_MAX_LENGTH}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (nameError) setNameError(false);
+                    }}
+                    placeholder={tws.general.namePlaceholder}
+                    aria-invalid={nameError}
+                    className={nameError ? 'border-destructive focus-visible:ring-destructive' : undefined}
+                  />
+                  {nameError && <p className="text-xs text-destructive">{tws.general.nameRequired}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={descriptionFieldId}>{tws.general.descriptionLabel}</Label>
+                  <Textarea
+                    id={descriptionFieldId}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder={tws.general.descriptionPlaceholder}
+                    rows={3}
+                  />
+                </div>
               </div>
-              <div className="relative">
-                <Input
-                  type="number"
-                  min={1}
-                  value={maxCreditsPerRun ?? ''}
-                  onChange={(e) => setMaxCreditsPerRun(e.target.value ? Number.parseInt(e.target.value, 10) : undefined)}
-                  className="w-32 pr-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
-                  {t.weldconnect.workflowSettings.quotas.creditsUnit}
-                </span>
-              </div>
-            </div>
-          </div>
 
-          {/* Divider */}
-          <div className="border-t my-8" />
+              <div className="border-t my-8" />
+            </>
+          )}
 
           {/* Notifications Section */}
           <div className="space-y-4">
-            <h2 className="text-base font-semibold">{t.weldconnect.workflowSettings.notifications.title}</h2>
+            <h2 className="text-base font-semibold">{tws.notifications.title}</h2>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <p className="text-sm font-medium">{t.weldconnect.workflowSettings.notifications.notifyOnErrorLabel}</p>
+                <Label htmlFor={notifyOnErrorId} className="text-sm font-medium">{tws.notifications.notifyOnErrorLabel}</Label>
                 <p className="text-sm text-muted-foreground">
-                  {t.weldconnect.workflowSettings.notifications.notifyOnErrorHint}
+                  {tws.notifications.notifyOnErrorHint}
                 </p>
               </div>
               <Switch
+                id={notifyOnErrorId}
                 checked={notifyOnError}
                 onCheckedChange={setNotifyOnError}
               />
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <p className="text-sm font-medium">{t.weldconnect.workflowSettings.notifications.notifyOnCompleteLabel}</p>
+                <Label htmlFor={notifyOnCompleteId} className="text-sm font-medium">{tws.notifications.notifyOnCompleteLabel}</Label>
                 <p className="text-sm text-muted-foreground">
-                  {t.weldconnect.workflowSettings.notifications.notifyOnCompleteHint}
+                  {tws.notifications.notifyOnCompleteHint}
                 </p>
               </div>
               <Switch
+                id={notifyOnCompleteId}
                 checked={notifyOnComplete}
                 onCheckedChange={setNotifyOnComplete}
               />
@@ -247,6 +290,17 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
 export default function WorkflowSettingsPage() {
   const params = useParams();
   const workflowId = params.id as string;
+  const { t } = useI18n();
+  const crumbs = t.weldconnect.breadcrumbs;
+  // Shares the content's cached query; only here to name the workflow in the trail.
+  const { data: workflow } = useWorkflowDetail(workflowId);
 
-  return <WorkflowSettingsContent workflowId={workflowId} />;
+  useBreadcrumbs([
+    { label: crumbs.connect, href: '/weldconnect' },
+    { label: crumbs.workflows, href: '/weldconnect/workflows' },
+    ...(workflow?.name ? [{ label: workflow.name, href: `/weldconnect/workflows/${workflowId}/edit` }] : []),
+    { label: crumbs.settings },
+  ]);
+
+  return <WorkflowSettingsContent workflowId={workflowId} showGeneral />;
 }

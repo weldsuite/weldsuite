@@ -45,6 +45,9 @@ export function EditorWizardNav({
                     <Link
                       href={step.href}
                       onClick={(e) => handleNavigate(e, step.href)}
+                      aria-label={step.label}
+                      aria-current={isActive ? 'page' : undefined}
+                      title={step.label}
                       className={cn(
                         'relative flex items-center gap-1.5 text-xs md:text-sm font-medium px-2 md:px-3 py-1.5 rounded-md transition-colors',
                         index === 0 && 'pl-0 md:pl-0',
@@ -54,7 +57,8 @@ export function EditorWizardNav({
                       )}
                     >
                       <StepIcon className="h-3.5 w-3.5" />
-                      {step.label}
+                      {/* Below sm only the active tab keeps its text, so the editor's action buttons fit next to the tabs. */}
+                      <span className={cn(!isActive && 'hidden sm:inline')}>{step.label}</span>
                     </Link>
                     <div
                       className={cn(

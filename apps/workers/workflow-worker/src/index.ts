@@ -11,17 +11,15 @@
  */
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import { NonRetryableError } from 'cloudflare:workflows';
 import { and, eq, isNull, or } from 'drizzle-orm';
+import { cancelQueuedExecutionRow, startExecutionRow } from './engine/execution-row';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { getTenantDbForWorkspace, schema, type Database } from './db';
 import { generateId } from './lib/id';
-import type {
-  TriggerType,
-  WorkflowEnv,
-  StepRuntime,
-  WorkflowDefinition,
-  WorkflowRunContext,
-} from './engine/types';
+import type { TriggerType, WorkflowEnv, WorkflowDefinition, WorkflowRunContext } from './engine/types';
+import { makeStepRuntime } from './engine/step-runtime';
+import { notifyRunFinished } from './engine/run-notifications';
 import { executeWorkflowSteps } from './engine/execute-steps';
 import { buildTriggerData } from './engine/trigger-data';
 import { executeAction } from './engine/actions';
@@ -50,6 +48,13 @@ export interface ExecuteWorkflowParams {
    * skipped for non-active workflows.
    */
   isTest?: boolean;
+  /**
+   * A `workflow_executions` row the dispatcher already created (status
+   * `queued`) so it can hand its id to the caller right away (retry and Test
+   * runs). `create-execution` then upgrades that row instead of inserting a
+   * new one; without it the worker generates the id itself.
+   */
+  executionId?: string;
 }
 
 export type Env = WorkflowEnv;
@@ -64,20 +69,11 @@ type LoadResult =
       variables: Record<string, unknown>;
     };
 
-/** Adapts a Cloudflare `WorkflowStep` to the engine's `StepRuntime` port. */
-export function makeStepRuntime(step: WorkflowStep): StepRuntime {
-  return {
-    do: (name: string, fn: () => Promise<unknown>) => step.do(name, fn as () => Promise<never>),
-    sleep: (name: string, ms: number) => step.sleep(name, ms),
-    waitForEvent: (name: string, opts: { type: string; timeoutMs?: number }) =>
-      step.waitForEvent(name, { type: opts.type, timeout: opts.timeoutMs }),
-  } as StepRuntime;
-}
-
 export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWorkflowParams> {
   async run(event: WorkflowEvent<ExecuteWorkflowParams>, step: WorkflowStep): Promise<unknown> {
     const params = event.payload;
-    const rt = (this.env.REALTIME ? new RealtimePublisher(this.env.REALTIME) : null) as RealtimeLike | null;
+    const publisher = this.env.REALTIME ? new RealtimePublisher(this.env.REALTIME) : null;
+    const rt = publisher as RealtimeLike | null;
 
     // 1. Load workflow + variables. (CF wraps step.do results in Serializable<T>;
     // we annotate the callback loosely and cast the result back to LoadResult.)
@@ -88,7 +84,9 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
         .from(schema.workflows)
         .where(and(eq(schema.workflows.id, params.workflowId), isNull(schema.workflows.deletedAt)))
         .limit(1);
-      if (!workflow) throw new Error(`Workflow ${params.workflowId} not found`);
+      // Skipped (not thrown): a deleted workflow never becomes valid, and a throw
+      // here is retried by Cloudflare for ~5 minutes before the run is dropped.
+      if (!workflow) return { skipped: true, reason: `Workflow ${params.workflowId} not found` } as const;
       if (workflow.status !== 'active' && !params.isTest) {
         return { skipped: true, reason: 'Workflow not active' } as const;
       }
@@ -118,31 +116,34 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
     })) as LoadResult;
 
     if (loadResult.skipped) {
+      // A dispatcher-created row must not sit on `queued` forever.
+      if (params.executionId) {
+        const skippedId = params.executionId;
+        await step.do('cancel-skipped-execution', async () => {
+          const db = await getTenantDbForWorkspace(this.env, params.workspaceId);
+          await cancelQueuedExecutionRow(db, skippedId, loadResult.reason);
+        });
+      }
       return { skipped: true, reason: loadResult.reason };
     }
     const { name: workflowName, version, steps, variables } = loadResult;
 
-    // 2. Create execution record + publish started.
+    // 2. Create (or upgrade the dispatcher's queued) execution record + publish started.
     const executionId = await step.do('create-execution', async () => {
       const db = await getTenantDbForWorkspace(this.env, params.workspaceId);
-      const execId = generateId('wex');
-      const now = new Date();
-      await db.insert(schema.workflowExecutions).values({
+      const execId = params.executionId ?? generateId('wex');
+      await startExecutionRow(db, {
         id: execId,
         workflowId: params.workflowId,
         workflowVersion: version,
         workflowName,
-        status: 'running',
         triggeredBy: params.userId,
-        triggerType: params.triggerType || 'manual',
+        triggerType: params.triggerType,
         triggerId: params.triggerId,
-        triggerData: params.triggerData as Record<string, unknown>,
-        startedAt: now,
+        triggerData: params.triggerData,
         totalSteps: steps.length,
-        currentStepIndex: 0,
         cfWorkflowInstanceId: event.instanceId,
-        createdAt: now,
-        updatedAt: now,
+        isTest: params.isTest,
       });
       await rt?.workflowExecutionEvent(params.workspaceId, execId, 'started', {
         executionId: execId,
@@ -164,7 +165,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
 
     // 3. Run the engine (durable via the step runtime; persistence via hooks).
     const db = await getTenantDbForWorkspace(this.env, params.workspaceId);
-    const runtime = makeStepRuntime(step);
+    const runtime = makeStepRuntime(step, NonRetryableError);
     const hooks = buildExecutionHooks({
       db,
       rt,
@@ -200,6 +201,8 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
           .set({ status: 'running', updatedAt: new Date() })
           .where(eq(schema.workflowExecutions.id, executionId));
       });
+      // The step that waited for input has now finished: count it in the progress.
+      await hooks.markFinished(waitingIndex);
       const seedOutput = { ...result.output, [waitingStepId]: resumeEvent.payload ?? {} };
       result = await executeWorkflowSteps(
         workflow,
@@ -213,17 +216,37 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
     await step.do('finalize', async () => {
       const finalizeDb = await getTenantDbForWorkspace(this.env, params.workspaceId);
       const succeeded = result.status === 'completed';
+      const completedAt = new Date();
+
+      // Duration is measured on the row itself (its startedAt is when the
+      // worker picked the run up), and the row also says whether this is a test run.
+      const [row] = await finalizeDb
+        .select({
+          startedAt: schema.workflowExecutions.startedAt,
+          executionContext: schema.workflowExecutions.executionContext,
+        })
+        .from(schema.workflowExecutions)
+        .where(eq(schema.workflowExecutions.id, executionId))
+        .limit(1);
+      const duration = row?.startedAt ? Math.max(0, completedAt.getTime() - row.startedAt.getTime()) : null;
+      const isTest = params.isTest === true || row?.executionContext?.isTest === true;
+
       await finalizeDb
         .update(schema.workflowExecutions)
         .set({
           status: succeeded ? 'completed' : 'failed',
-          completedAt: new Date(),
+          completedAt,
+          duration,
+          // A completed run has finished every step, whatever the live counter says.
+          ...(succeeded ? { currentStepIndex: steps.length } : {}),
           output: result.output,
           error: result.error ? { message: result.error.message, stepId: result.error.stepId } : null,
-          updatedAt: new Date(),
+          updatedAt: completedAt,
         })
         .where(eq(schema.workflowExecutions.id, executionId));
-      await updateWorkflowStats(finalizeDb, params.workflowId, succeeded, params.source);
+
+      // Test runs stay out of the workflow's counters and notifications.
+      if (!isTest) await updateWorkflowStats(finalizeDb, params.workflowId, succeeded, params.source);
       await fireWorkflowCompleteTriggers(
         this.env,
         finalizeDb,
@@ -234,6 +257,26 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
         result.output,
         params.chainDepth ?? 0,
       );
+
+      if (!isTest && params.source !== 'helpdesk') {
+        const [owner] = await finalizeDb
+          .select({ createdBy: schema.workflows.createdBy, settings: schema.workflows.settings })
+          .from(schema.workflows)
+          .where(eq(schema.workflows.id, params.workflowId))
+          .limit(1);
+        await notifyRunFinished({
+          db: finalizeDb,
+          rt: publisher,
+          workspaceId: params.workspaceId,
+          executionId,
+          workflowName,
+          settings: owner?.settings,
+          createdBy: owner?.createdBy,
+          triggeredBy: params.userId,
+          succeeded,
+          errorMessage: result.error?.message,
+        });
+      }
     });
 
     await rt?.workflowExecutionEvent(

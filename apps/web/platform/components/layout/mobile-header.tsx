@@ -21,6 +21,10 @@ export function MobileHeader({ className }: MobileHeaderProps) {
   const name = moduleInfo?.name || 'WeldSuite';
   const logo = moduleInfo?.logo;
   const isGlass = headerVariant === 'glass';
+  const useDarkLogo = isDark || isGlass;
+  // Not every module has a wordmark (see the icon-only logos in app-registry).
+  const wordmark = useDarkLogo ? logo?.textDark : logo?.textLight;
+  const logoIcon = useDarkLogo ? logo?.iconDark : logo?.iconLight;
 
   return (
     <header
@@ -50,9 +54,9 @@ export function MobileHeader({ className }: MobileHeaderProps) {
         <Menu className="h-4 w-4" />
       </Button>
       <div className={cn("flex items-center gap-2 flex-1", isGlass && "text-white")}>
-        {logo ? (
+        {wordmark ? (
           <img
-            src={isDark || isGlass ? logo.textDark : logo.textLight}
+            src={wordmark}
             alt={name}
             width={80}
             height={20}
@@ -60,7 +64,11 @@ export function MobileHeader({ className }: MobileHeaderProps) {
           />
         ) : (
           <>
-            {!moduleInfo?.hideIconOnMobile && <Icon className="h-5 w-5" />}
+            {!moduleInfo?.hideIconOnMobile && (
+              logoIcon
+                ? <img src={logoIcon} alt="" width={20} height={20} className="h-5 w-5 shrink-0 object-contain" />
+                : <Icon className="h-5 w-5" />
+            )}
             <span className="font-semibold">{name}</span>
           </>
         )}

@@ -69,6 +69,41 @@ describe('resolveInputs', () => {
     expect(out.msg).toBe('n=7!');
   });
 
+  it('interpolates an object embedded in text as compact JSON', () => {
+    const out = resolveInputs(
+      { msg: 'record {{trigger.record}}' },
+      NONE,
+      { record: { email: 'a@b.co', n: 2 } },
+      NONE,
+      NONE,
+    );
+    expect(out.msg).toBe('record {"email":"a@b.co","n":2}');
+  });
+
+  it('interpolates an array embedded in text as JSON and null as empty', () => {
+    const out = resolveInputs(
+      { msg: 'tags {{trigger.tags}} / {{trigger.nothing}}.' },
+      NONE,
+      { tags: ['a', 'b'], nothing: null },
+      NONE,
+      NONE,
+    );
+    expect(out.msg).toBe('tags ["a","b"] / .');
+  });
+
+  it('keeps a whole-expression object raw', () => {
+    const record = { a: 1 };
+    const out = resolveInputs({ msg: '{{trigger.record}}' }, NONE, { record }, NONE, NONE);
+    expect(out.msg).toEqual(record);
+  });
+
+  it('HTML-escapes the stringified object when the key is escaped', () => {
+    const out = resolveInputs({ body: '<p>{{trigger.record}}</p>' }, NONE, { record: { n: '<b>' } }, NONE, NONE, {
+      escapeHtmlKeys: ['body'],
+    });
+    expect(out.body).toBe('<p>{&quot;n&quot;:&quot;&lt;b&gt;&quot;}</p>');
+  });
+
   it('resolves multiple expressions in one string', () => {
     const out = resolveInputs(
       { line: '{{trigger.a}} + {{trigger.b}}' },

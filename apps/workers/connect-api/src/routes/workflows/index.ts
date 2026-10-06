@@ -17,6 +17,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import * as workflowsService from '../../services/workflows';
+import { startTestRun } from '../../services/workflow-executions';
 import { isSequenceWorkflow, validateWeldConnectWorkflow } from '../../services/weldconnect-mvp';
 import { syncWorkflowPollIndex } from '../../lib/tenant-work-index';
 import type { ScheduleIndexSync } from '../../lib/schedule-index';
@@ -288,23 +289,25 @@ app.post(
 
     const id = c.req.param('id');
     const body = c.req.valid('json');
-    const source = id.startsWith('hwf_') ? 'helpdesk' : 'task';
 
     try {
-      const instance = await c.env.EXECUTE_WORKFLOW.create({
-        params: {
-          workspaceId: orgId,
-          userId,
-          workflowId: id,
-          triggerType: 'manual' as const,
-          triggerData: body.testData ?? body.data ?? {},
-          source,
-          // Lets the editor try a draft before publishing — the worker skips
-          // runs of non-active workflows otherwise.
-          isTest: true,
-        },
+      // Same row pattern as a retry: the execution row exists (queued, flagged
+      // as a test run) before the response, so `executionId` is a real `wex_`
+      // id the UI can open. The Cloudflare instance id is returned separately.
+      const result = await startTestRun(c.get('tenantDb'), c.env.EXECUTE_WORKFLOW, {
+        workspaceId: orgId,
+        userId,
+        workflowId: id,
+        testData: body.testData ?? body.data,
+        triggerType: body.triggerType,
       });
-      return success(c, { executionId: instance.id, instanceId: instance.id });
+      if (result.kind === 'workflow_missing') return error.notFound(c, 'Workflow', id);
+      return success(c, {
+        executionId: result.executionId,
+        instanceId: result.instanceId,
+        triggerType: result.triggerType,
+        isTest: true,
+      });
     } catch (err) {
       console.error('[app-api/workflows] test failed:', err);
       return error.internal(c, 'Failed to test workflow');

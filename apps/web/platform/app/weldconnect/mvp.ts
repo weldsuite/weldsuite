@@ -17,6 +17,22 @@ export const WELDCONNECT_SCHEDULE_TYPES = ['recurring'] as const;
 
 export const WELDCONNECT_ACTION_TYPES = ['send_email', 'create_customer'] as const;
 
+/**
+ * Sections under /weldconnect that exist but are outside the MVP: hidden from
+ * the sidebar (hooks/use-weldconnect-sidebar-items.tsx) and, for anyone who
+ * still lands on them through an old link, marked with a notice saying that
+ * nothing set up there can be used in a workflow yet. Integrations and
+ * connectors are not listed: Settings links to them and they work on their own.
+ */
+export const WELDCONNECT_OUT_OF_SCOPE_SECTIONS = [
+  'actions',
+  'analytics',
+  'templates',
+  'triggers',
+  'variables',
+  'webhooks',
+] as const;
+
 /** CRM sequences are `workflows` rows too; WeldConnect lists exclude them. */
 export const SEQUENCE_WORKFLOW_TAG = '__type:sequence';
 
@@ -25,4 +41,17 @@ export function isUnsupportedWorkflowError(err: unknown): boolean {
   if (!isApiError(err) || err.status !== 400) return false;
   const body = err.body as { error?: { details?: { reason?: string } } } | undefined;
   return body?.error?.details?.reason === 'weldconnect_unsupported';
+}
+
+/**
+ * The reasons the activation gate gave for refusing a workflow (`no_trigger`,
+ * `invalid_cron`, `unsupported_action`, …; see `WorkflowIssueCode` in the
+ * server-side gate). Empty when the error is something else.
+ */
+export function getWorkflowIssueCodes(err: unknown): string[] {
+  if (!isApiError(err) || err.status !== 400) return [];
+  const body = err.body as { error?: { details?: { issues?: Array<{ code?: unknown }> } } } | undefined;
+  const issues = body?.error?.details?.issues;
+  if (!Array.isArray(issues)) return [];
+  return issues.map((issue) => issue?.code).filter((code): code is string => typeof code === 'string');
 }

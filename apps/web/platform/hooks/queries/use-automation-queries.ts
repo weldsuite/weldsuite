@@ -1,23 +1,35 @@
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, keepPreviousData, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isApiError } from '@weldsuite/api-client';
 import type {
   Workflow,
-  WorkflowExecution,
+  WorkflowExecution as ApiWorkflowExecution,
   WorkflowTemplate,
   WorkflowVariable,
-  ExecutionStep,
+  ExecutionStep as ApiExecutionStep,
 } from '@weldsuite/core-api-client/schemas/weldconnect';
 import type { ExecutionLogEntry } from '@/app/weldconnect/executions/[id]/execution-detail-client';
+
+/**
+ * Execution row as the API returns it today: the shared schema type plus the
+ * retry / test-run fields connect-api adds (all optional, older runs lack them).
+ */
+export type WorkflowExecution = ApiWorkflowExecution & {
+  retryCount?: number | null;
+  parentExecutionId?: string | null;
+  executionContext?: ({ isTest?: boolean } & Record<string, unknown>) | null;
+};
+
+export type ExecutionStep = ApiExecutionStep;
 
 // Re-export types
 export type {
   Workflow,
-  WorkflowExecution,
   WorkflowTemplate,
-  
+
   WorkflowVariable,
-  
+
 } from '@weldsuite/core-api-client/schemas/weldconnect';export type WorkflowWebhook = Record<string, unknown>;
 export type WorkflowErrorLog = Record<string, unknown>;
 export type ActionType = { id: string; name: string; description: string; category: string; icon?: string };
@@ -80,6 +92,8 @@ export const automationKeys = {
   workflowStats: () => [...automationKeys.all, 'workflow-stats'] as const,
   workflowMetrics: (id: string) => [...automationKeys.all, 'workflow-metrics', id] as const,
   workflowsForChaining: (excludeId?: string) => [...automationKeys.all, 'workflows-chaining', excludeId] as const,
+  /** Prefix of every execution list query, for invalidation (`executions(filters)` only matches that exact filter object). */
+  executionsPrefix: () => [...automationKeys.all, 'executions'] as const,
   executions: (filters?: unknown) => [...automationKeys.all, 'executions', filters] as const,
   execution: (id: string) => [...automationKeys.all, 'execution', id] as const,
   executionSteps: (id: string) => [...automationKeys.all, 'execution-steps', id] as const,
@@ -152,6 +166,7 @@ export function useWorkflowStats() {
         pendingExecutions: number;
       } }>(`${WELDCONNECT_API.workflows}/stats`);
     },
+    refetchOnMount: 'always',
   });
 }
 
@@ -212,6 +227,45 @@ export function useExecutions(filters?: Record<string, unknown>) {
   });
 }
 
+/** How often a list/detail with a queued or running execution refetches itself. */
+export const EXECUTION_POLL_INTERVAL_MS = 5000;
+
+/** Statuses of a run that has not finished yet (`pending` is the legacy spelling of `queued`). */
+export function isActiveExecutionStatus(status: string | null | undefined): boolean {
+  return status === 'queued' || status === 'running' || status === 'pending';
+}
+
+export interface ExecutionListFilters {
+  status?: string;
+  workflowId?: string;
+  triggerType?: string;
+  limit?: number;
+}
+
+// 9a. Executions (cursor-paginated list, filters sent to the API)
+export function useInfiniteExecutions(filters: ExecutionListFilters = {}) {
+  const { getClient } = useAppApiClient();
+  return useInfiniteQuery({
+    queryKey: [...automationKeys.executions(filters), 'infinite'] as const,
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const client = await getClient();
+      const query = buildQueryString({ limit: 25, ...filters, cursor: pageParam });
+      return client.get<{ data: WorkflowExecution[]; pagination: CursorPaginationMeta }>(`${WELDCONNECT_API.executions}${query}`);
+    },
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination?.hasMore ? (lastPage.pagination.cursor ?? undefined) : undefined,
+    // Keep the previous list on screen while a changed filter loads.
+    placeholderData: keepPreviousData,
+    // Coming back through the sidebar must never show a stale list.
+    refetchOnMount: 'always',
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) => page.data.some((e) => isActiveExecutionStatus(e.status)))
+        ? EXECUTION_POLL_INTERVAL_MS
+        : false,
+  });
+}
+
 // 10. Execution (single)
 export function useExecution(id: string, enabled = true) {
   const { getClient } = useAppApiClient();
@@ -222,6 +276,14 @@ export function useExecution(id: string, enabled = true) {
       return client.get<{ data: WorkflowExecution }>(`${WELDCONNECT_API.executions}/${id}`);
     },
     enabled: !!id && enabled,
+    refetchOnMount: 'always',
+    refetchInterval: (query) =>
+      isActiveExecutionStatus(query.state.data?.data?.status) ? EXECUTION_POLL_INTERVAL_MS : false,
+    // A run that was just started can lag a moment before it is readable, so a
+    // 404 is retried a few times before the page calls it not found.
+    retry: (failureCount, error) =>
+      isApiError(error) && error.status === 404 ? failureCount < 4 : failureCount < 2,
+    retryDelay: 800,
   });
 }
 
@@ -234,11 +296,12 @@ export function useRecentExecutions(limit = 10) {
       const client = await getClient();
       return client.get<{ data: WorkflowExecution[] }>(`${WELDCONNECT_API.executions}/recent?limit=${limit}`);
     },
+    refetchOnMount: 'always',
   });
 }
 
-// 12. Execution Steps
-export function useExecutionSteps(executionId: string, enabled = true) {
+// 12. Execution Steps — `poll` keeps refetching while the run is still going
+export function useExecutionSteps(executionId: string, enabled = true, poll = false) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: automationKeys.executionSteps(executionId),
@@ -247,11 +310,13 @@ export function useExecutionSteps(executionId: string, enabled = true) {
       return client.get<{ data: ExecutionStep[] }>(`${WELDCONNECT_API.executions}/${executionId}/steps`);
     },
     enabled: !!executionId && enabled,
+    refetchOnMount: 'always',
+    refetchInterval: poll ? EXECUTION_POLL_INTERVAL_MS : false,
   });
 }
 
-// 13. Execution Logs
-export function useExecutionLogs(executionId: string, enabled = true) {
+// 13. Execution Logs — `poll` keeps refetching while the run is still going
+export function useExecutionLogs(executionId: string, enabled = true, poll = false) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: automationKeys.executionLogs(executionId),
@@ -260,6 +325,8 @@ export function useExecutionLogs(executionId: string, enabled = true) {
       return client.get<{ data: ExecutionLogEntry[] }>(`${WELDCONNECT_API.executions}/${executionId}/logs`);
     },
     enabled: !!executionId && enabled,
+    refetchOnMount: 'always',
+    refetchInterval: poll ? EXECUTION_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -275,6 +342,8 @@ export function useExecutionTrends(period?: string) {
         trends: Array<{ date: string; total: number; success: number; failure: number }>;
       } }>(`${WELDCONNECT_API.executions}/trends${query}`);
     },
+    // Switching the dashboard's period keeps the chart on screen while it loads.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -441,6 +510,22 @@ export function useWebhookEvents(webhookId: string, enabled = true) {
 //   `/helpdesk-workflows`    — WeldDesk helpdesk workflows
 // The two differ only in the mount path and the query keys they invalidate.
 
+// The workflow editor reads its workflow from its own cache entry
+// (`workflowEditorKeys.workflow(id)` in hooks/use-workflow-editor-data.ts, which
+// imports this file, hence the literal key). Every workflow write has to drop
+// it, or the editor remounts with the pre-save copy and the next Save writes
+// that stale copy back.
+const editorWorkflowKey = (id: string) => ['workflow-editor', 'workflow', id] as const;
+
+// Seeds the cached copy with what was just written before the refetch lands, so
+// a quick Settings -> Editor round trip cannot remount on the old one either.
+function refreshEditorWorkflow(qc: QueryClient, id: string, written: Record<string, unknown>) {
+  qc.setQueriesData<Record<string, unknown>>({ queryKey: editorWorkflowKey(id) }, (cached) =>
+    cached ? { ...cached, ...written } : cached,
+  );
+  qc.invalidateQueries({ queryKey: editorWorkflowKey(id) });
+}
+
 // 1. Create Workflow
 export function useCreateWorkflow(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
@@ -495,6 +580,7 @@ export function useUpdateWorkflow(apiBasePath: string = WELDCONNECT_API.workflow
         qc.invalidateQueries({ queryKey: automationKeys.workflows() });
         qc.invalidateQueries({ queryKey: automationKeys.workflow(variables.id) });
       }
+      refreshEditorWorkflow(qc, variables.id, variables.data);
     },
   });
 }
@@ -534,6 +620,7 @@ export function useUpdateWorkflowStatus(apiBasePath: string = WELDCONNECT_API.wo
         qc.invalidateQueries({ queryKey: automationKeys.workflows() });
         qc.invalidateQueries({ queryKey: automationKeys.workflow(variables.id) });
       }
+      refreshEditorWorkflow(qc, variables.id, { status: variables.status });
     },
   });
 }
@@ -596,12 +683,20 @@ export function useTestWorkflow() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, testData }: { id: string; testData?: Record<string, unknown> }) => {
+    mutationFn: async ({ id, testData, triggerType }: {
+      id: string;
+      testData?: Record<string, unknown>;
+      /** Defaults server-side to the workflow's first enabled trigger. */
+      triggerType?: string;
+    }) => {
       const client = await getClient();
-      return client.post<{ data: { executionId: string; instanceId: string } }>(`${WELDCONNECT_API.workflows}/${id}/test`, { testData });
+      return client.post<{ data: { executionId: string; instanceId: string } }>(
+        `${WELDCONNECT_API.workflows}/${id}/test`,
+        { testData, triggerType },
+      );
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.executions() });
+      qc.invalidateQueries({ queryKey: automationKeys.executionsPrefix() });
     },
   });
 }
@@ -616,8 +711,8 @@ export function useCancelExecution() {
       const client = await getClient();
       return client.patch<{ data: { id: string; status: string } }>(`${WELDCONNECT_API.executions}/${id}/cancel`, {});
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.executions() });
+    onSuccess: (_result, id) => {
+      invalidateExecutionQueries(qc, id);
     },
   });
 }
@@ -629,12 +724,28 @@ export function useRetryExecution() {
   return useMutation({
     mutationFn: async (id: string) => {
       const client = await getClient();
-      return client.post<{ data: { id: string; instanceId: string; retryOf: string } }>(`${WELDCONNECT_API.executions}/${id}/retry`, {});
+      return client.post<{ data: { id: string; executionId?: string; instanceId: string; retryOf: string } }>(`${WELDCONNECT_API.executions}/${id}/retry`, {});
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.executions() });
+    onSuccess: (_result, id) => {
+      invalidateExecutionQueries(qc, id);
     },
   });
+}
+
+/** True when a retry was refused because the workflow is not active (400 `workflow_inactive`). */
+export function isWorkflowInactiveError(err: unknown): boolean {
+  if (!isApiError(err) || err.status !== 400) return false;
+  const body = err.body as { error?: { details?: { reason?: string } } } | undefined;
+  return body?.error?.details?.reason === 'workflow_inactive';
+}
+
+// A run changing state moves the list, the detail, and the dashboard's tiles and recent activity.
+function invalidateExecutionQueries(qc: QueryClient, executionId: string) {
+  qc.invalidateQueries({ queryKey: automationKeys.executionsPrefix() });
+  qc.invalidateQueries({ queryKey: automationKeys.execution(executionId) });
+  qc.invalidateQueries({ queryKey: automationKeys.executionSteps(executionId) });
+  qc.invalidateQueries({ queryKey: [...automationKeys.all, 'recent-executions'] });
+  qc.invalidateQueries({ queryKey: automationKeys.workflowStats() });
 }// 12. Update Template
 export function useUpdateTemplate() {
   const { getClient } = useAppApiClient();

@@ -11,6 +11,8 @@ export interface TriggerNodeData extends Record<string, unknown> {
   label: string;
   entityEvent?: string;
   isLastNode: boolean;
+  /** Translated text of the add-step control under the last node. */
+  addStepLabel?: string;
   showAddPlaceholder?: boolean;
   locked?: boolean;
   nodeId: string;
@@ -26,6 +28,8 @@ export interface ActionNodeData extends Record<string, unknown> {
   isConfigured: boolean;
   /** Translated badge text shown when !isConfigured. */
   setupRequiredLabel?: string;
+  /** Translated text of the add-step control under the last node. */
+  addStepLabel?: string;
   isLastNode: boolean;
   showAddPlaceholder?: boolean;
   nodeId: string;
@@ -47,6 +51,8 @@ export interface ConditionNodeData extends Record<string, unknown> {
   isConfigured: boolean;
   /** Translated badge text shown when !isConfigured. */
   setupRequiredLabel?: string;
+  /** Translated text of the add-step control under the last node. */
+  addStepLabel?: string;
   isLastNode: boolean;
   nodeId: string;
   onSelect?: () => void;
@@ -62,6 +68,8 @@ export interface ConditionBranchNodeData extends Record<string, unknown> {
   parentConditionId: string;
   parentConditionStepIndex: number;
   isLastNode: boolean;
+  /** Translated text of the add-step control under an empty branch. */
+  addStepLabel?: string;
   nodeId: string;
   onSelect?: () => void;
   onSelectBranch?: (branchNodeId: string, branchType: string, parentConditionId: string, parentConditionStepIndex: number) => void;
@@ -591,6 +599,7 @@ type WorkflowFlowOptions = {
     triggerLabels?: Record<string, string>;
     actionLabels?: Record<string, string>;
     setupRequired?: string;
+    addStep?: string;
   };
 };
 
@@ -630,6 +639,7 @@ function buildTriggerNode(
       label: trigger ? getTriggerLabel(trigger, options?.labels?.triggerLabels) : (options?.labels?.selectTrigger ?? 'Select Trigger'),
       entityEvent: getTriggerEntityEvent(trigger),
       isLastNode: steps.length === 0,
+      addStepLabel: options?.labels?.addStep,
       locked: options?.triggerLocked,
       nodeId: 'trigger',
       onSelect: callbacks?.onSelectTrigger,
@@ -873,6 +883,7 @@ function buildConditionFlowNodes(
       elseStepId: (step.config as ConditionStepConfig).elseAction,
       isConfigured: isStepConfigured(step),
       setupRequiredLabel: options?.labels?.setupRequired,
+      addStepLabel: options?.labels?.addStep,
       isLastNode: false, // Condition node is never the "last" node visually
       nodeId: step.id,
       onSelect: () => callbacks?.onSelectStep?.(stepIndex),
@@ -887,7 +898,8 @@ function buildConditionFlowNodes(
     ? buildMultiBranchNodes(step, stepIndex, position, configBranches, branchChildrenMap, callbacks)
     : buildLegacyBranchNodes(step, stepIndex, position, branchChildrenMap, callbacks);
 
-  return [conditionNode, ...branchNodes];
+  const addStepLabel = options?.labels?.addStep;
+  return [conditionNode, ...branchNodes.map((node) => ({ ...node, data: { ...node.data, addStepLabel } }))];
 }
 
 // Sub-agent satellite nodes (and their dashed edges) for an ai_agent step
@@ -983,6 +995,7 @@ function buildActionFlowNodes(
       actionType: step.type,
       isConfigured: isStepConfigured(step),
       setupRequiredLabel: options?.labels?.setupRequired,
+      addStepLabel: options?.labels?.addStep,
       isLastNode: finalIsLastNode,
       nodeId: step.id,
       onSelect: () => callbacks?.onSelectStep?.(stepIndex),

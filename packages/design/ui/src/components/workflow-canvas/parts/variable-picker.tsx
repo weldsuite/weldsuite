@@ -57,6 +57,13 @@ export interface VariablePickerProps {
   }>;
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
+  /**
+   * Fields of the record an `entity_event` trigger fires for (paths relative
+   * to the record, e.g. `firstName`). When given, the picker lists them as
+   * `trigger.record.<path>` in place of the whole-record object entries, which
+   * can only be inserted into text as "[object Object]".
+   */
+  triggerRecordFields?: VariableItem[];
   className?: string;
   labels?: {
     searchPlaceholder?: string;
@@ -152,8 +159,18 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
 function getTriggerVariables(
   triggerType?: string,
   fieldLabels?: Record<string, string>,
+  recordFields?: VariableItem[],
 ): VariableItem[] {
   const label = (key: string, fallback: string) => fieldLabels?.[key] ?? fallback;
+
+  if (triggerType === 'entity_event' && recordFields) {
+    return [
+      { path: 'entity', label: label('entityType', 'Entity Type'), type: 'string' },
+      { path: 'event', label: label('eventType', 'Event Type'), type: 'string' },
+      { path: 'recordId', label: label('recordId', 'Record ID'), type: 'string' },
+      ...recordFields.map((field) => ({ ...field, path: `record.${field.path}` })),
+    ];
+  }
 
   const triggerOutputs: Record<string, VariableItem[]> = {
     manual: [
@@ -161,8 +178,9 @@ function getTriggerVariables(
       { path: 'timestamp', label: 'Timestamp', type: 'string' },
     ],
     schedule: [
-      { path: 'scheduledTime', label: 'Scheduled Time', type: 'string' },
-      { path: 'runId', label: 'Run ID', type: 'string' },
+      { path: 'scheduledTime', label: label('scheduledTime', 'Scheduled Time'), type: 'string' },
+      { path: 'scheduledTimeLocal', label: label('scheduledTimeLocal', 'Scheduled Time (schedule timezone)'), type: 'string' },
+      { path: 'runId', label: label('runId', 'Run ID'), type: 'string' },
     ],
     webhook: [
       { path: 'body', label: 'Request Body', type: 'object' },
@@ -171,9 +189,9 @@ function getTriggerVariables(
       { path: 'method', label: 'HTTP Method', type: 'string' },
     ],
     entity_event: [
-      { path: 'entity', label: 'Entity Type', type: 'string' },
-      { path: 'event', label: 'Event Type', type: 'string' },
-      { path: 'recordId', label: 'Record ID', type: 'string' },
+      { path: 'entity', label: label('entityType', 'Entity Type'), type: 'string' },
+      { path: 'event', label: label('eventType', 'Event Type'), type: 'string' },
+      { path: 'recordId', label: label('recordId', 'Record ID'), type: 'string' },
       { path: 'record', label: 'Record Data', type: 'object' },
       { path: 'record.email', label: 'Record Email', type: 'string' },
       { path: 'previousRecord', label: 'Previous Data', type: 'object' },
@@ -204,6 +222,7 @@ export function buildAllVariables({
   workflowVariables = [],
   extraVariableGroups = [],
   excludeGroups = [],
+  triggerRecordFields,
   labels = {},
 }: {
   triggerType?: string;
@@ -211,13 +230,14 @@ export function buildAllVariables({
   workflowVariables?: Array<{ name: string; type?: string }>;
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
+  triggerRecordFields?: VariableItem[];
   labels?: VariablePickerProps['labels'];
 }): Array<VariableItem & { group: string }> {
   const items: Array<VariableItem & { group: string }> = [];
   const triggerGroupLabel = labels.groups?.triggerData || 'Trigger Data';
 
   if (!excludeGroups.includes('trigger')) {
-    const triggerVars = getTriggerVariables(triggerType, labels.triggerFields);
+    const triggerVars = getTriggerVariables(triggerType, labels.triggerFields, triggerRecordFields);
     for (const v of triggerVars) {
       items.push({ ...v, path: `trigger.${v.path}`, group: triggerGroupLabel });
     }
@@ -262,6 +282,7 @@ export function VariablePicker({
   workflowVariables = [],
   extraVariableGroups = [],
   excludeGroups = [],
+  triggerRecordFields,
   className,
   labels = {},
 }: VariablePickerProps) {
@@ -273,7 +294,7 @@ export function VariablePicker({
     const groups: VariableGroup[] = [];
 
     if (!excludeGroups.includes('trigger')) {
-      const triggerVars = getTriggerVariables(triggerType, labels.triggerFields);
+      const triggerVars = getTriggerVariables(triggerType, labels.triggerFields, triggerRecordFields);
       groups.push({
         id: 'trigger',
         label: labels.groups?.triggerData || 'Trigger Data',
@@ -317,7 +338,7 @@ export function VariablePicker({
     }
 
     return groups;
-  }, [triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups, labels]);
+  }, [triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups, triggerRecordFields, labels]);
 
   const filteredGroups = useMemo(() => {
     if (!search) return variableGroups;

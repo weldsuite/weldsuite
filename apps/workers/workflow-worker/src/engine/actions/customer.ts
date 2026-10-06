@@ -12,7 +12,8 @@
  */
 
 import type { ActionHandler } from '../types';
-import { postInternalApi } from './helpers';
+import { NonRetryableStepError } from '../errors';
+import { EMAIL_ADDRESS, postInternalApi } from './helpers';
 
 /** Wire contract with app-api's internal create-customer route. */
 export interface CreateCustomerResponse {
@@ -30,7 +31,14 @@ function optionalString(value: unknown): string | undefined {
 
 export const handleCreateCustomer: ActionHandler = async (inputs, ctx) => {
   const name = optionalString(inputs.name);
-  if (!name) throw new Error('Customer name is required');
+  if (!name) throw new NonRetryableStepError('Customer name is required');
+
+  // The CRM rejects a malformed email with a 400; say so up front. (`website`
+  // is stored as free text by the CRM, so it has no failure path to handle.)
+  const email = optionalString(inputs.email);
+  if (email && !EMAIL_ADDRESS.test(email)) {
+    throw new NonRetryableStepError(`Customer email "${email}" is not valid`);
+  }
 
   const result = await postInternalApi<CreateCustomerResponse>(
     ctx.env,
@@ -45,7 +53,7 @@ export const handleCreateCustomer: ActionHandler = async (inputs, ctx) => {
       skipIfEmailExists: inputs.skipIfEmailExists !== false,
       customer: {
         name,
-        email: optionalString(inputs.email),
+        email,
         phone: optionalString(inputs.phone),
         website: optionalString(inputs.website),
         notes: optionalString(inputs.notes),

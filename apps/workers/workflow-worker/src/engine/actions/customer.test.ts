@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { handleCreateCustomer } from './customer';
 import { makeActionContext } from '../../test/ctx';
+import { NonRetryableStepError } from '../errors';
 
 function stubFetch(impl: (url: string, init?: RequestInit) => Response) {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -68,11 +69,38 @@ describe('create_customer', () => {
     ).rejects.toThrow(/name is required/i);
   });
 
+  it('fails readably and non-retryably on a malformed email without calling the CRM', async () => {
+    const calls = stubFetch(okResponse);
+    const err = await handleCreateCustomer(
+      { name: 'Acme', email: 'nope' },
+      makeActionContext({ env: { INTERNAL_API_SECRET: 's' } }),
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(NonRetryableStepError);
+    expect((err as Error).message).toBe('Customer email "nope" is not valid');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('turns a 400 zod rejection into a readable non-retryable failure', async () => {
+    stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({ success: false, error: { issues: [{ path: ['customer', 'name'], message: 'Too long' }] } }),
+          { status: 400 },
+        ),
+    );
+    const err = await handleCreateCustomer(
+      { name: 'Acme' },
+      makeActionContext({ env: { INTERNAL_API_SECRET: 's' } }),
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(NonRetryableStepError);
+    expect((err as Error).message).toBe('Create customer failed: customer.name: Too long');
+  });
+
   it('surfaces the endpoint error body on failure', async () => {
     stubFetch(() => new Response('{"success":false,"error":"boom"}', { status: 500 }));
     await expect(
       handleCreateCustomer({ name: 'Acme' }, makeActionContext({ env: { INTERNAL_API_SECRET: 's' } })),
-    ).rejects.toThrow(/Create customer failed: 500.*boom/);
+    ).rejects.toThrow(/Create customer failed: boom/);
   });
 
   it('calls the ConnectInternal entrypoint without a secret or public fetch when it is bound', async () => {

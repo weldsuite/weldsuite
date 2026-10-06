@@ -7,7 +7,7 @@ import { Textarea } from '../../textarea';
 import { Button } from '../../button';
 import { Variable } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import { VariablePicker, buildAllVariables, type VariableGroup, type VariablePickerProps } from './variable-picker';
+import { VariablePicker, buildAllVariables, type VariableGroup, type VariableItem, type VariablePickerProps } from './variable-picker';
 
 interface VariableInputProps {
   value: string;
@@ -29,6 +29,12 @@ interface VariableInputProps {
   }>;
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
+  /** Fields of the trigger's record, see `VariablePickerProps.triggerRecordFields`. */
+  triggerRecordFields?: VariableItem[];
+  /** Accessible name for the field (the visible label lives outside this component). */
+  ariaLabel?: string;
+  /** `id` for the field, so an external `<label htmlFor>` can target it. */
+  id?: string;
   /** i18n label for the "Insert" button. */
   insertButtonLabel?: string;
   /** i18n labels for the variable picker popover. */
@@ -48,6 +54,9 @@ export function VariableInput({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
+  triggerRecordFields,
+  ariaLabel,
+  id,
   insertButtonLabel,
   labels: pickerLabels,
   inputRef: externalRef,
@@ -62,10 +71,18 @@ export function VariableInput({
     startPos: number;
   }>({ open: false, query: '', startPos: 0 });
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // Where the caret was when the field last had focus. Opening the picker moves
+  // focus into its popover, and `selectionStart` of a field that never had
+  // focus is 0 in some browsers, which would insert at the start.
+  const caretRef = useRef<{ start: number; end: number } | null>(null);
+  const rememberCaret = useCallback(() => {
+    const input = inputRef.current;
+    if (input) caretRef.current = { start: input.selectionStart ?? 0, end: input.selectionEnd ?? 0 };
+  }, [inputRef]);
 
   const allVariables = useMemo(
-    () => buildAllVariables({ triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups, labels: pickerLabels }),
-    [triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups, pickerLabels],
+    () => buildAllVariables({ triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups, triggerRecordFields, labels: pickerLabels }),
+    [triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups, triggerRecordFields, pickerLabels],
   );
 
   const filteredVariables = useMemo(() => {
@@ -154,10 +171,12 @@ export function VariableInput({
         onChange(value + variable);
         return;
       }
-      const start = input.selectionStart || 0;
-      const end = input.selectionEnd || 0;
+      const caret = caretRef.current ?? { start: value.length, end: value.length };
+      const start = Math.min(caret.start, value.length);
+      const end = Math.min(Math.max(caret.end, start), value.length);
       const newValue = value.substring(0, start) + variable + value.substring(end);
       onChange(newValue);
+      caretRef.current = { start: start + variable.length, end: start + variable.length };
 
       setTimeout(() => {
         if (input) {
@@ -220,6 +239,10 @@ export function VariableInput({
         value={value}
         onChange={(e) => handleInputChange(e.target.value)}
         onKeyDown={handleKeyDown}
+        onSelect={rememberCaret}
+        onBlur={rememberCaret}
+        id={id}
+        aria-label={ariaLabel}
         placeholder={placeholder}
         disabled={disabled}
         rows={multiline ? rows : undefined}
@@ -232,6 +255,7 @@ export function VariableInput({
           workflowVariables={workflowVariables}
           extraVariableGroups={extraVariableGroups}
           excludeGroups={excludeGroups}
+          triggerRecordFields={triggerRecordFields}
           onSelect={handleVariableSelect}
           labels={{
             ...pickerLabels,

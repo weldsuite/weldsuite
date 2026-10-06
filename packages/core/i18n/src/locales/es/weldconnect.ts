@@ -194,10 +194,10 @@ export const weldconnect = {
       yearly: 'Este año',
     },
     stats: {
-      activeWorkflows: '{count} flujos activos',
-      failedExecutions: '{count} ejecuciones fallidas',
-      pendingTasks: '{count} ejecuciones pendientes',
-      successfulExecutions: '{count} ejecuciones correctas',
+      activeWorkflows: { one: '{count} flujo activo', other: '{count} flujos activos' },
+      failedExecutions: { one: '{count} ejecución fallida', other: '{count} ejecuciones fallidas' },
+      runningExecutions: { one: '{count} ejecución en curso', other: '{count} ejecuciones en curso' },
+      successfulExecutions: { one: '{count} ejecución correcta', other: '{count} ejecuciones correctas' },
     },
   },
 
@@ -1118,9 +1118,9 @@ export const weldconnect = {
     notifications: {
       title: 'Notificaciones',
       notifyOnErrorLabel: 'Recibir notificación cuando este flujo de trabajo falle',
-      notifyOnErrorHint: 'Recibe un correo electrónico y una notificación en la aplicación cuando una ejecución falle',
+      notifyOnErrorHint: 'Recibe una notificación en la aplicación cuando una ejecución falle',
       notifyOnCompleteLabel: 'Recibir notificación cuando este flujo de trabajo se complete',
-      notifyOnCompleteHint: 'Recibe un correo electrónico y una notificación en la aplicación cuando una ejecución se complete correctamente',
+      notifyOnCompleteHint: 'Recibe una notificación en la aplicación cuando una ejecución se complete correctamente',
     },
   },
 
