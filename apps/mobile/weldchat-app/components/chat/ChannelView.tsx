@@ -17,7 +17,8 @@ import {
 import { useOrganization, useAuth, useUser } from '@clerk/expo';
 import { useObserve } from 'expo-observe';
 import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, interpolate, Extrapolation } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
 
@@ -363,7 +364,7 @@ function SwipeableMessage({
     .maxDistance(10)
     .onStart(() => {
       pressed.value = withTiming(1, { duration: 120 });
-      runOnJS(onLongPress)();
+      scheduleOnRN(onLongPress);
     })
     .onFinalize(() => {
       pressed.value = withTiming(0, { duration: 180 });
@@ -377,7 +378,7 @@ function SwipeableMessage({
       const past = next >= TRIGGER;
       if (past && !crossedThreshold.value) {
         crossedThreshold.value = true;
-        runOnJS(fireHaptic)();
+        scheduleOnRN(fireHaptic);
       } else if (!past && crossedThreshold.value) {
         crossedThreshold.value = false;
       }
@@ -385,7 +386,7 @@ function SwipeableMessage({
     })
     .onEnd(() => {
       if (crossedThreshold.value) {
-        runOnJS(fireReply)();
+        scheduleOnRN(fireReply);
       }
       crossedThreshold.value = false;
       translateX.value = withSpring(0, { damping: 18, stiffness: 240, mass: 0.7 });
@@ -540,7 +541,7 @@ function DateSeparator({ label, styles }: Readonly<{ label: string; styles: Styl
 
 function replyQuoteText(replyRef: ChatReplyReference, membersMap: Map<string, string>): string {
   if (replyRef.content) {
-    return mentionsToPlainText(replyRef.content, membersMap).replace(/\s+/g, ' ');
+    return mentionsToPlainText(replyRef.content, membersMap).replaceAll(/\s+/g, ' ');
   }
   return replyRef.hasAttachments ? 'Attachment' : 'Original message';
 }
@@ -1169,7 +1170,7 @@ function ExpandedComposer({
         <BlurView
           intensity={100}
           tint={blurTint}
-          experimentalBlurMethod="dimezisBlurView"
+          blurMethod="dimezisBlurView"
           style={styles.composerGlass}
           pointerEvents="none"
         />
@@ -1265,7 +1266,7 @@ function CollapsedComposer({
         <BlurView
           intensity={100}
           tint={blurTint}
-          experimentalBlurMethod="dimezisBlurView"
+          blurMethod="dimezisBlurView"
           style={styles.composerGlass}
           pointerEvents="none"
         />
@@ -2498,7 +2499,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
           <BlurView
             intensity={100}
             tint={blurTint}
-            experimentalBlurMethod="dimezisBlurView"
+            blurMethod="dimezisBlurView"
             style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />
