@@ -27,6 +27,7 @@ export const WELDCONNECT_ACTION_TYPES = [
   'create_customer',
   'create_contact',
   'update_contact',
+  'create_task',
   'send_notification',
   'condition',
   'loop',
@@ -141,6 +142,7 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   create_customer: (c) => (isBlank(c.name) ? ['name'] : []),
   create_contact: (c) => (isBlank(c.firstName) && isBlank(c.lastName) && isBlank(c.email) ? ['name'] : []),
   update_contact: (c) => (isBlank(c.contactId) ? ['contactId'] : []),
+  create_task: (c) => ['projectId', 'title'].filter((field) => isBlank(c[field])),
   send_notification: (c) => (isBlank(c.title) ? ['title'] : []),
   condition: (c) => {
     const missing: string[] = [];

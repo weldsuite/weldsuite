@@ -109,6 +109,14 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'name', label: 'Contact Name', type: 'string' },
       { path: 'email', label: 'Contact Email', type: 'string' },
     ],
+    create_task: [
+      { path: 'taskId', label: 'Task ID', type: 'string' },
+      { path: 'number', label: 'Task Number', type: 'number' },
+      { path: 'key', label: 'Task Key', type: 'string' },
+      { path: 'projectId', label: 'Project ID', type: 'string' },
+      { path: 'title', label: 'Task Title', type: 'string' },
+      { path: 'url', label: 'Task URL', type: 'string' },
+    ],
     create_customer: [
       { path: 'created', label: 'Created', type: 'boolean' },
       { path: 'customerId', label: 'Customer ID', type: 'string' },

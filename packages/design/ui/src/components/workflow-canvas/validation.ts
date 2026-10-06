@@ -76,6 +76,10 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     },
   ],
   update_contact: [{ labelKey: 'contactToUpdate', isMissing: (c) => isBlank(c.contactId) }],
+  create_task: [
+    { labelKey: 'taskProject', isMissing: (c) => isBlank(c.projectId) },
+    { labelKey: 'title', isMissing: (c) => isBlank(c.title) },
+  ],
   create_record: [
     { labelKey: 'entityType', isMissing: (c) => isBlank(c.entityType) && isBlank(c.entity) },
     { labelKey: 'fields', isMissing: (c) => isEmptyObject(c.data) },
