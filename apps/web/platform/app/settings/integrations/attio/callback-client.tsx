@@ -28,7 +28,7 @@ export default function AttioCallbackClient() {
 
     const redirectUri = `${window.location.origin}/settings/integrations/attio/callback`;
 
-    (async () => {
+    void (async () => {
       try {
         await callbackMutation.mutateAsync({ code, state, redirectUri });
         toast.success(ts.success);

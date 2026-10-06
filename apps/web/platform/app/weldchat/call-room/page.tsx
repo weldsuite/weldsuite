@@ -114,7 +114,7 @@ export default function CallRoomPage() {
 
     let m: RealtimeKitClient;
 
-    (async () => {
+    void (async () => {
       try {
         m = await RealtimeKitClient.init({
           authToken: token,

@@ -138,7 +138,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
     if (isPlaying) {
       audio.pause();
     } else {
-      audio.play();
+      void audio.play();
     }
   }, [isPlaying]);
 
@@ -271,7 +271,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
-                navigator.clipboard.writeText(attachment.url);
+                void navigator.clipboard.writeText(attachment.url);
               }}
             >
               <Link2 className="h-3.5 w-3.5 mr-0.5" />
@@ -280,9 +280,10 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
             <DropdownMenuItem
               onClick={() => {
                 if (navigator.share) {
-                  navigator.share({ title: t.weldchat.clipPlayer.voiceClip, url: attachment.url });
+                  // Rejects when the user dismisses the share sheet; nothing to do then.
+                  navigator.share({ title: t.weldchat.clipPlayer.voiceClip, url: attachment.url }).catch(() => {});
                 } else {
-                  navigator.clipboard.writeText(attachment.url);
+                  void navigator.clipboard.writeText(attachment.url);
                 }
               }}
             >
@@ -354,7 +355,7 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
     if (isPlaying) {
       video.pause();
     } else {
-      video.play();
+      void video.play();
     }
   }, [isPlaying]);
 
@@ -582,7 +583,7 @@ function VideoLightbox({ attachment, onClose }: Readonly<{ attachment: ChatClipA
     const video = videoRef.current;
     if (!video) return;
     if (isPlaying) video.pause();
-    else video.play();
+    else void video.play();
   }, [isPlaying]);
 
   const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
