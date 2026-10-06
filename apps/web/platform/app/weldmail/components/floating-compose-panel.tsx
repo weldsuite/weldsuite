@@ -23,6 +23,7 @@ import {
   CircleCheck,
   Trash2,
   ArrowUp,
+  UserPlus,
 } from 'lucide-react';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
 import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
@@ -54,6 +55,9 @@ import { useCallSafe } from '@/contexts/call-context';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { mailApi } from '../lib/api-client';
 import { useI18n } from '@/lib/i18n/provider';
+import { useTranslations } from '@weldsuite/i18n/client';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import type { Person } from '@/hooks/queries/use-people-queries';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
 import {
@@ -141,6 +145,7 @@ type UploadedMailAttachments = Awaited<ReturnType<typeof uploadMailAttachments>>
 
 export function FloatingComposePanel() {
   const { t } = useI18n();
+  const st = useTranslations();
   const handleAiCreditsError = useAiCreditsToast();
   const router = useRouter();
   const params = useParams();
@@ -189,6 +194,7 @@ export function FloatingComposePanel() {
   // Person autocomplete
   const [showContactSuggestions, setShowContactSuggestions] = useState(false);
   const [contactSearchQuery, setContactSearchQuery] = useState('');
+  const [createPersonQuery, setCreatePersonQuery] = useState<string | null>(null);
   const toInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
@@ -433,6 +439,22 @@ export function FloatingComposePanel() {
   }
 
   const { composeData, updateComposeData, closeCompose } = composeContext;
+
+  const openCreatePerson = () => {
+    const query = contactSearchQuery.trim();
+    if (!query) return;
+    setShowContactSuggestions(false);
+    setCreatePersonQuery(query);
+  };
+
+  const handlePersonCreated = (person: Person) => {
+    const email = person.email?.trim();
+    if (!email) {
+      toast.info(st('sweep.entities.personCreatedNeedsEmail'));
+      return;
+    }
+    handleSelectContact({ name: person.displayName || email, email });
+  };
 
   const handleSelectContact = (contact: { name: string; email: string }) => {
     // Replace the in-progress fragment (the text being searched) with the chosen
@@ -911,11 +933,16 @@ export function FloatingComposePanel() {
             </div>
 
             {/* Contact Suggestions Dropdown — shadcn popover/command styling */}
-            {showContactSuggestions && filteredContacts.length > 0 && (
+            {showContactSuggestions && (filteredContacts.length > 0 || contactSearchQuery.trim()) && (
               <div
                 ref={suggestionsRef}
                 className="absolute left-0 top-full mt-1 w-full max-w-md bg-popover text-popover-foreground border rounded-md shadow-md z-50 overflow-hidden p-1"
               >
+                {filteredContacts.length === 0 && (
+                  <div className="px-2 py-1.5 text-sm text-muted-foreground text-center">
+                    {t.mail.composePage.noPeopleFound}
+                  </div>
+                )}
                 {filteredContacts.map((contact) => (
                   <Button
                     variant="ghost"
@@ -943,6 +970,23 @@ export function FloatingComposePanel() {
                     </div>
                   </Button>
                 ))}
+                {contactSearchQuery.trim() && (
+                  <>
+                    <div className="-mx-1 my-1 h-px bg-border" />
+                    <Button
+                      variant="ghost"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={openCreatePerson}
+                      className="relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors text-left"
+                    >
+                      <UserPlus className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium">{t.mail.composePage.createNewPerson}</div>
+                        <div className="text-xs text-muted-foreground truncate">{contactSearchQuery.trim()}</div>
+                      </div>
+                    </Button>
+                  </>
+                )}
                 <div className="-mx-1 my-1 h-px bg-border" />
                 <Button
                   variant="ghost"
@@ -954,6 +998,15 @@ export function FloatingComposePanel() {
                 </Button>
               </div>
             )}
+
+            <QuickAddPersonDialog
+              open={createPersonQuery !== null}
+              onOpenChange={(open) => {
+                if (!open) setCreatePersonQuery(null);
+              }}
+              initialName={createPersonQuery ?? ''}
+              onCreated={handlePersonCreated}
+            />
 
             {showCcBcc && (
               <div className="space-y-2 mt-2">
