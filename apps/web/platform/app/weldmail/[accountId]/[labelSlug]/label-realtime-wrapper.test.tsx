@@ -44,10 +44,7 @@ describe('LabelRealtimeWrapper', () => {
         labelSlug="inbox"
         displayName="Inbox"
         error={null}
-        currentPage={1}
-        totalPages={1}
         totalCount={0}
-        pageSize={25}
       />,
     );
 
