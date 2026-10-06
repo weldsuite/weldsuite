@@ -27,52 +27,12 @@ import {
   useUpdateSeats,
 } from '@/hooks/queries/use-billing-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { formatPlanFeatures, resolvePlanKey } from './plan-features';
 import type { BillingInvoiceResponse } from '@/lib/api/domains/billing';
 
 type InvoiceInfo = BillingInvoiceResponse;
 
 type ViewMode = 'overview' | 'plans' | 'invoices' | 'invoice-detail';
-
-// Curated feature lists per plan
-const PLAN_FEATURES: Record<string, string[]> = {
-  free: [
-    'Up to 2 users',
-    '100 credits included',
-    '1,000 emails per month',
-    'All apps included',
-    'Unlimited contacts',
-    'Two-factor authentication',
-  ],
-  business: [
-    'Up to 25 users (3 user minimum)',
-    '250 GB storage per user',
-    'API access & webhooks',
-    'Custom email domains',
-    'Roles & permissions',
-    'Standard support',
-  ],
-  scale: [
-    'Unlimited users',
-    '1 TB storage per user',
-    'Priority support',
-    'Advanced roles & permissions',
-    '90-day automation history',
-    'Call & meeting intelligence',
-  ],
-  enterprise: [
-    'Custom seat limit',
-    'SSO / SAML',
-    '99.999% uptime SLA',
-    'Data residency',
-    'Dedicated support',
-    'Custom integrations',
-  ],
-};
-
-function formatPlanFeatures(plan: Billing.BillingPlan): string[] {
-  const key = plan.name.toLowerCase();
-  return PLAN_FEATURES[key] || [];
-}
 
 // Helper to format price from cents
 function formatPlanPrice(cents: number, currency: string = 'USD'): string {
@@ -565,6 +525,11 @@ const formatDate = (date: Date | string | null | undefined) => {
 const isContactPlan = (plan: Billing.BillingPlan) =>
   plan.requiresContact || plan.name.toLowerCase() === 'enterprise';
 
+// Free has no Stripe price and POST /billing/checkout rejects it, so it is only
+// ever shown as the current plan, never offered as a target. Downgrading goes
+// through the cancel-subscription flow.
+const isFreePlan = (plan: Billing.BillingPlan) => plan.slug === 'free';
+
 const isPlanCurrent = (currentApiPlan: Billing.BillingPlan | undefined, plan: Billing.BillingPlan) => {
   return currentApiPlan?.id === plan.id;
 };
@@ -647,8 +612,7 @@ function PlansHeaderBar({
 
       {/* Annual/Monthly toggle */}
       <div className="flex items-center gap-3 w-full md:w-auto">
-        <span className="text-sm font-medium">{isAnnual ? t('sweep.settings.billing.annual') : t('sweep.settings.billing.monthly')}</span>
-        {isAnnual && <span className="text-sm font-medium text-green-600 -ml-1.5">({t('sweep.settings.billing.save17')})</span>}
+        <span className={cn('text-sm font-medium', isAnnual && 'text-muted-foreground')}>{t('sweep.settings.billing.monthly')}</span>
         <Button
           variant="ghost"
           onClick={onToggleAnnual}
@@ -662,6 +626,10 @@ function PlansHeaderBar({
             }`}
           />
         </Button>
+        <span className={cn('text-sm font-medium', !isAnnual && 'text-muted-foreground')}>
+          {t('sweep.settings.billing.annual')}{' '}
+          <span className="text-green-600">({t('sweep.settings.billing.save17')})</span>
+        </span>
       </div>
     </div>
   );
@@ -762,7 +730,7 @@ function PlanCardCta({
           ? 'bg-foreground text-background hover:bg-foreground/90'
           : 'bg-card border hover:bg-muted'
       }`}
-      disabled={isCurrent || processing}
+      disabled={isCurrent || processing || isFreePlan(plan)}
       onClick={() => onSelect(plan)}
     >
       {processing && <Loader2 className="h-4 w-4 mr-2 animate-spin inline" />}
@@ -888,7 +856,7 @@ function ComparisonPlanColumn({
         <Button
           variant={plan.highlighted ? 'default' : 'outline'}
           className={`mt-4 w-full rounded-lg ${plan.highlighted ? 'bg-foreground hover:bg-foreground/90 text-background' : ''}`}
-          disabled={isCurrent || processing}
+          disabled={isCurrent || processing || isFreePlan(plan)}
           onClick={() => onSelect(plan)}
         >
           {isCurrent ? t('settings.billing.currentPlan') : buttonText}
@@ -918,8 +886,7 @@ function ComparisonSectionBlock({
         <div key={row.label} className="grid gap-0 py-4 border-b border-border/50" style={{ gridTemplateColumns: `1fr repeat(${plans.length}, 1fr)` }}>
           <div className={`flex items-center gap-2 text-sm ${row.indent ? 'text-muted-foreground pl-4' : 'font-medium'}`}>{row.label}</div>
           {plans.map((plan, index) => {
-            const key = plan.name.toLowerCase();
-            const val = row.values[key] ?? '';
+            const val = row.values[resolvePlanKey(plan, row.values)] ?? '';
             return (
               <div
                 key={plan.id}
@@ -1829,7 +1796,10 @@ export function BillingSettingsSection() {
       return;
     }
 
-    // Free plans — proceed directly without seat selection
+    // Free is never a checkout target (see isFreePlan)
+    if (isFreePlan(plan)) return;
+
+    // Other free plans — proceed directly without seat selection
     if (plan.monthlyPrice === 0) {
       handleConfirmCheckout(plan, 1);
       return;

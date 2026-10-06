@@ -137,8 +137,13 @@ export const workflowSettingsSchema = z.object({
   notifyOnError: z.boolean().optional(),
   notifyEmails: z.array(z.string()).optional(),
   timezone: z.string().optional(),
-  maxCreditsPerRun: z.number().optional(),
+  // Per-run credit cap. Nothing in a WeldConnect run spends credits yet, so this is
+  // stored but not enforced; validated so nonsense (0, negatives, fractions) is never saved.
+  maxCreditsPerRun: z.number().int().min(1).max(100_000).nullish(),
 });
+
+// Known keys are validated (a bad `maxCreditsPerRun` is a 400, not silently kept); unknown keys pass through.
+const workflowSettingsInputSchema = workflowSettingsSchema.passthrough();
 
 // ============================================================================
 // Workflow Schemas
@@ -151,7 +156,7 @@ export const createWorkflowSchema = z.object({
   // Loose at the wire for editor drafts; activate-time validation uses the tight schemas.
   triggers: z.array(z.union([triggerConfigSchema, z.record(z.unknown())])).optional(),
   steps: z.array(z.union([workflowStepSchema, z.record(z.unknown())])).optional(),
-  settings: z.union([workflowSettingsSchema, z.record(z.unknown())]).optional(),
+  settings: workflowSettingsInputSchema.optional(),
   tags: z.array(z.string()).optional(),
   folderId: z.string().nullish(),
 });
@@ -176,6 +181,10 @@ export const updateWorkflowStatusSchema = z.object({
 export const triggerWorkflowSchema = z.object({
   testData: z.record(z.unknown()).optional(),
   data: z.record(z.unknown()).optional(),
+  // Test runs only: the trigger type to simulate (default: the workflow's first enabled trigger).
+  triggerType: z
+    .enum(['manual', 'schedule', 'webhook', 'entity_event', 'integration_event', 'api', 'workflow_complete'])
+    .optional(),
 });
 
 // ============================================================================
@@ -210,7 +219,7 @@ export const createTemplateSchema = z.object({
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']).default('beginner'),
   triggers: z.array(z.union([triggerConfigSchema, z.record(z.unknown())])).optional(),
   steps: z.array(z.union([workflowStepSchema, z.record(z.unknown())])).optional(),
-  settings: z.union([workflowSettingsSchema, z.record(z.unknown())]).optional(),
+  settings: workflowSettingsInputSchema.optional(),
   tags: z.array(z.string()).optional(),
   icon: z.string().optional(),
   isPremium: z.boolean().optional(),

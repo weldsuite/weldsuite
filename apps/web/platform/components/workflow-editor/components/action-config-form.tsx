@@ -1,5 +1,5 @@
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useId } from 'react';
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { AiUnavailable } from '@/components/ai/ai-unavailable';
 import { Input } from '@weldsuite/ui/components/input';
@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from '@weldsuite/ui/components/tooltip';
 import { VariableInput } from './localized-variable-input';
+import { FormFieldIdProvider, useTriggerRecordFields } from '../lib/editor-field-context';
 import type { VariableGroup } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { EntityTypeSelect } from '@weldsuite/ui/components/workflow-canvas/parts/entity-type-select';
 import { FieldBuilder } from '@weldsuite/ui/components/workflow-canvas/parts/field-builder';
@@ -106,9 +107,12 @@ function FormField({
   required?: boolean;
   children: React.ReactNode;
 }) {
+  // Handed to the field's control through context (see localized-variable-input),
+  // so clicking the label focuses it and screen readers announce a named field.
+  const fieldId = useId();
   return (
     <div className="space-y-2">
-      <Label className="flex items-center gap-1">
+      <Label htmlFor={fieldId} className="flex items-center gap-1">
         {label}
         {required && <span className="text-red-500">*</span>}
         {description && (
@@ -126,7 +130,7 @@ function FormField({
           </TooltipProvider>
         )}
       </Label>
-      {children}
+      <FormFieldIdProvider value={fieldId}>{children}</FormFieldIdProvider>
     </div>
   );
 }
@@ -281,6 +285,17 @@ function SendEmailForm({
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
   const htmlBodyRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  // The shared placeholder greets `{{contact.firstName}}`, which only exists
+  // where the host adds contact variables (CRM sequences). Elsewhere, greet the
+  // trigger record's first name when it has one, or nobody.
+  const recordFields = useTriggerRecordFields();
+  const greeting = extraVariableGroups?.length
+    ? '{{contact.firstName}}'
+    : recordFields?.some((field) => field.path === 'firstName')
+      ? '{{trigger.record.firstName}}'
+      : '';
+  const bodyPlaceholder = (text: string) =>
+    greeting ? text.replace('{{contact.firstName}}', greeting) : text.replace(' {{contact.firstName}}', '');
 
   const wrapSelection = useCallback((tag: string, attr?: string) => {
     const el = htmlBodyRef.current;
@@ -373,7 +388,7 @@ function SendEmailForm({
               <VariableInput
                 value={(config.body as string | undefined) || ''}
                 onChange={(v) => onChange({ ...config, body: v, isHtml: true })}
-                placeholder={st('sweep.weldflow.actionConfig.emailHtmlBodyPlaceholder')}
+                placeholder={bodyPlaceholder(st('sweep.weldflow.actionConfig.emailHtmlBodyPlaceholder'))}
                 multiline
                 rows={6}
                 className="border-0 rounded-none focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -472,7 +487,7 @@ function SendEmailForm({
             <VariableInput
               value={(config.body as string | undefined) || ''}
               onChange={(v) => onChange({ ...config, body: v, isHtml: false })}
-              placeholder={st('sweep.weldflow.actionConfig.emailPlainBodyPlaceholder')}
+              placeholder={bodyPlaceholder(st('sweep.weldflow.actionConfig.emailPlainBodyPlaceholder'))}
               multiline
               rows={6}
               triggerType={triggerType}
@@ -821,6 +836,7 @@ function CreateCustomerForm({
       <VariableInput
         value={(config[key] as string | undefined) || ''}
         onChange={(v) => onChange({ ...config, [key]: v })}
+        placeholder={acf.customerPlaceholders[key]}
         {...variableProps}
       />
     </FormField>

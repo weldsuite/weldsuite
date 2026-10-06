@@ -2,10 +2,15 @@
  * Cloudflare RealtimeKit Webhook — service handlers.
  *
  * Ported from apps/api-worker/src/routes/webhooks/cloudflare-realtime.ts
- * (legacy worker phase-out, W3). Handles meeting.ended and
- * meeting.participantLeft events. Meeting/call end goes through the
- * app-api-owned lifecycle services (endMeetingSession / endChatCall), which
- * already publish their own realtime events.
+ * (legacy worker phase-out, W3). Handles meeting.ended,
+ * meeting.participantJoined and meeting.participantLeft events. Meeting/call
+ * end goes through the lifecycle services (endMeetingSessionIfEmpty /
+ * endChatCallIfEmpty), which already publish their own realtime events.
+ *
+ * Presence is tracked per CONNECTION (RealtimeKit peer), not per user: the
+ * payload identifies the peer that joined or left, and one participant can
+ * have several (a second tab, or the connection the SDK re-established after a
+ * network drop). A participant has left only when their last peer is gone.
  *
  * Also the post-meeting events of RealtimeKit's own recorder:
  * recording.statusUpdate (track parts, start the copy into the private bucket),
@@ -21,7 +26,7 @@
  * entity events (meeting_session:updated / chat_call:left).
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
@@ -36,8 +41,8 @@ import {
   upsertRecordingPart,
   type RecordingPart,
 } from '@weldsuite/meet-domain/recordings';
-import { endMeetingSession } from './weldmeet/meeting-lifecycle';
-import { endChatCall } from '@weldsuite/chat-domain/call-lifecycle';
+import { endMeetingSession, endMeetingSessionIfEmpty } from './weldmeet/meeting-lifecycle';
+import { endChatCall, endChatCallIfEmpty } from '@weldsuite/chat-domain/call-lifecycle';
 
 // ============================================================================
 // Types
@@ -185,6 +190,25 @@ interface LeftParticipantIds {
   customId: string | undefined;
   /** When RTK says the participant left (signed, part of the payload). */
   leftAt: string | undefined;
+  /** The connection that left. A participant gets a new one on every (re)connect. */
+  peerId?: string;
+  /** When that connection joined the room. */
+  peerJoinedAt?: string;
+}
+
+interface JoinedParticipantIds {
+  customId: string | undefined;
+  peerId: string | undefined;
+}
+
+/** What the presence helpers read from a stored participant (sessions and calls). */
+interface TrackedParticipant {
+  cfSessionId?: string;
+  userId?: string;
+  joinedAt?: string;
+  leftAt?: string;
+  lastJoinAt?: string;
+  peerIds?: string[];
 }
 
 // ============================================================================
@@ -211,30 +235,73 @@ export async function handleMeetingEnded(
       return;
     }
 
-    await endMeetingSession(db, env, mapping.orgId, mapping.sessionId, session, mapping.meetingId);
-    console.log(`[RTK Webhook] Ended session ${logSafe(mapping.sessionId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
-  } else if (mapping.type === 'call' && mapping.callId) {
-    const { chatCalls } = schema;
-    const [call] = await db
-      .select()
-      .from(chatCalls)
-      .where(eq(chatCalls.id, mapping.callId))
-      .limit(1);
-
-    if (!call || call.status === 'ended') {
-      console.log(`[RTK Webhook] Call ${mapping.callId} already ended or not found`);
+    // Ending kicks whoever is in the room, so confirm it is empty first: a late
+    // or replayed meeting.ended for an earlier RealtimeKit session of this room
+    // must not throw out the people who have joined it since.
+    const outcome = await endMeetingSessionIfEmpty(
+      db,
+      env,
+      mapping.orgId,
+      mapping.sessionId,
+      session,
+      mapping.meetingId,
+    );
+    if (outcome === 'occupied') {
+      console.log(
+        `[RTK Webhook] meeting.ended for ${logSafe(rtkMeetingId)} ignored: the room has live participants`,
+      );
       return;
     }
-
-    await endChatCall(db, env, mapping.orgId, mapping.callId, call, call.initiatorId);
-    console.log(`[RTK Webhook] Ended call ${logSafe(mapping.callId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
+    if (outcome === 'unknown') {
+      // RealtimeKit could not be asked, but it is RealtimeKit that reported the end.
+      await endMeetingSession(db, env, mapping.orgId, mapping.sessionId, session, mapping.meetingId);
+    }
+    console.log(`[RTK Webhook] Ended session ${logSafe(mapping.sessionId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
+  } else if (mapping.type === 'call' && mapping.callId) {
+    await handleCallMeetingEnded(env, db, mapping.orgId, mapping.callId, rtkMeetingId);
   }
+}
+
+/** meeting.ended for a WeldChat call. */
+async function handleCallMeetingEnded(
+  env: Env,
+  db: TenantDb,
+  orgId: string,
+  callId: string,
+  rtkMeetingId: string,
+): Promise<void> {
+  const { chatCalls } = schema;
+  const [call] = await db
+    .select()
+    .from(chatCalls)
+    .where(eq(chatCalls.id, callId))
+    .limit(1);
+
+  if (!call || call.status === 'ended') {
+    console.log(`[RTK Webhook] Call ${callId} already ended or not found`);
+    return;
+  }
+
+  // Same guard as for a session: a late or replayed meeting.ended must not
+  // throw out the people who are in the call's room now.
+  const outcome = await endChatCallIfEmpty(db, env, orgId, callId, call, call.initiatorId);
+  if (outcome === 'occupied') {
+    console.log(
+      `[RTK Webhook] meeting.ended for ${logSafe(rtkMeetingId)} ignored: the call has live participants`,
+    );
+    return;
+  }
+  if (outcome === 'unknown') {
+    // RealtimeKit could not be asked, but it is RealtimeKit that reported the end.
+    await endChatCall(db, env, orgId, callId, call, call.initiatorId);
+  }
+  console.log(`[RTK Webhook] Ended call ${logSafe(callId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
 }
 
 /** Match a stored participant against the RTK ids (cfSessionId first, then app-controlled id). */
 function matchesParticipant(
   p: { cfSessionId?: string; userId?: string },
-  { cfSessionId, customId }: LeftParticipantIds,
+  { cfSessionId, customId }: Pick<LeftParticipantIds, 'cfSessionId' | 'customId'>,
 ): boolean {
   return Boolean((cfSessionId && p.cfSessionId === cfSessionId) || (customId && p.userId === customId));
 }
@@ -243,17 +310,164 @@ function matchesParticipant(
  * Index of the still-present participant this leave applies to, or -1.
  * A leave stamped before that participant (re)joined belongs to an earlier
  * stint — a late retry or a replayed delivery — and must not evict them.
+ * Neither must the leave of a connection that started before their latest
+ * join: that is the old connection (a dropped network, a reloaded tab) of
+ * someone who is back in the room on a new one. RealtimeKit often notices a
+ * dead connection only after the rejoin, so its leave time proves nothing.
  */
 export function findLeavingParticipant(
-  participants: Array<{ cfSessionId?: string; userId?: string; joinedAt?: string; leftAt?: string }>,
+  participants: ReadonlyArray<TrackedParticipant>,
   ids: LeftParticipantIds,
 ): number {
   const idx = participants.findIndex((p) => !p.leftAt && matchesParticipant(p, ids));
-  if (idx < 0) return -1;
+  const entry = participants[idx];
+  if (!entry) return -1;
   const leftAt = ids.leftAt ? Date.parse(ids.leftAt) : Number.NaN;
-  const joinedAt = participants[idx].joinedAt ? Date.parse(participants[idx].joinedAt) : Number.NaN;
+  const joinedAt = entry.joinedAt ? Date.parse(entry.joinedAt) : Number.NaN;
   if (!Number.isNaN(leftAt) && !Number.isNaN(joinedAt) && leftAt < joinedAt) return -1;
+  const peerJoinedAt = ids.peerJoinedAt ? Date.parse(ids.peerJoinedAt) : Number.NaN;
+  const lastJoinAt = entry.lastJoinAt ? Date.parse(entry.lastJoinAt) : Number.NaN;
+  if (!Number.isNaN(peerJoinedAt) && !Number.isNaN(lastJoinAt) && peerJoinedAt < lastJoinAt) return -1;
   return idx;
+}
+
+function withPeerIds<P extends TrackedParticipant>(participant: P, peerIds: string[]): P {
+  const next = { ...participant };
+  if (peerIds.length > 0) next.peerIds = peerIds;
+  else delete next.peerIds;
+  return next;
+}
+
+/**
+ * Apply a `meeting.participantLeft` to a participant list. The connection is
+ * forgotten wherever it is tracked; the participant is marked as left only
+ * when it was their last known one (and the leave is theirs, see
+ * {@link findLeavingParticipant}).
+ */
+export function applyParticipantLeft<P extends TrackedParticipant>(
+  participants: ReadonlyArray<P>,
+  ids: LeftParticipantIds,
+  leftAtIso: string,
+): { participants: P[]; changed: boolean; markedLeft: boolean } {
+  const next = [...participants];
+  let changed = false;
+
+  const { peerId } = ids;
+  if (peerId) {
+    next.forEach((p, i) => {
+      if (!p.peerIds?.includes(peerId) || !matchesParticipant(p, ids)) return;
+      next[i] = withPeerIds(p, p.peerIds.filter((id) => id !== peerId));
+      changed = true;
+    });
+  }
+
+  const idx = findLeavingParticipant(next, ids);
+  const entry = next[idx];
+  // Another connection of the same participant is still in the room.
+  if (!entry || (entry.peerIds?.length ?? 0) > 0) return { participants: next, changed, markedLeft: false };
+
+  next[idx] = { ...entry, leftAt: leftAtIso };
+  return { participants: next, changed: true, markedLeft: true };
+}
+
+/**
+ * Apply a `meeting.participantJoined` to a participant list: remember the
+ * connection and, when the participant was recorded as left, bring them back.
+ * That is what a reconnect looks like from here: the SDK re-enters the room on
+ * a new connection without our join route ever being called.
+ */
+export function applyParticipantJoined<P extends TrackedParticipant>(
+  participants: ReadonlyArray<P>,
+  ids: JoinedParticipantIds,
+): { participants: P[]; changed: boolean; restored: boolean } {
+  const next = [...participants];
+  const idx = next.findIndex((p) => !!ids.customId && p.userId === ids.customId);
+  const entry = next[idx];
+  if (!entry) return { participants: next, changed: false, restored: false };
+
+  const known = entry.peerIds ?? [];
+  const tracked = !ids.peerId || known.includes(ids.peerId);
+  const restored = !!entry.leftAt;
+  if (tracked && !restored) return { participants: next, changed: false, restored: false };
+
+  const updated = withPeerIds(entry, tracked || !ids.peerId ? known : [...known, ids.peerId]);
+  delete updated.leftAt;
+  next[idx] = updated;
+  return { participants: next, changed: true, restored };
+}
+
+/** How often a participant-list write is retried when another writer got in between. */
+const PARTICIPANT_WRITE_ATTEMPTS = 3;
+
+type SessionRow = typeof schema.meetingSessions.$inferSelect;
+
+/**
+ * Read, change and write back a live session's participant list without
+ * losing a concurrent change: the write only lands when the list is still the
+ * one that was read, and is retried on a fresh read otherwise. A reconnect
+ * delivers a leave (old connection) and a join (new one) at almost the same
+ * moment; a plain read-then-write would let one overwrite the other.
+ * Returns null when there was nothing to change or the session has ended.
+ */
+async function updateSessionParticipants<
+  R extends { participants: MeetingSessionParticipant[]; changed: boolean },
+>(
+  db: TenantDb,
+  sessionId: string,
+  change: (participants: MeetingSessionParticipant[]) => R,
+): Promise<{ session: SessionRow; result: R } | null> {
+  const { meetingSessions } = schema;
+  for (let attempt = 0; attempt < PARTICIPANT_WRITE_ATTEMPTS; attempt += 1) {
+    const [session] = await db
+      .select()
+      .from(meetingSessions)
+      .where(eq(meetingSessions.id, sessionId))
+      .limit(1);
+    if (!session || session.status === 'ended') return null;
+
+    const current: MeetingSessionParticipant[] = session.participants ?? [];
+    const result = change(current);
+    if (!result.changed) return null;
+
+    const written = await db
+      .update(meetingSessions)
+      .set({ participants: result.participants, updatedAt: new Date() })
+      .where(
+        and(
+          eq(meetingSessions.id, sessionId),
+          ne(meetingSessions.status, 'ended'),
+          sql`${meetingSessions.participants} = ${JSON.stringify(current)}::jsonb`,
+        ),
+      )
+      .returning({ id: meetingSessions.id });
+    if (written.length > 0) return { session, result };
+  }
+  console.warn(`[RTK Webhook] Participant update for session ${logSafe(sessionId)} kept losing the race, skipped`);
+  return null;
+}
+
+async function publishSessionParticipantsChanged(
+  env: Env,
+  db: TenantDb,
+  orgId: string,
+  session: SessionRow,
+  participants: MeetingSessionParticipant[],
+): Promise<void> {
+  try {
+    await publishEntityEventRaw({
+      env,
+      db,
+      workspaceId: orgId,
+      userId: 'system',
+      entityType: 'meeting_session',
+      action: 'updated',
+      entityId: session.id,
+      data: { ...session, participants },
+      source: 'system',
+    });
+  } catch (err) {
+    console.error('[RTK Webhook] Entity event publish failed:', err);
+  }
 }
 
 async function handleSessionParticipantLeft(
@@ -263,43 +477,55 @@ async function handleSessionParticipantLeft(
   sessionId: string,
   ids: LeftParticipantIds,
 ): Promise<void> {
-  const { meetingSessions } = schema;
-  const [session] = await db
-    .select()
-    .from(meetingSessions)
-    .where(eq(meetingSessions.id, sessionId))
-    .limit(1);
+  const written = await updateSessionParticipants(db, sessionId, (participants) =>
+    applyParticipantLeft(participants, ids, new Date().toISOString()),
+  );
+  if (!written?.result.markedLeft) return;
 
-  if (!session || session.status === 'ended') return;
-
-  const participants: MeetingSessionParticipant[] = [...(session.participants ?? [])];
-  const idx = findLeavingParticipant(participants, ids);
-  if (idx < 0) return;
-
-  participants[idx] = { ...participants[idx], leftAt: new Date().toISOString() };
-  await db.update(meetingSessions).set({
-    participants,
-    updatedAt: new Date(),
-  }).where(eq(meetingSessions.id, sessionId));
   console.log(
     `[RTK Webhook] Marked participant ${logSafe(ids.cfSessionId ?? ids.customId)} as left in session ${logSafe(sessionId)}`,
   );
+  await publishSessionParticipantsChanged(env, db, orgId, written.session, written.result.participants);
+}
 
-  try {
-    await publishEntityEventRaw({
-      env,
-      db,
-      workspaceId: orgId,
-      userId: 'system',
-      entityType: 'meeting_session',
-      action: 'updated',
-      entityId: sessionId,
-      data: { ...session, participants },
-      source: 'system',
-    });
-  } catch (err) {
-    console.error('[RTK Webhook] Entity event publish failed:', err);
-  }
+async function handleSessionParticipantJoined(
+  env: Env,
+  db: TenantDb,
+  orgId: string,
+  sessionId: string,
+  ids: JoinedParticipantIds,
+): Promise<void> {
+  const written = await updateSessionParticipants(db, sessionId, (participants) =>
+    applyParticipantJoined(participants, ids),
+  );
+  if (!written?.result.restored) return;
+
+  console.log(
+    `[RTK Webhook] Participant ${logSafe(ids.customId)} is back in session ${logSafe(sessionId)}`,
+  );
+  await publishSessionParticipantsChanged(env, db, orgId, written.session, written.result.participants);
+}
+
+/**
+ * {@link findLeavingParticipant} for a WeldChat call. Every join of a call
+ * writes a fresh entry, so its `joinedAt` is the participant's latest join: a
+ * connection that started before it is the one they had before rejoining (a
+ * reloaded tab, or the session evicted when they joined again) and its leave
+ * must not mark them as left.
+ *
+ * Calls keep no per-connection state beyond this. A participant the SDK
+ * reconnected on its own can still be recorded as left while present; that
+ * only makes the list wrong, because nothing ends a call from the list alone
+ * (see endChatCallIfEmpty).
+ */
+export function findLeavingCallParticipant(
+  participants: ReadonlyArray<ChatCallParticipant>,
+  ids: LeftParticipantIds,
+): number {
+  return findLeavingParticipant(
+    participants.map((p) => ({ ...p, lastJoinAt: p.joinedAt })),
+    ids,
+  );
 }
 
 async function handleCallParticipantLeft(
@@ -319,7 +545,7 @@ async function handleCallParticipantLeft(
   if (!call || call.status === 'ended') return;
 
   const participants: ChatCallParticipant[] = [...(call.participants ?? [])];
-  const idx = findLeavingParticipant(participants, ids);
+  const idx = findLeavingCallParticipant(participants, ids);
   if (idx < 0) return;
 
   participants[idx] = { ...participants[idx], leftAt: new Date().toISOString() };
@@ -563,6 +789,8 @@ export async function handleParticipantLeft(
     cfSessionId: event.participant?.id,
     customId: event.participant?.customParticipantId,
     leftAt: event.participant?.leftAt,
+    peerId: event.participant?.peerId,
+    peerJoinedAt: event.participant?.joinedAt,
   };
 
   if (!ids.cfSessionId && !ids.customId) {
@@ -575,4 +803,24 @@ export async function handleParticipantLeft(
   } else if (mapping.type === 'call' && mapping.callId) {
     await handleCallParticipantLeft(env, db, mapping.orgId, mapping.callId, ids);
   }
+}
+
+/**
+ * meeting.participantJoined: track the connection on the session's participant
+ * list. WeldChat calls keep no per-connection state, so this is sessions only.
+ */
+export async function handleParticipantJoined(
+  env: Env,
+  mapping: RtkMeetingMapping,
+  event: RtkWebhookEvent,
+): Promise<void> {
+  if (mapping.type !== 'session' || !mapping.sessionId) return;
+  const ids: JoinedParticipantIds = {
+    customId: event.participant?.customParticipantId,
+    peerId: event.participant?.peerId,
+  };
+  if (!ids.customId) return;
+
+  const db = await getTenantDbForWorkspace(env, mapping.orgId);
+  await handleSessionParticipantJoined(env, db, mapping.orgId, mapping.sessionId, ids);
 }

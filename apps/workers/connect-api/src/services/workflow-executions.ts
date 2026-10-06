@@ -3,10 +3,27 @@
  * cancel, retry. Pure business logic; routes wire HTTP / permissions.
  */
 
-import { and, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, lte, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { SEQUENCE_WORKFLOW_TAG } from './weldconnect-mvp';
 
 const { workflowExecutions, workflowExecutionSteps, workflows } = schema;
+
+/**
+ * Runs of CRM sequences (workflows tagged `__type:sequence`) share the
+ * `workflow_executions` table but are not WeldConnect runs: they have their own
+ * enrollment screens, and the workflows list already hides the workflows
+ * themselves. WeldConnect lists, trends and stats leave them out.
+ */
+export const notSequenceRun: SQL = sql`not exists (
+  select 1 from ${workflows}
+  where ${workflows.id} = ${workflowExecutions.workflowId}
+    and coalesce(${workflows.tags}, '[]'::jsonb) ? ${SEQUENCE_WORKFLOW_TAG}
+)`;
+
+/** Runs started from the editor's Test button stay out of analytics (they still show in the runs list). */
+export const notTestRun: SQL = sql`coalesce(${workflowExecutions.executionContext}->>'isTest', 'false') <> 'true'`;
 
 export interface ListExecutionsParams {
   workflowId?: string;
@@ -32,8 +49,13 @@ export async function listExecutions(
   const limit = Math.min(params.limit ?? 25, 100);
 
   const filterConditions: any[] = [];
+  // An explicit workflowId is the one way to read a sequence's runs.
   if (params.workflowId) filterConditions.push(eq(workflowExecutions.workflowId, params.workflowId));
-  if (params.status) filterConditions.push(eq(workflowExecutions.status, params.status));
+  else filterConditions.push(notSequenceRun);
+  // Comma-separated list (`running,queued`); unknown values simply match nothing.
+  const statuses = (params.status ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (statuses.length === 1) filterConditions.push(eq(workflowExecutions.status, statuses[0]));
+  else if (statuses.length > 1) filterConditions.push(inArray(workflowExecutions.status, statuses));
   if (params.triggerType) filterConditions.push(eq(workflowExecutions.triggerType, params.triggerType));
   if (params.startDate) filterConditions.push(gte(workflowExecutions.startedAt, new Date(params.startDate)));
   if (params.endDate) filterConditions.push(lte(workflowExecutions.startedAt, new Date(params.endDate)));
@@ -96,30 +118,39 @@ export async function getRecentExecutions(db: Database, limit = 10) {
   return db
     .select()
     .from(workflowExecutions)
+    .where(notSequenceRun)
     .orderBy(desc(workflowExecutions.startedAt))
     .limit(Math.min(limit, 100));
 }
 
-function getStartDate(period: string): Date {
-  const now = new Date();
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function getStartDate(period: string, now: Date = new Date()): Date {
   switch (period) {
-    case 'day': return new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    case 'month': return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    case 'day': return new Date(now.getTime() - DAY_MS);
+    case 'month': return new Date(now.getTime() - 30 * DAY_MS);
+    case 'year': return new Date(now.getTime() - 365 * DAY_MS);
     case 'week':
-    default: return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    default: return new Date(now.getTime() - 7 * DAY_MS);
   }
+}
+
+/** Trend bucket key: the UTC day, or for `year` the first of the UTC month (`YYYY-MM-01`). */
+export function trendBucket(period: string, at: Date): string {
+  const day = at.toISOString().split('T')[0];
+  return period === 'year' ? `${day.slice(0, 7)}-01` : day;
 }
 
 export async function getExecutionTrends(db: Database, period = 'week') {
   const rows = await db
     .select({ status: workflowExecutions.status, startedAt: workflowExecutions.startedAt })
     .from(workflowExecutions)
-    .where(gte(workflowExecutions.startedAt, getStartDate(period)));
+    .where(and(gte(workflowExecutions.startedAt, getStartDate(period)), notSequenceRun, notTestRun));
 
   const trends: Record<string, { total: number; success: number; failure: number }> = {};
   for (const exec of rows) {
     if (!exec.startedAt) continue;
-    const date = exec.startedAt.toISOString().split('T')[0];
+    const date = trendBucket(period, exec.startedAt);
     if (!trends[date]) trends[date] = { total: 0, success: 0, failure: 0 };
     trends[date].total++;
     if (exec.status === 'completed') trends[date].success++;
@@ -134,7 +165,14 @@ export async function getSlowExecutions(db: Database, limit = 10) {
   return db
     .select()
     .from(workflowExecutions)
-    .where(and(eq(workflowExecutions.status, 'completed'), sql`${workflowExecutions.duration} IS NOT NULL`))
+    .where(
+      and(
+        eq(workflowExecutions.status, 'completed'),
+        sql`${workflowExecutions.duration} IS NOT NULL`,
+        notSequenceRun,
+        notTestRun,
+      ),
+    )
     .orderBy(desc(workflowExecutions.duration))
     .limit(Math.min(limit, 50));
 }
@@ -170,10 +208,105 @@ export async function cancelExecution(
   return { id, status: 'cancelled' as const };
 }
 
+type WorkflowRow = typeof workflows.$inferSelect;
+
+export interface StartRunInput {
+  workspaceId: string;
+  /** Who is starting the run (stored as `triggeredBy`). */
+  userId: string;
+  workflow: WorkflowRow;
+  triggerType: string;
+  triggerId?: string | null;
+  triggerData: Record<string, unknown>;
+  isTest?: boolean;
+  /** Retry lineage: the failed run this one repeats. */
+  parent?: { id: string; retryCount: number };
+}
+
 /**
- * Retry a failed execution by spawning a new CF Workflow instance with the
- * same trigger payload. Returns null if not found, 'not_failed' if status
- * isn't 'failed', 'workflow_missing' if the parent workflow was deleted.
+ * Start a run with a real execution id up front. The `workflow_executions` row
+ * is inserted here as `queued` (with a pre-generated `wex_` id), then the
+ * Cloudflare Workflow is started with that id in its params and upgrades the
+ * row when it begins, so callers can navigate to the run straight away. (The
+ * Cloudflare instance id is a different thing and not a valid execution id.)
+ * When the workflow cannot be started the row is marked failed rather than
+ * left queued.
+ */
+export async function startRun(
+  db: Database,
+  executeWorkflow: Workflow,
+  input: StartRunInput,
+): Promise<{ executionId: string; instanceId: string }> {
+  const executionId = generateId('wex');
+  const now = new Date();
+  const steps = Array.isArray(input.workflow.steps) ? input.workflow.steps.length : 0;
+
+  await db.insert(workflowExecutions).values({
+    id: executionId,
+    workflowId: input.workflow.id,
+    workflowVersion: input.workflow.version,
+    workflowName: input.workflow.name,
+    status: 'queued',
+    triggeredBy: input.userId,
+    triggerType: input.triggerType,
+    triggerId: input.triggerId ?? null,
+    triggerData: input.triggerData,
+    // Set now so the list orders the new run correctly while it waits; the
+    // worker restarts the clock when it picks the run up.
+    startedAt: now,
+    totalSteps: steps,
+    currentStepIndex: 0,
+    parentExecutionId: input.parent?.id ?? null,
+    retryCount: input.parent ? input.parent.retryCount + 1 : 0,
+    executionContext: input.isTest ? { isTest: true } : null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  try {
+    const instance = await executeWorkflow.create({
+      params: {
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        workflowId: input.workflow.id,
+        triggerId: input.triggerId ?? undefined,
+        triggerType: input.triggerType,
+        triggerData: input.triggerData,
+        source: 'weldconnect',
+        // Lets the worker run a draft/paused workflow that is being tested.
+        ...(input.isTest ? { isTest: true } : {}),
+        executionId,
+      },
+    });
+    // So Cancel can abort the instance even before the worker has picked it up.
+    await db
+      .update(workflowExecutions)
+      .set({ cfWorkflowInstanceId: instance.id })
+      .where(eq(workflowExecutions.id, executionId))
+      .catch((linkErr) => console.warn('[workflow-executions] could not link the workflow instance:', linkErr));
+    return { executionId, instanceId: instance.id };
+  } catch (err) {
+    const failedAt = new Date();
+    await db
+      .update(workflowExecutions)
+      .set({
+        status: 'failed',
+        completedAt: failedAt,
+        error: { message: `Could not start the run: ${err instanceof Error ? err.message : String(err)}` },
+        updatedAt: failedAt,
+      })
+      .where(eq(workflowExecutions.id, executionId))
+      .catch((updateErr) => console.error('[workflow-executions] could not mark the unstarted run failed:', updateErr));
+    throw err;
+  }
+}
+
+/**
+ * Retry a failed execution as a NEW execution row (`parentExecutionId` = the
+ * original, `retryCount` + 1) with the same trigger payload. Returns null if
+ * not found, 'not_failed' if status isn't 'failed', 'workflow_missing' if the
+ * parent workflow was deleted, 'workflow_inactive' if it is no longer active
+ * (the worker would skip the run silently; test runs are exempt).
  */
 export async function retryExecution(
   db: Database,
@@ -182,29 +315,105 @@ export async function retryExecution(
   userId: string,
   executeWorkflow: Workflow,
 ): Promise<
-  | { kind: 'ok'; id: string; instanceId: string; retryOf: string }
+  | { kind: 'ok'; id: string; executionId: string; instanceId: string; retryOf: string }
   | { kind: 'not_found' }
   | { kind: 'not_failed' }
   | { kind: 'workflow_missing'; workflowId: string }
+  | { kind: 'workflow_inactive'; workflowId: string; status: string }
 > {
   const [original] = await db.select().from(workflowExecutions).where(eq(workflowExecutions.id, id)).limit(1);
   if (!original) return { kind: 'not_found' };
   if (original.status !== 'failed') return { kind: 'not_failed' };
 
-  const [workflow] = await db.select().from(workflows).where(eq(workflows.id, original.workflowId)).limit(1);
+  const [workflow] = await db
+    .select()
+    .from(workflows)
+    .where(and(eq(workflows.id, original.workflowId), isNull(workflows.deletedAt)))
+    .limit(1);
   if (!workflow) return { kind: 'workflow_missing', workflowId: original.workflowId };
 
-  const source = original.workflowId.startsWith('hwf_') ? 'helpdesk' : 'task';
-  const instance = await executeWorkflow.create({
-    params: {
-      workspaceId,
-      userId,
-      workflowId: original.workflowId,
-      triggerType: (original.triggerType ?? 'manual') as any,
-      triggerData: (original.triggerData ?? {}) as Record<string, unknown>,
-      source,
-    },
+  const isTest = original.executionContext?.isTest === true;
+  if (workflow.status !== 'active' && !isTest) {
+    return { kind: 'workflow_inactive', workflowId: workflow.id, status: workflow.status };
+  }
+
+  const { executionId, instanceId } = await startRun(db, executeWorkflow, {
+    workspaceId,
+    userId,
+    workflow,
+    triggerType: original.triggerType ?? 'manual',
+    triggerId: original.triggerId,
+    triggerData: (original.triggerData ?? {}) as Record<string, unknown>,
+    isTest,
+    parent: { id: original.id, retryCount: original.retryCount ?? 0 },
   });
 
-  return { kind: 'ok', id: instance.id, instanceId: instance.id, retryOf: id };
+  return { kind: 'ok', id: executionId, executionId, instanceId, retryOf: id };
+}
+
+/** Engine trigger types a Test run may simulate. */
+const TEST_TRIGGER_TYPES = new Set([
+  'manual',
+  'schedule',
+  'webhook',
+  'entity_event',
+  'integration_event',
+  'api',
+  'workflow_complete',
+]);
+
+type TriggerLike = { type?: string; isEnabled?: boolean; timezone?: string; config?: { timezone?: string } };
+
+/**
+ * The trigger type a Test run simulates: the requested one, else the type of
+ * the workflow's first enabled trigger, else `manual`. Sending the right type
+ * is what makes the engine build `{{trigger.record.*}}` for an entity-event
+ * workflow.
+ */
+export function resolveTestTriggerType(workflow: Pick<WorkflowRow, 'triggers'>, requested?: string): string {
+  if (requested && TEST_TRIGGER_TYPES.has(requested)) return requested;
+  const triggers = Array.isArray(workflow.triggers) ? (workflow.triggers as TriggerLike[]) : [];
+  const first = triggers.find((t) => t?.type && t.isEnabled !== false);
+  return first?.type && TEST_TRIGGER_TYPES.has(first.type) ? first.type : 'manual';
+}
+
+/** Timezone of the workflow's first enabled schedule trigger, if it has one. */
+export function scheduleTimezone(workflow: Pick<WorkflowRow, 'triggers'>): string | undefined {
+  const triggers = Array.isArray(workflow.triggers) ? (workflow.triggers as TriggerLike[]) : [];
+  const schedule = triggers.find((t) => t?.type === 'schedule' && t.isEnabled !== false);
+  return schedule?.timezone ?? schedule?.config?.timezone;
+}
+
+/** Start a Test run of a workflow (any status): same row pattern as a retry, flagged `isTest`. */
+export async function startTestRun(
+  db: Database,
+  executeWorkflow: Workflow,
+  input: { workspaceId: string; userId: string; workflowId: string; testData?: Record<string, unknown>; triggerType?: string },
+): Promise<
+  | { kind: 'ok'; executionId: string; instanceId: string; triggerType: string }
+  | { kind: 'workflow_missing' }
+> {
+  const [workflow] = await db
+    .select()
+    .from(workflows)
+    .where(and(eq(workflows.id, input.workflowId), isNull(workflows.deletedAt)))
+    .limit(1);
+  if (!workflow) return { kind: 'workflow_missing' };
+
+  const triggerType = resolveTestTriggerType(workflow, input.triggerType);
+  const triggerData: Record<string, unknown> = { ...(input.testData ?? {}) };
+  if (triggerType === 'schedule' && triggerData.timezone === undefined) {
+    const timezone = scheduleTimezone(workflow);
+    if (timezone) triggerData.timezone = timezone;
+  }
+
+  const { executionId, instanceId } = await startRun(db, executeWorkflow, {
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    workflow,
+    triggerType,
+    triggerData,
+    isTest: true,
+  });
+  return { kind: 'ok', executionId, instanceId, triggerType };
 }

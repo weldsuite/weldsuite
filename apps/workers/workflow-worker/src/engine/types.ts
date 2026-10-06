@@ -183,7 +183,13 @@ export function getDelayMs(result: unknown): number | null {
  * fake that runs work immediately and records sleeps/waits.
  */
 export interface StepRuntime {
-  do<T>(name: string, fn: () => Promise<T>): Promise<T>;
+  /**
+   * `opts.engineRetries`: the engine owns retries for this step (action
+   * attempts), so the durable runtime must run it exactly once, without its own
+   * implicit retry/backoff. Omitted for infrastructure steps, which keep the
+   * runtime's default retries.
+   */
+  do<T>(name: string, fn: () => Promise<T>, opts?: { engineRetries?: boolean }): Promise<T>;
   sleep(name: string, ms: number): Promise<void>;
   waitForEvent<T = unknown>(name: string, opts: { type: string; timeoutMs?: number }): Promise<T>;
 }
@@ -194,6 +200,10 @@ export interface StepOutcome {
   status: StepStatus;
   result?: unknown;
   error?: string;
+  /** Raw provider payload behind `error` (e.g. the mail service's response), if any. */
+  errorDetails?: unknown;
+  /** A failed step the workflow carried on past (continueOnError): the run did not halt on it. */
+  continued?: boolean;
   /** How many attempts the step took (1 = succeeded first try). */
   attempts?: number;
 }

@@ -12,8 +12,13 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { clearWorkflowTriggerIndex, syncWorkflowTriggerIndex } from './workflow-trigger-index';
 import { syncWorkflowSchedules } from './workflow-schedule-sync';
 import type { ScheduleIndexSync } from '../lib/schedule-index';
+import { SEQUENCE_WORKFLOW_TAG } from './weldconnect-mvp';
+import { notSequenceRun, notTestRun } from './workflow-executions';
 
 const { workflows, workflowExecutions } = schema;
+
+/** Excludes CRM sequences (workflows tagged `__type:sequence`) — they are not WeldConnect workflows. */
+export const notSequenceWorkflow = sql`not (coalesce(${workflows.tags}, '[]'::jsonb) ? ${SEQUENCE_WORKFLOW_TAG})`;
 
 export interface ListWorkflowsParams {
   search?: string;
@@ -285,9 +290,17 @@ export async function deleteWorkflow(db: Database, id: string, scheduleSync?: Sc
 }
 
 export async function getWorkflowStats(db: Database) {
+  // CRM sequences share both tables but are not WeldConnect workflows or runs,
+  // and Test runs are not real activity; neither is counted.
   const [allWorkflows, allExecutions] = await Promise.all([
-    db.select({ status: workflows.status }).from(workflows).where(isNull(workflows.deletedAt)),
-    db.select({ status: workflowExecutions.status }).from(workflowExecutions),
+    db
+      .select({ status: workflows.status })
+      .from(workflows)
+      .where(and(isNull(workflows.deletedAt), notSequenceWorkflow)),
+    db
+      .select({ status: workflowExecutions.status })
+      .from(workflowExecutions)
+      .where(and(notSequenceRun, notTestRun)),
   ]);
 
   const wf = { total: 0, active: 0, draft: 0, paused: 0, archived: 0 };

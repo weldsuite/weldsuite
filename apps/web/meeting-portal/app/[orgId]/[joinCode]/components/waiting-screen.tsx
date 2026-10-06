@@ -38,3 +38,18 @@ export function LoadingScreen() {
     </div>
   );
 }
+
+/** Banner over the meeting room while the connection is being restored. */
+export function ReconnectingNotice() {
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+      <div
+        role="status"
+        className="flex items-center gap-2 rounded-lg border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg"
+      >
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <span>Connection lost. Reconnecting...</span>
+      </div>
+    </div>
+  );
+}

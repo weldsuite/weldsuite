@@ -54,6 +54,50 @@ describe('buildTriggerData', () => {
     expect(out.scheduleId).toBe('sched_1');
   });
 
+  it('uses the due slot, not the start instant, for scheduledTime and formats the local time', () => {
+    const late = { ...meta, startedAt: new Date('2026-10-05T20:44:20.878Z') };
+    const out = buildTriggerData(
+      'schedule',
+      { scheduleId: 's', scheduledTime: '2026-10-05T20:44:00.000Z', timezone: 'Europe/Amsterdam' },
+      late,
+    );
+    expect(out.scheduledTime).toBe('2026-10-05T20:44:00.000Z');
+    expect(out.scheduledTimeLocal).toBe('2026-10-05 22:44');
+  });
+
+  it('floors to the minute when the sweep sent no slot, and defaults the zone to UTC', () => {
+    const late = { ...meta, startedAt: new Date('2026-10-05T20:44:20.878Z') };
+    const out = buildTriggerData('schedule', { scheduleId: 's' }, late);
+    expect(out.scheduledTime).toBe('2026-10-05T20:44:00.000Z');
+    expect(out.scheduledTimeLocal).toBe('2026-10-05 20:44');
+  });
+
+  it('floors a raw slot that is not minute-aligned in the alias and keeps the raw key winning', () => {
+    const out = buildTriggerData(
+      'schedule',
+      { scheduledTime: '2026-10-05T20:44:30.500Z', timezone: 'America/New_York' },
+      meta,
+    );
+    // raw payload key wins over the alias (as for every other trigger type)
+    expect(out.scheduledTime).toBe('2026-10-05T20:44:30.500Z');
+    expect(out.scheduledTimeLocal).toBe('2026-10-05 16:44');
+  });
+
+  it('falls back to UTC for an unknown timezone and rolls the date over at midnight', () => {
+    const out = buildTriggerData(
+      'schedule',
+      { scheduledTime: '2026-12-31T23:30:00.000Z', timezone: 'Mars/Olympus' },
+      meta,
+    );
+    expect(out.scheduledTimeLocal).toBe('2026-12-31 23:30');
+    const tokyo = buildTriggerData(
+      'schedule',
+      { scheduledTime: '2026-12-31T23:30:00.000Z', timezone: 'Asia/Tokyo' },
+      meta,
+    );
+    expect(tokyo.scheduledTimeLocal).toBe('2027-01-01 08:30');
+  });
+
   it('wraps a non-object payload under data', () => {
     const out = buildTriggerData('manual', 'hello', meta);
     expect(out.data).toBe('hello');

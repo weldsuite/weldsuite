@@ -26,7 +26,8 @@ import { provisionWorkspaceDatabase } from '../services/provisioning';
 import { provisionMailDomain } from '../services/mail-provisioning';
 import { workspaces, plans } from '@weldsuite/db/schema/master';
 import { m2mAuth } from '../middleware/m2m-auth';
-import { syncClerkSeatLimit } from '../lib/clerk';
+import { syncClerkSeatLimit, isClerkSlugError } from '../lib/clerk';
+import { slugifyWorkspaceName, withRandomSuffix } from '../lib/slug';
 
 export const onboardSchema = z.object({
   clerkUserId: z.string().min(1),
@@ -105,6 +106,84 @@ async function resolveUniqueSlug(
 }
 
 /**
+ * Slug for a Clerk org that doesn't exist yet, derived from the workspace name.
+ * Tries the plain slug first, then a short random suffix on collision.
+ */
+async function pickNewOrgSlug(
+  masterDb: ReturnType<typeof getMasterDb>,
+  workspaceName: string,
+): Promise<string> {
+  const base = slugifyWorkspaceName(workspaceName);
+  let candidate = base;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const [taken] = await masterDb
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.slug, candidate))
+      .limit(1);
+    if (!taken) return candidate;
+    candidate = withRandomSuffix(base);
+  }
+  return candidate;
+}
+
+interface ClerkOrgCreated {
+  id: string;
+  slug: string;
+  public_metadata?: Record<string, unknown>;
+}
+
+type ClerkOrgCreateResult =
+  | { ok: true; org: ClerkOrgCreated }
+  | { ok: false };
+
+/**
+ * Create the Clerk organization with our own slug. A slug rejection (taken in
+ * the Clerk instance, or not acceptable to it) is retried once with a random
+ * suffix, then without a slug at all (Clerk generates one, the previous
+ * behaviour). Any other failure is final.
+ */
+async function createClerkOrganization(
+  env: Env,
+  data: OnboardData,
+  metadata: Record<string, unknown>,
+  slug: string,
+): Promise<ClerkOrgCreateResult> {
+  const slugAttempts: Array<string | undefined> = [slug, withRandomSuffix(slug), undefined];
+
+  for (const attemptSlug of slugAttempts) {
+    const clerkRes = await fetch('https://api.clerk.com/v1/organizations', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: data.workspaceName,
+        created_by: data.clerkUserId,
+        public_metadata: metadata,
+        ...(attemptSlug ? { slug: attemptSlug } : {}),
+      }),
+    });
+
+    if (clerkRes.ok) {
+      return { ok: true, org: await clerkRes.json() as ClerkOrgCreated };
+    }
+
+    const err = await clerkRes.text();
+    if (attemptSlug !== undefined && isClerkSlugError(clerkRes.status, err)) {
+      console.warn(`[Onboard] Clerk rejected slug "${attemptSlug}", retrying:`, err);
+      continue;
+    }
+
+    console.error('[Onboard] Failed to create Clerk org:', err);
+    return { ok: false };
+  }
+
+  return { ok: false };
+}
+
+/**
  * Create the workspace row for a brand-new Clerk org on the Free plan and sync
  * the plan's seat limit to Clerk. Returns the new workspace id.
  */
@@ -125,7 +204,7 @@ async function createWorkspaceRow(
 
   const workspaceId = generateId('ws');
 
-  const baseSlug = clerkOrgSlug || data.workspaceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'workspace';
+  const baseSlug = clerkOrgSlug || slugifyWorkspaceName(data.workspaceName);
   const slug = await resolveUniqueSlug(masterDb, baseSlug, workspaceId);
 
   await masterDb.insert(workspaces).values({
@@ -401,26 +480,14 @@ export async function runOnboard(
     };
     console.log('[Onboard] POST public_metadata:', JSON.stringify(postMetadata));
 
-    const clerkRes = await fetch('https://api.clerk.com/v1/organizations', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.CLERK_SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: data.workspaceName,
-        created_by: data.clerkUserId,
-        public_metadata: postMetadata,
-      }),
-    });
+    const newOrgSlug = await pickNewOrgSlug(masterDb, data.workspaceName);
+    const created = await createClerkOrganization(env, data, postMetadata, newOrgSlug);
 
-    if (!clerkRes.ok) {
-      const err = await clerkRes.text();
-      console.error('[Onboard] Failed to create Clerk org:', err);
+    if (!created.ok) {
       return { success: false, error: 'Failed to create organization. Please try again or contact support.', status: 500 };
     }
 
-    const clerkOrg = await clerkRes.json() as { id: string; slug: string; public_metadata?: Record<string, unknown> };
+    const clerkOrg = created.org;
     console.log(`[Onboard] Created Clerk org ${clerkOrg.id}, metadata:`, JSON.stringify(clerkOrg.public_metadata));
 
     // Explicitly PATCH metadata after creation — the POST endpoint may not persist it

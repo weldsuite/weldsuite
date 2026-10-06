@@ -465,7 +465,7 @@ export default function TasksScreen() {
   const [newTaskDueDate, setNewTaskDueDate] = useState<Date | undefined>(undefined);
 
   useEffect(() => {
-    loadTasks();
+    void loadTasks();
   }, [selectedStatus]);
 
   const loadTasks = async () => {
@@ -491,11 +491,11 @@ export default function TasksScreen() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadTasks();
+    void loadTasks();
   };
 
   const handleSearch = () => {
-    loadTasks();
+    void loadTasks();
   };
 
   // Filter tasks

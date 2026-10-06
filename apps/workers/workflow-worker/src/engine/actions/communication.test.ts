@@ -5,6 +5,7 @@ import { makeActionContext } from '../../test/ctx';
 import { createPgliteDb } from '../../test/pglite';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
+import { NonRetryableStepError } from '../errors';
 import type { WorkflowDb } from '../types';
 
 function stubFetch(impl: (url: string, init?: RequestInit) => Response) {
@@ -158,6 +159,76 @@ describe('send_email', () => {
     const sent = JSON.parse(String(calls[0].init?.body));
     expect(sent.html).toBe('Line 1<br>A &lt; B');
     expect(sent.text).toBe('Line 1\nA < B');
+  });
+
+  describe('recipient validation', () => {
+    const acct = [{ id: 'mac_1', email: 'sender@test.com', isDefault: true }];
+
+    it('fails at once, non-retryably, on an invalid To address without calling the mail service', async () => {
+      const { calls } = stubFetch(() => new Response('{}', { status: 200 }));
+      const ctx = makeActionContext({ db: dbReturningAccounts(acct), env: { INTERNAL_API_SECRET: 's' } });
+
+      const err = await handleSendEmail({ to: 'not-an-email', subject: 'Hi' }, ctx).catch((e) => e);
+      expect(err).toBeInstanceOf(NonRetryableStepError);
+      expect((err as Error).message).toBe('Recipient address "not-an-email" is not valid');
+      expect(calls).toHaveLength(0);
+    });
+
+    it('names the first invalid address in a list and in cc/bcc', async () => {
+      const ctx = makeActionContext({ db: dbReturningAccounts(acct), env: { INTERNAL_API_SECRET: 's' } });
+      await expect(handleSendEmail({ to: 'a@b.com, oops', subject: 'Hi' }, ctx)).rejects.toThrow(
+        'Recipient address "oops" is not valid',
+      );
+      await expect(handleSendEmail({ to: ['a@b.com'], cc: 'bad', subject: 'Hi' }, ctx)).rejects.toThrow(
+        'Recipient address "bad" is not valid (Cc)',
+      );
+      await expect(handleSendEmail({ to: 'a@b.com', bcc: ['x@y.zz', 'bad'], subject: 'Hi' }, ctx)).rejects.toThrow(
+        '(Bcc)',
+      );
+    });
+
+    it('explains an empty To after variable resolution', async () => {
+      const ctx = makeActionContext({ db: dbReturningAccounts(acct), env: { INTERNAL_API_SECRET: 's' } });
+      const err = await handleSendEmail({ to: '  ', subject: 'Hi' }, ctx).catch((e) => e);
+      expect(err).toBeInstanceOf(NonRetryableStepError);
+      expect((err as Error).message).toBe('No recipient address: "To" resolved to an empty value');
+    });
+
+    it('accepts "Name <addr>" recipients and comma lists, and sends cc/bcc as arrays', async () => {
+      const { calls } = stubFetch(() => new Response(JSON.stringify({ success: true, messageId: 'm9' }), { status: 200 }));
+      const ctx = makeActionContext({ db: dbReturningAccounts(acct), env: { INTERNAL_API_SECRET: 's' } });
+      await handleSendEmail({ to: 'Ada <ada@b.com>, c@d.nl', cc: 'e@f.com, g@h.com', subject: 'Hi' }, ctx);
+      const sent = JSON.parse(String(calls[0].init?.body));
+      expect(sent.to).toEqual(['Ada <ada@b.com>', 'c@d.nl']);
+      expect(sent.cc).toEqual(['e@f.com', 'g@h.com']);
+      expect(sent.bcc).toBeUndefined();
+    });
+
+    it('turns the mail service validation 500 into a readable, non-retryable failure with the raw payload kept', async () => {
+      const raw =
+        '{"success":false,"error":"send_email failed for x@y.zz: Error (E_VALIDATION_ERROR) invalid mail from email address (x@y.zz): Invalid input"}';
+      stubFetch(() => new Response(raw, { status: 500 }));
+      const ctx = makeActionContext({ db: dbReturningAccounts(acct), env: { INTERNAL_API_SECRET: 's' } });
+
+      const err = await handleSendEmail({ to: 'x@y.zz', subject: 'Hi' }, ctx).catch((e) => e);
+      expect(err).toBeInstanceOf(NonRetryableStepError);
+      expect((err as Error).message).toBe(
+        'Email send failed: invalid mail from email address (x@y.zz): Invalid input',
+      );
+      expect((err as NonRetryableStepError).details).toEqual({ status: 500, body: raw });
+    });
+
+    it('treats a 4xx from the mail service as non-retryable but a plain 500 as retryable', async () => {
+      const ctx = makeActionContext({ db: dbReturningAccounts(acct), env: { INTERNAL_API_SECRET: 's' } });
+      stubFetch(() => new Response('{"error":"bad payload"}', { status: 400 }));
+      expect(await handleSendEmail({ to: 'a@b.com', subject: 'Hi' }, ctx).catch((e) => e)).toBeInstanceOf(
+        NonRetryableStepError,
+      );
+      stubFetch(() => new Response('{"error":"upstream down"}', { status: 503 }));
+      const err = await handleSendEmail({ to: 'a@b.com', subject: 'Hi' }, ctx).catch((e) => e);
+      expect(err).not.toBeInstanceOf(NonRetryableStepError);
+      expect((err as Error).message).toBe('Email send failed: upstream down');
+    });
   });
 
   it('throws when the subject is empty', async () => {

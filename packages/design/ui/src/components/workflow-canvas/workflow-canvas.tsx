@@ -378,7 +378,8 @@ function WorkflowCanvasInner({
     triggerLabels: labels.triggerLabels,
     actionLabels: labels.actionLabels,
     setupRequired: labels.setupRequired,
-  }), [labels.selectTrigger, labels.triggerLabels, labels.actionLabels, labels.setupRequired]);
+    addStep: labels.addStep,
+  }), [labels.selectTrigger, labels.triggerLabels, labels.actionLabels, labels.setupRequired, labels.addStep]);
 
   const { zoomIn, zoomOut, getNodes, setCenter, getViewport } = useReactFlow();
   const prevStepNodeIdsRef = useRef<Set<string>>(new Set());

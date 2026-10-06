@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { findLeavingParticipant } from './rtk-webhook';
+import {
+  applyParticipantJoined,
+  applyParticipantLeft,
+  findLeavingCallParticipant,
+  findLeavingParticipant,
+} from './rtk-webhook';
 
 const ids = (over: Partial<Parameters<typeof findLeavingParticipant>[1]> = {}) => ({
   cfSessionId: undefined,
@@ -36,5 +41,164 @@ describe('findLeavingParticipant', () => {
 
   it('returns -1 when nobody matches', () => {
     expect(findLeavingParticipant([{ userId: 'user_9', joinedAt: '2026-10-02T10:00:00.000Z' }], ids())).toBe(-1);
+  });
+});
+
+describe('findLeavingParticipant · connection that predates the latest join', () => {
+  it('ignores the leave of an old connection that RealtimeKit only noticed after the rejoin', () => {
+    // Joined 10:00, connection dropped, rejoined 10:20 (same stint, joinedAt kept).
+    // RealtimeKit reports the dead connection at 10:21: after the rejoin.
+    const participants = [
+      { userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', lastJoinAt: '2026-10-02T10:20:00.000Z' },
+    ];
+    const leave = ids({ leftAt: '2026-10-02T10:21:00.000Z', peerJoinedAt: '2026-10-02T10:00:05.000Z' });
+    expect(findLeavingParticipant(participants, leave)).toBe(-1);
+  });
+
+  it('still matches the leave of the connection that belongs to the latest join', () => {
+    const participants = [
+      { userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', lastJoinAt: '2026-10-02T10:20:00.000Z' },
+    ];
+    const leave = ids({ leftAt: '2026-10-02T10:40:00.000Z', peerJoinedAt: '2026-10-02T10:20:04.000Z' });
+    expect(findLeavingParticipant(participants, leave)).toBe(0);
+  });
+});
+
+describe('findLeavingCallParticipant', () => {
+  const callParticipant = (userId: string, joinedAt: string, extra: { leftAt?: string } = {}) => ({
+    userId,
+    userName: userId,
+    joinedAt,
+    cfSessionId: `cf_${userId}`,
+    hasAudio: false,
+    hasVideo: false,
+    hasScreenShare: false,
+    ...extra,
+  });
+
+  it('ignores the leave of the connection a participant had before they rejoined the call', () => {
+    // Rejoined at 10:20 (a fresh entry); the session they had since 10:00 is
+    // evicted by that join and RealtimeKit reports its leave afterwards.
+    const participants = [callParticipant('user_1', '2026-10-02T10:20:00.000Z')];
+    const leave = ids({ leftAt: '2026-10-02T10:20:02.000Z', peerJoinedAt: '2026-10-02T10:00:05.000Z' });
+    expect(findLeavingCallParticipant(participants, leave)).toBe(-1);
+  });
+
+  it('matches the leave of the connection that belongs to the current join', () => {
+    const participants = [callParticipant('user_1', '2026-10-02T10:20:00.000Z')];
+    const leave = ids({ leftAt: '2026-10-02T10:40:00.000Z', peerJoinedAt: '2026-10-02T10:20:04.000Z' });
+    expect(findLeavingCallParticipant(participants, leave)).toBe(0);
+  });
+
+  it('matches a leave that does not say when its connection joined', () => {
+    const participants = [callParticipant('user_1', '2026-10-02T10:20:00.000Z')];
+    expect(findLeavingCallParticipant(participants, ids({ leftAt: '2026-10-02T10:40:00.000Z' }))).toBe(0);
+  });
+
+  it('returns the index in the stored list and skips entries that already left', () => {
+    const participants = [
+      callParticipant('user_2', '2026-10-02T10:00:00.000Z'),
+      callParticipant('user_1', '2026-10-02T10:00:00.000Z', { leftAt: '2026-10-02T10:05:00.000Z' }),
+    ];
+    expect(findLeavingCallParticipant(participants, ids())).toBe(-1);
+    expect(findLeavingCallParticipant(participants, ids({ customId: 'user_2' }))).toBe(0);
+  });
+});
+
+describe('applyParticipantLeft', () => {
+  const NOW = '2026-10-02T11:00:00.000Z';
+
+  it('marks the participant as left when their only connection goes', () => {
+    const participants = [{ userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', peerIds: ['peer_a'] }];
+    const result = applyParticipantLeft(participants, ids({ peerId: 'peer_a' }), NOW);
+    expect(result).toMatchObject({ changed: true, markedLeft: true });
+    expect(result.participants[0]).toEqual({ userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', leftAt: NOW });
+  });
+
+  it('keeps the participant while another connection of theirs is in the room (reconnect, second tab)', () => {
+    const participants = [
+      { userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', peerIds: ['peer_old', 'peer_new'] },
+    ];
+    const result = applyParticipantLeft(participants, ids({ peerId: 'peer_old' }), NOW);
+    expect(result).toMatchObject({ changed: true, markedLeft: false });
+    expect(result.participants[0]).toEqual({
+      userId: 'user_1',
+      joinedAt: '2026-10-02T10:00:00.000Z',
+      peerIds: ['peer_new'],
+    });
+  });
+
+  it('does not mark anyone for an unknown connection while a known one is live', () => {
+    const participants = [{ userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', peerIds: ['peer_new'] }];
+    const result = applyParticipantLeft(participants, ids({ peerId: 'peer_untracked' }), NOW);
+    expect(result).toMatchObject({ changed: false, markedLeft: false });
+    expect(result.participants).toEqual(participants);
+  });
+
+  it('falls back to marking the participant when no connections are tracked (join events not delivered)', () => {
+    const participants = [{ userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z' }];
+    const result = applyParticipantLeft(participants, ids({ peerId: 'peer_a' }), NOW);
+    expect(result.markedLeft).toBe(true);
+    expect(result.participants[0]).toMatchObject({ leftAt: NOW });
+  });
+
+  it('forgets a connection on an entry that already left, without touching its leave time', () => {
+    const leftAt = '2026-10-02T10:30:00.000Z';
+    const participants = [{ userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', leftAt, peerIds: ['peer_a'] }];
+    const result = applyParticipantLeft(participants, ids({ peerId: 'peer_a' }), NOW);
+    expect(result).toMatchObject({ changed: true, markedLeft: false });
+    expect(result.participants[0]).toEqual({ userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', leftAt });
+  });
+
+  it('leaves other participants alone', () => {
+    const participants = [
+      { userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', peerIds: ['peer_a'] },
+      { userId: 'user_2', joinedAt: '2026-10-02T10:00:00.000Z', peerIds: ['peer_b'] },
+    ];
+    const result = applyParticipantLeft(participants, ids({ peerId: 'peer_a' }), NOW);
+    expect(result.participants[1]).toBe(participants[1]);
+  });
+});
+
+describe('applyParticipantJoined', () => {
+  it('tracks the connection of a participant who is in the room', () => {
+    const participants = [{ userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z' }];
+    const result = applyParticipantJoined(participants, { customId: 'user_1', peerId: 'peer_a' });
+    expect(result).toMatchObject({ changed: true, restored: false });
+    expect(result.participants[0]).toMatchObject({ peerIds: ['peer_a'] });
+  });
+
+  it('brings back a participant recorded as left: the SDK reconnected on a new connection', () => {
+    const participants = [
+      { userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', leftAt: '2026-10-02T10:20:00.000Z' },
+    ];
+    const result = applyParticipantJoined(participants, { customId: 'user_1', peerId: 'peer_new' });
+    expect(result).toMatchObject({ changed: true, restored: true });
+    expect(result.participants[0]).toEqual({
+      userId: 'user_1',
+      joinedAt: '2026-10-02T10:00:00.000Z',
+      peerIds: ['peer_new'],
+    });
+  });
+
+  it('is a no-op for a connection that is already tracked, and for someone we do not know', () => {
+    const participants = [{ userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', peerIds: ['peer_a'] }];
+    expect(applyParticipantJoined(participants, { customId: 'user_1', peerId: 'peer_a' }).changed).toBe(false);
+    expect(applyParticipantJoined(participants, { customId: 'user_9', peerId: 'peer_z' }).changed).toBe(false);
+    expect(applyParticipantJoined(participants, { customId: undefined, peerId: 'peer_z' }).changed).toBe(false);
+  });
+
+  it('a reconnect ends with the participant present, whichever event arrives first', () => {
+    const start = [{ userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', peerIds: ['peer_old'] }];
+    const leaveOld = ids({ peerId: 'peer_old' });
+    const joinNew = { customId: 'user_1', peerId: 'peer_new' };
+    const NOW = '2026-10-02T10:20:00.000Z';
+
+    const leaveFirst = applyParticipantJoined(applyParticipantLeft(start, leaveOld, NOW).participants, joinNew);
+    const joinFirst = applyParticipantLeft(applyParticipantJoined(start, joinNew).participants, leaveOld, NOW);
+
+    const present = { userId: 'user_1', joinedAt: '2026-10-02T10:00:00.000Z', peerIds: ['peer_new'] };
+    expect(leaveFirst.participants[0]).toEqual(present);
+    expect(joinFirst.participants[0]).toEqual(present);
   });
 });

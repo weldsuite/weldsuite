@@ -375,6 +375,7 @@ describe('POST /setup (idempotent registration)', () => {
     expect(body).toMatchObject({ action: 'updated', removedDuplicates: 1 });
     expect(body.events).toEqual([
       'meeting.ended',
+      'meeting.participantJoined',
       'meeting.participantLeft',
       'recording.statusUpdate',
       'meeting.transcript',

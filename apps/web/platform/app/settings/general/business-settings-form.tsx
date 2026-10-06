@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useBlocker } from '@tanstack/react-router';
+import { useOrganization } from '@clerk/clerk-react';
 import {
   Dialog,
   DialogContent,
@@ -51,6 +52,7 @@ import { WorkspaceSlugCard } from './workspace-slug-card';
 import { WorkspaceNameSection } from './workspace-name-section';
 import { DeleteWorkspaceSection } from './delete-workspace-section';
 import { useCurrentMember } from '@/hooks/use-current-member';
+import { getLogoInitial } from './logo-initial';
 
 function getBusinessSettingsSchema(st: ReturnType<typeof useTranslations>) {
   return z.object({
@@ -84,7 +86,7 @@ function LogoUpload({ currentLogoUrl, companyName, onLogoUploaded, onLogoRemoved
   const { getClient } = useAppApiClient();
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const initial = companyName?.trim() ? companyName.trim().charAt(0).toUpperCase() : 'L';
+  const initial = getLogoInitial(companyName);
 
   const handleFile = async (file: File) => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
@@ -240,6 +242,7 @@ export function BusinessSettingsForm() {
   const ts = t.settings.generalSettings;
   const { data: settingsData, isLoading } = useWorkspaceSettings();
   const { data: member } = useCurrentMember();
+  const { organization } = useOrganization();
   const updateMutation = useUpdateWorkspaceSettings();
   const isSaving = updateMutation.isPending;
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
@@ -383,7 +386,7 @@ export function BusinessSettingsForm() {
         {/* Company Logo */}
         <LogoUpload
           currentLogoUrl={logoUrl}
-          companyName={form.watch('tradingName') || form.watch('legalName') || ''}
+          companyName={form.watch('tradingName') || form.watch('legalName') || organization?.name || ''}
           onLogoUploaded={handleLogoUploaded}
           onLogoRemoved={handleLogoRemoved}
         />

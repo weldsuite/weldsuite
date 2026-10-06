@@ -35,7 +35,7 @@ test.describe('WeldConnect · Workflows CRUD', () => {
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     // WorkflowsClient renders a "New workflow" button in the EntityList toolbar
-    // that immediately calls handleNewWorkflow (creates + navigates to editor).
+    // that opens the create dialog (name first; nothing is created until confirmed).
     // When the list is empty the empty-state also renders a "New workflow"
     // button, so .first() picks the stable toolbar button to avoid a strict-
     // mode violation from two matching elements.

@@ -39,6 +39,38 @@ function previousRecordFrom(record: Record<string, unknown> | undefined, changes
   return previous;
 }
 
+const MINUTE_MS = 60_000;
+
+/** The scheduled slot as a Date floored to the minute; the run's start when no valid slot was sent. */
+export function scheduledSlot(raw: unknown, fallback: Date): Date {
+  const parsed = typeof raw === 'string' || typeof raw === 'number' ? new Date(raw) : null;
+  const at = parsed && !Number.isNaN(parsed.getTime()) ? parsed : fallback;
+  return new Date(Math.floor(at.getTime() / MINUTE_MS) * MINUTE_MS);
+}
+
+/** `YYYY-MM-DD HH:mm` of an instant in an IANA timezone (UTC when missing or unknown). */
+export function formatLocalMinute(at: Date, timeZone: unknown): string {
+  const zone = typeof timeZone === 'string' && timeZone.trim() ? timeZone.trim() : 'UTC';
+  const format = (tz: string) =>
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(at);
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = format(zone);
+  } catch {
+    parts = format('UTC'); // unknown timezone name
+  }
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '00';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
 export function buildTriggerData(
   triggerType: TriggerType,
   raw: unknown,
@@ -57,7 +89,11 @@ export function buildTriggerData(
     const previousRecord = previousRecordFrom(record, changes);
     if (previousRecord) aliases.previousRecord = previousRecord;
   } else if (triggerType === 'schedule') {
-    aliases.scheduledTime = meta.startedAt.toISOString();
+    // The slot the schedule was due for (the sweep sends it as `scheduledTime`),
+    // not the instant the run happened to start: floored to the minute.
+    const slot = scheduledSlot(base.scheduledTime, meta.startedAt);
+    aliases.scheduledTime = slot.toISOString();
+    aliases.scheduledTimeLocal = formatLocalMinute(slot, base.timezone);
     aliases.runId = meta.executionId;
   } else if (triggerType === 'manual') {
     aliases.timestamp = meta.startedAt.toISOString();

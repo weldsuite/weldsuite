@@ -13,9 +13,10 @@
  * 401. Duplicate deliveries are dropped on their `rtk-uuid`. See
  * @weldsuite/cloudflare-realtime/webhook-signature.
  *
- * Handles meeting.ended and meeting.participantLeft events from Cloudflare
- * RealtimeKit. When RTK detects all participants have left, it auto-ends the
- * session and fires meeting.ended — we sync that to our DB.
+ * Handles meeting.ended, meeting.participantJoined and meeting.participantLeft
+ * events from Cloudflare RealtimeKit. When RTK detects all participants have
+ * left, it auto-ends the session (about a minute later) and fires
+ * meeting.ended — that event is what ends an abandoned session on our side.
  *
  * Also the post-meeting events of RealtimeKit's own recorder, which arrive AFTER
  * the meeting ended (so the 24 h `rtk-meeting:` mapping is gone and they resolve
@@ -48,6 +49,7 @@ import {
   handleMeetingEnded,
   handleMeetingSummary,
   handleMeetingTranscript,
+  handleParticipantJoined,
   handleParticipantLeft,
   handleRecordingStatus,
   logPayloadShapeOnce,
@@ -76,6 +78,7 @@ const DELIVERY_ID_PATTERN = /^[A-Za-z0-9-]{1,128}$/;
 /** Events this receiver handles; `POST /setup` registers exactly these. */
 export const WEBHOOK_EVENTS: RtkEventName[] = [
   'meeting.ended',
+  'meeting.participantJoined',
   'meeting.participantLeft',
   'recording.statusUpdate',
   'meeting.transcript',
@@ -184,6 +187,10 @@ app.post('/', async (c) => {
     switch (eventType) {
       case 'meeting.ended':
         await handleMeetingEnded(c.env, raw, rtkMeetingId);
+        break;
+
+      case 'meeting.participantJoined':
+        await handleParticipantJoined(c.env, raw, event);
         break;
 
       case 'meeting.participantLeft':

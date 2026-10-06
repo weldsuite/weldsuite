@@ -203,7 +203,7 @@ export function TemplatesClient() {
             <Button
               size="sm"
               variant="outline"
-              className="h-7 text-xs opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+              className="h-7 text-xs md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
               onClick={() => setSelectedTemplate(template)}
             >
               {t.weldconnect.templates.useTemplate}

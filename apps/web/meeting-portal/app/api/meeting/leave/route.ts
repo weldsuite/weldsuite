@@ -3,7 +3,7 @@ import { and, eq, ne } from 'drizzle-orm';
 import { getTenantDb } from '@/lib/db';
 import { meetingSessions } from '@weldsuite/db/schema';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
-import { endMeetingSession } from '@weldsuite/meet-domain/meeting-lifecycle';
+import { endMeetingSessionIfEmpty } from '@weldsuite/meet-domain/meeting-lifecycle';
 import { guestLeaveInputSchema } from '@/lib/schemas';
 import { guestUnauthorized, invalidInput, tenantNotFoundResponse } from '@/lib/api-response';
 import { authenticateGuest, isTokenParticipant } from '@/lib/guest-session';
@@ -14,10 +14,12 @@ import { meetingLifecycleEnv } from '@/lib/meeting-lifecycle-env';
  * Authorization: Bearer <guest session token from /api/meeting/join>
  * Body: { orgId, meetingId }
  * Marks the token's guest as left in the session the token was issued for. When
- * nobody is left in the room the session is ended through the shared
- * `endMeetingSession` (the same code the platform's leave / end routes and the
- * RealtimeKit webhook run): participants stamped as left, meeting released,
- * RealtimeKit room torn down, CRM activity logged, platform notified.
+ * our list shows nobody left, the session is ended through the shared
+ * `endMeetingSessionIfEmpty` (the same code the platform's leave route and the
+ * RealtimeKit webhook run), which first asks RealtimeKit whether the room really
+ * is empty: participants stamped as left, meeting released, RealtimeKit room torn
+ * down, CRM activity logged, platform notified. If someone is still in the room
+ * the session stays, and RealtimeKit's meeting.ended webhook ends it later.
  */
 export async function POST(request: NextRequest) {
   let raw: unknown;
@@ -83,9 +85,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data: { ok: true } });
     }
 
-    // Auto-end if no participants remain.
+    // Auto-end if no participants remain (and RealtimeKit agrees).
     if (activeParticipants.length === 0) {
-      await endMeetingSession(
+      await endMeetingSessionIfEmpty(
         db,
         meetingLifecycleEnv(),
         // The realtime hub is keyed by the Clerk org id, which is not always the URL's id.

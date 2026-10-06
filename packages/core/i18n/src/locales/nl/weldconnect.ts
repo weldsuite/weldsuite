@@ -183,7 +183,8 @@ export const weldconnect = {
 
   // Dashboard pagina
   dashboard: {
-    title: 'Dashboard',
+    title: 'Overzicht',
+    periodLabel: 'Periode',
     loading: 'Dashboard laden...',
     loadError: 'Laden van dashboardgegevens mislukt. Probeer het opnieuw.',
     retry: 'Opnieuw proberen',
@@ -194,10 +195,10 @@ export const weldconnect = {
       yearly: 'Dit jaar',
     },
     stats: {
-      activeWorkflows: '{count} actieve workflows',
-      failedExecutions: '{count} mislukte uitvoeringen',
-      pendingTasks: '{count} openstaande uitvoeringen',
-      successfulExecutions: '{count} geslaagde uitvoeringen',
+      activeWorkflows: { one: '{count} actieve workflow', other: '{count} actieve workflows' },
+      failedExecutions: { one: '{count} mislukte uitvoering', other: '{count} mislukte uitvoeringen' },
+      runningExecutions: { one: '{count} lopende uitvoering', other: '{count} lopende uitvoeringen' },
+      successfulExecutions: { one: '{count} geslaagde uitvoering', other: '{count} geslaagde uitvoeringen' },
     },
   },
 
@@ -239,6 +240,7 @@ export const weldconnect = {
       trigger: 'Trigger',
     },
     actions: {
+      rename: 'Naam wijzigen',
       open: 'Openen',
       edit: 'Bewerken',
       openInVisualEditor: 'Openen in visuele editor',
@@ -248,6 +250,7 @@ export const weldconnect = {
       delete: 'Verwijderen',
     },
     dialogs: {
+      renameTitle: 'Naam van {entityLabel} wijzigen',
       createTitle: '{entityLabel} aanmaken',
       nameLabel: 'Naam {entityLabel}',
       namePlaceholder: 'Voer naam {entityLabel} in...',
@@ -260,6 +263,8 @@ export const weldconnect = {
       confirmLabel: 'Standaarden herstellen',
     },
     toasts: {
+      renamed: 'Naam van de workflow gewijzigd',
+      renameFailed: 'Naam wijzigen mislukt',
       deleted: '{entityLabel} verwijderd',
       deleteFailed: 'Verwijderen van {entityLabel} mislukt',
       activated: 'Workflow geactiveerd',
@@ -468,6 +473,19 @@ export const weldconnect = {
     searchPlaceholder: 'Uitvoeringen zoeken...',
     refresh: 'Vernieuwen',
     justNow: 'Zojuist',
+    loadMore: 'Meer laden',
+    loadingMore: 'Laden...',
+    showingCount: {
+      one: '{shown} van {count} uitvoering weergegeven',
+      other: '{shown} van {count} uitvoeringen weergegeven',
+    },
+    loadError: 'Uitvoeringen laden mislukt',
+    loadErrorDescription: 'Er ging iets mis bij het ophalen van de uitvoeringen.',
+    tryAgain: 'Opnieuw proberen',
+    testBadge: 'Test',
+    copyId: 'Uitvoerings-ID kopiëren',
+    idCopied: 'Uitvoerings-ID gekopieerd',
+    rowActions: 'Acties voor uitvoering',
     columns: {
       workflow: 'Workflow',
       status: 'Status',
@@ -481,6 +499,8 @@ export const weldconnect = {
     filters: {
       status: 'Status',
       trigger: 'Trigger',
+      workflow: 'Workflow',
+      removeFilter: 'Filter verwijderen',
       allExecutions: 'Alle uitvoeringen',
     },
     statuses: {
@@ -500,6 +520,7 @@ export const weldconnect = {
     toasts: {
       retried: 'Uitvoering opnieuw gestart',
       retryFailed: 'Opnieuw starten van uitvoering mislukt',
+      workflowInactive: 'Activeer eerst de workflow en probeer deze uitvoering dan opnieuw.',
       cancelled: 'Uitvoering geannuleerd',
       cancelFailed: 'Annuleren van uitvoering mislukt',
     },
@@ -557,6 +578,18 @@ export const weldconnect = {
     stepOutput: 'Uitvoer',
     stepError: 'Fout',
     stepLog: 'Stap: {name}',
+    retryOf: 'Herhaling van',
+    testRun: 'Testrun',
+    notFoundTitle: 'Uitvoering niet gevonden',
+    notFoundDescription: 'Deze uitvoering bestaat niet of u hebt er geen toegang toe.',
+    loadErrorTitle: 'Deze uitvoering kon niet worden geladen',
+    loadErrorDescription: 'Er ging iets mis bij het ophalen van de uitvoering. Probeer het opnieuw.',
+    tryAgain: 'Opnieuw proberen',
+    showDetails: 'Details tonen',
+    hideDetails: 'Details verbergen',
+    expandStep: 'Stapdetails tonen',
+    collapseStep: 'Stapdetails verbergen',
+    copyId: 'Uitvoerings-ID kopiëren',
     tabs: {
       steps: 'Uitvoeringsstappen',
       input: 'Invoergegevens',
@@ -588,6 +621,7 @@ export const weldconnect = {
       cancelFailed: 'Annuleren van uitvoering mislukt',
       retried: 'Uitvoering succesvol opnieuw gestart',
       retryFailed: 'Opnieuw starten van uitvoering mislukt',
+      workflowInactive: 'Activeer eerst de workflow en probeer deze uitvoering dan opnieuw.',
     },
   },
 
@@ -1127,12 +1161,15 @@ export const weldconnect = {
       actions: 'Acties',
       noActivity: 'Geen activiteit gevonden.',
       type: 'Type',
+      status: 'Status',
       detail: 'Detail',
       time: 'Tijd',
       previous: 'Vorige',
       next: 'Volgende',
+      viewAll: 'Alles bekijken',
     },
     chart: {
+      seriesGroupLabel: 'In de grafiek getoonde reeks',
       noDataAvailable: 'Geen gegevens beschikbaar',
       showingActivity: 'Uitvoeringsactiviteit voor de geselecteerde periode',
       noDataToDisplay: 'Geen gegevens om weer te geven',
@@ -1153,6 +1190,14 @@ export const weldconnect = {
 
   // Workflow-instellingenpagina
   workflowSettings: {
+    general: {
+      title: 'Algemeen',
+      nameLabel: 'Naam',
+      namePlaceholder: 'bijv. Nieuwe leads verwelkomen',
+      nameRequired: 'Geef de workflow een naam',
+      descriptionLabel: 'Beschrijving',
+      descriptionPlaceholder: 'Wat doet deze workflow?',
+    },
     tabEditor: 'Editor',
     tabExecutions: 'Uitvoeringen',
     tabSettings: 'Instellingen',
@@ -1172,9 +1217,9 @@ export const weldconnect = {
     notifications: {
       title: 'Meldingen',
       notifyOnErrorLabel: 'Meldingen ontvangen als deze workflow mislukt',
-      notifyOnErrorHint: 'Ontvang een e-mail en in-app melding wanneer een uitvoering mislukt',
+      notifyOnErrorHint: 'Ontvang een in-app melding wanneer een uitvoering mislukt',
       notifyOnCompleteLabel: 'Meldingen ontvangen als deze workflow voltooid is',
-      notifyOnCompleteHint: 'Ontvang een e-mail en in-app melding wanneer een uitvoering succesvol voltooid is',
+      notifyOnCompleteHint: 'Ontvang een in-app melding wanneer een uitvoering succesvol voltooid is',
     },
   },
 
@@ -1340,7 +1385,7 @@ export const weldconnect = {
       update_record: { name: 'Record bijwerken', description: 'Een bestaand record bijwerken' },
       delete_record: { name: 'Record verwijderen', description: 'Een record verwijderen' },
       query_data: { name: 'Data opvragen', description: 'Records zoeken en filteren' },
-      create_customer: { name: 'Klant aanmaken', description: 'Een klant (bedrijf) toevoegen aan WeldCRM' },
+      create_customer: { name: 'Bedrijf aanmaken', description: 'Een bedrijf toevoegen aan WeldCRM' },
       set_variable: { name: 'Variabele instellen', description: 'Een waarde opslaan voor later gebruik' },
       transform_data: { name: 'Data transformeren', description: 'Data omzetten en koppelen' },
       condition: { name: 'Conditie', description: 'Vertakken op basis van een voorwaarde' },
@@ -1424,7 +1469,7 @@ export const weldconnect = {
     triggerTypeLabel: 'Triggertype',
     types: {
       entity_event: { name: 'Entiteitsgebeurtenis', description: 'Trigger wanneer een record wordt aangemaakt, bijgewerkt of verwijderd' },
-      schedule: { name: 'Schema', description: 'Uitvoeren op een schema (eenmalig of terugkerend)' },
+      schedule: { name: 'Schema', description: 'Uitvoeren op een terugkerend schema' },
       workflow_complete: { name: 'Workflow voltooid', description: 'Trigger wanneer een andere workflow voltooid is' },
       webhook: { name: 'Webhook', description: 'Trigger via HTTP-webhook-URL' },
       manual: { name: 'Handmatig', description: 'De workflow handmatig activeren' },
@@ -1435,6 +1480,7 @@ export const weldconnect = {
       api: { name: 'API-aanroep', description: 'Trigger via API-verzoek' },
     },
     entityEvent: {
+      updatedHint: 'Draait bij elke wijziging van een record van dit type, ongeacht welk veld is gewijzigd.',
       entityTypeLabel: 'Entiteitstype',
       entityTypePlaceholder: 'Entiteit selecteren...',
       eventLabel: 'Gebeurtenis',
@@ -1447,6 +1493,9 @@ export const weldconnect = {
       connectHint: 'Vereist een verbonden account op Integraties.',
     },
     schedule: {
+      cronInvalid: 'Geen geldige cron-expressie. Gebruik vijf velden (minuut uur dag maand weekdag), bijvoorbeeld 0 9 * * 1-5.',
+      nextRun: 'Volgende run: {time}',
+      noUpcomingRun: 'Dit schema heeft het komende jaar geen run.',
       scheduleTypeLabel: 'Schematype',
       oneTime: 'Eenmalig',
       recurring: 'Terugkerend',
@@ -1507,6 +1556,12 @@ export const weldconnect = {
       triggerData: 'Triggergegevens',
     },
     triggerFields: {
+      entityType: 'Recordtype',
+      eventType: 'Gebeurtenis',
+      recordId: 'Record-ID',
+      scheduledTime: 'Geplande tijd (UTC)',
+      scheduledTimeLocal: 'Geplande tijd (tijdzone van het schema)',
+      runId: 'Run-ID',
       provider: 'Provider',
       event: 'Gebeurtenis',
       eventPayload: 'Gebeurtenispayload',
@@ -1556,12 +1611,58 @@ export const weldconnect = {
     notFoundDescription: 'Deze workflow is mogelijk verwijderd of je hebt er geen toegang toe.',
   },
   workflowEditorClient: {
+    closePanel: 'Paneel sluiten',
+    status: {
+      pause: 'Pauzeren',
+      pauseHint: 'Deze workflow pauzeren. Hij draait niet meer totdat je hem opnieuw publiceert.',
+      resume: 'Hervatten',
+      publishChanges: 'Wijzigingen publiceren',
+      liveHint: 'Deze workflow is live. Gepubliceerde wijzigingen gelden vanaf de volgende run.',
+    },
+    triggerWarnings: {
+      noTrigger: 'Geen trigger ingesteld',
+      missingEntityEvent: 'Kies een recordtype en een gebeurtenis',
+      missingScheduleType: 'Kies een type schema',
+      missingCron: 'Vul een cron-expressie in',
+      invalidCron: 'De cron-expressie is ongeldig, waardoor dit schema nooit zou draaien',
+      missingExecuteAt: 'Kies een datum en tijd',
+      missingSourceWorkflow: 'Kies de workflow waarop gewacht wordt',
+      missingIntegrationEvent: 'Kies een integratie en een gebeurtenis',
+    },
+    publishIssues: {
+      no_trigger: 'Voeg een trigger toe voordat je publiceert.',
+      unsupported_trigger: 'Deze trigger is nog niet beschikbaar. Kies een andere trigger.',
+      incomplete_entity_event: 'De trigger heeft een recordtype en een gebeurtenis nodig.',
+      unknown_entity_event: 'De trigger gebruikt een gebeurtenis die niet bestaat. Kies hem opnieuw.',
+      schedule_not_recurring: 'Alleen terugkerende schema\'s worden ondersteund.',
+      invalid_cron: 'Het schema heeft een ongeldige cron-expressie. Pas die aan in de trigger.',
+      invalid_timezone: 'Het schema heeft een ongeldige tijdzone. Kies hem opnieuw in de trigger.',
+      no_steps: 'Voeg minstens één stap toe voordat je publiceert.',
+      unsupported_action: 'Deze workflow bevat een actie die nog niet beschikbaar is. Verwijder of vervang die.',
+      missing_field: 'Bij een stap ontbreekt een verplicht veld.',
+    },
+    testDialog: {
+      title: 'Deze workflow testen',
+      description: 'Start nu één run van de opgeslagen workflow.',
+      realRunWarning: 'Dit is een echte run: e-mails worden verstuurd en records worden aangemaakt.',
+      unsavedNote: 'Je hebt niet-opgeslagen wijzigingen. De test draait de laatst opgeslagen versie.',
+      sampleTitle: 'Voorbeeld: {entity}',
+      sampleTitleGeneric: 'Voorbeeldrecord',
+      sampleHint: 'De stappen krijgen deze waarden als het record dat de workflow startte.',
+      jsonLabel: 'Record (JSON)',
+      jsonInvalid: 'Vul een geldig JSON-object in.',
+      cancel: 'Annuleren',
+      run: 'Test starten',
+    },
     toasts: {
+      workflowPaused: 'Workflow gepauzeerd',
+      pauseFailed: 'Workflow pauzeren mislukt',
+      changesPublished: 'Wijzigingen gepubliceerd',
       agentUpdated: 'Agent bijgewerkt',
       agentUpdateFailed: 'Bijwerken van agent mislukt',
       workflowSaved: 'Workflow opgeslagen',
       saveFailed: 'Opslaan mislukt',
-      testStarted: 'Test gestart - bekijk de uitvoeringspagina voor resultaten',
+      testStarted: 'Testrun gestart',
       testFailed: 'Starten van test mislukt',
       workflowPublished: 'Workflow gepubliceerd',
       publishFailed: 'Publiceren mislukt',
@@ -1571,6 +1672,13 @@ export const weldconnect = {
       nameAndPromptRequired: 'Naam en systeemprompt zijn verplicht',
     },
     runHistory: {
+      refresh: 'Vernieuwen',
+      close: 'Sluiten',
+      loadFailed: 'De runs konden niet worden geladen',
+      retry: 'Opnieuw proberen',
+      testRun: 'Test',
+      viewAll: 'Alle runs bekijken',
+      viewAllCount: 'Alle {count} runs bekijken',
       title: 'Uitvoeringsgeschiedenis',
       noRuns: 'Geen uitvoeringen',
       noRunsYet: 'Deze workflow is nog niet uitgevoerd',
@@ -1600,6 +1708,10 @@ export const weldconnect = {
       noStepsInBranch: 'Geen stappen in deze tak',
     },
     editStepPanel: {
+      invalidValuesTitle: 'Controleer deze waarden',
+      invalidEmail: '{field}: "{value}" is geen geldig e-mailadres',
+      invalidUrl: '{field}: "{value}" is geen geldig webadres',
+      unknownVariablesHint: 'Deze variabelen bestaan niet voor deze workflow en blijven leeg:',
       editStep: 'Stap bewerken',
       actionNameLabel: 'Actienaam',
       actionNamePlaceholder: 'Voer een naam in...',
@@ -1620,6 +1732,7 @@ export const weldconnect = {
       chipTooltip: 'Bij sommige stappen ontbreken verplichte gegevens. Klik om op te lossen.',
     },
     overviewPanel: {
+      unknownVariables: 'Onbekende variabelen: {variables}',
       workflowDetails: 'Workflowdetails',
       checklist: 'Controlelijst',
       checklistDescription: 'Zorg dat alle problemen zijn opgelost voor publicatie',
@@ -1819,6 +1932,7 @@ export const weldconnect = {
 
   // Flow-editor knooppuntlabels / bediening
   flowEditor: {
+    addStep: 'Stap toevoegen',
     zoomIn: 'Inzoomen',
     zoomOut: 'Uitzoomen',
     resetLayout: 'Indeling herstellen',
@@ -1843,7 +1957,7 @@ export const weldconnect = {
       update_record: 'Record bijwerken',
       delete_record: 'Record verwijderen',
       query_data: 'Gegevens opvragen',
-      create_customer: 'Klant aanmaken',
+      create_customer: 'Bedrijf aanmaken',
       send_notification: 'Melding verzenden',
       run_script: 'Script uitvoeren',
       ai_generate: 'AI genereren',
@@ -1862,6 +1976,12 @@ export const weldconnect = {
 
   // Actieconfiguratie formulier (workflow editor)
   actionConfigForm: {
+    customerPlaceholders: {
+      name: 'Acme B.V.',
+      email: 'info@acme.nl',
+      phone: '+31 20 123 4567',
+      website: 'acme.nl',
+    },
     // SetAttributeForm
     attribute: 'Kenmerk',
     attributeDesc: 'Het veld dat op het contact of gesprek wordt ingesteld',
@@ -1875,21 +1995,21 @@ export const weldconnect = {
     fromAccountDesc: 'Selecteer het e-mailaccount om vanaf te verzenden',
     useDefaultAccount: 'Standaardaccount gebruiken',
     // CreateCustomerForm
-    customerName: 'Klantnaam',
+    customerName: 'Bedrijfsnaam',
     customerNameDesc: 'Naam van het bedrijf, bijv. {{trigger.record.name}}',
     customerEmail: 'E-mail',
     customerPhone: 'Telefoon',
     customerWebsite: 'Website',
     customerNotes: 'Notities',
     customerStatus: 'Status',
-    customerStatusDesc: 'Status die de nieuwe klant krijgt in WeldCRM',
+    customerStatusDesc: 'Status die het nieuwe bedrijf krijgt in WeldCRM',
     customerStatuses: {
       active: 'Actief',
       prospect: 'Prospect',
       inactive: 'Inactief',
     },
-    skipIfEmailExists: 'Overslaan als er al een klant met dit e-mailadres bestaat',
-    skipIfEmailExistsDesc: 'De bestaande klant hergebruiken in plaats van een dubbele aan te maken',
+    skipIfEmailExists: 'Overslaan als er al een bedrijf met dit e-mailadres bestaat',
+    skipIfEmailExistsDesc: 'Het bestaande bedrijf hergebruiken in plaats van een dubbel bedrijf aan te maken',
     customerVariablesHint: 'Gebruik {{trigger.record.<veld>}} om gegevens over te nemen van het record dat de workflow startte.',
     to: 'Aan',
     subject: 'Onderwerp',
@@ -2226,7 +2346,7 @@ export const weldconnect = {
     integrationEvent: 'Integratiegebeurtenis',
     integrationEventDesc: 'Starten wanneer een verbonden app een gebeurtenis stuurt',
     schedule: 'Schema',
-    scheduleDesc: 'Starten op een terugkerend of eenmalig schema',
+    scheduleDesc: 'Starten op een terugkerend schema',
     workflowComplete: 'Workflow voltooid',
     workflowCompleteDesc: 'Starten wanneer een andere workflow is voltooid',
     webhook: 'Webhook',
@@ -2239,6 +2359,8 @@ export const weldconnect = {
 
   // Workflows client — dynamische lijststrings
   workflowsClient: {
+    justNow: 'zojuist',
+    noTrigger: 'Geen trigger',
     searchPlaceholder: '{entityLabel} zoeken...',
     createButton: 'Nieuwe {entityLabel}',
     createButtonAlt: '{entityLabel} aanmaken',
@@ -2326,6 +2448,45 @@ export const weldconnect = {
   },
 
   // Veelgebruikte breadcrumblabels
+  // Velden van het record dat een entity-event-trigger aanlevert (zie app/weldconnect/record-fields.ts)
+  recordFields: {
+    id: 'ID',
+    firstName: 'Voornaam',
+    lastName: 'Achternaam',
+    fullName: 'Volledige naam',
+    displayName: 'Weergavenaam',
+    email: 'E-mail',
+    phone: 'Telefoon',
+    mobile: 'Mobiel',
+    companyName: 'Bedrijfsnaam',
+    title: 'Functie',
+    website: 'Website',
+    'address.line1': 'Adres',
+    'address.postalCode': 'Postcode',
+    'address.city': 'Plaats',
+    'address.country': 'Land',
+    source: 'Bron',
+    status: 'Status',
+    rating: 'Beoordeling',
+    score: 'Score',
+    ownerId: 'Eigenaar-ID',
+    name: 'Naam',
+    industry: 'Branche',
+    amount: 'Bedrag',
+    stage: 'Fase',
+    stageId: 'Fase-ID',
+    currency: 'Valuta',
+    customerId: 'Bedrijfs-ID',
+    pipelineId: 'Pipeline-ID',
+  },
+
+  // Melding op WeldConnect-pagina's die buiten de huidige scope vallen (zie app/weldconnect/mvp.ts)
+  outOfScope: {
+    title: 'Nog geen onderdeel van WeldConnect',
+    description: 'Deze pagina is nog in ontwikkeling. Wat je hier instelt, kan nog niet in een workflow worden gebruikt.',
+    back: 'Terug naar het overzicht',
+  },
+
   breadcrumbs: {
     connect: 'WeldConnect',
     task: 'WeldConnect',

@@ -98,11 +98,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: makeLogo('weldflow'),
     sidebarIconClass: 'h-7 w-7',
   },
+  // WeldConnect. Icon-only logo: the wordmark files it shipped with still read
+  // "WeldTask" (the module's old name), so they are gone until a WeldConnect
+  // wordmark is drawn in the brand typeface. Surfaces fall back to icon + name.
   weldconnect: {
     lucideIcon: Zap,
     shortName: 'Automations',
     icon: '/assets/images/weldconnect/icon.svg',
-    logo: makeLogo('weldconnect'),
+    logo: {
+      iconLight: '/assets/images/weldconnect/logo-light.png',
+      iconDark: '/assets/images/weldconnect/logo-dark.png',
+    },
     sidebarIconClass: 'h-[27px] w-[27px]',
   },
   weldhost: {

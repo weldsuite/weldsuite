@@ -78,6 +78,8 @@ export const workflowExecutions = pgTable('workflow_executions', {
     aiStepId?: string;
     /** Conversation ID this execution belongs to */
     conversationId?: string;
+    /** Started from the editor's Test button: kept out of stats, analytics and notifications. */
+    isTest?: boolean;
   }>(),
 
   // Trigger.dev Integration (legacy)

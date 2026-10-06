@@ -191,12 +191,13 @@ app.get('/plans-page', async (c) => {
 
   const masterDb = getMasterDb(c.env);
 
-  // Fetch plans (the retired free plan is hidden from selection; existing free
-  // workspaces are grandfathered and their subscription still resolves by id).
+  // Fetch plans. Free is included: new workspaces land on it, so the page needs
+  // the row to mark it as the current plan. It has no Stripe price, so clients
+  // must not offer it as a checkout target (`POST /checkout` rejects it).
   const allPlans = await masterDb
     .select()
     .from(plans)
-    .where(and(eq(plans.isActive, true), isNull(plans.deletedAt), ne(plans.slug, 'free')))
+    .where(and(eq(plans.isActive, true), isNull(plans.deletedAt)))
     .orderBy(plans.sortOrder);
 
   const features = (f: PlanFeatures | null | undefined) => f || {};

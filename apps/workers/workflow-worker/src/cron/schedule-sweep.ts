@@ -22,6 +22,7 @@ import { getTenantDbForWorkspace, schema } from '../db';
 import type { WorkflowEnv } from '../engine/types';
 import { computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
 import type { ScheduleIndexRow } from '../schedule-index';
+import { scheduledSlot } from '../engine/trigger-data';
 
 // Re-exported for back-compat / callers that want the matcher directly.
 export { cronMatchesNow, cronMatchesAt, computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
@@ -114,7 +115,11 @@ async function isReadyToFire(store: ScheduleIndexStore, row: ScheduleIndexRow, n
 }
 
 /** Dispatch the workflow for a schedule row. Returns whether it succeeded. */
-async function dispatchScheduledWorkflow(executeWorkflow: ExecuteWorkflowBinding, row: ScheduleIndexRow): Promise<boolean> {
+async function dispatchScheduledWorkflow(
+  executeWorkflow: ExecuteWorkflowBinding,
+  row: ScheduleIndexRow,
+  slotMs: number | null,
+): Promise<boolean> {
   try {
     await executeWorkflow.create({
       params: {
@@ -126,6 +131,11 @@ async function dispatchScheduledWorkflow(executeWorkflow: ExecuteWorkflowBinding
         triggerData: {
           scheduleId: row.schedule_id,
           cronExpression: row.cron_expression,
+          // The slot this run is for (the row's due time, floored to the minute),
+          // not the moment the sweep got to it; `scheduledTimeLocal` is built
+          // from it in the schedule's timezone (engine/trigger-data.ts).
+          scheduledTime: scheduledSlot(slotMs, new Date()).toISOString(),
+          timezone: row.timezone,
         },
         source: row.source === 'helpdesk' ? 'helpdesk' : 'weldconnect',
       },
@@ -149,12 +159,14 @@ async function fireScheduleRow(
   row: ScheduleIndexRow,
   now: number,
 ): Promise<boolean> {
+  // The slot being fired, read before the index row is advanced past it.
+  const slotMs = row.next_run_at;
   // Advance first, then dispatch.
   const next = computeNextRunAt(row.cron_expression, row.timezone, new Date(now), boundsOf(row));
   const nextMs = next ? next.getTime() : null;
   await store.markFired(row.schedule_id, nextMs, now);
 
-  const ok = await dispatchScheduledWorkflow(executeWorkflow, row);
+  const ok = await dispatchScheduledWorkflow(executeWorkflow, row, slotMs);
 
   try {
     await onFired(row, ok, nextMs, now);

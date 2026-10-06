@@ -8,7 +8,7 @@
  *   GET  /latest          — latest session (?meetingId=)
  *   POST /start           — start a new session (body: { meetingId, join? })
  *   POST /:id/join        — join a session (get RTK auth token)
- *   POST /:id/leave       — leave a session (auto-ends when last participant leaves)
+ *   POST /:id/leave       — leave a session (ends it once RealtimeKit reports the room empty)
  *   POST /:id/end         — end a session
  *   POST /:id/participants/remove — host removes a participant (persists a guest block, kicks)
  *   GET  /:id/recordings       — LEGACY list of RealtimeKit recordings for a session (+ saved URL)
@@ -40,7 +40,12 @@ import {
   getRecordings,
   kickParticipants as kickRtkParticipants,
 } from '@weldsuite/cloudflare-realtime';
-import { endMeetingSession, publishSessionStarted, publishMeetingUpdated } from '../../services/weldmeet/meeting-lifecycle';
+import {
+  endMeetingSession,
+  endMeetingSessionIfEmpty,
+  publishSessionStarted,
+  publishMeetingUpdated,
+} from '../../services/weldmeet/meeting-lifecycle';
 import { RTK_SESSION_MAPPING_TTL_SECONDS, rtkSessionMappingKey } from '../../services/rtk-webhook';
 import { meetingSessionRecordingRoutes } from './recording';
 import { resolveParticipantLink, type ResolvedParticipantLink } from '../../lib/participant-resolver';
@@ -128,8 +133,10 @@ function buildSessionParticipant(
 }
 
 /**
- * If the meeting still points at a live session, end it when it is stale
- * (empty for a minute, or waiting for 5); otherwise report a conflict.
+ * If the meeting still points at a live session, end it when it looks stale
+ * (empty for a minute, or waiting for 5) AND RealtimeKit confirms nobody is in
+ * the room; otherwise report a conflict. Our participant list alone never ends
+ * a session (see endMeetingSessionIfEmpty).
  */
 async function endStaleSessionOrConflict(
   db: Database,
@@ -149,8 +156,15 @@ async function endStaleSessionOrConflict(
     (existingSession.status === 'waiting' && age > 5 * 60_000);
 
   if (!isStale) return 'conflict';
-  await endMeetingSession(db, env, orgId, existingSession.id, existingSession, meetingId);
-  return 'ok';
+  const outcome = await endMeetingSessionIfEmpty(
+    db,
+    env,
+    orgId,
+    existingSession.id,
+    existingSession,
+    meetingId,
+  );
+  return outcome === 'ended' ? 'ok' : 'conflict';
 }
 
 /** Register the calling member with RTK as part of `POST /start?join=true`. */
@@ -209,7 +223,9 @@ function checkJoinPolicy(
 /**
  * GET /active - Get the active (waiting|active) session for a meeting.
  * ?meetingId=  (required)
- * Also performs stale-session cleanup.
+ * Also performs stale-session cleanup: a session that looks abandoned is ended,
+ * but only once RealtimeKit confirms the room is empty. If people are still in
+ * it the session is returned as usual, so the caller joins them.
  */
 app.get('/active', requirePermission('sessions:read'), async (c) => {
   const orgId = c.get('orgId');
@@ -261,10 +277,11 @@ app.get('/active', requirePermission('sessions:read'), async (c) => {
           now - new Date(session.updatedAt).getTime() > inactivityMs);
 
       if (isStale) {
+        let outcome: Awaited<ReturnType<typeof endMeetingSessionIfEmpty>> = 'unknown';
         try {
-          await endMeetingSession(db, c.env, orgId, session.id, session, meetingId);
+          outcome = await endMeetingSessionIfEmpty(db, c.env, orgId, session.id, session, meetingId);
         } catch { /* best effort */ }
-        return success(c, null);
+        if (outcome === 'ended') return success(c, null);
       }
     }
 
@@ -552,7 +569,11 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
 });
 
 /**
- * POST /:id/leave - Leave a session (auto-ends when last participant leaves).
+ * POST /:id/leave - Leave a session.
+ * When our list shows nobody left, the session is ended only if RealtimeKit
+ * confirms the room is empty: the list can be wrong, and ending kicks whoever
+ * is still inside. If someone is, the session stays and RealtimeKit's own
+ * meeting.ended webhook ends it once the room empties.
  * A no-op once the session has ended: when the host ends the call every
  * kicked client reports a leave, and none of them may re-run the end.
  */
@@ -584,7 +605,7 @@ app.post('/:id/leave', requirePermission('sessions:read'), async (c) => {
       .where(eq(t.id, sessionId));
 
     if (activeParticipants.length === 0) {
-      await endMeetingSession(db, c.env, orgId, sessionId, session, session.meetingId);
+      await endMeetingSessionIfEmpty(db, c.env, orgId, sessionId, session, session.meetingId);
     }
 
     return success(c, { ok: true });

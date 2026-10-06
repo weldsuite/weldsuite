@@ -14,6 +14,7 @@ import { and, eq, ne, sql } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import {
   endMeeting as endRtkMeeting,
+  getLiveParticipantCount,
   kickAllParticipants as kickAllRtkParticipants,
   type CloudflareRealtimeEnv,
   type RealtimeKvNamespace,
@@ -335,4 +336,59 @@ export async function endMeetingSession(
   } catch (e) {
     console.error('[MeetingLifecycle] Realtime publish failed:', e);
   }
+}
+
+// ============================================================================
+// End session, but only when the room is empty
+// ============================================================================
+
+/**
+ * - `ended`: RealtimeKit reported an empty room and the session was ended.
+ * - `occupied`: someone is still connected, nothing was touched.
+ * - `unknown`: RealtimeKit could not be asked, nothing was touched.
+ */
+export type EndIfEmptyOutcome = 'ended' | 'occupied' | 'unknown';
+
+/**
+ * End a session that LOOKS finished, after asking RealtimeKit whether anyone
+ * is still in the room. Every automatic end goes through here: the last
+ * participant leaving, the inactivity sweep, a stale session found on start
+ * and the `meeting.ended` webhook.
+ *
+ * Ending kicks everyone, so it must never be decided from our own participant
+ * list alone. That list drifts: a leave webhook for a dropped connection lands
+ * after the same person rejoined, a second tab closes, a join is recorded for
+ * a guest still in the waiting room. Acting on it ended live meetings for
+ * everybody in them. RealtimeKit knows who is connected; while it reports
+ * anyone, the session stays. When the room really is empty RealtimeKit ends
+ * its own session about a minute later and sends `meeting.ended`, which
+ * arrives here again and ends ours.
+ *
+ * Not for the host's "End for all": that is {@link endMeetingSession}.
+ */
+export async function endMeetingSessionIfEmpty(
+  db: MeetingLifecycleDb,
+  env: MeetingLifecycleEnv,
+  orgId: string,
+  sessionId: string,
+  session: { startedAt: Date | null; cfAppId: string | null },
+  meetingId: string,
+): Promise<EndIfEmptyOutcome> {
+  if (session.cfAppId) {
+    let live: number;
+    try {
+      live = await getLiveParticipantCount(env, session.cfAppId);
+    } catch (err) {
+      console.error('[MeetingLifecycle] RTK live participant check failed, keeping the session', {
+        sessionId,
+        cfAppId: session.cfAppId,
+        err,
+      });
+      return 'unknown';
+    }
+    if (live > 0) return 'occupied';
+  }
+
+  await endMeetingSession(db, env, orgId, sessionId, session, meetingId);
+  return 'ended';
 }

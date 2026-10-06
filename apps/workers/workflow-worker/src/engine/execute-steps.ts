@@ -20,6 +20,7 @@ import type {
 import { isWaitingForInput, getDelayMs } from './types';
 import { resolveInputs, type ResolveInputsOptions } from './resolve-inputs';
 import { evaluateCondition } from './evaluate-condition';
+import { errorDetails, isNonRetryableError } from './errors';
 
 /**
  * Per-action template options. An HTML email body is markup the author wrote
@@ -68,12 +69,18 @@ async function runStepWithRetry(
   while (attempts < limit) {
     attempts++;
     try {
-      const result = await runtime.do(`step-${index}-${step.id}-attempt-${attempts}`, () =>
-        executeAction(step.type, inputs, actionCtx),
+      // The engine owns retries (the loop above), so the durable runtime must
+      // not stack its own implicit retry/backoff on top.
+      const result = await runtime.do(
+        `step-${index}-${step.id}-attempt-${attempts}`,
+        () => executeAction(step.type, inputs, actionCtx),
+        { engineRetries: true },
       );
       return { succeeded: true, result, attempts };
     } catch (err) {
       lastError = err;
+      // Bad input / validation rejections fail the same way every time.
+      if (isNonRetryableError(err)) break;
       if (attempts < limit) {
         const delay = baseDelay * Math.pow(backoff, attempts - 1);
         if (delay > 0) await runtime.sleep(`retry-${index}-${attempts}`, delay);
@@ -96,10 +103,17 @@ async function handleStepFailure(
 ): Promise<ExecuteStepsResult | null> {
   const { lastError, attempts } = attempt;
   const message = lastError instanceof Error ? lastError.message : String(lastError);
+  const errorDetail = errorDetails(lastError);
   const continueOnError = step.continueOnError === true || step.onError?.action === 'continue';
   if (continueOnError) {
     output[step.id] = { error: message };
-    await hooks?.onStepResult?.(step, index, { status: 'failed', error: message, attempts });
+    await hooks?.onStepResult?.(step, index, {
+      status: 'failed',
+      error: message,
+      errorDetails: errorDetail,
+      continued: true,
+      attempts,
+    });
     return null;
   }
   const failResult: ExecuteStepsResult = {
@@ -107,7 +121,12 @@ async function handleStepFailure(
     output,
     error: { stepId: step.id, message },
   };
-  await hooks?.onStepResult?.(step, index, { status: 'failed', error: message, attempts });
+  await hooks?.onStepResult?.(step, index, {
+    status: 'failed',
+    error: message,
+    errorDetails: errorDetail,
+    attempts,
+  });
   await hooks?.onComplete?.(failResult);
   return failResult;
 }

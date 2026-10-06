@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeWorkflowSteps } from './execute-steps';
+import { NonRetryableStepError } from './errors';
 import type {
   WorkflowDefinition,
   WorkflowStep,
@@ -222,6 +223,92 @@ describe('executeWorkflowSteps', () => {
 
     expect(attempts).toBe(2);
     expect(res.status).toBe('failed');
+  });
+
+  it('does not retry a non-retryable failure, even with a retry policy, and passes its details on', async () => {
+    const { runtime, sleeps } = fakeRuntime();
+    let attempts = 0;
+    const { executeAction } = recorder({
+      t1: () => {
+        attempts += 1;
+        throw new NonRetryableStepError('Recipient address "x" is not valid', { status: 400 });
+      },
+    });
+    const onStepResult = vi.fn();
+
+    const res = await executeWorkflowSteps(
+      wf([step('s1', 't1', { retryPolicy: { maxAttempts: 5, delayMs: 1000 } })]),
+      runContext(),
+      { runtime, executeAction, hooks: { onStepResult } },
+    );
+
+    expect(attempts).toBe(1);
+    expect(sleeps).toHaveLength(0);
+    expect(res.status).toBe('failed');
+    expect(res.error?.message).toBe('Recipient address "x" is not valid');
+    expect(onStepResult).toHaveBeenCalledWith(
+      expect.anything(),
+      0,
+      expect.objectContaining({ status: 'failed', attempts: 1, errorDetails: { status: 400 } }),
+    );
+    expect(onStepResult.mock.calls[0][2].continued).toBeUndefined();
+  });
+
+  it('recognises a non-retryable error that lost its prototype crossing the step boundary', async () => {
+    const { runtime } = fakeRuntime();
+    let attempts = 0;
+    const { executeAction } = recorder({
+      t1: () => {
+        attempts += 1;
+        const e = new Error('rebuilt');
+        e.name = 'NonRetryableStepError';
+        throw e;
+      },
+    });
+    await executeWorkflowSteps(
+      wf([step('s1', 't1', { retryPolicy: { maxAttempts: 3, delayMs: 0 } })]),
+      runContext(),
+      { runtime, executeAction },
+    );
+    expect(attempts).toBe(1);
+  });
+
+  it('flags a failed step the run continued past', async () => {
+    const { runtime } = fakeRuntime();
+    const { executeAction } = recorder({
+      t1: () => {
+        throw new Error('nope');
+      },
+    });
+    const onStepResult = vi.fn();
+    const res = await executeWorkflowSteps(wf([step('s1', 't1', { continueOnError: true })]), runContext(), {
+      runtime,
+      executeAction,
+      hooks: { onStepResult },
+    });
+    expect(res.status).toBe('completed');
+    expect(onStepResult).toHaveBeenCalledWith(
+      expect.anything(),
+      0,
+      expect.objectContaining({ status: 'failed', continued: true }),
+    );
+  });
+
+  it('runs action attempts as engine-retried steps (the durable runtime must not retry them too)', async () => {
+    const opts: Array<{ engineRetries?: boolean } | undefined> = [];
+    const runtime: StepRuntime = {
+      do: async (_name, fn, o) => {
+        opts.push(o);
+        return fn();
+      },
+      sleep: async () => undefined,
+      waitForEvent: async () => {
+        throw new Error('unexpected');
+      },
+    };
+    const { executeAction } = recorder();
+    await executeWorkflowSteps(wf([step('s1', 't1')]), runContext(), { runtime, executeAction });
+    expect(opts).toEqual([{ engineRetries: true }]);
   });
 
   it('sleeps for a delay step using runtime.sleep, then continues', async () => {

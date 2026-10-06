@@ -7,6 +7,7 @@ import {
 vi.mock('../../services/rtk-webhook', () => ({
   POST_MEETING_EVENTS: new Set(['recording.statusUpdate', 'meeting.transcript', 'meeting.summary']),
   handleMeetingEnded: vi.fn(async () => {}),
+  handleParticipantJoined: vi.fn(async () => {}),
   handleParticipantLeft: vi.fn(async () => {}),
   handleRecordingStatus: vi.fn(async () => {}),
   handleMeetingTranscript: vi.fn(async () => {}),
@@ -20,6 +21,7 @@ vi.mock('@weldsuite/cloudflare-realtime', () => ({
 
 const {
   handleMeetingEnded,
+  handleParticipantJoined,
   handleParticipantLeft,
   handleRecordingStatus,
   handleMeetingTranscript,
@@ -176,6 +178,21 @@ describe('POST /api/webhooks/cloudflare-realtime', () => {
     );
   });
 
+  it('routes a signed meeting.participantJoined to the participant handler', async () => {
+    const body = JSON.stringify({
+      event: 'meeting.participantJoined',
+      meeting: { id: 'rtk-meeting-1' },
+      participant: { peerId: 'peer-2', customParticipantId: 'user_1', joinedAt: '2026-10-02T10:26:00.000Z' },
+    });
+    const res = await post(body, { 'rtk-signature': await sign(body) });
+    expect(res.status).toBe(200);
+    expect(handleParticipantJoined).toHaveBeenCalledWith(
+      expect.anything(),
+      MAPPING,
+      expect.objectContaining({ participant: expect.objectContaining({ peerId: 'peer-2' }) }),
+    );
+  });
+
   describe('post-meeting events (recorder, transcript, summary)', () => {
     const SESSION_MAPPING = { orgId: 'org_1', type: 'session' as const, sessionId: 'msess_1', meetingId: 'mtg_1' };
 
@@ -277,6 +294,7 @@ describe('POST /api/webhooks/cloudflare-realtime/setup', () => {
     // Every event the receiver handles, so a re-run of /setup never drops one.
     expect(params.events).toEqual([
       'meeting.ended',
+      'meeting.participantJoined',
       'meeting.participantLeft',
       'recording.statusUpdate',
       'meeting.transcript',

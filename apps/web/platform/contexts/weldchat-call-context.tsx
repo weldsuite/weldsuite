@@ -17,6 +17,8 @@ import rnnoiseWorkerUrl from '@weldsuite/df3-noise-suppression/rnnoise-worker?wo
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth, useUser } from '@clerk/clerk-react';
+import { toast } from 'sonner';
+import { getTranslations } from '@/lib/i18n';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { playCallJoinSound, playCallLeaveSound, playMuteSound, playUnmuteSound, playCameraToggleSound, playScreenShareSound, playHandRaiseSound, playHandLowerSound } from '@/lib/utils/notification-sound';
 import { useVirtualBackground, type VirtualBackgroundType } from '@/hooks/use-virtual-background';
@@ -34,6 +36,12 @@ const REALTIME_BASE_URL = getRealtimeWsOrigin();
 const NOISE_SUPPRESSION_ENABLED =
   import.meta.env.VITE_NOISE_SUPPRESSION !== 'false' &&
   import.meta.env.VITE_DF3_NOISE_SUPPRESSION !== 'false';
+
+/** One toast for the whole reconnect: "reconnecting" is replaced by "back in the call". */
+const RECONNECT_TOAST_ID = 'weldchat-reconnecting';
+
+/** How long a deliberate leave waits for RealtimeKit before telling the backend anyway. */
+const RTK_LEAVE_TIMEOUT_MS = 2_000;
 
 // ============================================================================
 // Helpers
@@ -449,12 +457,17 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
   }, [channelId, status, user?.id]);
 
   const cleanup = useCallback(() => {
+    toast.dismiss(RECONNECT_TOAST_ID);
     if (meeting) {
       // Stop the local hardware tracks BEFORE leaving — RTK's leave() does not
       // reliably release the camera/mic, so the device indicator would otherwise
       // stay on after the call ends.
       stopLocalMediaTracks(meeting);
-      meeting.leave().catch(() => { /* ignore */ });
+      // Also reached after the room was already left (a deliberate leave does
+      // that first), so a leave() that throws must not abort the teardown.
+      Promise.resolve()
+        .then(() => meeting.leave())
+        .catch(() => { /* ignore */ });
     }
     // Restore getUserMedia first, then dispose the suppressor.
     try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
@@ -478,6 +491,23 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     setHandRaisedParticipants(new Set());
     setIsPiP(false);
     setIsFullscreen(false);
+  }, [meeting]);
+
+  /**
+   * Leave the RealtimeKit room ahead of telling the backend about a leave: it
+   * ends the call only once RealtimeKit reports the room empty, which it never
+   * does while we are still connected. Bounded, so a dead connection cannot
+   * hold up the hang-up.
+   */
+  const leaveRoom = useCallback(async () => {
+    if (!meeting) return;
+    stopLocalMediaTracks(meeting);
+    await Promise.race([
+      Promise.resolve()
+        .then(() => meeting.leave())
+        .catch(() => { /* ignore */ }),
+      new Promise((resolve) => setTimeout(resolve, RTK_LEAVE_TIMEOUT_MS)),
+    ]);
   }, [meeting]);
 
   const stopPreviewStream = useCallback(() => {
@@ -527,16 +557,40 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
       throw err;
     }
 
-    m.self.on('roomJoined', () => {
+    m.self.on('roomJoined', (payload) => {
       setStatus('connected');
+      // The SDK got back in by itself after a dropped connection: no join chime.
+      if (payload?.reconnected) {
+        // An explicit duration: the "reconnecting" toast this replaces never expires.
+        toast.success(getTranslations('weldchat').calling.reconnected, {
+          id: RECONNECT_TOAST_ID,
+          duration: 4000,
+        });
+        return;
+      }
       playCallJoinSound();
     });
 
-    m.self.on('roomLeft', () => {
-      // Notify the backend so the call auto-ends if no participants remain.
-      // This fires on network drops, WebRTC disconnects, etc.
+    m.self.on('roomLeft', ({ state }) => {
+      // 'disconnected' is not a leave: the connection dropped and the SDK is
+      // already reconnecting (it emits roomJoined { reconnected: true } once
+      // back). Leaving here threw people out of the call on a short network
+      // drop, and their /leave could end the call for everyone else.
+      if (state === 'disconnected') {
+        toast.loading(getTranslations('weldchat').calling.reconnecting, {
+          id: RECONNECT_TOAST_ID,
+          duration: Infinity,
+        });
+        return;
+      }
+      // Notify the backend so the call auto-ends once the room is empty. The
+      // ref is already cleared when the user left or ended the call themselves.
       const cId = callIdRef.current;
       if (cId) fireLeaveRequest(cId);
+      // The SDK gave up reconnecting; only a new call gets the user back in.
+      if (state === 'failed' && cId) {
+        toast.error(getTranslations('weldchat').calling.connectionLost);
+      }
       cleanup();
     });
 
@@ -606,6 +660,9 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     if (!pendingCall) return;
     // Leave current call first
     if (callId) {
+      // Cleared first so the roomLeft below doesn't fire a duplicate /leave
+      callIdRef.current = null;
+      await leaveRoom();
       const client = await getClient();
       try { await client.post(`/chat-calls/${callId}/leave`, {}); } catch { /* best effort */ }
     }
@@ -617,7 +674,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
       await doStartCall(pendingCall.channelId, pendingCall.callType);
     }
     setPendingCall(null);
-  }, [pendingCall, callId, getClient, cleanup, doStartCall, doJoinCall]);
+  }, [pendingCall, callId, getClient, leaveRoom, cleanup, doStartCall, doJoinCall]);
 
   const cancelSwitchCall = useCallback(() => {
     setPendingCall(null);
@@ -708,18 +765,19 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     if (!callId) return;
     const endedCallId = callId;
     const chId = channelId;
+    // Clear ref BEFORE leaving so the roomLeft handler doesn't fire a duplicate /leave
+    callIdRef.current = null;
+    await leaveRoom();
     const client = await getClient();
     try {
       await client.post(`/chat-calls/${endedCallId}/leave`, {});
     } catch { /* best effort */ }
-    // Clear ref BEFORE cleanup so the roomLeft handler doesn't fire a duplicate /leave
-    callIdRef.current = null;
     cleanup();
     patchActiveCallsCache(endedCallId);
     if (chId) {
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
     }
-  }, [callId, channelId, getClient, cleanup, queryClient, patchActiveCallsCache]);
+  }, [callId, channelId, getClient, leaveRoom, cleanup, queryClient, patchActiveCallsCache]);
 
   const endCall = useCallback(async () => {
     if (!callId) return;
@@ -735,7 +793,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     cleanup();
     patchActiveCallsCache(endedCallId);
     if (chId) {
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
     }
   }, [callId, channelId, getClient, cleanup, queryClient, patchActiveCallsCache]);
 
@@ -752,11 +810,11 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
   const toggleMute = useCallback(() => {
     if (!meeting) return;
     if (meeting.self.audioEnabled) {
-      meeting.self.disableAudio();
+      void meeting.self.disableAudio();
       setIsMuted(true);
       playMuteSound();
     } else {
-      meeting.self.enableAudio();
+      void meeting.self.enableAudio();
       setIsMuted(false);
       playUnmuteSound();
     }
@@ -765,10 +823,10 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
   const toggleVideo = useCallback(() => {
     if (!meeting) return;
     if (meeting.self.videoEnabled) {
-      meeting.self.disableVideo();
+      void meeting.self.disableVideo();
       setIsVideoOff(true);
     } else {
-      meeting.self.enableVideo();
+      void meeting.self.enableVideo();
       setIsVideoOff(false);
     }
     playCameraToggleSound();
@@ -834,7 +892,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
 
   const stopScreenShare = useCallback(() => {
     if (!meeting) return;
-    meeting.self.disableScreenShare();
+    void meeting.self.disableScreenShare();
     setIsScreenSharing(false);
     playScreenShareSound();
   }, [meeting]);

@@ -3,16 +3,11 @@ import { useState, useMemo } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter, Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import { localeConfig } from '@/lib/i18n/locales';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Separator } from '@weldsuite/ui/components/separator';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@weldsuite/ui/components/dialog';
 import {
   EntityDetailHeader,
   type StatusBadgeConfig,
@@ -37,8 +32,23 @@ import {
   Bot,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useCancelExecution, useRetryExecution, type WorkflowExecution } from '@/hooks/queries/use-automation-queries';
+import {
+  isActiveExecutionStatus,
+  isWorkflowInactiveError,
+  useCancelExecution,
+  useRetryExecution,
+  type WorkflowExecution,
+} from '@/hooks/queries/use-automation-queries';
 import { useExecutionRealtime } from '@/hooks/realtime/use-execution-realtime';
+import {
+  formatExecutionDuration,
+  getExecutionDuration,
+  getStepsProgress,
+  isTestExecution,
+  shortExecutionId,
+  type ExecutionErrorInfo,
+} from '../execution-utils';
+import { useNow } from '../use-now';
 
 export interface ExecutionStepView {
   id: string;
@@ -50,7 +60,7 @@ export interface ExecutionStepView {
   completedAt: string | null;
   input: Record<string, unknown> | null;
   output: Record<string, unknown> | null;
-  error: string | null;
+  error: ExecutionErrorInfo | null;
 }
 
 export interface ExecutionLogEntry {
@@ -65,7 +75,7 @@ export interface ExecutionLogEntry {
 export interface ExecutionDetailDto extends Omit<WorkflowExecution, 'error'> {
   steps: ExecutionStepView[];
   input: Record<string, unknown> | null;
-  error: string | null;
+  error: ExecutionErrorInfo | null;
 }
 
 interface ExecutionDetailClientProps {
@@ -94,19 +104,6 @@ interface DelegationResultPayload {
   durationMs?: number;
   error?: string | null;
 }
-
-const formatDuration = (ms: number | null | undefined) => {
-  if (!ms || ms === 0) return '0ms';
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
-  if (ms < 3600000) return `${(ms / 60000).toFixed(2)}m`;
-  return `${(ms / 3600000).toFixed(2)}h`;
-};
-
-const formatDate = (date: string | Date, naLabel: string) => {
-  if (!date) return naLabel;
-  return new Date(date).toLocaleString();
-};
 
 const hasEntries = (obj: Record<string, unknown> | null | undefined) =>
   !!obj && Object.keys(obj).length > 0;
@@ -163,6 +160,43 @@ const getStepStatusBadge = (status: string, labels: Record<string, string>) => {
   const label = labels[status] || status;
   return <Badge variant="outline" className={`${cfg.className} rounded-sm`}>{label}</Badge>;
 };
+
+/**
+ * An error message that wraps instead of stretching the layout, with any
+ * structured details tucked behind a toggle.
+ */
+function ExecutionErrorBlock({ error, className }: Readonly<{ error: ExecutionErrorInfo; className?: string }>) {
+  const { t } = useI18n();
+  const [showDetails, setShowDetails] = useState(false);
+  const hasDetails = error.details !== undefined;
+
+  return (
+    <div className={className}>
+      {error.message && (
+        <p className="text-sm text-red-700 dark:text-red-300 whitespace-pre-wrap [overflow-wrap:anywhere]">{error.message}</p>
+      )}
+      {hasDetails && (
+        <>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="h-auto p-0 mt-1 text-xs text-red-700 dark:text-red-300"
+            aria-expanded={showDetails}
+            onClick={() => setShowDetails((open) => !open)}
+          >
+            {showDetails ? t.weldconnect.executionDetail.hideDetails : t.weldconnect.executionDetail.showDetails}
+          </Button>
+          {showDetails && (
+            <pre className="mt-2 max-h-[240px] overflow-auto rounded-md bg-white/60 dark:bg-black/20 p-2 text-xs whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {typeof error.details === 'string' ? error.details : JSON.stringify(error.details, null, 2)}
+            </pre>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 /**
  * Shows sub-agent delegation results within an ai_agent step's detail view.
@@ -236,7 +270,7 @@ function DelegationSection({ step, delegationsLabel, iterationsLabel, tokensLabe
                 <Badge variant="outline" className={`text-xs rounded-sm shrink-0 ${statusColors[d.status] || ''}`}>
                   {d.status}
                 </Badge>
-                <span className="text-xs text-muted-foreground shrink-0">{formatDuration(d.durationMs)}</span>
+                <span className="text-xs text-muted-foreground shrink-0">{formatExecutionDuration(d.durationMs)}</span>
                 <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
               </Button>
               {expanded && (
@@ -266,14 +300,26 @@ function DelegationSection({ step, delegationsLabel, iterationsLabel, tokensLabe
 }
 
 export function ExecutionDetailClient({ execution, initialLogs }: Readonly<ExecutionDetailClientProps>) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const st = useTranslations();
   const naLabel = st('sweep.weldconnect.executionDetail.notAvailable');
+  const dateTimeFormat = useMemo(
+    () => new Intl.DateTimeFormat(localeConfig[language].intlLocale, { dateStyle: 'medium', timeStyle: 'medium' }),
+    [language],
+  );
+  const formatDate = (date: string | Date | null | undefined) => {
+    if (!date) return naLabel;
+    const value = new Date(date);
+    return Number.isNaN(value.getTime()) ? naLabel : dateTimeFormat.format(value);
+  };
+
+  const workflowName = execution.workflowName || t.weldconnect.executionDetail.unknownWorkflow;
+  const idTail = execution.id.slice(-6);
 
   useBreadcrumbs([
     { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.executions, href: '/weldconnect/executions' },
-    { label: execution.id?.slice(0, 8) || t.weldconnect.executionDetail.entityType },
+    { label: `${workflowName} #${idTail}` },
   ]);
 
   const router = useRouter();
@@ -281,18 +327,27 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
   const retryExecutionMutation = useRetryExecution();
   const isPending = cancelExecutionMutation.isPending || retryExecutionMutation.isPending;
   const [activeTab, setActiveTab] = useState('steps');
-  const [selectedStep, setSelectedStep] = useState<ExecutionStepView | null>(null);
+  const [expandedSteps, setExpandedSteps] = useState<ReadonlySet<string>>(new Set());
+
+  const toggleStep = (stepId: string) => {
+    setExpandedSteps((current) => {
+      const next = new Set(current);
+      if (next.has(stepId)) next.delete(stepId);
+      else next.add(stepId);
+      return next;
+    });
+  };
 
   // Subscribe to realtime updates via WeldSuite WorkspaceHub
-  const isRunning = ['running', 'pending', 'queued'].includes(execution.status);
+  const isRunning = isActiveExecutionStatus(execution.status);
   const {
     status: realtimeStatus,
     progress: realtimeProgress,
     isLive,
   } = useExecutionRealtime(execution.id, isRunning);
 
-  // Derive status from realtime data if available
-  const liveStatus = realtimeStatus || execution.status;
+  // Derive status from realtime data while the run is going; a finished run's own status wins
+  const liveStatus = isRunning ? (realtimeStatus || execution.status) : execution.status;
 
   // Format the live progress display
   const liveProgressDisplay = useMemo(() => {
@@ -328,21 +383,29 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
     retryExecutionMutation.mutate(execution.id, {
       onSuccess: (data) => {
         toast.success(t.weldconnect.executionDetail.toasts.retried);
+        // The retry is a new execution that already exists (queued), so open it.
         if (data?.data?.id) {
           router.push(`/weldconnect/executions/${data.data.id}`);
         }
       },
-      onError: () => {
-        toast.error(t.weldconnect.executionDetail.toasts.retryFailed);
+      onError: (err) => {
+        toast.error(
+          isWorkflowInactiveError(err)
+            ? t.weldconnect.executionDetail.toasts.workflowInactive
+            : t.weldconnect.executionDetail.toasts.retryFailed,
+        );
       },
     });
   };
 
-  const isCurrentlyRunning = liveStatus === 'running' || liveStatus === 'pending' || liveStatus === 'queued';
+  const isCurrentlyRunning = isActiveExecutionStatus(liveStatus);
   const isFailed = liveStatus === 'failed';
   const emptyOutputMessage = isCurrentlyRunning
     ? t.weldconnect.executionDetail.executionInProgress
     : t.weldconnect.executionDetail.noOutputData;
+
+  const now = useNow(liveStatus === 'running');
+  const duration = getExecutionDuration({ ...execution, status: liveStatus }, now);
 
   // Status badge configuration
   const statusConfig: Record<string, StatusBadgeConfig> = {
@@ -435,14 +498,31 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
     });
   }
 
-  // Stats
-  const successfulSteps = execution.steps?.filter((s) => s.status === 'success' || s.status === 'completed').length || 0;
-  const totalSteps = execution.steps?.length || 0;
+  // Stats: step rows when there are any, the run's own counters before they exist
+  const stepRows = execution.steps ?? [];
+  const progress = getStepsProgress({ ...execution, status: liveStatus });
+  const successfulSteps = stepRows.length > 0
+    ? stepRows.filter((s) => s.status === 'success' || s.status === 'completed').length
+    : progress.completed;
+  const totalSteps = stepRows.length > 0 ? stepRows.length : progress.total;
+
+  // Old runs have no logs: hide the tab instead of offering an empty one
+  const hasLogs = initialLogs.length > 0;
+  const currentTab = activeTab === 'logs' && !hasLogs ? 'steps' : activeTab;
+
+  const tabs: Array<{ id: string; label: string }> = [
+    { id: 'steps', label: t.weldconnect.executionDetail.tabs.steps },
+    { id: 'input', label: t.weldconnect.executionDetail.tabs.input },
+    { id: 'output', label: t.weldconnect.executionDetail.tabs.output },
+    ...(hasLogs
+      ? [{ id: 'logs', label: t.weldconnect.executionDetail.tabs.logs.replace('{count}', String(initialLogs.length)) }]
+      : []),
+  ];
 
   return (
     <>
-      {/* Back Button */}
-      <div className="container mx-auto max-w-[1200px] pt-8">
+      {/* Back button and actions: wrap instead of overflowing on narrow screens */}
+      <div className="container mx-auto max-w-[1200px] pt-8 flex flex-wrap items-center justify-between gap-2">
         <Link href="/weldconnect/executions">
           <Button
             type="button"
@@ -454,18 +534,66 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
             {t.weldconnect.executionDetail.backToExecutions}
           </Button>
         </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          {quickActions.map((action) => (
+            <Button
+              key={action.label}
+              variant={action.variant || 'outline'}
+              size="icon"
+              className="h-8 w-8 shadow-none"
+              title={action.label}
+              aria-label={action.label}
+              onClick={action.onClick}
+              disabled={action.disabled}
+            >
+              <action.icon className="h-4 w-4" />
+            </Button>
+          ))}
+          {primaryActions.map((action) => (
+            <Button
+              key={action.label}
+              variant={action.variant || 'default'}
+              onClick={action.onClick}
+              disabled={action.disabled}
+              className="h-8 text-sm px-3 shadow-none flex items-center gap-1.5"
+            >
+              <action.icon className="h-4 w-4" />
+              <span>{action.label}</span>
+            </Button>
+          ))}
+        </div>
       </div>
 
       <EntityDetailHeader
-        entityId={execution.id?.slice(0, 8) || naLabel}
+        entityId={execution.id}
         entityType={t.weldconnect.executionDetail.entityType}
-        subtitle={`${t.weldconnect.executionDetail.workflowLabel} ${execution.workflowName || t.weldconnect.executionDetail.unknownWorkflow}`}
+        title={`${workflowName} #${idTail}`}
+        subtitle={`${t.weldconnect.executionDetail.workflowLabel} ${workflowName}`}
+        badge={(
+          <>
+            {isTestExecution(execution) && (
+              <Badge variant="outline" className="rounded-md text-xs font-medium text-muted-foreground">
+                {t.weldconnect.executions.testBadge}
+              </Badge>
+            )}
+            {execution.parentExecutionId && (
+              <span className="text-sm text-muted-foreground">
+                {t.weldconnect.executionDetail.retryOf}{' '}
+                <Link
+                  href={`/weldconnect/executions/${execution.parentExecutionId}`}
+                  className="font-mono text-primary hover:underline"
+                  title={execution.parentExecutionId}
+                >
+                  {shortExecutionId(execution.parentExecutionId)}
+                </Link>
+              </span>
+            )}
+          </>
+        )}
         status={{
           value: liveStatus,
           config: statusConfig,
         }}
-        quickActions={quickActions}
-        primaryActions={primaryActions}
       >
         {/* Stats Cards */}
         <>
@@ -474,7 +602,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
               {t.weldconnect.executionDetail.startedAt}
             </p>
             <p className="text-base font-semibold mt-1">
-              {formatDate(execution.startedAt || execution.createdAt, naLabel)}
+              {formatDate(execution.startedAt || execution.createdAt)}
             </p>
           </div>
 
@@ -483,7 +611,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
               {t.weldconnect.executionDetail.duration}
             </p>
             <p className="text-base font-semibold mt-1">
-              {formatDuration(execution.duration)}
+              {formatExecutionDuration(duration)}
             </p>
           </div>
 
@@ -518,35 +646,17 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
 
           {/* Tabs */}
           <div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant={activeTab === 'steps' ? 'default' : 'outline'}
-                onClick={() => setActiveTab('steps')}
-                className="h-8 text-sm px-3 shadow-none"
-              >
-                {t.weldconnect.executionDetail.tabs.steps}
-              </Button>
-              <Button
-                variant={activeTab === 'input' ? 'default' : 'outline'}
-                onClick={() => setActiveTab('input')}
-                className="h-8 text-sm px-3 shadow-none"
-              >
-                {t.weldconnect.executionDetail.tabs.input}
-              </Button>
-              <Button
-                variant={activeTab === 'output' ? 'default' : 'outline'}
-                onClick={() => setActiveTab('output')}
-                className="h-8 text-sm px-3 shadow-none"
-              >
-                {t.weldconnect.executionDetail.tabs.output}
-              </Button>
-              <Button
-                variant={activeTab === 'logs' ? 'default' : 'outline'}
-                onClick={() => setActiveTab('logs')}
-                className="h-8 text-sm px-3 shadow-none"
-              >
-                {t.weldconnect.executionDetail.tabs.logs.replace('{count}', String(initialLogs.length))}
-              </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {tabs.map((tab) => (
+                <Button
+                  key={tab.id}
+                  variant={currentTab === tab.id ? 'default' : 'outline'}
+                  onClick={() => setActiveTab(tab.id)}
+                  className="h-8 text-sm px-3 shadow-none"
+                >
+                  {tab.label}
+                </Button>
+              ))}
             </div>
 
             {/* Error Banner */}
@@ -554,9 +664,9 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
               <div className="mt-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-4">
                 <div className="flex items-start gap-3">
                   <XCircle className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <p className="font-semibold text-red-900 dark:text-red-100">{t.weldconnect.executionDetail.executionFailed}</p>
-                    <p className="text-sm text-red-700 dark:text-red-300 mt-1">{execution.error}</p>
+                    <ExecutionErrorBlock error={execution.error} className="mt-1" />
                   </div>
                 </div>
               </div>
@@ -564,126 +674,103 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
 
             {/* Tab Content */}
             <div className="mt-4">
-              {activeTab === 'steps' && (
-                <>
-                  {/* Steps List */}
-                  <div className="space-y-3">
-                    {execution.steps && execution.steps.length > 0 ? (
-                      execution.steps.map((step, index: number) => (
-                        <button
-                          type="button"
+              {currentTab === 'steps' && (
+                <div className="space-y-3">
+                  {stepRows.length > 0 ? (
+                    stepRows.map((step, index: number) => {
+                      const expanded = expandedSteps.has(step.id);
+                      const hasDetails = hasEntries(step.input) || hasEntries(step.output) || !!step.error;
+                      return (
+                        <div
                           key={step.id}
-                          className="block w-full text-left bg-white dark:bg-background rounded-md border border-gray-200 dark:border-border p-4 cursor-pointer transition-all hover:bg-gray-50 hover:border-gray-300 dark:hover:bg-secondary dark:hover:border-border"
-                          onClick={() => setSelectedStep(step)}
+                          className="bg-white dark:bg-background rounded-md border border-gray-200 dark:border-border"
                         >
-                          <span className="flex items-start justify-between">
-                            <span className="flex items-start gap-3">
-                              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-secondary text-sm font-medium">
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            aria-label={`${expanded ? t.weldconnect.executionDetail.collapseStep : t.weldconnect.executionDetail.expandStep}: ${step.name}`}
+                            className="flex w-full items-start justify-between gap-3 p-4 text-left rounded-md cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-secondary"
+                            onClick={() => toggleStep(step.id)}
+                          >
+                            <span className="flex min-w-0 items-start gap-3">
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gray-100 dark:bg-secondary text-sm font-medium">
                                 {index + 1}
                               </span>
-                              <span className="block">
-                                <span className="flex items-center gap-2">
+                              <span className="block min-w-0">
+                                <span className="flex flex-wrap items-center gap-2">
                                   {getStepStatusIcon(step.status)}
-                                  <span className="font-medium">{step.name}</span>
+                                  <span className="font-medium [overflow-wrap:anywhere]">{step.name}</span>
                                   {getStepStatusBadge(step.status, t.weldconnect.executionDetail.stepStatuses)}
                                 </span>
                                 <span className="block text-xs text-muted-foreground mt-1">
                                   {t.weldconnect.executionDetail.stepType} <Badge variant="outline" className="text-xs ml-1 rounded-sm">{step.type}</Badge>
                                 </span>
+                                {step.error && !expanded && (
+                                  <span className="mt-2 block text-sm text-red-700 dark:text-red-300 line-clamp-2 [overflow-wrap:anywhere]" title={step.error.message}>
+                                    {step.error.message}
+                                  </span>
+                                )}
                               </span>
                             </span>
-                            <span className="block text-right text-sm text-muted-foreground">
-                              <span className="block font-medium">{formatDuration(step.duration)}</span>
-                              {step.startedAt && (
-                                <span className="block text-xs">{formatDate(step.startedAt, naLabel)}</span>
-                              )}
+                            <span className="flex shrink-0 items-start gap-2">
+                              <span className="block text-right text-sm text-muted-foreground">
+                                <span className="block font-medium">{formatExecutionDuration(step.duration)}</span>
+                                {step.startedAt && (
+                                  <span className="hidden sm:block text-xs">{formatDate(step.startedAt)}</span>
+                                )}
+                              </span>
+                              <ChevronDown className={`mt-0.5 h-4 w-4 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
                             </span>
-                          </span>
-                          {step.error && (
-                            <span className="mt-3 block bg-red-50 dark:bg-red-950/30 rounded-md p-3 border border-red-200 dark:border-red-800">
-                              <span className="block text-sm text-red-700 dark:text-red-300">{step.error}</span>
-                            </span>
-                          )}
-                        </button>
-                      ))
-                    ) : (
-                      <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-12 text-center">
-                        <Zap className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-                        <p className="text-muted-foreground">{t.weldconnect.executionDetail.noStepsFound}</p>
-                      </div>
-                    )}
-                  </div>
+                          </button>
 
-                  {/* Step Details Dialog */}
-                  <Dialog open={!!selectedStep} onOpenChange={(open) => !open && setSelectedStep(null)}>
-                    <DialogContent className="max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
-                      <DialogHeader>
-                        <DialogTitle>{t.weldconnect.executionDetail.stepDetailsTitle.replace('{name}', selectedStep?.name || '')}</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4 mt-4 overflow-y-auto flex-1">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-1">{t.weldconnect.executionDetail.stepStatus}</p>
-                            <div className="flex items-center gap-2">
-                              {selectedStep && getStepStatusBadge(selectedStep.status, t.weldconnect.executionDetail.stepStatuses)}
-                            </div>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-1">{t.weldconnect.executionDetail.stepDuration}</p>
-                            <p className="text-sm font-medium">{formatDuration(selectedStep?.duration)}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-1">{t.weldconnect.executionDetail.stepType}</p>
-                            <Badge variant="outline" className="text-xs rounded-sm">{selectedStep?.type}</Badge>
-                          </div>
-                          {selectedStep?.startedAt && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">{t.weldconnect.executionDetail.stepStartedAt}</p>
-                              <p className="text-sm font-medium">{formatDate(selectedStep.startedAt, naLabel)}</p>
+                          {expanded && (
+                            <div className="space-y-4 border-t border-gray-200 dark:border-border p-4">
+                              {hasEntries(step.input) && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground mb-2">{t.weldconnect.executionDetail.stepInput}</p>
+                                  <pre className="bg-gray-50 dark:bg-secondary p-3 rounded-md text-xs overflow-auto max-h-[240px]">
+                                    {JSON.stringify(step.input, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                              {hasEntries(step.output) && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground mb-2">{t.weldconnect.executionDetail.stepOutput}</p>
+                                  <pre className="bg-gray-50 dark:bg-secondary p-3 rounded-md text-xs overflow-auto max-h-[240px]">
+                                    {JSON.stringify(step.output, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                              <DelegationSection
+                                step={step}
+                                delegationsLabel={t.weldconnect.executionDetail.delegations}
+                                iterationsLabel={(count) => t.weldconnect.executionDetail.iterations.replace('{count}', String(count))}
+                                tokensLabel={(count) => t.weldconnect.executionDetail.tokens.replace('{count}', String(count))}
+                              />
+                              {step.error && (
+                                <div className="bg-red-50 dark:bg-red-950/30 rounded-md p-3 border border-red-200 dark:border-red-800">
+                                  <p className="text-xs text-muted-foreground mb-1">{t.weldconnect.executionDetail.stepError}</p>
+                                  <ExecutionErrorBlock error={step.error} />
+                                </div>
+                              )}
+                              {!hasDetails && (
+                                <p className="text-sm text-muted-foreground">{t.weldconnect.executionDetail.noInputOutputData}</p>
+                              )}
                             </div>
                           )}
                         </div>
-
-                        {selectedStep?.input && Object.keys(selectedStep.input).length > 0 && (
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-2">{t.weldconnect.executionDetail.stepInput}</p>
-                            <pre className="bg-gray-50 dark:bg-secondary p-3 rounded-md text-xs overflow-auto max-h-[200px]">
-                              {JSON.stringify(selectedStep.input, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-                        {selectedStep?.output && Object.keys(selectedStep.output).length > 0 && (
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-2">{t.weldconnect.executionDetail.stepOutput}</p>
-                            <pre className="bg-gray-50 dark:bg-secondary p-3 rounded-md text-xs overflow-auto max-h-[200px]">
-                              {JSON.stringify(selectedStep.output, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-                        <DelegationSection
-                          step={selectedStep}
-                          delegationsLabel={t.weldconnect.executionDetail.delegations}
-                          iterationsLabel={(count) => t.weldconnect.executionDetail.iterations.replace('{count}', String(count))}
-                          tokensLabel={(count) => t.weldconnect.executionDetail.tokens.replace('{count}', String(count))}
-                        />
-                        {selectedStep?.error && (
-                          <div className="bg-red-50 dark:bg-red-950/30 rounded-md p-3 border border-red-200 dark:border-red-800">
-                            <p className="text-xs text-muted-foreground mb-1">{t.weldconnect.executionDetail.stepError}</p>
-                            <p className="text-sm text-red-700 dark:text-red-300">{selectedStep.error}</p>
-                          </div>
-                        )}
-                        {!hasEntries(selectedStep?.input) &&
-                         !hasEntries(selectedStep?.output) &&
-                         !selectedStep?.error && (
-                          <p className="text-sm text-muted-foreground">{t.weldconnect.executionDetail.noInputOutputData}</p>
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </>
+                      );
+                    })
+                  ) : (
+                    <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-12 text-center">
+                      <Zap className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                      <p className="text-muted-foreground">{t.weldconnect.executionDetail.noStepsFound}</p>
+                    </div>
+                  )}
+                </div>
               )}
 
-              {activeTab === 'input' && (
+              {currentTab === 'input' && (
                 <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-4">
                   <h3 className="font-semibold text-base mb-4">{t.weldconnect.executionDetail.inputDataTitle}</h3>
                   <p className="text-sm text-muted-foreground mb-4">{t.weldconnect.executionDetail.inputDataDescription}</p>
@@ -697,7 +784,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                 </div>
               )}
 
-              {activeTab === 'output' && (
+              {currentTab === 'output' && (
                 <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-4">
                   <h3 className="font-semibold text-base mb-4">{t.weldconnect.executionDetail.outputDataTitle}</h3>
                   <p className="text-sm text-muted-foreground mb-4">{t.weldconnect.executionDetail.outputDataDescription}</p>
@@ -713,7 +800,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                 </div>
               )}
 
-              {activeTab === 'logs' && (
+              {currentTab === 'logs' && (
                 <div className="bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border p-4">
                   <h3 className="font-semibold text-base mb-4">{t.weldconnect.executionDetail.executionLogsTitle}</h3>
                   <p className="text-sm text-muted-foreground mb-4">{t.weldconnect.executionDetail.executionLogsDescription}</p>
@@ -734,7 +821,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-mono break-all">{log.message}</p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                {formatDate(log.timestamp, naLabel)}
+                                {formatDate(log.timestamp)}
                                 {log.stepName && <span className="ml-2">{st('sweep.weldconnect.executionDetail.logStepLabel', { stepName: log.stepName })}</span>}
                               </p>
                               {log.metadata && Object.keys(log.metadata).length > 0 && (

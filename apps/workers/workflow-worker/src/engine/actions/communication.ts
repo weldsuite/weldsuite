@@ -7,23 +7,49 @@ import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import type { ActionHandler } from '../types';
 import { resolveIntegration, integrationBearerToken } from '../integrations';
+import { NonRetryableStepError } from '../errors';
 import { escapeHtml } from '../resolve-inputs';
-import { postInternalApi } from './helpers';
+import { EMAIL_ADDRESS, postInternalApi } from './helpers';
+
+/** `a@b.co` or `Display Name <a@b.co>`: whether the address part is valid. */
+export function isValidRecipient(recipient: string): boolean {
+  const angled = /<([^<>]*)>\s*$/.exec(recipient);
+  return EMAIL_ADDRESS.test((angled ? angled[1] : recipient).trim());
+}
+
+/** Split a resolved recipient field (comma/semicolon list or array) into trimmed, non-empty entries. */
+function splitRecipients(value: unknown): string[] {
+  const items = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,;]/) : [];
+  return items.map((item) => String(item ?? '').trim()).filter(Boolean);
+}
+
+/**
+ * Recipients of one field after variable resolution, each checked up front so a
+ * bad address fails the step at once instead of coming back from the mail
+ * service as an opaque 500 (and being retried).
+ */
+function validatedRecipients(value: unknown, field: 'To' | 'Cc' | 'Bcc', required: boolean): string[] {
+  const recipients = splitRecipients(value);
+  if (recipients.length === 0) {
+    if (required) {
+      throw new NonRetryableStepError(`No recipient address: "${field}" resolved to an empty value`);
+    }
+    return [];
+  }
+  const invalid = recipients.find((r) => !isValidRecipient(r));
+  if (invalid !== undefined) {
+    throw new NonRetryableStepError(`Recipient address "${invalid}" is not valid` + (field === 'To' ? '' : ` (${field})`));
+  }
+  return recipients;
+}
 
 export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
-  const to = inputs.to as string | string[] | undefined;
-  if (!to || (typeof to === 'string' && !to.trim()) || (Array.isArray(to) && to.length === 0)) {
-    throw new Error('No recipients defined for send_email action');
-  }
-
-  const toRecipients =
-    typeof to === 'string'
-      ? to.split(',').map((e) => e.trim()).filter(Boolean)
-      : to.filter(Boolean);
-  if (toRecipients.length === 0) throw new Error('No valid recipients after parsing');
+  const toRecipients = validatedRecipients(inputs.to, 'To', true);
+  const ccRecipients = validatedRecipients(inputs.cc, 'Cc', false);
+  const bccRecipients = validatedRecipients(inputs.bcc, 'Bcc', false);
 
   const subject = String(inputs.subject ?? '').trim();
-  if (!subject) throw new Error('Email subject is required');
+  if (!subject) throw new NonRetryableStepError('Email subject is required');
 
   const accounts = await ctx.db
     .select()
@@ -36,7 +62,7 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
     ? accounts.find((a: any) => a.email === fromId || a.id === fromId)
     : accounts.find((a: any) => a.isDefault) || accounts[0];
 
-  if (!account) throw new Error('No email account configured');
+  if (!account) throw new NonRetryableStepError('No email account configured');
 
   const acct = account as { displayName?: string; email: string };
   const fromAddress = acct.displayName ? `${acct.displayName} <${acct.email}>` : acct.email;
@@ -59,8 +85,8 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
       subject,
       html,
       text,
-      cc: inputs.cc as string[] | undefined,
-      bcc: inputs.bcc as string[] | undefined,
+      cc: ccRecipients.length > 0 ? ccRecipients : undefined,
+      bcc: bccRecipients.length > 0 ? bccRecipients : undefined,
     },
     'Email send',
     'APP_API_INTERNAL',
