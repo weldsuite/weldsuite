@@ -698,7 +698,7 @@ const PipelinePage = () => {
         setAvailableLabels(result.data);
       }
     }
-    loadLabels();
+    void loadLabels();
   }, [projectId]);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
@@ -818,7 +818,7 @@ const PipelinePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const statusToStageId = useMemo(() => {
     const m = new Map<string, string>();
@@ -889,7 +889,7 @@ const PipelinePage = () => {
         setColumns(prev => {
           const next = reorderStages(prev, fromId, toId);
           if (!next) return prev;
-          persistStageOrder(next);
+          void persistStageOrder(next);
           return next;
         });
       }
@@ -917,7 +917,7 @@ const PipelinePage = () => {
         toast.success(t.projects.pipeline.taskMoved);
       } else {
         toast.error(t.projects.pipeline.taskUpdateFailed);
-        loadData();
+        void loadData();
       }
     }
 
@@ -1048,7 +1048,7 @@ const PipelinePage = () => {
     const next = [...columns];
     [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
     setColumns(next);
-    persistStageOrder(next);
+    void persistStageOrder(next);
   };
 
   const handleMoveStageRight = async (stageId: string) => {
@@ -1058,7 +1058,7 @@ const PipelinePage = () => {
     const next = [...columns];
     [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
     setColumns(next);
-    persistStageOrder(next);
+    void persistStageOrder(next);
   };
 
 
@@ -1332,7 +1332,7 @@ const PipelinePage = () => {
           if (data.duration !== undefined) updateData.duration = data.duration;
           if (data.labels !== undefined) updateData.labels = data.labels;
 
-          (async () => {
+          void (async () => {
             const result = await tasksApi.update(projectId, taskId, updateData);
             if (result.success) {
               setFeatures(prev => prev.map(f => f.id === taskId ? {

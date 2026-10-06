@@ -20,7 +20,7 @@ export default function ProjectTableEditorPage() {
   // handles the heavy lifting of the xlsx content itself.
   useEffect(() => {
     let cancelled = false;
-    tablesApi.listTables(projectId).then((res) => {
+    void tablesApi.listTables(projectId).then((res) => {
       if (cancelled || !res.success || !res.data) return;
       const match = res.data.find((it: { id: string; name: string }) => it.id === fileId);
       if (match) setName(match.name);

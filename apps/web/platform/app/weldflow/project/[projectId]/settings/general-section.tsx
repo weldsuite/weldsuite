@@ -52,7 +52,7 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    projectsApi.get(projectId).then((res) => {
+    void projectsApi.get(projectId).then((res) => {
       if (cancelled) return;
       if (res.success && res.data) {
         const p = res.data;

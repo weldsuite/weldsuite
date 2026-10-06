@@ -107,7 +107,7 @@ export function MessagesClient({ projectId, initialMessages, error }: Readonly<M
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      void handleSendMessage();
     }
   };
 
