@@ -237,7 +237,7 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', da
 
 function DroppableStage({ id, children, containerRef }: Readonly<{ id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }>) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage-${id}` });
-  const stageRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const [overlayStyle, setOverlayStyle] = useState<React.CSSProperties>({});
 
   useEffect(() => {
@@ -259,7 +259,7 @@ function DroppableStage({ id, children, containerRef }: Readonly<{ id: string; c
     <div
       ref={(node) => {
         setNodeRef(node);
-        (stageRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        stageRef.current = node;
       }}
       className={cn(
         "group flex flex-col w-full h-full rounded-t-lg rounded-b-md relative transition-colors duration-200",
@@ -770,10 +770,10 @@ const PipelinePage = () => {
 
   const customCollisionDetection: CollisionDetection = (args) => {
     const pointerCollisions = pointerWithin(args);
-    const stageCollisions = pointerCollisions.filter(isStageCollision);
+    const stageCollisions = pointerCollisions.filter((c) => isStageCollision(c));
     if (stageCollisions.length > 0) return stageCollisions;
     const rectCollisions = rectIntersection(args);
-    const rectStageCollisions = rectCollisions.filter(isStageCollision);
+    const rectStageCollisions = rectCollisions.filter((c) => isStageCollision(c));
     if (rectStageCollisions.length > 0) return rectStageCollisions;
     return rectCollisions;
   };
