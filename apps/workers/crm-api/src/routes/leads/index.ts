@@ -27,6 +27,33 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmLeads;
 
+/**
+ * The lead fields carried by `created` / `updated` events: the contact card a
+ * workflow needs (`{{trigger.record.companyName}}`), not the whole row. The
+ * free-text qualification fields (notes, need, budget, …) stay out of the
+ * event bus, which also feeds webhooks and analytics. Keep in sync with the
+ * `lead` entry in apps/web/platform/app/weldconnect/record-fields.ts.
+ */
+const LEAD_EVENT_FIELDS = [
+  'firstName',
+  'lastName',
+  'fullName',
+  'companyName',
+  'title',
+  'phone',
+  'mobile',
+  'website',
+  'address',
+  'source',
+  'rating',
+  'score',
+  'ownerId',
+] as const;
+
+function leadEventFields(lead: Partial<typeof t.$inferSelect>): Record<string, unknown> {
+  return Object.fromEntries(LEAD_EVENT_FIELDS.map((field) => [field, lead[field] ?? null]));
+}
+
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
   if (await hasContextPermission(c, 'leads:scope:all')) return undefined;
   return c.get('userId');
@@ -155,14 +182,10 @@ app.post('/', requirePermission('leads:create'), zValidator('json', createLeadSc
       entityId: id,
       action: 'created',
       data: {
+        ...leadEventFields(values),
         id,
         email: values.email ?? '',
-        firstName: values.firstName,
-        lastName: values.lastName,
-        title: values.title,
         status: values.status ?? 'new',
-        source: values.source,
-        ownerId: values.ownerId,
       },
     });
     return success(c, { id }, 201);
@@ -196,14 +219,10 @@ app.patch('/:id', requirePermission('leads:update'), zValidator('json', updateLe
       entityId: id,
       action: 'updated',
       data: {
+        ...leadEventFields({ ...existing, ...update }),
         id,
         email: ((update.email as string | undefined) ?? existing.email) || '',
-        firstName: (update.firstName as string | null | undefined) ?? existing.firstName,
-        lastName: (update.lastName as string | null | undefined) ?? existing.lastName,
-        title: (update.title as string | null | undefined) ?? existing.title,
         status: ((update.status as string | undefined) ?? existing.status) || 'new',
-        source: (update.source as string | null | undefined) ?? existing.source,
-        ownerId: (update.ownerId as string | null | undefined) ?? existing.ownerId,
       },
     });
     return success(c, { id });

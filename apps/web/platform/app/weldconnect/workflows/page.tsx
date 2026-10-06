@@ -60,6 +60,9 @@ export default function WorkflowsPage() {
       entityLabel={t.weldconnect.workflows.workflow}
       entityLabelPlural={t.weldconnect.workflows.title}
       parentLabel={t.weldconnect.breadcrumbs.connect}
+      // Templates are outside the MVP scope (app/weldconnect/mvp.ts): nearly all
+      // of them use triggers and actions that cannot be published.
+      showTemplatesButton={false}
     />
   );
 }

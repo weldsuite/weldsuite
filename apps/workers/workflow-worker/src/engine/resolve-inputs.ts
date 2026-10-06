@@ -58,6 +58,22 @@ function lookupTemplatePath(path: string, scope: TemplateScope): unknown {
   return undefined;
 }
 
+/**
+ * Text form of a resolved value spliced into a larger string: objects and
+ * arrays as compact JSON (not `[object Object]`), null as empty.
+ */
+function stringifyForTemplate(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
 /** Expand `{{...}}` expressions in one string input. */
 function resolveStringInput(
   key: string,
@@ -70,7 +86,7 @@ function resolveStringInput(
   const escapeValue = options?.escapeHtmlKeys?.includes(key) ? escapeHtml : identity;
   let resolved: unknown = value.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
     const result = lookupTemplatePath(String(path).trim(), scope);
-    if (result !== undefined) return escapeValue(String(result));
+    if (result !== undefined) return escapeValue(stringifyForTemplate(result));
     console.warn(`Unresolved template: ${match}`);
     return '';
   });

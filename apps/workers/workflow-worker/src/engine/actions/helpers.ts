@@ -2,6 +2,7 @@
  * Shared helpers for the action handlers.
  */
 
+import { NonRetryableStepError } from '../errors';
 import type { ActionContext, WorkflowEnv } from '../types';
 
 /**
@@ -66,10 +67,61 @@ export async function postInternalApi<T>(
   }
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`${label} failed: ${response.status} - ${errorBody}`);
+    throw internalApiFailure(label, response.status, await response.text());
   }
   return (await response.json()) as T;
+}
+
+/** Loose address check: one `@`, no whitespace or list separators, a dot in the domain. */
+export const EMAIL_ADDRESS = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]{2,}$/;
+
+/** A rejection that repeating the same request cannot fix: a client error or a validation failure. */
+function isPermanentRejection(status: number, body: string): boolean {
+  if (status === 408 || status === 429) return false;
+  if (status >= 400 && status < 500) return true;
+  // The mail route wraps provider validation failures in a 500.
+  return /E_VALIDATION_ERROR|VALIDATION_ERROR/.test(body);
+}
+
+/** Pull the human part out of an `/api/internal` error body (`{ success: false, error: "..." }`). */
+function readableErrorMessage(body: string): string | null {
+  let text: string | null = null;
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown; message?: unknown };
+    const raw = parsed.error ?? parsed.message;
+    if (typeof raw === 'string') text = raw;
+    else if (raw && typeof raw === 'object' && typeof (raw as { message?: unknown }).message === 'string') {
+      text = (raw as { message: string }).message;
+    } else if (raw && typeof raw === 'object' && Array.isArray((raw as { issues?: unknown }).issues)) {
+      // A zod validation rejection (`{ success: false, error: { issues: [...] } }`).
+      const issues = (raw as { issues: Array<{ path?: unknown[]; message?: string }> }).issues;
+      text = issues
+        .map((i) => `${i.path?.length ? `${i.path.join('.')}: ` : ''}${i.message ?? 'invalid'}`)
+        .join('; ');
+    }
+  } catch {
+    return null;
+  }
+  if (!text) return null;
+  return text
+    .replace(/^\w+ failed for [^:]*:\s*/, '') // "send_email failed for a@b: ..."
+    .replace(/^Error \([A-Z_]+\)\s*/, '') // "Error (E_VALIDATION_ERROR) ..."
+    .trim();
+}
+
+/**
+ * The error a failed `/api/internal` call becomes: a readable message, the raw
+ * response kept in `details`, and a `NonRetryableStepError` when the rejection
+ * is permanent so neither the engine nor Cloudflare retries it.
+ */
+export function internalApiFailure(label: string, status: number, body: string): Error {
+  const readable = readableErrorMessage(body);
+  const message = readable ? `${label} failed: ${readable}` : `${label} failed: ${status} - ${body.slice(0, 500)}`;
+  const details = { status, body: body.slice(0, 2000) };
+  if (isPermanentRejection(status, body)) return new NonRetryableStepError(message, details);
+  const err = new Error(message) as Error & { details?: unknown };
+  err.details = details;
+  return err;
 }
 
 /** Resolve the target conversation id from inputs or the triggering event. */

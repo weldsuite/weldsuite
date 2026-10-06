@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useId, useMemo, useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -63,6 +63,8 @@ import {
   Sparkles,
   Tags,
   Plug,
+  Pause,
+  Play,
 } from 'lucide-react';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
@@ -81,8 +83,14 @@ import {
 import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepConfig } from '@weldsuite/ui/components/workflow-canvas';
 import { buildAllVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { WorkflowTemplateDialog } from '@/app/weldconnect/components/workflow-template-dialog';
-import { isUnsupportedWorkflowError } from '@/app/weldconnect/mvp';
+import { getWorkflowIssueCodes, isUnsupportedWorkflowError } from '@/app/weldconnect/mvp';
+import type { RecordFieldDef } from '@/app/weldconnect/record-fields';
 import { TriggerEmptyState } from './components/trigger-empty-state';
+import { RunsPanel } from './components/runs-panel';
+import { TestRunDialog, type TestRunRequest } from './components/test-run-dialog';
+import { isValidCronExpression, nextCronRun } from './lib/cron';
+import { findUnknownVariables, getStepFormatIssues } from './lib/step-issues';
+import { TriggerRecordFieldsProvider } from './lib/editor-field-context';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
 import {
@@ -247,6 +255,23 @@ interface WorkflowEditorClientProps {
   actionsPortalRef?: React.RefObject<HTMLDivElement | null>;
   /** Called when dirty state changes (unsaved modifications) */
   onDirtyChange?: (isDirty: boolean) => void;
+  /**
+   * Show the workflow's status (Draft / Active / Paused) next to the action
+   * buttons, offer Pause there, and make saving a live workflow an explicit
+   * "Publish changes". Hosts with their own launch flow (`onPublish`) keep
+   * the plain Save / Publish pair.
+   */
+  showStatus?: boolean;
+  /**
+   * The record fields an entity-event trigger delivers, per entity and event.
+   * Feeds the variable picker (`trigger.record.<field>`), the unknown-variable
+   * check and the Test dialog's sample record. Undefined result = unknown entity.
+   */
+  resolveRecordFields?: (entityType: string | undefined, eventType: string | undefined) => RecordFieldDef[] | undefined;
+  /** Point out `{{variables}}` that resolve to nothing for this workflow (step panel + checklist). */
+  flagUnknownVariables?: boolean;
+  /** Pre-filled as the sample record's email in the Test dialog, so test mails reach the tester. */
+  testerEmail?: string;
 }
 
 // Action type icons and colors
@@ -292,34 +317,47 @@ function getActionMeta(type: string) {
 // trigger itself) — this reads defensively across all of them.
 type TriggerBag = Record<string, unknown> & { config?: Record<string, unknown> };
 
-type TriggerWarningCheck = (trigger: TriggerBag) => string | null;
+/** What a trigger is still missing; a key of `workflowEditorClient.triggerWarnings`. */
+type TriggerWarning =
+  | 'noTrigger'
+  | 'missingEntityEvent'
+  | 'missingScheduleType'
+  | 'missingCron'
+  | 'invalidCron'
+  | 'missingExecuteAt'
+  | 'missingSourceWorkflow'
+  | 'missingIntegrationEvent';
 
-function getEntityEventWarning(trigger: TriggerBag): string | null {
-  const missing: string[] = [];
-  if (!trigger.entityType) missing.push('entity type');
-  if (!trigger.eventType) missing.push('event type');
-  return missing.length > 0 ? `Missing ${missing.join(' and ')}` : null;
+type TriggerWarningCheck = (trigger: TriggerBag) => TriggerWarning | null;
+
+function getEntityEventWarning(trigger: TriggerBag): TriggerWarning | null {
+  return trigger.entityType && trigger.eventType ? null : 'missingEntityEvent';
 }
 
-function getScheduleWarning(trigger: TriggerBag): string | null {
+function getScheduleWarning(trigger: TriggerBag): TriggerWarning | null {
   const config = trigger.config || trigger;
   const scheduleType = config.scheduleType || trigger.scheduleType;
-  if (!scheduleType) return 'Missing schedule type';
-  if (scheduleType === 'recurring' && !(config.cronExpression || trigger.cronExpression)) return 'Missing cron expression';
-  if (scheduleType === 'one_time' && !(config.executeAt || trigger.executeAt)) return 'Missing execution time';
+  if (!scheduleType) return 'missingScheduleType';
+  if (scheduleType === 'recurring') {
+    const cron = config.cronExpression || trigger.cronExpression;
+    if (!cron) return 'missingCron';
+    // Saved as-is, a malformed expression simply never fires.
+    if (typeof cron !== 'string' || !isValidCronExpression(cron)) return 'invalidCron';
+  }
+  if (scheduleType === 'one_time' && !(config.executeAt || trigger.executeAt)) return 'missingExecuteAt';
   return null;
 }
 
-function getWorkflowCompleteWarning(trigger: TriggerBag): string | null {
+function getWorkflowCompleteWarning(trigger: TriggerBag): TriggerWarning | null {
   const config = trigger.config || trigger;
-  return config.sourceWorkflowId || trigger.sourceWorkflowId ? null : 'Missing source workflow';
+  return config.sourceWorkflowId || trigger.sourceWorkflowId ? null : 'missingSourceWorkflow';
 }
 
-function getIntegrationEventWarning(trigger: TriggerBag): string | null {
+function getIntegrationEventWarning(trigger: TriggerBag): TriggerWarning | null {
   const config = trigger.config || trigger;
   const provider = trigger.provider || config.provider;
   const event = trigger.event || config.event;
-  return provider && event ? null : 'Missing integration provider and event';
+  return provider && event ? null : 'missingIntegrationEvent';
 }
 
 // Trigger types without an entry (api, manual, unknown) never warn.
@@ -330,8 +368,8 @@ const TRIGGER_WARNING_CHECKS = new Map<string, TriggerWarningCheck>([
   ['integration_event', getIntegrationEventWarning],
 ]);
 
-function getTriggerWarningMessage(trigger: TriggerBag | null | undefined, triggerType: string): string | null {
-  if (!trigger || !triggerType) return 'No trigger configured';
+function getTriggerWarning(trigger: TriggerBag | null | undefined, triggerType: string): TriggerWarning | null {
+  if (!trigger || !triggerType) return 'noTrigger';
   return TRIGGER_WARNING_CHECKS.get(triggerType)?.(trigger) ?? null;
 }
 
@@ -347,7 +385,7 @@ interface SidebarActionType {
 const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'send_email', name: 'Send Email', description: 'Send an email message', icon: Mail, category: 'communication' },
   { id: 'send_notification', name: 'Send Notification', description: 'Send an in-app notification', icon: Bell, category: 'communication' },
-  { id: 'create_customer', name: 'Create Customer', description: 'Add a customer (company) to WeldCRM', icon: Building2, category: 'data' },
+  { id: 'create_customer', name: 'Create Company', description: 'Add a company to WeldCRM', icon: Building2, category: 'data' },
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', icon: Plus, category: 'data' },
   { id: 'update_record', name: 'Update Record', description: 'Update an existing record', icon: Pencil, category: 'data' },
   { id: 'delete_record', name: 'Delete Record', description: 'Delete a record', icon: Trash2, category: 'data' },
@@ -578,10 +616,32 @@ type EditorModule = 'helpdesk' | 'general';
 
 /** Shared ghost "X" button that closes a sidebar panel. */
 function PanelCloseButton({ onClick }: { onClick: () => void }) {
+  const { t } = useI18n();
+  const label = t.weldconnect.workflowEditorClient.closePanel;
   return (
-    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClick}>
+    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClick} aria-label={label} title={label}>
       <X className="h-4 w-4" />
     </Button>
+  );
+}
+
+const STATUS_DOT: Record<string, string> = {
+  active: 'bg-emerald-500',
+  paused: 'bg-amber-500',
+};
+
+/** Draft / Active / Paused pill in the editor's action bar. */
+function WorkflowStatusBadge({ status }: { status: string }) {
+  const { t } = useI18n();
+  const label = (t.weldconnect.workflows.statuses as Record<string, string>)[status] ?? status;
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-md border border-border px-1.5 sm:px-2 py-1 text-xs font-medium text-muted-foreground"
+      title={label}
+    >
+      <span className={cn('h-2 w-2 rounded-full', STATUS_DOT[status] ?? 'bg-muted-foreground/40')} />
+      <span className="sr-only sm:not-sr-only">{label}</span>
+    </span>
   );
 }
 
@@ -595,11 +655,15 @@ interface EditorActionButtonsProps {
   isTesting: boolean;
   isSaving: boolean;
   publishLabel?: string;
+  /** Workflow status when the host shows it (`showStatus`); undefined keeps the plain Save / Publish pair. */
+  status?: string;
+  isDirty: boolean;
   onGenerate: () => void;
   onTest: () => void;
   onJumpToIssue: () => void;
   onSave: () => unknown;
   onPublish: () => unknown;
+  onPause: () => void;
 }
 
 /** Generate / Test / "needs setup" chip / Save / Publish. Rendered in the header or portaled to an external nav. */
@@ -613,17 +677,25 @@ function EditorActionButtons({
   isTesting,
   isSaving,
   publishLabel,
+  status,
+  isDirty,
   onGenerate,
   onTest,
   onJumpToIssue,
   onSave,
   onPublish,
+  onPause,
 }: EditorActionButtonsProps) {
   const { t } = useI18n();
   const st = useTranslations();
   const tec = t.weldconnect.workflowEditorClient;
   const tg = t.weldconnect.generateWithAi;
   const isHelpdesk = module === 'helpdesk';
+  // A live workflow has no draft copy: whatever is saved runs on the next
+  // trigger. So there is no neutral "Save" while it is active, only an
+  // explicit "Publish changes" (and Pause to take it offline first).
+  const isLive = status === 'active';
+  const testLabel = st('sweep.weldflow.editorClient.test');
 
   return (
     <>
@@ -638,15 +710,19 @@ function EditorActionButtons({
           {tg.button}
         </Button>
       )}
+      {status && <WorkflowStatusBadge status={status} />}
       {!isHelpdesk && (
         <Button
           variant="outline"
           size="sm"
-          className="text-xs md:text-sm px-2 md:px-3 hidden sm:flex"
+          className="text-xs md:text-sm px-2 md:px-3"
           onClick={onTest}
           disabled={isTesting || stepCount === 0}
+          aria-label={testLabel}
+          title={testLabel}
         >
-          {st('sweep.weldflow.editorClient.test')}
+          <Play className="h-3 w-3 sm:hidden" />
+          <span className="hidden sm:inline">{testLabel}</span>
         </Button>
       )}
       {!hidePublish && hasBlockingIssues && stepCount > 0 && (
@@ -661,24 +737,53 @@ function EditorActionButtons({
           {tec.publishGate.needsSetup.replace('{count}', String(incompleteCount))}
         </Button>
       )}
-      <Button
-        variant="outline"
-        size="sm"
-        className="text-xs md:text-sm px-2 md:px-3"
-        onClick={onSave}
-        disabled={isSaving}
-      >
-        {st('sweep.weldflow.editorClient.save')}
-      </Button>
-      {!hidePublish && (
-        <Button
-          size="sm"
-          className="text-xs md:text-sm px-2 md:px-3"
-          onClick={onPublish}
-          disabled={isSaving || stepCount === 0}
-        >
-          {publishLabel || st('sweep.weldflow.editorClient.publish')}
-        </Button>
+      {isLive ? (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs md:text-sm px-2 md:px-3"
+            onClick={onPause}
+            disabled={isSaving}
+            aria-label={tec.status.pause}
+            title={tec.status.pauseHint}
+          >
+            <Pause className="h-3 w-3 sm:mr-1" />
+            <span className="hidden sm:inline">{tec.status.pause}</span>
+          </Button>
+          <Button
+            size="sm"
+            className="text-xs md:text-sm px-2 md:px-3"
+            onClick={onPublish}
+            disabled={isSaving || stepCount === 0 || !isDirty}
+            title={tec.status.liveHint}
+          >
+            <span className="sm:hidden">{st('sweep.weldflow.editorClient.publish')}</span>
+            <span className="hidden sm:inline">{tec.status.publishChanges}</span>
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs md:text-sm px-2 md:px-3"
+            onClick={onSave}
+            disabled={isSaving}
+          >
+            {st('sweep.weldflow.editorClient.save')}
+          </Button>
+          {!hidePublish && (
+            <Button
+              size="sm"
+              className="text-xs md:text-sm px-2 md:px-3"
+              onClick={onPublish}
+              disabled={isSaving || stepCount === 0}
+            >
+              {publishLabel || (status === 'paused' ? tec.status.resume : st('sweep.weldflow.editorClient.publish'))}
+            </Button>
+          )}
+        </>
       )}
     </>
   );
@@ -813,6 +918,8 @@ interface EditorHeaderProps {
 }
 
 function EditorHeader({ hideNavTabs, nav, actions, onToggleMobileSidebar }: EditorHeaderProps) {
+  const { t } = useI18n();
+  const detailsLabel = t.weldconnect.workflowEditorClient.overviewPanel.workflowDetails;
   return (
     <div className={cn("bg-background border-b flex-shrink-0 relative z-10", hideNavTabs && "hidden")}>
       <div className="px-2 md:px-4 py-2">
@@ -826,6 +933,8 @@ function EditorHeader({ hideNavTabs, nav, actions, onToggleMobileSidebar }: Edit
               size="sm"
               className="lg:hidden h-8 w-8 p-0"
               onClick={onToggleMobileSidebar}
+              aria-label={detailsLabel}
+              title={detailsLabel}
             >
               <Settings className="h-4 w-4" />
             </Button>
@@ -834,97 +943,6 @@ function EditorHeader({ hideNavTabs, nav, actions, onToggleMobileSidebar }: Edit
         </div>
       </div>
     </div>
-  );
-}
-
-/** Runs panel (execution history empty state + overview stats). */
-function RunsPanel({ onClose }: { onClose: () => void }) {
-  const { t } = useI18n();
-  const tec = t.weldconnect.workflowEditorClient;
-
-  return (
-    <>
-      <div className="pl-4 py-3 pr-3 border-b flex items-center justify-between">
-        <h3 className="font-semibold text-sm">{tec.runHistory.title}</h3>
-        <PanelCloseButton onClick={onClose} />
-      </div>
-      <div className="flex-1 flex flex-col">
-        {/* Empty State */}
-        <div className="flex-1 flex flex-col items-center justify-center px-4">
-          <div className="relative mb-4 scale-75">
-            {/* Dashed border illustration */}
-            <div className="relative py-4">
-              {/* Top row */}
-              <div className="flex gap-3 mb-3">
-                <div className="w-14 h-10 border border-dashed border-red-200 rounded-lg" />
-                <div className="w-24 h-10 border border-dashed border-red-200 rounded-lg" />
-              </div>
-              {/* Middle circle with X */}
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 rounded-full border-2 border-red-200 bg-background flex items-center justify-center z-10">
-                <XCircle className="w-5 h-5 text-red-400" />
-              </div>
-              {/* Bottom row */}
-              <div className="flex gap-3">
-                <div className="w-20 h-10 border border-dashed border-red-200 rounded-lg" />
-                <div className="w-16 h-10 border border-dashed border-red-200 rounded-lg" />
-              </div>
-            </div>
-          </div>
-          <h4 className="text-base font-semibold mb-1">{tec.runHistory.noRuns}</h4>
-          <p className="text-sm text-muted-foreground text-center">
-            {tec.runHistory.noRunsYet}
-          </p>
-        </div>
-
-        {/* Overview Stats */}
-        <div className="p-4 border-t">
-          <div className="grid grid-cols-2 gap-2">
-            {/* Completed */}
-            <div className="p-3 rounded-lg bg-green-50 border border-green-100">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-lg font-semibold text-green-700">0</span>
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
-              </div>
-              <p className="text-xs text-green-600">{tec.runHistory.completed}</p>
-            </div>
-            {/* Failed */}
-            <div className="p-3 rounded-lg bg-red-50 border border-red-100">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-lg font-semibold text-red-700">0</span>
-                <XCircle className="w-4 h-4 text-red-500" />
-              </div>
-              <p className="text-xs text-red-600">{tec.runHistory.failed}</p>
-            </div>
-            {/* In progress */}
-            <div className="p-3 rounded-lg bg-muted/50 border border-border">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-lg font-semibold">0</span>
-                <RefreshCw className="w-4 h-4 text-muted-foreground" />
-              </div>
-              <p className="text-xs text-muted-foreground">{tec.runHistory.inProgress}</p>
-            </div>
-            {/* Avg. runtime */}
-            <div className="p-3 rounded-lg bg-muted/50 border border-border">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-lg font-semibold">-</span>
-                <Clock className="w-4 h-4 text-muted-foreground" />
-              </div>
-              <p className="text-xs text-muted-foreground">{tec.runHistory.avgRuntime}</p>
-            </div>
-          </div>
-          {/* Credits consumed - full width */}
-          <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border">
-            <div className="flex items-center justify-between mb-1">
-              <div>
-                <span className="text-lg font-semibold">0</span>
-              </div>
-              <Settings className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <p className="text-xs text-muted-foreground">0 credits consumed / 250 included</p>
-          </div>
-        </div>
-      </div>
-    </>
   );
 }
 
@@ -1155,6 +1173,9 @@ function EntityEventFields({ form, groupedEntityEvents, filteredEntityEvents, ap
               })}
             </SelectContent>
           </Select>
+          {form.triggerEventType === 'updated' && (
+            <p className="text-xs text-muted-foreground">{tcd.entityEvent.updatedHint}</p>
+          )}
         </div>
       )}
     </div>
@@ -1169,9 +1190,28 @@ interface ScheduleFieldsProps {
 }
 
 function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTriggerData }: ScheduleFieldsProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const tcd = t.weldconnect.triggerConfigDialog;
   const { scheduleType, scheduleCronPreset, scheduleCustomCron, scheduleTimezone, scheduleExecuteAt } = form;
+  const cronFieldId = useId();
+
+  const activeCron = resolveCronExpression(scheduleCronPreset, scheduleCustomCron, cronPresets);
+  const cronIsValid = isValidCronExpression(activeCron);
+  // Recomputed on every edit of the panel, which is when a fresh "now" matters.
+  const nextRun = useMemo(
+    () => (scheduleType === 'recurring' ? nextCronRun(activeCron, scheduleTimezone, new Date()) : null),
+    [scheduleType, activeCron, scheduleTimezone],
+  );
+  const nextRunText = nextRun?.toLocaleString(language, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: scheduleTimezone,
+    timeZoneName: 'short',
+  });
 
   const handleScheduleTypeChange = (value: string) => {
     const newType = value as ScheduleMode;
@@ -1292,17 +1332,29 @@ function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTrigge
           {/* Custom Cron Expression */}
           {scheduleCronPreset === 'custom' && (
             <div className="space-y-2">
-              <Label className="text-xs font-medium">{tcd.schedule.cronExpressionLabel}</Label>
+              <Label htmlFor={cronFieldId} className="text-xs font-medium">{tcd.schedule.cronExpressionLabel}</Label>
               <Input
+                id={cronFieldId}
                 value={scheduleCustomCron}
                 onChange={(e) => handleCustomCronChange(e.target.value)}
                 placeholder="0 9 * * *"
-                className="font-mono text-sm"
+                aria-invalid={!cronIsValid}
+                aria-describedby={`${cronFieldId}-hint`}
+                className={cn('font-mono text-sm', !cronIsValid && 'border-destructive focus-visible:ring-destructive')}
               />
-              <p className="text-xs text-muted-foreground">
-                {tcd.schedule.cronExpressionHint}
+              <p
+                id={`${cronFieldId}-hint`}
+                className={cn('text-xs', cronIsValid ? 'text-muted-foreground' : 'text-destructive')}
+              >
+                {cronIsValid ? tcd.schedule.cronExpressionHint : tcd.schedule.cronInvalid}
               </p>
             </div>
+          )}
+
+          {cronIsValid && (
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              {nextRunText ? tcd.schedule.nextRun.replace('{time}', nextRunText) : tcd.schedule.noUpcomingRun}
+            </p>
           )}
         </>
       )}
@@ -1602,7 +1654,7 @@ function TriggerHint({ text }: { text: string }) {
 interface TriggerPanelProps {
   module: EditorModule;
   hasTrigger: boolean;
-  warning: string | null;
+  warning: TriggerWarning | null;
   filteredTriggerTypes: TriggerTypeOption[];
   groupedEntityEvents: Array<{ category: string; entities: EntityEvent[] }>;
   filteredEntityEvents: EntityEvent[];
@@ -1703,7 +1755,7 @@ function TriggerPanel({
         <div className="mx-3 mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
           <div className="flex items-center gap-2 text-amber-700 dark:text-muted-foreground">
             <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="text-xs">{warning}</span>
+            <span className="text-xs">{tec.triggerWarnings[warning]}</span>
           </div>
         </div>
       )}
@@ -1999,10 +2051,40 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Br
 // Edit step panel
 // ---------------------------------------------------------------------------
 
+/** "{field}: "{value}" is not a valid email address" for each badly formatted literal value. */
+function useFormatIssueMessages(step: WorkflowStepBag): string[] {
+  const { t } = useI18n();
+  const tes = t.weldconnect.workflowEditorClient.editStepPanel;
+  const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
+  return getStepFormatIssues(step).map((issue) =>
+    (issue.kind === 'email' ? tes.invalidEmail : tes.invalidUrl)
+      .replace('{field}', (acf[issue.labelKey] as string | undefined) || issue.labelKey)
+      .replace('{value}', issue.value),
+  );
+}
+
+/** Non-blocking note: these `{{variables}}` resolve to nothing, so they render empty. */
+function UnknownVariablesNote({ variables }: { variables: string[] }) {
+  const { t } = useI18n();
+  if (variables.length === 0) return null;
+  return (
+    <div className="mx-3 mt-2 p-2.5 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
+      <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
+        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+        <div className="min-w-0 text-xs">
+          <p>{t.weldconnect.workflowEditorClient.editStepPanel.unknownVariablesHint}</p>
+          <p className="mt-1 font-mono break-all">{variables.map((path) => `{{${path}}}`).join(', ')}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StepStatusBanner({ step, unsupported }: { step: WorkflowStepBag; unsupported: boolean }) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
+  const formatIssues = useFormatIssueMessages(step);
 
   if (unsupported) {
     return (
@@ -2015,6 +2097,19 @@ function StepStatusBanner({ step, unsupported }: { step: WorkflowStepBag; unsupp
     );
   }
   const missing = getMissingRequiredFields(step.type || '', step.config || {});
+  if (missing.length === 0 && formatIssues.length > 0) {
+    return (
+      <div className="mx-3 mt-3 p-3 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
+        <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="text-xs font-medium">{tec.editStepPanel.invalidValuesTitle}</span>
+        </div>
+        <ul className="mt-1 space-y-0.5 text-xs text-amber-700/80 dark:text-muted-foreground">
+          {formatIssues.map((message) => <li key={message} className="break-words">{message}</li>)}
+        </ul>
+      </div>
+    );
+  }
   if (missing.length === 0) {
     return (
       <div className="mx-3 mt-3 p-2.5 rounded-lg bg-emerald-50 dark:bg-muted border border-emerald-200 dark:border-border">
@@ -2044,6 +2139,11 @@ function StepStatusBanner({ step, unsupported }: { step: WorkflowStepBag; unsupp
           </span>
         ))}
       </div>
+      {formatIssues.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-xs text-amber-700/80 dark:text-muted-foreground">
+          {formatIssues.map((message) => <li key={message} className="break-words">{message}</li>)}
+        </ul>
+      )}
     </div>
   );
 }
@@ -2053,6 +2153,8 @@ interface EditStepPanelProps {
   steps: WorkflowStepBag[];
   triggerType: string | undefined;
   unsupported: boolean;
+  /** `{{paths}}` in this step that resolve to nothing (see `flagUnknownVariables`). */
+  unknownVariables: string[];
   emailAccounts: NonNullable<WorkflowEditorClientProps['emailAccounts']>;
   workspaceMembers: NonNullable<WorkflowEditorClientProps['workspaceMembers']>;
   workflowVariables: Array<{ name: string; type?: string }>;
@@ -2069,6 +2171,7 @@ function EditStepPanel({
   steps,
   triggerType,
   unsupported,
+  unknownVariables,
   emailAccounts,
   workspaceMembers,
   workflowVariables,
@@ -2083,6 +2186,8 @@ function EditStepPanel({
   const tec = t.weldconnect.workflowEditorClient;
   const meta = getActionMeta(step.type || '');
   const Icon = meta.icon;
+  const nameFieldId = useId();
+  const descriptionFieldId = useId();
 
   return (
     <>
@@ -2098,11 +2203,13 @@ function EditStepPanel({
         </div>
       </div>
       <StepStatusBanner step={step} unsupported={unsupported} />
+      {!unsupported && <UnknownVariablesNote variables={unknownVariables} />}
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           <div className="space-y-2">
-            <Label className="text-xs font-medium">{tec.editStepPanel.actionNameLabel}</Label>
+            <Label htmlFor={nameFieldId} className="text-xs font-medium">{tec.editStepPanel.actionNameLabel}</Label>
             <Input
+              id={nameFieldId}
               value={step.name || ''}
               onChange={(e) => {
                 const newName = e.target.value;
@@ -2114,8 +2221,9 @@ function EditStepPanel({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs font-medium">{tec.editStepPanel.descriptionLabel}</Label>
+            <Label htmlFor={descriptionFieldId} className="text-xs font-medium">{tec.editStepPanel.descriptionLabel}</Label>
             <Textarea
+              id={descriptionFieldId}
               value={step.description || ''}
               onChange={(e) => {
                 const newDescription = e.target.value;
@@ -2215,21 +2323,30 @@ interface StepChecklistItemProps {
   step: WorkflowStepBag;
   index: number;
   unsupported: boolean;
+  unknownVariables: string[];
   actionTypes: SidebarActionType[];
   categoryLabels: Record<string, string>;
   onSelectStep: (index: number) => void;
 }
 
-function StepChecklistItem({ step, index, unsupported, actionTypes, categoryLabels, onSelectStep }: StepChecklistItemProps) {
+function StepChecklistItem({ step, index, unsupported, unknownVariables, actionTypes, categoryLabels, onSelectStep }: StepChecklistItemProps) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const missing = getMissingRequiredFields(step.type || '', step.config || {});
-  if (!unsupported && missing.length === 0) return null;
+  const formatIssues = useFormatIssueMessages(step);
+  if (!unsupported && missing.length === 0 && formatIssues.length === 0 && unknownVariables.length === 0) return null;
 
   const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
   const missingLabels = missing.map((m) => acf[m.labelKey] || m.labelKey).join(', ');
   const actionMeta = actionTypes.find((a) => a.id === step.type);
   const Icon = step.type ? getActionMeta(step.type).icon : Code;
+  const messages = [
+    ...(missing.length > 0 ? [tec.overviewPanel.missingFields.replace('{fields}', missingLabels)] : []),
+    ...formatIssues,
+    ...(unknownVariables.length > 0
+      ? [tec.overviewPanel.unknownVariables.replace('{variables}', unknownVariables.map((path) => `{{${path}}}`).join(', '))]
+      : []),
+  ];
 
   return (
     <ChecklistCard
@@ -2237,9 +2354,7 @@ function StepChecklistItem({ step, index, unsupported, actionTypes, categoryLabe
       title={step.name}
       badge={categoryLabels[actionMeta?.category || 'data']}
       alignTop
-      message={unsupported
-        ? tec.publishGate.unsupportedStep
-        : tec.overviewPanel.missingFields.replace('{fields}', missingLabels)}
+      message={unsupported ? tec.publishGate.unsupportedStep : messages.join(' · ')}
       onClick={() => onSelectStep(index)}
     />
   );
@@ -2256,6 +2371,7 @@ interface OverviewPanelProps {
   categoryLabels: Record<string, string>;
   hideTemplatesAndAi?: boolean;
   isStepUnsupported: (type: string | undefined) => boolean;
+  getUnknownVariables: (step: WorkflowStepBag) => string[];
   onSelectTrigger: () => void;
   onSelectStep: (index: number) => void;
   onOpenTemplates: () => void;
@@ -2273,6 +2389,7 @@ function OverviewPanel({
   categoryLabels,
   hideTemplatesAndAi,
   isStepUnsupported,
+  getUnknownVariables,
   onSelectTrigger,
   onSelectStep,
   onOpenTemplates,
@@ -2322,6 +2439,7 @@ function OverviewPanel({
                 step={step}
                 index={index}
                 unsupported={isStepUnsupported(step.type)}
+                unknownVariables={getUnknownVariables(step)}
                 actionTypes={actionTypes}
                 categoryLabels={categoryLabels}
                 onSelectStep={onSelectStep}
@@ -2853,6 +2971,10 @@ export function WorkflowEditorClient({
   actionItems,
   actionsPortalRef,
   onDirtyChange,
+  showStatus,
+  resolveRecordFields,
+  flagUnknownVariables,
+  testerEmail,
 }: WorkflowEditorClientProps) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
@@ -3079,7 +3201,8 @@ export function WorkflowEditorClient({
 
   // --- Validation: which steps / the trigger still need required config -----
   const stepNeedsWork = useCallback(
-    (s: WorkflowStepBag) => isStepUnsupported(s.type) || !isStepConfigured(asWorkflowStep(s)),
+    (s: WorkflowStepBag) =>
+      isStepUnsupported(s.type) || !isStepConfigured(asWorkflowStep(s)) || getStepFormatIssues(s).length > 0,
     [isStepUnsupported],
   );
   const incompleteStepIds = useMemo(
@@ -3090,11 +3213,63 @@ export function WorkflowEditorClient({
     () => workflow.steps.findIndex(stepNeedsWork),
     [workflow.steps, stepNeedsWork],
   );
+  const triggerWarning = triggerLocked
+    ? null
+    : getTriggerWarning(workflow.triggers?.[0], workflow.triggers?.[0]?.type || '');
   const triggerIssue = useMemo(() => {
     if (triggerLocked) return null;
     if (isTriggerUnsupported(workflow.triggers?.[0])) return tec.publishGate.unsupportedTrigger;
-    return getTriggerWarningMessage(workflow.triggers?.[0], workflow.triggers?.[0]?.type || '');
-  }, [workflow.triggers, triggerLocked, isTriggerUnsupported, tec.publishGate.unsupportedTrigger]);
+    return triggerWarning;
+  }, [workflow.triggers, triggerLocked, isTriggerUnsupported, tec.publishGate.unsupportedTrigger, triggerWarning]);
+
+  // The record an entity-event trigger delivers: picker entries, the
+  // unknown-variable check and the Test dialog's sample all come from it.
+  const firstTrigger = workflow.triggers?.[0];
+  const isEntityEventTrigger = firstTrigger?.type === 'entity_event';
+  const savedEntityType = isEntityEventTrigger ? (firstTrigger?.entityType as string | undefined) : undefined;
+  const savedEventType = isEntityEventTrigger ? (firstTrigger?.eventType as string | undefined) : undefined;
+  const recordFieldDefs = useMemo(
+    () => (isEntityEventTrigger ? resolveRecordFields?.(savedEntityType, savedEventType) : undefined),
+    [isEntityEventTrigger, resolveRecordFields, savedEntityType, savedEventType],
+  );
+  const recordFieldLabels = t.weldconnect.recordFields as Record<string, string>;
+  const triggerRecordFields = useMemo(() => {
+    if (!isEntityEventTrigger || !resolveRecordFields) return undefined;
+    // An entity whose payload is not catalogued: only its id is certain.
+    const defs: RecordFieldDef[] = recordFieldDefs ?? [{ path: 'id' }];
+    return defs.map((field) => ({
+      path: field.path,
+      label: recordFieldLabels[field.path] ?? field.path,
+      type: field.type ?? ('string' as const),
+    }));
+  }, [isEntityEventTrigger, resolveRecordFields, recordFieldDefs, recordFieldLabels]);
+  const testRecordFields = useMemo(
+    () => recordFieldDefs?.map((field) => ({
+      path: field.path,
+      label: recordFieldLabels[field.path] ?? field.path,
+      sample: field.sample,
+    })),
+    [recordFieldDefs, recordFieldLabels],
+  );
+
+  const getUnknownVariables = useCallback(
+    (step: WorkflowStepBag): string[] => {
+      if (!flagUnknownVariables) return [];
+      const index = workflow.steps.findIndex((s) => s.id === step.id);
+      return findUnknownVariables(step.config, {
+        triggerType: triggerLocked ? 'manual' : firstTrigger?.type,
+        recordFields: recordFieldDefs?.map((field) => field.path),
+        previousStepIds: workflow.steps.slice(0, Math.max(index, 0)).map((s) => s.id || ''),
+        variableNames: workflowVariables.map((variable) => variable.name),
+        extraRoots: extraVariableGroups?.flatMap((group) => group.variables.map((v) => v.path.split('.')[0])),
+      });
+    },
+    [flagUnknownVariables, workflow.steps, triggerLocked, firstTrigger?.type, recordFieldDefs, workflowVariables, extraVariableGroups],
+  );
+
+  // Draft / Active / Paused, when the host shows it (see `showStatus`).
+  const status = showStatus && !onPublish ? String(workflow.status ?? 'draft').toLowerCase() : undefined;
+  const [showTestDialog, setShowTestDialog] = useState(false);
   const incompleteCount = incompleteStepIds.size + (triggerIssue ? 1 : 0);
   const hasBlockingIssues = incompleteCount > 0;
 
@@ -3285,7 +3460,14 @@ export function WorkflowEditorClient({
     }
   }, [editingStep, editingBranch, showTriggerPanel, showAddActionPanel]);
 
-  const handleSave = async () => {
+  const handleSave = async (savedMessage: string = tec.toasts.workflowSaved) => {
+    // A malformed cron expression is stored as typed and then never fires.
+    if (triggerWarning === 'invalidCron') {
+      handleSelectTrigger();
+      setShowMobileSidebar(true);
+      toast.error(tec.triggerWarnings.invalidCron);
+      return false;
+    }
     try {
       await updateWorkflowMutation.mutateAsync({
         id: workflow.id,
@@ -3297,7 +3479,7 @@ export function WorkflowEditorClient({
         },
       });
       savedSnapshotRef.current = JSON.stringify({ triggers: workflow.triggers, steps: workflow.steps });
-      toast.success(tec.toasts.workflowSaved);
+      toast.success(savedMessage);
       return true;
     } catch (err) {
       toast.error(isUnsupportedWorkflowError(err) ? tec.toasts.publishUnsupported : tec.toasts.saveFailed);
@@ -3305,14 +3487,43 @@ export function WorkflowEditorClient({
     }
   };
 
-  const handleTest = () => {
-    testWorkflowMutation.mutate({ id: workflow.id, testData: {} }, {
-      onSuccess: () => {
+  // A test is a real run, so it goes through a dialog that says so and collects
+  // the sample record (see TestRunDialog) instead of firing on click.
+  const handleRunTest = (request: TestRunRequest) => {
+    testWorkflowMutation.mutate({ id: workflow.id, ...request }, {
+      onSuccess: (result) => {
+        setShowTestDialog(false);
         toast.success(tec.toasts.testStarted);
-        router.push(`/weldconnect/executions?workflowId=${workflow.id}`);
+        const executionId = result?.data?.executionId;
+        router.push(
+          executionId
+            ? `/weldconnect/executions/${executionId}`
+            : `/weldconnect/executions?workflowId=${workflow.id}`,
+        );
       },
       onError: () => {
         toast.error(tec.toasts.testFailed);
+      },
+    });
+  };
+
+  // The activation gate answers with the exact problem (`issues[].code`); show
+  // that instead of the generic "not available yet" for e.g. a bad schedule.
+  const publishErrorMessage = (err: unknown): string => {
+    const messages = tec.publishIssues as Record<string, string>;
+    const specific = getWorkflowIssueCodes(err).map((code) => messages[code]).find(Boolean);
+    if (specific) return specific;
+    return isUnsupportedWorkflowError(err) ? tec.toasts.publishUnsupported : tec.toasts.publishFailed;
+  };
+
+  const handlePause = () => {
+    updateStatusMutation.mutate({ id: workflow.id, status: 'paused' }, {
+      onSuccess: () => {
+        setWorkflow((prev) => ({ ...prev, status: 'paused' }));
+        toast.success(tec.toasts.workflowPaused);
+      },
+      onError: () => {
+        toast.error(tec.toasts.pauseFailed);
       },
     });
   };
@@ -3329,6 +3540,11 @@ export function WorkflowEditorClient({
       );
       return;
     }
+    // Already live: saving is the publish. Nothing else changes state.
+    if (status === 'active') {
+      await handleSave(tec.toasts.changesPublished);
+      return;
+    }
     if (!(await handleSave())) return;
     if (onPublish) {
       const result = await onPublish();
@@ -3340,10 +3556,11 @@ export function WorkflowEditorClient({
     } else {
       updateStatusMutation.mutate({ id: workflow.id, status: 'active' }, {
         onSuccess: () => {
+          setWorkflow((prev) => ({ ...prev, status: 'active' }));
           toast.success(tec.toasts.workflowPublished);
         },
         onError: (err) => {
-          toast.error(isUnsupportedWorkflowError(err) ? tec.toasts.publishUnsupported : tec.toasts.publishFailed);
+          toast.error(publishErrorMessage(err));
         },
       });
     }
@@ -3721,11 +3938,14 @@ export function WorkflowEditorClient({
     isTesting,
     isSaving,
     publishLabel,
+    status,
+    isDirty,
     onGenerate: () => setShowGenerateDialog(true),
-    onTest: handleTest,
+    onTest: () => setShowTestDialog(true),
     onJumpToIssue: jumpToFirstIssue,
-    onSave: handleSave,
+    onSave: () => handleSave(),
     onPublish: handlePublish,
+    onPause: handlePause,
   };
 
   // Right sidebar: the runs, trigger, add-action, branch or step panel (or the overview when none is open).
@@ -3733,6 +3953,7 @@ export function WorkflowEditorClient({
     if (showRunsPanel) {
       return (
         <RunsPanel
+          workflowId={workflow.id}
           onClose={() => {
             setShowRunsPanel(false);
             setShowMobileSidebar(false);
@@ -3745,7 +3966,7 @@ export function WorkflowEditorClient({
         <TriggerPanel
           module={module}
           hasTrigger={workflow.triggers.length > 0}
-          warning={getTriggerWarningMessage(workflow.triggers?.[0], triggerType)}
+          warning={getTriggerWarning(workflow.triggers?.[0], triggerType)}
           filteredTriggerTypes={filteredTriggerTypes}
           groupedEntityEvents={groupedEntityEvents}
           filteredEntityEvents={filteredEntityEvents}
@@ -3806,6 +4027,7 @@ export function WorkflowEditorClient({
           steps={workflow.steps}
           triggerType={workflow.triggers?.[0]?.type}
           unsupported={isStepUnsupported(editingStep.type)}
+          unknownVariables={getUnknownVariables(editingStep)}
           emailAccounts={emailAccounts}
           workspaceMembers={workspaceMembers}
           workflowVariables={workflowVariables}
@@ -3833,6 +4055,7 @@ export function WorkflowEditorClient({
         categoryLabels={categoryLabels}
         hideTemplatesAndAi={hideTemplatesAndAi}
         isStepUnsupported={isStepUnsupported}
+        getUnknownVariables={getUnknownVariables}
         onSelectTrigger={handleSelectTrigger}
         onSelectStep={handleSelectStep}
         onOpenTemplates={() => setShowTemplateDialog(true)}
@@ -3919,9 +4142,23 @@ export function WorkflowEditorClient({
           "lg:relative lg:top-0 lg:w-[399px] lg:border-l",
           showMobileSidebar ? "translate-y-0" : "translate-y-full lg:translate-y-0 lg:translate-x-0"
         )}>
-          {renderSidebarPanel()}
+          <TriggerRecordFieldsProvider value={triggerRecordFields}>
+            {renderSidebarPanel()}
+          </TriggerRecordFieldsProvider>
         </div>
       </div>
+
+      <TestRunDialog
+        open={showTestDialog}
+        onOpenChange={setShowTestDialog}
+        trigger={triggerLocked ? undefined : firstTrigger}
+        entityLabel={filteredEntityEvents.find((entity) => entity.entityType === savedEntityType)?.label ?? savedEntityType}
+        recordFields={testRecordFields}
+        testerEmail={testerEmail}
+        hasUnsavedChanges={isDirty}
+        isRunning={isTesting}
+        onRun={handleRunTest}
+      />
 
       <WorkflowTemplateDialog
         open={showTemplateDialog}

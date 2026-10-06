@@ -183,7 +183,8 @@ export const weldconnect = {
 
   // Dashboard page
   dashboard: {
-    title: 'Dashboard',
+    title: 'Overview',
+    periodLabel: 'Period',
     loading: 'Loading dashboard...',
     loadError: 'Failed to load dashboard data. Please try again.',
     retry: 'Retry',
@@ -194,10 +195,10 @@ export const weldconnect = {
       yearly: 'This year',
     },
     stats: {
-      activeWorkflows: '{count} active workflows',
-      failedExecutions: '{count} failed executions',
-      pendingTasks: '{count} pending executions',
-      successfulExecutions: '{count} successful executions',
+      activeWorkflows: { one: '{count} active workflow', other: '{count} active workflows' },
+      failedExecutions: { one: '{count} failed execution', other: '{count} failed executions' },
+      runningExecutions: { one: '{count} running execution', other: '{count} running executions' },
+      successfulExecutions: { one: '{count} successful execution', other: '{count} successful executions' },
     },
   },
 
@@ -239,6 +240,7 @@ export const weldconnect = {
       trigger: 'Trigger',
     },
     actions: {
+      rename: 'Rename',
       open: 'Open',
       edit: 'Edit',
       openInVisualEditor: 'Open in visual editor',
@@ -248,6 +250,7 @@ export const weldconnect = {
       delete: 'Delete',
     },
     dialogs: {
+      renameTitle: 'Rename {entityLabel}',
       createTitle: 'Create {entityLabel}',
       nameLabel: '{entityLabel} Name',
       namePlaceholder: 'Enter {entityLabel} name...',
@@ -260,6 +263,8 @@ export const weldconnect = {
       confirmLabel: 'Reset Defaults',
     },
     toasts: {
+      renamed: 'Workflow renamed',
+      renameFailed: 'Failed to rename workflow',
       deleted: '{entityLabel} deleted',
       deleteFailed: 'Failed to delete {entityLabel}',
       activated: 'Workflow activated',
@@ -468,6 +473,19 @@ export const weldconnect = {
     searchPlaceholder: 'Search executions...',
     refresh: 'Refresh',
     justNow: 'Just now',
+    loadMore: 'Load more',
+    loadingMore: 'Loading...',
+    showingCount: {
+      one: 'Showing {shown} of {count} execution',
+      other: 'Showing {shown} of {count} executions',
+    },
+    loadError: 'Failed to load executions',
+    loadErrorDescription: 'Something went wrong while fetching the executions.',
+    tryAgain: 'Try again',
+    testBadge: 'Test',
+    copyId: 'Copy execution ID',
+    idCopied: 'Execution ID copied',
+    rowActions: 'Execution actions',
     columns: {
       workflow: 'Workflow',
       status: 'Status',
@@ -481,6 +499,8 @@ export const weldconnect = {
     filters: {
       status: 'Status',
       trigger: 'Trigger',
+      workflow: 'Workflow',
+      removeFilter: 'Remove filter',
       allExecutions: 'All Executions',
     },
     statuses: {
@@ -500,6 +520,7 @@ export const weldconnect = {
     toasts: {
       retried: 'Execution retried successfully',
       retryFailed: 'Failed to retry execution',
+      workflowInactive: 'Activate the workflow first, then retry this execution.',
       cancelled: 'Execution cancelled',
       cancelFailed: 'Failed to cancel execution',
     },
@@ -557,6 +578,18 @@ export const weldconnect = {
     stepOutput: 'Output',
     stepError: 'Error',
     stepLog: 'Step: {name}',
+    retryOf: 'Retry of',
+    testRun: 'Test run',
+    notFoundTitle: 'Execution not found',
+    notFoundDescription: 'This execution does not exist, or you do not have access to it.',
+    loadErrorTitle: 'Could not load this execution',
+    loadErrorDescription: 'Something went wrong while fetching the execution. Please try again.',
+    tryAgain: 'Try again',
+    showDetails: 'Show details',
+    hideDetails: 'Hide details',
+    expandStep: 'Show step details',
+    collapseStep: 'Hide step details',
+    copyId: 'Copy execution ID',
     tabs: {
       steps: 'Execution Steps',
       input: 'Input Data',
@@ -588,6 +621,7 @@ export const weldconnect = {
       cancelFailed: 'Failed to cancel execution',
       retried: 'Execution retried successfully',
       retryFailed: 'Failed to retry execution',
+      workflowInactive: 'Activate the workflow first, then retry this execution.',
     },
   },
 
@@ -1127,12 +1161,15 @@ export const weldconnect = {
       actions: 'Actions',
       noActivity: 'No activity found.',
       type: 'Type',
+      status: 'Status',
       detail: 'Detail',
       time: 'Time',
       previous: 'Previous',
       next: 'Next',
+      viewAll: 'View all',
     },
     chart: {
+      seriesGroupLabel: 'Series shown in the chart',
       noDataAvailable: 'No data available',
       showingActivity: 'Showing execution activity for the selected period',
       noDataToDisplay: 'No data to display',
@@ -1153,6 +1190,14 @@ export const weldconnect = {
 
   // Workflow settings page
   workflowSettings: {
+    general: {
+      title: 'General',
+      nameLabel: 'Name',
+      namePlaceholder: 'e.g. Welcome new leads',
+      nameRequired: 'Give the workflow a name',
+      descriptionLabel: 'Description',
+      descriptionPlaceholder: 'What does this workflow do?',
+    },
     tabEditor: 'Editor',
     tabExecutions: 'Executions',
     tabSettings: 'Settings',
@@ -1172,9 +1217,9 @@ export const weldconnect = {
     notifications: {
       title: 'Notifications',
       notifyOnErrorLabel: 'Get notified when this workflow fails',
-      notifyOnErrorHint: 'Receive an email and in-app notification when a run fails',
+      notifyOnErrorHint: 'Receive an in-app notification when a run fails',
       notifyOnCompleteLabel: 'Get notified when this workflow completes',
-      notifyOnCompleteHint: 'Receive an email and in-app notification when a run completes successfully',
+      notifyOnCompleteHint: 'Receive an in-app notification when a run completes successfully',
     },
   },
 
@@ -1340,7 +1385,7 @@ export const weldconnect = {
       update_record: { name: 'Update Record', description: 'Update an existing record' },
       delete_record: { name: 'Delete Record', description: 'Delete a record' },
       query_data: { name: 'Query Data', description: 'Search and filter records' },
-      create_customer: { name: 'Create Customer', description: 'Add a customer (company) to WeldCRM' },
+      create_customer: { name: 'Create Company', description: 'Add a company to WeldCRM' },
       set_variable: { name: 'Set Variable', description: 'Store a value for later use' },
       transform_data: { name: 'Transform Data', description: 'Transform and map data' },
       condition: { name: 'Condition', description: 'Branch based on a condition' },
@@ -1424,7 +1469,7 @@ export const weldconnect = {
     triggerTypeLabel: 'Trigger Type',
     types: {
       entity_event: { name: 'Entity Event', description: 'Trigger when a record is created, updated, or deleted' },
-      schedule: { name: 'Schedule', description: 'Run on a schedule (one-time or recurring)' },
+      schedule: { name: 'Schedule', description: 'Run on a recurring schedule' },
       workflow_complete: { name: 'Workflow Complete', description: 'Trigger when another workflow completes' },
       webhook: { name: 'Webhook', description: 'Trigger via HTTP webhook URL' },
       manual: { name: 'Manual', description: 'Manually trigger the workflow' },
@@ -1435,6 +1480,7 @@ export const weldconnect = {
       api: { name: 'API Call', description: 'Trigger via API request' },
     },
     entityEvent: {
+      updatedHint: 'Runs on every change to a record of this type, whichever field changed.',
       entityTypeLabel: 'Entity Type',
       entityTypePlaceholder: 'Select entity...',
       eventLabel: 'Event',
@@ -1447,6 +1493,9 @@ export const weldconnect = {
       connectHint: 'Requires a connected account on Integrations.',
     },
     schedule: {
+      cronInvalid: 'Not a valid cron expression. Use five fields (minute hour day month weekday), for example 0 9 * * 1-5.',
+      nextRun: 'Next run: {time}',
+      noUpcomingRun: 'This schedule has no run in the coming year.',
       scheduleTypeLabel: 'Schedule Type',
       oneTime: 'One-time',
       recurring: 'Recurring',
@@ -1507,6 +1556,12 @@ export const weldconnect = {
       triggerData: 'Trigger Data',
     },
     triggerFields: {
+      entityType: 'Record type',
+      eventType: 'Event',
+      recordId: 'Record ID',
+      scheduledTime: 'Scheduled time (UTC)',
+      scheduledTimeLocal: 'Scheduled time (schedule timezone)',
+      runId: 'Run ID',
       provider: 'Provider',
       event: 'Event',
       eventPayload: 'Event Payload',
@@ -1556,12 +1611,58 @@ export const weldconnect = {
     notFoundDescription: 'This workflow may have been deleted, or you don’t have access to it.',
   },
   workflowEditorClient: {
+    closePanel: 'Close panel',
+    status: {
+      pause: 'Pause',
+      pauseHint: 'Pause this workflow. It stops running until you publish it again.',
+      resume: 'Resume',
+      publishChanges: 'Publish changes',
+      liveHint: 'This workflow is live. Published changes apply from the next run.',
+    },
+    triggerWarnings: {
+      noTrigger: 'No trigger configured',
+      missingEntityEvent: 'Choose a record type and an event',
+      missingScheduleType: 'Choose a schedule type',
+      missingCron: 'Enter a cron expression',
+      invalidCron: 'The cron expression is not valid, so this schedule would never run',
+      missingExecuteAt: 'Choose a date and time',
+      missingSourceWorkflow: 'Choose the workflow to wait for',
+      missingIntegrationEvent: 'Choose an integration and an event',
+    },
+    publishIssues: {
+      no_trigger: 'Add a trigger before publishing.',
+      unsupported_trigger: 'This trigger is not available yet. Choose a different trigger.',
+      incomplete_entity_event: 'The trigger needs a record type and an event.',
+      unknown_entity_event: 'The trigger uses an event that does not exist. Choose it again.',
+      schedule_not_recurring: 'Only recurring schedules are supported.',
+      invalid_cron: 'The schedule has an invalid cron expression. Fix it in the trigger.',
+      invalid_timezone: 'The schedule has an invalid timezone. Choose it again in the trigger.',
+      no_steps: 'Add at least one step before publishing.',
+      unsupported_action: 'This workflow has an action that is not available yet. Remove or replace it.',
+      missing_field: 'A step is missing a required field.',
+    },
+    testDialog: {
+      title: 'Test this workflow',
+      description: 'Starts one run of the saved workflow right now.',
+      realRunWarning: 'This is a real run: emails are sent and records are created.',
+      unsavedNote: 'You have unsaved changes. The test runs the last saved version.',
+      sampleTitle: 'Sample {entity}',
+      sampleTitleGeneric: 'Sample record',
+      sampleHint: 'The steps receive these values as the record that triggered the workflow.',
+      jsonLabel: 'Record (JSON)',
+      jsonInvalid: 'Enter a valid JSON object.',
+      cancel: 'Cancel',
+      run: 'Run test',
+    },
     toasts: {
+      workflowPaused: 'Workflow paused',
+      pauseFailed: 'Failed to pause workflow',
+      changesPublished: 'Changes published',
       agentUpdated: 'Agent updated',
       agentUpdateFailed: 'Failed to update agent',
       workflowSaved: 'Workflow saved',
       saveFailed: 'Failed to save',
-      testStarted: 'Test started - check executions page for results',
+      testStarted: 'Test run started',
       testFailed: 'Failed to start test',
       workflowPublished: 'Workflow published',
       publishFailed: 'Failed to publish',
@@ -1571,6 +1672,13 @@ export const weldconnect = {
       nameAndPromptRequired: 'Name and system prompt are required',
     },
     runHistory: {
+      refresh: 'Refresh',
+      close: 'Close',
+      loadFailed: 'Could not load the runs',
+      retry: 'Try again',
+      testRun: 'Test',
+      viewAll: 'View all runs',
+      viewAllCount: 'View all {count} runs',
       title: 'Run history',
       noRuns: 'No runs',
       noRunsYet: 'This workflow has not been run yet',
@@ -1600,6 +1708,10 @@ export const weldconnect = {
       noStepsInBranch: 'No steps in this branch',
     },
     editStepPanel: {
+      invalidValuesTitle: 'Check these values',
+      invalidEmail: '{field}: "{value}" is not a valid email address',
+      invalidUrl: '{field}: "{value}" is not a valid web address',
+      unknownVariablesHint: 'These variables do not exist for this workflow and will be left empty:',
       editStep: 'Edit Step',
       actionNameLabel: 'Action Name',
       actionNamePlaceholder: 'Enter a name...',
@@ -1620,6 +1732,7 @@ export const weldconnect = {
       chipTooltip: 'Some steps are missing required details. Click to fix.',
     },
     overviewPanel: {
+      unknownVariables: 'Unknown variables: {variables}',
       workflowDetails: 'Workflow Details',
       checklist: 'Checklist',
       checklistDescription: 'Make sure all issues are resolved before publishing',
@@ -1819,6 +1932,7 @@ export const weldconnect = {
 
   // Flow editor node labels / controls
   flowEditor: {
+    addStep: 'Add step',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     resetLayout: 'Reset layout',
@@ -1843,7 +1957,7 @@ export const weldconnect = {
       update_record: 'Update Record',
       delete_record: 'Delete Record',
       query_data: 'Query Data',
-      create_customer: 'Create Customer',
+      create_customer: 'Create Company',
       send_notification: 'Send Notification',
       run_script: 'Run Script',
       ai_generate: 'AI Generate',
@@ -1862,6 +1976,12 @@ export const weldconnect = {
 
   // Action config form (workflow editor)
   actionConfigForm: {
+    customerPlaceholders: {
+      name: 'Acme Inc.',
+      email: 'info@acme.com',
+      phone: '+31 20 123 4567',
+      website: 'acme.com',
+    },
     // SetAttributeForm
     attribute: 'Attribute',
     attributeDesc: 'The field to set on the contact or conversation',
@@ -1876,21 +1996,21 @@ export const weldconnect = {
     fromAccountDesc: 'Select the email account to send from',
     useDefaultAccount: 'Use default account',
     // CreateCustomerForm
-    customerName: 'Customer name',
+    customerName: 'Company name',
     customerNameDesc: 'Name of the company, e.g. {{trigger.record.name}}',
     customerEmail: 'Email',
     customerPhone: 'Phone',
     customerWebsite: 'Website',
     customerNotes: 'Notes',
     customerStatus: 'Status',
-    customerStatusDesc: 'Status the new customer gets in WeldCRM',
+    customerStatusDesc: 'Status the new company gets in WeldCRM',
     customerStatuses: {
       active: 'Active',
       prospect: 'Prospect',
       inactive: 'Inactive',
     },
-    skipIfEmailExists: 'Skip if a customer with this email exists',
-    skipIfEmailExistsDesc: 'Reuse the existing customer instead of creating a duplicate',
+    skipIfEmailExists: 'Skip if a company with this email exists',
+    skipIfEmailExistsDesc: 'Reuse the existing company instead of creating a duplicate',
     customerVariablesHint: 'Use {{trigger.record.<field>}} to copy data from the record that started the workflow.',
     to: 'To',
     subject: 'Subject',
@@ -2251,7 +2371,7 @@ export const weldconnect = {
     integrationEvent: 'Integration Event',
     integrationEventDesc: 'Run when a connected app sends an event',
     schedule: 'Schedule',
-    scheduleDesc: 'Run on a recurring or one-time schedule',
+    scheduleDesc: 'Run on a recurring schedule',
     workflowComplete: 'Workflow Complete',
     workflowCompleteDesc: 'Run when another workflow finishes',
     webhook: 'Webhook',
@@ -2264,6 +2384,8 @@ export const weldconnect = {
 
   // Workflows client — dynamic list strings
   workflowsClient: {
+    justNow: 'just now',
+    noTrigger: 'No trigger',
     searchPlaceholder: 'Search {entityLabel}...',
     createButton: 'New {entityLabel}',
     createButtonAlt: 'Create {entityLabel}',
@@ -2351,6 +2473,45 @@ export const weldconnect = {
   },
 
   // Common breadcrumb labels used across module
+  // Fields of the record an entity-event trigger delivers (see app/weldconnect/record-fields.ts)
+  recordFields: {
+    id: 'ID',
+    firstName: 'First name',
+    lastName: 'Last name',
+    fullName: 'Full name',
+    displayName: 'Display name',
+    email: 'Email',
+    phone: 'Phone',
+    mobile: 'Mobile',
+    companyName: 'Company name',
+    title: 'Job title',
+    website: 'Website',
+    'address.line1': 'Address',
+    'address.postalCode': 'Postal code',
+    'address.city': 'City',
+    'address.country': 'Country',
+    source: 'Source',
+    status: 'Status',
+    rating: 'Rating',
+    score: 'Score',
+    ownerId: 'Owner ID',
+    name: 'Name',
+    industry: 'Industry',
+    amount: 'Amount',
+    stage: 'Stage',
+    stageId: 'Stage ID',
+    currency: 'Currency',
+    customerId: 'Company ID',
+    pipelineId: 'Pipeline ID',
+  },
+
+  // Notice on WeldConnect pages that are outside the current scope (see app/weldconnect/mvp.ts)
+  outOfScope: {
+    title: 'Not part of WeldConnect yet',
+    description: 'This page is still in development. What you set up here cannot be used in a workflow yet.',
+    back: 'Back to overview',
+  },
+
   breadcrumbs: {
     connect: 'WeldConnect',
     task: 'WeldConnect',

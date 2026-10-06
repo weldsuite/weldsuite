@@ -8,12 +8,18 @@ import { WorkflowEditorClient, WorkflowEditorShell } from '@/components/workflow
 import type { WorkflowEditorShellProps } from '@/components/workflow-editor/workflow-editor-shell';
 import { EditorWizardNav } from '@/components/editor-wizard-nav';
 import { AlertTriangle, GitPullRequest, History, RotateCw, Settings } from 'lucide-react';
+import { useUser } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   WELDCONNECT_ACTION_TYPES,
   WELDCONNECT_SCHEDULE_TYPES,
   WELDCONNECT_TRIGGER_TYPES,
 } from '@/app/weldconnect/mvp';
+import { getRecordFields } from '@/app/weldconnect/record-fields';
+
+// The engine's template resolver has no `env` root, so `{{env.NODE_ENV}}`
+// always rendered empty; keep the picker from offering it.
+const EXCLUDED_VARIABLE_GROUPS = ['env'];
 
 type ShellRenderProps = Parameters<WorkflowEditorShellProps['nav']>[0];
 type WizardTabs = ComponentProps<typeof EditorWizardNav>['tabs'];
@@ -27,6 +33,10 @@ type EditorData = Omit<
   | 'allowedActionIds'
   | 'blockUnsupported'
   | 'hideTemplatesAndAi'
+  | 'showStatus'
+  | 'resolveRecordFields'
+  | 'flagUnknownVariables'
+  | 'excludeVariableGroups'
 >;
 
 // Render-prop factories live at module level (not inside the page component) so
@@ -57,6 +67,10 @@ function createEditorRenderer(data: EditorData) {
         allowedActionIds={WELDCONNECT_ACTION_TYPES}
         blockUnsupported
         hideTemplatesAndAi
+        showStatus
+        resolveRecordFields={getRecordFields}
+        flagUnknownVariables
+        excludeVariableGroups={EXCLUDED_VARIABLE_GROUPS}
       />
     );
   };
@@ -65,6 +79,7 @@ function createEditorRenderer(data: EditorData) {
 export default function WorkflowEditPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useI18n();
+  const { user } = useUser();
   const tws = t.weldconnect.workflowSettings;
   const te = t.weldconnect.workflowEditError;
 
@@ -137,6 +152,9 @@ export default function WorkflowEditPage() {
         workflowVariables,
         workflowsForChaining,
         webhookData,
+        parentLabel: t.weldconnect.breadcrumbs.connect,
+        listLabel: t.weldconnect.breadcrumbs.workflows,
+        testerEmail: user?.primaryEmailAddress?.emailAddress,
       })}
     />
   );

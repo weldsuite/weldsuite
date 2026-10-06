@@ -40,6 +40,8 @@ export const workflowExecutionSteps = pgTable('workflow_execution_steps', {
     message: string;
     code?: string;
     stack?: string;
+    /** Raw provider payload behind `message` (e.g. the mail service's response). */
+    details?: unknown;
   }>(),
 
   // Retry tracking

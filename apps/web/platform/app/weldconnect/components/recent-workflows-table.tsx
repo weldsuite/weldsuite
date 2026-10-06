@@ -2,15 +2,9 @@
 import * as React from "react"
 import {
   ColumnDef,
-  ColumnFiltersState,
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  SortingState,
   useReactTable,
-  VisibilityState,
 } from "@tanstack/react-table"
 import { EllipsisVertical } from "lucide-react"
 
@@ -33,19 +27,21 @@ import {
 } from "@weldsuite/ui/components/table"
 import { Avatar, AvatarFallback } from "@weldsuite/ui/components/avatar"
 import { cn } from "@/lib/utils"
-import { useRouter } from "@/lib/router"
+import { Link, useRouter } from "@/lib/router"
 import { useI18n } from "@/lib/i18n/provider"
 import { useTranslations } from "@weldsuite/i18n/client"
-
-export type ActivityType = 'workflow_created' | 'workflow_executed' | 'task_completed' | 'execution_failed' | 'automation_triggered'
+import { ExecutionStatusBadge } from "../executions/components/execution-status-badge"
 
 export interface ActivityItem {
   id: string
-  type: ActivityType
+  workflowId: string
+  /** Run status (`completed`, `running`, `failed`, ...), shown as the same badge as the executions list. */
+  status: string
   customerName: string
   customerInitial: string
   avatarColor: string
   description: string
+  /** Duration of the run, or its error message when it failed. */
   detail?: string
   timestamp: Date
   href: string
@@ -82,11 +78,10 @@ function formatRelativeTime(
   return then.toLocaleDateString()
 }
 
-// activityTypeLabels is resolved dynamically inside the component using i18n
-
 type ActivityRow = {
   id: string
-  type: ActivityType
+  workflowId: string
+  status: string
   customerName: string
   customerInitial: string
   avatarColor: string
@@ -98,9 +93,12 @@ type ActivityRow = {
 
 type RecentActivityT = ReturnType<typeof useI18n>['t']
 
+// Secondary columns drop out below md; their content moves under the workflow name instead.
+const MOBILE_HIDDEN_COLUMNS = new Set(["status", "detail", "date"])
+
 function buildColumns(
   t: RecentActivityT,
-  activityTypeLabels: Record<ActivityType, string>,
+  onNavigate: (href: string) => void,
 ): ColumnDef<ActivityRow>[] {
   return [
     {
@@ -108,32 +106,37 @@ function buildColumns(
       header: () => <div>{t.weldconnect.components.recentActivity.recentActivity}</div>,
       cell: ({ row }) => {
         return (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <Avatar className="h-7 w-7 flex-shrink-0 rounded-md">
               <AvatarFallback className={cn('text-[11px] text-white font-medium rounded-md', row.original.avatarColor)}>
                 {row.original.customerInitial}
               </AvatarFallback>
             </Avatar>
-            <div className="-space-y-0.5">
-              <div className="font-medium text-sm">{row.original.customerName}</div>
-              <div className="text-muted-foreground text-xs">{row.original.description}</div>
+            <div className="min-w-0 -space-y-0.5">
+              <div className="font-medium text-sm truncate">{row.original.customerName}</div>
+              <div className="text-muted-foreground text-xs truncate">{row.original.description}</div>
+              <div className="md:hidden flex items-center gap-2 pt-1.5 text-xs text-muted-foreground">
+                <ExecutionStatusBadge status={row.original.status} />
+                <span>{row.original.date}</span>
+              </div>
             </div>
           </div>
         )
       },
     },
     {
-      accessorKey: "type",
-      header: t.weldconnect.components.recentActivity.type,
-      cell: ({ row }) => (
-        <div className="text-sm">{activityTypeLabels[row.original.type]}</div>
-      ),
+      accessorKey: "status",
+      header: t.weldconnect.components.recentActivity.status,
+      cell: ({ row }) => <ExecutionStatusBadge status={row.original.status} />,
     },
     {
       accessorKey: "detail",
       header: t.weldconnect.components.recentActivity.detail,
       cell: ({ row }) => (
-        <div className="text-sm text-muted-foreground max-w-[250px] truncate">
+        <div
+          className="text-sm text-muted-foreground max-w-[250px] line-clamp-2 break-words"
+          title={row.original.detail || undefined}
+        >
           {row.original.detail || '—'}
         </div>
       ),
@@ -142,7 +145,7 @@ function buildColumns(
       accessorKey: "date",
       header: () => <div className="text-right">{t.weldconnect.components.recentActivity.time}</div>,
       cell: ({ row }) => (
-        <div className="text-right text-sm text-muted-foreground">{row.original.date}</div>
+        <div className="text-right text-sm text-muted-foreground whitespace-nowrap">{row.original.date}</div>
       ),
     },
     {
@@ -156,8 +159,11 @@ function buildColumns(
           <div className="text-right">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-8 w-8 p-0">
-                  <span className="sr-only">{t.weldconnect.components.recentActivity.actions}</span>
+                <Button
+                  variant="ghost"
+                  className="h-8 w-8 p-0"
+                  aria-label={t.weldconnect.components.recentActivity.actions}
+                >
                   <EllipsisVertical />
                 </Button>
               </DropdownMenuTrigger>
@@ -169,8 +175,12 @@ function buildColumns(
                   {t.weldconnect.recentActivityTable.copyId}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>{t.weldconnect.components.recentActivity.viewWorkflow}</DropdownMenuItem>
-                <DropdownMenuItem>{t.weldconnect.components.recentActivity.viewDetails}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onNavigate(`/weldconnect/workflows/${activity.workflowId}`)}>
+                  {t.weldconnect.components.recentActivity.viewWorkflow}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onNavigate(activity.href)}>
+                  {t.weldconnect.components.recentActivity.viewDetails}
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -188,27 +198,17 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
   const router = useRouter()
   const { t } = useI18n()
   const st = useTranslations()
-  const [sorting, setSorting] = React.useState<SortingState>([])
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
-
-  const activityTypeLabels: Record<ActivityType, string> = React.useMemo(() => ({
-    workflow_created: t.weldconnect.recentActivityTable.activityTypes.workflow_created,
-    workflow_executed: t.weldconnect.recentActivityTable.activityTypes.workflow_executed,
-    task_completed: t.weldconnect.recentActivityTable.activityTypes.task_completed,
-    execution_failed: t.weldconnect.recentActivityTable.activityTypes.execution_failed,
-    automation_triggered: t.weldconnect.recentActivityTable.activityTypes.automation_triggered,
-  }), [t])
 
   const columns: ColumnDef<ActivityRow>[] = React.useMemo(
-    () => buildColumns(t, activityTypeLabels),
-    [t, activityTypeLabels],
+    () => buildColumns(t, (href) => router.push(href)),
+    [t, router],
   )
 
   const data: ActivityRow[] = React.useMemo(() =>
     activities.map(activity => ({
       id: activity.id,
-      type: activity.type,
+      workflowId: activity.workflowId,
+      status: activity.status,
       customerName: activity.customerName,
       customerInitial: activity.customerInitial,
       avatarColor: activity.avatarColor,
@@ -220,21 +220,11 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
     [activities, t, st]
   )
 
+  // Every row passed in is shown: the dashboard fetches exactly one page of recent runs.
   const table = useReactTable({
     data,
     columns,
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    onColumnVisibilityChange: setColumnVisibility,
-    state: {
-      sorting,
-      columnFilters,
-      columnVisibility,
-    },
   })
 
   return (
@@ -246,7 +236,10 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   return (
-                    <TableHead key={header.id}>
+                    <TableHead
+                      key={header.id}
+                      className={cn(MOBILE_HIDDEN_COLUMNS.has(header.column.id) && 'hidden md:table-cell')}
+                    >
                       {header.isPlaceholder
                         ? null
                         : flexRender(
@@ -272,7 +265,10 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                    <TableCell
+                      key={cell.id}
+                      className={cn(MOBILE_HIDDEN_COLUMNS.has(cell.column.id) && 'hidden md:table-cell')}
+                    >
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext()
@@ -294,25 +290,10 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-end space-x-2 py-4">
-        <div className="space-x-2 ml-auto">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            {t.weldconnect.components.recentActivity.previous}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            {t.weldconnect.components.recentActivity.next}
-          </Button>
-        </div>
+      <div className="flex items-center justify-end py-4">
+        <Button asChild variant="outline" size="sm">
+          <Link href="/weldconnect/executions">{t.weldconnect.components.recentActivity.viewAll}</Link>
+        </Button>
       </div>
     </div>
   )

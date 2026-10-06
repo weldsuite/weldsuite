@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { useRouter } from '@/lib/router';
+import { useBlocker } from '@tanstack/react-router';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
   AlertDialog,
@@ -15,8 +15,8 @@ import {
 /**
  * Shared page chrome for the workflow editor, used by both the WeldConnect
  * workflow editor and the WeldCRM sequence editor. Owns the unsaved-changes
- * guard (the navigation interceptor + confirm dialog) and the actions portal
- * target, so each page only supplies its own nav bar and the editor itself.
+ * guard (a router blocker + confirm dialog) and the actions portal target, so
+ * each page only supplies its own nav bar and the editor itself.
  *
  * Both `nav` and `editor` receive the same `actionsRef` — the nav renders it as
  * the portal target for the editor's Save/Test/Publish buttons, and the editor
@@ -25,7 +25,10 @@ import {
 interface WorkflowEditorShellRenderProps {
   /** Portal target for the editor's action buttons; render `<div ref={actionsRef} />` in the nav. */
   actionsRef: RefObject<HTMLDivElement | null>;
-  /** Pass to the nav's `onBeforeNavigate` — returns false (and shows the guard) when there are unsaved changes. */
+  /**
+   * Pass to the nav's `onBeforeNavigate`. Always allows the click: the guard
+   * now sits on the router itself, so the tabs need no interception of their own.
+   */
   onBeforeNavigate: (href: string) => boolean;
   /** Wire to the editor's `onDirtyChange`. */
   setDirty: (dirty: boolean) => void;
@@ -40,27 +43,23 @@ export interface WorkflowEditorShellProps {
 
 export function WorkflowEditorShell({ nav, editor }: WorkflowEditorShellProps) {
   const t = useTranslations();
-  const router = useRouter();
   const actionsRef = useRef<HTMLDivElement>(null);
   const [isDirty, setDirty] = useState(false);
-  const [pendingNavHref, setPendingNavHref] = useState<string | null>(null);
 
-  const onBeforeNavigate = useCallback(
-    (href: string) => {
-      if (isDirty) {
-        setPendingNavHref(href);
-        return false;
-      }
-      return true;
-    },
-    [isDirty],
-  );
+  // Every way out of the editor (its own tabs, the app sidebar, breadcrumbs,
+  // the browser's back button, a programmatic push) goes through the router,
+  // so one blocker covers them all; the tabs alone used to be guarded, and a
+  // sidebar click silently dropped the edits. Switching between `?panel=`
+  // views of the same page keeps the editor mounted and is not a leave. Tab
+  // close / reload is handled by the editor's own `beforeunload` listener.
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) => isDirty && current.pathname !== next.pathname,
+    withResolver: true,
+    enableBeforeUnload: false,
+  });
+  const isBlocked = blocker.status === 'blocked';
 
-  const handleDiscardAndNavigate = () => {
-    const href = pendingNavHref;
-    setPendingNavHref(null);
-    if (href) router.push(href);
-  };
+  const onBeforeNavigate = useCallback(() => true, []);
 
   const renderProps: WorkflowEditorShellRenderProps = { actionsRef, onBeforeNavigate, setDirty };
 
@@ -69,7 +68,7 @@ export function WorkflowEditorShell({ nav, editor }: WorkflowEditorShellProps) {
       {nav(renderProps)}
       <div className="flex-1 overflow-hidden">{editor(renderProps)}</div>
 
-      <AlertDialog open={!!pendingNavHref} onOpenChange={(open) => { if (!open) setPendingNavHref(null); }}>
+      <AlertDialog open={isBlocked} onOpenChange={(open) => { if (!open) blocker.reset?.(); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('sweep.weldflow.editorShell.unsavedChangesTitle')}</AlertDialogTitle>
@@ -80,7 +79,7 @@ export function WorkflowEditorShell({ nav, editor }: WorkflowEditorShellProps) {
           <AlertDialogFooter>
             <AlertDialogAction
               className="bg-background text-foreground border border-input hover:bg-destructive/10 hover:text-destructive hover:border-destructive/15"
-              onClick={handleDiscardAndNavigate}
+              onClick={() => blocker.proceed?.()}
             >
               {t('sweep.weldflow.editorShell.discardChanges')}
             </AlertDialogAction>

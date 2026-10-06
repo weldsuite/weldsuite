@@ -41,6 +41,7 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
   const triggerType = nodeData.trigger?.type || 'manual';
   const Icon = triggerIcons[triggerType] || Zap;
   const triggerBadge = labels.triggerBadge ?? 'Trigger';
+  const addStepLabel = nodeData.addStepLabel ?? 'Add step';
   const [isHovered, setIsHovered] = useState(false);
 
   const desc = labels.descriptions;
@@ -161,18 +162,23 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
         />
       </div>
 
-      {/* Add step button - shows on hover for last node - DESKTOP ONLY */}
-      {nodeData.isLastNode && isHovered && !nodeData.showAddPlaceholder && (
+      {/* Add step button under the last node - DESKTOP ONLY (mobile has its own below) */}
+      {nodeData.isLastNode && !nodeData.showAddPlaceholder && (
         <>
           <div className="absolute left-1/2 -translate-x-1/2 bottom-8 w-px h-5 border-l border-dashed border-border hidden lg:block" />
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              nodeData.onAddStep?.(nodeData.nodeId);
-            }}
-            className="absolute left-1/2 -translate-x-1/2 bottom-3 w-5 h-5 rounded-full bg-foreground/80 hover:bg-foreground hidden lg:flex items-center justify-center transition-all"
+            type="button"
+            onClick={(e) => { e.stopPropagation(); nodeData.onAddStep?.(nodeData.nodeId); }}
+            className={cn(
+              'absolute left-1/2 -translate-x-1/2 bottom-2.5 h-6 pl-1.5 pr-2.5 rounded-full hidden lg:flex items-center gap-1 whitespace-nowrap transition-colors',
+              'text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              isHovered
+                ? 'bg-foreground text-background'
+                : 'bg-background text-muted-foreground border border-border hover:text-foreground',
+            )}
           >
-            <Plus className="w-3 h-3 text-background" />
+            <Plus className="w-3 h-3" />
+            {addStepLabel}
           </button>
         </>
       )}
@@ -180,10 +186,10 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
       {/* Mobile-only add step button */}
       <div className="lg:hidden flex flex-col items-center -mt-[14px]">
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            nodeData.onAddStep?.(nodeData.nodeId);
-          }}
+          type="button"
+          aria-label={addStepLabel}
+          title={addStepLabel}
+          onClick={(e) => { e.stopPropagation(); nodeData.onAddStep?.(nodeData.nodeId); }}
           className="w-7 h-7 rounded-full bg-foreground/80 hover:bg-foreground active:bg-foreground flex items-center justify-center transition-all"
         >
           <Plus className="w-3.5 h-3.5 text-background" />

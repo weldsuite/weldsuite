@@ -16,6 +16,8 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 import { ACTION_TYPES, TRIGGER_TYPES, ENTITY_EVENTS } from './static-catalogs';
+import { notSequenceRun, notTestRun } from '../../services/workflow-executions';
+import { notSequenceWorkflow } from '../../services/workflows';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -24,13 +26,18 @@ app.get('/stats', requirePermission('workflows:read'), async (c) => {
   try {
     const { workflows, workflowExecutions, workflowSchedules, workflowWebhooks } = schema;
 
-    const [workflowCounts, executions, scheduleCount, webhookCount] = await Promise.all([
+    // CRM sequences (tagged __type:sequence) and Test runs are not WeldConnect activity.
+    const [workflowCounts, executionCounts, scheduleCount, webhookCount] = await Promise.all([
       db
         .select({ status: workflows.status, count: sql<number>`count(*)::int` })
         .from(workflows)
-        .where(isNull(workflows.deletedAt))
+        .where(and(isNull(workflows.deletedAt), notSequenceWorkflow))
         .groupBy(workflows.status),
-      db.select().from(workflowExecutions),
+      db
+        .select({ status: workflowExecutions.status, count: sql<number>`count(*)::int` })
+        .from(workflowExecutions)
+        .where(and(notSequenceRun, notTestRun))
+        .groupBy(workflowExecutions.status),
       db
         .select({ count: sql<number>`count(*)::int` })
         .from(workflowSchedules)
@@ -41,14 +48,15 @@ app.get('/stats', requirePermission('workflows:read'), async (c) => {
         .where(and(eq(workflowWebhooks.isEnabled, true), isNull(workflowWebhooks.deletedAt))),
     ]);
 
+    const countOf = (status: string) => executionCounts.find((e) => e.status === status)?.count ?? 0;
     const stats = {
       workflows: { total: 0, active: 0, draft: 0, paused: 0, archived: 0 },
       executions: {
-        total: executions.length,
-        running: executions.filter((e) => e.status === 'running').length,
-        completed: executions.filter((e) => e.status === 'completed').length,
-        failed: executions.filter((e) => e.status === 'failed').length,
-        queued: executions.filter((e) => e.status === 'queued').length,
+        total: executionCounts.reduce((sum, e) => sum + e.count, 0),
+        running: countOf('running'),
+        completed: countOf('completed'),
+        failed: countOf('failed'),
+        queued: countOf('queued'),
       },
       triggers: {
         schedules: scheduleCount[0]?.count ?? 0,
@@ -85,7 +93,7 @@ app.get(
         const recent = await db
           .select()
           .from(workflows)
-          .where(isNull(workflows.deletedAt))
+          .where(and(isNull(workflows.deletedAt), notSequenceWorkflow))
           .orderBy(desc(workflows.updatedAt))
           .limit(5);
         for (const w of recent) {
@@ -105,7 +113,13 @@ app.get(
         db
           .select()
           .from(workflows)
-          .where(and(isNull(workflows.deletedAt), or(like(workflows.name, term), like(workflows.description, term))))
+          .where(
+            and(
+              isNull(workflows.deletedAt),
+              notSequenceWorkflow,
+              or(like(workflows.name, term), like(workflows.description, term)),
+            ),
+          )
           .limit(5),
         db
           .select()
@@ -118,7 +132,7 @@ app.get(
           .select({ execution: workflowExecutions, workflowName: workflows.name })
           .from(workflowExecutions)
           .leftJoin(workflows, eq(workflowExecutions.workflowId, workflows.id))
-          .where(like(workflows.name, term))
+          .where(and(like(workflows.name, term), notSequenceWorkflow))
           .orderBy(desc(workflowExecutions.startedAt))
           .limit(5),
       ]);
@@ -167,9 +181,14 @@ app.get(
     const { workflowId } = c.req.valid('query');
     try {
       const { workflowExecutions } = schema;
+      // An explicit workflowId can name a sequence; the overall figure leaves
+      // sequences out. Test runs never count.
       const rows = workflowId
-        ? await db.select().from(workflowExecutions).where(eq(workflowExecutions.workflowId, workflowId))
-        : await db.select().from(workflowExecutions);
+        ? await db
+            .select()
+            .from(workflowExecutions)
+            .where(and(eq(workflowExecutions.workflowId, workflowId), notTestRun))
+        : await db.select().from(workflowExecutions).where(and(notSequenceRun, notTestRun));
 
       const completed = rows.filter((e) => e.status === 'completed' && e.duration);
       const durations = completed.map((e) => e.duration ?? 0);
@@ -266,7 +285,7 @@ app.get('/resource-usage', requirePermission('workflows:read'), async (c) => {
           active: sql<number>`count(*) filter (where status = 'active')::int`,
         })
         .from(workflows)
-        .where(isNull(workflows.deletedAt)),
+        .where(and(isNull(workflows.deletedAt), notSequenceWorkflow)),
       db
         .select({
           total: sql<number>`count(*)::int`,
@@ -274,7 +293,8 @@ app.get('/resource-usage', requirePermission('workflows:read'), async (c) => {
           completed: sql<number>`count(*) filter (where status = 'completed')::int`,
           failed: sql<number>`count(*) filter (where status = 'failed')::int`,
         })
-        .from(workflowExecutions),
+        .from(workflowExecutions)
+        .where(and(notSequenceRun, notTestRun)),
       db
         .select({ count: sql<number>`count(*)::int` })
         .from(workflowSchedules)

@@ -22,6 +22,7 @@ import {
   Trash2,
   Copy,
   RotateCcw,
+  PencilLine,
 } from 'lucide-react';
 import {
   WorkflowListRow,
@@ -31,10 +32,11 @@ import {
 } from '@weldsuite/ui/components/workflow-list';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { useDeleteWorkflow, useUpdateWorkflowStatus, useDuplicateWorkflow, useCreateWorkflow } from '@/hooks/queries/use-automation-queries';
+import { useDeleteWorkflow, useUpdateWorkflow, useUpdateWorkflowStatus, useDuplicateWorkflow, useCreateWorkflow } from '@/hooks/queries/use-automation-queries';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { isUnsupportedWorkflowError } from '../../mvp';
+import { getTriggerLabel } from '../../trigger-labels';
 
 interface Workflow {
   id: string;
@@ -106,6 +108,7 @@ const triggerConfig: Record<string, { variant: WorkflowTriggerVariant }> = {
   manual: { variant: 'manual' },
   schedule: { variant: 'schedule' },
   webhook: { variant: 'webhook' },
+  entity_event: { variant: 'event' },
 };
 
 type WorkflowsClientCopy = ReturnType<typeof useI18n>['t']['weldconnect']['workflowsClient'];
@@ -311,13 +314,6 @@ export function WorkflowsClient({
     { label: entityLabelPlural },
   ]);
 
-  // Fallback trigger labels (used when triggerLabelFn isn't provided).
-  const triggerLabels: Record<string, string> = useMemo(() => ({
-    manual: t.weldconnect.workflows.triggerTypes.manual,
-    schedule: t.weldconnect.workflows.triggerTypes.schedule,
-    webhook: t.weldconnect.workflows.triggerTypes.webhook,
-  }), [t]);
-
   const router = useRouter();
   const [workflows, setWorkflows] = useState<Workflow[]>(initialWorkflows);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -340,7 +336,9 @@ export function WorkflowsClient({
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null);
   const deleteWorkflowMutation = useDeleteWorkflow(apiBasePath);
+  const renameWorkflowMutation = useUpdateWorkflow(apiBasePath);
   const updateStatusMutation = useUpdateWorkflowStatus(apiBasePath);
   const duplicateWorkflowMutation = useDuplicateWorkflow(apiBasePath);
   const createWorkflowMutation = useCreateWorkflow(apiBasePath);
@@ -356,7 +354,9 @@ export function WorkflowsClient({
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffMinutes = Math.floor(diffMs / (1000 * 60));
 
-    if (diffMinutes < 60) {
+    if (diffMinutes < 1) {
+      return t.weldconnect.workflowsClient.justNow;
+    } else if (diffMinutes < 60) {
       return st('sweep.weldconnect.workflowsClient.minutesAgoShort', { count: diffMinutes });
     } else if (diffHours < 24) {
       return st('sweep.weldconnect.workflowsClient.hoursAgoShort', { count: diffHours });
@@ -365,7 +365,7 @@ export function WorkflowsClient({
     } else {
       return d.toLocaleDateString();
     }
-  }, [st]);
+  }, [st, t.weldconnect.workflowsClient.justNow]);
 
   const handleDelete = useCallback((workflowId: string) => {
     setDeleteConfirm(workflowId);
@@ -519,15 +519,24 @@ export function WorkflowsClient({
     });
   };
 
-  const handleNewWorkflow = async () => {
-    try {
-      const result = await createWorkflowMutation.mutateAsync({ name: 'Untitled workflow' });
-      if (result?.data?.id) {
-        router.push(`${basePath}/${result.data.id}/edit`);
-      }
-    } catch {
-      toast.error(t.weldconnect.workflows.toasts.createFailed);
-    }
+  // Nothing is created until the dialog is confirmed: creating on click left an
+  // "Untitled workflow" draft behind for every press, also when the user backed out.
+  const handleNewWorkflow = () => setShowCreateDialog(true);
+
+  const confirmRename = () => {
+    const name = renameTarget?.name.trim();
+    if (!renameTarget || !name) return;
+    const { id } = renameTarget;
+    renameWorkflowMutation.mutate({ id, data: { name } }, {
+      onSuccess: () => {
+        setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, name } : w)));
+        setRenameTarget(null);
+        toast.success(t.weldconnect.workflows.toasts.renamed);
+      },
+      onError: () => {
+        toast.error(t.weldconnect.workflows.toasts.renameFailed);
+      },
+    });
   };
 
   // Filter configs
@@ -544,37 +553,44 @@ export function WorkflowsClient({
     {
       field: 'triggerType',
       label: t.weldconnect.workflows.filters.trigger,
-      options: triggerFilterOptions || [
-        { value: 'schedule', label: t.weldconnect.workflows.triggerTypes.schedule },
-        { value: 'webhook', label: t.weldconnect.workflows.triggerTypes.webhook },
-        { value: 'manual', label: t.weldconnect.workflows.triggerTypes.manual },
-      ],
+      options: triggerFilterOptions || (category === 'workflow'
+        // WeldConnect's own triggers (see app/weldconnect/mvp.ts).
+        ? [
+            { value: 'entity_event', label: getTriggerLabel(t, 'entity_event') },
+            { value: 'schedule', label: getTriggerLabel(t, 'schedule') },
+          ]
+        : [
+            { value: 'schedule', label: t.weldconnect.workflows.triggerTypes.schedule },
+            { value: 'webhook', label: t.weldconnect.workflows.triggerTypes.webhook },
+            { value: 'manual', label: t.weldconnect.workflows.triggerTypes.manual },
+          ]),
     },
-  ], [triggerFilterOptions, t]);
+  ], [triggerFilterOptions, category, t]);
 
   // Group configs — use trigger-based groups if provided, otherwise group by status
   const groupConfigs: GroupConfig<Workflow>[] = useMemo(() => {
     if (triggerGroups && triggerGroups.length > 0) {
       return triggerGroups;
     }
+    // What is running comes first; drafts are work in progress.
     return [
-      {
-        id: 'draft',
-        label: t.weldconnect.workflows.statuses.draft,
-        sortOrder: 1,
-        filter: (w) => w.status === 'draft',
-      },
       {
         id: 'active',
         label: t.weldconnect.workflows.statuses.active,
-        sortOrder: 2,
+        sortOrder: 1,
         filter: (w) => w.status === 'active',
       },
       {
         id: 'paused',
         label: t.weldconnect.workflows.statuses.paused,
-        sortOrder: 3,
+        sortOrder: 2,
         filter: (w) => w.status === 'paused',
+      },
+      {
+        id: 'draft',
+        label: t.weldconnect.workflows.statuses.draft,
+        sortOrder: 3,
+        filter: (w) => w.status === 'draft',
       },
     ];
   }, [triggerGroups, t]);
@@ -610,25 +626,22 @@ export function WorkflowsClient({
     { id: 'lastModified', header: t.weldconnect.workflows.columns.lastModified, width: 'w-[120px]' },
   ], [entityLabel, t]);
 
-  // For workflows, the row opens the conversational builder; the visual editor
-  // is still reachable from the builder's "Open in editor" button and from the
-  // dropdown's "Open in editor" item.
-  const rowOpenPath = useCallback((id: string) =>
-    category === 'workflow' ? `${basePath}/${id}` : `${basePath}/${id}/edit`,
-  [category, basePath]);
+  const rowOpenPath = useCallback((id: string) => `${basePath}/${id}/edit`, [basePath]);
 
   // Render row — the visual shell comes from the shared @weldsuite/ui
   // WorkflowListRow; this maps the domain Workflow onto its props.
   const renderRow = useCallback((workflow: Workflow) => {
     const triggerKey = workflow.triggerType?.toLowerCase() || 'manual';
+    // A workflow without a trigger yet is not a "Manual" one.
+    const fallbackTriggerLabel = workflow.triggerType
+      ? getTriggerLabel(t, triggerKey)
+      : t.weldconnect.workflowsClient.noTrigger;
     const item: WorkflowListItem = {
       id: workflow.id,
       name: workflow.name,
       description: workflow.description,
       status: workflow.status,
-      triggerLabel: triggerLabelFn
-        ? triggerLabelFn(workflow.triggerType || '')
-        : triggerLabels[triggerKey] || workflow.triggerType || triggerLabels.manual,
+      triggerLabel: triggerLabelFn ? triggerLabelFn(workflow.triggerType || '') : fallbackTriggerLabel,
       // Custom trigger labels render in the teal "event" style, matching the
       // previous design; otherwise use the per-type color.
       triggerVariant: triggerLabelFn
@@ -648,10 +661,10 @@ export function WorkflowsClient({
       },
       ...(category === 'workflow'
         ? [{
-            id: 'open-visual',
-            label: t.weldconnect.workflows.actions.openInVisualEditor,
-            icon: Edit,
-            onSelect: () => router.push(`${basePath}/${workflow.id}/edit`),
+            id: 'rename',
+            label: t.weldconnect.workflows.actions.rename,
+            icon: PencilLine,
+            onSelect: () => setRenameTarget({ id: workflow.id, name: workflow.name }),
           } satisfies WorkflowListAction]
         : []),
       {
@@ -697,7 +710,7 @@ export function WorkflowsClient({
         onSelectChange={(checked) => toggleSelect(workflow.id, checked)}
       />
     );
-  }, [router, basePath, category, t, triggerLabels, handleDelete, handleActivate, handlePause, handleDuplicate, triggerLabelFn, selectedIds, toggleSelect, formatDate, rowOpenPath]);
+  }, [router, category, t, handleDelete, handleActivate, handlePause, handleDuplicate, triggerLabelFn, selectedIds, toggleSelect, formatDate, rowOpenPath]);
 
   return (
     <>
@@ -795,6 +808,38 @@ export function WorkflowsClient({
               disabled={!newWorkflowName.trim() || (!!createTriggerOptions && !selectedCreateTrigger) || isCreating}
             >
               {isCreating ? t.weldconnect.variables.dialog.creating : t.weldconnect.workflows.createWorkflow}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename Dialog */}
+      <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>{t.weldconnect.workflows.dialogs.renameTitle.replace('{entityLabel}', entityLabel.toLowerCase())}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2 py-4">
+            <Label htmlFor="workflow-rename" className="text-sm">
+              {t.weldconnect.workflows.dialogs.nameLabel.replace('{entityLabel}', entityLabel)}
+            </Label>
+            <Input
+              id="workflow-rename"
+              value={renameTarget?.name ?? ''}
+              maxLength={255}
+              onChange={(e) => setRenameTarget((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmRename();
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+              {t.weldconnect.variables.dialog.cancel}
+            </Button>
+            <Button onClick={confirmRename} disabled={!renameTarget?.name.trim() || renameWorkflowMutation.isPending}>
+              {t.weldconnect.workflows.actions.rename}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -145,6 +145,13 @@ app.post('/:id/retry', requirePermission('workflows:create'), async (c) => {
     if (result.kind === 'not_found') return error.notFound(c, 'Execution', id);
     if (result.kind === 'not_failed') return error.badRequest(c, 'Only failed executions can be retried');
     if (result.kind === 'workflow_missing') return error.notFound(c, 'Workflow', result.workflowId);
+    if (result.kind === 'workflow_inactive') {
+      return error.badRequest(c, 'This workflow is not active, so the run would not start. Activate it first.', {
+        reason: 'workflow_inactive',
+        workflowId: result.workflowId,
+        status: result.status,
+      });
+    }
 
     publishEntityEvent({
       c,
@@ -153,7 +160,11 @@ app.post('/:id/retry', requirePermission('workflows:create'), async (c) => {
       action: 'created',
       data: { id: result.id, workflowId: '', status: 'queued' },
     });
-    return success(c, { id: result.id, instanceId: result.instanceId, retryOf: result.retryOf }, 201);
+    return success(
+      c,
+      { id: result.id, executionId: result.executionId, instanceId: result.instanceId, retryOf: result.retryOf },
+      201,
+    );
   } catch (err) {
     console.error('[app-api/workflow-executions] retry failed:', err);
     return error.internal(c, 'Failed to retry execution');
