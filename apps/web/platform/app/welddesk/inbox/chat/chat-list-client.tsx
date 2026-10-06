@@ -75,7 +75,7 @@ export default function ChatListClient({ initialConversations, workspaceId }: Re
     if (conversation.channel !== 'chat') return;
 
     // Invalidate TanStack Query cache so the list refetches from DB
-    queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
+    void queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
 
     const now = new Date();
     const newConversation: Helpdesk.Conversation = {
@@ -103,7 +103,7 @@ export default function ChatListClient({ initialConversations, workspaceId }: Re
     toast.success(ti.newChat, {
       description: ti.newConversationFrom.replace('{name}', senderName),
     });
-    showBrowserNotification(ti.newLiveChat, {
+    void showBrowserNotification(ti.newLiveChat, {
       body: ti.newConversationFrom.replace('{name}', senderName),
       playSound: true,
       actionUrl: `/welddesk/inbox/chat/${newConversation.id}`,
@@ -111,7 +111,7 @@ export default function ChatListClient({ initialConversations, workspaceId }: Re
   }, [queryClient, ti.newChat, ti.newConversationFrom, ti.newLiveChat]);
 
   const handleAgentAssigned = useCallback((data: { conversationId: string; agentId: string; agentName: string }) => {
-    queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
+    void queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
     setConversations(prev => prev.map(conv =>
       conv.id === data.conversationId ? { ...conv, assigneeId: data.agentId, assigneeName: data.agentName } : conv
     ));

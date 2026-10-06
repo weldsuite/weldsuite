@@ -85,7 +85,7 @@ export default function SlackListClient({ initialConversations, accessToken }: R
         conv.id === data.conversationId ? { ...conv, assigneeId: data.agentId, assigneeName: data.agentName } : conv
       ));
       if (data.agentName !== 'weldagent-system') {
-        if (!conversations.some(c => c.id === data.conversationId)) loadConversations();
+        if (!conversations.some(c => c.id === data.conversationId)) void loadConversations();
         toast.info(ti.conversationAssigned, { description: ti.conversationAssignedTo.replace('{name}', data.agentName) });
       }
     },
