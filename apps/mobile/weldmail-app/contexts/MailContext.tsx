@@ -202,7 +202,7 @@ function buildAccountList(
   organizationId: string | null | undefined,
   fallbackOrgId: string | null,
 ): MailAccount[] {
-  const personalAccounts = personalRows.map(toPersonalAccount);
+  const personalAccounts = personalRows.map((row) => toPersonalAccount(row));
   const currentOrgAccounts = liveWorkspace.map((a) => toWorkspaceAccount(a, organizationId ?? fallbackOrgId));
   const currentIds = new Set(currentOrgAccounts.map((a) => a.id));
   const otherOrgAccounts = collectOtherOrgAccounts(directory, currentIds, organizationId);
@@ -377,7 +377,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
         orgId,
       );
       setAccounts(normalized);
-      if (orgId) mailCache.setAccounts(orgId, normalized);
+      if (orgId) void mailCache.setAccounts(orgId, normalized);
       await applySavedSelection(normalized);
     } catch (error) {
       if (seq !== accountsFetchSeqRef.current) return;
@@ -405,7 +405,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
     setMainLabelCounts({});
     setSecondaryLabelCounts({});
     setSelectedLabel('INBOX');
-    AsyncStorage.setItem(STORAGE_KEY_SELECTED_ACCOUNT, account.id);
+    AsyncStorage.setItem(STORAGE_KEY_SELECTED_ACCOUNT, account.id).catch(() => {});
   }, []);
 
   /**
@@ -453,7 +453,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
     setMainLabelCounts({});
     setSecondaryLabelCounts({});
     setSelectedLabel('INBOX');
-    AsyncStorage.setItem(STORAGE_KEY_SELECTED_ACCOUNT, 'unified');
+    AsyncStorage.setItem(STORAGE_KEY_SELECTED_ACCOUNT, 'unified').catch(() => {});
   }, []);
 
   const processLabelsResponse = useCallback((items: any[]) => {
@@ -567,7 +567,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
     }
     if (!initializedRef.current) {
       initializedRef.current = true;
-      fetchAccounts().finally(() => setIsLoading(false));
+      void fetchAccounts().finally(() => setIsLoading(false));
     }
   }, [user, retryTick, fetchAccounts]);
 
@@ -599,9 +599,9 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
 
   useEffect(() => {
     if (isUnifiedInbox && accounts.length > 0) {
-      fetchLabels();
+      void fetchLabels();
     } else if (selectedAccount && !isUnifiedInbox) {
-      fetchLabels();
+      void fetchLabels();
     }
   }, [selectedAccount?.id, isUnifiedInbox, accounts.length, fetchLabels]);
 
