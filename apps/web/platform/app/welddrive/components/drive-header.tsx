@@ -29,7 +29,6 @@ export function DriveHeader({ onWeldAgentToggle, onCalendarToggle, onNotificatio
   return (
     <BreadcrumbHeader
       segments={segments}
-      searchPlaceholder={t.header.searchPlaceholder}
       onWeldAgentToggle={onWeldAgentToggle}
       onCalendarToggle={onCalendarToggle}
       onNotificationsToggle={onNotificationsToggle}
