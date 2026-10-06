@@ -584,6 +584,14 @@ export function useUpdateWorkflow(apiBasePath: string = WELDCONNECT_API.workflow
       } else {
         qc.invalidateQueries({ queryKey: automationKeys.workflows() });
         qc.invalidateQueries({ queryKey: automationKeys.workflow(variables.id) });
+        if (variables.data.triggers !== undefined) {
+          // Saving triggers may have just provisioned (or retired) a webhook
+          // row (services/workflow-webhook-sync.ts on connect-api) — refetch
+          // so its URL appears without a manual reload. Inlined key (not
+          // imported from use-workflow-editor-data.ts, which imports
+          // WELDCONNECT_API from this file) to avoid a circular import.
+          qc.invalidateQueries({ queryKey: ['workflow-editor', 'workflow-webhook', variables.id] });
+        }
       }
       refreshEditorWorkflow(qc, variables.id, variables.data);
     },

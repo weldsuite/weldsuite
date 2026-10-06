@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { handleHttpRequest, handleWebhook } from './http';
+import { NonRetryableStepError } from '../errors';
 import { makeActionContext } from '../../test/ctx';
 import { createPgliteDb } from '../../test/pglite';
 import { schema, type Database } from '../../db';
@@ -20,31 +21,86 @@ afterEach(() => {
 });
 
 describe('http_request', () => {
-  it('returns status + parsed JSON data', async () => {
+  it('returns status + ok + headers + parsed JSON body', async () => {
     stubFetch(() => new Response(JSON.stringify({ hi: 1 }), { status: 200, statusText: 'OK', headers: { 'content-type': 'application/json' } }));
     const res = (await handleHttpRequest({ url: 'https://api.test/x', method: 'GET' }, makeActionContext())) as {
       status: number;
-      data: unknown;
+      ok: boolean;
+      headers: Record<string, string>;
+      body: unknown;
     };
     expect(res.status).toBe(200);
-    expect(res.data).toEqual({ hi: 1 });
+    expect(res.ok).toBe(true);
+    expect(res.body).toEqual({ hi: 1 });
+    expect(res.headers['content-type']).toContain('application/json');
   });
 
-  it('falls back to raw text when the body is not JSON', async () => {
-    stubFetch(() => new Response('plain', { status: 200 }));
-    const res = (await handleHttpRequest({ url: 'https://api.test/x' }, makeActionContext())) as { data: unknown };
-    expect(res.data).toBe('plain');
+  it('returns the raw text when the content-type is not JSON', async () => {
+    stubFetch(() => new Response('plain', { status: 200, headers: { 'content-type': 'text/plain' } }));
+    const res = (await handleHttpRequest({ url: 'https://api.test/x' }, makeActionContext())) as { body: unknown };
+    expect(res.body).toBe('plain');
   });
 
   it('throws when url is missing', async () => {
     await expect(handleHttpRequest({}, makeActionContext())).rejects.toThrow(/url/i);
   });
 
+  it('rejects a non-http(s) scheme', async () => {
+    await expect(
+      handleHttpRequest({ url: 'file:///etc/passwd' }, makeActionContext()),
+    ).rejects.toThrow(NonRetryableStepError);
+  });
+
+  it.each(['http://localhost:8080/x', 'http://127.0.0.1/x', 'http://10.0.0.5/x', 'http://192.168.1.1/x', 'http://169.254.169.254/latest/meta-data', 'http://internal-svc.internal/x'])(
+    'rejects an internal-network target %s',
+    async (url) => {
+      await expect(handleHttpRequest({ url }, makeActionContext())).rejects.toThrow(NonRetryableStepError);
+    },
+  );
+
   it('JSON-encodes the body and sends a content-type header', async () => {
-    const { calls } = stubFetch(() => new Response('{}', { status: 200 }));
+    const { calls } = stubFetch(() => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
     await handleHttpRequest({ url: 'https://api.test/x', method: 'POST', body: { a: 1 } }, makeActionContext());
     expect(calls[0].init?.method).toBe('POST');
     expect(calls[0].init?.body).toBe(JSON.stringify({ a: 1 }));
+  });
+
+  it('throws NonRetryableStepError on a 4xx (will not retry)', async () => {
+    stubFetch(() => new Response(JSON.stringify({ error: 'nope' }), { status: 404, statusText: 'Not Found', headers: { 'content-type': 'application/json' } }));
+    await expect(handleHttpRequest({ url: 'https://api.test/x' }, makeActionContext())).rejects.toThrow(NonRetryableStepError);
+  });
+
+  it('throws a plain (retryable) Error on a 5xx', async () => {
+    stubFetch(() => new Response('boom', { status: 503, statusText: 'Service Unavailable' }));
+    const err: unknown = await handleHttpRequest({ url: 'https://api.test/x' }, makeActionContext()).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(NonRetryableStepError);
+    expect((err as Error).message).toMatch(/503/);
+  });
+
+  it('times out and throws a retryable error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+      ),
+    );
+    await expect(
+      handleHttpRequest({ url: 'https://api.test/slow', timeout: 10 }, makeActionContext()),
+    ).rejects.toThrow(/timed out/i);
+  });
+
+  it('truncates a response body larger than the cap instead of failing', async () => {
+    const big = 'x'.repeat(2_000_000);
+    stubFetch(() => new Response(big, { status: 200, headers: { 'content-type': 'text/plain' } }));
+    const res = (await handleHttpRequest({ url: 'https://api.test/big' }, makeActionContext())) as { body: string };
+    expect(res.body.length).toBeLessThanOrEqual(1_000_000);
   });
 });
 
@@ -70,6 +126,12 @@ describe('webhook', () => {
       handleWebhook({ url: 'https://hooks.test/in', body: {} }, makeActionContext()),
     ).rejects.toThrow(/500/);
   });
+
+  it('rejects an internal-network target', async () => {
+    await expect(
+      handleWebhook({ url: 'http://127.0.0.1/in', body: {} }, makeActionContext()),
+    ).rejects.toThrow();
+  });
 });
 
 describe('http_request with integration auth (pglite)', () => {
@@ -88,7 +150,7 @@ describe('http_request with integration auth (pglite)', () => {
   });
 
   it('injects a bearer token from the resolved integration', async () => {
-    const { calls } = stubFetch(() => new Response('{}', { status: 200 }));
+    const { calls } = stubFetch(() => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
     await handleHttpRequest(
       { url: 'https://api.test/secure', integrationType: 'http_auth_fixture' },
       makeActionContext({ db }),
@@ -98,7 +160,7 @@ describe('http_request with integration auth (pglite)', () => {
   });
 
   it('lets an explicit Authorization header win over the integration', async () => {
-    const { calls } = stubFetch(() => new Response('{}', { status: 200 }));
+    const { calls } = stubFetch(() => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
     await handleHttpRequest(
       {
         url: 'https://api.test/secure',

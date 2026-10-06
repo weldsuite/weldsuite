@@ -1,5 +1,5 @@
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { EditorWorkflow } from '@/components/workflow-editor/workflow-editor-client';
 import type { ActionType, TriggerType, EntityEvent, WorkflowVariable } from '@/hooks/queries/use-automation-queries';
@@ -141,18 +141,72 @@ function useWorkflowsForChaining(excludeId?: string) {
   });
 }
 
+export interface EditorWebhookData {
+  id: string;
+  url: string;
+  externalUrl: string | null;
+  secret: string | null;
+  validateSignature: boolean;
+  isEnabled: boolean;
+}
+
 function useWorkflowWebhook(workflowId: string, enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: workflowEditorKeys.workflowWebhook(workflowId),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{
-        data: { id: string; url: string; externalUrl: string | null; secret: string | null; isEnabled: boolean } | null;
-      }>(`${WELDCONNECT_API.webhooks}/workflow/${workflowId}`);
+      const result = await client.get<{ data: EditorWebhookData | null }>(
+        `${WELDCONNECT_API.webhooks}/workflow/${workflowId}`,
+      );
       return result.data || null;
     },
     enabled: !!workflowId && enabled,
+  });
+}
+
+/**
+ * Rotates a webhook's inbound HMAC secret, optionally turning signature
+ * validation on in the same call (`enableSignature: true`) — the editor's
+ * "Require signature" toggle always goes through this so the new secret is
+ * revealed the exact moment signing becomes active, rather than racing a
+ * separate PATCH. Turning signing OFF is a plain field update and does not
+ * use this hook.
+ */
+export function useRotateWebhookSecret(workflowId: string) {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { webhookId: string; enableSignature?: boolean }) => {
+      const client = await getClient();
+      const result = await client.patch<{ data: EditorWebhookData & { secret: string } }>(
+        `${WELDCONNECT_API.webhooks}/${params.webhookId}/rotate-secret`,
+        params.enableSignature === undefined ? {} : { enableSignature: params.enableSignature },
+      );
+      return result.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: workflowEditorKeys.workflowWebhook(workflowId) });
+    },
+  });
+}
+
+/** Turns signature validation OFF (no secret to reveal, so a plain field update). */
+export function useDisableWebhookSignature(workflowId: string) {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (webhookId: string) => {
+      const client = await getClient();
+      const result = await client.patch<{ data: EditorWebhookData }>(
+        `${WELDCONNECT_API.webhooks}/${webhookId}`,
+        { validateSignature: false },
+      );
+      return result.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: workflowEditorKeys.workflowWebhook(workflowId) });
+    },
   });
 }
 

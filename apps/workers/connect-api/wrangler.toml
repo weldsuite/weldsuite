@@ -45,7 +45,10 @@
 #
 # CF_ACCOUNT_ID is a [vars] value (copied from app-api). PUBLIC_APP_URL,
 # CONNECTOR_WEBHOOK_BASE_URL and AI_DEFAULT_MODEL are optional [vars] that
-# default in code (app-api sets none of them).
+# default in code (app-api sets none of them). CONNECT_API_URL is this
+# worker's own public origin (not the platform SPA, not
+# integration-webhook-worker's) — it builds the external URL of the public
+# workflow-webhook receiver mounted here (/api/workflows/webhook/:id).
 
 name = "weldsuite-connect-api"
 main = "src/index.ts"
@@ -74,6 +77,9 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+# This worker's own public origin — builds the webhook receiver's external
+# URL (/api/workflows/webhook/:id). See src/lib/public-api-base.ts.
+CONNECT_API_URL = "http://localhost:8813"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -124,6 +130,7 @@ routes = [
 [env.test.vars]
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+CONNECT_API_URL = "https://connect-api-test.weldsuite.org"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -191,6 +198,7 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+CONNECT_API_URL = "https://connect-api.weldsuite.org"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

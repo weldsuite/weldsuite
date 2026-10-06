@@ -1675,6 +1675,9 @@ export const weldconnect = {
       urlCopied: 'URL gekopieerd naar klembord',
       secretCopied: 'Sleutel gekopieerd naar klembord',
       nameAndPromptRequired: 'Naam en systeemprompt zijn verplicht',
+      signatureEnabled: 'Handtekeningverificatie ingeschakeld',
+      signatureDisabled: 'Handtekeningverificatie uitgeschakeld',
+      signatureUpdateFailed: 'Bijwerken van de handtekeninginstellingen is mislukt',
     },
     runHistory: {
       refresh: 'Vernieuwen',
@@ -1705,6 +1708,8 @@ export const weldconnect = {
       webhookActive: 'Webhook is actief',
       webhookDisabled: 'Webhook is uitgeschakeld',
       webhookNoUrl: 'Er wordt een unieke webhook-URL gegenereerd wanneer u deze workflow opslaat.',
+      webhookSignatureLabel: 'Handtekening vereisen',
+      webhookSignatureHint: 'Standaard uitgeschakeld — de ongokbare URL is de credential. Schakel dit in om bij elke aanroep ook een geldige HMAC-handtekening (X-Webhook-Signature-header) te vereisen.',
       manualHint: 'Deze workflow kan alleen handmatig worden geactiveerd.',
     },
     addActionPanel: {

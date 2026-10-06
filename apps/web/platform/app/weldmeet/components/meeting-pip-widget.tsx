@@ -87,6 +87,8 @@ function useMeetingRenderTick(meeting: RealtimeKitClient | null, forceUpdate: (f
     // otherwise the muted indicator waits for an unrelated re-render.
     meeting.participants?.joined?.on?.('audioUpdate', tick);
     meeting.participants?.joined?.on?.('videoUpdate', tick);
+    // A remote presenter's shared (tab / system) audio comes and goes with the share.
+    meeting.participants?.joined?.on?.('screenShareUpdate', tick);
     meeting.self?.on?.('videoUpdate', tick);
     meeting.self?.on?.('audioUpdate', tick);
     return () => {
@@ -95,11 +97,58 @@ function useMeetingRenderTick(meeting: RealtimeKitClient | null, forceUpdate: (f
         meeting.participants?.joined?.removeListener?.('participantLeft', tick);
         meeting.participants?.joined?.removeListener?.('audioUpdate', tick);
         meeting.participants?.joined?.removeListener?.('videoUpdate', tick);
+        meeting.participants?.joined?.removeListener?.('screenShareUpdate', tick);
         meeting.self?.removeListener?.('videoUpdate', tick);
         meeting.self?.removeListener?.('audioUpdate', tick);
       } catch { /* ignore */ }
     };
   }, [meeting, forceUpdate]);
+}
+
+/**
+ * Hidden playback of one remote audio track (a participant's mic, or the audio
+ * they share alongside their screen).
+ *
+ * Remote sound normally comes from the <audio> elements in the room view's
+ * tiles. Those only exist while the room is mounted (the /room page or the
+ * fullscreen overlay); anywhere else in the app this widget is the only thing
+ * left that can play the call.
+ */
+function RemoteAudioSink({ track }: Readonly<{ track: MediaStreamTrack }>) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = new MediaStream([track]);
+    // autoPlay only starts the element's first stream; play() covers remounts.
+    el.play().catch(() => { /* autoplay blocked / already playing */ });
+    return () => { el.srcObject = null; };
+  }, [track]);
+  return <audio ref={ref} autoPlay />;
+}
+
+/**
+ * Every remote participant's mic and shared-screen audio, while the room view
+ * (which plays them itself) is not mounted. Rendered in the main document, not
+ * in the Document PiP popup, so opening or closing the popup never cuts the
+ * sound.
+ */
+function RemoteAudio({ meeting }: Readonly<{ meeting: RealtimeKitClient | null }>) {
+  const remotes: RTKParticipant[] = meeting?.participants?.joined?.toArray?.() ?? [];
+  return (
+    <>
+      {remotes.map((p) => {
+        const mic = p.audioEnabled ? p.audioTrack : null;
+        const share = p.screenShareEnabled ? p.screenShareTracks?.audio : null;
+        return (
+          <span key={p.id} hidden>
+            {mic && <RemoteAudioSink track={mic} />}
+            {share && <RemoteAudioSink track={share} />}
+          </span>
+        );
+      })}
+    </>
+  );
 }
 
 /** Continuously-redrawn placeholder canvas stream; returns the stream and a stop function. */
@@ -335,7 +384,6 @@ function deriveFocusedParticipant(meeting: RealtimeKitClient | null, t: Weldmeet
   const focusedName = focused?.name || (focusedIsSelf ? t.pipWidget.you : t.pipWidget.participant);
   const focusedHasVideo = !!(focused?.videoEnabled && focused?.videoTrack);
   const focusedTrack = focusedHasVideo ? focused.videoTrack : null;
-  const focusedAudioTrack = focused?.audioEnabled ? focused?.audioTrack : null;
 
   // Camera-off appearance — match the maximized ParticipantTile exactly:
   // deterministic colored tile background + ParticipantAvatar. Seed mirrors the
@@ -345,7 +393,7 @@ function deriveFocusedParticipant(meeting: RealtimeKitClient | null, t: Weldmeet
   );
   const focusedInitials = getInitials(focusedName);
 
-  return { focused, focusedIsSelf, focusedName, focusedTrack, focusedAudioTrack, focusedTheme, focusedInitials };
+  return { focused, focusedIsSelf, focusedName, focusedTrack, focusedTheme, focusedInitials };
 }
 
 type FocusedParticipant = ReturnType<typeof deriveFocusedParticipant>;
@@ -723,7 +771,6 @@ export function MeetingPiPWidget() {
   const navigate = useNavigate();
   const pathname = usePathname();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const pipVideoRef = useRef<HTMLVideoElement | null>(null);
   const pipActiveRef = useRef(false);
   const hasAnimatedRef = useRef(false);
@@ -734,6 +781,10 @@ export function MeetingPiPWidget() {
   const t = getTranslations('weldmeet');
   const isOnMeetingPage = !!meetingId && pathname?.startsWith(`/weldmeet/${meetingId}`);
   const shouldShow = status === 'connected' && !isFullscreen && (isPiP || !isOnMeetingPage);
+  // The room view (and its per-tile <audio>) is mounted only on the /room page
+  // or in the fullscreen overlay; everywhere else this widget plays the call.
+  const isRoomMounted = isFullscreen || (!!meetingId && pathname?.replace(/\/$/, '') === `/weldmeet/${meetingId}/room`);
+  const playsRemoteAudio = status === 'connected' && !isRoomMounted;
 
   // Drag-to-corner for the in-page minimized widget (disabled in the Document
   // PiP popup, which fills its own OS window).
@@ -765,7 +816,7 @@ export function MeetingPiPWidget() {
   useMeetingRenderTick(meeting, forceUpdate);
 
   const focus = deriveFocusedParticipant(meeting, t);
-  const { focusedIsSelf, focusedTrack, focusedAudioTrack } = focus;
+  const { focusedTrack } = focus;
 
   // Attach video to the visible tile.
   // NOTE: `pipWindow` MUST be a dep — when Document PiP opens, createPortal
@@ -780,17 +831,6 @@ export function MeetingPiPWidget() {
       videoRef.current.srcObject = null;
     }
   }, [focusedTrack, pipWindow]);
-
-  // Attach audio (only when focusing a remote — never play self audio back)
-  useEffect(() => {
-    if (!audioRef.current) return;
-    if (!focusedIsSelf && focusedAudioTrack) {
-      audioRef.current.srcObject = new MediaStream([focusedAudioTrack]);
-      audioRef.current.play().catch(() => { /* ignore */ });
-    } else {
-      audioRef.current.srcObject = null;
-    }
-  }, [focusedIsSelf, focusedAudioTrack, pipWindow]);
 
   // ─── Native browser PiP (auto on tab switch) ─────────────────────────────
   // Do NOT touch srcObject here — the dedicated effect below owns the stream
@@ -1106,8 +1146,6 @@ export function MeetingPiPWidget() {
         onPopOut={openPopOut}
       />
 
-      <audio ref={audioRef} autoPlay />
-
       <PipControlsBar
         t={t}
         isMuted={isMuted}
@@ -1133,6 +1171,7 @@ export function MeetingPiPWidget() {
   return (
     <>
       {hiddenPipElement}
+      {playsRemoteAudio && <RemoteAudio meeting={meeting} />}
       {isInPipWindow ? createPortal(widget, pipWindow!.document.body) : widget}
     </>
   );
