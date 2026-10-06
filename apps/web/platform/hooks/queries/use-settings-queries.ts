@@ -32,6 +32,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { collectWorkspaceMemberPages } from './workspace-member-pages';
 import type { WorkspaceApiKey } from '@/components/settings/api-keys-section';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
@@ -148,6 +149,38 @@ export function useWorkspaceMembers(page?: number, pageSize?: number, enabled = 
           cursor: string | null;
         };
       }>(`/team-members${query}`);
+    },
+  });
+}
+
+/**
+ * Every workspace member, following cursor pages. `useWorkspaceMembers` reads
+ * one page (the server caps that at 100). Assignee pickers that claim the
+ * whole directory use this instead.
+ */
+export function useWorkspaceMemberDirectory(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: settingsKeys.members({ directory: 'all', memberType: 'all' }),
+    enabled,
+    queryFn: async () => {
+      const client = await getClient();
+      const data = await collectWorkspaceMemberPages<WorkspaceMember>(async (cursor) => {
+        const query = buildQueryString({
+          limit: 100,
+          memberType: 'all',
+          cursor: cursor ?? undefined,
+        });
+        return client.get<{
+          data: WorkspaceMember[];
+          pagination: {
+            totalCount: number;
+            hasMore: boolean;
+            cursor: string | null;
+          };
+        }>(`/team-members${query}`);
+      });
+      return { data };
     },
   });
 }

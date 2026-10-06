@@ -61,7 +61,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { tasksApi, membersApi, labelsApi, stagesApi } from '@/app/weldflow/lib/api-client';
 import { useFeatureFlag } from '@/hooks/queries/use-feature-flags-queries';
-import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
+import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import { buildEntityAssigneeDirectory } from './entity-assignees';
 import { MoveTaskDialog } from '@/components/weldflow/move-task-dialog';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
@@ -572,9 +572,9 @@ export function TasksClient({
   // Only needed in entity mode, to pre-fill the "Add Task" dialog's assignee
   // the way the My Tasks dialog does (defaults to the current user).
   const { userId: currentUserId } = useAuth();
-  // Entity mode has no project member list. Load the workspace directory only
-  // there; project boards keep using membersApi.list(projectId).
-  const { data: workspaceMembersData } = useWorkspaceMembers(1, 100, isEntityMode);
+  // Entity mode has no project member list. Walk every cursor page of the
+  // workspace directory only there; project boards keep using membersApi.list.
+  const { data: workspaceMembersData } = useWorkspaceMemberDirectory(isEntityMode);
 
   const priorityConfig = useMemo(() => ({
     low: { label: t.projects.tasks.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },

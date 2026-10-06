@@ -38,6 +38,7 @@ function renderDialog(
         defaultAssignee="user_ada"
         onSave={onSave}
         onUpdate={() => {}}
+        isPending={false}
       />
     </I18nProvider>,
   );

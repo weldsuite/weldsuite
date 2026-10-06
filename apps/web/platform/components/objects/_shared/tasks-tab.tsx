@@ -10,9 +10,9 @@
  * Entity-mode differences (enforced inside TasksClient via `entityScope`):
  *   - DnD reorder is disabled (no single project position sequence).
  *   - Project stages are not fetched (group-by defaults to status labels).
- *   - Assignees come from the workspace member directory (there is no single
- *     project to load members from). People already on a task stay in the
- *     list even if they have left the workspace.
+ *   - Assignees come from the full workspace member directory, following
+ *     cursor pages (there is no single project to load members from). People
+ *     already on a task stay in the list even if they have left the workspace.
  *   - "Add task" still opens the normal create dialog, but saves via the global
  *     `POST /tasks` (tasksApi.createGlobal) with customerId/personId set to this
  *     entity, instead of the project-scoped `POST /tasks/projects/:projectId`
