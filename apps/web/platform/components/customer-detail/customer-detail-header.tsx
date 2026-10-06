@@ -481,8 +481,8 @@ export function CustomerDetailHeader({
         customerId;
       const slug = String(nameBase)
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)+/g, '') || 'record';
+        .replaceAll(/[^a-z0-9]+/g, '-')
+        .replaceAll(/(^-|-$)+/g, '') || 'record';
       const stamp = new Date().toISOString().slice(0, 10);
       a.href = url;
       a.download = `${slug}-${stamp}.json`;
