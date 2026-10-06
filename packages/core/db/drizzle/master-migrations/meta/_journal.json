@@ -337,6 +337,13 @@
       "when": 1789700000000,
       "tag": "0047_user_apps_icon_logo_url",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791277839537,
+      "tag": "0048_legal_talon",
+      "breakpoints": true
     }
   ]
 }

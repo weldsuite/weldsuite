@@ -1,75 +1,19 @@
 /**
  * Workflow Webhook Receiver — service helpers.
  *
- * Ported from apps/api-worker/src/routes/webhooks/workflow-receiver.ts
- * (legacy worker phase-out, W3). Behavior is preserved 1:1:
- * - webhookId → workspaceId resolution via WORKSPACE_CACHE KV (5 min TTL),
- *   falling back to a scan of all non-deleted workspaces' tenant DBs
- * - HMAC SHA-256 signature verification (hex, with optional `sha256=` prefix)
+ * Originally ported from apps/api-worker/src/routes/webhooks/workflow-receiver.ts
+ * (legacy worker phase-out, W3); webhookId → workspaceId resolution now goes
+ * through the master-DB registry (services/workflow-webhook-registry.ts)
+ * instead of a tenant-DB fan-out scan. This module keeps:
+ * - HMAC SHA-256 signature verification (hex, with optional `sha256=` prefix),
+ *   computed over the RAW request body the sender signed
+ * - a constant-time comparison so timing can't leak how much of the
+ *   signature matched
  * - per-call stats bookkeeping on the workflow_webhooks row
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
-// (master workspaces table has no deletedAt column in @weldsuite/db — the
-// active-workspace filter uses isActive; see note in the migration report)
-import {
-  getMasterDb,
-  getTenantDbForWorkspace,
-  schema,
-  masterSchema,
-  type Database,
-} from '@weldsuite/worker-kit/db';
-import type { Env } from '../types';
-
-const WEBHOOK_CACHE_TTL_SECONDS = 300;
-
-/**
- * Resolve which workspace (Clerk org id) owns a webhook id.
- * KV-cached; on cache miss scans workspaces to find the tenant DB
- * containing the webhook (exactly as the api-worker receiver did).
- */
-export async function resolveWebhookWorkspace(
-  env: Env,
-  webhookId: string,
-): Promise<string | null> {
-  const cacheKey = `webhook:${webhookId}`;
-  const cached = await env.WORKSPACE_CACHE.get(cacheKey);
-  if (cached) return cached;
-
-  const masterDb = getMasterDb(env);
-  const workspaces = await masterDb
-    .select({ clerkOrgId: masterSchema.workspaces.clerkOrgId })
-    .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.isActive, true));
-
-  for (const ws of workspaces) {
-    if (!ws.clerkOrgId) continue;
-    try {
-      const db = await getTenantDbForWorkspace(env, ws.clerkOrgId);
-      const [wh] = await db
-        .select({ id: schema.workflowWebhooks.id })
-        .from(schema.workflowWebhooks)
-        .where(
-          and(
-            eq(schema.workflowWebhooks.id, webhookId),
-            isNull(schema.workflowWebhooks.deletedAt),
-          ),
-        )
-        .limit(1);
-
-      if (wh) {
-        await env.WORKSPACE_CACHE.put(cacheKey, ws.clerkOrgId, {
-          expirationTtl: WEBHOOK_CACHE_TTL_SECONDS,
-        });
-        return ws.clerkOrgId;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
-}
+import { eq } from 'drizzle-orm';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 /**
  * Compute the lowercase hex HMAC-SHA256 of a payload with the webhook secret.
@@ -91,6 +35,21 @@ export async function computeWebhookHmacHex(
   return Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+/**
+ * Constant-time comparison of two strings. Signature checks must never
+ * short-circuit on the first mismatched character — that turns an
+ * HMAC comparison into a timing oracle. Returns false immediately (safe,
+ * since there is nothing secret about the *length*) when lengths differ.
+ */
+export function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
 }
 
 /**

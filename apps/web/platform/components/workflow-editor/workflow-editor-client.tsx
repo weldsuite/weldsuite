@@ -6,7 +6,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { usePageAgentContext } from '@/components/weldagent-wrapper';
 import { useDataEvent } from '@/lib/events/data-events';
 import { automationKeys } from '@/hooks/queries/use-automation-queries';
-import { workflowEditorKeys } from '@/hooks/use-workflow-editor-data';
+import { workflowEditorKeys, useRotateWebhookSecret, useDisableWebhookSignature } from '@/hooks/use-workflow-editor-data';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -206,6 +206,7 @@ interface WorkflowEditorClientProps {
     url: string;
     externalUrl: string | null;
     secret: string | null;
+    validateSignature: boolean;
     isEnabled: boolean;
   } | null;
   basePath?: string;
@@ -1569,9 +1570,41 @@ function WebhookSecretField({ webhookSecret, form }: { webhookSecret: string; fo
   );
 }
 
-function WebhookDetails({ webhookData, form }: { webhookData: WebhookData; form: TriggerFormApi }) {
+function WebhookDetails({
+  webhookData,
+  workflowId,
+  form,
+}: {
+  webhookData: WebhookData;
+  workflowId: string;
+  form: TriggerFormApi;
+}) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
+  const rotateSecret = useRotateWebhookSecret(workflowId);
+  const disableSignature = useDisableWebhookSignature(workflowId);
+  const pending = rotateSecret.isPending || disableSignature.isPending;
+  // `GET .../workflow/:id` never returns the secret (it's masked by design —
+  // see services/weldconnect-mvp.ts). The ONLY place it's ever visible is the
+  // one-time response of the rotate-secret call this toggle makes when
+  // turning signing on, so it's held here, not read off `webhookData`.
+  const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
+
+  const handleSignatureToggle = async (checked: boolean) => {
+    try {
+      if (checked) {
+        const result = await rotateSecret.mutateAsync({ webhookId: webhookData.id, enableSignature: true });
+        setRevealedSecret(result.secret);
+        toast.success(tec.toasts.signatureEnabled);
+      } else {
+        await disableSignature.mutateAsync(webhookData.id);
+        setRevealedSecret(null);
+        toast.success(tec.toasts.signatureDisabled);
+      }
+    } catch {
+      toast.error(tec.toasts.signatureUpdateFailed);
+    }
+  };
 
   return (
     <>
@@ -1601,8 +1634,17 @@ function WebhookDetails({ webhookData, form }: { webhookData: WebhookData; form:
         </p>
       </div>
 
-      {/* Webhook Secret */}
-      {webhookData.secret && <WebhookSecretField webhookSecret={webhookData.secret} form={form} />}
+      {/* Signature validation toggle — off by default; the unguessable URL is the credential. */}
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <div className="space-y-0.5">
+          <p className="text-xs font-medium">{tec.triggerPanel.webhookSignatureLabel}</p>
+          <p className="text-xs text-muted-foreground">{tec.triggerPanel.webhookSignatureHint}</p>
+        </div>
+        <Switch checked={webhookData.validateSignature} disabled={pending} onCheckedChange={handleSignatureToggle} />
+      </div>
+
+      {/* Webhook Secret — shown once, right after signing is turned on. */}
+      {revealedSecret && <WebhookSecretField webhookSecret={revealedSecret} form={form} />}
 
       {/* Status indicator */}
       <div className="p-3 bg-muted/50 rounded-lg">
@@ -1620,14 +1662,22 @@ function WebhookDetails({ webhookData, form }: { webhookData: WebhookData; form:
   );
 }
 
-function WebhookFields({ webhookData, form }: { webhookData: WebhookData | null | undefined; form: TriggerFormApi }) {
+function WebhookFields({
+  webhookData,
+  workflowId,
+  form,
+}: {
+  webhookData: WebhookData | null | undefined;
+  workflowId: string;
+  form: TriggerFormApi;
+}) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
 
   return (
     <div className="pt-3 border-t space-y-4">
       {webhookData ? (
-        <WebhookDetails webhookData={webhookData} form={form} />
+        <WebhookDetails webhookData={webhookData} workflowId={workflowId} form={form} />
       ) : (
         <div className="p-3 bg-muted/50 rounded-lg">
           <p className="text-xs text-muted-foreground">
@@ -1661,6 +1711,8 @@ interface TriggerPanelProps {
   integrationTriggers: TriggerType[];
   workflowsForChaining: Array<{ id: string; name: string; status: string }>;
   webhookData: WebhookData | null | undefined;
+  /** Needed by the webhook signature toggle (rotate-secret / disable-signing calls). */
+  workflowId: string;
   cronPresets: CronPreset[];
   oneTimeScheduleAllowed: boolean;
   form: TriggerFormApi;
@@ -1676,6 +1728,7 @@ function TriggerTypeDetails({
   integrationTriggers,
   workflowsForChaining,
   webhookData,
+  workflowId,
   cronPresets,
   oneTimeScheduleAllowed,
   form,
@@ -1709,7 +1762,7 @@ function TriggerTypeDetails({
     case 'workflow_complete':
       return <WorkflowCompleteFields form={form} workflowsForChaining={workflowsForChaining} applyTriggerData={applyTriggerData} />;
     case 'webhook':
-      return <WebhookFields webhookData={webhookData} form={form} />;
+      return <WebhookFields webhookData={webhookData} workflowId={workflowId} form={form} />;
     case 'manual':
       return <TriggerHint text={tec.triggerPanel.manualHint} />;
     case 'api':
@@ -3973,6 +4026,7 @@ export function WorkflowEditorClient({
           integrationTriggers={integrationTriggers}
           workflowsForChaining={workflowsForChaining}
           webhookData={webhookData}
+          workflowId={workflow.id}
           cronPresets={CRON_PRESETS}
           oneTimeScheduleAllowed={oneTimeScheduleAllowed}
           form={triggerForm}

@@ -21,6 +21,9 @@ import { startTestRun } from '../../services/workflow-executions';
 import { isSequenceWorkflow, validateWeldConnectWorkflow } from '../../services/weldconnect-mvp';
 import { syncWorkflowPollIndex } from '../../lib/tenant-work-index';
 import type { ScheduleIndexSync } from '../../lib/schedule-index';
+import type { WebhookSyncContext } from '../../services/workflow-webhook-sync';
+import { registryDeps } from '../../services/workflow-webhook-registry';
+import { publicApiBase } from '../../lib/public-api-base';
 import { registerGenerateWorkflowRoute } from './generate';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -30,6 +33,16 @@ type WorkflowsContext = Context<{ Bindings: Env; Variables: Variables }>;
 /** D1 schedule-index handle for keeping schedule triggers firing (see services/workflow-schedule-sync.ts). */
 function scheduleSyncFor(c: WorkflowsContext): ScheduleIndexSync {
   return { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') };
+}
+
+/**
+ * Webhook-provisioning handle for keeping webhook triggers live (see
+ * services/workflow-webhook-sync.ts). `registry` is a thunk — most saves have
+ * no webhook trigger at all, and building a master-DB client is work (and,
+ * on a malformed binding, a crash) the sync skips entirely for them.
+ */
+function webhookSyncFor(c: WorkflowsContext): WebhookSyncContext {
+  return { registry: () => registryDeps(c.env), workspaceId: c.get('workspaceId'), publicApiBase: publicApiBase(c.env) };
 }
 
 /**
@@ -136,7 +149,7 @@ app.post('/', requirePermission('workflows:create'), zValidator('json', createWo
     if (rejection) return rejection;
   }
   try {
-    const result = await workflowsService.createWorkflow(db, data, userId, scheduleSyncFor(c));
+    const result = await workflowsService.createWorkflow(db, data, userId, scheduleSyncFor(c), webhookSyncFor(c));
     await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
     publishEntityEvent({
       c,
@@ -176,7 +189,7 @@ for (const method of ['put', 'patch'] as const) {
         if (rejection) return rejection;
       }
 
-      const result = await workflowsService.updateWorkflow(db, id, data, scheduleSyncFor(c));
+      const result = await workflowsService.updateWorkflow(db, id, data, scheduleSyncFor(c), webhookSyncFor(c));
       if (!result) return error.notFound(c, 'Workflow', id);
       await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
       const after = await workflowsService.getWorkflow(db, id);
@@ -258,7 +271,7 @@ app.delete('/:id', requirePermission('workflows:delete'), async (c) => {
   try {
     const existing = await workflowsService.getWorkflow(db, id);
     if (!existing) return error.notFound(c, 'Workflow', id);
-    await workflowsService.deleteWorkflow(db, id, scheduleSyncFor(c));
+    await workflowsService.deleteWorkflow(db, id, scheduleSyncFor(c), webhookSyncFor(c));
     await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
     publishEntityEvent({
       c,

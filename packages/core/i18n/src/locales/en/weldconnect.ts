@@ -1670,6 +1670,9 @@ export const weldconnect = {
       urlCopied: 'URL copied to clipboard',
       secretCopied: 'Secret copied to clipboard',
       nameAndPromptRequired: 'Name and system prompt are required',
+      signatureEnabled: 'Signature validation enabled',
+      signatureDisabled: 'Signature validation disabled',
+      signatureUpdateFailed: 'Failed to update signature settings',
     },
     runHistory: {
       refresh: 'Refresh',
@@ -1700,6 +1703,8 @@ export const weldconnect = {
       webhookActive: 'Webhook is active',
       webhookDisabled: 'Webhook is disabled',
       webhookNoUrl: 'A unique webhook URL will be generated when you save this workflow.',
+      webhookSignatureLabel: 'Require signature',
+      webhookSignatureHint: 'Off by default — the unguessable URL is the credential. Turn this on to also require a valid HMAC signature (X-Webhook-Signature header) on every call.',
       manualHint: 'This workflow can only be triggered manually.',
     },
     addActionPanel: {
