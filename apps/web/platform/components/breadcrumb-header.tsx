@@ -1,20 +1,19 @@
 
-import { useState, useRef, useEffect, Fragment } from 'react';
-import { useRouter, Link } from '@/lib/router';
+import { useEffect, Fragment } from 'react';
+import { Link } from '@/lib/router';
 import { SidebarTrigger } from '@weldsuite/ui/components/sidebar';
-import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
-import { Search, Loader2, Bell, Calendar } from 'lucide-react';
+import { Bell, Calendar } from 'lucide-react';
 import { useUpcomingCalendarEvents, type CalendarEvent } from '@/hooks/queries/use-calendar-queries';
 import { useUnifiedNotifications } from '@/contexts/unified-notification-context';
 import { useCalendarDrawerOpen } from '@/hooks/use-calendar-drawer-open';
 import { useNotificationsPanelOpen } from '@/hooks/use-notifications-panel-open';
 import { useSidebarBadges } from '@/hooks/use-sidebar-badges';
 import { cn } from '@/lib/utils';
-import { Kbd } from '@weldsuite/ui/components/kbd';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
 import { useMeetingPanelOpen } from '@/hooks/use-meeting-panel-open';
+import { CommandPaletteTrigger } from '@/components/layout/command-palette';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -23,29 +22,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@weldsuite/ui/components/breadcrumb';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from '@weldsuite/ui/components/command';
-import { useEntitySheet, hasEntitySheetRenderer } from '@/components/entity-sheet';
-import type { SearchEntityType } from '@weldsuite/core-api-client/schemas/search';
-import { useGlobalSearch } from '@/hooks/queries/use-global-search-queries';
-import { RESULT_TYPE_ICON, RESULT_TYPE_LABEL } from '@/lib/search/result-types';
 
 export interface BreadcrumbSegment {
   label: string;
   href?: string;
-}
-
-export interface SearchResult {
-  id: string;
-  title: string;
-  description?: string;
-  href: string;
-  type?: string;
 }
 
 interface CrumbEntry {
@@ -76,16 +56,7 @@ function buildCrumbEntries(segments: BreadcrumbSegment[]): CrumbEntry[] {
 
 interface BreadcrumbHeaderProps {
   segments: BreadcrumbSegment[];
-  /**
-   * Optional escape hatch for callsites that need a custom (non-federated) search
-   * — e.g. searching within a single mail folder. When omitted, the centered
-   * search uses the same federated `useGlobalSearch` backend that powers Cmd+K,
-   * spanning customer / contact / lead / opportunity / ticket / article / product
-   * / order / invoice / bill / project / task across the platform.
-   */
-  onSearch?: (query: string) => Promise<SearchResult[]>;
-  searchPlaceholder?: string;
-  /** Hide the centered search input entirely (rare — most modules want it). */
+  /** Hide the centered command-palette button (rare — most modules want it). */
   hideSearch?: boolean;
   showBackButton?: boolean;
   onBack?: () => void;
@@ -104,8 +75,6 @@ interface BreadcrumbHeaderProps {
 
 export function BreadcrumbHeader({
   segments,
-  onSearch,
-  searchPlaceholder = 'Search anything…',
   hideSearch = false,
   actions,
   onWeldAgentToggle,
@@ -113,15 +82,6 @@ export function BreadcrumbHeader({
   onNotificationsToggle,
   calendarOpen,
 }: Readonly<BreadcrumbHeaderProps>) {
-  // When no `onSearch` callback is supplied, drive the dropdown from the same
-  // federated `POST /api/search` backend that powers Cmd+K. Modules don't have
-  // to wire anything — global, cross-app results by default.
-  const useGlobal = !onSearch;
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-
   // WeldAgent open state — read from sessionStorage-backed hook so every BreadcrumbHeader instance
   // is in sync with the global MobileNavProvider, even after navigation between apps.
   const mobileNav = useMobileNavOptional();
@@ -140,10 +100,6 @@ export function BreadcrumbHeader({
   useSidebarBadges();
   const { data: todayEventsData } = useUpcomingCalendarEvents({ days: 1 });
   const todayEventCount = todayEventsData?.data?.filter((e: CalendarEvent) => e.status !== 'cancelled').length ?? 0;
-  const router = useRouter();
-  const commandRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const toggleWeldAgent = () => {
     const newState = !showWeldAgent;
@@ -236,162 +192,6 @@ export function BreadcrumbHeader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calendarOpen, setShowCalendar]);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        commandRef.current &&
-        !commandRef.current.contains(event.target as Node) &&
-        inputRef.current &&
-        !inputRef.current.contains(event.target as Node)
-      ) {
-        setOpen(false);
-      }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setOpen(true);
-        inputRef.current?.focus();
-      }
-      if (e.key === 'Escape') {
-        setOpen(false);
-        setSearch('');
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside, true);
-    document.addEventListener('pointerdown', handleClickOutside, true);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside, true);
-      document.removeEventListener('pointerdown', handleClickOutside, true);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
-
-  const { open: openEntitySheet } = useEntitySheet();
-  const newTabRef = useRef(false);
-
-  const captureClickIntent = (e: React.MouseEvent | React.KeyboardEvent) => {
-    if ('button' in e) {
-      newTabRef.current = e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1;
-    } else {
-      newTabRef.current = e.metaKey || e.ctrlKey || e.shiftKey;
-    }
-  };
-
-  const handleSelect = (result: SearchResult) => {
-    const newTab = newTabRef.current;
-    newTabRef.current = false;
-    setOpen(false);
-    setSearch('');
-
-    if (newTab) {
-      window.open(result.href, '_blank', 'noopener');
-      return;
-    }
-
-    if (hasEntitySheetRenderer(result.type)) {
-      openEntitySheet(result.type as SearchEntityType, result.id);
-    } else {
-      router.push(result.href);
-    }
-  };
-
-  // ── Global federated search (default, used when no onSearch is provided) ──
-  // Same `POST /api/search` backend as the Cmd+K palette → results span all
-  // entity types regardless of which module's header rendered us.
-  const globalQuery = useGlobalSearch(search, {
-    enabled: useGlobal && open && search.trim().length > 0,
-    limit: 8,
-  });
-
-  useEffect(() => {
-    if (!useGlobal) return;
-    const groups = globalQuery.data?.data ?? [];
-    const flat: SearchResult[] = [];
-    for (const group of groups) {
-      for (const item of group.items) {
-        flat.push({
-          id: item.id,
-          type: item.type,
-          title: item.title,
-          description: item.subtitle ?? undefined,
-          href: item.url,
-        });
-      }
-    }
-    setResults(flat);
-  }, [useGlobal, globalQuery.data]);
-
-  useEffect(() => {
-    if (!useGlobal) return;
-    setLoading(globalQuery.isFetching);
-  }, [useGlobal, globalQuery.isFetching]);
-
-  // ── Custom (escape-hatch) search via the onSearch callback ──
-  const fetchSearchResults = async (query: string) => {
-    if (!onSearch) return;
-    setLoading(true);
-    try {
-      const searchResults = await onSearch(query);
-      setResults(searchResults);
-    } catch (error) {
-      console.error('Search error:', error);
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchSuggestions = async () => {
-    if (!onSearch) return;
-    setLoading(true);
-    try {
-      const suggestions = await onSearch(search);
-      setResults(suggestions);
-    } catch (error) {
-      console.error('Suggestions error:', error);
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Immediately fetch results when dropdown opens (custom-search mode only).
-  // `fetchSuggestions`/`onSearch` are intentionally excluded — they're
-  // recreated every render, so including them would refire this effect (and
-  // refetch) on every keystroke instead of only when `open` toggles.
-  useEffect(() => {
-    if (open && onSearch) {
-      fetchSuggestions();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  // Debounced refetch on query change (custom-search mode only — global search
-  // is debounced by TanStack Query / React's batching of `search` state writes).
-  // `fetchSearchResults` is intentionally excluded — it's recreated every
-  // render, so including it would reset the debounce timer on every render.
-  useEffect(() => {
-    if (useGlobal) return;
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    searchTimeoutRef.current = setTimeout(() => {
-      fetchSearchResults(search);
-    }, 300);
-
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, useGlobal]);
-
   return (
     <>
       <header className="hidden md:flex h-[60px] shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-[var(--shell-panel)] border-b border-border relative">
@@ -428,94 +228,9 @@ export function BreadcrumbHeader({
               </BreadcrumbList>
             </Breadcrumb>
           )}
-          {/* Centered Search - hidden on mobile, absolutely centered */}
           {!hideSearch && (
             <div className="absolute left-1/2 -translate-x-1/2 hidden md:block w-[448px]">
-              <div className="relative w-full">
-                <div className="relative" suppressHydrationWarning>
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    ref={inputRef}
-                    type="text"
-                    placeholder={searchPlaceholder}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    onFocus={() => {
-                      setOpen(true);
-                      if (onSearch) fetchSuggestions();
-                    }}
-                    onBlur={() => {
-                      // Delay so clicks on dropdown items register before closing
-                      setTimeout(() => setOpen(false), 50);
-                    }}
-                    className="pl-9 pr-16 h-9"
-                    suppressHydrationWarning
-                  />
-                  {!loading && !search && (
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center gap-0.5">
-                      <Kbd className="text-base flex items-center justify-center pt-0.5">⌘</Kbd>
-                      <Kbd className="text-[10px] flex items-center justify-center">K</Kbd>
-                    </div>
-                  )}
-                  {loading && (
-                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-                  )}
-                </div>
-
-                {open && (
-                  <div
-                    ref={commandRef}
-                    role="presentation"
-                    onMouseDown={(e) => e.preventDefault()}
-                    className="absolute top-full mt-2 w-full z-50 rounded-md border bg-popover shadow-md"
-                  >
-                    <Command>
-                      <CommandList>
-                        <CommandEmpty>No results found.</CommandEmpty>
-                        {results.length > 0 && (() => {
-                          // Group results by type
-                          const grouped = results.reduce((acc, result) => {
-                            const type = result.type || 'other';
-                            if (!acc[type]) acc[type] = [];
-                            acc[type].push(result);
-                            return acc;
-                          }, {} as Record<string, typeof results>);
-
-                          return Object.entries(grouped).map(([type, items]) => {
-                            const Icon = RESULT_TYPE_ICON[type as SearchEntityType] ?? Search;
-                            const label = RESULT_TYPE_LABEL[type as SearchEntityType] ?? type.charAt(0).toUpperCase() + type.slice(1);
-
-                            return (
-                              <CommandGroup key={type} heading={label}>
-                                {items.map((result) => (
-                                  <CommandItem
-                                    key={result.id}
-                                    onMouseDown={captureClickIntent}
-                                    onAuxClick={captureClickIntent}
-                                    onKeyDown={captureClickIntent}
-                                    onSelect={() => handleSelect(result)}
-                                    className="cursor-pointer"
-                                  >
-                                    <Icon className="mr-2 h-4 w-4 text-muted-foreground shrink-0" />
-                                    <div className="flex flex-col min-w-0">
-                                      <span className="font-medium truncate">{result.title}</span>
-                                      {result.description && (
-                                        <span className="text-sm text-muted-foreground truncate">
-                                          {result.description}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            );
-                          });
-                        })()}
-                      </CommandList>
-                    </Command>
-                  </div>
-                )}
-              </div>
+              <CommandPaletteTrigger />
             </div>
           )}
 

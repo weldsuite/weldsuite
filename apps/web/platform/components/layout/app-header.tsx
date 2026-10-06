@@ -3,15 +3,14 @@
  *
  * Layout matches the existing breadcrumb-header.tsx visual:
  *  - Left: SidebarTrigger + breadcrumb trail
- *  - Center: search input (absolutely positioned 1/2 -translate-x-1/2) with
- *    dropdown popover directly underneath the input
+ *  - Center: button that opens the command palette (Cmd/Ctrl+K)
  *  - Right: drawer toggle buttons (calendar / notifications / WeldAgent)
  *  - Renders the calendar + notifications drawers
  *
- * Cmd+K focuses the search input.
+ * The palette dialog itself is mounted once in the app shell.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Bell, Calendar } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { SidebarTrigger } from '@weldsuite/ui/components/sidebar';
@@ -23,7 +22,7 @@ import { useUnifiedNotifications } from '@/contexts/unified-notification-context
 import { useUpcomingCalendarEvents } from '@/hooks/queries/use-calendar-queries';
 import { cn } from '@/lib/utils';
 import { AppHeaderTrail } from './app-header-trail';
-import { CommandPalette, type CommandPaletteHandle } from './command-palette';
+import { CommandPaletteTrigger } from './command-palette';
 
 export interface AppHeaderProps {
   onCalendarToggle?: (open: boolean) => void;
@@ -40,19 +39,6 @@ export function AppHeader({
 }: AppHeaderProps) {
   const t = useTranslations();
   const [hideAll, setHideAll] = useState(false);
-  const paletteRef = useRef<CommandPaletteHandle>(null);
-
-  // Cmd+K focuses the inline search input
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        paletteRef.current?.toggle();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
 
   const [showCalendar, setShowCalendar] = useCalendarDrawerOpen();
   const [showNotifications, setShowNotifications] = useNotificationsPanelOpen();
@@ -128,9 +114,9 @@ export function AppHeader({
             <AppHeaderTrail onResolved={(handle) => setHideAll(handle.hideAll)} />
           </div>
 
-          {/* Centered Search — absolutely positioned, with popover dropdown */}
+          {/* Centered command palette trigger */}
           <div className="absolute left-1/2 -translate-x-1/2 hidden md:block w-[448px]">
-            <CommandPalette ref={paletteRef} />
+            <CommandPaletteTrigger />
           </div>
 
           {/* Right Actions */}

@@ -255,7 +255,8 @@ export const weldcalendar = {
       noPeopleFound: 'No se encontraron personas.',
       clearAll: 'Limpiar todo',
       teamMembersGroup: 'Miembros del equipo',
-      contactsGroup: 'Contactos',
+      peopleGroup: 'Personas',
+      personGroup: 'Persona',
     },
 
     // Events List

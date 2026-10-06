@@ -33,14 +33,16 @@ runs:
         node-version: ${{ inputs.node-version }}
         cache: pnpm
 
+    # Keyed by job id. A shared key made every job on the commit race to
+    # save, and the fastest job (which never runs turbo) won with an empty
+    # .turbo — so Build and Lint always restored ~0 bytes and rebuilt.
     - name: Cache turbo
       uses: actions/cache@v4
       with:
         path: .turbo
-        key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+        key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.job }}-${{ github.sha }}
         restore-keys: |
-          turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-          turbo-${{ runner.os }}-
+          turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.job }}-
 
     - name: Install dependencies
       if: inputs.install-dependencies == 'true'
