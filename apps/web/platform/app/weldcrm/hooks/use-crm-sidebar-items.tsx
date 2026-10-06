@@ -186,7 +186,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       }
     };
 
-    fetchData();
+    void fetchData();
   }, [isActive, getClient]);
 
   // Sync the sidebar lists from the React Query cache so create/update/delete

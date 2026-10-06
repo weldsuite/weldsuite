@@ -326,7 +326,7 @@ export default function CrmTasksClient() {
         setAvailableLabels(result.data);
       }
     }
-    loadLabels();
+    loadLabels().catch((error) => console.error('Failed to load labels:', error));
   }, []);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }) => {
