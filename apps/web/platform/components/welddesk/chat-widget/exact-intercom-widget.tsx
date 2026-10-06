@@ -662,7 +662,7 @@ function ChatInputBar({ chat, themeSettings }: { chat: WidgetChat; themeSettings
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      chat.handleSend();
+      void chat.handleSend();
     }
   };
 

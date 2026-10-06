@@ -100,7 +100,7 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
         setAvailableLabels(result.data);
       }
     }
-    loadLabels();
+    void loadLabels();
   }, [projectId]);
 
   
@@ -284,7 +284,7 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
         <Checkbox
           checked={task.completed}
           onCheckedChange={(_checked) => {
-            toggleTask(task.id);
+            void toggleTask(task.id);
           }}
           onClick={(e) => e.stopPropagation()}
           className="h-4 w-4 shadow-none"

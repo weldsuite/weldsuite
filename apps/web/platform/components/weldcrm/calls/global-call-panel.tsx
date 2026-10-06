@@ -252,7 +252,7 @@ function useVoipInitialization({
         setIsInitializing(false);
       }
     };
-    initTwilio();
+    void initTwilio();
   }, [isDialerOpen, voipConfigured, isVoipReady, initializeVoip, fetchVoiceToken, t]);
 
   // Clears the error and allows the effect above to reinitialize on next render

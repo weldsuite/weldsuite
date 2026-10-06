@@ -229,7 +229,7 @@ export function DealDetailsModal({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (title.trim() && !loading && !isSubmittingRef.current) {
-        handleSubmit();
+        void handleSubmit();
       }
     }
   };

@@ -139,10 +139,12 @@ export function VideoPlayer({
 
   const toggleFullscreen = () => {
     if (videoRef.current) {
+      // The browser can refuse either request (e.g. no user gesture); the
+      // button simply has no effect then.
       if (document.fullscreenElement) {
-        document.exitFullscreen();
+        document.exitFullscreen().catch(() => {});
       } else {
-        videoRef.current.requestFullscreen();
+        videoRef.current.requestFullscreen().catch(() => {});
       }
     }
   };
