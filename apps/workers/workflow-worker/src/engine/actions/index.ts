@@ -2,11 +2,12 @@
  * Action handler registry + dispatcher.
  *
  * `executeAction(type, inputs, ctx)` looks the handler up by type and runs it.
- * Unknown types fall through to a passthrough result so an unrecognised step
- * never hard-fails a run.
+ * An unknown type fails its step (non-retryable): a step the engine cannot
+ * run must show up as a failure, never as a silent success.
  */
 
 import type { ActionHandler, ActionContext } from '../types';
+import { NonRetryableStepError } from '../errors';
 import { handleSendEmail, handleSendNotification, handleSlackMessage } from './communication';
 import {
   handleCreateRecord,
@@ -111,8 +112,7 @@ export async function executeAction(
 ): Promise<unknown> {
   const handler = actionHandlers[actionType];
   if (!handler) {
-    // Unknown action → passthrough (never hard-fails a run).
-    return { executed: true, type: actionType, inputs };
+    throw new NonRetryableStepError(`Step type "${actionType}" is not supported by the workflow engine`);
   }
   return handler(inputs, context);
 }

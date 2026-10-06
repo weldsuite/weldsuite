@@ -202,6 +202,8 @@ export interface StepOutcome {
   error?: string;
   /** Raw provider payload behind `error` (e.g. the mail service's response), if any. */
   errorDetails?: unknown;
+  /** The thrown error's class name (`NonRetryableStepError`, `TypeError`, …), if any. */
+  errorType?: string;
   /** A failed step the workflow carried on past (continueOnError): the run did not halt on it. */
   continued?: boolean;
   /** How many attempts the step took (1 = succeeded first try). */

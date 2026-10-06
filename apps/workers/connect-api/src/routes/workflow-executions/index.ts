@@ -117,15 +117,21 @@ app.patch('/:id/cancel', requirePermission('workflow-executions:update'), async 
   const id = c.req.param('id');
   try {
     const result = await executions.cancelExecution(db, id, c.env.EXECUTE_WORKFLOW);
-    if (!result) return error.notFound(c, 'Workflow execution', id);
+    if (result.kind === 'not_found') return error.notFound(c, 'Workflow execution', id);
+    if (result.kind === 'not_cancellable') {
+      return error.badRequest(c, `A ${result.status} run can no longer be cancelled`, {
+        reason: 'not_cancellable',
+        status: result.status,
+      });
+    }
     publishEntityEvent({
       c,
       entityType: 'workflow_execution',
       entityId: id,
       action: 'cancelled',
-      data: { id, workflowId: '', status: 'cancelled' },
+      data: { id, workflowId: result.workflowId, status: 'cancelled' },
     });
-    return success(c, result);
+    return success(c, { id: result.id, status: result.status });
   } catch (err) {
     console.error('[app-api/workflow-executions] cancel failed:', err);
     return error.internal(c, 'Failed to cancel execution');

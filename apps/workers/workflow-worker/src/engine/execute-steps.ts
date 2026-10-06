@@ -104,6 +104,7 @@ async function handleStepFailure(
   const { lastError, attempts } = attempt;
   const message = lastError instanceof Error ? lastError.message : String(lastError);
   const errorDetail = errorDetails(lastError);
+  const errorType = lastError instanceof Error ? lastError.name : undefined;
   const continueOnError = step.continueOnError === true || step.onError?.action === 'continue';
   if (continueOnError) {
     output[step.id] = { error: message };
@@ -111,6 +112,7 @@ async function handleStepFailure(
       status: 'failed',
       error: message,
       errorDetails: errorDetail,
+      errorType,
       continued: true,
       attempts,
     });
@@ -125,6 +127,7 @@ async function handleStepFailure(
     status: 'failed',
     error: message,
     errorDetails: errorDetail,
+    errorType,
     attempts,
   });
   await hooks?.onComplete?.(failResult);

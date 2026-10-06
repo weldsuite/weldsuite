@@ -235,6 +235,11 @@ export function isActiveExecutionStatus(status: string | null | undefined): bool
   return status === 'queued' || status === 'running' || status === 'pending';
 }
 
+/** A run that can still be cancelled: an active one, or one waiting for input. */
+export function isCancellableExecutionStatus(status: string | null | undefined): boolean {
+  return isActiveExecutionStatus(status) || status === 'waiting_for_input';
+}
+
 export interface ExecutionListFilters {
   status?: string;
   workflowId?: string;

@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
   isActiveExecutionStatus,
+  isCancellableExecutionStatus,
   isWorkflowInactiveError,
   useCancelExecution,
   useInfiniteExecutions,
@@ -326,7 +327,7 @@ export function ExecutionsClient() {
       : undefined;
     // The retry endpoint only accepts failed runs.
     const canRetry = execution.status === 'failed';
-    const canCancel = isActiveExecutionStatus(execution.status);
+    const canCancel = isCancellableExecutionStatus(execution.status);
     const openDetails = () => router.push(`/weldconnect/executions/${execution.id}`);
 
     return (

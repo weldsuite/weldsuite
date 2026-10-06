@@ -177,35 +177,48 @@ export async function getSlowExecutions(db: Database, limit = 10) {
     .limit(Math.min(limit, 50));
 }
 
+/** Statuses a run can still be cancelled from. */
+const CANCELLABLE_STATUSES = ['queued', 'pending', 'running', 'waiting_for_input'];
+
+export type CancelExecutionResult =
+  | { kind: 'cancelled'; id: string; workflowId: string; status: 'cancelled' }
+  | { kind: 'not_found' }
+  | { kind: 'not_cancellable'; status: string };
+
 /**
- * Cancel a queued/running execution. If a CF Workflow instance is attached,
- * abort it via the EXECUTE_WORKFLOW binding before flipping the DB row.
+ * Cancel a queued, running or waiting execution. The row is flipped first so
+ * the worker's finalize step (which never overwrites `cancelled`) cannot race
+ * it, then the Cloudflare Workflow instance is terminated so no further step
+ * runs. A failed terminate is logged, not surfaced: the instance may already
+ * have finished, and the row is cancelled either way.
  */
 export async function cancelExecution(
   db: Database,
   id: string,
   executeWorkflow?: Workflow,
-) {
+): Promise<CancelExecutionResult> {
   const [execution] = await db.select().from(workflowExecutions).where(eq(workflowExecutions.id, id)).limit(1);
-  if (!execution) return null;
+  if (!execution) return { kind: 'not_found' };
+  if (!CANCELLABLE_STATUSES.includes(execution.status)) {
+    return { kind: 'not_cancellable', status: execution.status };
+  }
+
+  const now = new Date();
+  await db
+    .update(workflowExecutions)
+    .set({ status: 'cancelled', completedAt: now, updatedAt: now })
+    .where(and(eq(workflowExecutions.id, id), inArray(workflowExecutions.status, CANCELLABLE_STATUSES)));
 
   if (execution.cfWorkflowInstanceId && executeWorkflow) {
     try {
       const instance = await executeWorkflow.get(execution.cfWorkflowInstanceId);
-      // `abort()` exists at runtime on WorkflowInstance but isn't always in
-      // the workers-types ambient definition; cast to any to bypass the gap.
-      await (instance as any).abort();
+      await instance.terminate();
     } catch (err) {
-      console.warn('[app-api/workflow-executions] abort failed:', err);
+      console.warn('[connect-api/workflow-executions] terminate failed:', err);
     }
   }
 
-  await db
-    .update(workflowExecutions)
-    .set({ status: 'cancelled', completedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(workflowExecutions.id, id), inArray(workflowExecutions.status, ['queued', 'running'])));
-
-  return { id, status: 'cancelled' as const };
+  return { kind: 'cancelled', id, workflowId: execution.workflowId, status: 'cancelled' };
 }
 
 type WorkflowRow = typeof workflows.$inferSelect;
