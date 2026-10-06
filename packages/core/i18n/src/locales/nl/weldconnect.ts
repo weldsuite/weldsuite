@@ -1401,6 +1401,7 @@ export const weldconnect = {
       delay: { name: 'Vertraging', description: 'Wachten voor een opgegeven tijd' },
       manual_step: { name: 'Handmatige stap', description: 'Wachten op menselijke goedkeuring of invoer' },
       http_request: { name: 'HTTP-verzoek', description: 'Een API-verzoek uitvoeren' },
+      'slack.post_message': { name: 'Slack: bericht plaatsen', description: 'Een bericht plaatsen in een Slack-kanaal' },
       run_script: { name: 'Script uitvoeren', description: 'Aangepaste JavaScript uitvoeren' },
       ai_generate: { name: 'AI genereren', description: 'Inhoud genereren met AI' },
       ai_classify: { name: 'AI classificeren', description: 'Tekst classificeren in categorieën met AI' },
@@ -2005,6 +2006,7 @@ export const weldconnect = {
       move_deal_stage: 'Dealfase verplaatsen',
       log_activity: 'Activiteit loggen',
       post_chat_message: 'Chatbericht plaatsen',
+      'slack.post_message': 'Slack: bericht plaatsen',
       create_task: 'Taak aanmaken',
       send_notification: 'Melding verzenden',
       run_script: 'Script uitvoeren',
@@ -2208,6 +2210,27 @@ export const weldconnect = {
       mentionsPlaceholder: '{{trigger.record.ownerId}}',
       ownerPermissionHint:
         'De workflow handelt namens de eigenaar: hij kan alleen plaatsen waar de eigenaar dat ook zou kunnen — een kanaal dat de eigenaar niet kan zien wordt geweigerd.',
+    },
+    // SlackPostMessageForm — eerste externe provider-stap
+    slackPostMessage: {
+      connection: 'Slack-koppeling',
+      connectionDesc: 'Met welke gekoppelde Slack-werkruimte er geplaatst wordt.',
+      selectConnection: 'Selecteer een koppeling',
+      noConnection: 'Er is nog geen Slack-werkruimte gekoppeld. Koppel er eerst een via WeldConnect → Integraties.',
+      channel: 'Kanaal',
+      channelDesc: 'Het Slack-kanaal om het bericht in te plaatsen.',
+      selectChannel: 'Selecteer een kanaal',
+      loadingChannels: 'Kanalen laden…',
+      noChannels: 'Geen kanalen gevonden voor deze koppeling.',
+      privateChannelHint: 'Plaatsen in een privékanaal vereist dat de Slack-app van WeldSuite daar eerst voor is uitgenodigd (/invite @WeldSuite in Slack).',
+      message: 'Bericht',
+      messageDesc: 'Ondersteunt {{variabelen}} en Slack-mrkdwn (*vet*, _cursief_, <url|tekst>).',
+      messagePlaceholder: 'Het weekrapport is gereed: {{steps.<stap>.url}}',
+      threadTs: 'Antwoorden in thread (optioneel)',
+      threadTsDesc: 'De ts van een eerder bericht om in die thread te antwoorden, bijv. {{steps.<stap>.ts}} van een eerdere Slack-stap.',
+      threadTsPlaceholder: '{{steps.<stap>.ts}}',
+      ownerHint:
+        'Plaatst met de eigen Slack-koppeling van de werkruimte, niet als de eigenaar — hij weigert alleen zodra de eigenaar de werkruimte heeft verlaten.',
     },
     // CreateTaskForm
     taskProject: 'Project',

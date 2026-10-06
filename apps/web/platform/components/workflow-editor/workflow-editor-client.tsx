@@ -32,6 +32,7 @@ import {
   Search,
   MessageSquare,
   MessageCircle,
+  Slack,
   Bell,
   Building2,
   Calendar,
@@ -299,6 +300,7 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   move_deal_stage: { icon: Move, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   log_activity: { icon: Activity, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   post_chat_message: { icon: MessageCircle, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30' },
+  'slack.post_message': { icon: Slack, color: 'text-fuchsia-600', bgColor: 'bg-fuchsia-100 dark:bg-fuchsia-900/30' },
   create_task: { icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
@@ -419,6 +421,7 @@ const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'delay', name: 'Delay', description: 'Wait for a specified time', icon: Clock, category: 'logic' },
   { id: 'manual_step', name: 'Manual Step', description: 'Wait for human approval or input', icon: UserCheck, category: 'logic' },
   { id: 'http_request', name: 'HTTP Request', description: 'Make an API request', icon: Globe, category: 'integration' },
+  { id: 'slack.post_message', name: 'Slack: Post Message', description: 'Post a message to a Slack channel', icon: Slack, category: 'integration' },
   { id: 'run_script', name: 'Run Script', description: 'Execute custom JavaScript', icon: Code, category: 'integration' },
   // ai_generate + ai_classify are the only AI action types re-enabled after
   // the platform-wide AI teardown (apps/workers/workflow-worker/src/engine/actions/ai.ts).
@@ -576,6 +579,11 @@ function summarizeTask(config: Record<string, unknown>): string {
   return typeof config.title === 'string' ? config.title : '';
 }
 
+function summarizeSlackPostMessage(config: Record<string, unknown>): string {
+  const text = typeof config.text === 'string' ? config.text : '';
+  return text.substring(0, 60) + (text.length > 60 ? '...' : '');
+}
+
 const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['send_email', summarizeSendEmail],
   ['http_request', summarizeHttpRequest],
@@ -592,6 +600,7 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['move_deal_stage', summarizeMoveDealStage],
   ['log_activity', summarizeLogActivity],
   ['post_chat_message', summarizePostChatMessage],
+  ['slack.post_message', summarizeSlackPostMessage],
   ['create_task', summarizeTask],
 ]);
 

@@ -3,6 +3,7 @@ import {
   isSequenceWorkflow,
   isValidCronExpression,
   recurringScheduleTriggers,
+  validateWeldConnectIntegrations,
   validateWeldConnectWorkflow,
   webhookTriggerIds,
   webhookTriggers,
@@ -260,6 +261,81 @@ describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
         steps: [{ id: 'a', type: 'create_task', config: { projectId: 'proj_1' } }],
       }),
     ).toEqual([{ code: 'missing_field', stepId: 'a', type: 'create_task', field: 'title' }]);
+  });
+
+  it('accepts a configured slack.post_message step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'slack.post_message', config: { channel: 'C1', text: 'Hi' } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a slack.post_message step missing its channel or text', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'slack.post_message', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'slack.post_message', field: 'channel' },
+      { code: 'missing_field', stepId: 'a', type: 'slack.post_message', field: 'text' },
+    ]);
+  });
+});
+
+describe('validateWeldConnectIntegrations', () => {
+  const connectedSlack = { id: 'win_1', type: 'slack', status: 'connected' };
+  const disconnectedSlack = { id: 'win_2', type: 'slack', status: 'disconnected' };
+
+  it('ignores steps that are not namespaced provider actions', () => {
+    expect(validateWeldConnectIntegrations([{ id: 'a', type: 'send_email', config: {} }], [])).toEqual([]);
+  });
+
+  it('accepts a slack.post_message step with no integrationId when a connected Slack integration exists', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: { channel: 'C1', text: 'hi' } }],
+        [connectedSlack],
+      ),
+    ).toEqual([]);
+  });
+
+  it('flags a slack.post_message step when no Slack integration is connected at all', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: {} }],
+        [],
+      ),
+    ).toEqual([{ code: 'integration_not_connected', stepId: 'a', type: 'slack.post_message' }]);
+  });
+
+  it('flags a step whose explicit integrationId points at a disconnected integration', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: { integrationId: 'win_2' } }],
+        [connectedSlack, disconnectedSlack],
+      ),
+    ).toEqual([{ code: 'integration_not_connected', stepId: 'a', type: 'slack.post_message' }]);
+  });
+
+  it('flags a step whose explicit integrationId does not exist', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: { integrationId: 'win_missing' } }],
+        [connectedSlack],
+      ),
+    ).toEqual([{ code: 'integration_not_connected', stepId: 'a', type: 'slack.post_message' }]);
+  });
+
+  it('accepts an explicit integrationId that is connected', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: { integrationId: 'win_1' } }],
+        [connectedSlack, disconnectedSlack],
+      ),
+    ).toEqual([]);
   });
 });
 

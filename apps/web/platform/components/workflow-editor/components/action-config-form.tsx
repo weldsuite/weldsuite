@@ -59,6 +59,10 @@ import { FilterBuilder, type FilterCondition } from '@weldsuite/ui/components/wo
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useChannels } from '@/hooks/queries/use-weldchat-queries';
+import {
+  useWorkflowIntegrations,
+  useSlackChannels,
+} from '@/hooks/queries/use-workflow-integration-queries';
 
 // Types for context data
 interface EmailAccountOption {
@@ -1404,6 +1408,135 @@ function PostChatMessageForm({
       </FormField>
 
       <p className="text-xs text-muted-foreground">{cf.ownerPermissionHint}</p>
+    </div>
+  );
+}
+
+/**
+ * slack.post_message — the first third-party provider step (reference for
+ * Google/GitHub; see "Provider pattern" in docs/plans/weldconnect.md).
+ * Connection picker only shown when more than one Slack workspace is
+ * connected; the channel picker loads from the chosen connection
+ * (conversations.list via connect-api) and is disabled until one is chosen.
+ */
+function SlackPostMessageForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.slackPostMessage;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'slack',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  // Nothing chosen yet: fall back to the only (or first) connection so the
+  // channel picker can load immediately, without writing it into config —
+  // the engine applies the exact same default at run time when omitted
+  // (resolveIntegration, workflow-worker/src/engine/integrations.ts).
+  const effectiveIntegrationId = configuredIntegrationId || connections[0]?.id || '';
+
+  const { data: channelsData, isLoading: channelsLoading } = useSlackChannels(
+    effectiveIntegrationId || undefined,
+  );
+  const channels = channelsData?.data ?? [];
+  const channelId = (config.channel as string | undefined) || '';
+
+  return (
+    <div className="space-y-4">
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value, channel: '' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.channel} required description={cf.channelDesc}>
+        <Select
+          value={channelId}
+          onValueChange={(value) => onChange({ ...config, channel: value })}
+          disabled={channelsLoading || !effectiveIntegrationId}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={channelsLoading ? cf.loadingChannels : cf.selectChannel} />
+          </SelectTrigger>
+          <SelectContent>
+            {channels.map((channel) => (
+              <SelectItem key={channel.id} value={channel.id}>
+                <span className="inline-flex items-center gap-1.5">
+                  {channel.isPrivate ? (
+                    <Lock className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <Hash className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  {channel.name}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!channelsLoading && effectiveIntegrationId && channels.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{cf.noChannels}</p>
+        )}
+        <p className="text-xs text-muted-foreground mt-1">{cf.privateChannelHint}</p>
+      </FormField>
+
+      <FormField label={cf.message} required description={cf.messageDesc}>
+        <VariableInput
+          value={(config.text as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, text: v })}
+          placeholder={cf.messagePlaceholder}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.threadTs} description={cf.threadTsDesc}>
+        <VariableInput
+          value={(config.threadTs as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, threadTs: v })}
+          placeholder={cf.threadTsPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
     </div>
   );
 }
@@ -3683,6 +3816,19 @@ export function ActionConfigForm({
       case 'post_chat_message':
         return (
           <PostChatMessageForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'slack.post_message':
+        return (
+          <SlackPostMessageForm
             config={config}
             onChange={onChange}
             triggerType={triggerType}

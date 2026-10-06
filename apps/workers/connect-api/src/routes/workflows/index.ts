@@ -6,6 +6,7 @@
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import { isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
@@ -16,9 +17,14 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldconnect';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
+import { schema } from '@weldsuite/worker-kit/db';
 import * as workflowsService from '../../services/workflows';
 import { startTestRun } from '../../services/workflow-executions';
-import { isSequenceWorkflow, validateWeldConnectWorkflow } from '../../services/weldconnect-mvp';
+import {
+  isSequenceWorkflow,
+  validateWeldConnectIntegrations,
+  validateWeldConnectWorkflow,
+} from '../../services/weldconnect-mvp';
 import { syncWorkflowPollIndex } from '../../lib/tenant-work-index';
 import type { ScheduleIndexSync } from '../../lib/schedule-index';
 import type { WebhookSyncContext } from '../../services/workflow-webhook-sync';
@@ -50,13 +56,34 @@ function webhookSyncFor(c: WorkflowsContext): WebhookSyncContext {
  * triggers/actions, fully configured (services/weldconnect-mvp.ts). Returns a
  * 400 response when it may not, `null` when it may. CRM sequences share this
  * table and route but are exempt.
+ *
+ * Third-party provider steps (`slack.post_message`, …) need one extra, DB-backed
+ * check beyond the pure field validation: the integration they point at (or
+ * the workspace's first connected one of that provider, when unset) must
+ * actually exist and be connected — only looked up when a step needs it, so
+ * every other activation keeps costing zero extra queries.
  */
-function rejectUnsupportedActivation(
+async function rejectUnsupportedActivation(
   c: WorkflowsContext,
   workflow: { triggers?: unknown; steps?: unknown; tags?: unknown },
 ) {
   if (isSequenceWorkflow(workflow.tags)) return null;
   const issues = validateWeldConnectWorkflow(workflow);
+
+  const steps = Array.isArray(workflow.steps) ? workflow.steps : [];
+  const hasProviderStep = steps.some(
+    (s) => typeof s === 'object' && s !== null && typeof (s as { type?: unknown }).type === 'string'
+      && (s as { type: string }).type.includes('.'),
+  );
+  if (hasProviderStep) {
+    const db = c.get('tenantDb');
+    const rows = await db
+      .select({ id: schema.workflowIntegrations.id, type: schema.workflowIntegrations.type, status: schema.workflowIntegrations.status })
+      .from(schema.workflowIntegrations)
+      .where(isNull(schema.workflowIntegrations.deletedAt));
+    issues.push(...validateWeldConnectIntegrations(steps, rows));
+  }
+
   if (issues.length === 0) return null;
   return error.badRequest(c, 'This workflow cannot be activated: it uses unsupported or incomplete triggers or actions', {
     reason: 'weldconnect_unsupported',
@@ -145,7 +172,7 @@ app.post('/', requirePermission('workflows:create'), zValidator('json', createWo
   const userId = c.get('userId');
   const data = c.req.valid('json');
   if (data.status === 'active') {
-    const rejection = rejectUnsupportedActivation(c, data);
+    const rejection = await rejectUnsupportedActivation(c, data);
     if (rejection) return rejection;
   }
   try {
@@ -181,7 +208,7 @@ for (const method of ['put', 'patch'] as const) {
       const activating = nextStatus === 'active' && existing.status !== 'active';
       const flowChanged = data.triggers !== undefined || data.steps !== undefined;
       if (nextStatus === 'active' && (activating || flowChanged)) {
-        const rejection = rejectUnsupportedActivation(c, {
+        const rejection = await rejectUnsupportedActivation(c, {
           triggers: data.triggers ?? existing.triggers,
           steps: data.steps ?? existing.steps,
           tags: data.tags ?? existing.tags,
@@ -220,7 +247,7 @@ app.patch(
       if (status === 'active') {
         const existing = await workflowsService.getWorkflow(db, id);
         if (!existing) return error.notFound(c, 'Workflow', id);
-        const rejection = rejectUnsupportedActivation(c, existing);
+        const rejection = await rejectUnsupportedActivation(c, existing);
         if (rejection) return rejection;
       }
       const result = await workflowsService.updateWorkflowStatus(db, id, status, scheduleSyncFor(c));

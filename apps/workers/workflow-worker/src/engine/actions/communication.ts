@@ -196,6 +196,18 @@ export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
   };
 };
 
+/**
+ * Legacy pre-catalog Slack action. Kept registered (`slack_message` in
+ * actions/index.ts) for compatibility only — any workflow saved before the
+ * `@weldsuite/workflow-integrations` catalog existed that still has a
+ * `slack_message` step keeps running unchanged. It is not in
+ * `WELDCONNECT_ACTION_TYPES` (services/weldconnect-mvp.ts), so the editor
+ * never offers it and the activation gate refuses it on a fresh workflow —
+ * `slack.post_message` (providers/slack.ts) is the one real editor step now,
+ * with channel validation, thread replies, richer errors and the owner
+ * membership check. Do not add features here; port them to providers/slack.ts
+ * instead and let this one keep doing exactly what it always did.
+ */
 export const handleSlackMessage: ActionHandler = async (inputs, ctx) => {
   const channel = String(inputs.channel || '');
   const text = String(inputs.text || '');

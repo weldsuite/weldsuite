@@ -20,6 +20,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { workflowIntegrationOAuthRoutes } from './oauth';
+import { listSlackChannels, testSlackAuth } from '../../services/workflow-integrations/slack';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const wi = schema.workflowIntegrations;
@@ -268,13 +269,9 @@ app.post('/:id/test', requirePermission('integrations:create'), async (c) => {
     let ok = false;
     let detail = '';
     if (integration.type === 'slack') {
-      const r = await fetch('https://slack.com/api/auth.test', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const j = (await r.json()) as { ok: boolean; team?: string; error?: string };
-      ok = j.ok;
-      detail = j.ok ? `Connected to ${j.team ?? 'Slack'}` : (j.error ?? 'auth.test failed');
+      const result = await testSlackAuth(token);
+      ok = result.ok;
+      detail = result.message;
     } else if (integration.type.startsWith('google')) {
       const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
         headers: { Authorization: `Bearer ${token}` },
@@ -289,6 +286,31 @@ app.post('/:id/test', requirePermission('integrations:create'), async (c) => {
   } catch (err) {
     console.error('[app-api/workflow-integrations] test failed:', err);
     return error.internal(c, 'Failed to test integration');
+  }
+});
+
+// Slack channel picker (conversations.list) — the step form calls this once
+// a Slack connection is chosen. Namespaced under the provider (`/slack/...`)
+// so a future provider's own picker calls (Google Sheets spreadsheets, GitHub
+// repos, …) sit the same way: `/:id/<provider>/<resource>`.
+app.get('/:id/slack/channels', requirePermission('integrations:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const encKey = { v1: c.env.DATABASE_ENCRYPTION_KEY, v2: c.env.DATABASE_ENCRYPTION_KEY_V2 };
+  try {
+    const [integration] = await db.select().from(wi).where(and(eq(wi.id, id), isNull(wi.deletedAt))).limit(1);
+    if (!integration) return error.notFound(c, 'Integration', id);
+    if (integration.type !== 'slack') return error.badRequest(c, 'Not a Slack integration');
+
+    const tokens = integration.oauthTokens as { accessToken?: string } | null;
+    if (!tokens?.accessToken) return error.badRequest(c, 'Integration is not connected');
+    const token = await maybeDecryptField(tokens.accessToken, encKey);
+
+    const channels = await listSlackChannels(token);
+    return success(c, channels);
+  } catch (err) {
+    console.error('[connect-api/workflow-integrations] slack channels failed:', err);
+    return error.internal(c, 'Failed to list Slack channels');
   }
 });
 
