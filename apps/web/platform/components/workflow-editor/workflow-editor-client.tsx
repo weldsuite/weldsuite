@@ -1555,7 +1555,7 @@ function WebhookSecretField({ webhookSecret, form }: { webhookSecret: string; fo
           size="icon"
           className="flex-shrink-0"
           onClick={() => {
-            navigator.clipboard.writeText(webhookSecret);
+            void navigator.clipboard.writeText(webhookSecret);
             toast.success(tec.toasts.secretCopied);
           }}
         >
@@ -1589,7 +1589,7 @@ function WebhookDetails({ webhookData, form }: { webhookData: WebhookData; form:
             size="icon"
             className="flex-shrink-0"
             onClick={() => {
-              navigator.clipboard.writeText(webhookData.externalUrl || webhookData.url);
+              void navigator.clipboard.writeText(webhookData.externalUrl || webhookData.url);
               toast.success(tec.toasts.urlCopied);
             }}
           >
@@ -3024,9 +3024,9 @@ export function WorkflowEditorClient({
   // Re-fetch the workflow when the agent (or anything else) mutates it.
   const agentInvalidateQc = useQueryClient();
   const workflowsChangedListener = useCallback(() => {
-    agentInvalidateQc.invalidateQueries({ queryKey: automationKeys.workflow(initialWorkflow.id) });
-    agentInvalidateQc.invalidateQueries({ queryKey: automationKeys.workflows() });
-    agentInvalidateQc.invalidateQueries({ queryKey: workflowEditorKeys.workflow(initialWorkflow.id) });
+    void agentInvalidateQc.invalidateQueries({ queryKey: automationKeys.workflow(initialWorkflow.id) });
+    void agentInvalidateQc.invalidateQueries({ queryKey: automationKeys.workflows() });
+    void agentInvalidateQc.invalidateQueries({ queryKey: workflowEditorKeys.workflow(initialWorkflow.id) });
   }, [agentInvalidateQc, initialWorkflow.id]);
   useDataEvent('workflows:changed', workflowsChangedListener);
 

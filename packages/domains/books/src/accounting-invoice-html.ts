@@ -198,7 +198,7 @@ function buildDiscountRow(
   labels: InvoiceLabels,
   fmtCurrency: CurrencyFmt,
 ): string {
-  if (!(parseFloat(discountTotal) > 0)) return '';
+  if (!(Number.parseFloat(discountTotal) > 0)) return '';
   return `
         <tr>
           <td style="padding:6px 0;color:#666;">${labels.discount}</td>
@@ -310,8 +310,8 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
   const entityAddressBlock = buildEntityAddressBlock(entity.address ?? {});
   const logoHtml = buildLogoHtml(branding, entity.name, primaryColor);
 
-  const balanceDue = parseFloat(invoice.balanceDue || invoice.total);
-  const amountPaid = parseFloat(invoice.amountPaid || '0');
+  const balanceDue = Number.parseFloat(invoice.balanceDue || invoice.total);
+  const amountPaid = Number.parseFloat(invoice.amountPaid || '0');
 
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(locale.split('-')[0])}">
