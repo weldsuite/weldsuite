@@ -20,7 +20,9 @@ import { QuickAddPersonForm } from './quick-add-person-form';
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Prefill the name fields (e.g. from a search term that found no match). */
+  /**
+   * Prefill from a people-search query (a name, an email, or "Name <email>").
+   */
   initialName?: string;
   /** Fired with the created record after a successful save. */
   onCreated?: (person: Person) => void;

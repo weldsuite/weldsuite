@@ -1397,6 +1397,8 @@ export const sweep = {
     "createNewAttribute": "Nieuw kenmerk aanmaken",
     "createNoteFailed": "Notitie aanmaken mislukt",
     "createPersonFailed": "Persoon aanmaken mislukt",
+    "createPersonFromSearch": "\"{name}\" toevoegen als nieuwe persoon",
+    "personCreatedNeedsEmail": "Persoon aangemaakt. Voeg een e-mailadres toe om deze hier te gebruiken.",
     "createSubtaskFailed": "Subtaak aanmaken mislukt",
     "customAttributesHeading": "Aangepaste kenmerken",
     "customFieldsHeading": "Aangepaste velden",
