@@ -205,7 +205,8 @@ export interface StepRuntime {
    */
   do<T>(name: string, fn: () => Promise<T>, opts?: { engineRetries?: boolean }): Promise<T>;
   sleep(name: string, ms: number): Promise<void>;
-  waitForEvent<T = unknown>(name: string, opts: { type: string; timeoutMs?: number }): Promise<T>;
+  /** Throws when `timeout` (a duration like `'7 days'`, or ms) passes without the event. */
+  waitForEvent<T = unknown>(name: string, opts: { type: string; timeout?: string | number }): Promise<T>;
 }
 
 export type StepStatus = 'completed' | 'failed' | 'skipped' | 'waiting_for_input';

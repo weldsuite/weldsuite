@@ -1,5 +1,5 @@
 import { Badge } from '@weldsuite/ui/components/badge';
-import { AlertCircle, Ban, CheckCircle2, Clock, Loader2, XCircle } from 'lucide-react';
+import { AlertCircle, Ban, CheckCircle2, Clock, Hourglass, Loader2, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { normalizeExecutionStatus } from '../execution-utils';
@@ -12,6 +12,11 @@ const statusConfig: Record<string, { icon: React.ElementType; className: string 
   running: {
     icon: Loader2,
     className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+  },
+  // Paused on an approval step until someone decides.
+  waiting_for_input: {
+    icon: Hourglass,
+    className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
   },
   completed: {
     icon: CheckCircle2,

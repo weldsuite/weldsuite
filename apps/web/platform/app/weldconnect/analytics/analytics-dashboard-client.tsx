@@ -12,8 +12,6 @@ import {
   BarChart3,
 } from 'lucide-react';
 import {
-  LineChart,
-  Line,
   AreaChart,
   Area,
   BarChart,
@@ -29,14 +27,14 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Link } from '@/lib/router';
-import type { WorkflowExecution, WorkflowErrorLog } from '@/hooks/queries/use-automation-queries';
+import { localeConfig } from '@/lib/i18n/locales';
+import type { WorkflowExecution } from '@/hooks/queries/use-automation-queries';
+import type { WorkflowErrorsData } from '@/hooks/queries/use-workflow-error-queries';
+import { formatTrendLabel, formatTrendTick, type TrendApiPeriod } from '../components/chart-utils';
+import { errorsByWorkflowChart, type summarizeExecutions } from './analytics-utils';
+import { ErrorLog } from './error-log';
 
-interface WorkflowStatsSummary {
-  totalExecutions: number;
-  successfulExecutions: number;
-  failedExecutions: number;
-  pendingExecutions: number;
-}
+type WorkflowStatsSummary = ReturnType<typeof summarizeExecutions>;
 
 interface ExecutionTrendPoint {
   date: string;
@@ -47,13 +45,6 @@ interface ExecutionTrendPoint {
 
 interface ExecutionTrendsSummary {
   trends: ExecutionTrendPoint[];
-}
-
-interface ErrorStatsSummary {
-  total: number;
-  unacknowledged: number;
-  byType: Record<string, number>;
-  items: WorkflowErrorLog[];
 }
 
 interface PerformanceMetricsSummary {
@@ -67,13 +58,15 @@ interface AnalyticsDashboardClientProps {
   isLoading?: boolean;
   stats: WorkflowStatsSummary | null;
   trends: ExecutionTrendsSummary | null;
-  errorStats: ErrorStatsSummary | null;
+  /** Bucket size the trends were fetched for. */
+  trendPeriod: TrendApiPeriod;
+  errorStats: WorkflowErrorsData | null;
   performanceMetrics: PerformanceMetricsSummary | null;
   slowExecutions: WorkflowExecution[];
 }
 
 const formatDuration = (ms: number) => {
-  if (ms < 1000) return `${ms}ms`;
+  if (ms < 1000) return `${Math.round(ms)}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
   return `${(ms / 60000).toFixed(1)}m`;
 };
@@ -89,11 +82,15 @@ export function AnalyticsDashboardClient({
   isLoading = false,
   stats,
   trends,
+  trendPeriod,
   errorStats,
   performanceMetrics,
   slowExecutions,
 }: Readonly<AnalyticsDashboardClientProps>) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const locale = localeConfig[language].intlLocale;
+  const tick = (value: unknown) => formatTrendTick(String(value), trendPeriod, locale);
+  const tooltipLabel = (value: unknown) => formatTrendLabel(String(value), trendPeriod, locale);
   useBreadcrumbs([
     { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.analytics },
@@ -107,15 +104,9 @@ export function AnalyticsDashboardClient({
     );
   }
 
-  const successRate = stats?.totalExecutions
-    ? ((stats.successfulExecutions / stats.totalExecutions) * 100).toFixed(1)
-    : 0;
-
-  // The workflow-stats endpoint doesn't report a dedicated "in progress" count;
-  // derive it as whatever hasn't reached a terminal (successful/failed) state yet.
-  const runningExecutions = stats
-    ? Math.max(stats.totalExecutions - stats.successfulExecutions - stats.failedExecutions, 0)
-    : 0;
+  const successRate = stats?.successRate ?? 0;
+  // Queued + running (cancelled and timed-out runs are not "in progress").
+  const runningExecutions = stats?.inProgressExecutions ?? 0;
 
   const pieData = [
     { name: t.weldconnect.analytics.charts.successful, value: stats?.successfulExecutions || 0, color: COLORS.success },
@@ -123,11 +114,10 @@ export function AnalyticsDashboardClient({
     { name: t.weldconnect.executions.statuses.running, value: runningExecutions, color: COLORS.running },
   ].filter(item => item.value > 0);
 
-  const errorsByWorkflow = (errorStats?.items ?? []).reduce<Record<string, number>>((acc, item) => {
-    const workflowId = typeof item.workflowId === 'string' ? item.workflowId : 'unknown';
-    acc[workflowId] = (acc[workflowId] || 0) + 1;
-    return acc;
-  }, {});
+  const errorsByWorkflow = errorsByWorkflowChart(
+    errorStats?.byWorkflow ?? [],
+    t.weldconnect.analytics.errorLog.deletedWorkflow,
+  );
 
   return (
     <div className="space-y-6 pb-6">
@@ -243,11 +233,11 @@ export function AnalyticsDashboardClient({
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
-                      tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      tickFormatter={tick}
                     />
                     <YAxis />
                     <Tooltip
-                      labelFormatter={(value) => new Date(value).toLocaleDateString()}
+                      labelFormatter={tooltipLabel}
                       formatter={(value) => [value, '']}
                     />
                     <Legend />
@@ -351,37 +341,6 @@ export function AnalyticsDashboardClient({
                 </CardContent>
               </Card>
             </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>{t.weldconnect.analytics.charts.durationTrends}</CardTitle>
-                <CardDescription>{t.weldconnect.analytics.charts.durationTrendsDescription}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={trends?.trends || []}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="date"
-                      tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    />
-                    <YAxis tickFormatter={(value) => formatDuration(value)} />
-                    <Tooltip
-                      labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                      formatter={(value) => [formatDuration(Number(value)), t.weldconnect.analytics.stats.avgDuration]}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="averageDuration"
-                      name={t.weldconnect.analytics.stats.avgDuration}
-                      stroke="#8b5cf6"
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           {/* Error Analytics */}
@@ -427,17 +386,9 @@ export function AnalyticsDashboardClient({
                   <CardDescription>{t.weldconnect.analytics.charts.errorsByWorkflowDescription}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {Object.keys(errorsByWorkflow).length > 0 ? (
+                  {errorsByWorkflow.length > 0 ? (
                     <ResponsiveContainer width="100%" height={250}>
-                      <BarChart
-                        data={Object.entries(errorsByWorkflow)
-                          .map(([workflowId, count]) => ({
-                            name: workflowId.substring(0, 8),
-                            errors: count,
-                          }))
-                          .sort((a, b) => b.errors - a.errors)
-                          .slice(0, 10)}
-                      >
+                      <BarChart data={errorsByWorkflow}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
                         <YAxis />
@@ -454,6 +405,7 @@ export function AnalyticsDashboardClient({
                 </CardContent>
               </Card>
             </div>
+            <ErrorLog />
           </TabsContent>
 
           {/* Execution Distribution */}
@@ -498,11 +450,11 @@ export function AnalyticsDashboardClient({
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis
                         dataKey="date"
-                        tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        tickFormatter={tick}
                       />
                       <YAxis />
                       <Tooltip
-                        labelFormatter={(value) => new Date(value).toLocaleDateString()}
+                        labelFormatter={tooltipLabel}
                         formatter={(value) => [value, t.weldconnect.analytics.stats.totalExecutions]}
                       />
                       <Bar dataKey="total" fill={COLORS.running} />

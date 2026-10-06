@@ -27,12 +27,13 @@ export default function WebhookDetailPage() {
     );
   }
 
-  // The webhook-events endpoint only reports `timestamp`, not the richer
-  // execution/payload fields the detail view optionally renders.
+  // Each event is a workflow run this webhook started (its id is the run's id).
   const mappedEvents: WebhookEvent[] = events.map((e) => ({
     id: e.id,
     status: e.status,
     createdAt: e.timestamp,
+    executionId: e.executionId ?? e.id,
+    error: e.error ?? null,
   }));
 
   return (

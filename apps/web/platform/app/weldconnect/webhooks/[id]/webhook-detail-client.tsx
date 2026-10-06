@@ -1,5 +1,4 @@
 
-import { useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter, Link } from '@/lib/router';
@@ -12,10 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/componen
 import {
   ArrowLeft,
   Copy,
-  Eye,
-  EyeOff,
   Trash2,
-  RotateCw,
   Globe,
   Lock,
   CheckCircle,
@@ -24,25 +20,23 @@ import {
   Calendar,
   Code,
   ExternalLink,
+  Info,
+  Workflow as WorkflowIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useDeleteWebhook, useRotateWebhookSecret } from '@/hooks/queries/use-automation-queries';
+import { useDeleteWebhook } from '@/hooks/queries/use-automation-queries';
 import type { WebhookView } from '../webhooks-client';
+import { buildWebhookCurl, eventStatusTone, type EventTone } from '../webhook-utils';
 
-export interface WebhookDetail extends WebhookView {
-  workflowId?: string;
-  updatedAt: string;
-}
+export type WebhookDetail = WebhookView;
 
+/** One call to the webhook: the workflow run it started. */
 export interface WebhookEvent {
   id: string;
   status: string;
   createdAt: string;
   executionId?: string | null;
   error?: string | null;
-  payload?: unknown;
-  headers?: unknown;
-  response?: unknown;
 }
 
 interface WebhookDetailClientProps {
@@ -50,31 +44,32 @@ interface WebhookDetailClientProps {
   initialEvents: WebhookEvent[];
 }
 
-const getStatusBadge = (status: string, labels: Record<string, string>) => {
-  switch (status) {
-    case 'success':
-      return <Badge className="bg-green-500">{labels.success}</Badge>;
-    case 'failed':
-      return <Badge variant="destructive">{labels.failed}</Badge>;
-    case 'pending':
-      return <Badge className="bg-yellow-500">{labels.pending}</Badge>;
-    default:
-      return <Badge variant="outline">{status}</Badge>;
-  }
+const TONE_CLASSES: Record<EventTone, string> = {
+  success: 'bg-green-500',
+  failed: '',
+  pending: 'bg-yellow-500',
+  neutral: '',
 };
 
-const EventStatusIcon = ({ status }: Readonly<{ status: string }>) => {
-  if (status === 'success') return <CheckCircle className="h-5 w-5 text-green-500" />;
-  if (status === 'failed') return <XCircle className="h-5 w-5 text-red-500" />;
+function EventStatusBadge({ status, label }: Readonly<{ status: string; label: string }>) {
+  const tone = eventStatusTone(status);
+  if (tone === 'failed') return <Badge variant="destructive">{label}</Badge>;
+  if (tone === 'neutral') return <Badge variant="outline">{label}</Badge>;
+  return <Badge className={TONE_CLASSES[tone]}>{label}</Badge>;
+}
+
+function EventStatusIcon({ status }: Readonly<{ status: string }>) {
+  const tone = eventStatusTone(status);
+  if (tone === 'success') return <CheckCircle className="h-5 w-5 text-green-500" />;
+  if (tone === 'failed') return <XCircle className="h-5 w-5 text-red-500" />;
   return <Activity className="h-5 w-5 text-yellow-500" />;
-};
+}
 
-const formatDate = (date: string | Date) => {
-  return new Date(date).toLocaleString();
-};
+const formatDate = (date: string | Date) => new Date(date).toLocaleString();
 
 export function WebhookDetailClient({ webhook, initialEvents }: Readonly<WebhookDetailClientProps>) {
   const { t } = useI18n();
+  const wd = t.weldconnect.webhookDetail;
   useBreadcrumbs([
     { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.webhooks, href: '/weldconnect/webhooks' },
@@ -83,59 +78,32 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
 
   const router = useRouter();
   const deleteWebhookMutation = useDeleteWebhook();
-  const rotateSecretMutation = useRotateWebhookSecret();
-  const isPending = deleteWebhookMutation.isPending || rotateSecretMutation.isPending;
-  const [showSecret, setShowSecret] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<WebhookEvent | null>(null);
+  const statusLabels = t.weldconnect.executions.statuses as Record<string, string>;
+  const editorHref = `/weldconnect/workflows/${webhook.workflowId}/edit`;
+  const curl = buildWebhookCurl(webhook.externalUrl, webhook);
 
   const handleDelete = () => {
-    if (!confirm(t.weldconnect.webhookDetail.confirms.delete)) {
-      return;
-    }
+    if (!confirm(wd.confirms.delete)) return;
 
     deleteWebhookMutation.mutate(webhook.id, {
       onSuccess: () => {
-        toast.success(t.weldconnect.webhookDetail.toasts.deleted);
+        toast.success(wd.toasts.deleted);
         router.push('/weldconnect/webhooks');
       },
       onError: () => {
-        toast.error(t.weldconnect.webhookDetail.toasts.deleteFailed);
-      },
-    });
-  };
-
-  const handleRotateSecret = () => {
-    if (!confirm(t.weldconnect.webhookDetail.confirms.rotateSecret)) {
-      return;
-    }
-
-    rotateSecretMutation.mutate(webhook.id, {
-      onSuccess: () => {
-        toast.success(t.weldconnect.webhookDetail.toasts.secretRotated);
-      },
-      onError: () => {
-        toast.error(t.weldconnect.webhookDetail.toasts.secretRotateFailed);
+        toast.error(wd.toasts.deleteFailed);
       },
     });
   };
 
   const handleCopyUrl = () => {
-    navigator.clipboard.writeText(webhook.url);
-    toast.success(t.weldconnect.webhookDetail.toasts.urlCopied);
-  };
-
-  const handleCopySecret = () => {
-    navigator.clipboard.writeText(webhook.secret);
-    toast.success(t.weldconnect.webhookDetail.toasts.secretCopied);
+    navigator.clipboard.writeText(webhook.externalUrl);
+    toast.success(wd.toasts.urlCopied);
   };
 
   const handleCopyCurl = () => {
-    const curlCommand = `curl -X POST ${webhook.url} \\
-  -H "Content-Type: application/json" \\
-  -H "X-Webhook-Signature: ${webhook.secret}" \\
-  -d '{"test": true}'`;
-    navigator.clipboard.writeText(curlCommand);
-    toast.success(t.weldconnect.webhookDetail.toasts.curlCopied);
+    navigator.clipboard.writeText(curl);
+    toast.success(wd.toasts.curlCopied);
   };
 
   const totalCalls = webhook.totalCalls ?? 0;
@@ -173,33 +141,36 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
               <p className="text-muted-foreground mt-2">
                 {webhook.workflowName ? (
                   <>
-                    {t.weldconnect.webhookDetail.triggersWorkflow.replace('{name}', '')}
-                    <Link href={`/weldconnect/workflows/${webhook.workflowId}`} className="hover:underline">{webhook.workflowName}</Link>
+                    {wd.triggersWorkflow.replace('{name}', '')}
+                    <Link href={editorHref} className="hover:underline">{webhook.workflowName}</Link>
                   </>
                 ) : (
-                  t.weldconnect.webhookDetail.notConnected
+                  wd.notConnected
                 )}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={handleRotateSecret}
-              disabled={isPending}
-            >
-              <RotateCw className="h-4 w-4 mr-0.5" />
-              {t.weldconnect.webhookDetail.rotateSecretButton}
+            <Button variant="outline" onClick={() => router.push(editorHref)}>
+              <WorkflowIcon className="h-4 w-4 mr-0.5" />
+              {wd.openInEditor}
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={isPending}
-            >
-              <Trash2 className="h-4 w-4 mr-0.5 text-red-600 dark:text-red-400" />
-              {t.weldconnect.webhookDetail.deleteButton}
-            </Button>
+            {!webhook.isManaged && (
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleteWebhookMutation.isPending}
+              >
+                <Trash2 className="h-4 w-4 mr-0.5" />
+                {wd.deleteButton}
+              </Button>
+            )}
           </div>
+        </div>
+
+        <div className="flex items-start gap-3 rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+          <Info className="h-4 w-4 mt-0.5 shrink-0" />
+          <p>{webhook.isManaged ? wd.managedNotice : wd.legacyNotice}</p>
         </div>
 
         {/* Stats Cards */}
@@ -208,46 +179,46 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
                 <Activity className="h-4 w-4" />
-                {t.weldconnect.webhookDetail.stats.totalCalls}
+                {wd.stats.totalCalls}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{webhook.totalCalls || 0}</div>
+              <div className="text-2xl font-bold">{totalCalls}</div>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
                 <CheckCircle className="h-4 w-4" />
-                {t.weldconnect.webhookDetail.stats.successful}
+                {wd.stats.successful}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{webhook.successfulCalls || 0}</div>
-              <p className="text-xs text-muted-foreground">{t.weldconnect.webhookDetail.stats.successRate.replace('{rate}', String(successRate))}</p>
+              <div className="text-2xl font-bold text-green-600">{webhook.successfulCalls ?? 0}</div>
+              <p className="text-xs text-muted-foreground">{wd.stats.successRate.replace('{rate}', String(successRate))}</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
                 <XCircle className="h-4 w-4" />
-                {t.weldconnect.webhookDetail.stats.failed}
+                {wd.stats.failed}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{webhook.failedCalls || 0}</div>
+              <div className="text-2xl font-bold text-red-600">{webhook.failedCalls ?? 0}</div>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                {t.weldconnect.webhookDetail.stats.lastCalled}
+                {wd.stats.lastCalled}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="text-sm font-medium">
-                {webhook.lastCalledAt ? formatDate(webhook.lastCalledAt) : t.weldconnect.webhookDetail.stats.never}
+                {webhook.lastCalledAt ? formatDate(webhook.lastCalledAt) : wd.stats.never}
               </div>
             </CardContent>
           </Card>
@@ -256,8 +227,8 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
         {/* Configuration */}
         <Card>
           <CardHeader>
-            <CardTitle>{t.weldconnect.webhookDetail.config.title}</CardTitle>
-            <CardDescription>{t.weldconnect.webhookDetail.config.description}</CardDescription>
+            <CardTitle>{wd.config.title}</CardTitle>
+            <CardDescription>{wd.config.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* URL */}
@@ -267,50 +238,35 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
                 {t.weldconnect.webhooks.fields.url}
               </Label>
               <div className="flex gap-2">
-                <Input value={webhook.url} readOnly className="font-mono text-xs" />
+                <Input value={webhook.externalUrl} readOnly className="font-mono text-xs" />
                 <Button variant="outline" size="icon" onClick={handleCopyUrl}>
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {t.weldconnect.webhookDetail.config.urlHint}
-              </p>
+              <p className="text-xs text-muted-foreground">{wd.config.urlHint}</p>
             </div>
 
-            {/* Secret */}
+            {/* Signature */}
             <div className="space-y-2">
               <Label className="flex items-center gap-2">
                 <Lock className="h-4 w-4" />
-                {t.weldconnect.webhooks.webhookSecretLabel}
+                {wd.signature.title}
               </Label>
-              <div className="flex gap-2">
-                <Input
-                  value={showSecret ? webhook.secret : '••••••••••••••••'}
-                  readOnly
-                  className="font-mono text-xs"
-                  type={showSecret ? 'text' : 'password'}
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowSecret(!showSecret)}
-                >
-                  {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-                <Button variant="outline" size="icon" onClick={handleCopySecret}>
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t.weldconnect.webhookDetail.config.secretHint}
+              <p className="text-sm">
+                {webhook.validateSignature
+                  ? wd.signature.required.replace('{header}', webhook.signatureHeader || 'x-webhook-signature')
+                  : wd.signature.notRequired}
               </p>
+              {webhook.isManaged && (
+                <p className="text-xs text-muted-foreground">{wd.signature.manageHint}</p>
+              )}
             </div>
 
             {/* Example Request */}
             <div className="space-y-2">
               <Label className="flex items-center gap-2">
                 <Code className="h-4 w-4" />
-                {t.weldconnect.webhookDetail.config.exampleCurl}
+                {wd.config.exampleCurl}
               </Label>
               <div className="bg-muted p-4 rounded-lg relative">
                 <Button
@@ -321,12 +277,7 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
                 >
                   <Copy className="h-4 w-4" />
                 </Button>
-                <pre className="text-xs overflow-auto">
-{`curl -X POST ${webhook.url} \\
-  -H "Content-Type: application/json" \\
-  -H "X-Webhook-Signature: ${showSecret ? webhook.secret : '••••••••••••••••'}" \\
-  -d '{"test": true}'`}
-                </pre>
+                <pre className="text-xs overflow-auto">{curl}</pre>
               </div>
             </div>
           </CardContent>
@@ -335,8 +286,8 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
         {/* Recent Events */}
         <Tabs defaultValue="events" className="space-y-6">
           <TabsList>
-            <TabsTrigger value="events">{t.weldconnect.webhookDetail.tabEvents.replace('{count}', String(initialEvents.length))}</TabsTrigger>
-            <TabsTrigger value="details">{t.weldconnect.webhookDetail.tabDetails}</TabsTrigger>
+            <TabsTrigger value="events">{wd.tabEvents.replace('{count}', String(initialEvents.length))}</TabsTrigger>
+            <TabsTrigger value="details">{wd.tabDetails}</TabsTrigger>
           </TabsList>
 
           {/* Events Tab */}
@@ -344,32 +295,24 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
             {initialEvents.length > 0 ? (
               <div className="space-y-4">
                 {initialEvents.map((event) => (
-                  <Card
-                    key={event.id}
-                    className={`hover:shadow-md transition-shadow cursor-pointer ${
-                      selectedEvent?.id === event.id ? 'ring-2 ring-primary' : ''
-                    }`}
-                    onClick={() => setSelectedEvent(event)}
-                  >
+                  <Card key={event.id}>
                     <CardHeader>
                       <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-3">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <EventStatusIcon status={event.status} />
-                              <CardTitle className="text-base">{t.weldconnect.webhookDetail.events.webhookEvent}</CardTitle>
-                              {getStatusBadge(event.status, t.weldconnect.webhookDetail.eventStatuses)}
-                            </div>
-                            <CardDescription className="mt-1">
-                              {formatDate(event.createdAt)}
-                            </CardDescription>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <EventStatusIcon status={event.status} />
+                            <CardTitle className="text-base">{wd.events.webhookEvent}</CardTitle>
+                            <EventStatusBadge status={event.status} label={statusLabels[event.status] ?? event.status} />
                           </div>
+                          <CardDescription className="mt-1">
+                            {formatDate(event.createdAt)}
+                          </CardDescription>
                         </div>
                         {event.executionId && (
                           <Link href={`/weldconnect/executions/${event.executionId}`}>
                             <Button variant="ghost" size="sm">
                               <ExternalLink className="h-4 w-4 mr-0.5" />
-                              {t.weldconnect.webhookDetail.events.viewExecution}
+                              {wd.events.viewExecution}
                             </Button>
                           </Link>
                         )}
@@ -389,47 +332,14 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <Activity className="h-12 w-12 text-muted-foreground/30 mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">{t.weldconnect.webhookDetail.events.noEvents}</h3>
+                  <h3 className="text-lg font-semibold mb-2">{wd.events.noEvents}</h3>
                   <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
-                    {t.weldconnect.webhookDetail.events.noEventsDescription}
+                    {wd.events.noEventsDescription}
                   </p>
                   <Button variant="outline" onClick={handleCopyCurl}>
                     <Copy className="h-4 w-4 mr-0.5" />
-                    {t.weldconnect.webhookDetail.events.noEventsCta}
+                    {wd.events.noEventsCta}
                   </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Selected Event Detail */}
-            {selectedEvent && (
-              <Card className="border-primary">
-                <CardHeader>
-                  <CardTitle>{t.weldconnect.webhookDetail.events.eventDetails}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-semibold mb-2">{t.weldconnect.webhookDetail.events.payload}</h4>
-                    <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-64">
-                      {JSON.stringify(selectedEvent.payload, null, 2)}
-                    </pre>
-                  </div>
-                  {selectedEvent.headers != null && (
-                    <div>
-                      <h4 className="text-sm font-semibold mb-2">{t.weldconnect.webhookDetail.events.headers}</h4>
-                      <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-64">
-                        {JSON.stringify(selectedEvent.headers, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {selectedEvent.response != null && (
-                    <div>
-                      <h4 className="text-sm font-semibold mb-2">{t.weldconnect.webhookDetail.events.response}</h4>
-                      <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-64">
-                        {JSON.stringify(selectedEvent.response, null, 2)}
-                      </pre>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             )}
@@ -439,37 +349,37 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
           <TabsContent value="details">
             <Card>
               <CardHeader>
-                <CardTitle>{t.weldconnect.webhookDetail.info.title}</CardTitle>
+                <CardTitle>{wd.info.title}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground">{t.weldconnect.webhookDetail.info.webhookId}</label>
+                    <p className="text-sm font-medium text-muted-foreground">{wd.info.webhookId}</p>
                     <p className="text-sm mt-1 font-mono">{webhook.id}</p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground">{t.weldconnect.webhookDetail.info.status}</label>
-                    <p className="text-sm mt-1">
+                    <p className="text-sm font-medium text-muted-foreground">{wd.info.status}</p>
+                    <div className="text-sm mt-1">
                       {webhook.isEnabled ? (
                         <Badge className="bg-green-500">{t.weldconnect.webhooks.statuses.active}</Badge>
                       ) : (
                         <Badge variant="secondary">{t.weldconnect.webhooks.statuses.disabled}</Badge>
                       )}
-                    </p>
+                    </div>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground">{t.weldconnect.webhookDetail.info.createdAt}</label>
+                    <p className="text-sm font-medium text-muted-foreground">{wd.info.createdAt}</p>
                     <p className="text-sm mt-1">{formatDate(webhook.createdAt)}</p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground">{t.weldconnect.webhookDetail.info.updatedAt}</label>
+                    <p className="text-sm font-medium text-muted-foreground">{wd.info.updatedAt}</p>
                     <p className="text-sm mt-1">{formatDate(webhook.updatedAt)}</p>
                   </div>
-                  {webhook.workflowId && (
+                  {webhook.workflowName && (
                     <div className="col-span-2">
-                      <label className="text-sm font-medium text-muted-foreground">{t.weldconnect.webhookDetail.info.connectedWorkflow}</label>
+                      <p className="text-sm font-medium text-muted-foreground">{wd.info.connectedWorkflow}</p>
                       <p className="text-sm mt-1">
-                        <Link href={`/weldconnect/workflows/${webhook.workflowId}`} className="text-primary hover:underline">
+                        <Link href={editorHref} className="text-primary hover:underline">
                           {webhook.workflowName}
                         </Link>
                       </p>
