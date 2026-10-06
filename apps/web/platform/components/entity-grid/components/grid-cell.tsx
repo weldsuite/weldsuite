@@ -619,7 +619,7 @@ export function GridCell<TEntity>({
     if (isLocalOnly) {
       updateCustomFieldValue(entityId, column.id, newValue);
     } else {
-      updateEntityField(entityId, column.id, newValue);
+      void updateEntityField(entityId, column.id, newValue);
     }
   };
 
@@ -627,7 +627,7 @@ export function GridCell<TEntity>({
     if (isLocalOnly) {
       updateCustomFieldValue(entityId, column.id, newValue);
     } else {
-      updateEntityField(entityId, column.id, newValue?.toISOString() || null);
+      void updateEntityField(entityId, column.id, newValue?.toISOString() || null);
     }
   };
 

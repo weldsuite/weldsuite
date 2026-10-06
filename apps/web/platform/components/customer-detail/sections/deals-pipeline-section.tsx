@@ -181,7 +181,7 @@ export function DealsPipelineSection({ customer, opportunities }: Readonly<Deals
         setLoading(false);
       }
     }
-    fetchData();
+    void fetchData();
     // `ctx` (from useCustomerDetailContextSafe) is a fresh object every render —
     // depending on it would re-run this fetch (and its ctx.setCountOverride call)
     // in a render loop. Read the latest value via closure instead.

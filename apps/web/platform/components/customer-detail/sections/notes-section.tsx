@@ -258,7 +258,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
       setNotes([newNote, ...notes]);
       setSelectedNote(newNote);
       setShowEditor(true);
-      silentRefresh();
+      void silentRefresh();
     } catch (error) {
       console.error('Failed to create note:', error);
       toast.error(t('sweep.weldcrm.notesView.failedToCreateNote'));
@@ -272,7 +272,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
       setShowEditor(false);
       setSelectedNote(null);
       toast.success(t('sweep.weldcrm.notesView.noteDeleted'));
-      silentRefresh();
+      void silentRefresh();
     } catch {
       toast.error(t('sweep.weldcrm.notesView.failedToDeleteNote'));
     }
@@ -330,13 +330,13 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
                 <Pencil className="mr-0.5 h-4 w-4" />
                 {t('sweep.weldcrm.notesView.edit')}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleToggleFavorite(note.id); }}>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); void handleToggleFavorite(note.id); }}>
                 <Star className={cn("mr-0.5 h-4 w-4", note.isPinned && "fill-yellow-400 text-yellow-400")} />
                 {note.isPinned ? t('sweep.weldcrm.notesView.unfavorite') : t('sweep.weldcrm.notesView.favorite')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={(e) => { e.stopPropagation(); handleDelete(note.id); }}
+                onClick={(e) => { e.stopPropagation(); void handleDelete(note.id); }}
                 className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
               >
                 <Trash2 className="mr-0.5 h-4 w-4 text-red-500" />
@@ -522,7 +522,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
           }}
           onDelete={() => {
             if (selectedNote) {
-              handleDelete(selectedNote.id);
+              void handleDelete(selectedNote.id);
             }
           }}
         />

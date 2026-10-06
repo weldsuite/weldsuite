@@ -78,7 +78,7 @@ export function CustomFieldsSidebarSection({
   useEffect(() => {
     let mounted = true;
     setIsLoading(true);
-    (async () => {
+    void (async () => {
       try {
         const client = await getClient();
         const query = entityType ? `?entityType=${encodeURIComponent(entityType)}` : '';

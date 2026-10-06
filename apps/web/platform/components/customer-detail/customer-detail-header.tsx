@@ -225,7 +225,7 @@ export function CustomerDetailHeader({
           await updateCompanyMutation.mutateAsync({ id: customerId, data: { avatarUrl: file.url } });
         }
         toast.success(t('sweep.weldcrm.contactDetailView.avatarUpdated'));
-        silentRefresh();
+        void silentRefresh();
       } catch {
         toast.error(t('sweep.weldcrm.contactDetailView.failedToSaveAvatar'));
       }
@@ -242,7 +242,7 @@ export function CustomerDetailHeader({
   const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      uploadFile(file);
+      void uploadFile(file);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -381,7 +381,7 @@ export function CustomerDetailHeader({
         customerName: customerName || undefined,
       });
       setShowFloatingNoteEditor(true);
-      silentRefresh();
+      void silentRefresh();
     } catch {
       toast.error(t('sweep.weldcrm.customerDetailHeader.failedToCreateNote'));
     }
