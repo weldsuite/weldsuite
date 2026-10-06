@@ -92,12 +92,12 @@ export default function LeadsScreen() {
   };
 
   const handleSearch = () => {
-    loadLeads();
+    void loadLeads();
   };
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadLeads();
+    void loadLeads();
   };
 
   const getScoreColor = (score?: number): string => {
