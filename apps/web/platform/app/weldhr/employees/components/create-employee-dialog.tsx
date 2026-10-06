@@ -66,6 +66,10 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 type CreateMode = 'blank' | 'fromMember';
 
+function memberEmail(member: { email?: string | null } | object): string | null {
+  return 'email' in member && typeof member.email === 'string' ? member.email : null;
+}
+
 function splitName(name: string | null | undefined): { firstName: string; lastName: string } {
   const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { firstName: '', lastName: '' };
@@ -144,7 +148,7 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
     const names = splitName(member.name);
     form.setValue('firstName', names.firstName);
     form.setValue('lastName', names.lastName);
-    form.setValue('email', member.email ?? '');
+    form.setValue('email', memberEmail(member) ?? '');
     if ('phone' in member && typeof member.phone === 'string') {
       form.setValue('phone', member.phone);
     }
@@ -268,8 +272,8 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
                     <SelectItem value="__none">{t('weldhr.employees.create.teamMemberPlaceholder')}</SelectItem>
                     {availableMembers.map((member) => (
                       <SelectItem key={member.userId} value={member.userId}>
-                        {member.name || member.email || member.userId}
-                        {member.email ? ` · ${member.email}` : ''}
+                        {member.name || memberEmail(member) || member.userId}
+                        {memberEmail(member) ? ` · ${memberEmail(member)}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>

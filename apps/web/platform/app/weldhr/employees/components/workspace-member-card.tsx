@@ -36,6 +36,10 @@ type Props = Readonly<{
   employee: HrEmployeeDetail;
 }>;
 
+function memberEmail(member: { email?: string | null } | object): string | null {
+  return 'email' in member && typeof member.email === 'string' ? member.email : null;
+}
+
 function pickDefaultRoleId(roles: Array<{ id: string; name: string }> | undefined): string {
   if (!roles?.length) return '';
   const member = roles.find((r) => r.name.toUpperCase() === 'MEMBER');
@@ -91,7 +95,7 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
 
   const emailMatch = useMemo(() => {
     const email = employee.email.trim().toLowerCase();
-    return linkableMembers.find((m) => (m.email ?? '').toLowerCase() === email) ?? null;
+    return linkableMembers.find((m) => (memberEmail(m) ?? '').toLowerCase() === email) ?? null;
   }, [linkableMembers, employee.email]);
 
   function openInvite() {
@@ -149,11 +153,11 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
       <div className="space-y-2">
         <p className="text-sm">
           {t('weldhr.employees.workspace.linkedAs', {
-            name: linkedMember?.name || linkedMember?.email || employee.userId,
+            name: linkedMember?.name || (linkedMember ? memberEmail(linkedMember) : null) || employee.userId,
           })}
         </p>
-        {linkedMember?.email && (
-          <p className="text-xs text-muted-foreground">{linkedMember.email}</p>
+        {linkedMember && memberEmail(linkedMember) && (
+          <p className="text-xs text-muted-foreground">{memberEmail(linkedMember)}</p>
         )}
       </div>
     );
@@ -164,7 +168,7 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
         {emailMatch && (
           <p className="text-xs text-muted-foreground">
             {t('weldhr.employees.workspace.emailMatchHint', {
-              name: emailMatch.name || emailMatch.email || emailMatch.userId,
+              name: emailMatch.name || memberEmail(emailMatch) || emailMatch.userId,
             })}
           </p>
         )}
@@ -254,8 +258,8 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
                     <SelectItem value="__none">{t('weldhr.employees.create.teamMemberPlaceholder')}</SelectItem>
                     {linkableMembers.map((member) => (
                       <SelectItem key={member.userId} value={member.userId}>
-                        {member.name || member.email || member.userId}
-                        {member.email ? ` · ${member.email}` : ''}
+                        {member.name || memberEmail(member) || member.userId}
+                        {memberEmail(member) ? ` · ${memberEmail(member)}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
