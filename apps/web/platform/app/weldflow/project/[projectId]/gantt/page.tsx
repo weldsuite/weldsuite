@@ -629,7 +629,7 @@ const GanttPage = () => {
       }
 
       if (milestonesResult.success && milestonesResult.data) {
-        const mappedMarkers = milestonesResult.data.map(mapMilestoneToMarker);
+        const mappedMarkers = milestonesResult.data.map((milestone) => mapMilestoneToMarker(milestone));
         setMarkers(mappedMarkers);
       } else {
         console.error('Failed to load milestones:', milestonesResult.error);
@@ -1392,7 +1392,7 @@ const GanttPage = () => {
                         void handleChangeMarkerDate(selectedMarker.id, date);
                       }
                     }}
-                    initialFocus
+                    autoFocus
                   />
                   <Separator />
                   <div className="px-3 py-2 flex items-center justify-center gap-1.5">
