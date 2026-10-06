@@ -61,6 +61,7 @@ import {
   canWriteTaskProject,
 } from '../../lib/project-access';
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
+import { createTask } from '@weldsuite/flow-domain/tasks';
 
 // ============================================================================
 // Constants
@@ -471,85 +472,17 @@ const PROJECT_MEMBER_DENIED = 'You are not a member of this project';
 const TASK_PROJECT_WRITE_DENIED = "You do not have write access to this task's project";
 const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
 
+/**
+ * Thin wrapper kept for call-site continuity: the insert logic itself lives
+ * in `@weldsuite/flow-domain/tasks` (`createTask`), shared with connect-api's
+ * WeldConnect `create_task` action.
+ */
 async function insertTask(
   db: Variables['tenantDb'],
   data: Record<string, any>,
   opts: { projectId?: string | null; userId: string },
 ) {
-  const projectId = opts.projectId ?? data.projectId ?? null;
-  const id = generateId('task');
-  const now = new Date();
-  const number = await allocateTaskNumber(db);
-
-  let resolvedStatus: string = data.status ?? 'todo';
-  if (data.stageId) {
-    const [stage] = await db
-      .select({ systemStatus: schema.projectPipelineStages.systemStatus })
-      .from(schema.projectPipelineStages)
-      .where(eq(schema.projectPipelineStages.id, data.stageId))
-      .limit(1);
-    if (stage?.systemStatus) resolvedStatus = stage.systemStatus;
-  }
-
-  const positionWhere = projectId
-    ? and(eq(t.projectId, projectId), isNull(t.deletedAt))
-    : isNull(t.deletedAt);
-  const positionResult = await db
-    .select({ maxPosition: sql<number>`coalesce(max(${t.position}), 0)::int` })
-    .from(t)
-    .where(positionWhere);
-  const nextPosition = (positionResult[0]?.maxPosition || 0) + 1;
-
-  const assigneeIds: string[] =
-    Array.isArray(data.assigneeIds) && data.assigneeIds.length > 0
-      ? data.assigneeIds
-      : data.assigneeId
-        ? [data.assigneeId]
-        : [];
-  const primaryAssigneeId = assigneeIds[0] ?? null;
-
-  await db.insert(t).values({
-    id,
-    number,
-    projectId,
-    title: data.title,
-    description: data.description,
-    status: resolvedStatus,
-    stageId: data.stageId,
-    priority: data.priority ?? 'medium',
-    type: data.type ?? 'task',
-    assigneeId: primaryAssigneeId,
-    assigneeIds: assigneeIds.length > 0 ? assigneeIds : null,
-    reporterId: data.reporterId || opts.userId,
-    sprintId: data.sprintId,
-    milestoneId: data.milestoneId,
-    parentTaskId: data.parentTaskId,
-    startDate: data.startDate ? new Date(data.startDate) : undefined,
-    dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
-    estimatedHours: data.estimatedHours,
-    duration: data.duration,
-    storyPoints: data.storyPoints,
-    tags: data.tags,
-    labels: data.labels,
-    isBillable: data.isBillable ?? true,
-    customerId: data.customerId ?? null,
-    contactId: data.contactId ?? null,
-    personId: data.personId ?? null,
-    customFields: data.customFields,
-    dependsOn: data.dependsOn,
-    blocks: data.blocks,
-    repeat: data.repeat ?? null,
-    position: nextPosition,
-    progress: '0',
-    createdAt: now,
-    updatedAt: now,
-  } as unknown as typeof t.$inferInsert);
-
-  // Phase 1 dual-write: mirror the customFields blob into the typed values table.
-  await syncValuesForEntity(db, 'task', id, data.customFields);
-
-  const [created] = await db.select().from(t).where(eq(t.id, id)).limit(1);
-  return { row: created ?? { id }, assigneeIds };
+  return createTask(db, data, opts);
 }
 
 // ============================================================================

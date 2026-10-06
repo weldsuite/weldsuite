@@ -27,6 +27,8 @@
     "@weldsuite/crm-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/flow-domain": "workspace:*",
+    "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",

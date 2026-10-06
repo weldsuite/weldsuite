@@ -371,6 +371,7 @@ function WorkflowCanvasInner({
     ...labelsProp,
     triggerLabels: { ...DEFAULT_CANVAS_LABELS.triggerLabels, ...(labelsProp?.triggerLabels || {}) },
     actionLabels: { ...DEFAULT_CANVAS_LABELS.actionLabels, ...(labelsProp?.actionLabels || {}) },
+    branchLabels: { ...DEFAULT_CANVAS_LABELS.branchLabels, ...(labelsProp?.branchLabels || {}) },
   }), [labelsProp]);
 
   const flowLabels = useMemo(() => ({
@@ -379,7 +380,8 @@ function WorkflowCanvasInner({
     actionLabels: labels.actionLabels,
     setupRequired: labels.setupRequired,
     addStep: labels.addStep,
-  }), [labels.selectTrigger, labels.triggerLabels, labels.actionLabels, labels.setupRequired, labels.addStep]);
+    branchLabels: labels.branchLabels,
+  }), [labels.selectTrigger, labels.triggerLabels, labels.actionLabels, labels.setupRequired, labels.addStep, labels.branchLabels]);
 
   const { zoomIn, zoomOut, getNodes, setCenter, getViewport } = useReactFlow();
   const prevStepNodeIdsRef = useRef<Set<string>>(new Set());

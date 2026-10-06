@@ -17,6 +17,8 @@ import {
   handleTransform,
 } from './data';
 import { handleCreateCustomer } from './customer';
+import { handleCreateContact, handleUpdateContact } from './crm';
+import { handleCreateTask } from './task';
 import { handleHttpRequest, handleWebhook } from './http';
 import { handleSetVariable, handleLog, handleCondition, handleLoop, handleDelay } from './control';
 import { handleAiGenerate, handleAiClassify } from './ai';
@@ -60,6 +62,10 @@ export const actionHandlers: Record<string, ActionHandler> = {
   transform: handleTransform,
   // CRM
   create_customer: handleCreateCustomer,
+  create_contact: handleCreateContact,
+  update_contact: handleUpdateContact,
+  // WeldFlow
+  create_task: handleCreateTask,
   // Integration / HTTP
   http_request: handleHttpRequest,
   webhook: handleWebhook,

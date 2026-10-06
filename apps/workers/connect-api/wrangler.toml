@@ -62,7 +62,13 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
 "next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
 "next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
-"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+# No "react" alias here (unlike most other API workers): the create_task
+# workflow action sends a task-assignment notification through
+# @weldsuite/notifications, which renders with the real react package, not
+# the empty bundle-size shim. There is no SEND_EMAIL binding below, so the
+# email channel's transport resolves to undefined and no-ops at runtime
+# (@weldsuite/emails/transports/binding) — only in-app delivery (REALTIME)
+# actually fires; the real react dependency is still needed to bundle it.
 
 [observability]
 enabled = true

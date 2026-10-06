@@ -131,7 +131,7 @@ describe('/api/workflows · pglite integration', () => {
       const addStep = await request(`/api/workflows/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ steps: [...validFlow.steps, { id: 'step-2', type: 'delay', config: { minutes: 5 } }] }),
+        body: JSON.stringify({ steps: [...validFlow.steps, { id: 'step-2', type: 'run_script', config: { code: '1' } }] }),
       });
       expect(addStep.status).toBe(400);
 

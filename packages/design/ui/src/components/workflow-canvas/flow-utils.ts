@@ -1,5 +1,5 @@
 import type { Node, Edge } from '@xyflow/react';
-import type { WorkflowStep, TriggerConfig } from './types';
+import type { WorkflowStep, TriggerConfig, BranchLabels } from './types';
 import { isStepConfigured } from './validation';
 
 // Node types used in the flow editor
@@ -146,9 +146,25 @@ const START_Y = 50;
 
 // --- Multi-branch helpers ---
 
-// Get all branch node IDs for a condition step.
-// If the step has config.branches, returns branch_<value> IDs; otherwise legacy _if/_if_not.
-export function getConditionBranchIds(step: { id: string; config?: ConditionStepConfig }): string[] {
+/**
+ * Steps drawn with branch nodes under them: a `condition` (if/else or value
+ * branches) and a `loop` (one "for each item" branch holding the body).
+ * Keep in sync with apps/workers/workflow-worker/src/engine/step-tree.ts.
+ */
+export function isBranchingStepType(stepType: string | undefined): boolean {
+  return stepType === 'condition' || stepType === 'loop';
+}
+
+/** Branch node id of a loop's body. */
+export function getLoopBodyBranchId(loopStepId: string): string {
+  return `${loopStepId}_each`;
+}
+
+// Get all branch node IDs for a branching step.
+// A loop has one body branch (<id>_each). A condition with config.branches
+// returns branch_<value> IDs; otherwise legacy _if/_if_not.
+export function getConditionBranchIds(step: { id: string; type?: string; config?: ConditionStepConfig }): string[] {
+  if (step.type === 'loop') return [getLoopBodyBranchId(step.id)];
   const branches = step.config?.branches;
   if (branches && Array.isArray(branches)) {
     return branches.map((b) => `${step.id}_branch_${b.value}`);
@@ -204,11 +220,11 @@ function getSubtreeNodes(branchNodeId: string, allNodes: Node[]): Node[] {
 
   for (const child of directChildren) {
     result.push(child);
-    // If child is a condition, also include its branch nodes and their subtrees
+    // If child is a condition or a loop, also include its branch nodes and their subtrees
     const data = child.data as FlowNodeData;
     const stepType = data?.actionType || data?.step?.type || '';
-    if (stepType === 'condition') {
-      const branchIds = getConditionBranchIds({ id: child.id, config: data?.step?.config });
+    if (isBranchingStepType(stepType)) {
+      const branchIds = getConditionBranchIds({ id: child.id, type: stepType, config: data?.step?.config });
       for (const bid of branchIds) {
         result.push(...getSubtreeNodes(bid, allNodes));
       }
@@ -249,7 +265,11 @@ function getConditionDepth(conditionNodeId: string, allNodes: Node[]): number {
     depth++;
     // Find the condition node that owns this branch
     // Branch IDs are like "conditionId_if", "conditionId_if_not", or "conditionId_branch_<value>"
-    const parentConditionId = parentBranchId.replace(/_branch_[^_]+$/, '').replace(/_if_not$/, '').replace(/_if$/, '');
+    const parentConditionId = parentBranchId
+      .replace(/_branch_[^_]+$/, '')
+      .replace(/_if_not$/, '')
+      .replace(/_if$/, '')
+      .replace(/_each$/, '');
     const parentCondition = allNodes.find((n) => n.id === parentConditionId);
     if (!parentCondition) break;
     const parentData = parentCondition.data as FlowNodeData;
@@ -287,10 +307,10 @@ function getContainingSubtree(nodeId: string, allNodes: Node[]): Node[] {
     return getSubtreeNodes(parentBranchId, allNodes);
   }
 
-  // If this is a condition node in main flow, return it + all branches
+  // If this is a condition or loop node in main flow, return it + all branches
   const stepType = data?.actionType || data?.step?.type || '';
-  if (stepType === 'condition') {
-    const branchIds = getConditionBranchIds({ id: node.id, config: data?.step?.config });
+  if (isBranchingStepType(stepType)) {
+    const branchIds = getConditionBranchIds({ id: node.id, type: stepType, config: data?.step?.config });
     const allBranchNodes = branchIds.flatMap((bid) => getSubtreeNodes(bid, allNodes));
     return [node, ...allBranchNodes];
   }
@@ -323,7 +343,7 @@ function getConditionNodesDeepestFirst(nodes: Node[]): Node[] {
   const conditionNodes = nodes.filter((n) => {
     const data = n.data as FlowNodeData;
     const stepType = data?.actionType || data?.step?.type || '';
-    return stepType === 'condition' || n.type === 'condition';
+    return isBranchingStepType(stepType) || n.type === 'condition';
   });
   conditionNodes.sort((a, b) => getConditionDepth(b.id, nodes) - getConditionDepth(a.id, nodes));
   return conditionNodes;
@@ -473,7 +493,7 @@ function resolveCollisions(nodes: Node[]): void {
 // Get node height based on step type (single card only)
 export function getNodeHeight(stepType: string): number {
   if (stepType === 'send_email') return SEND_EMAIL_NODE_HEIGHT;
-  if (stepType === 'condition') return CONDITION_NODE_HEIGHT;
+  if (isBranchingStepType(stepType)) return CONDITION_NODE_HEIGHT;
   return NODE_HEIGHT;
 }
 
@@ -491,7 +511,7 @@ function getBranchChildrenHeight(branchChildrenMap: Map<string, BranchChild[]>, 
 
 // Height of the tallest branch-children stack under a condition step
 function getTallestBranchChildrenHeight(branchChildrenMap: Map<string, BranchChild[]>, stepId: string): number {
-  const branchIds = [`${stepId}_if`, `${stepId}_if_not`];
+  const branchIds = [`${stepId}_if`, `${stepId}_if_not`, getLoopBodyBranchId(stepId)];
   // Also check multi-branch IDs
   for (const [key] of branchChildrenMap) {
     if (key.startsWith(`${stepId}_branch_`)) {
@@ -510,7 +530,7 @@ function getTallestBranchChildrenHeight(branchChildrenMap: Map<string, BranchChi
 // subAgentCount: optional number of sub-agents for ai_agent steps
 // branchChildrenMap: optional map of branch children for accurate condition height calculation
 export function getTotalNodeHeight(stepType: string, subAgentCount?: number, branchChildrenMap?: Map<string, BranchChild[]>, stepId?: string): number {
-  if (stepType === 'condition') {
+  if (isBranchingStepType(stepType)) {
     // Condition card + gap + branch nodes + tallest branch children stack
     const branchChildrenExtra = branchChildrenMap && stepId
       ? getTallestBranchChildrenHeight(branchChildrenMap, stepId)
@@ -563,6 +583,9 @@ function getActionLabel(actionType: string): string {
     transform_data: 'Transform Data',
     create_record: 'Create Record',
     create_customer: 'Create Customer',
+    create_contact: 'Create Contact',
+    update_contact: 'Update Contact',
+    create_task: 'Create Task',
     update_record: 'Update Record',
     delete_record: 'Delete Record',
     query_data: 'Query Data',
@@ -600,6 +623,7 @@ type WorkflowFlowOptions = {
     actionLabels?: Record<string, string>;
     setupRequired?: string;
     addStep?: string;
+    branchLabels?: BranchLabels;
   };
 };
 
@@ -822,6 +846,7 @@ function buildLegacyBranchNodes(
   position: FlowPosition,
   branchChildrenMap: Map<string, WorkflowStep[]>,
   callbacks?: WorkflowFlowCallbacks,
+  branchLabels?: BranchLabels,
 ): Node<ConditionBranchNodeData>[] {
   const ifBranchNodeId = `${step.id}_if`;
   const ifNotBranchNodeId = `${step.id}_if_not`;
@@ -837,8 +862,8 @@ function buildLegacyBranchNodes(
     buildConditionBranchNode({
       id: ifBranchNodeId,
       branchType: 'if',
-      label: 'If true',
-      conditionLabel: (step.config as ConditionStepConfig).expression || 'Condition met',
+      label: branchLabels?.ifTrue ?? 'If true',
+      conditionLabel: (step.config as ConditionStepConfig).expression || (branchLabels?.conditionMet ?? 'Condition met'),
       step,
       stepIndex,
       x: ifBranchX,
@@ -849,8 +874,8 @@ function buildLegacyBranchNodes(
     buildConditionBranchNode({
       id: ifNotBranchNodeId,
       branchType: 'if_not',
-      label: 'If false',
-      conditionLabel: 'Condition not met',
+      label: branchLabels?.ifFalse ?? 'If false',
+      conditionLabel: branchLabels?.conditionNotMet ?? 'Condition not met',
       step,
       stepIndex,
       x: ifNotBranchX,
@@ -861,7 +886,32 @@ function buildLegacyBranchNodes(
   ];
 }
 
-// The condition card plus its branch nodes (multi-branch or legacy binary)
+// A loop's single "for each item" branch, centered under the loop card
+function buildLoopBodyNode(
+  step: WorkflowStep,
+  stepIndex: number,
+  position: FlowPosition,
+  branchChildrenMap: Map<string, WorkflowStep[]>,
+  callbacks?: WorkflowFlowCallbacks,
+  branchLabels?: BranchLabels,
+): Node<ConditionBranchNodeData> {
+  const branchNodeId = getLoopBodyBranchId(step.id);
+  const items = (step.config as { items?: unknown } | undefined)?.items;
+  return buildConditionBranchNode({
+    id: branchNodeId,
+    branchType: 'each',
+    label: branchLabels?.forEachItem ?? 'For each item',
+    conditionLabel: typeof items === 'string' ? items : '',
+    step,
+    stepIndex,
+    x: position.x,
+    y: position.y + NODE_GAP_Y + CONDITION_NODE_HEIGHT,
+    hasChildren: branchChildrenMap.has(branchNodeId),
+    callbacks,
+  });
+}
+
+// The condition (or loop) card plus its branch nodes (loop body, multi-branch or legacy binary)
 function buildConditionFlowNodes(
   step: WorkflowStep,
   stepIndex: number,
@@ -877,7 +927,7 @@ function buildConditionFlowNodes(
     data: {
       step,
       stepIndex,
-      label: step.name || 'Condition',
+      label: step.name || (options?.labels?.actionLabels?.[step.type] ?? (step.type === 'loop' ? 'Loop' : 'Condition')),
       condition: (step.config as ConditionStepConfig).expression,
       thenStepId: (step.config as ConditionStepConfig).thenAction,
       elseStepId: (step.config as ConditionStepConfig).elseAction,
@@ -885,6 +935,7 @@ function buildConditionFlowNodes(
       setupRequiredLabel: options?.labels?.setupRequired,
       addStepLabel: options?.labels?.addStep,
       isLastNode: false, // Condition node is never the "last" node visually
+      labels: { label: options?.labels?.actionLabels?.[step.type] },
       nodeId: step.id,
       onSelect: () => callbacks?.onSelectStep?.(stepIndex),
       onDelete: () => callbacks?.onDeleteStep?.(stepIndex),
@@ -894,9 +945,15 @@ function buildConditionFlowNodes(
   };
 
   const configBranches = (step.config as ConditionStepConfig)?.branches;
-  const branchNodes = Array.isArray(configBranches)
-    ? buildMultiBranchNodes(step, stepIndex, position, configBranches, branchChildrenMap, callbacks)
-    : buildLegacyBranchNodes(step, stepIndex, position, branchChildrenMap, callbacks);
+  const branchLabels = options?.labels?.branchLabels;
+  let branchNodes: Node<ConditionBranchNodeData>[];
+  if (step.type === 'loop') {
+    branchNodes = [buildLoopBodyNode(step, stepIndex, position, branchChildrenMap, callbacks, branchLabels)];
+  } else if (Array.isArray(configBranches)) {
+    branchNodes = buildMultiBranchNodes(step, stepIndex, position, configBranches, branchChildrenMap, callbacks);
+  } else {
+    branchNodes = buildLegacyBranchNodes(step, stepIndex, position, branchChildrenMap, callbacks, branchLabels);
+  }
 
   const addStepLabel = options?.labels?.addStep;
   return [conditionNode, ...branchNodes.map((node) => ({ ...node, data: { ...node.data, addStepLabel } }))];
@@ -1021,7 +1078,7 @@ function buildMainFlowEdges(steps: WorkflowStep[], branchChildrenMap: Map<string
     const currentStep = mainFlowSteps[i]!;
     const nextStep = mainFlowSteps[i + 1]!;
 
-    if (currentStep.type !== 'condition') {
+    if (!isBranchingStepType(currentStep.type)) {
       edges.push(smoothstepEdge(`${currentStep.id}-${nextStep.id}`, currentStep.id, nextStep.id));
       continue;
     }
@@ -1044,9 +1101,9 @@ function buildFlowEdges(steps: WorkflowStep[], branchChildrenMap: Map<string, Wo
     edges.push(smoothstepEdge(`trigger-${firstMainStep.id}`, 'trigger', firstMainStep.id));
   }
 
-  // Connect condition nodes to their branch nodes
+  // Connect condition and loop nodes to their branch nodes
   for (const step of steps) {
-    if (step.type !== 'condition') continue;
+    if (!isBranchingStepType(step.type)) continue;
     for (const branchId of getConditionBranchIds(step)) {
       edges.push(smoothstepEdge(`${step.id}-${branchId}-branch`, step.id, branchId));
     }
@@ -1087,7 +1144,7 @@ export function workflowToFlow(
   steps.forEach((step, index) => {
     const position = resolveStepPosition(step, index, nodes, mainStepPositions, cumulativeY);
 
-    if (step.type === 'condition') {
+    if (isBranchingStepType(step.type)) {
       nodes.push(...buildConditionFlowNodes(step, index, position, branchChildrenMap, callbacks, options));
       return;
     }
@@ -1270,6 +1327,7 @@ export function getActionIcon(actionType: string): string {
     delete_record: 'Trash',
     query_data: 'Search',
     send_notification: 'Bell',
+    create_task: 'ClipboardList',
     run_script: 'Code',
     ai_generate: 'Sparkles',
     ai_classify: 'Tags',
@@ -1291,6 +1349,9 @@ export function getActionColor(actionType: string): string {
     send_notification: 'bg-indigo-500',
     create_record: 'bg-green-500',
     create_customer: 'bg-emerald-500',
+    create_contact: 'bg-emerald-500',
+    update_contact: 'bg-emerald-500',
+    create_task: 'bg-emerald-500',
     update_record: 'bg-emerald-500',
     delete_record: 'bg-red-500',
     query_data: 'bg-teal-500',

@@ -23,13 +23,24 @@
  * platform-consumed route.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
-import { createCustomerFromWorkflow } from '../../services/workflow-actions';
+import { InvalidMemberIdError } from '@weldsuite/crm-domain/people';
+import { resolveProjectAccess } from '@weldsuite/flow-domain/project-access';
+import { taskAnalyticsPayload } from '@weldsuite/flow-domain/analytics-payload';
+import {
+  createContactFromWorkflow,
+  createCustomerFromWorkflow,
+  createTaskFromWorkflow,
+  personEventData,
+  sendTaskAssignmentNotificationsForWorkflow,
+  updateContactFromWorkflow,
+} from '../../services/workflow-actions';
+import { authorizeWorkflowOwner, ownerHolds, WorkflowOwnerForbiddenError } from '../../services/workflow-owner';
 
 export const internalWorkflowActionsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -81,6 +92,8 @@ const optionalTrimmed = (max: number) =>
 const createCustomerSchema = z.object({
   workspaceId: z.string().min(1),
   userId: z.string().min(1),
+  /** The workflow's owner; when sent, the action runs with (and is checked against) their permissions. */
+  ownerUserId: z.string().min(1).optional(),
   chainDepth: z.number().int().min(0).default(0),
   skipIfEmailExists: z.boolean().default(true),
   customer: z.object({
@@ -99,12 +112,19 @@ internalWorkflowActionsRoutes.post(
   '/create-customer',
   zValidator('json', createCustomerSchema),
   async (c) => {
-    const { workspaceId, userId, chainDepth, skipIfEmailExists, customer } = c.req.valid('json');
+    const { workspaceId, userId, ownerUserId, chainDepth, skipIfEmailExists, customer } = c.req.valid('json');
     try {
       const db = await getTenantDbForWorkspace(c.env, workspaceId);
+      if (ownerUserId) {
+        await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+          permission: 'companies:create',
+          app: 'weldcrm',
+          doing: 'create companies',
+        });
+      }
       const { created, company } = await createCustomerFromWorkflow(db, {
         ...customer,
-        userId,
+        userId: ownerUserId ?? userId,
         skipIfEmailExists,
       });
 
@@ -112,7 +132,7 @@ internalWorkflowActionsRoutes.post(
         await publishEntityEventRaw({
           env: c.env,
           workspaceId,
-          userId,
+          userId: ownerUserId ?? userId,
           entityType: 'company',
           action: 'created',
           entityId: company.id,
@@ -135,8 +155,199 @@ internalWorkflowActionsRoutes.post(
         customer: { id: company.id, name: company.name, email: company.email, status: company.status },
       });
     } catch (err) {
-      console.error('[Internal] Workflow create-customer failed:', err);
-      return c.json({ success: false, error: err instanceof Error ? err.message : 'Unknown error' }, 500);
+      return actionFailure(c, 'create-customer', err);
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// WeldSuite record actions. Every body carries the workflow's actor: the run
+// acts as the workflow's owner, whose permissions are checked here at run
+// time (services/workflow-owner.ts). A refusal is a 403 the worker turns into
+// a step failure that is not retried.
+// ---------------------------------------------------------------------------
+
+const actorSchema = z.object({
+  workspaceId: z.string().min(1),
+  ownerUserId: z.string().min(1),
+  triggeredBy: z.string().min(1),
+  chainDepth: z.number().int().min(0).default(0),
+});
+
+const contactFieldsSchema = z.object({
+  firstName: optionalTrimmed(100),
+  lastName: optionalTrimmed(100),
+  email: optionalTrimmed(255).refine((v) => v === undefined || z.string().email().safeParse(v).success, {
+    message: 'Invalid email address',
+  }),
+  phone: optionalTrimmed(50),
+  title: optionalTrimmed(100),
+  companyId: optionalTrimmed(30),
+  status: optionalTrimmed(50),
+  notes: optionalTrimmed(10000),
+  tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+});
+
+/** Map a thrown error to the internal contract's response. */
+function actionFailure(c: Context<{ Bindings: Env; Variables: Variables }>, label: string, err: unknown) {
+  if (err instanceof WorkflowOwnerForbiddenError) {
+    return c.json({ success: false, error: err.message }, 403);
+  }
+  if (err instanceof InvalidMemberIdError) {
+    return c.json({ success: false, error: err.message }, 400);
+  }
+  console.error(`[Internal] Workflow ${label} failed:`, err);
+  return c.json({ success: false, error: err instanceof Error ? err.message : 'Unknown error' }, 500);
+}
+
+internalWorkflowActionsRoutes.post(
+  '/create-contact',
+  zValidator(
+    'json',
+    actorSchema.extend({ skipIfEmailExists: z.boolean().default(true), contact: contactFieldsSchema }),
+  ),
+  async (c) => {
+    const { workspaceId, ownerUserId, chainDepth, skipIfEmailExists, contact } = c.req.valid('json');
+    try {
+      const db = await getTenantDbForWorkspace(c.env, workspaceId);
+      await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+        permission: 'people:create',
+        app: 'weldcrm',
+        doing: 'create contacts',
+      });
+      const { created, person } = await createContactFromWorkflow(db, { ownerUserId, skipIfEmailExists, contact });
+      if (created) {
+        await publishEntityEventRaw({
+          env: c.env,
+          workspaceId,
+          userId: ownerUserId,
+          entityType: 'person',
+          action: 'created',
+          entityId: person.id,
+          data: personEventData(person),
+          workflowDepth: chainDepth,
+        });
+      }
+      return c.json({
+        success: true,
+        created,
+        contact: { id: person.id, displayName: person.displayName, email: person.email },
+      });
+    } catch (err) {
+      return actionFailure(c, 'create-contact', err);
+    }
+  },
+);
+
+internalWorkflowActionsRoutes.post(
+  '/update-contact',
+  zValidator('json', actorSchema.extend({ contactId: z.string().trim().min(1).max(30), contact: contactFieldsSchema })),
+  async (c) => {
+    const { workspaceId, ownerUserId, chainDepth, contactId, contact } = c.req.valid('json');
+    try {
+      const db = await getTenantDbForWorkspace(c.env, workspaceId);
+      const resolved = await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+        permission: 'people:update',
+        app: 'weldcrm',
+        doing: 'edit contacts',
+      });
+      const ownerScope = ownerHolds(resolved, 'people:scope:all', 'weldcrm') ? undefined : ownerUserId;
+      const result = await updateContactFromWorkflow(db, { contactId, ownerScope, contact });
+      if (!result) {
+        return c.json({ success: false, error: `Contact ${contactId} was not found (or the workflow's owner can't edit it)` }, 404);
+      }
+      await publishEntityEventRaw({
+        env: c.env,
+        workspaceId,
+        userId: ownerUserId,
+        entityType: 'person',
+        action: 'updated',
+        entityId: result.row.id,
+        data: personEventData(result.row),
+        changes: result.changes,
+        workflowDepth: chainDepth,
+      });
+      return c.json({
+        success: true,
+        contact: { id: result.row.id, displayName: result.row.displayName, email: result.row.email },
+      });
+    } catch (err) {
+      return actionFailure(c, 'update-contact', err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /create-task — WeldConnect `create_task` step
+// (apps/workers/workflow-worker/src/engine/actions/task.ts). Runs as the
+// workflow owner twice over: `tasks:create` (app `weldflow`) gates the
+// feature, and `resolveProjectAccess` (the same check flow-api's row-level
+// guard runs) gates the specific project. Creates the task through
+// `@weldsuite/flow-domain`'s task service, awaits assignment notifications,
+// and publishes `project_task:created` with the run's chain depth.
+// ---------------------------------------------------------------------------
+
+const createTaskSchema = actorSchema.extend({
+  projectId: z.string().trim().min(1).max(30),
+  task: z.object({
+    title: z.string().trim().min(1).max(500),
+    description: optionalTrimmed(10000),
+    priority: optionalTrimmed(20),
+    stageId: optionalTrimmed(30),
+    assigneeIds: z.array(z.string().trim().min(1).max(30)).max(50).optional(),
+    // ISO date-time string; the worker action resolves relative inputs
+    // ("in 3 days") to an absolute one before this reaches the route.
+    dueDate: optionalTrimmed(50),
+    labels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+    tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+  }),
+});
+
+internalWorkflowActionsRoutes.post('/create-task', zValidator('json', createTaskSchema), async (c) => {
+  const { workspaceId, ownerUserId, chainDepth, projectId, task } = c.req.valid('json');
+  try {
+    const db = await getTenantDbForWorkspace(c.env, workspaceId);
+    const resolved = await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+      permission: 'tasks:create',
+      app: 'weldflow',
+      doing: 'create tasks',
+    });
+    const scopeAll = ownerHolds(resolved, 'projects:scope:all', 'weldflow');
+    const access = await resolveProjectAccess(db, ownerUserId, { scopeAll }, projectId);
+    if (!access.canWrite) {
+      throw new WorkflowOwnerForbiddenError("The workflow's owner does not have write access to this project");
+    }
+
+    const { row, assigneeIds } = await createTaskFromWorkflow(db, { ownerUserId, projectId, task });
+
+    await publishEntityEventRaw({
+      env: c.env,
+      workspaceId,
+      userId: ownerUserId,
+      entityType: 'project_task',
+      action: 'created',
+      entityId: row.id,
+      data: taskAnalyticsPayload(row as unknown as Record<string, unknown>, { projectId }),
+      workflowDepth: chainDepth,
+    });
+
+    await sendTaskAssignmentNotificationsForWorkflow(db, c.env, {
+      assigneeIds,
+      workspaceId,
+      assignedByUserId: ownerUserId,
+      taskId: row.id,
+      taskTitle: row.title,
+      projectId,
+      taskPriority: row.priority ?? null,
+      dueDate: row.dueDate ?? null,
+      taskDescription: row.description ?? null,
+    });
+
+    return c.json({
+      success: true,
+      task: { id: row.id, number: row.number ?? null, projectId: row.projectId ?? projectId, title: row.title },
+    });
+  } catch (err) {
+    return actionFailure(c, 'create-task', err);
+  }
+});
