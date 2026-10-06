@@ -111,6 +111,25 @@ export function isOurOwnSync(metadata: Record<string, string> | null | undefined
 // Stripe API Helpers
 // ============================================================================
 
+const STRIPE_API_ORIGIN = 'https://api.stripe.com';
+
+/**
+ * Resolve a Stripe API path against the fixed Stripe origin. Ids interpolated
+ * into paths are already encoded by the callers; this makes sure no path can
+ * point the request (and the secret key in its Authorization header) at any
+ * other host.
+ */
+function stripeApiUrl(path: string): URL {
+  if (!path.startsWith('/v1/')) {
+    throw new Error(`Invalid Stripe API path: ${path}`);
+  }
+  const url = new URL(path, STRIPE_API_ORIGIN);
+  if (url.origin !== STRIPE_API_ORIGIN) {
+    throw new Error(`Invalid Stripe API path: ${path}`);
+  }
+  return url;
+}
+
 /**
  * Make an authenticated request to the Stripe API using raw fetch().
  */
@@ -134,7 +153,7 @@ export async function stripeApiRequest(
     options.body = new URLSearchParams(body).toString();
   }
 
-  const response = await fetch(`https://api.stripe.com${path}`, options);
+  const response = await fetch(stripeApiUrl(path), options);
 
   if (!response.ok) {
     const errorText = await response.text();
