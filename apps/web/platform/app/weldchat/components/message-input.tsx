@@ -857,8 +857,8 @@ export function MessageInput({
   };
 
   const hasContent = content.trim() || attachments.length > 0;
-  const canSend = hasContent && !isPending && !isUploading;
   const isUploading = uploadingCount > 0;
+  const canSend = hasContent && !isPending && !isUploading;
 
   let containerTopPadding = 'pt-[10px]';
   if (replyTo || attachments.length > 0 || isUploading) containerTopPadding = 'pt-[20px]';
