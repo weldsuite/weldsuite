@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ParticipantTile, ScreenShareTile } from './participant-tile';
 import { useIsMobile } from '../hooks/use-is-mobile';
+import { useSpeakerOutput } from '../hooks/use-speaker-output';
 import { CallControlsBar } from './call-controls-bar';
 import { MeetingHeader } from './meeting-header';
 import { MeetingRightPanel, type RightPanelKind } from './meeting-right-panel';
@@ -23,6 +24,7 @@ import type { MeetingPeer } from '../types';
  */
 function RemoteParticipantAudio({ participant }: { participant: MeetingPeer }) {
   const ref = useRef<HTMLAudioElement>(null);
+  useSpeakerOutput(ref);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;

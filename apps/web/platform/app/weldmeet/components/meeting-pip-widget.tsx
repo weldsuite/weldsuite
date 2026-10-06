@@ -12,7 +12,7 @@ import { useWorkspaceId } from '@/contexts/workspace-context';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
 import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
-import { ParticipantAvatar, getPersonTheme, getInitials, useBreakoutParticipants } from '@weldsuite/weldmeet-ui';
+import { ParticipantAvatar, getPersonTheme, getInitials, useSpeakerOutput, useBreakoutParticipants } from '@weldsuite/weldmeet-ui';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -774,6 +774,8 @@ export function MeetingPiPWidget() {
   const navigate = useNavigate();
   const pathname = usePathname();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  useSpeakerOutput(audioRef);
   const pipVideoRef = useRef<HTMLVideoElement | null>(null);
   const pipActiveRef = useRef(false);
   const hasAnimatedRef = useRef(false);

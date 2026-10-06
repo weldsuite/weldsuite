@@ -93,6 +93,13 @@ export {
   type VirtualBackgroundPreference,
 } from './hooks/use-virtual-background';
 export { useMicrophoneRecovery, type UseMicrophoneRecoveryOptions } from './hooks/use-microphone-recovery';
+export {
+  useSpeakerOutput,
+  useSpeakerDevices,
+  setSpeakerDeviceId,
+  refreshSpeakerDevices,
+  isSpeakerSelectionSupported,
+} from './hooks/use-speaker-output';
 
 // Microphone
 export {
