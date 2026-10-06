@@ -1268,7 +1268,9 @@ export const weldconnect = {
     quotas: {
       title: 'Quota',
       maxCreditsLabel: 'Maximaal aantal credits per uitvoering',
-      maxCreditsHint: 'De workflow stopt als deze limiet wordt bereikt',
+      maxCreditsHint: 'Laat leeg voor geen limiet. De uitvoering stopt bij een AI-stap die deze limiet zou overschrijden.',
+      noLimitPlaceholder: 'Geen limiet',
+      invalidValue: 'Voer een geheel getal tussen 1 en 100.000 in, of laat het leeg',
       creditsUnit: 'credits',
     },
     notifications: {

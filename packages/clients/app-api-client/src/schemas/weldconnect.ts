@@ -137,8 +137,9 @@ export const workflowSettingsSchema = z.object({
   notifyOnError: z.boolean().optional(),
   notifyEmails: z.array(z.string()).optional(),
   timezone: z.string().optional(),
-  // Per-run credit cap. Nothing in a WeldConnect run spends credits yet, so this is
-  // stored but not enforced; validated so nonsense (0, negatives, fractions) is never saved.
+  // Per-run credit cap, enforced by the engine before every ai_generate / ai_classify
+  // call (apps/workers/workflow-worker/src/engine/actions/ai.ts). Validated so nonsense
+  // (0, negatives, fractions) is never saved; null/absent means no cap.
   maxCreditsPerRun: z.number().int().min(1).max(100_000).nullish(),
 });
 

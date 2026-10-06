@@ -62,12 +62,14 @@ const checkCreditsMock = vi.fn();
 const consumeCreditsMock = vi.fn();
 const grantCreditsMock = vi.fn();
 const resolveInternalWorkspaceIdMock = vi.fn();
+const sumChargedCreditsMock = vi.fn();
 
 vi.mock('@weldsuite/credits', () => ({
   checkCredits: (...args: unknown[]) => checkCreditsMock(...args),
   consumeCredits: (...args: unknown[]) => consumeCreditsMock(...args),
   grantCredits: (...args: unknown[]) => grantCreditsMock(...args),
   resolveInternalWorkspaceId: (...args: unknown[]) => resolveInternalWorkspaceIdMock(...args),
+  sumChargedCredits: (...args: unknown[]) => sumChargedCreditsMock(...args),
 }));
 
 // Mock the master-db resolver (workflow-worker's own db.ts).
@@ -86,6 +88,7 @@ beforeEach(() => {
   resolveInternalWorkspaceIdMock.mockResolvedValue('ws_internal_1');
   checkCreditsMock.mockResolvedValue({ available: true, currentBalance: 100, required: 1, shortfall: 0 });
   consumeCreditsMock.mockResolvedValue({ ok: true, transactionId: 'ctx_1', newBalance: 99, duplicate: false });
+  sumChargedCreditsMock.mockResolvedValue(0);
   generateTextMock.mockResolvedValue({
     text: 'hello there',
     finishReason: 'stop',
@@ -155,6 +158,56 @@ describe('ai_generate', () => {
     expect(checkCreditsMock).not.toHaveBeenCalled();
     expect(consumeCreditsMock).not.toHaveBeenCalled();
   });
+
+  describe('maxCreditsPerRun cap', () => {
+    it('is not checked when the workflow has no cap', async () => {
+      const res = (await handleAiGenerate({ prompt: 'hi' }, ctxWithEnv())) as { creditsUsed: number };
+      expect(res.creditsUsed).toBeGreaterThan(0);
+      expect(sumChargedCreditsMock).not.toHaveBeenCalled();
+    });
+
+    it('fails the step (non-retryably) when the estimated cost would exceed the cap', async () => {
+      sumChargedCreditsMock.mockResolvedValue(0);
+      await expect(
+        handleAiGenerate({ prompt: 'hi' }, ctxWithEnv({ maxCreditsPerRun: 1 })),
+      ).rejects.toMatchObject({ name: 'NonRetryableStepError' });
+      await expect(
+        handleAiGenerate({ prompt: 'hi' }, ctxWithEnv({ maxCreditsPerRun: 1 })),
+      ).rejects.toThrow(/credit cap/i);
+      expect(generateTextMock).not.toHaveBeenCalled();
+    });
+
+    it('sums what this run already charged (replay-safe: re-summing the ledger never double-counts)', async () => {
+      // A prior step in the SAME run already used more than the cap on its own —
+      // deterministic regardless of this call's own estimate.
+      sumChargedCreditsMock.mockResolvedValue(200);
+      await expect(
+        handleAiGenerate({ prompt: 'hi' }, ctxWithEnv({ maxCreditsPerRun: 100 })),
+      ).rejects.toThrow(/credit cap/i);
+      expect(sumChargedCreditsMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ referenceId: 'wex_test', referenceType: 'workflow_step', serviceType: 'ai_tokens' }),
+      );
+    });
+
+    it('allows the call when already-used + estimated stays within the cap', async () => {
+      sumChargedCreditsMock.mockResolvedValue(0);
+      const res = (await handleAiGenerate(
+        { prompt: 'hi', maxTokens: 10 },
+        ctxWithEnv({ maxCreditsPerRun: 100_000 }),
+      )) as { creditsUsed: number };
+      expect(res.creditsUsed).toBeGreaterThan(0);
+    });
+
+    it('is not enforced when metering itself is unavailable (fail-open)', async () => {
+      const res = (await handleAiGenerate(
+        { prompt: 'hi' },
+        makeActionContext({ env: { CF_ACCOUNT_ID: 'acct_test' }, maxCreditsPerRun: 1 }),
+      )) as { creditsUsed: number };
+      expect(res.creditsUsed).toBe(0);
+      expect(sumChargedCreditsMock).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('ai_classify', () => {
@@ -192,5 +245,26 @@ describe('ai_classify', () => {
       handleAiClassify({ text: 'x', categories: ['a', 'b'] }, ctxWithEnv()),
     ).rejects.toThrow(AiInsufficientCreditsError);
     expect(generateObjectMock).not.toHaveBeenCalled();
+  });
+
+  describe('maxCreditsPerRun cap', () => {
+    it('fails the step (non-retryably) when prior steps in this run already used up the cap', async () => {
+      // Deterministic regardless of the exact estimate math: 5 already-charged
+      // credits alone exceed a cap of 1.
+      sumChargedCreditsMock.mockResolvedValue(5);
+      await expect(
+        handleAiClassify({ text: 'x', categories: ['a', 'b'] }, ctxWithEnv({ maxCreditsPerRun: 1 })),
+      ).rejects.toMatchObject({ name: 'NonRetryableStepError' });
+      expect(generateObjectMock).not.toHaveBeenCalled();
+    });
+
+    it('allows the call when there is no cap', async () => {
+      const res = (await handleAiClassify(
+        { text: 'my invoice is wrong', categories: ['billing', 'support'] },
+        ctxWithEnv(),
+      )) as { creditsUsed: number };
+      expect(res.creditsUsed).toBeGreaterThan(0);
+      expect(sumChargedCreditsMock).not.toHaveBeenCalled();
+    });
   });
 });
