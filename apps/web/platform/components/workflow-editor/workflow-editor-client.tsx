@@ -2902,9 +2902,9 @@ export function WorkflowEditorClient({
   // Re-fetch the workflow when the agent (or anything else) mutates it.
   const agentInvalidateQc = useQueryClient();
   const workflowsChangedListener = useCallback(() => {
-    agentInvalidateQc.invalidateQueries({ queryKey: automationKeys.workflow(initialWorkflow.id) });
-    agentInvalidateQc.invalidateQueries({ queryKey: automationKeys.workflows() });
-    agentInvalidateQc.invalidateQueries({ queryKey: workflowEditorKeys.workflow(initialWorkflow.id) });
+    void agentInvalidateQc.invalidateQueries({ queryKey: automationKeys.workflow(initialWorkflow.id) });
+    void agentInvalidateQc.invalidateQueries({ queryKey: automationKeys.workflows() });
+    void agentInvalidateQc.invalidateQueries({ queryKey: workflowEditorKeys.workflow(initialWorkflow.id) });
   }, [agentInvalidateQc, initialWorkflow.id]);
   useDataEvent('workflows:changed', workflowsChangedListener);
 

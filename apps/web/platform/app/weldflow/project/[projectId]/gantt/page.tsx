@@ -646,7 +646,7 @@ const GanttPage = () => {
   }, [projectId]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   // Fetch project members for assignee dropdown
@@ -711,7 +711,7 @@ const GanttPage = () => {
       toast.success(t.projects.gantt.taskDeleted);
     } else {
       toast.error(t.projects.gantt.taskDeleteFailed);
-      loadData(); // Reload to restore
+      void loadData(); // Reload to restore
     }
   };
 
@@ -728,7 +728,7 @@ const GanttPage = () => {
       toast.success(t.projects.gantt.milestoneDeleted);
     } else {
       toast.error(t.projects.gantt.milestoneDeleteFailed);
-      loadData(); // Reload to restore
+      void loadData(); // Reload to restore
     }
   };
 
@@ -790,7 +790,7 @@ const GanttPage = () => {
       toast.success(t.projects.gantt.milestoneDateUpdated);
     } else {
       toast.error(t.projects.gantt.milestoneDateUpdateFailed);
-      loadData();
+      void loadData();
     }
   };
 
@@ -828,7 +828,7 @@ const GanttPage = () => {
       toast.success(t.projects.gantt.taskDatesUpdated);
     } else {
       toast.error(t.projects.gantt.taskDateUpdateFailed);
-      loadData(); // Reload to get correct state
+      void loadData(); // Reload to get correct state
     }
   };
 
@@ -1549,7 +1549,7 @@ const GanttPage = () => {
           (async () => {
             const result = await tasksApi.update(projectId, taskId, updateData);
             if (result.success) {
-              loadData();
+              void loadData();
               setAddTaskDialogOpen(false);
               setEditingCrmTask(null);
               toast.success(t.projects.gantt.taskUpdated);
