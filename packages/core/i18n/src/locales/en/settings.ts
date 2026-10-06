@@ -74,6 +74,8 @@ export const settings = {
       configureMailDomains: 'Configure email domains',
       mailAccounts: 'Mail Accounts',
       manageMailAccounts: 'Manage email accounts',
+      weldhrSettings: 'WeldHR',
+      configureWeldhr: 'Departments, checklist templates, leave types, evaluation forms and KPIs',
     },
 
     companyInfo: {
@@ -1032,6 +1034,11 @@ export const settings = {
           errorGeneric: 'Failed to recover installation. Please try again.',
         },
       },
+    },
+
+    weldhr: {
+      title: 'WeldHR',
+      description: 'Departments, onboarding checklists, leave types, evaluation forms and KPI definitions.',
     },
 
     weldcrm: {

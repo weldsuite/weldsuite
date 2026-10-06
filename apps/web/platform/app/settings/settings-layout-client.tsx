@@ -62,8 +62,10 @@ function getContentWrapperClassName(pathname: string): string {
   }
   // Plans page - allow internal width control
   if (pathname === '/settings/plans') return PAGE_PADDING_CLASS;
-  // Activity log - slightly wider to fit the table without scroll
-  if (pathname === '/settings/activity') return `${PAGE_PADDING_CLASS} max-w-6xl mx-auto`;
+  // Activity log and WeldHR — slightly wider so the tables fit without scroll
+  if (pathname === '/settings/activity' || pathname === '/settings/apps/weldhr') {
+    return `${PAGE_PADDING_CLASS} max-w-6xl mx-auto`;
+  }
   // Regular settings pages - constrained width
   return `${PAGE_PADDING_CLASS} max-w-4xl mx-auto`;
 }
@@ -129,6 +131,9 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
       { id: 'weldmail', title: 'WeldMail', description: 'Configure mail app', href: '/settings/apps/weldmail', type: 'setting' },
       { id: 'mail-accounts', title: ts.search.mailAccounts, description: ts.search.manageMailAccounts, href: '/settings/apps/weldmail', type: 'setting' },
     ],
+    weldhr: [
+      { id: 'weldhr', title: ts.search.weldhrSettings, description: ts.search.configureWeldhr, href: '/settings/apps/weldhr', type: 'setting' },
+    ],
   };
 
   // Search function for settings - only include app-specific items if the app is installed
@@ -181,6 +186,7 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
       { appCode: 'weldcrm', title: 'WeldCRM', href: '/settings/apps/weldcrm' },
       { appCode: 'welddesk', title: 'WeldDesk', href: '/settings/apps/welddesk' },
       { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
+      { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
     ]
       .filter(item => isInstalled(item.appCode))
       .map(({ appCode, title, href }) => ({
