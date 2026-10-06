@@ -289,6 +289,7 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   create_customer: { icon: Building2, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   create_contact: { icon: UserPlus, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   update_contact: { icon: UserCheck, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  create_task: { icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
   assign_conversation: { icon: UserPlus, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
@@ -391,6 +392,7 @@ const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'create_customer', name: 'Create Company', description: 'Add a company to WeldCRM', icon: Building2, category: 'data' },
   { id: 'create_contact', name: 'Create Contact', description: 'Add a person to WeldCRM', icon: UserPlus, category: 'data' },
   { id: 'update_contact', name: 'Update Contact', description: 'Change a person in WeldCRM', icon: UserCheck, category: 'data' },
+  { id: 'create_task', name: 'Create Task', description: 'Create a project task in WeldFlow', icon: ClipboardList, category: 'data' },
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', icon: Plus, category: 'data' },
   { id: 'update_record', name: 'Update Record', description: 'Update an existing record', icon: Pencil, category: 'data' },
   { id: 'delete_record', name: 'Delete Record', description: 'Delete a record', icon: Trash2, category: 'data' },
@@ -538,6 +540,10 @@ function summarizeContact(config: Record<string, unknown>): string {
   return name || (typeof config.email === 'string' ? config.email : '');
 }
 
+function summarizeTask(config: Record<string, unknown>): string {
+  return typeof config.title === 'string' ? config.title : '';
+}
+
 const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['send_email', summarizeSendEmail],
   ['http_request', summarizeHttpRequest],
@@ -549,6 +555,7 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['create_customer', summarizeCreateCustomer],
   ['create_contact', summarizeContact],
   ['update_contact', summarizeContact],
+  ['create_task', summarizeTask],
 ]);
 
 function getConfigSummary(actionType: string, config: Record<string, unknown>): string {

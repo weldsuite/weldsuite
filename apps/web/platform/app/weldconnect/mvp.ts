@@ -20,6 +20,7 @@ export const WELDCONNECT_ACTION_TYPES = [
   'create_customer',
   'create_contact',
   'update_contact',
+  'create_task',
   'send_notification',
   'condition',
   'loop',

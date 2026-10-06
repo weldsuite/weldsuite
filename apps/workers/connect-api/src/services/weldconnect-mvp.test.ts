@@ -177,6 +177,30 @@ describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
       { code: 'missing_field', stepId: 'c', type: 'send_notification', field: 'title' },
     ]);
   });
+
+  it('accepts a configured create_task step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'create_task', config: { projectId: 'proj_1', title: '{{trigger.data.name}}' } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a create_task step missing its project or title', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'create_task', config: { title: 'Follow up' } }],
+      }),
+    ).toEqual([{ code: 'missing_field', stepId: 'a', type: 'create_task', field: 'projectId' }]);
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'create_task', config: { projectId: 'proj_1' } }],
+      }),
+    ).toEqual([{ code: 'missing_field', stepId: 'a', type: 'create_task', field: 'title' }]);
+  });
 });
 
 describe('isValidCronExpression', () => {
