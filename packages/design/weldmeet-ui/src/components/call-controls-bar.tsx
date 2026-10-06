@@ -7,8 +7,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuItem,
@@ -323,8 +321,44 @@ function useShareScreenAudio(meeting: MeetingClient | null, isScreenSharing: boo
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
+// The icon buttons and dropdown arrows keep a flat background on hover;
+// IconHighlight / ArrowChevron draw the highlight as a rounded square around
+// the icon (also shown while the button's menu / popover is open) instead.
 const OFF_STATE_CLASSES =
-  'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400';
+  'bg-red-100 hover:bg-red-100 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/20 dark:text-red-400';
+
+type HighlightTone = 'default' | 'off' | 'active';
+
+const ICON_HIGHLIGHT_CLASSES: Record<HighlightTone, string> = {
+  default: 'group-hover/icon:bg-foreground/10 group-data-[state=open]/icon:bg-foreground/10',
+  off: 'group-hover/icon:bg-red-200 group-data-[state=open]/icon:bg-red-200 dark:group-hover/icon:bg-red-500/20 dark:group-data-[state=open]/icon:bg-red-500/20',
+  active: 'group-hover/icon:bg-primary-foreground/15 group-data-[state=open]/icon:bg-primary-foreground/15',
+};
+
+const ARROW_HIGHLIGHT_CLASSES: Record<HighlightTone, string> = {
+  default: 'group-hover/arrow:bg-foreground/10 group-data-[state=open]/arrow:bg-foreground/10',
+  off: 'group-hover/arrow:bg-red-200 group-data-[state=open]/arrow:bg-red-200 dark:group-hover/arrow:bg-red-500/20 dark:group-data-[state=open]/arrow:bg-red-500/20',
+  active: 'group-hover/arrow:bg-primary-foreground/15 group-data-[state=open]/arrow:bg-primary-foreground/15',
+};
+
+/** Wraps the icon of a `group/icon` button. `fill` highlights the whole
+ *  button instead of a square around the icon. */
+function IconHighlight({ tone, fill, children }: { tone: HighlightTone; fill?: boolean; children: React.ReactNode }) {
+  return (
+    <span className={cn("flex items-center justify-center transition-colors", fill ? "h-full w-full" : "h-8 w-8 rounded-lg", ICON_HIGHLIGHT_CLASSES[tone])}>
+      {children}
+    </span>
+  );
+}
+
+/** Chevron inside a `group/arrow` dropdown trigger. */
+function ArrowChevron({ tone }: { tone: HighlightTone }) {
+  return (
+    <span className={cn("flex h-6 w-6 -translate-x-[6px] items-center justify-center rounded-md transition-colors", ARROW_HIGHLIGHT_CLASSES[tone])}>
+      <ChevronUp className="h-4 w-4 transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
+    </span>
+  );
+}
 
 /** Mic / camera button while the browser blocks that device: opens the
  *  permission help instead of toggling. */
@@ -346,9 +380,9 @@ function BlockedMediaButton({
             variant="secondary"
             size="icon"
             aria-label={label}
-            className={cn("relative h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", OFF_STATE_CLASSES)}
+            className={cn("group/icon relative h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", OFF_STATE_CLASSES)}
           >
-            {children}
+            <IconHighlight tone="off">{children}</IconHighlight>
             <CircleAlert
               aria-hidden="true"
               className="pointer-events-none absolute top-[5px] right-[5px] !h-[14px] !w-[14px] text-amber-500 fill-background"
@@ -388,20 +422,23 @@ function DeviceMenu({
         <Button
           variant="secondary"
           size="icon"
-          className={cn("group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 hidden md:flex items-center justify-center transition-colors", off ? `${OFF_STATE_CLASSES} border-red-400/20 data-[state=open]:bg-red-200 dark:data-[state=open]:bg-red-500/30` : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110")}
+          className={cn("group/arrow relative h-12 w-[30px] rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 hidden md:flex items-center justify-center transition-colors", off ? `${OFF_STATE_CLASSES} border-l-0` : "hover:bg-secondary")}
         >
-          <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
+          <ArrowChevron tone={off ? 'off' : 'default'} />
         </Button>
       </DropdownMenuTrigger>
       </CallTooltip>
       <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-        <DropdownMenuRadioGroup value={activeId} onValueChange={onChange}>
-          {devices.map((d) => (
-            <DropdownMenuRadioItem key={d.deviceId} value={d.deviceId} className="truncate">
-              <span className="truncate">{d.label || `${fallbackPrefix} ${d.deviceId.slice(0, 8)}`}</span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+        {devices.map((d) => (
+          <DropdownMenuItem
+            key={d.deviceId}
+            onClick={() => onChange(d.deviceId)}
+            className="flex items-center justify-between"
+          >
+            <span className="truncate">{d.label || `${fallbackPrefix} ${d.deviceId.slice(0, 8)}`}</span>
+            {d.deviceId === activeId && <Check className="h-4 w-4 text-primary" />}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -451,7 +488,7 @@ function ScreenShareControl({
         <Button
           variant={isScreenSharing ? 'default' : 'secondary'}
           size="icon"
-          className="h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
+          className={cn("group/icon h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isScreenSharing ? "hover:bg-primary" : "hover:bg-secondary")}
           onClick={isScreenSharing ? stopScreenShare : () => {
             const res = SCREEN_RESOLUTIONS[selectedResolutionIdx]!;
             startScreenShare({
@@ -460,7 +497,9 @@ function ScreenShareControl({
             });
           }}
         >
-          {isScreenSharing ? <MonitorX className="!h-[20px] !w-[20px]" /> : <MonitorUp className="!h-[20px] !w-[20px]" />}
+          <IconHighlight tone={isScreenSharing ? 'active' : 'default'}>
+            {isScreenSharing ? <MonitorX className="!h-[20px] !w-[20px]" /> : <MonitorUp className="!h-[20px] !w-[20px]" />}
+          </IconHighlight>
         </Button>
       </CallTooltip>
       <DropdownMenu>
@@ -470,13 +509,13 @@ function ScreenShareControl({
             variant={isScreenSharing ? 'default' : 'secondary'}
             size="icon"
             className={cn(
-              "group/arrow h-12 w-8 rounded-none rounded-r-[18px] border-0 px-0 hidden md:flex items-center justify-center transition-colors",
+              "group/arrow relative h-12 w-[30px] rounded-none rounded-r-[18px] border-0 px-0 hidden md:flex items-center justify-center transition-colors",
               isScreenSharing
-                ? "border-l border-primary-foreground/20 text-primary-foreground/80 hover:brightness-110 data-[state=open]:brightness-110"
-                : "border-l border-border/30 [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110",
+                ? "border-l border-primary-foreground/20 text-primary-foreground/80 hover:bg-primary"
+                : "border-l border-border/30 hover:bg-secondary",
             )}
           >
-            <ChevronUp className="h-4 w-4 -translate-x-px transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />
+            <ArrowChevron tone={isScreenSharing ? 'active' : 'default'} />
           </Button>
         </DropdownMenuTrigger>
         </CallTooltip>
@@ -699,7 +738,7 @@ export function CallControlsBar({
   return (
     <div className="flex items-center justify-center gap-3 p-4 bg-background/80 backdrop-blur">
       {/* Mic button + device chooser */}
-      <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isMuted || micBlocked ? "ring-red-400/40" : "ring-border")}>
+      <div className={cn("flex items-center rounded-[18px] overflow-hidden", !(isMuted || micBlocked) && "ring-1 ring-border")}>
         {micBlocked ? (
           <BlockedMediaButton kind="microphone" labels={permissionHelpLabels}>
             <MicOff className="!h-[20px] !w-[20px]" />
@@ -710,10 +749,12 @@ export function CallControlsBar({
               variant="secondary"
               size="icon"
               aria-label={isMuted ? 'Turn on microphone' : 'Turn off microphone'}
-              className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isMuted ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
+              className={cn("group/icon h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isMuted ? OFF_STATE_CLASSES : "hover:bg-secondary")}
               onClick={toggleMute}
             >
-              {isMuted ? <MicOff className="!h-[20px] !w-[20px]" /> : <Mic className="!h-[20px] !w-[20px]" />}
+              <IconHighlight tone={isMuted ? 'off' : 'default'}>
+                {isMuted ? <MicOff className="!h-[20px] !w-[20px]" /> : <Mic className="!h-[20px] !w-[20px]" />}
+              </IconHighlight>
             </Button>
           </CallTooltip>
         )}
@@ -729,7 +770,7 @@ export function CallControlsBar({
       </div>
 
       {/* Camera button + device chooser */}
-      <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isVideoOff || cameraBlocked ? "ring-red-400/40" : "ring-border")}>
+      <div className={cn("flex items-center rounded-[18px] overflow-hidden", !(isVideoOff || cameraBlocked) && "ring-1 ring-border")}>
         {cameraBlocked ? (
           <BlockedMediaButton kind="camera" labels={permissionHelpLabels}>
             <VideoOff className="!h-[20px] !w-[20px]" />
@@ -740,28 +781,30 @@ export function CallControlsBar({
               variant="secondary"
               size="icon"
               aria-label={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
-              className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isVideoOff ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
+              className={cn("group/icon h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isVideoOff ? OFF_STATE_CLASSES : "hover:bg-secondary")}
               onClick={toggleVideo}
             >
-              {isVideoOff ? (
-                <VideoOff className="!h-[20px] !w-[20px]" />
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="!h-[22px] !w-[22px]"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
-                  />
-                </svg>
-              )}
+              <IconHighlight tone={isVideoOff ? 'off' : 'default'}>
+                {isVideoOff ? (
+                  <VideoOff className="!h-[20px] !w-[20px]" />
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="!h-[22px] !w-[22px]"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
+                    />
+                  </svg>
+                )}
+              </IconHighlight>
             </Button>
           </CallTooltip>
         )}
@@ -796,10 +839,12 @@ export function CallControlsBar({
             <Button
               variant={handRaised ? 'default' : 'secondary'}
               size="icon"
-              className="h-12 w-12 rounded-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
+              className={cn("group/icon h-12 w-12 rounded-[18px] border-0 transition-all", handRaised ? "hover:bg-primary" : "hover:bg-secondary")}
               onClick={toggleHandRaise}
             >
-              <Hand className="!h-[20px] !w-[20px]" />
+              <IconHighlight tone={handRaised ? 'active' : 'default'} fill>
+                <Hand className="!h-[20px] !w-[20px]" />
+              </IconHighlight>
             </Button>
           </CallTooltip>
         </div>
@@ -814,9 +859,11 @@ export function CallControlsBar({
                 variant="secondary"
                 size="icon"
                 aria-label="More options"
-                className="h-12 w-12 rounded-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110"
+                className="group/icon h-12 w-12 rounded-[18px] border-0 transition-all hover:bg-secondary"
               >
-                <EllipsisVertical className="!h-[20px] !w-[20px]" />
+                <IconHighlight tone="default" fill>
+                  <EllipsisVertical className="!h-[20px] !w-[20px]" />
+                </IconHighlight>
               </Button>
             </DropdownMenuTrigger>
           </CallTooltip>

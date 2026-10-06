@@ -128,6 +128,7 @@ export const weldmeet = {
     copyJoiningInfo: 'Copiar info de acceso',
     joiningInfoCopied: 'Info de acceso copiada',
     popOut: 'Separar ventana',
+    hide: 'Ocultar',
     endMeeting: 'Finalizar reunión',
     leaveMeeting: 'Abandonar reunión',
     you: 'Tú',

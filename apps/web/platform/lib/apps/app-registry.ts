@@ -171,7 +171,11 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     lucideIcon: Video,
     shortName: 'Meetings',
     icon: '/assets/images/weldmeet/icon.svg',
-    logo: makeLogo('weldmeet', { iconClassName: 'h-auto w-6 shrink-0' }),
+    logo: {
+      ...makeLogo('weldmeet', { iconClassName: 'h-auto w-6 shrink-0' }),
+      // logo-dark.png is an all-white mark; keep the green one in dark mode too.
+      iconDark: '/assets/images/weldmeet/logo-light.png',
+    },
     sidebarIconClass: 'h-auto w-7 object-contain',
   },
   weldcall: {

@@ -13,12 +13,12 @@ export interface ParticipantAvatarProps {
 
 /**
  * The "camera-off" placeholder rendered inside a participant / preview tile.
- * Shared across the landing preview, waitlisted preview, and in-meeting tile
- * so all three scale identically with their parent.
+ * Shared across the landing preview, waitlisted preview, and in-meeting tile.
  *
  * Sizing: 28% of the parent's smallest dimension (cqmin), clamped between
- * 40px and 128px. The parent MUST declare `container-type: size` for the
- * cqmin units to resolve — without it the avatar falls back to the min size.
+ * 40px and 128px. The in-meeting tile overrides this with a smaller box. The
+ * parent MUST declare `container-type: size` for the cqmin units to resolve —
+ * without it the avatar falls back to the min size.
  */
 export function ParticipantAvatar({
   initials,

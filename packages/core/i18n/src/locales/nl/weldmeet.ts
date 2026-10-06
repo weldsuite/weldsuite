@@ -129,6 +129,7 @@ export const weldmeet = {
     copyJoiningInfo: 'Deelname-info kopiëren',
     joiningInfoCopied: 'Deelname-info gekopieerd',
     popOut: 'Uitpopuppen',
+    hide: 'Verbergen',
     endMeeting: 'Vergadering beëindigen',
     leaveMeeting: 'Vergadering verlaten',
     you: 'Jij',
