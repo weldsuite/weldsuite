@@ -200,7 +200,7 @@ export function ActionsClient({ initialActions, categories }: Readonly<ActionsCl
   };
 
   const handleCopyAction = (action: ActionTypeDto) => {
-    navigator.clipboard.writeText(JSON.stringify(action, null, 2));
+    void navigator.clipboard.writeText(JSON.stringify(action, null, 2));
     toast.success(t.weldconnect.actions.toasts.copied.replace('{name}', action.name));
   };
 

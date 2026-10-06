@@ -148,12 +148,12 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
 
   const handleCopyLink = () => {
     const url = `${window.location.origin}/weldchat/${channelId}?msg=${message.id}`;
-    navigator.clipboard.writeText(url);
+    void navigator.clipboard.writeText(url);
     toast.success(t.weldchat.messageActionsBar.messageLinkCopied);
   };
 
   const handleCopyText = () => {
-    navigator.clipboard.writeText(message.content ?? '');
+    void navigator.clipboard.writeText(message.content ?? '');
     toast.success(t.weldchat.messageActionsBar.messageTextCopied);
   };
 
