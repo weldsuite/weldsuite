@@ -1,8 +1,9 @@
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type ComponentType } from 'react';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
+import { SocialPlatformIcon } from '@/components/social/social-platform-icon';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import {
@@ -49,8 +50,6 @@ import {
   Lock,
   Key,
   Share2,
-  Linkedin,
-  Twitter,
   Book,
   type LucideIcon,
 } from 'lucide-react';
@@ -116,15 +115,23 @@ interface ActionsClientProps {
 }
 
 // Icon mapping helper
+// lucide's brand marks are deprecated; use the platform's own brand artwork.
+const LinkedinIcon = ({ className }: { className?: string }) => (
+  <SocialPlatformIcon platform="linkedin" className={className} />
+);
+const TwitterIcon = ({ className }: { className?: string }) => (
+  <SocialPlatformIcon platform="twitter" className={className} />
+);
+
 const getIconComponent = (iconName?: string | null) => {
-  const iconMap: Record<string, LucideIcon> = {
+  const iconMap: Record<string, ComponentType<{ className?: string }>> = {
     Mail, MessageSquare, Bell, Database, Globe, Code, FileText, Users,
     Calendar, Clock, GitBranch, Zap, AlertCircle, CheckCircle, XCircle,
     PlayCircle, PauseCircle, RefreshCw, Plus, Settings, ShieldCheck,
     Cpu, Cloud, Server, Webhook, Terminal, Send, Download, Upload,
     Copy, Edit, Trash2, Package, DollarSign, ShoppingCart, CreditCard,
-    TrendingUp, BarChart3, Sparkles, Lock, Key, Share2, Linkedin,
-    Twitter,
+    TrendingUp, BarChart3, Sparkles, Lock, Key, Share2,
+    Linkedin: LinkedinIcon, Twitter: TwitterIcon,
   };
 
   return iconName && iconMap[iconName] ? iconMap[iconName] : Zap;
