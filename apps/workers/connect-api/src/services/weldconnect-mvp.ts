@@ -10,8 +10,12 @@
  *     `workflow_complete` (after another workflow finishes)
  *   - actions:  `send_email`, `create_customer`, `http_request` (call any
  *     external API — apps/workers/workflow-worker/src/engine/actions/http.ts),
- *     `post_chat_message` (WeldChat), and the other WeldSuite record actions,
- *     which run as the workflow's owner
+ *     `post_chat_message` (WeldChat), `ai_generate` / `ai_classify` (metered
+ *     against the workspace credit wallet via @weldsuite/credits — see
+ *     apps/workers/workflow-worker/src/engine/actions/ai.ts; unlike the record
+ *     actions below they run unconditionally, same as `http_request`/`delay`:
+ *     no permission key gates AI usage anywhere in the catalog today), and the
+ *     other WeldSuite record actions, which run as the workflow's owner
  *   - logic:    `condition` (if/else branches), `loop` (for each item),
  *     `delay` and `manual_step` (an approval; main flow only); branch steps
  *     sit under their parent via `parentBranchId`
@@ -46,6 +50,8 @@ export const WELDCONNECT_ACTION_TYPES = [
   'send_notification',
   'post_chat_message',
   'http_request',
+  'ai_generate',
+  'ai_classify',
   'condition',
   'loop',
   'delay',
@@ -177,6 +183,17 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
     const missing: string[] = [];
     if (isBlank(c.channelId)) missing.push('channelId');
     if (isBlank(c.message) && isBlank(c.content)) missing.push('message');
+    return missing;
+  },
+  // Field names mirror apps/workers/workflow-worker/src/engine/actions/ai.ts
+  // (the engine also accepts `input`/`labels` as back-compat aliases for
+  // `text`/`categories` — accepted here too, same as the editor's validation.ts).
+  ai_generate: (c) => (isBlank(c.prompt) ? ['prompt'] : []),
+  ai_classify: (c) => {
+    const missing: string[] = [];
+    if (isBlank(c.text) && isBlank(c.input)) missing.push('text');
+    const categories = c.categories ?? c.labels;
+    if (!Array.isArray(categories) || categories.length === 0) missing.push('categories');
     return missing;
   },
   condition: (c) => {

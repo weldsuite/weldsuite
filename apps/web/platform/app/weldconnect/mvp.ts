@@ -33,6 +33,9 @@ export const WELDCONNECT_ACTION_TYPES = [
   'send_notification',
   'post_chat_message',
   'http_request',
+  // AI steps, metered against the workspace credit wallet (@weldsuite/credits).
+  'ai_generate',
+  'ai_classify',
   'condition',
   'loop',
   'delay',
