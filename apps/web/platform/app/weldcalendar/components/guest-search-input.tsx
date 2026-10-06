@@ -10,7 +10,6 @@ import { usePeople, type Person } from '@/components/objects/person/use-person-d
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import { inviteEmailFromQuery, inviteGuestId } from './guest-invite';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
-import type { Person } from '@/hooks/queries/use-people-queries';
 
 /** Minimal shape this field reads off `/team-members` rows (the query itself is untyped). */
 interface WorkspaceMemberLite {
@@ -202,7 +201,11 @@ export function GuestSearchInput({
       e.preventDefault();
       e.stopPropagation();
       const item = results[activeIndex] ?? results[0];
-      if (showDropdown && item) pick(item);
+      // A lone "create person" row is opened by click. Enter still stops the
+      // card from saving, but does not open the dialog until a real result
+      // is highlighted (or the user arrows onto create among other results).
+      const createOnly = results.every((r) => r.type === 'create');
+      if (showDropdown && item && !createOnly) pick(item);
       return;
     }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
