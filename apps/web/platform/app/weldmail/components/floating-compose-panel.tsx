@@ -763,7 +763,7 @@ export function FloatingComposePanel() {
                   <DropdownMenuItem
                     onSelect={(e) => {
                       e.preventDefault();
-                      handleSaveDraft();
+                      void handleSaveDraft();
                     }}
                   >
                     <CircleCheck className="h-4 w-4 mr-0.5" />
@@ -1151,7 +1151,7 @@ export function FloatingComposePanel() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && aiPrompt.trim()) {
                   e.preventDefault();
-                  handleAiGenerate();
+                  void handleAiGenerate();
                 }
                 if (e.key === 'Escape') {
                   handleCloseAiInput();
@@ -1166,7 +1166,7 @@ export function FloatingComposePanel() {
               type="button"
               onClick={() => {
                 if (aiPrompt.trim()) {
-                  handleAiGenerate();
+                  void handleAiGenerate();
                 }
               }}
               disabled={!aiPrompt.trim() || isAiGenerating}
