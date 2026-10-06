@@ -401,7 +401,9 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
     );
   };
 
-  const TaskSection = ({ title, tasks, count, showDivider = true }: {
+  // A render helper rather than a component: defined inside the view, a
+  // component would get a new type every render and remount its subtree.
+  const renderTaskSection = ({ title, tasks, count, showDivider = true }: {
     title: string;
     tasks: Task[];
     count?: number;
@@ -549,47 +551,47 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
             </>
           )}
           {overdueTasks.length > 0 && (
-            <TaskSection
-              title={st('sweep.weldflow.tasksView.overdue')}
-              tasks={overdueTasks}
-              showDivider={false}
-            />
+            renderTaskSection({
+              title: st('sweep.weldflow.tasksView.overdue'),
+              tasks: overdueTasks,
+              showDivider: false,
+            })
           )}
           {tomorrowTasks.length > 0 && (
-            <TaskSection
-              title={st('sweep.weldflow.tasksView.tomorrow')}
-              tasks={tomorrowTasks}
-              showDivider={false}
-            />
+            renderTaskSection({
+              title: st('sweep.weldflow.tasksView.tomorrow'),
+              tasks: tomorrowTasks,
+              showDivider: false,
+            })
           )}
           {thisWeekTasks.length > 0 && (
-            <TaskSection
-              title={st('sweep.weldflow.notesView.thisWeek')}
-              tasks={thisWeekTasks}
-              showDivider={false}
-            />
+            renderTaskSection({
+              title: st('sweep.weldflow.notesView.thisWeek'),
+              tasks: thisWeekTasks,
+              showDivider: false,
+            })
           )}
           {laterTasks.length > 0 && (
-            <TaskSection
-              title={st('sweep.weldflow.tasksView.later')}
-              tasks={laterTasks}
-              showDivider={false}
-            />
+            renderTaskSection({
+              title: st('sweep.weldflow.tasksView.later'),
+              tasks: laterTasks,
+              showDivider: false,
+            })
           )}
           {noDateTasks.length > 0 && (
-            <TaskSection
-              title={st('sweep.weldflow.tasksView.noDate')}
-              tasks={noDateTasks}
-              showDivider={false}
-            />
+            renderTaskSection({
+              title: st('sweep.weldflow.tasksView.noDate'),
+              tasks: noDateTasks,
+              showDivider: false,
+            })
           )}
           {showCompleted && completedTasks.length > 0 && (
-            <TaskSection
-              title={st('sweep.weldflow.tasksView.completedTitle')}
-              tasks={completedTasks}
-              count={completedCount}
-              showDivider={false}
-            />
+            renderTaskSection({
+              title: st('sweep.weldflow.tasksView.completedTitle'),
+              tasks: completedTasks,
+              count: completedCount,
+              showDivider: false,
+            })
           )}
 
           {filteredTasks.length === 0 && (

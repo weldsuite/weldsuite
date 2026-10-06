@@ -1360,7 +1360,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
 
   // Erase along the pointer's path
   const dragEraser = (point: Point) => {
-    const lastPoint = eraserPath[eraserPath.length - 1];
+    const lastPoint = eraserPath.at(-1);
     if (!lastPoint) {
       // First point
       setEraserPath([point]);
@@ -2356,7 +2356,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       // Don't trigger shortcuts when typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
       // Copy, paste, duplicate, z-order and select-all: Cmd/Ctrl + C/V/D/]/[/A
@@ -4173,7 +4173,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
           )}
           
           {/* Render elements */}
-          {elements.map(renderElement)}
+          {elements.map((element) => renderElement(element))}
           
           {/* Selection box */}
           {isSelecting && selectionBox && (

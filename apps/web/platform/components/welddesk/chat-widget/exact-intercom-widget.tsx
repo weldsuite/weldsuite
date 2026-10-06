@@ -113,7 +113,7 @@ function buildNavigateHandlers(current: WidgetView, goTo: (view: WidgetView) => 
 
 // Display messages: AI conversation when AI is enabled and has messages, otherwise the greeting (if set)
 function buildDisplayMessages(enableAi: boolean, aiMessages: ConversationMessage[], welcomeMessage?: string): Message[] {
-  if (enableAi && aiMessages.length > 0) return aiMessages.map(toDisplayMessage);
+  if (enableAi && aiMessages.length > 0) return aiMessages.map((msg) => toDisplayMessage(msg));
   const welcomeText = welcomeMessage?.trim();
   if (!welcomeText) return [];
   return [{
@@ -249,7 +249,7 @@ function useWidgetChat({
 
       // Check in a timeout to allow the state to update
       setTimeout(() => {
-        inspectAssistantReply(aiConversation.messages[aiConversation.messages.length - 1]);
+        inspectAssistantReply(aiConversation.messages.at(-1));
       }, 500);
     } catch (error) {
       console.error('Error sending message:', error);
