@@ -94,6 +94,7 @@ import { CalendarInviteCard } from './calendar-invite-card';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
+import { copyText } from '@/lib/clipboard';
 
 type EmailMessage = MailTypes.Email;
 
@@ -1384,7 +1385,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         // Silently fail - labels just won't be available
       }
     };
-    fetchLabels();
+    void fetchLabels();
   }, [accountId]);
 
   // Star and pin are server state: the STARRED / PINNED system labels (the
@@ -2004,7 +2005,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         onKeyDown={(e) => {
           if (!isSendShortcut(e)) return;
           e.preventDefault();
-          if (!sendDisabled) onSend();
+          if (!sendDisabled) void onSend();
         }}
       >
         {/* To field */}
@@ -2098,9 +2099,15 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   };
 
   const applyUserLabel = (labelName: string) => {
-    mailApi.messages.update(accountId, message.id, {
+    void mailApi.messages.update(accountId, message.id, {
       labels: [...(message.labels || []), labelName],
-    }).then(() => toast.success(t.mail.messageDetail.labelAddedNamed.replace('{label}', labelName)));
+    }).then((result) => {
+      if (result.success) {
+        toast.success(t.mail.messageDetail.labelAddedNamed.replace('{label}', labelName));
+      } else {
+        toast.error(t.mail.messageDetail.failedToUpdateLabels);
+      }
+    });
   };
 
   const applyAutoDraft = (draft: { subject?: string; body?: string }) => {
@@ -2388,7 +2395,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     <Flag className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.markAsImportant}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(message.id || ''); toast.success(t.mail.messageDetail.messageIdCopied); }}>
+                  <DropdownMenuItem onClick={() => { copyText(message.id || '', () => toast.success(t.mail.messageDetail.messageIdCopied)); }}>
                     <Copy className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.copyMessageId}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => {

@@ -92,6 +92,7 @@ import {
   useArchiveMailMessage,
 } from '@/hooks/queries/use-mail-queries';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
+import { copyText } from '@/lib/clipboard';
 
 type EmailMessage = MailTypes.Email;
 
@@ -1149,8 +1150,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => {
-                navigator.clipboard.writeText(selectedEmail?.id || '');
-                toast.success(t.mail.inboxPage.messageIdCopied);
+                copyText(selectedEmail?.id || '', () => toast.success(t.mail.inboxPage.messageIdCopied));
               }}>
                 <Copy className="mr-0.5 h-4 w-4" />
                 <span>{t.mail.inboxPage.copyMessageId}</span>
@@ -2412,7 +2412,7 @@ export function InboxClient({
     }
 
     if (!email.isRead) {
-      handleMarkAsRead(email.id);
+      void handleMarkAsRead(email.id);
     }
   };
 

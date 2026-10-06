@@ -397,7 +397,7 @@ export function useMailSidebarItems(isActive: boolean): {
   // instead of invalidating queries.
   React.useEffect(() => {
     const handler = () => {
-      queryClient.invalidateQueries({ queryKey: [...mailKeys.all, 'messages', 'stats'] });
+      void queryClient.invalidateQueries({ queryKey: [...mailKeys.all, 'messages', 'stats'] });
     };
     window.addEventListener('mail-messages-changed', handler);
     return () => window.removeEventListener('mail-messages-changed', handler);
@@ -871,7 +871,7 @@ export function useMailSidebarItems(isActive: boolean): {
                 value={editLabelName}
                 onChange={(e) => setEditLabelName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !isUpdatingLabel) handleUpdateLabel();
+                  if (e.key === 'Enter' && !isUpdatingLabel) void handleUpdateLabel();
                 }}
                 autoFocus
               />
@@ -992,7 +992,7 @@ export function useMailSidebarItems(isActive: boolean): {
                 onChange={(e) => setNewLabelName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isCreatingLabel) {
-                    handleCreateLabel();
+                    void handleCreateLabel();
                   }
                 }}
                 autoFocus
