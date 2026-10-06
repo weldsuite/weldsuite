@@ -829,7 +829,7 @@ export function MessageInput({
       const targetParent = detail.parentId ?? null;
       const ownParent = parentId ?? null;
       if (targetParent !== ownParent) return;
-      uploadFiles(detail.files);
+      void uploadFiles(detail.files);
     };
     window.addEventListener('weldchat:dropped-files', handler);
     return () => window.removeEventListener('weldchat:dropped-files', handler);
@@ -858,6 +858,7 @@ export function MessageInput({
 
   const hasContent = content.trim() || attachments.length > 0;
   const isUploading = uploadingCount > 0;
+  const canSend = hasContent && !isPending && !isUploading;
 
   let containerTopPadding = 'pt-[10px]';
   if (replyTo || attachments.length > 0 || isUploading) containerTopPadding = 'pt-[20px]';
@@ -1240,7 +1241,7 @@ export function MessageInput({
                       if (e.button !== 0 || isPending || isVoiceRecording) return;
                       prewarmVoiceRecording();
                     }}
-                    onClick={() => { if (!isVoiceRecording) startVoiceRecording(); }}
+                    onClick={() => { if (!isVoiceRecording) void startVoiceRecording(); }}
                     disabled={isPending || isVoiceRecording}
                     className={cn(
                       "p-1.5 rounded-lg transition-colors disabled:cursor-not-allowed",
@@ -1340,17 +1341,17 @@ export function MessageInput({
                 <Button
                   variant="ghost"
                   onClick={handleSend}
-                  disabled={isPending || isUploading || !hasContent}
+                  disabled={!canSend}
                   data-testid="chat-send"
                   className={cn(
                     'w-8 h-8 rounded-[12px] flex items-center justify-center transition-all',
-                    hasContent && !isPending && !isUploading
+                    canSend
                       ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                       : 'bg-gray-300 dark:bg-muted text-gray-500 dark:text-muted-foreground cursor-not-allowed'
                   )}
                   title={t.weldchat.messageInput.sendMessage}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={cn("h-[15px] w-[15px]", hasContent && !isPending && !isUploading ? "text-primary-foreground" : "text-gray-500 dark:text-muted-foreground")}>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={cn("h-[15px] w-[15px]", canSend ? "text-primary-foreground" : "text-gray-500 dark:text-muted-foreground")}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
                   </svg>
                 </Button>
