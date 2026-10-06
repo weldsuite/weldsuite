@@ -111,7 +111,7 @@ function toIncomingMessage(msg: RealtimeChatFrame): ChatMessage {
     type: 'message',
     createdAt: new Date(msg.ts ?? Date.now()).toISOString(),
     attachments: Array.isArray(msg.attachments)
-      ? msg.attachments.map(toChatAttachment)
+      ? msg.attachments.map((a) => toChatAttachment(a))
       : undefined,
   };
 }
