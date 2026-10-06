@@ -178,8 +178,9 @@ describe('ai_generate', () => {
     });
 
     it('sums what this run already charged (replay-safe: re-summing the ledger never double-counts)', async () => {
-      // A prior step in the SAME run already used most of the cap.
-      sumChargedCreditsMock.mockResolvedValue(95);
+      // A prior step in the SAME run already used more than the cap on its own —
+      // deterministic regardless of this call's own estimate.
+      sumChargedCreditsMock.mockResolvedValue(200);
       await expect(
         handleAiGenerate({ prompt: 'hi' }, ctxWithEnv({ maxCreditsPerRun: 100 })),
       ).rejects.toThrow(/credit cap/i);
