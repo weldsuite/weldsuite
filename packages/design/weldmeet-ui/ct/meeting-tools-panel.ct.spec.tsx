@@ -79,7 +79,7 @@ test.describe('MeetingToolsPanel · recording', () => {
     await expect(comp.getByText('Recording in progress')).toBeVisible();
   });
 
-  test('non-host (recordingAvailable=false): the Record row is disabled / "Coming soon"', async ({ mount }) => {
+  test('non-host (recordingAvailable=false): the Record row is disabled / "Host only"', async ({ mount }) => {
     const comp = await mount(
       <MeetingToolsPanel
         recordingAvailable={false}
@@ -93,8 +93,9 @@ test.describe('MeetingToolsPanel · recording', () => {
     const record = comp.getByRole('button', { name: /record/i });
     await expect(record).toBeVisible();
     await expect(record).toBeDisabled();
-    // Premium/unavailable group renders a "Coming soon" badge.
-    await expect(comp.getByText('Coming soon').first()).toBeVisible();
+    // Recording is the host's call; nothing in the panel is "Coming soon" any more.
+    await expect(comp.getByText('Host only')).toBeVisible();
+    await expect(comp.getByText('Coming soon')).toHaveCount(0);
   });
 
   test('clicking "Record" calls startRecording', async ({ mount }) => {

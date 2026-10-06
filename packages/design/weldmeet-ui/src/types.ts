@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
 import type { VirtualBackgroundType } from './hooks/use-virtual-background';
 import type { PermissionHelpLabels } from './components/permission-help';
+import type { MeetingToolsLabels } from './tools/labels';
 
 export type ViewMode = 'grid' | 'spotlight' | 'speaker' | 'sidebar';
 export type RecordingState = 'IDLE' | 'STARTING' | 'RECORDING' | 'PAUSED' | 'STOPPING';
@@ -194,6 +195,11 @@ export interface MeetingRoomViewProps {
   showHostControlsButton?: boolean;
   /** Show the wrench/Tools button in the header that opens the Meeting tools panel. */
   showToolsButton?: boolean;
+  /**
+   * Copy for the meeting tools (timer, polls, Q&A, breakout rooms, transcript,
+   * translation, live stream). English when omitted.
+   */
+  toolsLabels?: MeetingToolsLabels;
 
   // ── People panel slot (replaces built-in PeoplePanel — host can render
   // its own, e.g. with workspace member data) ─────────────────────────────
