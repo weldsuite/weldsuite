@@ -21,7 +21,7 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: GridTableProp
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const [fillerRowCount, setFillerRowCount] = useState(50);
 
-  // Infinite scroll via IntersectionObserver â€” fires even when content doesn't overflow.
+  // Infinite scroll via IntersectionObserver — fires even when content doesn't overflow.
   useEffect(() => {
     if (!onLoadMore || !hasMore || !loadMoreSentinelRef.current || !tableScrollRef.current) return;
     const sentinel = loadMoreSentinelRef.current;
@@ -177,7 +177,7 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: GridTableProp
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       )}
-      {/* Vertical spacer â€” when there aren't enough data rows to fill the
+      {/* Vertical spacer — when there aren't enough data rows to fill the
           scroll container, this expands to push the calculation footer down
           to the bottom of the visible area. With many rows it collapses to
           0 height and the footer (sticky bottom-0) hovers over the data as

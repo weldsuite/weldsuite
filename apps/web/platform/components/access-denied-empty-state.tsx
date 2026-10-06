@@ -44,7 +44,7 @@ export function AccessDeniedEmptyState({
         onSuccess: () => {
           toast.success(
             alreadyRequested
-              ? 'Your request is already pending â€” admins have been reminded.'
+              ? 'Your request is already pending — admins have been reminded.'
               : 'Request sent to your workspace admin.',
           );
         },

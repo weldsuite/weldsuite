@@ -12,6 +12,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "prisma:generate": "cd packages/database && npx prisma generate",
     "check:metadata": "node scripts/check-metadata.js",
+    "check:mojibake": "node scripts/check-mojibake.mjs",
     "secrets:put": "npx tsx scripts/secrets/put.ts",
     "secrets:sync": "npx tsx scripts/secrets/sync.ts",
     "secrets:dev": "npx tsx scripts/secrets/dev-vars.ts",
