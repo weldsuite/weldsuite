@@ -1503,7 +1503,7 @@ function WebhookSecretField({ webhookSecret, form }: { webhookSecret: string; fo
           size="icon"
           className="flex-shrink-0"
           onClick={() => {
-            navigator.clipboard.writeText(webhookSecret);
+            void navigator.clipboard.writeText(webhookSecret);
             toast.success(tec.toasts.secretCopied);
           }}
         >
@@ -1537,7 +1537,7 @@ function WebhookDetails({ webhookData, form }: { webhookData: WebhookData; form:
             size="icon"
             className="flex-shrink-0"
             onClick={() => {
-              navigator.clipboard.writeText(webhookData.externalUrl || webhookData.url);
+              void navigator.clipboard.writeText(webhookData.externalUrl || webhookData.url);
               toast.success(tec.toasts.urlCopied);
             }}
           >
