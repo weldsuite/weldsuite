@@ -33,7 +33,7 @@ export default function EmailInboxPage() {
   const activeAddresses = (addresses || []).filter(a => a.isActive);
   const hasConnectedEmail = activeAddresses.length > 0;
 
-  // Still loading or has connected emails â€” show "no conversation selected"
+  // Still loading or has connected emails — show "no conversation selected"
   if (addresses === undefined || hasConnectedEmail) {
     return (
       <div className="h-full flex-1 flex flex-col items-center justify-center text-center px-6 bg-white dark:bg-background/30">
@@ -53,7 +53,7 @@ export default function EmailInboxPage() {
     );
   }
 
-  // No email connected â€” show setup prompt
+  // No email connected — show setup prompt
   return (
     <div className="bg-white dark:bg-background/30 flex flex-col h-full overflow-hidden flex-1 items-center justify-center">
       <Card className="w-full max-w-md border-dashed">
