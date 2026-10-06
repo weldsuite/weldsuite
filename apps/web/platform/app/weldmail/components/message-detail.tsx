@@ -525,6 +525,12 @@ function SystemLabelButton({ active, activeClassName, Icon, label, disabled, onC
 }
 
 /** A label the user made, as opposed to a system folder's row in the label list. */
+// The folder list a message view returns to: the unified view's own list, or
+// the account's.
+function mailListPath(isUnified: boolean, accountId: string, folder: string): string {
+  return isUnified ? `/weldmail/unified/${folder}` : `/weldmail/${accountId}/${folder}`;
+}
+
 function isUserLabel(label: MailTypes.Label & { isSystem?: boolean | null }): boolean {
   return !label.isSystem && !isSystemLabel(label.name.toLowerCase());
 }
@@ -538,7 +544,7 @@ function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels
   const { t } = useI18n();
   // The label list also carries a row per system folder; those are offered
   // once, above.
-  const customLabels = availableLabels.filter(isUserLabel);
+  const customLabels = availableLabels.filter((label) => isUserLabel(label));
   return (
     <>
       {/* System Labels */}
@@ -641,7 +647,7 @@ function LabelBadges({ messageLabels, availableLabels, onRemove }: Readonly<{
 
   return (
     <div className="hidden md:flex gap-1.5 ml-2">
-      {messageLabels.slice(0, 8).map(renderBadge)}
+      {messageLabels.slice(0, 8).map((label) => renderBadge(label))}
       {messageLabels.length > 8 && (
         <Popover>
           <PopoverTrigger asChild>
@@ -651,7 +657,7 @@ function LabelBadges({ messageLabels, availableLabels, onRemove }: Readonly<{
           </PopoverTrigger>
           <PopoverContent className="w-auto p-2" align="start">
             <div className="flex flex-col gap-1.5">
-              {messageLabels.slice(8).map(renderBadge)}
+              {messageLabels.slice(8).map((label) => renderBadge(label))}
             </div>
           </PopoverContent>
         </Popover>
@@ -1344,9 +1350,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // per-account). Never jump to the conversation's own account inbox —
   // that would yank the user out of the unified view.
   const isUnifiedView = threadList?.isUnified ?? pathname.startsWith('/weldmail/unified/');
-  const listPath = isUnifiedView
-    ? `/weldmail/unified/${folder}`
-    : `/weldmail/${accountId}/${folder}`;
+  const listPath = mailListPath(isUnifiedView, accountId, folder);
   const handleBackToList = () => {
     router.push(listPath);
   };
@@ -1541,7 +1545,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       // render matches the reloaded (server) version. Falling back to a naive
       // newline->`<br>` conversion loses whitespace/line breaks, which is why
       // sent replies briefly appeared with their spacing collapsed until reload.
-      bodyHtml: html || body.replace(/\n/g, '<br>'),
+      bodyHtml: html || body.replaceAll('\n', '<br>'),
       preview: body.substring(0, 100),
       date: new Date(),
       isRead: true,

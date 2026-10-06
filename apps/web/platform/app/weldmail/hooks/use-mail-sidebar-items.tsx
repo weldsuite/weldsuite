@@ -1,6 +1,6 @@
 
 import * as React from 'react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter, usePathname, Link } from '@/lib/router';
 import {
   Inbox,
@@ -136,7 +136,7 @@ function KeywordTagInput({
     if (val.includes(',')) {
       const parts = val.split(',');
       parts.slice(0, -1).forEach((p) => addTag(p));
-      setInputValue(parts[parts.length - 1]);
+      setInputValue(parts.at(-1) ?? '');
     } else {
       setInputValue(val);
     }
@@ -264,7 +264,7 @@ export function useMailSidebarItems(isActive: boolean): {
   const [isUpdatingLabel, setIsUpdatingLabel] = useState(false);
 
   // Map label name (lowercase) → accountIds that own this label (for unified mode cross-account check)
-  const [labelAccountMap] = useState<Record<string, string[]>>({});
+  const labelAccountMap = useMemo<Record<string, string[]>>(() => ({}), []);
   const [showMore, setShowMore] = useState(false);
 
   // Agent Auto-Labeling settings
