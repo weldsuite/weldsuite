@@ -25,6 +25,9 @@ export const WELDCONNECT_TRIGGER_TYPES = ['entity_event', 'schedule'] as const;
 export const WELDCONNECT_ACTION_TYPES = [
   'send_email',
   'create_customer',
+  'create_contact',
+  'update_contact',
+  'send_notification',
   'condition',
   'loop',
   'delay',
@@ -136,6 +139,9 @@ function isPositive(value: unknown): boolean {
 const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], (config: Bag) => string[]> = {
   send_email: (c) => ['to', 'subject', 'body'].filter((field) => isBlank(c[field])),
   create_customer: (c) => (isBlank(c.name) ? ['name'] : []),
+  create_contact: (c) => (isBlank(c.firstName) && isBlank(c.lastName) && isBlank(c.email) ? ['name'] : []),
+  update_contact: (c) => (isBlank(c.contactId) ? ['contactId'] : []),
+  send_notification: (c) => (isBlank(c.title) ? ['title'] : []),
   condition: (c) => {
     const missing: string[] = [];
     if (isBlank(c.field)) missing.push('field');

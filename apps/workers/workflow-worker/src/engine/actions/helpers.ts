@@ -164,3 +164,41 @@ export async function publishRealtime(
     console.warn(`[Realtime] Failed to publish ${event}: ${err}`);
   }
 }
+
+/** Who a WeldSuite action acts as, sent along with every internal action call. */
+export interface WorkflowActor {
+  workspaceId: string;
+  /** The workflow's owner: the action is checked against their permissions. */
+  ownerUserId: string;
+  /** Whoever caused the run (`system` for schedules), for audit context. */
+  triggeredBy: string;
+  /** Chain depth of the run, so the entity events the action causes can't loop forever. */
+  chainDepth: number;
+}
+
+/**
+ * The actor for a WeldSuite action. A run without an owner (started before
+ * owners were carried, or a workflow without `created_by`) fails the step:
+ * acting with nobody's permissions is not an option.
+ */
+export function workflowActor(ctx: ActionContext): WorkflowActor {
+  const ownerUserId = ctx.tenant.ownerUserId?.trim();
+  if (!ownerUserId) {
+    throw new NonRetryableStepError(
+      'This workflow has no owner to act as. Save the workflow again and re-run it.',
+    );
+  }
+  return {
+    workspaceId: ctx.tenant.workspaceId,
+    ownerUserId,
+    triggeredBy: ctx.tenant.userId,
+    chainDepth: ctx.chainDepth ?? 0,
+  };
+}
+
+/** A trimmed string, or undefined when empty. */
+export function optionalText(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const trimmed = String(value).trim();
+  return trimmed === '' ? undefined : trimmed;
+}

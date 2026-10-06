@@ -118,8 +118,20 @@ export interface WorkflowEnv {
   CF_AIG_TOKEN?: string;
 }
 
+/**
+ * Who a run belongs to. `userId` is whoever caused the run (`system` for
+ * schedules); `ownerUserId` is the workflow's owner (`workflows.created_by`),
+ * whose workspace permissions WeldSuite actions are checked against.
+ */
+export interface WorkflowTenant {
+  workspaceId: string;
+  userId: string;
+  /** Absent for runs started before owners were carried (their cached load step lacks it). */
+  ownerUserId?: string;
+}
+
 export interface ActionContext {
-  tenant: { workspaceId: string; userId: string };
+  tenant: WorkflowTenant;
   executionId: string;
   /** The workflow step's own id — used by ai_generate/ai_classify to key
    *  idempotent credit charges (`executionId:stepId:op`) so a step retry never
@@ -219,7 +231,7 @@ export interface ExecutionHooks {
 }
 
 export interface WorkflowRunContext {
-  tenant: { workspaceId: string; userId: string };
+  tenant: WorkflowTenant;
   executionId: string;
   db: WorkflowDb;
   env: WorkflowEnv;

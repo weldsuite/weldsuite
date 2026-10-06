@@ -98,6 +98,17 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'record', label: 'Created Record', type: 'object' },
       { path: 'record.id', label: 'Record ID', type: 'string' },
     ],
+    create_contact: [
+      { path: 'contactId', label: 'Contact ID', type: 'string' },
+      { path: 'name', label: 'Contact Name', type: 'string' },
+      { path: 'email', label: 'Contact Email', type: 'string' },
+      { path: 'created', label: 'Created', type: 'boolean' },
+    ],
+    update_contact: [
+      { path: 'contactId', label: 'Contact ID', type: 'string' },
+      { path: 'name', label: 'Contact Name', type: 'string' },
+      { path: 'email', label: 'Contact Email', type: 'string' },
+    ],
     create_customer: [
       { path: 'created', label: 'Created', type: 'boolean' },
       { path: 'customerId', label: 'Customer ID', type: 'string' },
@@ -114,16 +125,16 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'records', label: 'Records', type: 'array' },
       { path: 'count', label: 'Count', type: 'number' },
     ],
-    condition: [{ path: 'result', label: 'Result', type: 'boolean' }],
+    condition: [
+      { path: 'passed', label: 'Passed', type: 'boolean' },
+      { path: 'value', label: 'Checked Value', type: 'string' },
+    ],
     transform: [{ path: 'result', label: 'Transformed Data', type: 'object' }],
     set_variable: [
       { path: 'name', label: 'Variable Name', type: 'string' },
       { path: 'value', label: 'Variable Value', type: 'string' },
     ],
-    loop: [
-      { path: 'items', label: 'Loop Results', type: 'array' },
-      { path: 'count', label: 'Item Count', type: 'number' },
-    ],
+    loop: [{ path: 'count', label: 'Item Count', type: 'number' }],
     delay: [
       { path: 'delayed', label: 'Delayed', type: 'boolean' },
       { path: 'duration', label: 'Duration', type: 'string' },
@@ -132,7 +143,7 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'sent', label: 'Sent', type: 'boolean' },
       { path: 'notificationIds', label: 'Notification IDs', type: 'array' },
       { path: 'count', label: 'Notification Count', type: 'number' },
-      { path: 'message', label: 'Message', type: 'string' },
+      { path: 'skipped', label: 'Skipped Recipients', type: 'number' },
     ],
     assign_conversation: [
       { path: 'success', label: 'Success', type: 'boolean' },

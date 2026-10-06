@@ -145,6 +145,40 @@ describe('validateWeldConnectWorkflow: logic steps', () => {
   });
 });
 
+describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
+  const trigger = { id: 't', type: 'schedule', cronExpression: '0 9 * * 1' };
+
+  it('accepts configured contact and notification steps', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          { id: 'a', type: 'create_contact', config: { email: '{{trigger.data.email}}' } },
+          { id: 'b', type: 'update_contact', config: { contactId: '{{steps.a.contactId}}', title: 'CTO' } },
+          { id: 'c', type: 'send_notification', config: { title: 'New contact' } },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports their missing fields', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          { id: 'a', type: 'create_contact', config: { title: 'CTO' } },
+          { id: 'b', type: 'update_contact', config: {} },
+          { id: 'c', type: 'send_notification', config: {} },
+        ],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'create_contact', field: 'name' },
+      { code: 'missing_field', stepId: 'b', type: 'update_contact', field: 'contactId' },
+      { code: 'missing_field', stepId: 'c', type: 'send_notification', field: 'title' },
+    ]);
+  });
+});
+
 describe('isValidCronExpression', () => {
   it.each(['* * * * *', '*/5 * * * *', '0 9 * * 1-5', '0,30 8-17 1 1,6 0'])('accepts %s', (expr) => {
     expect(isValidCronExpression(expr)).toBe(true);
