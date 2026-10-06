@@ -211,11 +211,11 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
             if (data?.unreadCount !== undefined) {
               const count = Number(data.unreadCount) || 0;
               setUnreadCount(count);
-              notifUtils!.setBadgeCount(count);
+              void notifUtils!.setBadgeCount(count);
             } else {
               setUnreadCount((c) => {
                 const next = c + 1;
-                notifUtils!.setBadgeCount(next);
+                void notifUtils!.setBadgeCount(next);
                 return next;
               });
             }
@@ -252,7 +252,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
     };
 
-    init();
+    void init();
     return () => {
       if (cleanupRef.current) {
         cleanupRef.current();

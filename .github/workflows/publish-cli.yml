@@ -136,7 +136,9 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Ensure npm CLI supports Trusted Publishing
-        run: npm install -g npm@latest
+        # Pinned (Trusted Publishing needs >= 11.5.1) and without lifecycle
+        # scripts, so this step runs exactly the npm release named here.
+        run: npm install -g --ignore-scripts npm@11.21.0
 
       - name: Prepare OIDC auth (strip empty token line from setup-node)
         if: steps.ver.outputs.legacy != 'true'

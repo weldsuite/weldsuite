@@ -92,7 +92,9 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
         api.setOrganizationId(null);
       }
     };
-    initializeServices();
+    initializeServices().catch((err) => {
+      console.error('[layout] Failed to initialize API credentials:', err);
+    });
   }, [user, getCredentials]);
 
   useEffect(() => {
