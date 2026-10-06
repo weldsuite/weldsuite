@@ -26,6 +26,7 @@ import type {
   CreateHrChecklistTemplateInput,
   CreateHrCoachingLogInput,
   CreateHrDepartmentInput,
+  CreateHrEmployeeFromMemberInput,
   CreateHrEmployeeInput,
   CreateHrEvaluationFormInput,
   CreateHrEvaluationInput,
@@ -139,6 +140,11 @@ export function useHrEmployeeSensitive(id: string | undefined, enabled: boolean)
 export function useCreateHrEmployee() {
   const { weldhr } = useAppApi();
   return useHrMutation((input: CreateHrEmployeeInput) => weldhr.createEmployee(input));
+}
+
+export function useCreateHrEmployeeFromMember() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((input: CreateHrEmployeeFromMemberInput) => weldhr.createEmployeeFromMember(input));
 }
 
 export function useUpdateHrEmployee() {

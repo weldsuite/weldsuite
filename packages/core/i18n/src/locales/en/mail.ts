@@ -743,6 +743,7 @@ export const mail = {
       compose: 'Compose',
       noConversationsFound: 'No conversations found',
       noMessagesFound: 'No messages found',
+      loadingMore: 'Loading…',
       scheduledPreview: 'Scheduled for {date}',
       emailTask: 'Email task',
       failedToArchive: 'Failed to archive',

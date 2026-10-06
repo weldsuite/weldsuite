@@ -743,6 +743,7 @@ export const mail = {
       compose: 'Opstellen',
       noConversationsFound: 'Geen gesprekken gevonden',
       noMessagesFound: 'Geen berichten gevonden',
+      loadingMore: 'Laden…',
       scheduledPreview: 'Gepland voor {date}',
       emailTask: 'E-mailtaak',
       failedToArchive: 'Archiveren mislukt',

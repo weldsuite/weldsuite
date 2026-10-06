@@ -30,7 +30,7 @@ import { SidebarProvider } from '@weldsuite/ui/components/sidebar';
 import { useUser, useOrganization, useOrganizationList } from '@clerk/clerk-react';
 import { useWorkspace } from '@/contexts/workspace-context';
 import { CreateWorkspaceDialog } from '@/components/workspace/create-workspace-dialog';
-import { BreadcrumbHeader, type SearchResult } from '@/components/breadcrumb-header';
+import { BreadcrumbHeader } from '@/components/breadcrumb-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { useI18n } from '@/lib/i18n/provider';
 import { buildBreadcrumbSegments } from './breadcrumbs';
@@ -62,8 +62,10 @@ function getContentWrapperClassName(pathname: string): string {
   }
   // Plans page - allow internal width control
   if (pathname === '/settings/plans') return PAGE_PADDING_CLASS;
-  // Activity log - slightly wider to fit the table without scroll
-  if (pathname === '/settings/activity') return `${PAGE_PADDING_CLASS} max-w-6xl mx-auto`;
+  // Activity log and WeldHR — slightly wider so the tables fit without scroll
+  if (pathname === '/settings/activity' || pathname === '/settings/apps/weldhr') {
+    return `${PAGE_PADDING_CLASS} max-w-6xl mx-auto`;
+  }
   // Regular settings pages - constrained width
   return `${PAGE_PADDING_CLASS} max-w-4xl mx-auto`;
 }
@@ -76,7 +78,6 @@ interface SettingsLayoutClientProps {
 export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<SettingsLayoutClientProps>) {
   const { t } = useI18n();
   const ts = t.settings;
-  // t is kept in scope for cross-module references (e.g. t.crm)
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useUser();
@@ -113,59 +114,6 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
 
   const segments = buildBreadcrumbSegments(pathname, ts.title, ts.menu);
 
-  // Search items that are app-specific
-  const appSearchItems: Record<string, SearchResult[]> = {
-    parcel: [
-      { id: 'parcel', title: ts.search.parcelSettings, description: ts.search.configureParcel, href: '/settings/apps/parcel', type: 'setting' },
-    ],
-    weldcrm: [
-      { id: 'weldcrm', title: 'WeldCRM', description: 'Configure CRM settings', href: '/settings/apps/weldcrm', type: 'setting' },
-      { id: 'customer-statuses', title: t.crm.settings.customerStatuses.title, description: t.crm.settings.customerStatuses.subtitle, href: '/settings/apps/weldcrm', type: 'setting' },
-    ],
-    welddesk: [
-      { id: 'helpdesk', title: ts.search.helpdeskSettings, description: ts.search.configureHelpdesk, href: '/settings/apps/welddesk', type: 'setting' },
-    ],
-    weldmail: [
-      { id: 'weldmail', title: 'WeldMail', description: 'Configure mail app', href: '/settings/apps/weldmail', type: 'setting' },
-      { id: 'mail-accounts', title: ts.search.mailAccounts, description: ts.search.manageMailAccounts, href: '/settings/apps/weldmail', type: 'setting' },
-    ],
-  };
-
-  // Search function for settings - only include app-specific items if the app is installed
-  const handleSearch = async (query: string): Promise<SearchResult[]> => {
-    const allSettings: SearchResult[] = [
-      { id: 'profile', title: ts.menu.profile, description: ts.search.profile, href: '/settings', type: 'setting' },
-      { id: 'appearance', title: ts.menu.appearance, description: ts.search.appearance, href: '/settings/appearance', type: 'setting' },
-      { id: 'notifications', title: ts.menu.notifications, description: ts.search.notifications, href: '/settings/notifications', type: 'setting' },
-      { id: 'security', title: ts.menu.security, description: ts.search.security, href: '/settings/security', type: 'setting' },
-      { id: 'team', title: ts.menu.teamMembers, description: ts.search.teamMembers, href: '/settings/team', type: 'setting' },
-      { id: 'plans', title: ts.menu.plans, description: ts.search.plans, href: '/settings/plans', type: 'setting' },
-      { id: 'billing', title: ts.menu.billing, description: ts.search.billing, href: '/settings/billing', type: 'setting' },
-      { id: 'business', title: ts.menu.businessSettings, description: ts.search.businessSettings, href: '/settings/business', type: 'setting' },
-      { id: 'api-keys', title: ts.menu.apiKeys, description: ts.search.apiKeys, href: '/settings/api-keys', type: 'setting' },
-      { id: 'webhooks', title: ts.menu.webhooks, description: ts.search.webhooks, href: '/settings/webhooks', type: 'setting' },
-      { id: 'custom-fields', title: ts.menu.customFields, description: ts.search.customFields, href: '/settings/custom-fields', type: 'setting' },
-      { id: 'object-templates', title: ts.menu.objectTemplates, description: ts.search.objectTemplates, href: '/settings/object-templates', type: 'setting' },
-      { id: 'integrations', title: ts.menu.integrations, description: ts.search.integrations, href: '/settings/integrations', type: 'setting' },
-      { id: 'phone-numbers', title: ts.menu.phoneNumbers, description: ts.search.phoneNumbers, href: '/settings/apps/phone-numbers', type: 'setting' },
-      { id: 'activity', title: ts.menu.activityLog, description: ts.search.activityLog, href: '/settings/activity', type: 'setting' },
-    ];
-
-    // Add app-specific search items only if the app is installed
-    for (const [appCode, items] of Object.entries(appSearchItems)) {
-      if (isInstalled(appCode)) {
-        allSettings.push(...items);
-      }
-    }
-
-    const lowerQuery = query.toLowerCase();
-    return allSettings.filter(
-      setting =>
-        setting.title.toLowerCase().includes(lowerQuery) ||
-        (setting.description?.toLowerCase().includes(lowerQuery) ?? false)
-    );
-  };
-
   // Build Apps menu items based on installed apps. Use the actual app logo
   // image (with Lucide fallback) instead of generic settings icons.
   // WeldSuite itself is always shown — it's the platform, not an installable app.
@@ -181,6 +129,7 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
       { appCode: 'weldcrm', title: 'WeldCRM', href: '/settings/apps/weldcrm' },
       { appCode: 'welddesk', title: 'WeldDesk', href: '/settings/apps/welddesk' },
       { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
+      { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
     ]
       .filter(item => isInstalled(item.appCode))
       .map(({ appCode, title, href }) => ({
@@ -248,8 +197,6 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
         <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden md:border-l md:border-border">
           <BreadcrumbHeader
             segments={segments}
-            onSearch={handleSearch}
-            searchPlaceholder={ts.searchPlaceholder}
             showBackButton={false}
             moduleKey="settings"
           />

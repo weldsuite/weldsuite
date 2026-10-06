@@ -12,10 +12,12 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Search, UserPlus, X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import type { Person } from '@/hooks/queries/use-people-queries';
 
 export type RecordKind = 'company' | 'person';
 
@@ -108,6 +110,7 @@ export function RecordSelectionModal({
   const [keyboardActive, setKeyboardActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isConfirming, setIsConfirming] = useState(false);
+  const [createQuery, setCreateQuery] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -207,7 +210,7 @@ export function RecordSelectionModal({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!open) return;
+      if (!open || createQuery) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setKeyboardActive(true);
@@ -220,11 +223,12 @@ export function RecordSelectionModal({
         e.preventDefault();
         const record = records[selectedIndex];
         if (record) handleSingleSelect(record);
+        else if (kind !== 'company' && searchQuery.trim()) setCreateQuery(searchQuery.trim());
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, selectedIndex, records, onSelectRecord, handleSingleSelect]);
+  }, [open, selectedIndex, records, onSelectRecord, handleSingleSelect, kind, searchQuery, createQuery]);
 
   useEffect(() => {
     if (listRef.current) {
@@ -246,6 +250,38 @@ export function RecordSelectionModal({
         ? t('sweep.entities.searchPeoplePlaceholder')
         : t('sweep.entities.searchCompaniesAndPeoplePlaceholder');
   const resolvedConfirmLabel = confirmLabel ?? t('sweep.entities.addToList');
+  const canCreatePerson = kind !== 'company' && searchQuery.trim().length > 0;
+
+  const handlePersonCreated = (person: Person) => {
+    const record: SelectableRecord = {
+      id: person.id,
+      kind: 'person',
+      displayName: person.displayName || person.email || t('sweep.entities.untitledPerson'),
+      email: person.email ?? undefined,
+      avatarUrl: person.avatarUrl ?? undefined,
+    };
+    setRecords((prev) => [record, ...prev.filter((r) => r.id !== person.id)]);
+    setSearchQuery('');
+    if (multiSelect) {
+      setSelectedIds((prev) => new Set(prev).add(person.id));
+    } else {
+      onSelectRecord?.(record);
+    }
+  };
+
+  const createPersonButton = canCreatePerson ? (
+    <Button
+      variant="ghost"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => setCreateQuery(searchQuery.trim())}
+      className="w-full justify-start gap-2 px-4 py-2 text-left font-normal"
+    >
+      <UserPlus className="h-4 w-4 text-muted-foreground" />
+      <span className="truncate">
+        {t('sweep.entities.createPersonFromSearch', { name: searchQuery.trim() })}
+      </span>
+    </Button>
+  ) : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -284,12 +320,13 @@ export function RecordSelectionModal({
               <p className="text-sm text-muted-foreground">{t('sweep.entities.searchingEllipsis')}</p>
             </div>
           ) : records.length === 0 ? (
-            <div className="h-full text-center flex flex-col items-center justify-center pb-12">
+            <div className="h-full text-center flex flex-col items-center justify-center gap-3 pb-12">
               <p className="text-sm text-muted-foreground">
                 {searchQuery
                   ? t('sweep.entities.noResultsFoundFor', { query: searchQuery })
                   : t('sweep.entities.noRecordsFound')}
               </p>
+              {createPersonButton}
             </div>
           ) : (
             <div ref={listRef} className="flex flex-col gap-0.5">
@@ -358,6 +395,7 @@ export function RecordSelectionModal({
                 </Button>
                 );
               })}
+              {createPersonButton}
             </div>
           )}
         </div>
@@ -378,6 +416,14 @@ export function RecordSelectionModal({
           </div>
         )}
       </DialogContent>
+      <QuickAddPersonDialog
+        open={createQuery !== null}
+        onOpenChange={(next) => {
+          if (!next) setCreateQuery(null);
+        }}
+        initialName={createQuery ?? ''}
+        onCreated={handlePersonCreated}
+      />
     </Dialog>
   );
 }

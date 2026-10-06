@@ -10,7 +10,7 @@
  * components is the app-api `{ data, pagination? }` envelope.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { appSettingsKeys } from '@/hooks/queries/use-app-settings-queries';
 import type {
@@ -555,6 +555,52 @@ export function useMailLabelThreads(
         subject: params.subject || undefined,
         hasAttachment: params.hasAttachment || undefined,
       }),
+    enabled: !!params.labelSlug && enabled,
+  });
+}
+
+/**
+ * Infinite-scroll thread list for a label. The API is still page-number based;
+ * pages are appended as the list sentinel intersects the viewport.
+ */
+export function useInfiniteMailLabelThreads(
+  params: { accountId?: string; labelSlug: string; pageSize?: number } & MailThreadSearch,
+  enabled = true,
+) {
+  const { mailLabels } = useAppApi();
+  const pageSize = params.pageSize ?? 25;
+  // Omit page from the key so every scroll page shares one infinite cache entry.
+  const queryKey = mailKeys.threadsByLabel({
+    accountId: params.accountId,
+    labelSlug: params.labelSlug,
+    pageSize,
+    search: params.search || undefined,
+    from: params.from || undefined,
+    to: params.to || undefined,
+    subject: params.subject || undefined,
+    hasAttachment: params.hasAttachment || undefined,
+  });
+
+  return useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) =>
+      mailLabels.threads({
+        accountId: params.accountId,
+        labelSlug: params.labelSlug,
+        page: pageParam,
+        pageSize,
+        search: params.search || undefined,
+        from: params.from || undefined,
+        to: params.to || undefined,
+        subject: params.subject || undefined,
+        hasAttachment: params.hasAttachment || undefined,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const totalCount = lastPage.data?.totalCount ?? 0;
+      const loaded = allPages.reduce((n, page) => n + (page.data?.threads?.length ?? 0), 0);
+      return loaded < totalCount ? allPages.length + 1 : undefined;
+    },
     enabled: !!params.labelSlug && enabled,
   });
 }

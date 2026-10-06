@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, Loader2, Mail, Search } from 'lucide-react';
+import { Check, Loader2, Mail, Search, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
@@ -14,6 +14,8 @@ import {
 import { usePersonSearch } from '@/hooks/queries/use-people-queries';
 import { useDebounce } from '@/hooks/use-debounce';
 import { getTranslations } from '@/lib/i18n';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import type { Person } from '@/hooks/queries/use-people-queries';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -41,7 +43,9 @@ export function MeetingInvitePicker({
   compact = false,
 }: Readonly<{ meetingId: string; compact?: boolean }>) {
   const t = getTranslations('weldmeet').invitePeople;
+  const sweep = getTranslations('sweep').entities;
   const [search, setSearch] = useState('');
+  const [createQuery, setCreateQuery] = useState<string | null>(null);
   const debounced = useDebounce(search.trim(), 250);
   const [invitedEmails, setInvitedEmails] = useState<Set<string>>(new Set());
   const [pendingEmails, setPendingEmails] = useState<Set<string>>(new Set());
@@ -194,6 +198,16 @@ export function MeetingInvitePicker({
   const nothingFound =
     !!search.trim() && !showTypedEmail && members.length === 0 && people.length === 0 && !searching;
 
+  const handlePersonCreated = (person: Person) => {
+    const email = person.email?.trim();
+    if (!email) {
+      toast.info(sweep.personCreatedNeedsEmail);
+      return;
+    }
+    void handleInvite(email, person.displayName || null);
+    setSearch('');
+  };
+
   return (
     <>
       <div className="relative">
@@ -243,10 +257,39 @@ export function MeetingInvitePicker({
           </>
         )}
 
+        {search.trim() && (
+          <button
+            type="button"
+            className={cn(
+              'flex w-full items-center gap-3 text-left hover:bg-accent rounded-md px-1',
+              compact ? 'py-2' : 'py-2.5',
+            )}
+            onClick={() => setCreateQuery(search.trim())}
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-primary/10 text-primary">
+              <UserPlus className="h-3.5 w-3.5" />
+            </span>
+            <span className={cn('font-medium truncate', compact ? 'text-[13px]' : 'text-sm')}>
+              {sweep.createPersonFromSearch.replace('{name}', search.trim())}
+            </span>
+          </button>
+        )}
+
         {nothingFound && (
           <p className="text-xs text-muted-foreground text-center py-6 px-2">{t.noResults}</p>
         )}
       </div>
+
+      {createQuery !== null && (
+        <QuickAddPersonDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setCreateQuery(null);
+          }}
+          initialName={createQuery}
+          onCreated={handlePersonCreated}
+        />
+      )}
     </>
   );
 }

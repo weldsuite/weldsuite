@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { findUnknownVariables, getStepFormatIssues, isInsideLoop, type VariableScope } from './step-issues';
+import {
+  findUnknownVariables,
+  getStepFormatIssues,
+  isInsideLoop,
+  isNestedWaitingStep,
+  type VariableScope,
+} from './step-issues';
 
 describe('getStepFormatIssues', () => {
   it('flags a literal recipient that is not an email address', () => {
@@ -131,5 +137,28 @@ describe('loop variables', () => {
     expect(isInsideLoop(steps[1], steps)).toBe(true);
     expect(isInsideLoop(steps[3], steps)).toBe(false);
     expect(isInsideLoop(steps[0], steps)).toBe(false);
+  });
+});
+
+describe('after another workflow (workflow_complete)', () => {
+  const scope = (extra: Partial<VariableScope> = {}): VariableScope => ({
+    triggerType: 'workflow_complete',
+    previousStepIds: [],
+    variableNames: [],
+    ...extra,
+  });
+  const config = { body: '{{trigger.sourceWorkflowName}} {{trigger.status}} {{trigger.output.step-1.contactId}}' };
+
+  it('knows the previous run, and its output only when the trigger passes it along', () => {
+    expect(findUnknownVariables(config, scope())).toEqual(['trigger.output.step-1.contactId']);
+    expect(findUnknownVariables(config, scope({ extraTriggerKeys: ['output'] }))).toEqual([]);
+  });
+});
+
+describe('isNestedWaitingStep', () => {
+  it('flags an approval inside a branch or loop, not one in the main flow or another step type', () => {
+    expect(isNestedWaitingStep({ type: 'manual_step', parentBranchId: 'c_if' })).toBe(true);
+    expect(isNestedWaitingStep({ type: 'manual_step' })).toBe(false);
+    expect(isNestedWaitingStep({ type: 'send_email', parentBranchId: 'l_each' })).toBe(false);
   });
 });

@@ -23,13 +23,13 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import { Check, Plus } from 'lucide-react';
+import { Check, Plus, UserPlus } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { usePeople } from '@/hooks/queries/use-people-queries';
+import { usePeople, type Person } from '@/hooks/queries/use-people-queries';
 import { useLinkPersonToCompany } from '@/hooks/queries/use-person-companies-queries';
-import type { Person } from '@weldsuite/core-api-client/schemas/people';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
 
 function personGravatar(email: string | null | undefined): string | undefined {
   if (!email) return undefined;
@@ -52,6 +52,7 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: LinkPersonPopo
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [createQuery, setCreateQuery] = useState<string | null>(null);
   const debounced = useDebounce(search, 200);
 
   // Query the People list; a `limit` of 25 is plenty for a combobox
@@ -79,7 +80,13 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: LinkPersonPopo
     );
   };
 
+  const openCreate = (query: string) => {
+    setOpen(false);
+    setCreateQuery(query);
+  };
+
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
@@ -98,6 +105,20 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: LinkPersonPopo
             onValueChange={setSearch}
           />
           <CommandList className="max-h-[260px]">
+            {search.trim() && (
+              <CommandGroup>
+                <CommandItem
+                  value={`__create__${search}`}
+                  onSelect={() => openCreate(search.trim())}
+                  className="flex items-center gap-2"
+                >
+                  <UserPlus className="h-4 w-4 text-muted-foreground" />
+                  <span className="truncate">
+                    {t('sweep.entities.createPersonFromSearch', { name: search.trim() })}
+                  </span>
+                </CommandItem>
+              </CommandGroup>
+            )}
             {peopleQuery.isLoading ? (
               <div className="px-3 py-6 text-sm text-muted-foreground text-center">
                 {t('sweep.entities.loadingEllipsis')}
@@ -141,5 +162,24 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: LinkPersonPopo
         </Command>
       </PopoverContent>
     </Popover>
+    <QuickAddPersonDialog
+      open={createQuery !== null}
+      onOpenChange={(next) => {
+        if (!next) setCreateQuery(null);
+      }}
+      initialName={createQuery ?? ''}
+      onCreated={(person) => {
+        linkMut.mutate(
+          { personId: person.id, companyId, isPrimary: false },
+          {
+            onSuccess: () => {
+              toast.success(t('sweep.entities.personLinked', { name: person.displayName }));
+            },
+          },
+        );
+        setSearch('');
+      }}
+    />
+    </>
   );
 }

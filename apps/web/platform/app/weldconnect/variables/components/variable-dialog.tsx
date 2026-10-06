@@ -22,9 +22,12 @@ import {
 } from '@weldsuite/ui/components/select';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { toast } from 'sonner';
+import { isApiError } from '@weldsuite/api-client';
 import { useCreateVariable, useUpdateVariable } from '@/hooks/queries/use-automation-queries';
 import { RefreshCw, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import type { Variable } from './variables-client';
+import { buildVariableCreateBody, buildVariableUpdateBody, getVariableFormError } from '../variable-form';
+import { useVariableWorkflows } from '../use-variable-workflows';
 
 interface VariableDialogProps {
   open: boolean;
@@ -35,52 +38,9 @@ interface VariableDialogProps {
 
 type VariablesTranslations = ReturnType<typeof useI18n>['t']['weldconnect']['variables'];
 
-interface VariableFormFields {
-  name: string;
-  value: string;
-  confirmValue: string;
-  description: string;
-  isSecret: boolean;
-}
-
-function getValidationError(
-  mode: 'create' | 'edit',
-  form: VariableFormFields,
-  toasts: VariablesTranslations['toastsDialog'],
-): string | null {
-  if (mode === 'create') {
-    if (!form.name.trim()) return toasts.nameRequired;
-    if (!form.value.trim()) return toasts.valueRequired;
-    if (form.isSecret && form.value !== form.confirmValue) return toasts.valuesMismatch;
-    return null;
-  }
-  if (!form.value.trim() && !form.description.trim()) return toasts.updateRequiresChange;
-  return null;
-}
-
-function buildUpdateData(value: string, description: string): { value?: string; description?: string } {
-  const updateData: { value?: string; description?: string } = {};
-  if (value.trim()) updateData.value = value;
-  if (description.trim()) updateData.description = description;
-  return updateData;
-}
-
-function buildCreateData(form: {
-  name: string;
-  value: string;
-  description: string;
-  isSecret: boolean;
-  scope: string;
-  workflowId: string;
-}) {
-  return {
-    name: form.name.trim(),
-    value: form.value.trim(),
-    description: form.description.trim() || undefined,
-    isSecret: form.isSecret,
-    isGlobal: form.scope === 'global',
-    workflowId: form.scope === 'workflow' && form.workflowId ? form.workflowId : undefined,
-  };
+/** 409 from the API: a run of these workflows would already see that name. */
+function isNameTakenError(err: unknown): boolean {
+  return isApiError(err) && err.status === 409;
 }
 
 function VisibilityIcon({ shown }: Readonly<{ shown: boolean }>) {
@@ -115,6 +75,7 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
   const createVariableMutation = useCreateVariable();
   const updateVariableMutation = useUpdateVariable();
   const isPending = createVariableMutation.isPending || updateVariableMutation.isPending;
+  const workflowOptions = useVariableWorkflows().data?.data ?? [];
   const [showValue, setShowValue] = useState(false);
   const [showConfirmValue, setShowConfirmValue] = useState(false);
 
@@ -161,11 +122,8 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const validationError = getValidationError(
-      mode,
-      { name, value, confirmValue, description, isSecret },
-      t.weldconnect.variables.toastsDialog,
-    );
+    const form = { name, value, confirmValue, description, isSecret, scope, workflowId };
+    const validationError = getVariableFormError(mode, form, t.weldconnect.variables.toastsDialog);
     if (validationError !== null) {
       toast.error(validationError);
       return;
@@ -173,7 +131,7 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
 
     if (mode === 'edit' && variable) {
       // Update existing variable
-      updateVariableMutation.mutate({ id: variable.id, data: buildUpdateData(value, description) }, {
+      updateVariableMutation.mutate({ id: variable.id, data: buildVariableUpdateBody(value, description) }, {
         onSuccess: () => {
           toast.success(t.weldconnect.variables.toastsDialog.updated);
           onOpenChange(false);
@@ -184,7 +142,7 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
       });
     } else {
       // Create new variable (use isSecret flag in the data)
-      const data = buildCreateData({ name, value, description, isSecret, scope, workflowId });
+      const data = buildVariableCreateBody(form);
 
       const entityType = isSecret ? t.weldconnect.variables.dialog.secret : t.weldconnect.variables.dialog.variable;
 
@@ -195,8 +153,12 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
 
           resetForm();
         },
-        onError: () => {
-          toast.error(t.weldconnect.variables.toastsDialog.createFailed.replace('{type}', entityType));
+        onError: (err) => {
+          toast.error(
+            isNameTakenError(err)
+              ? t.weldconnect.variables.toastsDialog.nameTaken
+              : t.weldconnect.variables.toastsDialog.createFailed.replace('{type}', entityType),
+          );
         },
       });
     }
@@ -277,13 +239,18 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
               <Label htmlFor="workflowId">
                 {t.weldconnect.variables.dialog.workflowIdLabel} <span className="text-red-500">*</span>
               </Label>
-              <Input
-                id="workflowId"
-                placeholder={t.weldconnect.variables.dialog.workflowIdPlaceholder}
-                value={workflowId}
-                onChange={(e) => setWorkflowId(e.target.value)}
-                disabled={isPending}
-              />
+              <Select value={workflowId} onValueChange={setWorkflowId} disabled={isPending}>
+                <SelectTrigger id="workflowId">
+                  <SelectValue placeholder={t.weldconnect.variables.dialog.workflowIdPlaceholder} />
+                </SelectTrigger>
+                <SelectContent>
+                  {workflowOptions.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p className="text-xs text-muted-foreground">
                 {t.weldconnect.variables.dialog.workflowIdHint}
               </p>

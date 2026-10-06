@@ -653,7 +653,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     dragCounter.current = 0;
     setIsDraggingOver(false);
 
-    // Internal file drag â€” move to root (out of folder)
+    // Internal file drag — move to root (out of folder)
     const fileId = e.dataTransfer.getData('application/x-drive-file-id');
     if (fileId) {
       moveMutation.mutate({ id: fileId, folderId: null }, {
@@ -739,7 +739,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     }
 
     if (sidebarView === 'trash') {
-      // Map DriveFile â†’ UnifiedFile shape (field names differ)
+      // Map DriveFile → UnifiedFile shape (field names differ)
       return (trashData?.files || []).map((f): UnifiedFile => ({
         id: f.id,
         name: f.fileName,
@@ -859,7 +859,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         });
       }
     } else {
-      // Simple click â€” select only this item
+      // Simple click — select only this item
       setSelectedIds(new Set([item.id]));
       lastSelectedIdRef.current = item.id;
     }
@@ -1294,7 +1294,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         {/* Size */}
         <div className="w-[100px]">
           <span className="text-sm font-mono text-muted-foreground tabular-nums">
-            {item.fileSize ? formatFileSize(item.fileSize) : 'â€”'}
+            {item.fileSize ? formatFileSize(item.fileSize) : '—'}
           </span>
         </div>
 
@@ -1858,7 +1858,7 @@ function DriveGridView({
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      {/* Toolbar â€” matches EntityList top bar */}
+      {/* Toolbar — matches EntityList top bar */}
       <div className="flex items-center justify-between px-3 md:px-4 h-[53px] border-b border-border pt-2 pb-2">
         <div className="hidden md:flex items-center gap-2">
           <FilterPills

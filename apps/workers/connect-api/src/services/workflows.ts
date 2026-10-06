@@ -6,14 +6,14 @@
  * Routes wire HTTP / permissions / entity events on top of this.
  */
 
-import { and, desc, eq, isNull, like, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { clearWorkflowTriggerIndex, syncWorkflowTriggerIndex } from './workflow-trigger-index';
 import { syncWorkflowSchedules } from './workflow-schedule-sync';
 import type { ScheduleIndexSync } from '../lib/schedule-index';
 import { syncWorkflowWebhooks, type WebhookSyncContext } from './workflow-webhook-sync';
-import { SEQUENCE_WORKFLOW_TAG } from './weldconnect-mvp';
+import { SEQUENCE_WORKFLOW_TAG, workflowCompleteSourceIds, type WorkflowIssue } from './weldconnect-mvp';
 import { notSequenceRun, notTestRun } from './workflow-executions';
 
 const { workflows, workflowExecutions } = schema;
@@ -361,8 +361,12 @@ export async function getWorkflowStats(db: Database) {
   };
 }
 
+/**
+ * Workflows another workflow can run after ("After another workflow finishes").
+ * CRM sequences are left out: they are not WeldConnect workflows.
+ */
 export async function listWorkflowsForChaining(db: Database, excludeId?: string) {
-  const conditions: any[] = [isNull(workflows.deletedAt)];
+  const conditions: any[] = [isNull(workflows.deletedAt), notSequenceWorkflow];
   if (excludeId) conditions.push(sql`${workflows.id} != ${excludeId}`);
 
   return db
@@ -396,4 +400,24 @@ export async function getWorkflowMetrics(db: Database, workflowId: string) {
     averageExecutionTime: avg,
     recentExecutions,
   };
+}
+
+/**
+ * The part of the activation gate that needs the database: every enabled
+ * `workflow_complete` trigger must point at a workflow that still exists (and
+ * is not a CRM sequence). One `unknown_source_workflow` issue per trigger
+ * that does not.
+ */
+export async function findMissingSourceWorkflows(db: Database, triggers: unknown): Promise<WorkflowIssue[]> {
+  const sources = workflowCompleteSourceIds(triggers);
+  if (sources.length === 0) return [];
+  const ids = [...new Set(sources.map((s) => s.sourceWorkflowId))];
+  const rows = await db
+    .select({ id: workflows.id })
+    .from(workflows)
+    .where(and(inArray(workflows.id, ids), isNull(workflows.deletedAt), notSequenceWorkflow));
+  const existing = new Set(rows.map((row) => row.id));
+  return sources
+    .filter((s) => !existing.has(s.sourceWorkflowId))
+    .map((s) => ({ code: 'unknown_source_workflow' as const, triggerId: s.triggerId, type: 'workflow_complete' }));
 }
