@@ -496,7 +496,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
       setSecondaryLabelCounts(secondaryCounts);
       setCustomLabels(custom);
       if (orgIdRef.current) {
-        mailCache.setLabels(orgIdRef.current, scope, { mainCounts, secondaryCounts, custom });
+        void mailCache.setLabels(orgIdRef.current, scope, { mainCounts, secondaryCounts, custom });
       }
     },
     [],

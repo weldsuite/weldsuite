@@ -345,7 +345,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
         if (!cancelled) setLaunchReady(true);
       }
     };
-    initLaunch();
+    void initLaunch();
     return () => {
       cancelled = true;
       if (cleanupRef.current) {
@@ -407,7 +407,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
     };
 
-    initToken();
+    void initToken();
     return () => {
       cancelled = true;
       removeTokenRefresh?.();

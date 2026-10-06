@@ -71,8 +71,8 @@ export function useCacheOrgId(): string | null {
           // wipe the previous user's scope here. Latching it would show their
           // cached mail to the next user who signs in.
           AsyncStorage.removeItem(LATCH_KEY).catch(() => {});
-          clearOrgCache(v);
-          clearOutbox(v);
+          void clearOrgCache(v);
+          void clearOutbox(v);
           return;
         }
         setLatch(v);
@@ -87,7 +87,7 @@ export function useCacheOrgId(): string | null {
       const prev = latch;
       setLatch(organizationId);
       AsyncStorage.setItem(LATCH_KEY, organizationId).catch(() => {});
-      if (prev && prev !== organizationId) clearOrgCache(prev);
+      if (prev && prev !== organizationId) void clearOrgCache(prev);
     }
   }, [organizationId]);
 
@@ -101,8 +101,8 @@ export function useCacheOrgId(): string | null {
       setLatch(null);
       AsyncStorage.removeItem(LATCH_KEY).catch(() => {});
       if (prev) {
-        clearOrgCache(prev);
-        clearOutbox(prev);
+        void clearOrgCache(prev);
+        void clearOutbox(prev);
       }
     }
   }, [isSignedIn]);

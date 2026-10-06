@@ -36,7 +36,9 @@ export function useMailOutbox() {
   const cache = useMailCache();
 
   const flush = useCallback(() => {
-    flushMailOutbox(orgId);
+    flushMailOutbox(orgId).catch((err) => {
+      console.warn('[outbox] Flush failed, will retry on the next trigger:', err);
+    });
   }, [orgId]);
 
   return useMemo(() => {
