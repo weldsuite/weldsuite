@@ -81,7 +81,7 @@ jobs:
             VERSION="$INPUT_VERSION"
             echo "packages=${INPUT_PACKAGES}" >> "$GITHUB_OUTPUT"
           fi
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Invalid version: ${VERSION}"
             exit 1
           fi
