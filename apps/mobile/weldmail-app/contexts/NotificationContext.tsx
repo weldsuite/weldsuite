@@ -324,7 +324,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
             const data = notification.request.content.data as { unreadCount?: number };
             if (data?.unreadCount !== undefined) {
               setUnreadCount(data.unreadCount);
-              setBadgeCount(data.unreadCount);
+              void setBadgeCount(data.unreadCount);
             }
           },
           queueNavigationFromResponse,
@@ -334,7 +334,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
         // Safe cold-start: only act on the OS last response when we have not
         // already handled that notification id. Live taps still go through
         // queueNavigationFromResponse above.
-        const lastResponse = await Notifications.getLastNotificationResponseAsync();
+        const lastResponse = Notifications.getLastNotificationResponse();
         if (cancelled) return;
         if (lastResponse) {
           queueNavigationFromResponse(lastResponse);
@@ -388,7 +388,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
           if (cancelled) return;
           if (token) {
             setIsPermissionGranted(true);
-            registerDeviceToken(token);
+            void registerDeviceToken(token);
           }
         } else if (!EAS_PROJECT_ID) {
           console.warn('[Notifications] EAS project ID is not configured; push notifications disabled');
@@ -398,7 +398,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
         removeTokenRefresh = addPushTokenRefreshListener(() => {
           if (!EAS_PROJECT_ID) return;
           registerForPushNotificationsAsync(EAS_PROJECT_ID)
-            .then((refreshed) => { if (refreshed) registerDeviceToken(refreshed); })
+            .then((refreshed) => { if (refreshed) void registerDeviceToken(refreshed); })
             .catch(() => {});
         });
         setIsConnected(true);
