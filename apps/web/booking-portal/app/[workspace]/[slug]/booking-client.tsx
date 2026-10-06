@@ -378,7 +378,11 @@ export function BookingClient({
       dispatch({ type: 'finish-initial' });
     };
 
-    fetchInitial();
+    fetchInitial().catch((err) => {
+      // Don't leave the calendar on its initial spinner if a slot lookup fails.
+      console.error('[booking] Failed to find the first available day:', err);
+      if (!cancelled) dispatch({ type: 'finish-initial' });
+    });
     return () => {
       cancelled = true;
     };
