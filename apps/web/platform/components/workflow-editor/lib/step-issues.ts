@@ -64,9 +64,15 @@ function contactIssues(config: Config): StepFormatIssue[] {
   return email && !EMAIL_PATTERN.test(email) ? [{ labelKey: 'contactEmail', kind: 'email', value: email }] : [];
 }
 
+function createLeadIssues(config: Config): StepFormatIssue[] {
+  const email = literal(config.email);
+  return email && !EMAIL_PATTERN.test(email) ? [{ labelKey: 'leadEmail', kind: 'email', value: email }] : [];
+}
+
 const FORMAT_CHECKS: Record<string, (config: Config) => StepFormatIssue[]> = {
   create_contact: contactIssues,
   update_contact: contactIssues,
+  create_lead: createLeadIssues,
   send_email: sendEmailIssues,
   email: sendEmailIssues,
   create_customer: createCustomerIssues,

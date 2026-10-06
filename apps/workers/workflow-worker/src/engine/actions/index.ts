@@ -17,7 +17,14 @@ import {
   handleTransform,
 } from './data';
 import { handleCreateCustomer } from './customer';
-import { handleCreateContact, handleUpdateContact } from './crm';
+import {
+  handleCreateContact,
+  handleUpdateContact,
+  handleCreateLead,
+  handleCreateDeal,
+  handleMoveDealStage,
+  handleLogActivity,
+} from './crm';
 import { handleHttpRequest, handleWebhook } from './http';
 import { handleSetVariable, handleLog, handleCondition, handleLoop, handleDelay } from './control';
 import { handleAiGenerate, handleAiClassify } from './ai';
@@ -63,6 +70,10 @@ export const actionHandlers: Record<string, ActionHandler> = {
   create_customer: handleCreateCustomer,
   create_contact: handleCreateContact,
   update_contact: handleUpdateContact,
+  create_lead: handleCreateLead,
+  create_deal: handleCreateDeal,
+  move_deal_stage: handleMoveDealStage,
+  log_activity: handleLogActivity,
   // Integration / HTTP
   http_request: handleHttpRequest,
   webhook: handleWebhook,

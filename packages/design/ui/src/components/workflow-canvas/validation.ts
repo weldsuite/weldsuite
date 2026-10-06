@@ -76,6 +76,16 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     },
   ],
   update_contact: [{ labelKey: 'contactToUpdate', isMissing: (c) => isBlank(c.contactId) }],
+  create_lead: [{ labelKey: 'leadEmail', isMissing: (c) => isBlank(c.email) }],
+  create_deal: [
+    { labelKey: 'dealName', isMissing: (c) => isBlank(c.name) },
+    { labelKey: 'dealCustomer', isMissing: (c) => isBlank(c.customerId) },
+  ],
+  move_deal_stage: [
+    { labelKey: 'dealToMove', isMissing: (c) => isBlank(c.dealId) },
+    { labelKey: 'dealStage', isMissing: (c) => isBlank(c.stageId) },
+  ],
+  log_activity: [{ labelKey: 'activitySubject', isMissing: (c) => isBlank(c.subject) }],
   create_record: [
     { labelKey: 'entityType', isMissing: (c) => isBlank(c.entityType) && isBlank(c.entity) },
     { labelKey: 'fields', isMissing: (c) => isEmptyObject(c.data) },

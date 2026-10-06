@@ -23,13 +23,13 @@ import {
 } from '@weldsuite/core-api-client/schemas/activities';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
-import { generateId } from '@weldsuite/worker-kit/id';
 import {
   syncValuesForEntity,
   hydrateCustomFields,
   hydrateCustomFieldsOne,
 } from '@weldsuite/core-domain/custom-field-values';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { createActivity } from '@weldsuite/crm-domain/activities';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmActivities;
@@ -135,75 +135,14 @@ app.post('/', requirePermission('activities:create'), zValidator('json', createA
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   const userId = c.get('userId');
-  const assignedToId = data.assignedToId ?? userId;
-  if (!assignedToId) return error.badRequest(c, 'assignedToId required');
-  const id = generateId('act');
-  const now = new Date();
   try {
-    const values: typeof t.$inferInsert = {
-      id,
-      type: data.type,
-      subject: data.subject,
-      description: data.description,
-      relatedTo: data.relatedTo,
-      relatedToId: data.relatedToId,
-      relatedToName: data.relatedToName,
-      customerId: data.customerId,
-      contactId: data.contactId,
-      leadId: data.leadId,
-      opportunityId: data.opportunityId,
-      assignedToId,
-      dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
-      startTime: data.startTime ? new Date(data.startTime) : undefined,
-      endTime: data.endTime ? new Date(data.endTime) : undefined,
-      duration: data.duration,
-      status: data.status ?? 'planned',
-      priority: data.priority ?? 'medium',
-      location: data.location,
-      isVirtual: data.isVirtual,
-      meetingUrl: data.meetingUrl,
-      callDirection: data.callDirection,
-      callDuration: data.callDuration,
-      callRecordingUrl: data.callRecordingUrl,
-      emailMessageId: data.emailMessageId,
-      emailSubject: data.emailSubject,
-      emailFrom: data.emailFrom,
-      emailTo: data.emailTo,
-      emailCc: data.emailCc,
-      attendees: data.attendees,
-      meetingAgenda: data.meetingAgenda,
-      meetingNotes: data.meetingNotes,
-      outcome: data.outcome,
-      nextAction: data.nextAction,
-      followUpDate: data.followUpDate ? new Date(data.followUpDate) : undefined,
-      attachments: data.attachments,
-      calendarEventId: data.calendarEventId,
-      tags: data.tags,
-      customFields: data.customFields as Record<string, unknown> | null | undefined,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.insert(t).values(values);
+    const { id, eventData } = await createActivity(db, data, userId);
     // Phase 1 dual-write: mirror the customFields blob into the typed values table.
     await syncValuesForEntity(db, 'activity', id, data.customFields as Record<string, unknown> | null | undefined);
-    publishEntityEvent({
-      c,
-      entityType: 'activity',
-      entityId: id,
-      action: 'created',
-      data: {
-        id,
-        type: values.type,
-        subject: values.subject,
-        status: values.status,
-        customerId: values.customerId,
-        contactId: values.contactId,
-        assigneeId: values.assignedToId,
-        dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : null,
-      },
-    });
+    publishEntityEvent({ c, entityType: 'activity', entityId: id, action: 'created', data: eventData });
     return success(c, { id }, 201);
   } catch (err) {
+    if (err instanceof Error && err.message === 'assignedToId required') return error.badRequest(c, err.message);
     console.error('[app-api/activities] create failed:', err);
     return error.internal(c, 'Failed to create activity');
   }
