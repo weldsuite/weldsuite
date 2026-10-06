@@ -428,38 +428,23 @@ export function BookingClient({
 
   const handleSubmit = (formState: BookingFormState) => {
     if (!state.selectedSlot) return;
+    const slot = state.selectedSlot;
     startSubmitTransition(async () => {
+      const booking = {
+        bookingPageId: bookingPage.id,
+        bookerName: formState.name,
+        bookerEmail: formState.email,
+        startTime: slot.start,
+        endTime: slot.end,
+        answers: Object.keys(formState.answers).length > 0 ? formState.answers : undefined,
+        notes: formState.notes || undefined,
+        guests:
+          formState.guests.length > 0 ? formState.guests.map((email) => ({ email })) : undefined,
+      };
       const result =
         kind === 'personal'
-          ? await createPersonalBooking({
-              bookingPageId: bookingPage.id,
-              bookerName: formState.name,
-              bookerEmail: formState.email,
-              startTime: state.selectedSlot!.start,
-              endTime: state.selectedSlot!.end,
-              answers:
-                Object.keys(formState.answers).length > 0 ? formState.answers : undefined,
-              notes: formState.notes || undefined,
-              guests:
-                formState.guests.length > 0
-                  ? formState.guests.map((email) => ({ email }))
-                  : undefined,
-            })
-          : await createBooking({
-              workspaceSlug,
-              bookingPageId: bookingPage.id,
-              bookerName: formState.name,
-              bookerEmail: formState.email,
-              startTime: state.selectedSlot!.start,
-              endTime: state.selectedSlot!.end,
-              answers:
-                Object.keys(formState.answers).length > 0 ? formState.answers : undefined,
-              notes: formState.notes || undefined,
-              guests:
-                formState.guests.length > 0
-                  ? formState.guests.map((email) => ({ email }))
-                  : undefined,
-            });
+          ? await createPersonalBooking(booking)
+          : await createBooking({ workspaceSlug, ...booking });
 
       if (result.success) {
         dispatch({
