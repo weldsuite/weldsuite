@@ -1020,7 +1020,7 @@ const GanttPage = () => {
 
   const handleMarkerRemoveFromPopover = () => {
     if (!selectedMarker) return;
-    handleRemoveMarker(selectedMarker.id);
+    void handleRemoveMarker(selectedMarker.id);
     setViewMarkerPopoverOpen(false);
     setSelectedMarker(null);
     setMarkerPopoverPosition(null);
