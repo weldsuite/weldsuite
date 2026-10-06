@@ -51,41 +51,66 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-  type-check-api:
-    name: Type Check · app-api
+  # app-api plus every module worker and domain is ~17 minutes of tsc.
+  # Four-wide on one runner is already at that machine's CPU limit (~5 min).
+  # Shards are separate runners, still four-wide each. "Type Check · app-api"
+  # stays the required check and fails unless every shard succeeded.
+  # Keep --shards equal to the matrix length.
+  type-check-api-shards:
+    name: Type Check · app-api (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # app-api's schema is clean — this one blocks.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     env:
-      # ~565 source files against drizzle-orm's deep generics blow past Node's
-      # default ~2 GB heap. 5 GB fits on standard hosted runners (~7 GB RAM).
+      # app-api's drizzle generics blow past Node's default heap. The same
+      # ceiling applies to whichever shard draws that package.
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
-      - name: Type-check app-api
-        working-directory: apps/workers/app-api
-        run: pnpm type-check
-      # Shared packages and per-module API workers
-      # (apps/workers/<module>-api, docs/plans/app-api-module-split.md).
-      # One pnpm invocation, four at a time. The old bash loop started tsc
-      # once per worker and spent ~4 minutes waiting on process startup.
-      # Domain packages already ran four-wide on this runner; workers join
-      # that same pool, so peak memory stays where it is today. app-api
-      # stays in the previous step so it does not run beside that pool.
-      - name: Type-check worker packages + module API workers
+      - name: Restore TypeScript incremental cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/workers/*/tsconfig.tsbuildinfo
+            packages/domains/*/tsconfig.tsbuildinfo
+            packages/core/api-modules/tsconfig.tsbuildinfo
+            packages/core/worker-*/tsconfig.tsbuildinfo
+          key: tsc-api-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            tsc-api-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('pnpm-lock.yaml') }}-
+      - name: Type-check app-api packages
         run: |
           set -euo pipefail
-          args=(
-            --workspace-concurrency=4
-            --filter "./packages/core/api-modules"
-            --filter "./packages/core/worker-*"
-            --filter "./packages/domains/*"
-          )
-          for w in $(node .github/scripts/module-workers.mjs --list); do
-            args+=(--filter "$w")
-          done
-          pnpm "${args[@]}" type-check
+          args=(--workspace-concurrency=4)
+          while IFS= read -r dir; do
+            [ -n "$dir" ] || continue
+            args+=(--filter "./$dir")
+          done < <(node .github/scripts/typecheck-targets.mjs --shard ${{ matrix.shard }} --shards 4)
+          if [ "${#args[@]}" -eq 1 ]; then
+            echo "shard is empty"
+            exit 0
+          fi
+          # --incremental writes tsconfig.tsbuildinfo (gitignored). The cache
+          # above restores it, so a later run rechecks changed files.
+          pnpm "${args[@]}" exec tsc --noEmit --incremental --pretty false
+
+  type-check-api:
+    name: Type Check · app-api
+    needs: [type-check-api-shards]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require app-api package type-checks
+        run: |
+          set -euo pipefail
+          result="${{ needs.type-check-api-shards.result }}"
+          echo "shards: $result"
+          test "$result" = "success"
 
   type-check-platform:
     name: Type Check · platform
@@ -217,18 +242,48 @@ jobs:
         working-directory: apps/web/platform
         run: pnpm test
 
-  # ────────────────────────────────────────────
-  # Full-graph build. Blocking as of #66.
-  # Hosted runners are ephemeral; pnpm + turbo caches come from setup-monorepo.
-  # ────────────────────────────────────────────
-  build:
-    name: Build
+  # Full-graph build. Blocking as of #66. The name "Build" is the
+  # required check. Platform's Vite bundle (~3 min) and the rest of the
+  # graph (Storybook ~2 min, plus every other package) run on separate
+  # runners so they stop competing for the same four cores. Turbo cache
+  # is per job id, so a later run skips packages whose inputs did not change.
+  build-platform:
+    name: Build · platform
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
-      - name: Build
-        run: pnpm build
+      - name: Build platform
+        run: pnpm exec turbo run build --filter=platform
+
+  build-rest:
+    name: Build · packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build everything except platform
+        run: pnpm exec turbo run build --filter=!platform --concurrency=4
+
+  build:
+    name: Build
+    needs: [build-platform, build-rest]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require platform and package builds
+        run: |
+          set -euo pipefail
+          platform="${{ needs.build-platform.result }}"
+          rest="${{ needs.build-rest.result }}"
+          echo "platform: $platform"
+          echo "packages: $rest"
+          test "$platform" = "success"
+          test "$rest" = "success"
