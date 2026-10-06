@@ -114,7 +114,7 @@ export default function EmailListClient({ initialConversations, accessToken }: R
     }
   });
 
-  const items = useMemo(() => filteredConversations.map(conversationToItem), [filteredConversations]);
+  const items = useMemo(() => filteredConversations.map((conv) => conversationToItem(conv)), [filteredConversations]);
 
   const handleItemClick = async (item: ConversationItem) => {
     const conversation = conversations.find(c => c.id === item.id);

@@ -164,7 +164,7 @@ export default function ConversationListClient({ initialConversations, accessTok
     }
   });
 
-  const items = useMemo(() => filteredConversations.map(conversationToItem), [filteredConversations]);
+  const items = useMemo(() => filteredConversations.map((conv) => conversationToItem(conv)), [filteredConversations]);
 
   const handleItemClick = (item: ConversationItem) => {
     const conversation = conversations.find(c => c.id === item.id);
