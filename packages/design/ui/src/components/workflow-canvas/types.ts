@@ -132,6 +132,7 @@ export const DEFAULT_CANVAS_LABELS: Required<WorkflowCanvasLabels> = {
     delete_record: 'Delete Record',
     query_data: 'Query Data',
     send_notification: 'Send Notification',
+    post_chat_message: 'Post Chat Message',
     run_script: 'Run Script',
     ai_generate: 'AI Generate',
     ai_extract: 'AI Extract',

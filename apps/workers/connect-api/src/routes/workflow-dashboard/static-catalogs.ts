@@ -19,6 +19,7 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'send_email', name: 'Send Email', description: 'Send an email message', category: 'communication', icon: 'mail' },
   { id: 'send_sms', name: 'Send SMS', description: 'Send an SMS message', category: 'communication', icon: 'message-square' },
   { id: 'send_notification', name: 'Send Notification', description: 'Send a push notification', category: 'communication', icon: 'bell' },
+  { id: 'post_chat_message', name: 'Post Chat Message', description: 'Post a message to a WeldChat channel', category: 'communication', icon: 'message-circle' },
   { id: 'slack_message', name: 'Slack Message', description: 'Send a message to Slack', category: 'communication', icon: 'slack' },
   // Data
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', category: 'data', icon: 'plus' },

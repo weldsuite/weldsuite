@@ -31,6 +31,7 @@ import {
   Pencil,
   Search,
   MessageSquare,
+  MessageCircle,
   Bell,
   Building2,
   Calendar,
@@ -289,6 +290,7 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   create_customer: { icon: Building2, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   create_contact: { icon: UserPlus, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   update_contact: { icon: UserCheck, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  post_chat_message: { icon: MessageCircle, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
   assign_conversation: { icon: UserPlus, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
@@ -388,6 +390,7 @@ interface SidebarActionType {
 const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'send_email', name: 'Send Email', description: 'Send an email message', icon: Mail, category: 'communication' },
   { id: 'send_notification', name: 'Send Notification', description: 'Send an in-app notification', icon: Bell, category: 'communication' },
+  { id: 'post_chat_message', name: 'Post Chat Message', description: 'Post a message to a WeldChat channel', icon: MessageCircle, category: 'communication' },
   { id: 'create_customer', name: 'Create Company', description: 'Add a company to WeldCRM', icon: Building2, category: 'data' },
   { id: 'create_contact', name: 'Create Contact', description: 'Add a person to WeldCRM', icon: UserPlus, category: 'data' },
   { id: 'update_contact', name: 'Update Contact', description: 'Change a person in WeldCRM', icon: UserCheck, category: 'data' },
@@ -538,6 +541,11 @@ function summarizeContact(config: Record<string, unknown>): string {
   return name || (typeof config.email === 'string' ? config.email : '');
 }
 
+function summarizePostChatMessage(config: Record<string, unknown>): string {
+  const message = typeof config.message === 'string' ? config.message : typeof config.content === 'string' ? config.content : '';
+  return message.substring(0, 60) + (message.length > 60 ? '...' : '');
+}
+
 const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['send_email', summarizeSendEmail],
   ['http_request', summarizeHttpRequest],
@@ -549,6 +557,7 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['create_customer', summarizeCreateCustomer],
   ['create_contact', summarizeContact],
   ['update_contact', summarizeContact],
+  ['post_chat_message', summarizePostChatMessage],
 ]);
 
 function getConfigSummary(actionType: string, config: Record<string, unknown>): string {

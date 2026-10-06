@@ -38,6 +38,8 @@ import {
   X,
   ChevronsUpDown,
   Check,
+  Hash,
+  Lock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -54,6 +56,7 @@ import { FieldBuilder } from '@weldsuite/ui/components/workflow-canvas/parts/fie
 import { FilterBuilder, type FilterCondition } from '@weldsuite/ui/components/workflow-canvas/parts/filter-builder';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useChannels } from '@/hooks/queries/use-weldchat-queries';
 
 // Types for context data
 interface EmailAccountOption {
@@ -926,6 +929,94 @@ function ContactForm({
           />
         </FormField>
       )}
+      <p className="text-xs text-muted-foreground">{cf.ownerPermissionHint}</p>
+    </div>
+  );
+}
+
+/**
+ * post_chat_message. The run posts as the workflow itself (never the owner),
+ * checked against the SAME two gates chat-api's human send route applies for
+ * the owner: `channels:create` plus the owner's access to the channel
+ * (public channels are open; a private channel/DM needs the owner to be a
+ * member) — see apps/workers/connect-api/src/routes/internal-workflow-actions/index.ts.
+ */
+function PostChatMessageForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.postChatMessage;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const { data, isLoading } = useChannels();
+  const channels = data?.data ?? [];
+  const channelId = (config.channelId as string | undefined) || '';
+
+  return (
+    <div className="space-y-4">
+      <FormField label={cf.channel} required description={cf.channelDesc}>
+        <Select
+          value={channelId}
+          onValueChange={(value) => onChange({ ...config, channelId: value })}
+          disabled={isLoading}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={isLoading ? cf.loadingChannels : cf.selectChannel} />
+          </SelectTrigger>
+          <SelectContent>
+            {channels.map((channel) => (
+              <SelectItem key={channel.id} value={channel.id}>
+                <span className="inline-flex items-center gap-1.5">
+                  {channel.isPrivate ? (
+                    <Lock className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <Hash className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  {channel.name}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!isLoading && channels.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{cf.noChannels}</p>
+        )}
+      </FormField>
+
+      <FormField label={cf.message} required description={cf.messageDesc}>
+        <VariableInput
+          value={(config.message as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, message: v })}
+          placeholder={cf.messagePlaceholder}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.mentions} description={cf.mentionsDesc}>
+        <VariableInput
+          value={(config.mentions as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, mentions: v })}
+          placeholder={cf.mentionsPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
       <p className="text-xs text-muted-foreground">{cf.ownerPermissionHint}</p>
     </div>
   );
@@ -2928,6 +3019,19 @@ export function ActionConfigForm({
             config={config}
             onChange={onChange}
             isUpdate={actionType === 'update_contact'}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'post_chat_message':
+        return (
+          <PostChatMessageForm
+            config={config}
+            onChange={onChange}
             triggerType={triggerType}
             steps={previousSteps}
             workflowVariables={workflowVariables}

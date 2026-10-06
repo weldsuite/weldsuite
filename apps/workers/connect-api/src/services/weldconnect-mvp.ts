@@ -6,7 +6,7 @@
  * the production MVP, WeldConnect is narrowed to:
  *   - triggers: `entity_event` (a record is created/updated/…) and recurring
  *     `schedule` (cron + timezone)
- *   - actions:  `send_email` and `create_customer`
+ *   - actions:  `send_email`, `create_customer` and `post_chat_message`
  *   - logic:    `condition` (if/else branches), `loop` (for each item) and
  *     `delay`; branch steps sit under their parent via `parentBranchId`
  *
@@ -28,6 +28,7 @@ export const WELDCONNECT_ACTION_TYPES = [
   'create_contact',
   'update_contact',
   'send_notification',
+  'post_chat_message',
   'condition',
   'loop',
   'delay',
@@ -142,6 +143,12 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   create_contact: (c) => (isBlank(c.firstName) && isBlank(c.lastName) && isBlank(c.email) ? ['name'] : []),
   update_contact: (c) => (isBlank(c.contactId) ? ['contactId'] : []),
   send_notification: (c) => (isBlank(c.title) ? ['title'] : []),
+  post_chat_message: (c) => {
+    const missing: string[] = [];
+    if (isBlank(c.channelId)) missing.push('channelId');
+    if (isBlank(c.message) && isBlank(c.content)) missing.push('message');
+    return missing;
+  },
   condition: (c) => {
     const missing: string[] = [];
     if (isBlank(c.field)) missing.push('field');
