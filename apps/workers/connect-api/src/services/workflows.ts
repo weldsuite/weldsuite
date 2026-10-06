@@ -12,6 +12,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { clearWorkflowTriggerIndex, syncWorkflowTriggerIndex } from './workflow-trigger-index';
 import { syncWorkflowSchedules } from './workflow-schedule-sync';
 import type { ScheduleIndexSync } from '../lib/schedule-index';
+import { syncWorkflowWebhooks, type WebhookSyncContext } from './workflow-webhook-sync';
 import { SEQUENCE_WORKFLOW_TAG } from './weldconnect-mvp';
 import { notSequenceRun, notTestRun } from './workflow-executions';
 
@@ -112,6 +113,7 @@ export async function createWorkflow(
   },
   userId: string,
   scheduleSync?: ScheduleIndexSync,
+  webhookSync?: WebhookSyncContext,
 ) {
   const id = generateId('wf');
   const now = new Date();
@@ -150,6 +152,12 @@ export async function createWorkflow(
     workflowActive: status === 'active',
   });
 
+  await syncWorkflowWebhooks(db, webhookSync, {
+    workflowId: id,
+    previousTriggers: [],
+    nextTriggers: triggers,
+  });
+
   return { id };
 }
 
@@ -158,6 +166,7 @@ export async function updateWorkflow(
   id: string,
   data: Record<string, unknown>,
   scheduleSync?: ScheduleIndexSync,
+  webhookSync?: WebhookSyncContext,
 ) {
   const [existing] = await db
     .select()
@@ -185,6 +194,12 @@ export async function updateWorkflow(
     previousTriggers: existing.triggers,
     nextTriggers,
     workflowActive: nextStatus === 'active',
+  });
+
+  await syncWorkflowWebhooks(db, webhookSync, {
+    workflowId: id,
+    previousTriggers: existing.triggers,
+    nextTriggers,
   });
 
   return { id };
@@ -263,7 +278,12 @@ export async function duplicateWorkflow(
   return { id: newId };
 }
 
-export async function deleteWorkflow(db: Database, id: string, scheduleSync?: ScheduleIndexSync) {
+export async function deleteWorkflow(
+  db: Database,
+  id: string,
+  scheduleSync?: ScheduleIndexSync,
+  webhookSync?: WebhookSyncContext,
+) {
   const [existing] = await db
     .select({ triggers: workflows.triggers })
     .from(workflows)
@@ -285,6 +305,12 @@ export async function deleteWorkflow(db: Database, id: string, scheduleSync?: Sc
       previousTriggers: existing.triggers,
       nextTriggers: [],
       workflowActive: false,
+    });
+
+    await syncWorkflowWebhooks(db, webhookSync, {
+      workflowId: id,
+      previousTriggers: existing.triggers,
+      nextTriggers: [],
     });
   }
 }

@@ -4,9 +4,11 @@
  * The engine (apps/workers/workflow-worker) still implements many more
  * triggers and actions, shared with WeldDesk workflows and CRM sequences. For
  * the production MVP, WeldConnect is narrowed to:
- *   - triggers: `entity_event` (a record is created/updated/…) and recurring
- *     `schedule` (cron + timezone)
- *   - actions:  `send_email` and `create_customer`
+ *   - triggers: `entity_event` (a record is created/updated/…), recurring
+ *     `schedule` (cron + timezone), and `webhook` (an external system POSTs to
+ *     a generated URL — see services/workflow-webhook-sync.ts)
+ *   - actions:  `send_email`, `create_customer` and `http_request` (call any
+ *     external API — apps/workers/workflow-worker/src/engine/actions/http.ts)
  *
  * Drafts may hold anything (the editor only offers the MVP set); activation is
  * what's gated, so an unsupported workflow can never start running. CRM
@@ -19,8 +21,8 @@
 
 import { ENTITY_EVENTS as ENTITY_EVENT_CATALOG } from '@weldsuite/entity-events';
 
-export const WELDCONNECT_TRIGGER_TYPES = ['entity_event', 'schedule'] as const;
-export const WELDCONNECT_ACTION_TYPES = ['send_email', 'create_customer'] as const;
+export const WELDCONNECT_TRIGGER_TYPES = ['entity_event', 'schedule', 'webhook'] as const;
+export const WELDCONNECT_ACTION_TYPES = ['send_email', 'create_customer', 'http_request'] as const;
 
 /** Tag carried by CRM sequence workflows (see routes/sequences). */
 export const SEQUENCE_WORKFLOW_TAG = '__type:sequence';
@@ -116,28 +118,23 @@ export function isValidTimezone(timezone: string): boolean {
 const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], string[]> = {
   send_email: ['to', 'subject', 'body'],
   create_customer: ['name'],
+  // `method` has a default (GET) in both the editor and the engine handler —
+  // only the URL is truly required to activate.
+  http_request: ['url'],
 };
 
-function validateTrigger(trigger: Bag): WorkflowIssue[] {
-  const triggerId = typeof trigger.id === 'string' ? trigger.id : undefined;
-  const type = String(trigger.type ?? '');
-
-  if (!(WELDCONNECT_TRIGGER_TYPES as readonly string[]).includes(type)) {
-    return [{ code: 'unsupported_trigger', triggerId, type }];
+function validateEntityEventTrigger(trigger: Bag, triggerId: string | undefined): WorkflowIssue[] {
+  const entityType = triggerField(trigger, 'entityType');
+  const eventType = triggerField(trigger, 'eventType');
+  if (isBlank(entityType) || isBlank(eventType)) return [{ code: 'incomplete_entity_event', triggerId }];
+  const events = (ENTITY_EVENT_CATALOG as Record<string, readonly string[]>)[String(entityType)];
+  if (!events || !events.includes(String(eventType))) {
+    return [{ code: 'unknown_entity_event', triggerId }];
   }
+  return [];
+}
 
-  if (type === 'entity_event') {
-    const entityType = triggerField(trigger, 'entityType');
-    const eventType = triggerField(trigger, 'eventType');
-    if (isBlank(entityType) || isBlank(eventType)) return [{ code: 'incomplete_entity_event', triggerId }];
-    const events = (ENTITY_EVENT_CATALOG as Record<string, readonly string[]>)[String(entityType)];
-    if (!events || !events.includes(String(eventType))) {
-      return [{ code: 'unknown_entity_event', triggerId }];
-    }
-    return [];
-  }
-
-  // schedule
+function validateScheduleTrigger(trigger: Bag, triggerId: string | undefined): WorkflowIssue[] {
   const scheduleType = triggerField(trigger, 'scheduleType');
   if (scheduleType !== undefined && scheduleType !== 'recurring') {
     return [{ code: 'schedule_not_recurring', triggerId }];
@@ -150,6 +147,28 @@ function validateTrigger(trigger: Bag): WorkflowIssue[] {
     issues.push({ code: 'invalid_timezone', triggerId });
   }
   return issues;
+}
+
+/**
+ * A `webhook` trigger needs no inline config of its own — its URL/secret live
+ * on the `workflow_webhooks` row provisioned alongside it (see
+ * services/workflow-webhook-sync.ts). Nothing here can make activation fail.
+ */
+function validateWebhookTrigger(): WorkflowIssue[] {
+  return [];
+}
+
+function validateTrigger(trigger: Bag): WorkflowIssue[] {
+  const triggerId = typeof trigger.id === 'string' ? trigger.id : undefined;
+  const type = String(trigger.type ?? '');
+
+  if (!(WELDCONNECT_TRIGGER_TYPES as readonly string[]).includes(type)) {
+    return [{ code: 'unsupported_trigger', triggerId, type }];
+  }
+
+  if (type === 'entity_event') return validateEntityEventTrigger(trigger, triggerId);
+  if (type === 'webhook') return validateWebhookTrigger();
+  return validateScheduleTrigger(trigger, triggerId);
 }
 
 function validateStep(step: Bag): WorkflowIssue[] {
@@ -227,5 +246,45 @@ export function scheduleTriggerIds(triggers: unknown): string[] {
   return triggers
     .map(asBag)
     .filter((t) => t.type === 'schedule' && typeof t.id === 'string' && t.id && t.id.length <= 30)
+    .map((t) => t.id as string);
+}
+
+/**
+ * The `webhook` triggers of a workflow, normalized — the input to the
+ * `workflow_webhooks` provisioning sync (services/workflow-webhook-sync.ts).
+ * Malformed entries are left out; disabled ones are kept (`isEnabled: false`)
+ * so the sync disables their row instead of soft-deleting it — same
+ * "present but off" handling as `recurringScheduleTriggers`.
+ */
+export interface WebhookTrigger {
+  triggerId: string;
+  name: string | null;
+  isEnabled: boolean;
+}
+
+export function webhookTriggers(triggers: unknown): WebhookTrigger[] {
+  if (!Array.isArray(triggers)) return [];
+  const result: WebhookTrigger[] = [];
+  for (const raw of triggers) {
+    const trigger = asBag(raw);
+    // `workflow_webhooks.trigger_id` is varchar(30); editor ids fit easily.
+    if (trigger.type !== 'webhook' || typeof trigger.id !== 'string' || !trigger.id || trigger.id.length > 30) {
+      continue;
+    }
+    result.push({
+      triggerId: trigger.id,
+      name: typeof trigger.name === 'string' && trigger.name ? trigger.name : null,
+      isEnabled: trigger.isEnabled !== false,
+    });
+  }
+  return result;
+}
+
+/** Ids of every webhook trigger in a trigger list (enabled or not). */
+export function webhookTriggerIds(triggers: unknown): string[] {
+  if (!Array.isArray(triggers)) return [];
+  return triggers
+    .map(asBag)
+    .filter((t) => t.type === 'webhook' && typeof t.id === 'string' && t.id && t.id.length <= 30)
     .map((t) => t.id as string);
 }

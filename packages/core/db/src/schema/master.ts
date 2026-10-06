@@ -396,6 +396,31 @@ export const apiKeyRegistry = pgTable('api_key_registry', {
 export type ApiKeyRegistry = typeof apiKeyRegistry.$inferSelect;
 export type NewApiKeyRegistry = typeof apiKeyRegistry.$inferInsert;
 
+// WeldConnect webhook-trigger registry - maps a public webhook id to the
+// workspace (tenant DB) that owns it, same pattern as apiKeyRegistry. The
+// public receiver (apps/workers/connect-api/src/routes/public-workflow-webhook)
+// looks this up (KV-cached) on every inbound call; without it an unknown id
+// forced a scan of every workspace's tenant DB (a DoS vector). `id` is the
+// `workflow_webhooks.id` of the tenant-DB row it mirrors (`wh_...`).
+export const workflowWebhookRegistry = pgTable('workflow_webhook_registry', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+
+  // Clerk organization id — the same value workspace-scoped lookups
+  // (getTenantDbForWorkspace) take, NOT workspaces.id.
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull(),
+
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  // Soft-deleted when the webhook (or its workflow) is removed; kept rather
+  // than hard-deleted so a replayed/cached id resolves to "gone" instead of
+  // falling through to the old fan-out scan.
+  deletedAt: timestamp('deleted_at'),
+}, (table) => [
+  index('workflow_webhook_registry_workspace_id_idx').on(table.workspaceId),
+]);
+
+export type WorkflowWebhookRegistry = typeof workflowWebhookRegistry.$inferSelect;
+export type NewWorkflowWebhookRegistry = typeof workflowWebhookRegistry.$inferInsert;
+
 // Domain Pricing - centralized pricing for all TLDs
 // Stored in master DB so all tenants share the same pricing
 export const hostDomainPricing = pgTable('domain_pricing', {
