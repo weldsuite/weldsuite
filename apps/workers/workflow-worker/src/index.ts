@@ -65,6 +65,8 @@ type LoadResult =
       skipped: false;
       name: string;
       version: number;
+      /** The workflow's owner (`created_by`); actions run with their permissions. */
+      createdBy: string | null;
       steps: WorkflowDefinition['steps'];
       variables: Record<string, unknown>;
     };
@@ -109,6 +111,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       return {
         skipped: false as const,
         name: workflow.name,
+        createdBy: workflow.createdBy ?? null,
         version: workflow.version,
         steps: (workflow.steps || []) as WorkflowDefinition['steps'],
         variables,
@@ -127,6 +130,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       return { skipped: true, reason: loadResult.reason };
     }
     const { name: workflowName, version, steps, variables } = loadResult;
+    const ownerUserId = loadResult.createdBy ?? undefined;
 
     // 2. Create (or upgrade the dispatcher's queued) execution record + publish started.
     const executionId = await step.do('create-execution', async () => {
@@ -175,7 +179,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       workflowId: params.workflowId,
     });
     const context: WorkflowRunContext = {
-      tenant: { workspaceId: params.workspaceId, userId: params.userId },
+      tenant: { workspaceId: params.workspaceId, userId: params.userId, ownerUserId },
       executionId,
       db: db as Database,
       env: this.env,

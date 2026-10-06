@@ -46,6 +46,9 @@ export const handleCreateCustomer: ActionHandler = async (inputs, ctx) => {
     {
       workspaceId: ctx.tenant.workspaceId,
       userId: ctx.tenant.userId,
+      // The owner's permissions are checked when present (absent on runs
+      // that started before owners were carried).
+      ownerUserId: ctx.tenant.ownerUserId,
       chainDepth: ctx.chainDepth ?? 0,
       // Defaults to true: entity-event workflows commonly fire more than once
       // for the same person (retries, repeated updates), so reusing a company

@@ -2,7 +2,8 @@
  * Communication actions: send_email, send_notification, slack_message.
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, inArray, isNull } from 'drizzle-orm';
+import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import type { ActionHandler } from '../types';
@@ -94,23 +95,52 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
   return { success: true, messageId: result.messageId, from: acct.email };
 };
 
+/** Recipient user ids from the step: `userIds` (array or comma list) or a single `userId`. */
+function notificationRecipients(inputs: Record<string, unknown>): string[] {
+  const raw = Array.isArray(inputs.userIds) && inputs.userIds.length > 0 ? inputs.userIds : inputs.userId;
+  const ids = Array.isArray(raw) ? raw.map((id) => String(id ?? '')) : String(raw ?? '').split(',');
+  // An unresolved {{variable}} arrives as an empty string: drop it.
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+}
+
+/**
+ * send_notification — an in-app notification (bell + live toast) for workspace
+ * members. Recipients that are not (or no longer) members are skipped; with
+ * none given, the workflow's owner is notified. Delivered like run
+ * notifications (run-notifications.ts): the row, then a live push.
+ */
 export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
-  const title = String(inputs.title || '');
+  const title = String(inputs.title || '').trim();
   const body = String(inputs.body || inputs.message || '');
-  if (!title) throw new Error('Notification title is required');
+  if (!title) throw new NonRetryableStepError('Notification title is required');
 
-  let userIds: string[] = [];
-  if (Array.isArray(inputs.userIds) && inputs.userIds.length > 0) {
-    userIds = inputs.userIds.map((id) => String(id));
-  } else if (inputs.userId) {
-    userIds = [String(inputs.userId)];
-  } else if (ctx.tenant.userId) {
-    userIds = [ctx.tenant.userId];
+  let requested = notificationRecipients(inputs);
+  if (requested.length === 0) {
+    const fallback = ctx.tenant.ownerUserId ?? (ctx.tenant.userId !== 'system' ? ctx.tenant.userId : undefined);
+    requested = fallback ? [fallback] : [];
   }
-  if (userIds.length === 0) throw new Error('At least one recipient is required');
+  if (requested.length === 0) throw new NonRetryableStepError('Choose at least one member to notify');
 
+  const { workspaceMembers } = schema;
+  const memberRows = await ctx.db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(and(inArray(workspaceMembers.userId, requested), isNull(workspaceMembers.deletedAt)));
+  const members = new Set(memberRows.map((row) => row.userId));
+  const userIds = requested.filter((id) => members.has(id));
+  if (userIds.length === 0) {
+    throw new NonRetryableStepError('None of the recipients is a member of this workspace');
+  }
+
+  const publisher = ctx.env.REALTIME ? new RealtimePublisher(ctx.env.REALTIME) : null;
   const notificationIds: string[] = [];
   const now = new Date();
+  const category = String(inputs.category || 'task');
+  const notificationType = String(inputs.notificationType || inputs.type || 'custom');
+  const severity = String(inputs.severity || 'info');
+  const actionUrl = inputs.actionUrl ? String(inputs.actionUrl) : null;
+  const entityType = inputs.entityType ? String(inputs.entityType) : null;
+  const entityId = inputs.entityId ? String(inputs.entityId) : null;
 
   // NOTE: the `notifications` tenant table has no workspaceId column (per-workspace DB).
   for (const userId of userIds) {
@@ -121,23 +151,49 @@ export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
       userId,
       title,
       body: body || null,
-      category: String(inputs.category || 'task'),
-      notificationType: String(inputs.notificationType || inputs.type || 'custom'),
-      entityType: inputs.entityType ? String(inputs.entityType) : null,
-      entityId: inputs.entityId ? String(inputs.entityId) : null,
-      actionUrl: inputs.actionUrl ? String(inputs.actionUrl) : null,
-      icon: inputs.icon ? String(inputs.icon) : null,
-      severity: String(inputs.severity || 'info'),
+      category,
+      notificationType,
+      entityType,
+      entityId,
+      actionUrl,
+      icon: inputs.icon ? String(inputs.icon) : 'workflow',
+      severity,
       data: (inputs.data as Record<string, unknown>) || null,
+      actorType: 'system',
       isRead: false,
       deliveredInApp: true,
       deliveredEmail: false,
       deliveredPush: false,
       createdAt: now,
     });
+    try {
+      await publisher?.notify(ctx.tenant.workspaceId, userId, {
+        id: notificationId,
+        title,
+        body,
+        category,
+        notificationType,
+        actionUrl,
+        entityType,
+        entityId,
+        createdAt: now.toISOString(),
+        isRead: false,
+        severity,
+        actorType: 'system',
+        actorId: null,
+      });
+    } catch (err) {
+      // The row is saved; the bell shows it on the next load.
+      console.warn('[send_notification] live publish failed:', err);
+    }
   }
 
-  return { sent: true, notificationIds, count: notificationIds.length };
+  return {
+    sent: true,
+    notificationIds,
+    count: notificationIds.length,
+    skipped: requested.length - userIds.length,
+  };
 };
 
 export const handleSlackMessage: ActionHandler = async (inputs, ctx) => {

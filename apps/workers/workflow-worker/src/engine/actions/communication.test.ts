@@ -28,9 +28,15 @@ describe('send_notification (pglite)', () => {
   let db: Database;
   beforeAll(async () => {
     db = (await createPgliteDb()).db;
+    for (const userId of ['user_target', 'owner_1', 'runner', 'second']) {
+      await db.insert(schema.workspaceMembers).values({ id: `wm_${userId}`, userId });
+    }
   });
 
-  it('inserts a notification row for an explicit user', async () => {
+  const rowFor = async (id: string) =>
+    (await db.select().from(schema.notifications).where(eq(schema.notifications.id, id)))[0];
+
+  it('inserts a notification row for an explicit member', async () => {
     const ctx = makeActionContext({ db });
     const res = (await handleSendNotification(
       { title: 'Build done', body: 'green', userId: 'user_target' },
@@ -39,23 +45,43 @@ describe('send_notification (pglite)', () => {
 
     expect(res.sent).toBe(true);
     expect(res.count).toBe(1);
-
-    const [row] = await db
-      .select()
-      .from(schema.notifications)
-      .where(eq(schema.notifications.id, res.notificationIds[0]));
+    const row = await rowFor(res.notificationIds[0]);
     expect(row?.userId).toBe('user_target');
     expect(row?.title).toBe('Build done');
+    expect(row?.actorType).toBe('system');
   });
 
-  it('defaults the recipient to the run user when none is given', async () => {
+  it('defaults the recipient to the workflow owner when none is given', async () => {
+    const ctx = makeActionContext({ db, tenant: { workspaceId: 'ws_test', userId: 'system', ownerUserId: 'owner_1' } });
+    const res = (await handleSendNotification({ title: 'Self' }, ctx)) as { notificationIds: string[] };
+    expect((await rowFor(res.notificationIds[0]))?.userId).toBe('owner_1');
+  });
+
+  it('falls back to the run user when there is no owner', async () => {
     const ctx = makeActionContext({ db, tenant: { workspaceId: 'ws_test', userId: 'runner' } });
     const res = (await handleSendNotification({ title: 'Self' }, ctx)) as { notificationIds: string[] };
-    const [row] = await db
-      .select()
-      .from(schema.notifications)
-      .where(eq(schema.notifications.id, res.notificationIds[0]));
-    expect(row?.userId).toBe('runner');
+    expect((await rowFor(res.notificationIds[0]))?.userId).toBe('runner');
+  });
+
+  it('skips recipients that are not members, and empty (unresolved) ones', async () => {
+    const res = (await handleSendNotification(
+      { title: 'Team', userIds: ['second', 'stranger', '', 'second'] },
+      makeActionContext({ db }),
+    )) as { count: number; skipped: number };
+    expect(res).toMatchObject({ count: 1, skipped: 1 });
+  });
+
+  it('fails without retrying when nobody can be notified', async () => {
+    await expect(
+      handleSendNotification({ title: 'x', userIds: ['stranger'] }, makeActionContext({ db })),
+    ).rejects.toMatchObject({ name: 'NonRetryableStepError' });
+  });
+
+  it('pushes each notification live when the realtime binding is there', async () => {
+    const fetch = vi.fn(async () => new Response('{}'));
+    const ctx = makeActionContext({ db, env: { REALTIME: { fetch } as unknown as Fetcher } as never });
+    await handleSendNotification({ title: 'Live', userIds: ['user_target', 'second'] }, ctx);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it('throws when the title is missing', async () => {

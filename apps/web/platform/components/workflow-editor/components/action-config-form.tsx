@@ -847,6 +847,90 @@ function CreateCustomerForm({
   );
 }
 
+type ContactTextField = 'firstName' | 'lastName' | 'email' | 'phone' | 'title' | 'companyId' | 'tags';
+
+/**
+ * create_contact / update_contact. The engine sends only filled-in fields,
+ * so on update an empty field leaves the contact's value as it is.
+ */
+function ContactForm({
+  config,
+  onChange,
+  isUpdate = false,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  isUpdate?: boolean;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.contactFields;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const textField = (key: ContactTextField, description?: string) => (
+    <FormField key={key} label={cf.labels[key]} description={description}>
+      <VariableInput
+        value={(config[key] as string | undefined) || ''}
+        onChange={(v) => onChange({ ...config, [key]: v })}
+        placeholder={cf.placeholders[key]}
+        {...variableProps}
+      />
+    </FormField>
+  );
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">{isUpdate ? cf.updateHint : acf.customerVariablesHint}</p>
+      {isUpdate && (
+        <FormField label={cf.contactToUpdate} required description={cf.contactToUpdateDesc}>
+          <VariableInput
+            value={(config.contactId as string | undefined) || ''}
+            onChange={(v) => onChange({ ...config, contactId: v })}
+            placeholder="{{trigger.record.id}}"
+            {...variableProps}
+          />
+        </FormField>
+      )}
+      {textField('firstName')}
+      {textField('lastName')}
+      {textField('email', isUpdate ? undefined : cf.nameOrEmailDesc)}
+      {textField('phone')}
+      {textField('title')}
+      {!isUpdate && textField('companyId', cf.companyIdDesc)}
+      {textField('tags', cf.tagsDesc)}
+
+      <FormField label={cf.labels.notes}>
+        <VariableInput
+          value={(config.notes as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, notes: v })}
+          multiline
+          rows={3}
+          {...variableProps}
+        />
+      </FormField>
+
+      {!isUpdate && (
+        <FormField label={cf.skipIfEmailExists} description={cf.skipIfEmailExistsDesc}>
+          <Switch
+            checked={config.skipIfEmailExists !== false}
+            onCheckedChange={(checked) => onChange({ ...config, skipIfEmailExists: checked })}
+          />
+        </FormField>
+      )}
+      <p className="text-xs text-muted-foreground">{cf.ownerPermissionHint}</p>
+    </div>
+  );
+}
+
 function DelayForm({ config, onChange }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
@@ -2829,6 +2913,21 @@ export function ActionConfigForm({
           <CreateCustomerForm
             config={config}
             onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'create_contact':
+      case 'update_contact':
+        return (
+          <ContactForm
+            config={config}
+            onChange={onChange}
+            isUpdate={actionType === 'update_contact'}
             triggerType={triggerType}
             steps={previousSteps}
             workflowVariables={workflowVariables}

@@ -18,6 +18,9 @@ export const WELDCONNECT_SCHEDULE_TYPES = ['recurring'] as const;
 export const WELDCONNECT_ACTION_TYPES = [
   'send_email',
   'create_customer',
+  'create_contact',
+  'update_contact',
+  'send_notification',
   'condition',
   'loop',
   'delay',
