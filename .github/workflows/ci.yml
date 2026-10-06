@@ -66,17 +66,26 @@ jobs:
       - name: Type-check app-api
         working-directory: apps/workers/app-api
         run: pnpm type-check
-      # The shared API-worker packages and the per-module API workers
+      # Shared packages and per-module API workers
       # (apps/workers/<module>-api, docs/plans/app-api-module-split.md).
+      # One pnpm invocation, four at a time. The old bash loop started tsc
+      # once per worker and spent ~4 minutes waiting on process startup.
+      # Domain packages already ran four-wide on this runner; workers join
+      # that same pool, so peak memory stays where it is today. app-api
+      # stays in the previous step so it does not run beside that pool.
       - name: Type-check worker packages + module API workers
         run: |
           set -euo pipefail
-          # api-modules, worker-kit, worker-email, … and every module domain package.
-          pnpm --filter "./packages/core/api-modules" --filter "./packages/core/worker-*" --filter "./packages/domains/*" type-check
+          args=(
+            --workspace-concurrency=4
+            --filter "./packages/core/api-modules"
+            --filter "./packages/core/worker-*"
+            --filter "./packages/domains/*"
+          )
           for w in $(node .github/scripts/module-workers.mjs --list); do
-            echo "=== $w ==="
-            pnpm --filter "$w" type-check
+            args+=(--filter "$w")
           done
+          pnpm "${args[@]}" type-check
 
   type-check-platform:
     name: Type Check · platform
@@ -87,6 +96,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
+      # Platform tsconfig already sets incremental. Persist the build info
+      # so a later run rechecks changed files instead of the whole app.
+      - name: Restore platform TypeScript cache
+        uses: actions/cache@v4
+        with:
+          path: apps/web/platform/tsconfig.tsbuildinfo
+          key: platform-tsc-${{ runner.os }}-${{ hashFiles('apps/web/platform/tsconfig.json', 'pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            platform-tsc-${{ runner.os }}-${{ hashFiles('apps/web/platform/tsconfig.json', 'pnpm-lock.yaml') }}-
       - name: Type-check platform
         working-directory: apps/web/platform
         run: pnpm type-check
@@ -116,8 +134,34 @@ jobs:
   # ────────────────────────────────────────────
   # Unit + service tests — these DO block PRs.
   # ────────────────────────────────────────────
-  unit-api:
-    name: Unit · app-api
+  # Module-worker Vitest stays one package per process: several start
+  # pglite (WASM Postgres), which crashes (ERRORDATA_STACK_SIZE) when many
+  # instances boot on the same machine. Shards are separate runners, so
+  # they can run at once. Round-robin (--shard) spreads the slow workers.
+  # "Unit · app-api" is the required status check. It does not run tests
+  # itself; it fails unless the core job and every shard succeeded.
+  # Keep --shards equal to the matrix length.
+  unit-api-modules:
+    name: Unit · module APIs (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Run Vitest · module API workers
+        run: |
+          set -euo pipefail
+          for w in $(node .github/scripts/module-workers.mjs --list --shard ${{ matrix.shard }} --shards 4); do
+            echo "=== $w ==="
+            pnpm --filter "$w" test
+          done
+
+  unit-api-core:
+    name: Unit · app-api core
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -129,16 +173,27 @@ jobs:
       # Includes the module ownership test: every app-api mount must belong to
       # exactly one module in @weldsuite/api-modules, and API workers may not
       # import from each other.
-      - name: Run Vitest · worker packages + module API workers
+      - name: Run Vitest · worker packages
         run: |
           set -euo pipefail
           pnpm --filter "./packages/core/api-modules" --filter "./packages/core/worker-*" --filter "./packages/domains/*" --workspace-concurrency=1 test
-          # One at a time: several of these start pglite (WASM Postgres), which
-          # crashes (ERRORDATA_STACK_SIZE) when many instances boot in parallel.
-          for w in $(node .github/scripts/module-workers.mjs --list); do
-            echo "=== $w ==="
-            pnpm --filter "$w" test
-          done
+
+  unit-api:
+    name: Unit · app-api
+    needs: [unit-api-core, unit-api-modules]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require app-api and module-worker tests
+        run: |
+          set -euo pipefail
+          core="${{ needs.unit-api-core.result }}"
+          modules="${{ needs.unit-api-modules.result }}"
+          echo "app-api + packages: $core"
+          echo "module API workers: $modules"
+          test "$core" = "success"
+          test "$modules" = "success"
 
   unit-personal-api:
     name: Unit · personal-api

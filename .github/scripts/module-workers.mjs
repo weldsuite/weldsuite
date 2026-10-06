@@ -14,7 +14,8 @@
  * `module_workers=<JSON array>` to GITHUB_OUTPUT; deploy.yml deploys them in
  * their own job BEFORE the other workers, because app-api's forwarder binds
  * to them.
- * With `--list` it only prints the module workers that exist (ci.yml loops).
+ * With `--list` it prints the module workers that exist (ci.yml).
+ * `--list --shard N --shards M` prints one round-robin slice (1-based).
  * Needs Node 22.18+ (imports the TypeScript manifest with native type stripping).
  */
 
@@ -69,9 +70,36 @@ const existing = MODULE_WORKERS.map((m) => m.worker).filter((w) =>
   existsSync(path.join(repoRoot, 'apps/workers', w, 'wrangler.toml')),
 );
 
-// `--list`: print the module workers that exist (for CI loops) and stop.
+/**
+ * `--list [--shard N --shards M]`: print module workers for CI.
+ * Shards are 1-based and round-robin, so slow workers (clustered at the
+ * front of the manifest) spread across jobs instead of landing in one.
+ */
+function listedWorkers() {
+  const shardFlag = process.argv.indexOf('--shard');
+  const shardsFlag = process.argv.indexOf('--shards');
+  if (shardFlag === -1 && shardsFlag === -1) return existing;
+  if (shardFlag === -1 || shardsFlag === -1) {
+    console.error('--shard and --shards must be passed together');
+    process.exit(1);
+  }
+  const shard = Number(process.argv[shardFlag + 1]);
+  const shards = Number(process.argv[shardsFlag + 1]);
+  if (
+    !Number.isInteger(shard) ||
+    !Number.isInteger(shards) ||
+    shards < 1 ||
+    shard < 1 ||
+    shard > shards
+  ) {
+    console.error(`Invalid shard ${process.argv[shardFlag + 1]} of ${process.argv[shardsFlag + 1]}`);
+    process.exit(1);
+  }
+  return existing.filter((_, index) => index % shards === shard - 1);
+}
+
 if (process.argv.includes('--list')) {
-  console.log(existing.join(' '));
+  console.log(listedWorkers().join(' '));
   process.exit(0);
 }
 
