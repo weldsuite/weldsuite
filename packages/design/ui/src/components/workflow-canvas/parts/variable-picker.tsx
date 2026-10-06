@@ -109,6 +109,31 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'name', label: 'Contact Name', type: 'string' },
       { path: 'email', label: 'Contact Email', type: 'string' },
     ],
+    create_lead: [
+      { path: 'leadId', label: 'Lead ID', type: 'string' },
+      { path: 'name', label: 'Lead Name', type: 'string' },
+      { path: 'email', label: 'Lead Email', type: 'string' },
+    ],
+    create_deal: [
+      { path: 'dealId', label: 'Deal ID', type: 'string' },
+      { path: 'name', label: 'Deal Name', type: 'string' },
+      { path: 'stage', label: 'Stage', type: 'string' },
+      { path: 'status', label: 'Status', type: 'string' },
+    ],
+    move_deal_stage: [
+      { path: 'dealId', label: 'Deal ID', type: 'string' },
+      { path: 'stageId', label: 'Stage ID', type: 'string' },
+      { path: 'status', label: 'Status', type: 'string' },
+    ],
+    log_activity: [
+      { path: 'activityId', label: 'Activity ID', type: 'string' },
+      { path: 'type', label: 'Activity Type', type: 'string' },
+      { path: 'subject', label: 'Subject', type: 'string' },
+    ],
+    post_chat_message: [
+      { path: 'messageId', label: 'Message ID', type: 'string' },
+      { path: 'channelId', label: 'Channel ID', type: 'string' },
+    ],
     create_task: [
       { path: 'taskId', label: 'Task ID', type: 'string' },
       { path: 'number', label: 'Task Number', type: 'number' },

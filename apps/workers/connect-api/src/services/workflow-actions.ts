@@ -11,6 +11,16 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { getMasterDb, masterSchema, schema, type Database } from '@weldsuite/worker-kit/db';
 import { createCompany, isValidWorkspaceMember } from '@weldsuite/crm-domain/companies';
 import { createPerson, PersonDuplicateEmailError, updatePerson } from '@weldsuite/crm-domain/people';
+import { createLead as createLeadRow } from '@weldsuite/crm-domain/leads';
+import {
+  createOpportunity as createOpportunityRow,
+  moveOpportunityStage,
+  type OpportunityUpdateEvent,
+} from '@weldsuite/crm-domain/opportunities';
+import { createActivity as createActivityRow } from '@weldsuite/crm-domain/activities';
+import type { CreateLeadInput } from '@weldsuite/core-api-client/schemas/leads';
+import type { CreateOpportunityInput } from '@weldsuite/core-api-client/schemas/opportunities';
+import type { CreateActivityInput } from '@weldsuite/core-api-client/schemas/activities';
 import { createTask } from '@weldsuite/flow-domain/tasks';
 import { createCalendarEventForTask } from '@weldsuite/db/lib/calendar-sync';
 import { sendTaskAssignmentNotification } from '@weldsuite/notifications';
@@ -177,6 +187,93 @@ export function personEventData(person: PersonRow): Record<string, unknown> {
     email: person.email,
     title: person.title,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Leads (create_lead)
+// ---------------------------------------------------------------------------
+
+export interface CreateLeadFromWorkflowResult {
+  id: string;
+  eventData: Record<string, unknown>;
+}
+
+/**
+ * Create a CRM lead through the leads service, owned by the workflow's
+ * owner. Leads always carry an email (same requirement as the CRM create
+ * route's schema), so there is no dedup/reuse path like `create_contact`.
+ */
+export async function createLeadFromWorkflow(
+  db: Database,
+  input: { ownerUserId: string; lead: CreateLeadInput },
+): Promise<CreateLeadFromWorkflowResult> {
+  const { id, eventData } = await createLeadRow(db, { ...input.lead, ownerId: input.ownerUserId }, input.ownerUserId);
+  // crm-domain types eventData against the catalog's exact LeadEventData
+  // shape (no index signature); publishEntityEventRaw takes a plain bag.
+  return { id, eventData: eventData as unknown as Record<string, unknown> };
+}
+
+// ---------------------------------------------------------------------------
+// Opportunities / deals (create_deal, move_deal_stage)
+// ---------------------------------------------------------------------------
+
+export interface CreateDealFromWorkflowResult {
+  id: string;
+  eventData: Record<string, unknown>;
+}
+
+/** Create a CRM opportunity through the opportunities service, owned by the workflow's owner. */
+export async function createDealFromWorkflow(
+  db: Database,
+  input: { ownerUserId: string; deal: CreateOpportunityInput },
+): Promise<CreateDealFromWorkflowResult> {
+  const { id, eventData } = await createOpportunityRow(db, { ...input.deal, ownerId: input.ownerUserId }, input.ownerUserId);
+  // crm-domain types eventData against the catalog's exact OpportunityEventData
+  // shape (no index signature); publishEntityEventRaw takes a plain bag.
+  return { id, eventData: eventData as unknown as Record<string, unknown> };
+}
+
+export interface MoveDealStageFromWorkflowResult {
+  dealId: string;
+  stageId: string;
+  status: string;
+  events: OpportunityUpdateEvent[];
+}
+
+/**
+ * Move a deal onto a different pipeline stage (the WeldConnect
+ * `move_deal_stage` step). `ownerScope` limits it to deals the owner owns
+ * (set unless they hold `opportunities:scope:all`). Returns null when the
+ * deal doesn't exist or is out of scope; propagates
+ * `UnknownPipelineStageError` for an unknown stage.
+ */
+export async function moveDealStageFromWorkflow(
+  db: Database,
+  input: { dealId: string; stageId: string; ownerScope?: string },
+): Promise<MoveDealStageFromWorkflowResult | null> {
+  const result = await moveOpportunityStage(db, input.dealId, input.stageId, input.ownerScope);
+  if (!result) return null;
+  return { dealId: input.dealId, stageId: result.row.stageId ?? input.stageId, status: result.row.status, events: result.events };
+}
+
+// ---------------------------------------------------------------------------
+// Activities (log_activity)
+// ---------------------------------------------------------------------------
+
+export interface LogActivityFromWorkflowResult {
+  id: string;
+  eventData: Record<string, unknown>;
+}
+
+/** Log a CRM activity through the activities service, assigned to the workflow's owner. */
+export async function logActivityFromWorkflow(
+  db: Database,
+  input: { ownerUserId: string; activity: CreateActivityInput },
+): Promise<LogActivityFromWorkflowResult> {
+  const { id, eventData } = await createActivityRow(db, { ...input.activity, assignedToId: input.ownerUserId }, input.ownerUserId);
+  // crm-domain types eventData against the catalog's exact ActivityEventData
+  // shape (no index signature); publishEntityEventRaw takes a plain bag.
+  return { id, eventData: eventData as unknown as Record<string, unknown> };
 }
 
 // ---------------------------------------------------------------------------

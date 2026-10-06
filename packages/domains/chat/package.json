@@ -7,9 +7,11 @@
   "exports": {
     "./agent-room-policy": "./src/agent-room-policy.ts",
     "./call-lifecycle": "./src/call-lifecycle.ts",
+    "./channel-access": "./src/channel-access.ts",
     "./channel-members": "./src/channel-members.ts",
     "./create-channel": "./src/create-channel.ts",
     "./post-agent-message": "./src/post-agent-message.ts",
+    "./post-system-message": "./src/post-system-message.ts",
     "./realtime/weldchat-call-publisher": "./src/realtime/weldchat-call-publisher.ts",
     "./realtime/weldchat-publisher": "./src/realtime/weldchat-publisher.ts",
     "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
@@ -34,6 +36,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
     "@types/node": "^20",
     "@vitest/coverage-v8": "^3.2.6",
     "@weldsuite/typescript-config": "workspace:*",

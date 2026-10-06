@@ -1,6 +1,7 @@
 
 import { useState, useRef, useCallback, useId } from 'react';
 import { useCustomFields } from '@/hooks/use-custom-fields';
+import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
 import { useProjects } from '@/hooks/queries/use-projects-queries';
 import { AiUnavailable } from '@/components/ai/ai-unavailable';
 import { Input } from '@weldsuite/ui/components/input';
@@ -39,6 +40,8 @@ import {
   X,
   ChevronsUpDown,
   Check,
+  Hash,
+  Lock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -55,6 +58,7 @@ import { FieldBuilder } from '@weldsuite/ui/components/workflow-canvas/parts/fie
 import { FilterBuilder, type FilterCondition } from '@weldsuite/ui/components/workflow-canvas/parts/filter-builder';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useChannels } from '@/hooks/queries/use-weldchat-queries';
 
 // Types for context data
 interface EmailAccountOption {
@@ -927,6 +931,478 @@ function ContactForm({
           />
         </FormField>
       )}
+      <p className="text-xs text-muted-foreground">{cf.ownerPermissionHint}</p>
+    </div>
+  );
+}
+
+type LeadTextField = 'firstName' | 'lastName' | 'email' | 'companyName' | 'title' | 'phone' | 'mobile' | 'website';
+
+/** create_lead. A lead always needs an email (the CRM create route requires one). */
+function LeadForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const lf = acf.leadFields;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const textField = (key: LeadTextField, required = false, description?: string) => (
+    <FormField key={key} label={lf.labels[key]} required={required} description={description}>
+      <VariableInput
+        value={(config[key] as string | undefined) || ''}
+        onChange={(v) => onChange({ ...config, [key]: v })}
+        placeholder={lf.placeholders[key]}
+        {...variableProps}
+      />
+    </FormField>
+  );
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">{acf.customerVariablesHint}</p>
+      {textField('firstName')}
+      {textField('lastName')}
+      {textField('email', true, lf.emailDesc)}
+      {textField('companyName')}
+      {textField('title')}
+      {textField('phone')}
+      {textField('mobile')}
+      {textField('website')}
+
+      <FormField label={lf.labels.source}>
+        <VariableInput
+          value={(config.source as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, source: v })}
+          placeholder={lf.placeholders.source}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={lf.labels.notes}>
+        <VariableInput
+          value={(config.notes as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, notes: v })}
+          multiline
+          rows={3}
+          {...variableProps}
+        />
+      </FormField>
+      <p className="text-xs text-muted-foreground">{lf.ownerPermissionHint}</p>
+    </div>
+  );
+}
+
+/**
+ * Pipeline + stage picker shared by `create_deal` and `move_deal_stage`.
+ * Backed by the real pipelines/pipeline-stages queries (the same ones the
+ * pipeline board uses) rather than a free-text id, since pipeline/stage ids
+ * aren't something a workflow author would otherwise know.
+ */
+function PipelineStagePicker({
+  pipeline,
+  stageId,
+  onPipelineChange,
+  onStageChange,
+  labels,
+}: {
+  pipeline: string | undefined;
+  stageId: string | undefined;
+  onPipelineChange: (pipeline: string | undefined) => void;
+  onStageChange: (stageId: string | undefined) => void;
+  labels: { pipeline: string; stage: string; selectPipeline: string; selectStage: string; noStages: string };
+}) {
+  const { data: pipelinesRes, isLoading: loadingPipelines } = usePipelines();
+  const pipelines = pipelinesRes?.data ?? [];
+  const { data: stagesRes, isLoading: loadingStages } = usePipelineStages(pipeline);
+  const stages = (stagesRes?.data ?? []).slice().sort((a, b) => a.position - b.position);
+
+  return (
+    <>
+      <FormField label={labels.pipeline}>
+        <Select
+          value={pipeline || undefined}
+          onValueChange={(value) => {
+            onPipelineChange(value);
+            onStageChange(undefined);
+          }}
+          disabled={loadingPipelines}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={labels.selectPipeline} />
+          </SelectTrigger>
+          <SelectContent>
+            {pipelines.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+      <FormField label={labels.stage}>
+        <Select
+          value={stageId || undefined}
+          onValueChange={(value) => onStageChange(value)}
+          disabled={!pipeline || loadingStages || stages.length === 0}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={stages.length > 0 ? labels.selectStage : labels.noStages} />
+          </SelectTrigger>
+          <SelectContent>
+            {stages.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+    </>
+  );
+}
+
+/** create_deal — creates a CRM opportunity. */
+function DealForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const df = acf.dealFields;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">{acf.customerVariablesHint}</p>
+      <FormField label={df.labels.name} required>
+        <VariableInput
+          value={(config.name as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, name: v })}
+          placeholder={df.placeholders.name}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={df.labels.customerId} required description={df.customerIdDesc}>
+        <VariableInput
+          value={(config.customerId as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, customerId: v })}
+          placeholder={df.placeholders.customerId}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={df.labels.description}>
+        <VariableInput
+          value={(config.description as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, description: v })}
+          multiline
+          rows={3}
+          {...variableProps}
+        />
+      </FormField>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label={df.labels.amount}>
+          <VariableInput
+            value={(config.amount as string | undefined) ?? ''}
+            onChange={(v) => onChange({ ...config, amount: v })}
+            placeholder={df.placeholders.amount}
+            {...variableProps}
+          />
+        </FormField>
+        <FormField label={df.labels.currency}>
+          <VariableInput
+            value={(config.currency as string | undefined) || ''}
+            onChange={(v) => onChange({ ...config, currency: v })}
+            placeholder={df.placeholders.currency}
+            {...variableProps}
+          />
+        </FormField>
+      </div>
+      <PipelineStagePicker
+        pipeline={config.pipeline as string | undefined}
+        stageId={config.stageId as string | undefined}
+        onPipelineChange={(pipeline) => onChange({ ...config, pipeline })}
+        onStageChange={(stageId) => onChange({ ...config, stageId })}
+        labels={{
+          pipeline: df.labels.pipeline,
+          stage: df.labels.stage,
+          selectPipeline: df.selectPipeline,
+          selectStage: df.selectStage,
+          noStages: df.noStages,
+        }}
+      />
+      <FormField label={df.labels.closeDate} description={df.closeDateDesc}>
+        <VariableInput
+          value={(config.closeDate as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, closeDate: v })}
+          placeholder="{{trigger.record.closeDate}}"
+          {...variableProps}
+        />
+      </FormField>
+      <p className="text-xs text-muted-foreground">{df.ownerPermissionHint}</p>
+    </div>
+  );
+}
+
+/** move_deal_stage — moves a deal onto a different pipeline stage. */
+function MoveDealStageForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const mf = acf.moveDealStageFields;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  return (
+    <div className="space-y-4">
+      <FormField label={mf.labels.dealId} required description={mf.dealIdDesc}>
+        <VariableInput
+          value={(config.dealId as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, dealId: v })}
+          placeholder="{{trigger.record.id}}"
+          {...variableProps}
+        />
+      </FormField>
+      <PipelineStagePicker
+        pipeline={config.pipeline as string | undefined}
+        stageId={config.stageId as string | undefined}
+        onPipelineChange={(pipeline) => onChange({ ...config, pipeline })}
+        onStageChange={(stageId) => onChange({ ...config, stageId })}
+        labels={{
+          pipeline: mf.labels.pipeline,
+          stage: mf.labels.stage,
+          selectPipeline: mf.selectPipeline,
+          selectStage: mf.selectStage,
+          noStages: mf.noStages,
+        }}
+      />
+      <p className="text-xs text-muted-foreground">{mf.ownerPermissionHint}</p>
+    </div>
+  );
+}
+
+/** Activity types `log_activity` accepts — mirrors `activityType` in `@weldsuite/core-api-client/schemas/activities`. */
+const ACTIVITY_TYPE_OPTIONS = [
+  'note',
+  'call',
+  'email',
+  'meeting',
+  'task',
+  'sms',
+  'linkedin',
+  'demo',
+  'presentation',
+] as const;
+
+/** log_activity — logs a CRM activity against a contact/company/lead/deal. */
+function LogActivityForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const af = acf.activityFields;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const linkField = (key: 'customerId' | 'contactId' | 'personId' | 'opportunityId') => (
+    <FormField key={key} label={af.labels[key]}>
+      <VariableInput
+        value={(config[key] as string | undefined) || ''}
+        onChange={(v) => onChange({ ...config, [key]: v })}
+        placeholder={af.placeholders[key]}
+        {...variableProps}
+      />
+    </FormField>
+  );
+
+  return (
+    <div className="space-y-4">
+      <FormField label={af.labels.type} required>
+        <Select
+          value={(config.type as string | undefined) || 'note'}
+          onValueChange={(value) => onChange({ ...config, type: value })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ACTIVITY_TYPE_OPTIONS.map((type) => (
+              <SelectItem key={type} value={type}>
+                {af.types[type]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+      <FormField label={af.labels.subject} required>
+        <VariableInput
+          value={(config.subject as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, subject: v })}
+          placeholder={af.placeholders.subject}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={af.labels.description}>
+        <VariableInput
+          value={(config.description as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, description: v })}
+          multiline
+          rows={3}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={af.labels.dueDate}>
+        <VariableInput
+          value={(config.dueDate as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, dueDate: v })}
+          placeholder="{{trigger.record.dueDate}}"
+          {...variableProps}
+        />
+      </FormField>
+      {linkField('customerId')}
+      {linkField('contactId')}
+      {linkField('personId')}
+      {linkField('opportunityId')}
+      <p className="text-xs text-muted-foreground">{af.ownerPermissionHint}</p>
+    </div>
+  );
+}
+
+/**
+ * post_chat_message. The run posts as the workflow itself (never the owner),
+ * checked against the SAME two gates chat-api's human send route applies for
+ * the owner: `channels:create` plus the owner's access to the channel
+ * (public channels are open; a private channel/DM needs the owner to be a
+ * member) — see apps/workers/connect-api/src/routes/internal-workflow-actions/index.ts.
+ */
+function PostChatMessageForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.postChatMessage;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const { data, isLoading } = useChannels();
+  const channels = data?.data ?? [];
+  const channelId = (config.channelId as string | undefined) || '';
+
+  return (
+    <div className="space-y-4">
+      <FormField label={cf.channel} required description={cf.channelDesc}>
+        <Select
+          value={channelId}
+          onValueChange={(value) => onChange({ ...config, channelId: value })}
+          disabled={isLoading}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={isLoading ? cf.loadingChannels : cf.selectChannel} />
+          </SelectTrigger>
+          <SelectContent>
+            {channels.map((channel) => (
+              <SelectItem key={channel.id} value={channel.id}>
+                <span className="inline-flex items-center gap-1.5">
+                  {channel.isPrivate ? (
+                    <Lock className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <Hash className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  {channel.name}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!isLoading && channels.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{cf.noChannels}</p>
+        )}
+      </FormField>
+
+      <FormField label={cf.message} required description={cf.messageDesc}>
+        <VariableInput
+          value={(config.message as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, message: v })}
+          placeholder={cf.messagePlaceholder}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.mentions} description={cf.mentionsDesc}>
+        <VariableInput
+          value={(config.mentions as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, mentions: v })}
+          placeholder={cf.mentionsPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
       <p className="text-xs text-muted-foreground">{cf.ownerPermissionHint}</p>
     </div>
   );
@@ -3144,6 +3620,71 @@ export function ActionConfigForm({
             config={config}
             onChange={onChange}
             isUpdate={actionType === 'update_contact'}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'create_lead':
+        return (
+          <LeadForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'create_deal':
+        return (
+          <DealForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'move_deal_stage':
+        return (
+          <MoveDealStageForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'log_activity':
+        return (
+          <LogActivityForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'post_chat_message':
+        return (
+          <PostChatMessageForm
+            config={config}
+            onChange={onChange}
             triggerType={triggerType}
             steps={previousSteps}
             workflowVariables={workflowVariables}

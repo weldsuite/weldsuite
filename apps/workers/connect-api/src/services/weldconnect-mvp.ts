@@ -8,8 +8,9 @@
  *     `schedule` (cron + timezone), and `webhook` (an external system POSTs to
  *     a generated URL — see services/workflow-webhook-sync.ts)
  *   - actions:  `send_email`, `create_customer`, `http_request` (call any
- *     external API — apps/workers/workflow-worker/src/engine/actions/http.ts)
- *     and the WeldSuite record actions, which run as the workflow's owner
+ *     external API — apps/workers/workflow-worker/src/engine/actions/http.ts),
+ *     `post_chat_message` (WeldChat), and the other WeldSuite record actions,
+ *     which run as the workflow's owner
  *   - logic:    `condition` (if/else branches), `loop` (for each item) and
  *     `delay`; branch steps sit under their parent via `parentBranchId`
  *
@@ -30,8 +31,13 @@ export const WELDCONNECT_ACTION_TYPES = [
   'create_customer',
   'create_contact',
   'update_contact',
+  'create_lead',
+  'create_deal',
+  'move_deal_stage',
+  'log_activity',
   'create_task',
   'send_notification',
+  'post_chat_message',
   'http_request',
   'condition',
   'loop',
@@ -148,8 +154,18 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   http_request: (c) => (isBlank(c.url) ? ['url'] : []),
   create_contact: (c) => (isBlank(c.firstName) && isBlank(c.lastName) && isBlank(c.email) ? ['name'] : []),
   update_contact: (c) => (isBlank(c.contactId) ? ['contactId'] : []),
+  create_lead: (c) => (isBlank(c.email) ? ['email'] : []),
+  create_deal: (c) => ['name', 'customerId'].filter((field) => isBlank(c[field])),
+  move_deal_stage: (c) => ['dealId', 'stageId'].filter((field) => isBlank(c[field])),
+  log_activity: (c) => (isBlank(c.subject) ? ['subject'] : []),
   create_task: (c) => ['projectId', 'title'].filter((field) => isBlank(c[field])),
   send_notification: (c) => (isBlank(c.title) ? ['title'] : []),
+  post_chat_message: (c) => {
+    const missing: string[] = [];
+    if (isBlank(c.channelId)) missing.push('channelId');
+    if (isBlank(c.message) && isBlank(c.content)) missing.push('message');
+    return missing;
+  },
   condition: (c) => {
     const missing: string[] = [];
     if (isBlank(c.field)) missing.push('field');

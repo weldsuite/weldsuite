@@ -23,36 +23,10 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { createLead, leadEventFields } from '@weldsuite/crm-domain/leads';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmLeads;
-
-/**
- * The lead fields carried by `created` / `updated` events: the contact card a
- * workflow needs (`{{trigger.record.companyName}}`), not the whole row. The
- * free-text qualification fields (notes, need, budget, …) stay out of the
- * event bus, which also feeds webhooks and analytics. Keep in sync with the
- * `lead` entry in apps/web/platform/app/weldconnect/record-fields.ts.
- */
-const LEAD_EVENT_FIELDS = [
-  'firstName',
-  'lastName',
-  'fullName',
-  'companyName',
-  'title',
-  'phone',
-  'mobile',
-  'website',
-  'address',
-  'source',
-  'rating',
-  'score',
-  'ownerId',
-] as const;
-
-function leadEventFields(lead: Partial<typeof t.$inferSelect>): Record<string, unknown> {
-  return Object.fromEntries(LEAD_EVENT_FIELDS.map((field) => [field, lead[field] ?? null]));
-}
 
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
   if (await hasContextPermission(c, 'leads:scope:all')) return undefined;
@@ -138,56 +112,9 @@ app.post('/', requirePermission('leads:create'), zValidator('json', createLeadSc
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   const userId = c.get('userId');
-  const id = generateId('lead');
-  const now = new Date();
-  const fullName =
-    data.firstName || data.lastName
-      ? `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim()
-      : undefined;
   try {
-    const values: typeof t.$inferInsert = {
-      id,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      fullName,
-      email: data.email,
-      companyName: data.companyName,
-      title: data.title,
-      phone: data.phone,
-      mobile: data.mobile,
-      website: data.website,
-      address: data.address as { line1?: string; line2?: string; city?: string; state?: string; postalCode?: string; country?: string } | null | undefined,
-      source: data.source ?? 'other',
-      channel: data.channel,
-      campaign: data.campaign,
-      medium: data.medium,
-      status: data.status ?? 'new',
-      rating: data.rating,
-      score: data.score ?? 0,
-      ownerId: data.ownerId ?? userId,
-      productInterest: data.productInterest,
-      budget: data.budget as { amount: number; currency: string } | null | undefined,
-      timeline: data.timeline,
-      authority: data.authority,
-      need: data.need,
-      notes: data.notes,
-      nextAction: data.nextAction,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.insert(t).values(values);
-    publishEntityEvent({
-      c,
-      entityType: 'lead',
-      entityId: id,
-      action: 'created',
-      data: {
-        ...leadEventFields(values),
-        id,
-        email: values.email ?? '',
-        status: values.status ?? 'new',
-      },
-    });
+    const { id, eventData } = await createLead(db, data, userId);
+    publishEntityEvent({ c, entityType: 'lead', entityId: id, action: 'created', data: eventData });
     return success(c, { id }, 201);
   } catch (err) {
     console.error('[app-api/leads] create failed:', err);
