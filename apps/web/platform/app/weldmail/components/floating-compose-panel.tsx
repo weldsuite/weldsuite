@@ -143,6 +143,10 @@ function buildPanelDraftFields(form: PanelDraftForm, editorHtml: string | undefi
 
 type UploadedMailAttachments = Awaited<ReturnType<typeof uploadMailAttachments>>;
 
+function attachmentCountLabel(count: number, singular: string, plural: string): string {
+  return (count > 1 ? plural : singular).replace('{n}', String(count));
+}
+
 export function FloatingComposePanel() {
   const { t } = useI18n();
   const st = useTranslations();
@@ -175,7 +179,7 @@ export function FloatingComposePanel() {
   const [ccRecipients, setCcRecipients] = useState('');
   const [bccRecipients, setBccRecipients] = useState('');
   const [fontSize, setFontSize] = useState('14');
-  const [textAlignment] = useState<'left' | 'center' | 'right'>('left');
+  const textAlignment: 'left' | 'center' | 'right' = 'left';
   const [scheduledTime, setScheduledTime] = useState<Date | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const attachmentsInitializedRef = useRef(false);
@@ -473,7 +477,7 @@ export function FloatingComposePanel() {
     const value = e.target.value;
     updateComposeData({ to: value });
     const parts = value.split(',');
-    const lastPart = parts[parts.length - 1].trim();
+    const lastPart = (parts.at(-1) ?? '').trim();
     setContactSearchQuery(lastPart);
     setShowContactSuggestions(lastPart.length > 0);
   };
@@ -835,7 +839,7 @@ export function FloatingComposePanel() {
                   selected={scheduledTime || undefined}
                   onSelect={handleScheduleDateSelect}
                   disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0)) || date > addDays(new Date(), 7)}
-                  initialFocus
+                  autoFocus
                 />
                 <div className="border-t border-border px-3 py-3">
                   <div className="text-xs font-medium text-muted-foreground mb-2">{t.mail.floatingCompose.time}</div>
@@ -912,7 +916,7 @@ export function FloatingComposePanel() {
                   onFocus={() => {
                     if (composeData.to) {
                       const parts = composeData.to.split(',');
-                      const lastPart = parts[parts.length - 1].trim();
+                      const lastPart = (parts.at(-1) ?? '').trim();
                       if (lastPart) {
                         setContactSearchQuery(lastPart);
                         setShowContactSuggestions(true);
@@ -1081,7 +1085,7 @@ export function FloatingComposePanel() {
                 <div className="flex items-center gap-2 text-foreground mb-3">
                   <Paperclip className="h-3.5 w-3.5" />
                   <span className="text-sm font-medium">
-                    {attachedFiles.length > 1 ? t.mail.floatingCompose.attachmentCountPlural.replace('{n}', String(attachedFiles.length)) : t.mail.floatingCompose.attachmentCount.replace('{n}', String(attachedFiles.length))}
+                    {attachmentCountLabel(attachedFiles.length, t.mail.floatingCompose.attachmentCount, t.mail.floatingCompose.attachmentCountPlural)}
                   </span>
                   <span className="text-sm text-muted-foreground">
                     {(attachedFiles.reduce((acc, file) => acc + file.size, 0) / 1024).toFixed(2)} KB

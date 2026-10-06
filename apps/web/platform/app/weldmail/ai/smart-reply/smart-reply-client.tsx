@@ -84,10 +84,11 @@ export function SmartReplyClient({ emails, suggestedReplies: initialReplies, sta
   });
 
   const handleCopy = (text: string, index: number) => {
-    copyText(text);
-    setCopiedIndex(index);
-    toast.success(t.mail.ai.replyCopied);
-    setTimeout(() => setCopiedIndex(null), 2000);
+    copyText(text, () => {
+      setCopiedIndex(index);
+      toast.success(t.mail.ai.replyCopied);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    });
   };
 
   const handleSelectEmail = (email: Email) => {

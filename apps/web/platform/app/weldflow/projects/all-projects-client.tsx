@@ -604,7 +604,7 @@ export function AllProjectsClient({
                     { endDate: date ? date.toISOString() : undefined },
                   );
                 }}
-                initialFocus
+                autoFocus
               />
               {project.dueDate && (
                 <div className="p-1 border-t border-border">
