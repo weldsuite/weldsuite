@@ -13,8 +13,10 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { ALPHANUMERIC, randomString } from '@weldsuite/worker-kit/random';
 import { schema } from '@weldsuite/worker-kit/db';
+import { generateWebhookSecret } from '../../lib/webhook-secret';
+import { publicApiBase } from '../../lib/public-api-base';
+import { deregisterWebhookOwner, registerWebhookOwner, registryDeps } from '../../services/workflow-webhook-registry';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const wh = schema.workflowWebhooks;
@@ -22,16 +24,14 @@ const wf = schema.workflows;
 const wt = schema.workflowTriggers;
 const we = schema.workflowExecutions;
 
-function generateSecret(): string {
-  return randomString(32, ALPHANUMERIC);
-}
-
 const createWebhookSchema = z.object({
   workflowId: z.string(),
   triggerId: z.string().optional(),
   name: z.string().min(1).max(255).default('Webhook'),
   description: z.string().optional(),
-  validateSignature: z.boolean().default(true),
+  // Off by default — the unguessable URL is the credential; signing is an
+  // opt-in a user enables from the editor (rotate-secret + reveal-once).
+  validateSignature: z.boolean().default(false),
   signatureHeader: z.string().default('x-webhook-signature'),
   allowedMethods: z.array(z.string()).default(['POST']),
   ipWhitelist: z.array(z.string()).optional(),
@@ -93,8 +93,11 @@ app.get('/workflow/:workflowId', requirePermission('workflow-webhooks:read'), as
       .limit(1);
     if (!webhook) return success(c, null);
 
-    const baseUrl = c.env.PUBLIC_APP_URL || 'http://localhost:3000';
-    const externalUrl = webhook.externalUrl || `${baseUrl}${webhook.url}`;
+    // The receiver (POST /api/workflows/webhook/:id) is mounted on THIS
+    // worker, not the platform SPA — build the external URL from connect-api's
+    // own public origin (see lib/public-api-base.ts), falling back to it only
+    // when an older row has no `externalUrl` stored yet.
+    const externalUrl = webhook.externalUrl || `${publicApiBase(c.env)}${webhook.url}`;
     // Secret intentionally omitted — retrieve it via POST /rotate-secret. It is
     // an inbound HMAC signing secret; exposing it to any `tasks:read` holder lets
     // them forge signature-valid webhook payloads.
@@ -103,6 +106,7 @@ app.get('/workflow/:workflowId', requirePermission('workflow-webhooks:read'), as
       url: webhook.url,
       externalUrl,
       hasSecret: !!webhook.secret,
+      validateSignature: webhook.validateSignature,
       isEnabled: webhook.isEnabled,
     });
   } catch (err) {
@@ -169,8 +173,9 @@ app.post('/', requirePermission('workflow-webhooks:create'), zValidator('json', 
     if (!(await verifyWorkflow(db, data.workflowId))) return error.notFound(c, 'Workflow', data.workflowId);
 
     const id = generateId('wh');
-    const secret = generateSecret();
+    const secret = generateWebhookSecret();
     const url = `/api/workflows/webhook/${id}`;
+    const externalUrl = `${publicApiBase(c.env)}${url}`;
     const now = new Date();
     await db.insert(wh).values({
       id,
@@ -179,6 +184,7 @@ app.post('/', requirePermission('workflow-webhooks:create'), zValidator('json', 
       name: data.name,
       description: data.description ?? null,
       url,
+      externalUrl,
       secret,
       validateSignature: data.validateSignature,
       signatureHeader: data.signatureHeader,
@@ -188,6 +194,7 @@ app.post('/', requirePermission('workflow-webhooks:create'), zValidator('json', 
       createdAt: now,
       updatedAt: now,
     });
+    await registerWebhookOwner(registryDeps(c.env), id, c.get('workspaceId'));
     const [webhook] = await db.select().from(wh).where(eq(wh.id, id)).limit(1);
     publishEntityEvent({
       c,
@@ -215,8 +222,9 @@ app.post(
 
       const triggerId = generateId('trg');
       const webhookId = generateId('wh');
-      const secret = generateSecret();
+      const secret = generateWebhookSecret();
       const url = `/api/workflows/webhook/${webhookId}`;
+      const externalUrl = `${publicApiBase(c.env)}${url}`;
       const now = new Date();
 
       await db.insert(wt).values({
@@ -224,7 +232,9 @@ app.post(
         workflowId,
         name: 'Webhook Trigger',
         category: 'webhook',
-        config: { method: 'POST', validateSignature: true } as any,
+        // Off by default — matches the workflow_webhooks row below; see
+        // services/weldconnect-mvp.ts for the signing opt-in design.
+        config: { method: 'POST', validateSignature: false } as any,
         isEnabled: true,
         createdAt: now,
         updatedAt: now,
@@ -235,14 +245,16 @@ app.post(
         triggerId,
         name: 'Webhook',
         url,
+        externalUrl,
         secret,
-        validateSignature: true,
+        validateSignature: false,
         signatureHeader: 'x-webhook-signature',
         allowedMethods: ['POST'] as any,
         isEnabled: true,
         createdAt: now,
         updatedAt: now,
       });
+      await registerWebhookOwner(registryDeps(c.env), webhookId, c.get('workspaceId'));
 
       const [trigger] = await db.select().from(wt).where(eq(wt.id, triggerId)).limit(1);
       publishEntityEvent({
@@ -291,15 +303,39 @@ for (const method of ['put', 'patch'] as const) {
   });
 }
 
+const rotateSecretSchema = z.object({
+  // When true, also turns on signature validation for this webhook — the
+  // editor's "Require signature" control calls this in one step so the new
+  // secret is revealed the same moment signing becomes active, instead of a
+  // second PATCH racing it.
+  enableSignature: z.boolean().optional(),
+});
+
 app.patch('/:id/rotate-secret', requirePermission('workflow-webhooks:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
+  // Body is optional — a plain `PATCH .../rotate-secret` with no payload just
+  // rotates the secret and leaves validateSignature unchanged.
+  const rawBody = await c.req.text();
+  let bodyJson: unknown = {};
+  if (rawBody) {
+    try {
+      bodyJson = JSON.parse(rawBody);
+    } catch {
+      return error.badRequest(c, 'Invalid request body');
+    }
+  }
+  const parsed = rotateSecretSchema.safeParse(bodyJson);
+  if (!parsed.success) return error.badRequest(c, 'Invalid request body');
+  const body = parsed.data;
   try {
     const [existing] = await db.select().from(wh).where(and(eq(wh.id, id), isNull(wh.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Webhook', id);
 
-    const newSecret = generateSecret();
-    await db.update(wh).set({ secret: newSecret, updatedAt: new Date() }).where(eq(wh.id, id));
+    const newSecret = generateWebhookSecret();
+    const update: Record<string, unknown> = { secret: newSecret, updatedAt: new Date() };
+    if (body.enableSignature === true) update.validateSignature = true;
+    await db.update(wh).set(update).where(eq(wh.id, id));
     const [webhook] = await db.select().from(wh).where(eq(wh.id, id)).limit(1);
     publishEntityEvent({
       c,
@@ -322,6 +358,7 @@ app.delete('/:id', requirePermission('workflow-webhooks:delete'), async (c) => {
     const [existing] = await db.select().from(wh).where(and(eq(wh.id, id), isNull(wh.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Webhook', id);
     await db.update(wh).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(wh.id, id));
+    await deregisterWebhookOwner(registryDeps(c.env), id);
     publishEntityEvent({
       c,
       entityType: 'workflow_webhook',

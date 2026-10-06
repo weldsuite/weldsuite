@@ -10,7 +10,7 @@
 
 import { isApiError } from '@weldsuite/api-client';
 
-export const WELDCONNECT_TRIGGER_TYPES = ['entity_event', 'schedule'] as const;
+export const WELDCONNECT_TRIGGER_TYPES = ['entity_event', 'schedule', 'webhook'] as const;
 
 /** Only recurring schedules are supported (the cron sweep has no one-off runs). */
 export const WELDCONNECT_SCHEDULE_TYPES = ['recurring'] as const;
@@ -24,7 +24,9 @@ export const WELDCONNECT_ACTION_TYPES = [
   'create_deal',
   'move_deal_stage',
   'log_activity',
+  'create_task',
   'send_notification',
+  'http_request',
   'condition',
   'loop',
   'delay',

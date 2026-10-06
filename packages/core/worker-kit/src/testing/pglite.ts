@@ -136,3 +136,69 @@ export async function isPgliteAvailable(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * pglite-backed MASTER database, for the handful of services that read/write
+ * cross-tenant tables (e.g. the registries in packages/core/db/src/schema/master.ts)
+ * without a Neon connection in tests. Separate cache slot from the tenant
+ * helper above — a test suite can use both in the same run.
+ */
+let cachedMaster: { db: unknown; close: () => Promise<void> } | null = null;
+let cachedMasterError: Error | null = null;
+
+export async function createMasterPgliteDb(): Promise<{ db: any; close: () => Promise<void> }> {
+  if (cachedMaster) return cachedMaster;
+  if (cachedMasterError) throw cachedMasterError;
+
+  try {
+    const [{ PGlite }, drizzlePg, masterSchemaModule, fs, path, url] = await Promise.all([
+      import('@electric-sql/pglite'),
+      import('drizzle-orm/pglite'),
+      import('@weldsuite/db/schema/master'),
+      import('node:fs/promises'),
+      import('node:path'),
+      import('node:url'),
+    ]);
+
+    const client = new PGlite();
+    const db = drizzlePg.drizzle(client, { schema: masterSchemaModule });
+
+    const here = path.dirname(url.fileURLToPath(import.meta.url));
+    const migrationsDir = path.resolve(here, '../../../db/drizzle/master-migrations');
+    const journal = JSON.parse(
+      await fs.readFile(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const files = [...journal.entries].sort((a, b) => a.idx - b.idx).map((entry) => `${entry.tag}.sql`);
+
+    for (const file of files) {
+      const raw = await fs.readFile(path.join(migrationsDir, file), 'utf8');
+      const statements = raw
+        .split(/-->\s*statement-breakpoint/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const stmt of statements) {
+        try {
+          await client.exec(stmt);
+        } catch (err) {
+          const msg = (err as Error).message;
+          if (/already exists/i.test(msg) || /does not exist/i.test(msg)) continue;
+          throw new Error(
+            `pglite failed on master migration ${file}: ${msg}\nStatement: ${stmt.slice(0, 200)}…`,
+          );
+        }
+      }
+    }
+
+    cachedMaster = {
+      db,
+      close: async () => {
+        await client.close();
+        cachedMaster = null;
+      },
+    };
+    return cachedMaster;
+  } catch (err) {
+    cachedMasterError = err instanceof Error ? err : new Error(String(err));
+    throw cachedMasterError;
+  }
+}

@@ -25,6 +25,7 @@ import {
   handleMoveDealStage,
   handleLogActivity,
 } from './crm';
+import { handleCreateTask } from './task';
 import { handleHttpRequest, handleWebhook } from './http';
 import { handleSetVariable, handleLog, handleCondition, handleLoop, handleDelay } from './control';
 import { handleAiGenerate, handleAiClassify } from './ai';
@@ -74,6 +75,8 @@ export const actionHandlers: Record<string, ActionHandler> = {
   create_deal: handleCreateDeal,
   move_deal_stage: handleMoveDealStage,
   log_activity: handleLogActivity,
+  // WeldFlow
+  create_task: handleCreateTask,
   // Integration / HTTP
   http_request: handleHttpRequest,
   webhook: handleWebhook,

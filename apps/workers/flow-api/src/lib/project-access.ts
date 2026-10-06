@@ -11,6 +11,12 @@
  * read-only. Reuse these in every by-id / :projectId / sub-resource handler under
  * WeldFlow (projects, project-members, tasks, sprints, milestones, …) so the
  * boundary is enforced consistently, not just on the list endpoint.
+ *
+ * The role-resolution core (`resolveProjectAccess`) lives in
+ * `@weldsuite/flow-domain/project-access` — context-free, so connect-api's
+ * WeldConnect `create_task` action can run the identical check for the
+ * workflow's owner without a Hono context. This module is the thin,
+ * Hono-context-bound wrapper flow-api's routes use.
  */
 
 import type { Context } from 'hono';
@@ -18,6 +24,9 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { hasContextPermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../types';
 import { schema } from '@weldsuite/worker-kit/db';
+import { resolveProjectAccess as resolveProjectAccessCore, type ProjectAccess } from '@weldsuite/flow-domain/project-access';
+
+export type { ProjectAccess };
 
 type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -25,42 +34,6 @@ async function callerContext(c: Ctx) {
   const userId = c.get('userId') as string | undefined;
   const scopeAll = await hasContextPermission(c, 'projects:scope:all');
   return { userId, scopeAll };
-}
-
-async function membership(c: Ctx, projectId: string, userId: string) {
-  const db = c.get('tenantDb');
-  const [[proj], [member]] = await Promise.all([
-    db
-      .select({ managerId: schema.projects.projectManagerId })
-      .from(schema.projects)
-      .where(eq(schema.projects.id, projectId))
-      .limit(1),
-    db
-      .select({ role: schema.projectMembers.role })
-      .from(schema.projectMembers)
-      .where(
-        and(
-          eq(schema.projectMembers.projectId, projectId),
-          eq(schema.projectMembers.userId, userId),
-          eq(schema.projectMembers.isActive, true),
-          isNull(schema.projectMembers.deletedAt),
-        ),
-      )
-      .limit(1),
-  ]);
-  return { isManager: !!proj?.managerId && proj.managerId === userId, role: member?.role };
-}
-
-export interface ProjectAccess {
-  /** Effective role: the member row's role (lowercased), else 'owner' for the project manager. */
-  role: string | null;
-  isManager: boolean;
-  scopeAll: boolean;
-  /** An active member row exists (any role, including unknown ones). */
-  isMember: boolean;
-  canRead: boolean;
-  canWrite: boolean;
-  isAdmin: boolean;
 }
 
 /**
@@ -74,23 +47,8 @@ export interface ProjectAccess {
  */
 export async function resolveProjectAccess(c: Ctx, projectId: string): Promise<ProjectAccess> {
   const { userId, scopeAll } = await callerContext(c);
-  const { isManager, role: memberRole } = userId
-    ? await membership(c, projectId, userId)
-    : { isManager: false, role: undefined };
-  const projectRole = (memberRole ?? '').toLowerCase() || null;
-  const role = projectRole ?? (isManager ? 'owner' : null);
-  const isAdmin = scopeAll || isManager || role === 'owner' || role === 'admin';
-  const canWrite = isAdmin || role === 'member';
-  const canRead = canWrite || role === 'viewer';
-  return {
-    role,
-    isManager,
-    scopeAll,
-    isMember: memberRole !== undefined,
-    canRead,
-    canWrite,
-    isAdmin,
-  };
+  const db = c.get('tenantDb');
+  return resolveProjectAccessCore(db, userId, { scopeAll }, projectId);
 }
 
 /**

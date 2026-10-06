@@ -86,6 +86,10 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     { labelKey: 'dealStage', isMissing: (c) => isBlank(c.stageId) },
   ],
   log_activity: [{ labelKey: 'activitySubject', isMissing: (c) => isBlank(c.subject) }],
+  create_task: [
+    { labelKey: 'taskProject', isMissing: (c) => isBlank(c.projectId) },
+    { labelKey: 'title', isMissing: (c) => isBlank(c.title) },
+  ],
   create_record: [
     { labelKey: 'entityType', isMissing: (c) => isBlank(c.entityType) && isBlank(c.entity) },
     { labelKey: 'fields', isMissing: (c) => isEmptyObject(c.data) },

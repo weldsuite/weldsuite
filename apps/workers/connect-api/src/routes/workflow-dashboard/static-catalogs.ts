@@ -32,6 +32,7 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'create_deal', name: 'Create Deal', description: 'Create a CRM opportunity', category: 'data', icon: 'briefcase' },
   { id: 'move_deal_stage', name: 'Move Deal Stage', description: 'Move a deal to a different pipeline stage', category: 'data', icon: 'move' },
   { id: 'log_activity', name: 'Log Activity', description: 'Log a CRM activity (call, email, meeting, task, note)', category: 'data', icon: 'activity' },
+  { id: 'create_task', name: 'Create Task', description: 'Create a WeldFlow project task', category: 'data', icon: 'clipboard-list' },
   // Logic
   { id: 'condition', name: 'Condition', description: 'Branch based on conditions', category: 'logic', icon: 'git-branch' },
   { id: 'loop', name: 'Loop', description: 'Iterate over a list', category: 'logic', icon: 'repeat' },
