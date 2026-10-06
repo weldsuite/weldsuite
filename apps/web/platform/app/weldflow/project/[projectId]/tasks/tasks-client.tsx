@@ -207,7 +207,7 @@ function transformApiTask(apiTask: RawApiTask): Task {
     completedSubtaskCount: apiTask.completedSubtaskCount || 0,
     key: apiTask.key || undefined,
     repeat: apiTask.repeat || undefined,
-    children: Array.isArray(rawChildren) ? rawChildren.map(transformApiTask) : undefined,
+    children: Array.isArray(rawChildren) ? rawChildren.map((child) => transformApiTask(child)) : undefined,
   };
 }
 
@@ -607,7 +607,7 @@ export function TasksClient({
         ],
   );
 
-  const initialFlattened = useMemo(() => flattenTaskTree(initialTasks.map(transformApiTask)), [initialTasks]);
+  const initialFlattened = useMemo(() => flattenTaskTree(initialTasks.map((task) => transformApiTask(task))), [initialTasks]);
   const [tasks, setTasks] = useState<Task[]>(initialFlattened.topLevel);
   const [inlineSubtasks, setInlineSubtasks] = useState<Record<string, Task[]>>(initialFlattened.inlineSubtasks);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(initialFlattened.expandedIds);
@@ -648,7 +648,7 @@ export function TasksClient({
 
   const [editingCrmTask, setEditingCrmTask] = useState<CrmTask | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
-  const [loadedProjectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [loadedProjectMembers, setLoadedProjectMembers] = useState<ProjectMember[]>([]);
   // Fetch companies so the task detail panel's Company picker has real
   // options to choose from (instead of "No records available").
   const companiesQuery = useCompanies({ limit: 100 });
@@ -811,7 +811,7 @@ export function TasksClient({
           setInlineSubtasks((prev) =>
             prev[taskId]
               ? prev
-              : { ...prev, [taskId]: children.map(transformApiTask) },
+              : { ...prev, [taskId]: children.map((child) => transformApiTask(child)) },
           );
         }
       });
@@ -873,7 +873,7 @@ export function TasksClient({
     async function loadMembers() {
       const result = await membersApi.list(projectId);
       if (result.success && result.data) {
-        setProjectMembers(result.data);
+        setLoadedProjectMembers(result.data);
       }
     }
     void loadMembers();
@@ -919,6 +919,9 @@ export function TasksClient({
     const resolvedStageId = pickedStage?.id;
     const resolvedStatus = pickedStage?.systemStatus ?? statusMap[data.status] ?? 'todo';
 
+    const assigneeIds = data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined);
+    const repeat = data.repeat ? { frequency: data.repeat.frequency } : undefined;
+
     setIsCreatingTask(true);
     // Entity mode has no single project to create into — create via the global
     // /tasks endpoint instead, linked to the CRM company/person this panel is
@@ -929,10 +932,10 @@ export function TasksClient({
           description: data.description,
           status: resolvedStatus,
           priority: data.priority,
-          assigneeIds: data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined),
+          assigneeIds,
           dueDate: data.dueDate?.toISOString(),
           labels: data.labels,
-          repeat: data.repeat ? { frequency: data.repeat.frequency } : undefined,
+          repeat,
           customerId: entityScope!.kind === 'company' ? entityScope!.id : undefined,
           personId: entityScope!.kind === 'person' ? entityScope!.id : undefined,
         })
@@ -942,10 +945,10 @@ export function TasksClient({
           stageId: resolvedStageId,
           status: resolvedStatus,
           priority: data.priority,
-          assigneeIds: data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined),
+          assigneeIds,
           dueDate: data.dueDate?.toISOString(),
           labels: data.labels,
-          repeat: data.repeat ? { frequency: data.repeat.frequency } : undefined,
+          repeat,
         });
     setIsCreatingTask(false);
 
@@ -1659,7 +1662,7 @@ export function TasksClient({
                 mode="single"
                 selected={task.dueDate}
                 onSelect={(date) => updateTaskInline(task.id, { dueDate: date || undefined })}
-                initialFocus
+                autoFocus
               />
               {task.dueDate && (
                 <div className="p-1 border-t border-border">

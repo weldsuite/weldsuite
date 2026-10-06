@@ -349,8 +349,8 @@ interface SpreadsheetGridProps {
   onSelectionEndChange: (end: CellCoord | null) => void;
   onContextMenu?: (e: React.MouseEvent, type: 'cell' | 'column-header' | 'row-number', coord: CellCoord) => void;
   onInlineSelectionChange?: (info: { start: number; end: number } | null) => void;
-  editingRuns?: React.MutableRefObject<RichTextRun[]>;
-  clipboardApiRef?: React.MutableRefObject<SpreadsheetClipboardApi | null>;
+  editingRuns?: React.RefObject<RichTextRun[]>;
+  clipboardApiRef?: React.RefObject<SpreadsheetClipboardApi | null>;
   /** Visual row positions hidden by an active column filter — rendered at height 0. */
   hiddenRows?: Set<number>;
   /** Active column filter, so headers can show funnel buttons. */
@@ -448,6 +448,13 @@ function createColumnsUpTo(
   for (let i = existingCount; i <= col; i++) {
     onCreateColumn({ name: colLabel(i), fieldType: 'text' });
   }
+}
+
+// Text of a plain cell value. Column keys only ever hold CellValue; the
+// object payloads (formats, rich-text runs) live under prefixed keys.
+function plainCellText(value: CellDataValue | undefined): string {
+  if (value == null || typeof value === 'object') return '';
+  return String(value);
 }
 
 function buildNewRowData(colId: string, value: string, runs: RichTextRun[] | null): Record<string, CellDataValue> {
@@ -622,7 +629,7 @@ export function SpreadsheetGrid({
       const bc = sortedCols[col];
       const br = rowByPosition.get(row);
       if (bc && br) {
-        const actual = br.data?.[bc.id]?.toString() ?? '';
+        const actual = plainCellText(br.data?.[bc.id]);
         if (actual === expectedValue || (expectedValue === '' && (actual === '' || br.data?.[bc.id] === null))) {
           pending.delete(key);
         }
@@ -738,7 +745,7 @@ export function SpreadsheetGrid({
       const bc = sortedCols[col];
       const br = rowByPosition.get(row);
       if (!bc || !br) return '';
-      return br.data?.[bc.id]?.toString() ?? '';
+      return plainCellText(br.data?.[bc.id]);
     },
     [sortedCols, rowByPosition]
   );
@@ -784,7 +791,7 @@ export function SpreadsheetGrid({
         }
         return;
       }
-      const old = br.data?.[bc.id]?.toString() ?? '';
+      const old = plainCellText(br.data?.[bc.id]);
       if (value === old && !hasRichText) return;
       optimisticCellsRef.current.set(`${col},${row}`, value);
       const updateData: Record<string, CellDataValue> = {
@@ -848,8 +855,7 @@ export function SpreadsheetGrid({
     const editingCell = selectedCellRef.current;
     if (
       isEditingRef.current &&
-      editingCell &&
-      editingCell.col === coords.col &&
+      editingCell?.col === coords.col &&
       editingCell.row === coords.row
     ) {
       return;
@@ -884,7 +890,7 @@ export function SpreadsheetGrid({
     // double-click natively so it selects the word under the cursor — exactly
     // like Google Sheets. Intercepting here would reset the caret to the end.
     const sel = selectedCellRef.current;
-    if (isEditingRef.current && sel && sel.col === coords.col && sel.row === coords.row) {
+    if (isEditingRef.current && sel?.col === coords.col && sel.row === coords.row) {
       return;
     }
     e.preventDefault();
