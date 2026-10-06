@@ -30,6 +30,8 @@ import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
 import { InvalidMemberIdError } from '@weldsuite/crm-domain/people';
+import { UnknownPipelineStageError } from '@weldsuite/crm-domain/opportunities';
+import { activityType } from '@weldsuite/core-api-client/schemas/activities';
 import { canAccessChannel } from '@weldsuite/chat-domain/channel-access';
 import { postSystemChatMessage } from '@weldsuite/chat-domain/post-system-message';
 import { resolveProjectAccess } from '@weldsuite/flow-domain/project-access';
@@ -37,7 +39,11 @@ import { taskAnalyticsPayload } from '@weldsuite/flow-domain/analytics-payload';
 import {
   createContactFromWorkflow,
   createCustomerFromWorkflow,
+  createDealFromWorkflow,
+  createLeadFromWorkflow,
   createTaskFromWorkflow,
+  logActivityFromWorkflow,
+  moveDealStageFromWorkflow,
   personEventData,
   sendTaskAssignmentNotificationsForWorkflow,
   updateContactFromWorkflow,
@@ -275,6 +281,212 @@ internalWorkflowActionsRoutes.post(
       });
     } catch (err) {
       return actionFailure(c, 'update-contact', err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /create-lead — WeldConnect `create_lead` step. Leads always carry an
+// email (same requirement as the CRM create route), so there is no
+// dedup/reuse path like `create_contact` has.
+// ---------------------------------------------------------------------------
+
+const leadFieldsSchema = z.object({
+  firstName: optionalTrimmed(100),
+  lastName: optionalTrimmed(100),
+  email: z.string().trim().email().max(255),
+  companyName: optionalTrimmed(255),
+  title: optionalTrimmed(100),
+  phone: optionalTrimmed(50),
+  mobile: optionalTrimmed(50),
+  website: optionalTrimmed(500),
+  source: optionalTrimmed(50),
+  rating: optionalTrimmed(20),
+  notes: optionalTrimmed(10000),
+});
+
+internalWorkflowActionsRoutes.post(
+  '/create-lead',
+  zValidator('json', actorSchema.extend({ lead: leadFieldsSchema })),
+  async (c) => {
+    const { workspaceId, ownerUserId, chainDepth, lead } = c.req.valid('json');
+    try {
+      const db = await getTenantDbForWorkspace(c.env, workspaceId);
+      await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+        permission: 'leads:create',
+        app: 'weldcrm',
+        doing: 'create leads',
+      });
+      const { id, eventData } = await createLeadFromWorkflow(db, { ownerUserId, lead });
+      await publishEntityEventRaw({
+        env: c.env,
+        workspaceId,
+        userId: ownerUserId,
+        entityType: 'lead',
+        action: 'created',
+        entityId: id,
+        data: eventData,
+        workflowDepth: chainDepth,
+      });
+      return c.json({
+        success: true,
+        lead: { id, name: (eventData.fullName as string | null) ?? null, email: eventData.email as string },
+      });
+    } catch (err) {
+      return actionFailure(c, 'create-lead', err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /create-deal — WeldConnect `create_deal` step.
+// ---------------------------------------------------------------------------
+
+const dealFieldsSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  customerId: z.string().trim().min(1).max(30),
+  description: optionalTrimmed(5000),
+  amount: z.union([z.string(), z.number()]).optional(),
+  currency: optionalTrimmed(3),
+  pipeline: optionalTrimmed(100),
+  stageId: optionalTrimmed(30),
+  closeDate: optionalTrimmed(50),
+});
+
+internalWorkflowActionsRoutes.post(
+  '/create-deal',
+  zValidator('json', actorSchema.extend({ deal: dealFieldsSchema })),
+  async (c) => {
+    const { workspaceId, ownerUserId, chainDepth, deal } = c.req.valid('json');
+    try {
+      const db = await getTenantDbForWorkspace(c.env, workspaceId);
+      await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+        permission: 'opportunities:create',
+        app: 'weldcrm',
+        doing: 'create deals',
+      });
+      const { id, eventData } = await createDealFromWorkflow(db, { ownerUserId, deal });
+      await publishEntityEventRaw({
+        env: c.env,
+        workspaceId,
+        userId: ownerUserId,
+        entityType: 'opportunity',
+        action: 'created',
+        entityId: id,
+        data: eventData,
+        workflowDepth: chainDepth,
+      });
+      return c.json({
+        success: true,
+        deal: { id, name: eventData.name as string, stage: eventData.stage as string, status: eventData.status as string },
+      });
+    } catch (err) {
+      return actionFailure(c, 'create-deal', err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /move-deal-stage — WeldConnect `move_deal_stage` step. Keeps
+// won/lost/probability in sync exactly like the CRM PATCH route's `stageId`
+// move does (opportunities.ts `syncStatusWithStage`), and publishes the same
+// derived `stage_changed` / `won` / `lost` events.
+// ---------------------------------------------------------------------------
+
+internalWorkflowActionsRoutes.post(
+  '/move-deal-stage',
+  zValidator(
+    'json',
+    actorSchema.extend({
+      dealId: z.string().trim().min(1).max(30),
+      stageId: z.string().trim().min(1).max(30),
+    }),
+  ),
+  async (c) => {
+    const { workspaceId, ownerUserId, chainDepth, dealId, stageId } = c.req.valid('json');
+    try {
+      const db = await getTenantDbForWorkspace(c.env, workspaceId);
+      const resolved = await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+        permission: 'opportunities:update',
+        app: 'weldcrm',
+        doing: 'move deals',
+      });
+      const ownerScope = ownerHolds(resolved, 'opportunities:scope:all', 'weldcrm') ? undefined : ownerUserId;
+      const result = await moveDealStageFromWorkflow(db, { dealId, stageId, ownerScope });
+      if (!result) {
+        return c.json(
+          { success: false, error: `Deal ${dealId} was not found (or the workflow's owner can't move it)` },
+          404,
+        );
+      }
+      for (const event of result.events) {
+        await publishEntityEventRaw({
+          env: c.env,
+          workspaceId,
+          userId: ownerUserId,
+          entityType: 'opportunity',
+          action: event.action,
+          entityId: dealId,
+          // crm-domain types this against the catalog's exact OpportunityEventData
+          // shape (plus stageId, no index signature); publishEntityEventRaw takes a plain bag.
+          data: event.data as unknown as Record<string, unknown>,
+          workflowDepth: chainDepth,
+        });
+      }
+      return c.json({ success: true, deal: { id: dealId, stageId: result.stageId, status: result.status } });
+    } catch (err) {
+      if (err instanceof UnknownPipelineStageError) {
+        return c.json({ success: false, error: err.message }, 400);
+      }
+      return actionFailure(c, 'move-deal-stage', err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /log-activity — WeldConnect `log_activity` step.
+// ---------------------------------------------------------------------------
+
+const activityFieldsSchema = z.object({
+  type: activityType,
+  subject: z.string().trim().min(1).max(255),
+  description: optionalTrimmed(10000),
+  dueDate: optionalTrimmed(50),
+  customerId: optionalTrimmed(30),
+  contactId: optionalTrimmed(30),
+  personId: optionalTrimmed(30),
+  opportunityId: optionalTrimmed(30),
+});
+
+internalWorkflowActionsRoutes.post(
+  '/log-activity',
+  zValidator('json', actorSchema.extend({ activity: activityFieldsSchema })),
+  async (c) => {
+    const { workspaceId, ownerUserId, chainDepth, activity } = c.req.valid('json');
+    try {
+      const db = await getTenantDbForWorkspace(c.env, workspaceId);
+      await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+        permission: 'activities:create',
+        app: 'weldcrm',
+        doing: 'log activities',
+      });
+      const { id, eventData } = await logActivityFromWorkflow(db, { ownerUserId, activity });
+      await publishEntityEventRaw({
+        env: c.env,
+        workspaceId,
+        userId: ownerUserId,
+        entityType: 'activity',
+        action: 'created',
+        entityId: id,
+        data: eventData,
+        workflowDepth: chainDepth,
+      });
+      return c.json({
+        success: true,
+        activity: { id, type: eventData.type as string, subject: eventData.subject as string },
+      });
+    } catch (err) {
+      return actionFailure(c, 'log-activity', err);
     }
   },
 );

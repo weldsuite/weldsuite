@@ -20,43 +20,28 @@ import {
 } from '@weldsuite/core-api-client/schemas/opportunities';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
-import { generateId } from '@weldsuite/worker-kit/id';
 import {
   syncValuesForEntity,
   hydrateCustomFields,
   hydrateCustomFieldsOne,
 } from '@weldsuite/core-domain/custom-field-values';
 import { schema } from '@weldsuite/worker-kit/db';
+import {
+  createOpportunity,
+  loadStage,
+  lookupCompanyName,
+  opportunityUpdateEvents,
+  buildUpdatePayload,
+  syncStatusWithStage,
+  type PipelineStageFlags,
+} from '@weldsuite/crm-domain/opportunities';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmOpportunities;
 
-const NUMERIC_FIELDS = new Set(['amount', 'expectedRevenue', 'recurringRevenue']);
-const DATE_FIELDS = new Set(['closeDate', 'startDate', 'nextStepDate']);
-
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
   if (await hasContextPermission(c, 'opportunities:scope:all')) return undefined;
   return c.get('userId');
-}
-
-/**
- * `customerName` is a denormalized mirror of the company's name, kept so
- * list/search views don't need a join. The create route never populated it
- * (the create schema doesn't even accept it), so the deal panel's Company
- * tab rendered "(unknown company)" for every new deal. Look the name up by
- * `customerId` so writers don't have to carry it themselves.
- */
-async function lookupCompanyName(
-  db: Variables['tenantDb'],
-  customerId: string | undefined,
-): Promise<string | undefined> {
-  if (!customerId) return undefined;
-  const [row] = await db
-    .select({ name: schema.companies.name })
-    .from(schema.companies)
-    .where(and(eq(schema.companies.id, customerId), isNull(schema.companies.deletedAt)))
-    .limit(1);
-  return row?.name;
 }
 
 /** WHERE conditions for the list endpoint's query-string filters (no cursor). */
@@ -150,224 +135,18 @@ app.post('/', requirePermission('opportunities:create'), zValidator('json', crea
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   const userId = c.get('userId');
-  const ownerId = data.ownerId ?? userId;
-  if (!ownerId) return error.badRequest(c, 'ownerId required');
-  const id = generateId('opp');
-  const now = new Date();
-  const closeDate = data.closeDate ? new Date(data.closeDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   try {
-    const customerName = await lookupCompanyName(db, data.customerId);
-    const values: typeof t.$inferInsert = {
-      id,
-      name: data.name,
-      description: data.description,
-      customerId: data.customerId,
-      customerName,
-      primaryContactId: data.primaryContactId,
-      amount: data.amount !== undefined ? String(data.amount) : '0',
-      currency: data.currency ?? 'EUR',
-      expectedRevenue: data.expectedRevenue !== undefined ? String(data.expectedRevenue) : undefined,
-      recurringRevenue: data.recurringRevenue !== undefined ? String(data.recurringRevenue) : undefined,
-      contractLength: data.contractLength,
-      stage: data.stage ?? 'prospecting',
-      stageId: data.stageId,
-      status: data.status ?? 'open',
-      probability: data.probability ?? 0,
-      pipeline: data.pipeline ?? 'default',
-      closeDate,
-      startDate: data.startDate ? new Date(data.startDate) : undefined,
-      ownerId,
-      teamMembers: data.teamMembers,
-      leadSource: data.leadSource,
-      campaign: data.campaign,
-      type: data.type,
-      category: data.category,
-      nextStep: data.nextStep,
-      nextStepDate: data.nextStepDate ? new Date(data.nextStepDate) : undefined,
-      riskLevel: data.riskLevel,
-      riskReason: data.riskReason,
-      proposalUrl: data.proposalUrl,
-      contractUrl: data.contractUrl,
-      tags: data.tags,
-      customFields: data.customFields as Record<string, unknown> | null | undefined,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.insert(t).values(values);
+    const { id, eventData } = await createOpportunity(db, data, userId);
     // Phase 1 dual-write: mirror the customFields blob into the typed values table.
     await syncValuesForEntity(db, 'opportunity', id, data.customFields as Record<string, unknown> | null | undefined);
-    publishEntityEvent({
-      c,
-      entityType: 'opportunity',
-      entityId: id,
-      action: 'created',
-      data: {
-        id,
-        name: values.name,
-        amount: values.amount ?? '0',
-        stage: values.stage ?? 'prospecting',
-        status: values.status ?? 'open',
-        currency: values.currency,
-        customerId: values.customerId,
-        pipelineId: values.pipeline,
-        ownerId: values.ownerId,
-      },
-    });
+    publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: 'created', data: eventData });
     return success(c, { id }, 201);
   } catch (err) {
+    if (err instanceof Error && err.message === 'ownerId required') return error.badRequest(c, err.message);
     console.error('[app-api/opportunities] create failed:', err);
     return error.internal(c, 'Failed to create opportunity');
   }
 });
-
-/** Coerce one PATCH field to its column representation (numerics as strings, dates as Date). */
-function toColumnValue(key: string, value: unknown): unknown {
-  if (NUMERIC_FIELDS.has(key) && typeof value === 'number') return String(value);
-  if (DATE_FIELDS.has(key) && typeof value === 'string') return new Date(value);
-  return value;
-}
-
-/** Build the `set` payload for a PATCH, skipping undefined fields. */
-function buildUpdatePayload(data: Record<string, unknown>): Record<string, unknown> {
-  const update: Record<string, unknown> = { updatedAt: new Date() };
-  for (const [k, v] of Object.entries(data)) {
-    if (v !== undefined) update[k] = toColumnValue(k, v);
-  }
-  return update;
-}
-
-type OpportunityRow = typeof t.$inferSelect;
-
-/**
- * Publish the `updated` event plus the derived `stage_changed` / `won` / `lost`
- * events for a PATCH, comparing the new values against the pre-update row.
- */
-function publishUpdateEvents(
-  c: Context<{ Bindings: Env; Variables: Variables }>,
-  id: string,
-  existing: OpportunityRow,
-  update: Record<string, unknown>,
-): void {
-  const newStage = (update.stage as string | undefined) ?? existing.stage;
-  const newStageId = (update.stageId as string | null | undefined) ?? existing.stageId;
-  const newStatus = (update.status as string | undefined) ?? existing.status;
-  const eventData = {
-    id,
-    name: (update.name as string | undefined) ?? existing.name,
-    amount: (update.amount as string | undefined) ?? existing.amount ?? '0',
-    stage: newStage,
-    stageId: newStageId,
-    status: newStatus,
-    customerId: (update.customerId as string | null | undefined) ?? existing.customerId,
-    ownerId: (update.ownerId as string | null | undefined) ?? existing.ownerId,
-  };
-  const publish = (action: 'updated' | 'stage_changed' | 'won' | 'lost') =>
-    publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action, data: eventData });
-
-  publish('updated');
-  if (newStage !== existing.stage || newStageId !== existing.stageId) publish('stage_changed');
-  if (newStatus === 'won' && existing.status !== 'won') publish('won');
-  else if (newStatus === 'lost' && existing.status !== 'lost') publish('lost');
-}
-
-type PipelineStageFlags = {
-  id: string;
-  isWon: boolean | null;
-  isLost: boolean | null;
-  probability: number | null;
-};
-
-async function loadStage(
-  db: Variables['tenantDb'],
-  stageId: string,
-): Promise<PipelineStageFlags | undefined> {
-  const [row] = await db
-    .select({
-      id: schema.crmPipelineStages.id,
-      isWon: schema.crmPipelineStages.isWon,
-      isLost: schema.crmPipelineStages.isLost,
-      probability: schema.crmPipelineStages.probability,
-    })
-    .from(schema.crmPipelineStages)
-    .where(and(eq(schema.crmPipelineStages.id, stageId), isNull(schema.crmPipelineStages.deletedAt)))
-    .limit(1);
-  return row;
-}
-
-/**
- * Keep `status` / `actualCloseDate` / `probability` in step with the stage a
- * deal sits in, in both directions (TASK-919):
- *  - Dragging the deal onto a stage flagged isWon/isLost (an explicit
- *    `stageId` in this PATCH) marks it won/lost, stamps `actualCloseDate`
- *    (today, unless already set) and copies the stage's probability. Moving
- *    it back out to a plain open stage reopens it and clears
- *    `actualCloseDate`.
- *  - Marking the deal won/lost directly (`status` in this PATCH, no
- *    `stageId`) moves it into the pipeline's matching isWon/isLost stage, if
- *    one exists, and stamps `actualCloseDate`. Reopening it directly clears
- *    `actualCloseDate`.
- * Mutates `update` in place; `targetStage` is the already-validated stage
- * for an explicit `stageId` move (avoids re-querying it).
- */
-async function syncStatusWithStage(
-  db: Variables['tenantDb'],
-  existing: OpportunityRow,
-  data: Record<string, unknown>,
-  update: Record<string, unknown>,
-  targetStage: PipelineStageFlags | undefined,
-): Promise<void> {
-  const explicitStatus = typeof data.status === 'string' ? data.status : undefined;
-
-  if (targetStage) {
-    if (targetStage.isWon || targetStage.isLost) {
-      if (update.status === undefined) update.status = targetStage.isWon ? 'won' : 'lost';
-      if (update.actualCloseDate === undefined && !existing.actualCloseDate) update.actualCloseDate = new Date();
-      if (update.probability === undefined && targetStage.probability !== null) {
-        update.probability = targetStage.probability;
-      }
-    } else {
-      const previousStage = existing.stageId ? await loadStage(db, existing.stageId) : undefined;
-      if (previousStage && (previousStage.isWon || previousStage.isLost) && update.status === undefined) {
-        update.status = 'open';
-        update.actualCloseDate = null;
-      }
-    }
-    return;
-  }
-
-  if (!explicitStatus || explicitStatus === existing.status) return;
-
-  if (explicitStatus === 'won' || explicitStatus === 'lost') {
-    if (update.actualCloseDate === undefined && !existing.actualCloseDate) update.actualCloseDate = new Date();
-    if (update.stageId === undefined) {
-      const pipeline = (update.pipeline as string | undefined) ?? existing.pipeline ?? 'default';
-      const flagColumn =
-        explicitStatus === 'won' ? schema.crmPipelineStages.isWon : schema.crmPipelineStages.isLost;
-      const [matchStage] = await db
-        .select({ id: schema.crmPipelineStages.id, probability: schema.crmPipelineStages.probability })
-        .from(schema.crmPipelineStages)
-        .where(
-          and(
-            eq(schema.crmPipelineStages.pipeline, pipeline),
-            eq(flagColumn, true),
-            isNull(schema.crmPipelineStages.deletedAt),
-          ),
-        )
-        .limit(1);
-      if (matchStage) {
-        update.stageId = matchStage.id;
-        if (data.stage === undefined) update.stage = matchStage.id;
-        if (update.probability === undefined && matchStage.probability !== null) {
-          update.probability = matchStage.probability;
-        }
-      }
-    }
-  } else if (explicitStatus === 'open' || explicitStatus === 'abandoned') {
-    if ((existing.status === 'won' || existing.status === 'lost') && update.actualCloseDate === undefined) {
-      update.actualCloseDate = null;
-    }
-  }
-}
 
 app.patch('/:id', requirePermission('opportunities:update'), zValidator('json', updateOpportunitySchema), async (c) => {
   const db = c.get('tenantDb');
@@ -403,7 +182,9 @@ app.patch('/:id', requirePermission('opportunities:update'), zValidator('json', 
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     // Phase 1 dual-write: mirror the customFields blob into the typed values table.
     await syncValuesForEntity(db, 'opportunity', id, data.customFields as Record<string, unknown> | null | undefined);
-    publishUpdateEvents(c, id, existing, update);
+    for (const event of opportunityUpdateEvents(id, existing, update)) {
+      publishEntityEvent({ c, entityType: 'opportunity', entityId: id, action: event.action, data: event.data });
+    }
     return success(c, { id });
   } catch (err) {
     console.error('[app-api/opportunities] update failed:', err);

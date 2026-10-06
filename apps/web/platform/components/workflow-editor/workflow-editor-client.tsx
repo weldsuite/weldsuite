@@ -66,6 +66,9 @@ import {
   Plug,
   Pause,
   Play,
+  Briefcase,
+  Move,
+  Activity,
 } from 'lucide-react';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
@@ -291,6 +294,10 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   create_customer: { icon: Building2, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   create_contact: { icon: UserPlus, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   update_contact: { icon: UserCheck, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  create_lead: { icon: UserPlus, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  create_deal: { icon: Briefcase, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  move_deal_stage: { icon: Move, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  log_activity: { icon: Activity, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   post_chat_message: { icon: MessageCircle, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30' },
   create_task: { icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
@@ -396,6 +403,10 @@ const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'create_customer', name: 'Create Company', description: 'Add a company to WeldCRM', icon: Building2, category: 'data' },
   { id: 'create_contact', name: 'Create Contact', description: 'Add a person to WeldCRM', icon: UserPlus, category: 'data' },
   { id: 'update_contact', name: 'Update Contact', description: 'Change a person in WeldCRM', icon: UserCheck, category: 'data' },
+  { id: 'create_lead', name: 'Create Lead', description: 'Add a lead to WeldCRM', icon: UserPlus, category: 'data' },
+  { id: 'create_deal', name: 'Create Deal', description: 'Add an opportunity to WeldCRM', icon: Briefcase, category: 'data' },
+  { id: 'move_deal_stage', name: 'Move Deal Stage', description: 'Move a deal to a different pipeline stage', icon: Move, category: 'data' },
+  { id: 'log_activity', name: 'Log Activity', description: 'Log a call, email, meeting, task or note', icon: Activity, category: 'data' },
   { id: 'create_task', name: 'Create Task', description: 'Create a project task in WeldFlow', icon: ClipboardList, category: 'data' },
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', icon: Plus, category: 'data' },
   { id: 'update_record', name: 'Update Record', description: 'Update an existing record', icon: Pencil, category: 'data' },
@@ -544,6 +555,18 @@ function summarizeContact(config: Record<string, unknown>): string {
   return name || (typeof config.email === 'string' ? config.email : '');
 }
 
+function summarizeCreateDeal(config: Record<string, unknown>): string {
+  return typeof config.name === 'string' ? config.name : '';
+}
+
+function summarizeMoveDealStage(config: Record<string, unknown>): string {
+  return typeof config.dealId === 'string' ? config.dealId : '';
+}
+
+function summarizeLogActivity(config: Record<string, unknown>): string {
+  return typeof config.subject === 'string' ? config.subject : '';
+}
+
 function summarizePostChatMessage(config: Record<string, unknown>): string {
   const message = typeof config.message === 'string' ? config.message : typeof config.content === 'string' ? config.content : '';
   return message.substring(0, 60) + (message.length > 60 ? '...' : '');
@@ -564,6 +587,10 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['create_customer', summarizeCreateCustomer],
   ['create_contact', summarizeContact],
   ['update_contact', summarizeContact],
+  ['create_lead', summarizeContact],
+  ['create_deal', summarizeCreateDeal],
+  ['move_deal_stage', summarizeMoveDealStage],
+  ['log_activity', summarizeLogActivity],
   ['post_chat_message', summarizePostChatMessage],
   ['create_task', summarizeTask],
 ]);

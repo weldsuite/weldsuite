@@ -7,6 +7,9 @@
   "exports": {
     "./companies": "./src/companies.ts",
     "./people": "./src/people.ts",
+    "./leads": "./src/leads.ts",
+    "./opportunities": "./src/opportunities.ts",
+    "./activities": "./src/activities.ts",
     "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
     "./workflows/execute-sequence": "./src/workflows/execute-sequence.ts"
   },

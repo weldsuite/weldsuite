@@ -30,6 +30,10 @@ export const createActivitySchema = z.object({
 
   customerId: z.string().nullish(),
   contactId: z.string().nullish(),
+  // `crm_activities.person_id` exists on the table (meeting activities use
+  // it) but wasn't accepted on create before WeldConnect's `log_activity`
+  // step needed to link a Person directly; no column migration involved.
+  personId: z.string().nullish(),
   leadId: z.string().nullish(),
   opportunityId: z.string().nullish(),
   assignedToId: z.string().optional(), // defaults to caller userId
@@ -105,6 +109,7 @@ export interface Activity {
   relatedToName?: string | null;
   customerId?: string | null;
   contactId?: string | null;
+  personId?: string | null;
   leadId?: string | null;
   opportunityId?: string | null;
   assignedToId: string;

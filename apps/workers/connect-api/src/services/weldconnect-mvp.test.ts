@@ -205,6 +205,39 @@ describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
     ]);
   });
 
+  it('accepts configured create_lead / create_deal / move_deal_stage / log_activity steps', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          { id: 'a', type: 'create_lead', config: { email: '{{trigger.data.email}}' } },
+          { id: 'b', type: 'create_deal', config: { name: 'Renewal', customerId: '{{trigger.record.id}}' } },
+          { id: 'c', type: 'move_deal_stage', config: { dealId: '{{steps.b.dealId}}', stageId: 'stg_won' } },
+          { id: 'd', type: 'log_activity', config: { type: 'call', subject: 'Discovery call' } },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports missing fields for create_lead / create_deal / move_deal_stage / log_activity', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          { id: 'a', type: 'create_lead', config: {} },
+          { id: 'b', type: 'create_deal', config: { name: 'Renewal' } },
+          { id: 'c', type: 'move_deal_stage', config: { dealId: 'deal_1' } },
+          { id: 'd', type: 'log_activity', config: {} },
+        ],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'create_lead', field: 'email' },
+      { code: 'missing_field', stepId: 'b', type: 'create_deal', field: 'customerId' },
+      { code: 'missing_field', stepId: 'c', type: 'move_deal_stage', field: 'stageId' },
+      { code: 'missing_field', stepId: 'd', type: 'log_activity', field: 'subject' },
+    ]);
+  });
+
   it('accepts a configured create_task step', () => {
     expect(
       validateWeldConnectWorkflow({

@@ -41,6 +41,13 @@ describe('getStepFormatIssues', () => {
     ).toEqual([]);
   });
 
+  it('checks the email of a create_lead step', () => {
+    expect(getStepFormatIssues({ type: 'create_lead', config: { email: 'info@' } })).toEqual([
+      { labelKey: 'leadEmail', kind: 'email', value: 'info@' },
+    ]);
+    expect(getStepFormatIssues({ type: 'create_lead', config: { email: 'info@acme.com' } })).toEqual([]);
+  });
+
   it('has nothing to say about other step types', () => {
     expect(getStepFormatIssues({ type: 'delay', config: { to: 'not-an-email' } })).toEqual([]);
     expect(getStepFormatIssues({})).toEqual([]);
