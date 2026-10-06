@@ -805,7 +805,7 @@ export function TasksClient({
     // edge cases (e.g. a task created while offline then re-synced) — the row
     // expands instantly and populates when the fetch resolves.
     if (!inlineSubtasksRef.current[taskId]) {
-      tasksApi.listSubtasks(projectId, taskId).then((result) => {
+      void tasksApi.listSubtasks(projectId, taskId).then((result) => {
         if (result.success && result.data && Array.isArray(result.data)) {
           const children = result.data;
           setInlineSubtasks((prev) =>
@@ -827,7 +827,7 @@ export function TasksClient({
         setAvailableLabels(result.data);
       }
     }
-    loadLabels();
+    void loadLabels();
   }, [projectId, isEntityMode]);
 
   // Fetch this project's pipeline stages for the Create Task dialog.
@@ -848,7 +848,7 @@ export function TasksClient({
         })));
       }
     }
-    loadStages();
+    void loadStages();
   }, [projectId, isEntityMode]);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
@@ -876,7 +876,7 @@ export function TasksClient({
         setProjectMembers(result.data);
       }
     }
-    loadMembers();
+    void loadMembers();
   }, [projectId, isEntityMode]);
 
   // Customer/person Tasks tab: every workspace member is selectable, including
@@ -1006,7 +1006,7 @@ export function TasksClient({
     // Going from done → todo: toggle immediately without animation
     if (currentStatus === 'done') {
       patchTaskStatus('todo');
-      tasksApi.toggle(projectId, taskId, 'done').then((result) => {
+      void tasksApi.toggle(projectId, taskId, 'done').then((result) => {
         if (!result.success) {
           patchTaskStatus('done');
           toast.error(t.projects.tasks.failedToUpdateTask);
@@ -1037,7 +1037,7 @@ export function TasksClient({
     // subtask is done.
     if (subtaskParentId) {
       patchTaskStatus('done');
-      tasksApi.toggle(projectId, taskId, task.status).then((result) => {
+      void tasksApi.toggle(projectId, taskId, task.status).then((result) => {
         if (!result.success) {
           patchTaskStatus(task!.status);
           toast.error(t.projects.tasks.failedToUpdateTask);
@@ -1109,7 +1109,7 @@ export function TasksClient({
         next.delete(parentId);
         return next;
       });
-      tasksApi.toggle(projectId, parentId, parent.status).then((result) => {
+      void tasksApi.toggle(projectId, parentId, parent.status).then((result) => {
         if (result.success) {
           setTasks(prev => prev.map(t => t.id === parentId ? { ...t, status: 'done' as Task['status'] } : t));
         } else {
@@ -1708,7 +1708,7 @@ export function TasksClient({
                             { id: member.userId, name: member.user!.name, avatar: member.user?.avatar },
                           ];
                       const primary = nextAssignees[0];
-                      updateTaskInline(task.id, {
+                      void updateTaskInline(task.id, {
                         assigneeId: primary?.id ?? null,
                         assignee: primary?.name,
                         assignees: nextAssignees,

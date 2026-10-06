@@ -800,7 +800,7 @@ export function SpreadsheetGrid({
   const selectCell = useCallback(
     (col: number, row: number, startEdit = false) => {
       if (isEditingRef.current && selectedCellRef.current) {
-        commitValue(selectedCellRef.current.col, selectedCellRef.current.row, editValueRef.current);
+        void commitValue(selectedCellRef.current.col, selectedCellRef.current.row, editValueRef.current);
       }
       onSelectedCellChange({ col, row });
       onSelectionEndChange({ col, row });
@@ -865,7 +865,7 @@ export function SpreadsheetGrid({
     }
 
     if (isEditingRef.current && selectedCellRef.current) {
-      commitValue(selectedCellRef.current.col, selectedCellRef.current.row, editValueRef.current);
+      void commitValue(selectedCellRef.current.col, selectedCellRef.current.row, editValueRef.current);
     }
 
     onSelectedCellChange(coords);
@@ -946,7 +946,7 @@ export function SpreadsheetGrid({
     for (let r = fillMinRow; r <= fillMaxRow; r++) {
       for (let c = fillMinCol; c <= fillMaxCol; c++) {
         if (isInsideRange(sel, c, r)) continue;
-        commitValue(c, r, fillCellValue(sel, sequence, isVertical, c, r, getRawCellValue));
+        void commitValue(c, r, fillCellValue(sel, sequence, isVertical, c, r, getRawCellValue));
       }
     }
 
@@ -1076,7 +1076,7 @@ export function SpreadsheetGrid({
         if (isFormula(value)) {
           value = adjustFormula(value, c.relRow, c.relCol);
         }
-        commitValue(targetCol, targetRow, value);
+        void commitValue(targetCol, targetRow, value);
       }
     } else {
       // Parse TSV from clipboard
@@ -1084,7 +1084,7 @@ export function SpreadsheetGrid({
       for (let ri = 0; ri < lines.length; ri++) {
         const cols = lines[ri].split('\t');
         for (let ci = 0; ci < cols.length; ci++) {
-          commitValue(cell.col + ci, cell.row + ri, cols[ci] ?? '');
+          void commitValue(cell.col + ci, cell.row + ri, cols[ci] ?? '');
         }
       }
     }
@@ -1096,7 +1096,7 @@ export function SpreadsheetGrid({
     if (!sel) return;
     for (let r = sel.minRow; r <= sel.maxRow; r++) {
       for (let c = sel.minCol; c <= sel.maxCol; c++) {
-        commitValue(c, r, '');
+        void commitValue(c, r, '');
       }
     }
   }, [commitValue]);
@@ -1117,14 +1117,14 @@ export function SpreadsheetGrid({
 
     if (internalClipboard && internalClipboard.text === text) {
       for (const c of internalClipboard.cells) {
-        commitValue(cell.col + c.relCol, cell.row + c.relRow, c.display);
+        void commitValue(cell.col + c.relCol, cell.row + c.relRow, c.display);
       }
     } else {
       const lines = text.split('\n');
       for (let ri = 0; ri < lines.length; ri++) {
         const cols = lines[ri].split('\t');
         for (let ci = 0; ci < cols.length; ci++) {
-          commitValue(cell.col + ci, cell.row + ri, cols[ci] ?? '');
+          void commitValue(cell.col + ci, cell.row + ri, cols[ci] ?? '');
         }
       }
     }
@@ -1138,7 +1138,7 @@ export function SpreadsheetGrid({
       const br = rowByPosition.get(row);
       const key = formatKey(bc.id);
       if (br) {
-        onUpdateRow(br.id, { [key]: format ?? null });
+        void onUpdateRow(br.id, { [key]: format ?? null });
       } else if (format) {
         onCreateRow({ data: { [key]: format }, position: row });
       }
@@ -1168,7 +1168,7 @@ export function SpreadsheetGrid({
     if (internalClipboard) {
       for (const c of internalClipboard.cells) {
         // swap the relative axes
-        commitValue(cell.col + c.relRow, cell.row + c.relCol, c.value);
+        void commitValue(cell.col + c.relRow, cell.row + c.relCol, c.value);
       }
       return;
     }
@@ -1180,7 +1180,7 @@ export function SpreadsheetGrid({
     for (let ri = 0; ri < lines.length; ri++) {
       const cols = lines[ri].split('\t');
       for (let ci = 0; ci < cols.length; ci++) {
-        commitValue(cell.col + ri, cell.row + ci, cols[ci] ?? '');
+        void commitValue(cell.col + ri, cell.row + ci, cols[ci] ?? '');
       }
     }
   }, [commitValue]);
@@ -1277,15 +1277,15 @@ export function SpreadsheetGrid({
       switch (e.key.toLowerCase()) {
         case 'c':
           e.preventDefault();
-          handleCopy();
+          void handleCopy();
           break;
         case 'v':
           e.preventDefault();
-          handlePaste();
+          void handlePaste();
           break;
         case 'x':
           e.preventDefault();
-          handleCut();
+          void handleCut();
           break;
         case 'b':
           formatSelection(e, { bold: true });
@@ -1312,13 +1312,13 @@ export function SpreadsheetGrid({
       switch (e.key) {
         case 'Tab':
           e.preventDefault();
-          if (isEditingRef.current) commitValue(col, row, editValueRef.current);
+          if (isEditingRef.current) void commitValue(col, row, editValueRef.current);
           selectCell(e.shiftKey ? Math.max(0, col - 1) : Math.min(totalCols - 1, col + 1), row);
           return true;
         case 'Enter':
           e.preventDefault();
           if (isEditingRef.current) {
-            commitValue(col, row, editValueRef.current);
+            void commitValue(col, row, editValueRef.current);
             selectCell(col, Math.min(totalRows - 1, row + 1));
           } else {
             startEditing();
@@ -1399,7 +1399,7 @@ export function SpreadsheetGrid({
     setPendingWrite(null);
     const br = rowByPosition.get(row);
     if (br) {
-      onUpdateRow(br.id, { [bc.id]: value || null });
+      void onUpdateRow(br.id, { [bc.id]: value || null });
     } else if (value) {
       onCreateRow({ data: { [bc.id]: value }, position: row });
     }
@@ -1724,7 +1724,7 @@ export function SpreadsheetGrid({
             <Button
               variant="ghost"
               className="flex w-full items-center rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent"
-              onClick={() => { commitValue(openDropdown.col, openDropdown.row, ''); setOpenDropdown(null); }}
+              onClick={() => { void commitValue(openDropdown.col, openDropdown.row, ''); setOpenDropdown(null); }}
             >
               —
             </Button>
@@ -1733,7 +1733,7 @@ export function SpreadsheetGrid({
                 key={opt}
                 variant="ghost"
                 className="flex w-full items-center rounded px-2 py-1 text-left text-sm hover:bg-accent"
-                onClick={() => { commitValue(openDropdown.col, openDropdown.row, opt); setOpenDropdown(null); }}
+                onClick={() => { void commitValue(openDropdown.col, openDropdown.row, opt); setOpenDropdown(null); }}
               >
                 <span
                   className="truncate rounded-full px-2 py-0.5 text-[11px] leading-none text-gray-800"
