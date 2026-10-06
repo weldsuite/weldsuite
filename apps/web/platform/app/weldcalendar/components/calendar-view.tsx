@@ -2617,6 +2617,8 @@ function MonthView({
 }) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
+  // Shown live in the preview chip, like the time-grid preview block does.
+  const typedTitle = useQuickCreatePreviewTitle().trim();
   const weeks = useMemo(() => buildMonthGrid(currentDate), [currentDate]);
 
   // Week rows are equal and fixed-height (they fill the available space and
@@ -2864,7 +2866,7 @@ function MonthView({
                         style={{ backgroundColor: previewColor }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {t.misc.noTitle}
+                        <span className="min-w-0 truncate">{typedTitle || t.misc.noTitle}</span>
                       </Button>
                     )}
                   </div>
@@ -4032,6 +4034,10 @@ export function EventDetailPanel({
   const creatingMeetingRef = useRef(false);
   // The selector popovers close as soon as a value is picked.
   const [openSelector, setOpenSelector] = useState<'type' | 'calendar' | 'priority' | 'status' | null>(null);
+  // Status picked on an event with guests, held until "notify them?" is answered.
+  // Kept after the dialog closes so its copy does not flip while it fades out.
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [showStatusDialog, setShowStatusDialog] = useState(false);
 
   // Resolve the ModuleContent aside portal target. Layout mounts first, so
   // this is usually available on the first layout effect; we still re-check
@@ -4193,6 +4199,32 @@ export function EventDetailPanel({
     updateEvent.mutate({ id: event.id, data }, { onError: () => toast.error(failureMessage) });
   };
 
+  /**
+   * Cancelling an event, or putting a cancelled one back on, changes whether
+   * its guests should turn up: ask whether to tell them first, like delete and
+   * the edit dialog do. Confirmed <-> tentative saves at once.
+   */
+  const handleStatusPick = (value: string) => {
+    const current = event.status ?? 'confirmed';
+    const crossesCancelled = value !== current && (value === 'cancelled' || current === 'cancelled');
+    if (!hasAttendees || !crossesCancelled) {
+      patchEvent({ status: value });
+      return;
+    }
+    setOpenSelector(null);
+    setPendingStatus(value);
+    setShowStatusDialog(true);
+  };
+
+  const handleStatusConfirm = (sendNotification: boolean) => {
+    setShowStatusDialog(false);
+    if (!event.id || !pendingStatus) return;
+    updateEvent.mutate(
+      { id: event.id, data: { status: pendingStatus }, sendNotification },
+      { onError: () => toast.error(t.eventPreview.updateFailed) },
+    );
+  };
+
   const handleDelete = async (sendNotification?: boolean) => {
     if (!event.id) return;
     try {
@@ -4276,6 +4308,14 @@ export function EventDetailPanel({
         }}
         isPending={deleteEvent.isPending}
         variant="delete"
+      />
+
+      <EventNotificationDialog
+        open={showStatusDialog}
+        onOpenChange={setShowStatusDialog}
+        onConfirm={handleStatusConfirm}
+        isPending={updateEvent.isPending}
+        variant={pendingStatus === 'cancelled' ? 'cancel' : 'restore'}
       />
 
       {/* Guestless event: nobody to notify, but deleting still asks first. */}
@@ -4652,7 +4692,7 @@ export function EventDetailPanel({
                       <Button
                         variant="ghost"
                         key={value}
-                        onClick={() => patchEvent({ status: value })}
+                        onClick={() => handleStatusPick(value)}
                         className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[140px]"
                       >
                         <span>{label}</span>

@@ -19,6 +19,7 @@ export const emails: Strings<typeof en> = {
       reschedule: 'Verplaatst: {title}',
       cancel: 'Geannuleerd: {title}',
       removed: 'Je bent verwijderd uit: {title}',
+      restored: 'Gaat toch door: {title}',
     },
     preview: {
       invite: '{organizer} heeft je uitgenodigd voor {title}',
@@ -26,6 +27,7 @@ export const emails: Strings<typeof en> = {
       reschedule: '{organizer} heeft {title} naar een nieuw tijdstip verplaatst',
       cancel: '{organizer} heeft {title} geannuleerd',
       removed: '{organizer} heeft je verwijderd uit {title}',
+      restored: '{organizer} laat {title} toch doorgaan',
     },
     intro: {
       invite: '{organizer} heeft je uitgenodigd voor een afspraak.',
@@ -33,6 +35,7 @@ export const emails: Strings<typeof en> = {
       reschedule: '{organizer} heeft een afspraak naar een nieuw tijdstip verplaatst.',
       cancel: '{organizer} heeft een afspraak geannuleerd.',
       removed: '{organizer} heeft je verwijderd uit een afspraak.',
+      restored: '{organizer} laat een geannuleerde afspraak toch doorgaan.',
     },
     when: 'Wanneer',
     where: 'Waar',

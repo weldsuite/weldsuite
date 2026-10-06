@@ -149,6 +149,13 @@ export const weldcalendar = {
       updateConfirm: 'Save changes',
       deleting: 'Deleting...',
       savingChanges: 'Saving...',
+      cancelEventTitle: 'Cancel event',
+      cancelEventDescription: 'The event stays on the calendar, marked as cancelled. Would you like to notify participants?',
+      cancelEventConfirm: 'Cancel event',
+      cancelEventDismiss: 'Keep event',
+      restoreEventTitle: 'Put event back on',
+      restoreEventDescription: 'The event will no longer be cancelled. Would you like to notify participants?',
+      sendRestoredEmail: 'Let all participants know the event is on again',
     },
 
     // Google Calendar Sidebar

@@ -149,6 +149,13 @@ export const weldcalendar = {
       updateConfirm: 'Wijzigingen opslaan',
       deleting: 'Verwijderen...',
       savingChanges: 'Opslaan...',
+      cancelEventTitle: 'Evenement annuleren',
+      cancelEventDescription: 'Het evenement blijft in de agenda staan, gemarkeerd als geannuleerd. Wil je deelnemers op de hoogte stellen?',
+      cancelEventConfirm: 'Evenement annuleren',
+      cancelEventDismiss: 'Evenement behouden',
+      restoreEventTitle: 'Evenement toch laten doorgaan',
+      restoreEventDescription: 'Het evenement is dan niet langer geannuleerd. Wil je deelnemers op de hoogte stellen?',
+      sendRestoredEmail: 'Alle deelnemers laten weten dat het evenement toch doorgaat',
     },
 
     // Google Calendar Sidebar
