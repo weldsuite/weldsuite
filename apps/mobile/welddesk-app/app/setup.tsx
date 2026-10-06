@@ -613,7 +613,7 @@ export default function SetupScreen() {
       setInitialized(true);
     };
 
-    loadState();
+    void loadState();
     // Mount-once: restore persisted draft + Clerk profile prefill. Re-running on
     // user/totalSteps would overwrite in-progress edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps

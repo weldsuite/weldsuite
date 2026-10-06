@@ -239,12 +239,12 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
             const data = notification.request.content.data;
             if (data?.unreadCount !== undefined) {
               setUnreadCount(data.unreadCount);
-              notifUtils!.setBadgeCount(data.unreadCount);
+              void notifUtils!.setBadgeCount(data.unreadCount);
             } else {
               // Bump local unread when a new push arrives without an explicit count.
               setUnreadCount((c) => {
                 const next = c + 1;
-                notifUtils!.setBadgeCount(next);
+                void notifUtils!.setBadgeCount(next);
                 return next;
               });
             }
@@ -284,7 +284,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
     };
 
-    init();
+    void init();
     return () => {
       if (cleanupRef.current) {
         cleanupRef.current();
