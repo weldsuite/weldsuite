@@ -26,7 +26,7 @@ export function MentionPicker({ query, visible, onSelect }: Readonly<MentionPick
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
         const res = await appApi.chatMembers.list();
         setMembers((res.data ?? []) as unknown as Member[]);

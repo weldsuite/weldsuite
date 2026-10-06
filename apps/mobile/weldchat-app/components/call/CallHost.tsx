@@ -177,7 +177,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
     if (!session.authToken || initTriggered.current) return;
     initTriggered.current = true;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         await initMeeting({
           authToken: session.authToken,

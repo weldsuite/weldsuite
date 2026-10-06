@@ -67,7 +67,7 @@ export default function LeadsScreen() {
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
-    loadLeads();
+    void loadLeads();
   }, [selectedStatus]);
 
   const loadLeads = async () => {

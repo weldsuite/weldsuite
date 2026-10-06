@@ -1626,7 +1626,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
 
   // Load workspace members for mention resolution
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
         const res = await appApi.chatMembers.list();
         const map = new Map<string, string>();
@@ -1720,7 +1720,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     pendingSendsRef.current.clear();
     draftIdRef.current = null;
     setMessagesLoading(true);
-    loadChannel();
+    void loadChannel();
     loadMessages();
     // Load draft for this channel if composer is empty. The server scopes
     // drafts to the authenticated caller (JWT) — no client-supplied userId.
