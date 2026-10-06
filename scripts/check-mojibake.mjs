@@ -7,7 +7,7 @@
  *
  *   pnpm check:mojibake
  *
- * The patterns are written as \u escapes so this file does not match itself.
+ * The patterns are built from code points so this file does not match itself.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -29,7 +29,16 @@ const ALLOWED = new Set([]);
 //   E2 82 AC  euro sign
 //   C3 A0-BF  accented lowercase letters
 //   C2 A0-BF  non-breaking space, middle dot, copyright, degree, ...
-const MOJIBAKE = /â€|â†|â‚¬|Ã[ -¿]|Â[ -¿]/;
+const chars = (...codePoints) => String.fromCodePoint(...codePoints);
+const MOJIBAKE = new RegExp(
+  [
+    chars(0xe2, 0x20ac),
+    chars(0xe2, 0x2020),
+    chars(0xe2, 0x201a, 0xac),
+    `${chars(0xc3)}[${chars(0xa0)}-${chars(0xbf)}]`,
+    `${chars(0xc2)}[${chars(0xa0)}-${chars(0xbf)}]`,
+  ].join('|'),
+);
 
 const files = execFileSync('git', ['ls-files', '-z'], { cwd: repo, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
   .split('\0')
