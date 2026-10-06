@@ -1,5 +1,5 @@
 /** Cryptographically secure base-36 string of exactly `length` characters. */
-function randomBase36(length: number): string {
+export function randomBase36(length: number): string {
   const bytes = crypto.getRandomValues(new Uint8Array(length));
   return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
 }

@@ -30,9 +30,10 @@ import { SidebarProvider } from '@weldsuite/ui/components/sidebar';
 import { useUser, useOrganization, useOrganizationList } from '@clerk/clerk-react';
 import { useWorkspace } from '@/contexts/workspace-context';
 import { CreateWorkspaceDialog } from '@/components/workspace/create-workspace-dialog';
-import { BreadcrumbHeader, type BreadcrumbSegment, type SearchResult } from '@/components/breadcrumb-header';
+import { BreadcrumbHeader, type SearchResult } from '@/components/breadcrumb-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { useI18n } from '@/lib/i18n/provider';
+import { buildBreadcrumbSegments } from './breadcrumbs';
 
 function makeAppLogoIcon(appCode: string, name: string) {
   return function AppLogoIcon({ className }: { className?: string }) {
@@ -43,60 +44,6 @@ function makeAppLogoIcon(appCode: string, name: string) {
     const FallbackIcon = getAppLucideIcon(appCode);
     return <FallbackIcon className={className} />;
   };
-}
-
-// The generic "capitalize the first letter" fallback below can't know about
-// the weld* family's internal capitalization (WeldCRM, not Weldcrm). Override
-// just the path segments that need it; everything else keeps the generic
-// behavior.
-const BREADCRUMB_LABEL_OVERRIDES: Record<string, string> = {
-  weldcrm: 'WeldCRM',
-  welddesk: 'WeldDesk',
-  weldmail: 'WeldMail',
-  weldflow: 'WeldFlow',
-  weldconnect: 'WeldConnect',
-  weldstash: 'WeldStash',
-  weldhost: 'WeldHost',
-  weldbooks: 'WeldBooks',
-  weldmeet: 'WeldMeet',
-  weldchat: 'WeldChat',
-  weldagent: 'WeldAgent',
-  weldapps: 'WeldApps',
-  weldpass: 'WeldPass',
-  weldsuite: 'WeldSuite',
-  weldcommerce: 'WeldCommerce',
-  weldsocial: 'WeldSocial',
-};
-
-// Build breadcrumb segments from the current path. The last segment is a leaf
-// (no href); the /settings index page is the profile editor, shown as a leaf.
-function buildBreadcrumbSegments(
-  pathname: string,
-  settingsTitle: string,
-  profileLabel: string,
-): BreadcrumbSegment[] {
-  const segments: BreadcrumbSegment[] = [{ label: settingsTitle, href: '/settings' }];
-  const pathParts = pathname.split('/').filter(Boolean);
-
-  if (pathParts.length <= 1) {
-    segments.push({ label: profileLabel });
-    return segments;
-  }
-
-  for (let i = 1; i < pathParts.length; i++) {
-    const part = pathParts[i];
-    // Capitalize and format the label, unless it's a known module slug with
-    // its own internal capitalization.
-    const label =
-      BREADCRUMB_LABEL_OVERRIDES[part.toLowerCase()] ??
-      part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
-    if (i === pathParts.length - 1) {
-      segments.push({ label });
-    } else {
-      segments.push({ label, href: '/' + pathParts.slice(0, i + 1).join('/') });
-    }
-  }
-  return segments;
 }
 
 const FULL_WIDTH_CLASS = 'h-full';
@@ -164,7 +111,7 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
 
   const isInstalled = (appCode: string) => installedAppCodes.includes(appCode);
 
-  const segments = buildBreadcrumbSegments(pathname, ts.title, ts.menu.profile);
+  const segments = buildBreadcrumbSegments(pathname, ts.title, ts.menu);
 
   // Search items that are app-specific
   const appSearchItems: Record<string, SearchResult[]> = {
@@ -247,7 +194,7 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
     {
       group: ts.general,
       items: [
-        { title: ts.menu.profile, href: '/settings', icon: User },
+        { title: ts.menu.profile, href: '/settings', icon: User, isActive: pathname === '/settings' },
         { title: ts.menu.appearance, href: '/settings/appearance', icon: SunMoon },
         { title: ts.menu.notifications, href: '/settings/notifications', icon: Bell },
         { title: ts.menu.shortcuts, href: '/settings/shortcuts', icon: Keyboard },
@@ -263,7 +210,7 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
         { title: 'Roles & Permissions', href: '/settings/roles', icon: ShieldCheck },
         { title: ts.menu.plans, href: '/settings/plans', icon: CreditCard },
         { title: ts.menu.billing, href: '/settings/billing', icon: Receipt },
-        { title: ts.menu.businessSettings, href: '/settings/business', icon: Building },
+        { title: ts.menu.businessSettings, href: '/settings/business', icon: Building, isActive: pathname === '/settings/business' || pathname === '/settings/general' },
         { title: ts.menu.apiKeys, href: '/settings/api-keys', icon: Key },
         { title: ts.menu.webhooks, href: '/settings/webhooks', icon: Webhook },
         { title: ts.menu.customFields, href: '/settings/custom-fields', icon: SlidersHorizontal },

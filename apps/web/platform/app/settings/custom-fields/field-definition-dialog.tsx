@@ -208,7 +208,7 @@ export function FieldDefinitionDialog({
           {showEntityPicker && (
             <div className="space-y-1.5">
               <Label>{t.common.labels.object}</Label>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {ENTITY_TYPES.map((et) => {
                   const Icon = et.icon;
                   const active = selectedType === et.value;

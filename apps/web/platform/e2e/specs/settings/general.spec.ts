@@ -14,6 +14,12 @@ test.describe('Settings · general', () => {
     });
   });
 
+  test('/settings/general shows a single page heading', async ({ page }) => {
+    await page.goto('/settings/general');
+    await expect(page.locator('#workspace-name-input')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+  });
+
   test('typing into the workspace name input updates the field', async ({ page }) => {
     await page.goto('/settings/general');
     const input = page.locator('#workspace-name-input');

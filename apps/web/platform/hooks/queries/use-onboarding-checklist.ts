@@ -29,7 +29,7 @@ export interface AppChecklistItem {
 const CHECKLIST_TASKS: ChecklistTask[] = [
   // General workspace tasks
   { key: 'workspace_member_invited', appCode: null, href: '/settings/team' },
-  { key: 'workspace_logo_uploaded', appCode: null, href: '/settings/general' },
+  { key: 'workspace_logo_uploaded', appCode: null, href: '/settings/business' },
   // CRM
   { key: 'crm_customer_created', appCode: 'weldcrm', href: '/weldcrm/companies?new=1' },
   { key: 'crm_contact_created', appCode: 'weldcrm', href: '/weldcrm/people?new=1' },
