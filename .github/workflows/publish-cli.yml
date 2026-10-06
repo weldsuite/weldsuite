@@ -64,18 +64,31 @@ jobs:
       - name: Resolve version and package set
         id: ver
         shell: bash
+        # Inputs reach the script through env, never through ${{ }} expansion,
+        # so a crafted value cannot inject shell. The version is validated too,
+        # because it ends up in later steps' command lines.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PACKAGES: ${{ inputs.packages }}
+          INPUT_DIST_TAG: ${{ inputs.dist_tag }}
+          INPUT_USE_LEGACY_NPM_TOKEN: ${{ inputs.use_legacy_npm_token }}
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            TAG="${GITHUB_REF_NAME#cli-v}"
-            echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#cli-v}"
             echo "packages=cli" >> "$GITHUB_OUTPUT"
           else
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-            echo "packages=${{ inputs.packages }}" >> "$GITHUB_OUTPUT"
+            VERSION="$INPUT_VERSION"
+            echo "packages=${INPUT_PACKAGES}" >> "$GITHUB_OUTPUT"
           fi
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "tag=${{ inputs.dist_tag }}" >> "$GITHUB_OUTPUT"
-            echo "legacy=${{ inputs.use_legacy_npm_token }}" >> "$GITHUB_OUTPUT"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version: ${VERSION}"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "tag=${INPUT_DIST_TAG}" >> "$GITHUB_OUTPUT"
+            echo "legacy=${INPUT_USE_LEGACY_NPM_TOKEN}" >> "$GITHUB_OUTPUT"
           else
             case "${GITHUB_REF_NAME}" in
               *beta*) echo "tag=beta" >> "$GITHUB_OUTPUT" ;;
@@ -89,12 +102,16 @@ jobs:
       - name: Set @weldsuite/cli version
         if: steps.ver.outputs.packages == 'cli' || steps.ver.outputs.packages == 'both'
         working-directory: packages/sdk/cli
-        run: npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Set @weldsuite/app-sdk version
         if: steps.ver.outputs.packages == 'app-sdk' || steps.ver.outputs.packages == 'both'
         working-directory: packages/sdk/app-sdk
-        run: npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Typecheck CLI
         if: steps.ver.outputs.packages == 'cli' || steps.ver.outputs.packages == 'both'
