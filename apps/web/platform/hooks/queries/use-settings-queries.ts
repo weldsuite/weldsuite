@@ -128,11 +128,12 @@ export interface WorkspaceMember {
   memberType?: string;
 }
 
-export function useWorkspaceMembers(page?: number, pageSize?: number) {
+export function useWorkspaceMembers(page?: number, pageSize?: number, enabled = true) {
   const filters = { page, pageSize };
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: settingsKeys.members(filters),
+    enabled,
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString({
