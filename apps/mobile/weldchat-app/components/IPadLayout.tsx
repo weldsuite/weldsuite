@@ -73,7 +73,7 @@ export function IPadLayout() {
   useEffect(() => {
     let cancelled = false;
     networkLoadedRef.current = false;
-    (async () => {
+    void (async () => {
       const cachedChannels = await cache.getChannels();
       if (cancelled || networkLoadedRef.current) return;
       const chs = (cachedChannels as Channel[] | null) ?? [];

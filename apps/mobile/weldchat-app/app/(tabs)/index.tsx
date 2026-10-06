@@ -155,7 +155,7 @@ export default function HomeTab() {
   useEffect(() => {
     let cancelled = false;
     networkLoadedRef.current = false;
-    (async () => {
+    void (async () => {
       const [cachedChannels, cachedSections] = await Promise.all([
         cache.getChannels(),
         cache.getSections(),

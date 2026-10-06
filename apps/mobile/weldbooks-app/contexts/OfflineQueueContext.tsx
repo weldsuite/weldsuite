@@ -110,7 +110,7 @@ export function OfflineQueueProvider({ children }: Readonly<{ children: React.Re
         console.error('Failed to load offline queue:', err);
       }
     };
-    loadQueue();
+    void loadQueue();
   }, []);
 
   // Drain the queue whenever connectivity returns.

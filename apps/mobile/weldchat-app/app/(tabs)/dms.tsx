@@ -117,7 +117,7 @@ export default function DmsTab() {
   useEffect(() => {
     let cancelled = false;
     networkLoadedRef.current = false;
-    (async () => {
+    void (async () => {
       const cached = await cache.getDms();
       if (cancelled || networkLoadedRef.current) return;
       setDms((cached as DmChannel[] | null) ?? []);

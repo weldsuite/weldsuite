@@ -113,7 +113,10 @@ function useRecentSearches() {
 
   // Load recent searches on mount
   useEffect(() => {
-    loadRecentSearches().then(setRecentSearches);
+    loadRecentSearches()
+      .then(setRecentSearches)
+      // Recent searches are a convenience; unreadable storage just means none.
+      .catch(() => setRecentSearches([]));
   }, []);
 
   const saveRecentSearch = useCallback(async (term: string) => {
