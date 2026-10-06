@@ -732,10 +732,10 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
         setLabelPickerVisible(true);
         break;
       case 2:
-        outbox.update(email.id, { isSpam: true }).then(() => onEmailDeleted?.(email.id));
+        void outbox.update(email.id, { isSpam: true }).then(() => onEmailDeleted?.(email.id));
         break;
       case 3:
-        outbox.update(email.id, { isSpam: true }).then(() => {
+        void outbox.update(email.id, { isSpam: true }).then(() => {
           Alert.alert('Reported', 'This message has been reported as phishing.');
           onEmailDeleted?.(email.id);
         });

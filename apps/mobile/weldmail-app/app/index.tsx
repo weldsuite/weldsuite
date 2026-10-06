@@ -20,7 +20,7 @@ import {
   Trash2, Archive, Clock, Calendar, Clock4,
   MailOpen, Pin, Inbox, SendHorizontal, Mail,
 } from 'lucide-react-native';
-import Swipeable from 'react-native-gesture-handler/Swipeable';
+import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
@@ -92,7 +92,7 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
 }) => {
   const senderName = item.from?.name || item.from?.email || item.fromName || 'Unknown';
   const avatarColor = getAvatarColor(senderName);
-  const swipeableRef = useRef<Swipeable>(null);
+  const swipeableRef = useRef<SwipeableMethods>(null);
 
   const swipeIconSize = isTablet ? 24 : 20;
   const swipeActionStyle = isTablet ? [styles.swipeAction, { width: 90 }] : [styles.swipeAction];
@@ -143,7 +143,7 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
   );
 
   return (
-    <Swipeable
+    <ReanimatedSwipeable
       ref={swipeableRef}
       renderLeftActions={renderLeftActions}
       renderRightActions={renderRightActions}
@@ -265,7 +265,7 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
           </View>
         </View>
       </TouchableOpacity>
-    </Swipeable>
+    </ReanimatedSwipeable>
   );
 });
 
@@ -404,7 +404,7 @@ export default function MailScreen() {
       // Persist the raw (un-overlaid) server result so the cache stays "last
       // known server truth"; the overlay is re-applied on every read instead.
       if (!search) {
-        cache.setMessages(scopeId, selectedLabel, enriched);
+        void cache.setMessages(scopeId, selectedLabel, enriched);
       }
     } catch (error) {
       // Offline / dropped connection: keep whatever is already on screen
@@ -491,7 +491,7 @@ export default function MailScreen() {
           }
         }
       }
-      if (!cancelled) fetchMessagesRef.current();
+      if (!cancelled) void fetchMessagesRef.current();
     })().catch((err) => {
       console.error('[inbox] Failed to paint cached messages:', err);
     });
@@ -549,7 +549,7 @@ export default function MailScreen() {
   // fetchMessages so we don't re-subscribe on every label/account change.
   useEffect(() => {
     if (mailVersion === 0) return; // skip the initial render
-    fetchMessagesRef.current();
+    void fetchMessagesRef.current();
   }, [mailVersion]);
 
   // Revalidate whenever the inbox regains focus. Realtime `mail:new` is the
@@ -559,7 +559,7 @@ export default function MailScreen() {
   // that 404 when tapped. Re-fetching on focus is the reliable backstop.
   useFocusEffect(
     useCallback(() => {
-      fetchMessagesRef.current();
+      void fetchMessagesRef.current();
     }, []),
   );
 
@@ -567,7 +567,7 @@ export default function MailScreen() {
   // almost always stale on resume, so pull a fresh page as soon as we're active.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') fetchMessagesRef.current();
+      if (next === 'active') void fetchMessagesRef.current();
     });
     return () => sub.remove();
   }, []);
@@ -579,7 +579,7 @@ export default function MailScreen() {
   // once the org id resolves so the mailbox self-corrects without a
   // clear-data + re-login.
   useEffect(() => {
-    if (organizationId) fetchMessagesRef.current();
+    if (organizationId) void fetchMessagesRef.current();
   }, [organizationId]);
 
   // A notification tap can open the app before the new message is in the
@@ -629,7 +629,7 @@ export default function MailScreen() {
   const handleRefresh = useCallback(() => {
     if (refreshing) return;
     setRefreshing(true);
-    fetchMessages();
+    void fetchMessages();
   }, [refreshing, fetchMessages]);
 
   const handleEmailPress = useCallback((email: EmailListItem) => {

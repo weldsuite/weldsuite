@@ -1453,7 +1453,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride, regist
 
   useEffect(() => {
     if (!registerCloseHandler) return;
-    registerCloseHandler(() => { handleClose(); });
+    registerCloseHandler(() => { void handleClose(); });
     return () => registerCloseHandler(null);
   }, [registerCloseHandler, handleClose]);
 
