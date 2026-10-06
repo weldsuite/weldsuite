@@ -11,8 +11,8 @@ import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
-import type { RTKParticipant } from '@cloudflare/realtimekit';
-import { ParticipantAvatar, getPersonTheme, getInitials } from '@weldsuite/weldmeet-ui';
+import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
+import { ParticipantAvatar, getPersonTheme, getInitials, useBreakoutParticipants } from '@weldsuite/weldmeet-ui';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -131,10 +131,10 @@ function RemoteAudioSink({ track }: Readonly<{ track: MediaStreamTrack }>) {
  * Every remote participant's mic and shared-screen audio, while the room view
  * (which plays them itself) is not mounted. Rendered in the main document, not
  * in the Document PiP popup, so opening or closing the popup never cuts the
- * sound.
+ * sound. `remotes` is already narrowed to the user's breakout room: people in
+ * another room must stay silent here too.
  */
-function RemoteAudio({ meeting }: Readonly<{ meeting: RealtimeKitClient | null }>) {
-  const remotes: RTKParticipant[] = meeting?.participants?.joined?.toArray?.() ?? [];
+function RemoteAudio({ remotes }: Readonly<{ remotes: RTKParticipant[] }>) {
   return (
     <>
       {remotes.map((p) => {
@@ -377,8 +377,11 @@ type WeldmeetStrings = ReturnType<typeof getTranslations<'weldmeet'>>;
  * Pick the most relevant participant — first remote (active speaker proxy)
  * or fall back to self — and derive everything the tile needs to render.
  */
-function deriveFocusedParticipant(meeting: RealtimeKitClient | null, t: WeldmeetStrings) {
-  const remoteParticipants: RTKParticipant[] = meeting?.participants?.joined?.toArray?.() ?? [];
+function deriveFocusedParticipant(
+  meeting: RealtimeKitClient | null,
+  remoteParticipants: RTKParticipant[],
+  t: WeldmeetStrings,
+) {
   const focused = remoteParticipants[0] ?? meeting?.self ?? null;
   const focusedIsSelf = !remoteParticipants[0];
   const focusedName = focused?.name || (focusedIsSelf ? t.pipWidget.you : t.pipWidget.participant);
@@ -815,7 +818,14 @@ export function MeetingPiPWidget() {
 
   useMeetingRenderTick(meeting, forceUpdate);
 
-  const focus = deriveFocusedParticipant(meeting, t);
+  // While breakout rooms are open, only people from the user's own room may
+  // be shown and heard here; the first entry is the local participant.
+  const roomParticipants = useBreakoutParticipants(meeting, [
+    ...(meeting ? [meeting.self as RTKSelf | RTKParticipant] : []),
+    ...(meeting?.participants?.joined?.toArray?.() ?? []),
+  ]);
+  const remoteParticipants = roomParticipants.slice(1) as RTKParticipant[];
+  const focus = deriveFocusedParticipant(meeting, remoteParticipants, t);
   const { focusedTrack } = focus;
 
   // Attach video to the visible tile.
@@ -1171,7 +1181,7 @@ export function MeetingPiPWidget() {
   return (
     <>
       {hiddenPipElement}
-      {playsRemoteAudio && <RemoteAudio meeting={meeting} />}
+      {playsRemoteAudio && <RemoteAudio remotes={remoteParticipants} />}
       {isInPipWindow ? createPortal(widget, pipWindow!.document.body) : widget}
     </>
   );

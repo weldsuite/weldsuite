@@ -762,6 +762,7 @@ function MeetingRoomAdapter() {
       showControlBarRecording={false}
       recordingStartElapsedSeconds={recordingStartElapsedSeconds}
       recordingLabels={recordingLabels}
+      toolsLabels={t.inCall.tools}
       onRenameMeeting={handleRename}
       onToggleEffects={() => setShowEffects(v => !v)}
       effectsOpen={showEffects}

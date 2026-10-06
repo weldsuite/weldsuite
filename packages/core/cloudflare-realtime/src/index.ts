@@ -109,8 +109,16 @@ async function call<T>(what: string, fn: () => Promise<T>): Promise<T> {
     if (!(err instanceof APIError)) throw err;
     const detail =
       (err.errors ?? []).map((e) => `${e.code}:${e.message}`).join('; ') || err.message || '';
-    throw new Error(`Failed to ${what}: ${err.status ?? '(no status)'} ${detail}`);
+    throw Object.assign(new Error(`Failed to ${what}: ${err.status ?? '(no status)'} ${detail}`), {
+      status: err.status,
+    });
   }
+}
+
+/** RealtimeKit turned the request body down (as opposed to being unreachable or failing). */
+function isRejectedBody(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return status === 400 || status === 422;
 }
 
 // ============================================================================
@@ -463,6 +471,8 @@ export async function removeParticipant(
  * Version log:
  *   v1 (unversioned) — initial presets
  *   v2              — added media.screenshare = fhd/30fps (was hd/5fps default)
+ *   v3 (HOST only)  — can_livestream, so the host can stream the meeting from
+ *                     the Meeting tools panel
  *
  * Two guest presets exist by design:
  *   GUEST          — waiting_room_type = ON_PRIVILEGED_USER_ENTRY. Guests wait
@@ -473,7 +483,7 @@ export async function removeParticipant(
  *                    AdmitGuestsPill). Used when `waitingRoom` is ON.
  */
 export const RTK_PRESETS = {
-  HOST: 'group_call_host_v2',
+  HOST: 'group_call_host_v3',
   MEMBER: 'group_call_participant_v2',
   GUEST: 'group_call_guest_v2',
   // v2: forces a fresh re-seed. A `group_call_guest_waiting_v1` preset existed
@@ -506,7 +516,7 @@ export async function ensurePresets(
   env: CloudflareRealtimeEnv,
   _ctx?: RealtimeExecutionCtx,
 ): Promise<void> {
-  const cacheKey = 'rtk-presets-seeded-v6';
+  const cacheKey = 'rtk-presets-seeded-v7';
   const cached = await env.WORKSPACE_CACHE?.get(cacheKey);
   if (cached) return;
 
@@ -540,6 +550,8 @@ function buildPresetBody(opts: {
    */
   waitingRoomType: 'SKIP' | 'ON_PRIVILEGED_USER_ENTRY' | 'SKIP_ON_ACCEPT';
   canRecord: boolean;
+  /** Start / stop a live stream of the meeting. Off unless set. */
+  canLivestream?: boolean;
 }) {
   return {
     name: opts.name,
@@ -554,7 +566,7 @@ function buildPresetBody(opts: {
       kick_participant: opts.acceptWaitingRequests,
       pin_participant: opts.acceptWaitingRequests,
       can_record: opts.canRecord,
-      can_livestream: false,
+      can_livestream: opts.canLivestream ?? false,
       waiting_room_type: opts.waitingRoomType,
       plugins: { can_close: true, can_start: true, can_edit_config: false, config: {} },
       polls: { can_create: true, can_vote: true, can_view: true },
@@ -662,12 +674,25 @@ export async function seedPresets(env: CloudflareRealtimeEnv): Promise<void> {
     );
 
   if (!existing.has(RTK_PRESETS.HOST)) {
-    await createPreset(buildPresetBody({
-      name: RTK_PRESETS.HOST,
-      acceptWaitingRequests: true,
-      waitingRoomType: 'SKIP',
-      canRecord: true,
-    }));
+    const hostPreset = (canLivestream: boolean) =>
+      buildPresetBody({
+        name: RTK_PRESETS.HOST,
+        acceptWaitingRequests: true,
+        waitingRoomType: 'SKIP',
+        canRecord: true,
+        canLivestream,
+      });
+    try {
+      await createPreset(hostPreset(true));
+    } catch (err) {
+      // A RealtimeKit app that cannot live stream may turn this preset down.
+      // Hosts must be able to join either way, so seed it without the
+      // permission; the client then shows live streaming as not enabled.
+      // Anything else (network, auth, 5xx) still throws and is retried.
+      if (!isRejectedBody(err)) throw err;
+      console.error('[RTK] host preset with live streaming was rejected, seeding without it:', err);
+      await createPreset(hostPreset(false));
+    }
   }
 
   if (!existing.has(RTK_PRESETS.MEMBER)) {
@@ -714,6 +739,8 @@ export async function seedPresets(env: CloudflareRealtimeEnv): Promise<void> {
   //   v6              — renamed GUEST_WAITING v1 → v2 to force a re-seed: the
   //                     v1 preset was stuck in RTK without SKIP_ON_ACCEPT, so
   //                     share-link guests skipped the waiting room.
+  //   v7              — HOST v2 → v3: adds can_livestream for the Live
+  //                     streaming meeting tool.
   //
   // RTK refuses to recreate a preset whose name is still in use by any
   // participant token — that's why each config bump renames the preset
@@ -729,7 +756,7 @@ export async function seedPresets(env: CloudflareRealtimeEnv): Promise<void> {
   // preset version, ever; every later request is a single warm KV get.
   // (Preset creates throw on failure, so a partial seed never reaches this
   // line — the marker can't be written while presets are missing.)
-  await env.WORKSPACE_CACHE?.put('rtk-presets-seeded-v6', '1');
+  await env.WORKSPACE_CACHE?.put('rtk-presets-seeded-v7', '1');
 }
 
 // ============================================================================

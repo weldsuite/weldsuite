@@ -8,6 +8,7 @@ import { MeetingToolsPanel } from './meeting-tools-panel';
 import { useIsMobile } from '../hooks/use-is-mobile';
 import type { RecordingLabels, RecordingState } from '../types';
 import type { MeetingClient, MeetingPeer } from '../types';
+import type { MeetingToolsController } from '../tools/use-meeting-tools-controller';
 
 function formatMeetingDate(iso: string): string {
   const date = new Date(iso);
@@ -67,6 +68,8 @@ export interface MeetingRightPanelProps {
   recordingAvailable?: boolean;
   recordingStartElapsedSeconds?: number;
   recordingLabels?: RecordingLabels;
+  /** Forwarded to MeetingToolsPanel: the live tools of this meeting. */
+  tools?: MeetingToolsController | null;
 }
 
 export function MeetingRightPanel({
@@ -89,6 +92,7 @@ export function MeetingRightPanel({
   recordingAvailable,
   recordingStartElapsedSeconds,
   recordingLabels,
+  tools,
 }: MeetingRightPanelProps) {
   const isOpen = panel !== null;
   const isMobile = useIsMobile();
@@ -154,6 +158,7 @@ export function MeetingRightPanel({
               recordingAvailable={recordingAvailable}
               recordingStartElapsedSeconds={recordingStartElapsedSeconds}
               recordingLabels={recordingLabels}
+              tools={tools}
             />
           )}
         </div>

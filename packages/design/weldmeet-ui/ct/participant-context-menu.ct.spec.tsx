@@ -188,6 +188,9 @@ test.describe('ParticipantContextMenu · keyboard + semantics', () => {
       />,
     );
 
+    // The Escape listener is attached by the same effect that focuses the first
+    // item; pressing the key before that effect has run goes nowhere.
+    await expect(page.getByRole('menuitem').first()).toBeFocused();
     await page.keyboard.press('Escape');
     await expect.poll(() => closed).toBe(1);
   });
