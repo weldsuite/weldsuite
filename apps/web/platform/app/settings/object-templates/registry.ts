@@ -28,7 +28,7 @@ export const TEMPLATE_REGISTRATIONS: readonly TemplateEntityRegistration[] = [
     singular: 'person',
     icon: User,
     fields: PERSON_FIELDS,
-    defaultFields: ['firstName', 'lastName', 'email', 'title', 'directPhone'],
+    defaultFields: ['firstName', 'lastName', 'email', 'directPhone', 'mobilePhone', 'title', 'department'],
   },
 ] as const;
 

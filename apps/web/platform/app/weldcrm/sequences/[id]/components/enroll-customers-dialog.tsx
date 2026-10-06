@@ -11,11 +11,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useEnrollCustomers } from '@/hooks/queries/use-sequences-queries';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import type { Person } from '@/hooks/queries/use-people-queries';
 
 interface EnrollCustomersDialogProps {
   open: boolean;
@@ -58,6 +60,7 @@ export function EnrollCustomersDialog({
   const [isSearching, setIsSearching] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [createQuery, setCreateQuery] = useState<string | null>(null);
 
   const fetchCustomers = useCallback(async (query: string) => {
     setIsSearching(true);
@@ -149,6 +152,13 @@ export function EnrollCustomersDialog({
     }
   };
 
+  const handlePersonCreated = (person: Person) => {
+    const name = person.displayName || person.email || t('sweep.entities.untitledPerson');
+    setCustomers((prev) => [{ id: person.id, name, email: person.email ?? undefined }, ...prev.filter((c) => c.id !== person.id)]);
+    setSelectedIds((prev) => new Set(prev).add(person.id));
+    setSearch('');
+  };
+
   const enrollButtonLabel =
     selectedIds.size !== 1
       ? t('crm.enrollCustomersDialog.enrollButtonPlural', { count: selectedIds.size || 0 })
@@ -212,6 +222,20 @@ export function EnrollCustomersDialog({
             />
           </div>
 
+          {search.trim() && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full justify-start gap-2 font-normal"
+              onClick={() => setCreateQuery(search.trim())}
+            >
+              <UserPlus className="h-4 w-4 text-muted-foreground" />
+              <span className="truncate">
+                {t('sweep.entities.createPersonFromSearch', { name: search.trim() })}
+              </span>
+            </Button>
+          )}
+
           {/* Customer list */}
           <div className="border rounded-md max-h-[300px] overflow-auto">
             {renderCustomerList()}
@@ -245,6 +269,14 @@ export function EnrollCustomersDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <QuickAddPersonDialog
+        open={createQuery !== null}
+        onOpenChange={(next) => {
+          if (!next) setCreateQuery(null);
+        }}
+        initialName={createQuery ?? ''}
+        onCreated={handlePersonCreated}
+      />
     </Dialog>
   );
 }
