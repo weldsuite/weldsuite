@@ -5,6 +5,7 @@ import {
   handleCondition,
   handleLoop,
   handleDelay,
+  MAX_LOOP_ITEMS,
 } from './control';
 import { makeActionContext } from '../../test/ctx';
 
@@ -62,21 +63,76 @@ describe('condition action', () => {
 });
 
 describe('loop', () => {
-  it('iterates an array, exposing item + index as variables', async () => {
-    const ctx = makeActionContext({ variables: {} });
-    const res = (await handleLoop({ items: ['a', 'b'], iteratorName: 'row' }, ctx)) as {
-      items: unknown[];
-      count: number;
-    };
-    expect(res.count).toBe(2);
-    expect(res.items).toHaveLength(2);
-    // last iteration leaves the iterator + index set
-    expect(ctx.variables.row).toBe('b');
-    expect(ctx.variables.rowIndex).toBe(1);
+  it('returns the validated items for the engine to run the body over', async () => {
+    const res = (await handleLoop({ items: ['a', 'b'] }, makeActionContext())) as { items: unknown[]; count: number };
+    expect(res).toEqual({ items: ['a', 'b'], count: 2 });
   });
 
-  it('throws when items is not an array', async () => {
-    await expect(handleLoop({ items: 'nope' }, makeActionContext())).rejects.toThrow(/array/i);
+  it('treats an empty or unresolved list as zero items', async () => {
+    expect(await handleLoop({ items: '' }, makeActionContext())).toEqual({ items: [], count: 0 });
+    expect(await handleLoop({}, makeActionContext())).toEqual({ items: [], count: 0 });
+  });
+
+  it('accepts a JSON array string', async () => {
+    expect(await handleLoop({ items: '[1,2,3]' }, makeActionContext())).toEqual({ items: [1, 2, 3], count: 3 });
+  });
+
+  it('rejects a value that is not a list, without retrying', async () => {
+    await expect(handleLoop({ items: 'nope' }, makeActionContext())).rejects.toMatchObject({
+      name: 'NonRetryableStepError',
+    });
+  });
+
+  it('rejects more items than a loop may run over', async () => {
+    const items = Array.from({ length: MAX_LOOP_ITEMS + 1 }, (_, i) => i);
+    await expect(handleLoop({ items }, makeActionContext())).rejects.toThrow(/at most 100/);
+  });
+});
+
+describe('condition operators', () => {
+  const check = (operator: string, field: unknown, value?: unknown) =>
+    handleCondition({ field, operator, value }, makeActionContext()) as Promise<{ passed: boolean }>;
+
+  it('compares resolved template values loosely across strings and numbers', async () => {
+    expect((await check('eq', 5, '5')).passed).toBe(true);
+    expect((await check('ne', 'open', 'closed')).passed).toBe(true);
+    expect((await check('gt', '10', 9)).passed).toBe(true);
+    expect((await check('lte', 3, '3')).passed).toBe(true);
+    expect((await check('gt', 'abc', 1)).passed).toBe(false);
+  });
+
+  it('supports the text, emptiness, list and regex operators the editor offers', async () => {
+    expect((await check('contains', 'Hello World', 'world')).passed).toBe(true);
+    expect((await check('contains', ['a', 'b'], 'b')).passed).toBe(true);
+    expect((await check('startswith', 'Invoice 12', 'invoice')).passed).toBe(true);
+    expect((await check('endswith', 'report.pdf', '.PDF')).passed).toBe(true);
+    expect((await check('isEmpty', '')).passed).toBe(true);
+    expect((await check('isEmpty', [])).passed).toBe(true);
+    expect((await check('isNotEmpty', 'x')).passed).toBe(true);
+    expect((await check('in', 'nl', 'be, nl, de')).passed).toBe(true);
+    expect((await check('regex', 'ORD-123', '^ORD-[0-9]+$')).passed).toBe(true);
+  });
+
+  it('accepts older operator names', async () => {
+    expect((await check('neq', 1, 2)).passed).toBe(true);
+    expect((await check('starts_with', 'abc', 'a')).passed).toBe(true);
+    expect((await check('not_exists', null)).passed).toBe(true);
+  });
+
+  it('fails the step on an unknown operator or an invalid regex instead of passing', async () => {
+    await expect(check('fuzzy', 1, 1)).rejects.toMatchObject({ name: 'NonRetryableStepError' });
+    await expect(check('regex', 'x', '(')).rejects.toMatchObject({ name: 'NonRetryableStepError' });
+  });
+
+  it('picks the matching value branch, falling back to default', async () => {
+    const branches = [{ value: 'nl' }, { value: 'be' }, { value: 'default' }];
+    expect(await handleCondition({ field: 'be', branches }, makeActionContext())).toMatchObject({ matchedBranch: 'be' });
+    expect(await handleCondition({ field: 'fr', branches }, makeActionContext())).toMatchObject({
+      matchedBranch: 'default',
+    });
+    expect(
+      await handleCondition({ field: 'fr', branches: [{ value: 'nl' }] }, makeActionContext()),
+    ).toMatchObject({ matchedBranch: null });
   });
 });
 
@@ -92,6 +148,11 @@ describe('delay', () => {
     expect(((await handleDelay({ hours: 1 }, makeActionContext())) as any).__delayMs).toBe(3600000);
     expect(((await handleDelay({ days: 1 }, makeActionContext())) as any).__delayMs).toBe(86400000);
     expect(((await handleDelay({ ms: 250 }, makeActionContext())) as any).__delayMs).toBe(250);
+  });
+
+  it('rejects a negative or over-long wait', async () => {
+    await expect(handleDelay({ ms: -5 }, makeActionContext())).rejects.toMatchObject({ name: 'NonRetryableStepError' });
+    await expect(handleDelay({ days: 400 }, makeActionContext())).rejects.toThrow(/365 days/);
   });
 
   it('defaults to 1000ms when no duration is given', async () => {

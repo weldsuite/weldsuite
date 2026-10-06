@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { GitBranch, CheckCircle2, X, Plus, ArrowUpRight, XCircle } from 'lucide-react';
+import { GitBranch, CheckCircle2, X, Plus, ArrowUpRight, XCircle, Repeat } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { SetupRequiredBadge } from './action-node';
 import type { ConditionNodeData, ConditionBranchNodeData, ConditionStepConfig } from './flow-utils';
@@ -47,14 +47,19 @@ function ConditionNodeComponent({ data, selected }: NodeProps) {
   const operatorLabels = (labels.operators || {}) as Record<string, string>;
 
   const config = (nodeData.step?.config || {}) as ConditionStepConfig;
+  const isLoop = nodeData.step?.type === 'loop';
+  const NodeIcon = isLoop ? Repeat : GitBranch;
   const hasMultiBranch = config.branches && Array.isArray(config.branches);
   const summary = getConditionSummary(config, operatorLabels);
-  const conditionLabel = labels.label || 'Condition';
+  const conditionLabel = labels.label || (isLoop ? 'Loop' : 'Condition');
   const needsConfig = !nodeData.isConfigured;
 
   // Display-only summary text — editing happens in the side panel.
   let bodyText: string;
-  if (hasMultiBranch) {
+  const loopItems = (nodeData.step?.config as { items?: unknown } | undefined)?.items;
+  if (isLoop) {
+    bodyText = typeof loopItems === 'string' && loopItems ? loopItems : (labels.clickToConfigure || 'Click to configure');
+  } else if (hasMultiBranch) {
     bodyText = config.field
       ? config.field.replace(/\{\{steps\.[^.]+\./, '{{agent.').replace(/\}\}$/, '}}')
       : (labels.checkAgentStatus || 'Check agent status');
@@ -86,7 +91,7 @@ function ConditionNodeComponent({ data, selected }: NodeProps) {
             <div className="flex items-center justify-between min-w-0">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-5 h-5 rounded-[6px] bg-muted flex items-center justify-center flex-shrink-0">
-                  <GitBranch className="w-3 h-3 text-muted-foreground" />
+                  <NodeIcon className="w-3 h-3 text-muted-foreground" />
                 </div>
                 <span className="text-sm font-medium text-foreground truncate">
                   {nodeData.label || conditionLabel}
@@ -120,6 +125,7 @@ const BRANCH_ICONS: Record<string, typeof CheckCircle2> = {
   escalated: ArrowUpRight,
   completed: CheckCircle2,
   failed: XCircle,
+  each: Repeat,
 };
 
 function ConditionBranchNodeComponent({ data, selected }: NodeProps) {

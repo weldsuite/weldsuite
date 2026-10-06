@@ -91,6 +91,60 @@ describe('validateWeldConnectWorkflow', () => {
   });
 });
 
+describe('validateWeldConnectWorkflow: logic steps', () => {
+  const trigger = { id: 't', type: 'entity_event', entityType: 'customer', eventType: 'created' };
+  const email = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    type: 'send_email',
+    config: { to: 'a@b.co', subject: 's', body: 'b' },
+    ...extra,
+  });
+
+  it('accepts a configured condition with steps in its branches, a loop with a body and a delay', () => {
+    const issues = validateWeldConnectWorkflow({
+      triggers: [trigger],
+      steps: [
+        { id: 'c', type: 'condition', config: { field: '{{trigger.data.status}}', operator: 'eq', value: 'won' } },
+        email('yes', { parentBranchId: 'c_if' }),
+        { id: 'l', type: 'loop', config: { items: '{{trigger.data.lines}}' } },
+        email('each', { parentBranchId: 'l_each' }),
+        { id: 'd', type: 'delay', config: { minutes: 5 } },
+        { id: 'e', type: 'condition', config: { field: '{{trigger.data.note}}', operator: 'isEmpty' } },
+      ],
+    });
+    expect(issues).toEqual([]);
+  });
+
+  it('reports missing logic fields', () => {
+    const issues = validateWeldConnectWorkflow({
+      triggers: [trigger],
+      steps: [
+        { id: 'c', type: 'condition', config: { operator: 'eq' } },
+        { id: 'l', type: 'loop', config: {} },
+        email('each', { parentBranchId: 'l_each' }),
+        { id: 'd', type: 'delay', config: { seconds: 0 } },
+      ],
+    });
+    expect(issues).toEqual([
+      { code: 'missing_field', stepId: 'c', type: 'condition', field: 'field' },
+      { code: 'missing_field', stepId: 'c', type: 'condition', field: 'value' },
+      { code: 'missing_field', stepId: 'l', type: 'loop', field: 'items' },
+      { code: 'missing_field', stepId: 'd', type: 'delay', field: 'duration' },
+    ]);
+  });
+
+  it('flags steps under a branch that does not exist and loops with nothing to repeat', () => {
+    const issues = validateWeldConnectWorkflow({
+      triggers: [trigger],
+      steps: [email('lost', { parentBranchId: 'gone_if' }), { id: 'l', type: 'loop', config: { items: '[1]' } }],
+    });
+    expect(issues).toEqual([
+      { code: 'orphan_step', stepId: 'lost', type: 'send_email' },
+      { code: 'empty_loop', stepId: 'l', type: 'loop' },
+    ]);
+  });
+});
+
 describe('isValidCronExpression', () => {
   it.each(['* * * * *', '*/5 * * * *', '0 9 * * 1-5', '0,30 8-17 1 1,6 0'])('accepts %s', (expr) => {
     expect(isValidCronExpression(expr)).toBe(true);

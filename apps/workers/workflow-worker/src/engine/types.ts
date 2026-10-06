@@ -46,6 +46,8 @@ export interface WorkflowStep {
   retryPolicy?: RetryPolicy;
   continueOnError?: boolean;
   position?: { x: number; y: number };
+  /** The branch this step sits under (see step-tree.ts); absent for main-flow steps. */
+  parentBranchId?: string;
 }
 
 export interface WorkflowDefinition {

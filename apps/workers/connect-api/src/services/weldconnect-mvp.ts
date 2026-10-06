@@ -7,6 +7,8 @@
  *   - triggers: `entity_event` (a record is created/updated/…) and recurring
  *     `schedule` (cron + timezone)
  *   - actions:  `send_email` and `create_customer`
+ *   - logic:    `condition` (if/else branches), `loop` (for each item) and
+ *     `delay`; branch steps sit under their parent via `parentBranchId`
  *
  * Drafts may hold anything (the editor only offers the MVP set); activation is
  * what's gated, so an unsupported workflow can never start running. CRM
@@ -20,7 +22,13 @@
 import { ENTITY_EVENTS as ENTITY_EVENT_CATALOG } from '@weldsuite/entity-events';
 
 export const WELDCONNECT_TRIGGER_TYPES = ['entity_event', 'schedule'] as const;
-export const WELDCONNECT_ACTION_TYPES = ['send_email', 'create_customer'] as const;
+export const WELDCONNECT_ACTION_TYPES = [
+  'send_email',
+  'create_customer',
+  'condition',
+  'loop',
+  'delay',
+] as const;
 
 /** Tag carried by CRM sequence workflows (see routes/sequences). */
 export const SEQUENCE_WORKFLOW_TAG = '__type:sequence';
@@ -35,7 +43,9 @@ export type WorkflowIssueCode =
   | 'invalid_timezone'
   | 'no_steps'
   | 'unsupported_action'
-  | 'missing_field';
+  | 'missing_field'
+  | 'orphan_step'
+  | 'empty_loop';
 
 export interface WorkflowIssue {
   code: WorkflowIssueCode;
@@ -112,11 +122,62 @@ export function isValidTimezone(timezone: string): boolean {
   }
 }
 
-/** Required config per MVP action — mirrors ACTION_REQUIRED_FIELDS in the editor. */
-const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], string[]> = {
-  send_email: ['to', 'subject', 'body'],
-  create_customer: ['name'],
+/** Condition operators that compare against nothing (see ConditionForm). */
+const NO_VALUE_OPERATORS = ['isEmpty', 'isNotEmpty'];
+
+function isPositive(value: unknown): boolean {
+  return Number(value) > 0;
+}
+
+/**
+ * Required config per action, as the missing field's config key — mirrors
+ * ACTION_REQUIRED_FIELDS in packages/design/ui/src/components/workflow-canvas/validation.ts.
+ */
+const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], (config: Bag) => string[]> = {
+  send_email: (c) => ['to', 'subject', 'body'].filter((field) => isBlank(c[field])),
+  create_customer: (c) => (isBlank(c.name) ? ['name'] : []),
+  condition: (c) => {
+    const missing: string[] = [];
+    if (isBlank(c.field)) missing.push('field');
+    if (!Array.isArray(c.branches) && !NO_VALUE_OPERATORS.includes(String(c.operator ?? 'eq')) && isBlank(c.value)) {
+      missing.push('value');
+    }
+    return missing;
+  },
+  loop: (c) => (isBlank(c.items) ? ['items'] : []),
+  delay: (c) => (['seconds', 'minutes', 'hours', 'days'].some((unit) => isPositive(c[unit])) ? [] : ['duration']),
 };
+
+/** The branch ids a branching step owns — mirrors step-tree.ts in workflow-worker. */
+function branchIdsOf(step: Bag): string[] {
+  const id = String(step.id ?? '');
+  if (step.type === 'loop') return [`${id}_each`];
+  if (step.type !== 'condition') return [];
+  const branches = asBag(step.config).branches;
+  if (Array.isArray(branches)) return branches.map((b) => `${id}_branch_${String(asBag(b).value ?? '')}`);
+  return [`${id}_if`, `${id}_if_not`];
+}
+
+/**
+ * Branch structure problems: a step under a branch that no longer exists
+ * would never run, and a loop without steps to repeat does nothing.
+ */
+function validateBranches(steps: Bag[]): WorkflowIssue[] {
+  const branchIds = new Set(steps.flatMap(branchIdsOf));
+  const parents = new Set(steps.map((s) => s.parentBranchId).filter((p): p is string => typeof p === 'string' && p !== ''));
+  const issues: WorkflowIssue[] = [];
+  for (const step of steps) {
+    const stepId = typeof step.id === 'string' ? step.id : undefined;
+    const parent = step.parentBranchId;
+    if (typeof parent === 'string' && parent !== '' && !branchIds.has(parent)) {
+      issues.push({ code: 'orphan_step', stepId, type: String(step.type ?? '') });
+    }
+    if (step.type === 'loop' && !parents.has(`${String(step.id ?? '')}_each`)) {
+      issues.push({ code: 'empty_loop', stepId, type: 'loop' });
+    }
+  }
+  return issues;
+}
 
 function validateTrigger(trigger: Bag): WorkflowIssue[] {
   const triggerId = typeof trigger.id === 'string' ? trigger.id : undefined;
@@ -159,9 +220,12 @@ function validateStep(step: Bag): WorkflowIssue[] {
     return [{ code: 'unsupported_action', stepId, type }];
   }
   const config = asBag(step.config ?? step.inputs);
-  return REQUIRED_ACTION_FIELDS[type as (typeof WELDCONNECT_ACTION_TYPES)[number]]
-    .filter((field) => isBlank(config[field]))
-    .map((field) => ({ code: 'missing_field' as const, stepId, type, field }));
+  return REQUIRED_ACTION_FIELDS[type as (typeof WELDCONNECT_ACTION_TYPES)[number]](config).map((field) => ({
+    code: 'missing_field' as const,
+    stepId,
+    type,
+    field,
+  }));
 }
 
 /**
@@ -180,6 +244,7 @@ export function validateWeldConnectWorkflow(workflow: { triggers?: unknown; step
   for (const trigger of triggers) issues.push(...validateTrigger(trigger));
   if (steps.length === 0) issues.push({ code: 'no_steps' });
   for (const step of steps) issues.push(...validateStep(step));
+  issues.push(...validateBranches(steps));
   return issues;
 }
 

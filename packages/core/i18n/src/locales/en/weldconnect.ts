@@ -1640,6 +1640,8 @@ export const weldconnect = {
       no_steps: 'Add at least one step before publishing.',
       unsupported_action: 'This workflow has an action that is not available yet. Remove or replace it.',
       missing_field: 'A step is missing a required field.',
+      orphan_step: 'A step sits under a branch that no longer exists. Move it or delete it.',
+      empty_loop: 'A loop has no steps to repeat. Add steps under "For each item".',
     },
     testDialog: {
       title: 'Test this workflow',
@@ -1707,6 +1709,14 @@ export const weldconnect = {
       addStep: 'Add Step',
       noStepsInBranch: 'No steps in this branch',
     },
+    branchPanel: {
+      parentCondition: 'Condition',
+      parentLoop: 'Loop',
+      branch: 'Branch',
+      ifTrue: { label: 'If true', description: 'Runs when the condition is true' },
+      ifFalse: { label: 'If false', description: 'Runs when the condition is false' },
+      forEachItem: { label: 'For each item', description: 'Runs once for every item in the list' },
+    },
     editStepPanel: {
       invalidValuesTitle: 'Check these values',
       invalidEmail: '{field}: "{value}" is not a valid email address',
@@ -1719,6 +1729,8 @@ export const weldconnect = {
       descriptionPlaceholder: 'Enter a description...',
       settingsLabel: 'Settings',
       deleteStep: 'Delete Step',
+      addStepAfterCondition: 'Add step after this condition',
+      addStepAfterLoop: 'Add step after this loop',
       requiredFieldsTitle: 'Required to finish',
       requiredFieldsHint: 'Fill in these fields so this step can run:',
       allRequiredDone: 'All required fields completed',
@@ -1932,6 +1944,13 @@ export const weldconnect = {
 
   // Flow editor node labels / controls
   flowEditor: {
+    branchLabels: {
+      ifTrue: 'If true',
+      ifFalse: 'If false',
+      conditionMet: 'Condition met',
+      conditionNotMet: 'Condition not met',
+      forEachItem: 'For each item',
+    },
     addStep: 'Add step',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
@@ -2114,6 +2133,8 @@ export const weldconnect = {
     loopIndexVar: '{{loop.index}}',
     loopItemDesc: 'for the current item',
     loopIndexDesc: 'for the index.',
+    conditionBranchesHint: 'Add the steps for each outcome under "If true" and "If false" on the canvas. After the branch has run, the workflow continues with the next step.',
+    loopBodyHint: 'Add the steps to repeat under "For each item" on the canvas. They run once for every item (at most 100), then the workflow continues with the step after the loop.',
     // SetVariableForm
     variableName: 'Variable Name',
     variableNameDesc: 'Name of the variable to set',

@@ -1640,6 +1640,8 @@ export const weldconnect = {
       no_steps: 'Voeg minstens één stap toe voordat je publiceert.',
       unsupported_action: 'Deze workflow bevat een actie die nog niet beschikbaar is. Verwijder of vervang die.',
       missing_field: 'Bij een stap ontbreekt een verplicht veld.',
+      orphan_step: 'Een stap staat onder een vertakking die niet meer bestaat. Verplaats of verwijder de stap.',
+      empty_loop: 'Een lus heeft geen stappen om te herhalen. Voeg stappen toe onder "Voor elk item".',
     },
     testDialog: {
       title: 'Deze workflow testen',
@@ -1707,6 +1709,14 @@ export const weldconnect = {
       addStep: 'Stap toevoegen',
       noStepsInBranch: 'Geen stappen in deze tak',
     },
+    branchPanel: {
+      parentCondition: 'Voorwaarde',
+      parentLoop: 'Lus',
+      branch: 'Vertakking',
+      ifTrue: { label: 'Als waar', description: 'Wordt uitgevoerd als de voorwaarde waar is' },
+      ifFalse: { label: 'Als niet waar', description: 'Wordt uitgevoerd als de voorwaarde niet waar is' },
+      forEachItem: { label: 'Voor elk item', description: 'Wordt één keer uitgevoerd voor elk item in de lijst' },
+    },
     editStepPanel: {
       invalidValuesTitle: 'Controleer deze waarden',
       invalidEmail: '{field}: "{value}" is geen geldig e-mailadres',
@@ -1719,6 +1729,8 @@ export const weldconnect = {
       descriptionPlaceholder: 'Voer een omschrijving in...',
       settingsLabel: 'Instellingen',
       deleteStep: 'Stap verwijderen',
+      addStepAfterCondition: 'Stap toevoegen na deze voorwaarde',
+      addStepAfterLoop: 'Stap toevoegen na deze lus',
       requiredFieldsTitle: 'Nog invullen',
       requiredFieldsHint: 'Vul deze velden in zodat deze stap kan draaien:',
       allRequiredDone: 'Alle verplichte velden ingevuld',
@@ -1932,6 +1944,13 @@ export const weldconnect = {
 
   // Flow-editor knooppuntlabels / bediening
   flowEditor: {
+    branchLabels: {
+      ifTrue: 'Als waar',
+      ifFalse: 'Als niet waar',
+      conditionMet: 'Voorwaarde voldaan',
+      conditionNotMet: 'Voorwaarde niet voldaan',
+      forEachItem: 'Voor elk item',
+    },
     addStep: 'Stap toevoegen',
     zoomIn: 'Inzoomen',
     zoomOut: 'Uitzoomen',
@@ -2106,6 +2125,8 @@ export const weldconnect = {
     loopIndexVar: '{{loop.index}}',
     loopItemDesc: 'voor het huidige item',
     loopIndexDesc: 'voor de index.',
+    conditionBranchesHint: 'Voeg op het canvas de stappen voor elke uitkomst toe onder "Als waar" en "Als niet waar". Na de vertakking gaat de workflow verder met de volgende stap.',
+    loopBodyHint: 'Voeg op het canvas de stappen die herhaald moeten worden toe onder "Voor elk item". Ze worden voor elk item één keer uitgevoerd (maximaal 100), daarna gaat de workflow verder met de stap na de lus.',
     variableName: 'Variabelenaam',
     variableNameDesc: 'Naam van de variabele om in te stellen',
     scope: 'Bereik',

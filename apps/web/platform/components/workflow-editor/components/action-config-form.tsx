@@ -700,8 +700,6 @@ function ConditionForm({
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
-  // Get steps that come after the current one
-  const availableSteps = workflowSteps.slice(currentStepIndex + 1);
   const previousSteps = workflowSteps.slice(0, currentStepIndex);
 
   return (
@@ -756,48 +754,9 @@ function ConditionForm({
         </FormField>
       )}
 
-      <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-        <p className="text-sm font-medium">{acf.branchActions}</p>
-
-        <FormField label={acf.thenIfTrue} description={acf.thenIfTrueDesc}>
-          <Select
-            value={(config.thenActionId as string | undefined) || '__continue__'}
-            onValueChange={(v) => onChange({ ...config, thenActionId: v === '__continue__' ? '' : v })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={acf.continueToNextStep} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__continue__">{acf.continueToNextStep}</SelectItem>
-              <SelectItem value="__stop__">{acf.stopWorkflow}</SelectItem>
-              {availableSteps.map((step, idx) => (
-                <SelectItem key={step.id} value={step.id}>
-                  {acf.stepNumber.replace('{number}', String(currentStepIndex + idx + 2))}: {step.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FormField>
-
-        <FormField label={acf.elseIfFalse} description={acf.elseIfFalseDesc}>
-          <Select
-            value={(config.elseActionId as string | undefined) || '__continue__'}
-            onValueChange={(v) => onChange({ ...config, elseActionId: v === '__continue__' ? '' : v })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={acf.continueToNextStep} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__continue__">{acf.continueToNextStep}</SelectItem>
-              <SelectItem value="__stop__">{acf.stopWorkflow}</SelectItem>
-              {availableSteps.map((step, idx) => (
-                <SelectItem key={step.id} value={step.id}>
-                  {acf.stepNumber.replace('{number}', String(currentStepIndex + idx + 2))}: {step.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FormField>
+      <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 flex items-start gap-2">
+        <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+        <p className="text-xs text-blue-700 dark:text-blue-300">{acf.conditionBranchesHint}</p>
       </div>
     </div>
   );
@@ -1294,7 +1253,6 @@ function LoopForm({
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const previousSteps = workflowSteps.slice(0, currentStepIndex);
-  const availableSteps = workflowSteps.slice(currentStepIndex + 1);
 
   return (
     <div className="space-y-4">
@@ -1309,30 +1267,15 @@ function LoopForm({
         />
       </FormField>
 
-      <FormField label={acf.actionToExecute} description={acf.actionToExecuteDesc}>
-        <Select
-          value={(config.action as string | undefined) || ''}
-          onValueChange={(v) => onChange({ ...config, action: v })}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder={acf.selectStep} />
-          </SelectTrigger>
-          <SelectContent>
-            {availableSteps.map((step, idx) => (
-              <SelectItem key={step.id} value={step.id}>
-                {acf.stepNumber.replace('{number}', String(currentStepIndex + idx + 2))}: {step.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </FormField>
-
       <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 flex items-start gap-2">
         <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-        <p className="text-xs text-blue-700 dark:text-blue-300">
-          {acf.loopTip} <code className="bg-white/50 dark:bg-black/20 px-1 rounded">{acf.loopItemVar}</code> {acf.loopItemDesc}{' '}
-          {acf.loopTip} <code className="bg-white/50 dark:bg-black/20 px-1 rounded">{acf.loopIndexVar}</code> {acf.loopIndexDesc}
-        </p>
+        <div className="space-y-1.5 text-xs text-blue-700 dark:text-blue-300">
+          <p>{acf.loopBodyHint}</p>
+          <p>
+            {acf.loopTip} <code className="bg-white/50 dark:bg-black/20 px-1 rounded">{acf.loopItemVar}</code> {acf.loopItemDesc}{' '}
+            {acf.loopTip} <code className="bg-white/50 dark:bg-black/20 px-1 rounded">{acf.loopIndexVar}</code> {acf.loopIndexDesc}
+          </p>
+        </div>
       </div>
     </div>
   );
