@@ -344,8 +344,9 @@ export default {
           console.error('[ScheduleSweep] Failed:', err);
         }),
       );
-      // AI gateway credit rollup — this worker owns the only cron in the fleet,
-      // so it is the single writer of the credit snapshot every worker routes on.
+      // AI gateway credit rollup. Production is the single writer of the credit
+      // snapshot (this cron, every minute). Test returns immediately — the
+      // query would keep the test master compute from scaling to zero.
       // Independent of the sweep: neither should be able to fail the other.
       ctx.waitUntil(
         runGatewayCreditRollup(env).catch((err) => {

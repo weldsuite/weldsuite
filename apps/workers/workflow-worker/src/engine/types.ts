@@ -74,6 +74,8 @@ export type TriggerType =
 /** Cloudflare Worker env / service bindings available to the engine. */
 export interface WorkflowEnv {
   [key: string]: unknown;
+  /** `development` | `test` | `production`, from wrangler `[vars]`. */
+  ENVIRONMENT?: string;
   // Tenant DB resolution
   DATABASE_URL_MASTER?: string;
   NEON_API_KEY?: string;
