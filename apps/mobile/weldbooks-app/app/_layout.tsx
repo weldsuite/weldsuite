@@ -64,7 +64,9 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
 
   useEffect(() => {
     if (user && !organizationId && isOrgListLoaded && setActive && userMemberships?.data?.length) {
-      setActive({ organization: userMemberships.data[0].organization.id });
+      setActive({ organization: userMemberships.data[0].organization.id }).catch((err) => {
+        console.error('[layout] Failed to activate the default organization:', err);
+      });
     }
   }, [user, organizationId, isOrgListLoaded, setActive, userMemberships?.data]);
 

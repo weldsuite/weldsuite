@@ -3,7 +3,7 @@ import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { AppState, Platform } from 'react-native';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useRouter } from 'expo-router';
 import { appApi } from '@/services/app-api';
@@ -27,7 +27,7 @@ const EAS_PROJECT_ID =
   '';
 const APP_CODE = 'weldagent';
 
-const isExpoGo = Constants.appOwnership === 'expo';
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 let Notifications: typeof import('expo-notifications') | null = null;
 let notifUtils: {
   registerForPushNotificationsAsync: (id: string) => Promise<string | undefined>;

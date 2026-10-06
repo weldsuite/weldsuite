@@ -829,7 +829,7 @@ export function MessageInput({
       const targetParent = detail.parentId ?? null;
       const ownParent = parentId ?? null;
       if (targetParent !== ownParent) return;
-      uploadFiles(detail.files);
+      void uploadFiles(detail.files);
     };
     window.addEventListener('weldchat:dropped-files', handler);
     return () => window.removeEventListener('weldchat:dropped-files', handler);
@@ -1241,7 +1241,7 @@ export function MessageInput({
                       if (e.button !== 0 || isPending || isVoiceRecording) return;
                       prewarmVoiceRecording();
                     }}
-                    onClick={() => { if (!isVoiceRecording) startVoiceRecording(); }}
+                    onClick={() => { if (!isVoiceRecording) void startVoiceRecording(); }}
                     disabled={isPending || isVoiceRecording}
                     className={cn(
                       "p-1.5 rounded-lg transition-colors disabled:cursor-not-allowed",
