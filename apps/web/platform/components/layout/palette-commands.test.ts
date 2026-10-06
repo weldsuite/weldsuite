@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { en } from '@weldsuite/i18n/locales/en';
 import { Home } from 'lucide-react';
 import {
+  actionCommands,
   navigationCommandsForApps,
   pagesForModule,
   settingsCommands,
@@ -73,5 +74,31 @@ describe('visibleCommands', () => {
     const commands = settingsCommands(en, new Set());
     expect(visibleCommands(commands, 'team members').some((command) => command.href === '/settings/team')).toBe(true);
     expect(visibleCommands(commands, 'team zebra')).toEqual([]);
+  });
+});
+
+describe('actionCommands create records', () => {
+  const crm = { canSee: (permission: string | undefined) => permission === 'companies:create' || permission === 'people:create', installedCodes: new Set(['weldcrm']) };
+
+  it('includes create actions when an installed app exposes the record and the member can create it', () => {
+    const titles = actionCommands(en, 'light', crm).map((command) => command.title);
+    expect(titles).toContain('Create company');
+    expect(titles).toContain('Create person');
+  });
+
+  it('omits a create action without permission or without a matching installed app', () => {
+    const peopleOnly = actionCommands(en, 'light', {
+      canSee: (permission) => permission === 'people:create',
+      installedCodes: new Set(['weldcrm']),
+    }).map((command) => command.id);
+    expect(peopleOnly).not.toContain('action:create-company');
+    expect(peopleOnly).toContain('action:create-person');
+
+    const stash = actionCommands(en, 'light', {
+      canSee: () => true,
+      installedCodes: new Set(['weldstash']),
+    }).map((command) => command.id);
+    expect(stash).not.toContain('action:create-company');
+    expect(stash).not.toContain('action:create-person');
   });
 });

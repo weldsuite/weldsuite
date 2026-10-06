@@ -6,10 +6,12 @@
  */
 
 import type { ComponentType } from 'react';
+import { getAppsForObject } from '@weldsuite/permissions';
 import {
   AppWindow,
   Bell,
   Building,
+  Building2,
   CreditCard,
   History,
   Home,
@@ -29,6 +31,7 @@ import {
   Store,
   Sun,
   SunMoon,
+  UserPlus,
   Users,
   Webhook,
 } from 'lucide-react';
@@ -47,8 +50,14 @@ export interface PaletteCommand {
   /** Listed before the user types. */
   showWhenEmpty: boolean;
   href?: string;
-  run?: 'toggle-theme' | 'sign-out';
+  run?: 'toggle-theme' | 'sign-out' | 'create-company' | 'create-person';
   icon: PaletteIcon;
+}
+
+/** What the signed-in member can do, and which apps this workspace has installed. */
+export interface CommandAccess {
+  canSee: (permission: string | undefined) => boolean;
+  installedCodes: ReadonlySet<string>;
 }
 
 export interface InstalledAppRef {
@@ -145,13 +154,45 @@ export function navigationCommandsForApps(
   return commands;
 }
 
+function workspaceHasObject(object: string, installedCodes: ReadonlySet<string>): boolean {
+  return getAppsForObject(object).some((code) => installedCodes.has(code));
+}
+
 export function actionCommands(
   t: TranslationsType,
   resolvedTheme: 'light' | 'dark',
+  access?: CommandAccess,
 ): PaletteCommand[] {
   const copy = t.sweep.shared.commandPalette;
   const toDark = resolvedTheme !== 'dark';
-  return [
+  const commands: PaletteCommand[] = [];
+
+  if (access && workspaceHasObject('companies', access.installedCodes) && access.canSee('companies:create')) {
+    commands.push({
+      id: 'action:create-company',
+      title: t.companies.actions.create,
+      subtitle: '',
+      keywords: 'create company companies customer new add bedrijf bedrijven klant toevoegen aanmaken',
+      group: 'actions',
+      showWhenEmpty: true,
+      run: 'create-company',
+      icon: Building2,
+    });
+  }
+  if (access && workspaceHasObject('people', access.installedCodes) && access.canSee('people:create')) {
+    commands.push({
+      id: 'action:create-person',
+      title: t.people.actions.create,
+      subtitle: '',
+      keywords: 'create person people new add persoon personen toevoegen aanmaken',
+      group: 'actions',
+      showWhenEmpty: true,
+      run: 'create-person',
+      icon: UserPlus,
+    });
+  }
+
+  commands.push(
     {
       id: 'action:theme',
       title: toDark ? copy.switchToDark : copy.switchToLight,
@@ -172,7 +213,8 @@ export function actionCommands(
       run: 'sign-out',
       icon: LogOut,
     },
-  ];
+  );
+  return commands;
 }
 
 export function extraNavigationCommands(t: TranslationsType): PaletteCommand[] {

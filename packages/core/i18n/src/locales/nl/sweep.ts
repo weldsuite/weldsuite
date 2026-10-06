@@ -833,6 +833,7 @@ export const sweep = {
       "roles": "Rollen en rechten"
     },
     "recent": "Recent",
+    "actions": "Acties",
     "noResultsFound": "Geen resultaten gevonden.",
     "searching": "Zoeken…",
     "toggleNavigationMenu": "Navigatiemenu in-/uitschakelen",

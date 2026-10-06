@@ -804,6 +804,7 @@ export const sweep = {
       "roles": "Roles y permisos"
     },
     "recent": "Recent",
+    "actions": "Acciones",
     "noResultsFound": "No results found.",
     "searching": "Searching…",
     "toggleNavigationMenu": "Toggle navigation menu",

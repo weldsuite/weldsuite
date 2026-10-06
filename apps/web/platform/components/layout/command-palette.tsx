@@ -5,6 +5,8 @@
  * the screen. The empty state is commands — go to an app, open settings,
  * switch theme — not a dump of customers and contacts. Typing filters those
  * commands, and a query of two or more characters also searches records.
+ * Create company and Create person open the CRM quick-add dialogs when this
+ * workspace has an app for that record and the member is allowed to create it.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
@@ -22,6 +24,9 @@ import { RESULT_TYPE_ICON, RESULT_TYPE_LABEL } from '@/lib/search/result-types';
 import { pushRecent } from '@/lib/search/recents';
 import { getRecentCommands, pushRecentCommand, type RecentCommand } from '@/lib/search/command-recents';
 import { useEntitySheet, hasEntitySheetRenderer } from '@/components/entity-sheet';
+import { useObjectPanel } from '@/components/object-panel';
+import { QuickAddCompanyDialog } from '@/app/weldcrm/companies/components/quick-add-company-dialog';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
 import { Kbd } from '@weldsuite/ui/components/kbd';
 import {
   Command,
@@ -129,7 +134,9 @@ export function CommandPalette() {
   const { data: installedApps = [] } = useInstalledApps();
   const { resolvedTheme, setTheme } = useTheme();
   const { open: openEntitySheet } = useEntitySheet();
+  const { open: openObjectPanel } = useObjectPanel();
   const newTabRef = useRef(false);
+  const [createTarget, setCreateTarget] = useState<'company' | 'person' | null>(null);
   const copy = t.sweep.shared.commandPalette;
 
   const [recents, setRecents] = useState<RecentCommand[]>([]);
@@ -167,7 +174,7 @@ export function CommandPalette() {
   const canSee = (permission: string | undefined) => !permission || isOwner || can(permission);
 
   const commands = visibleCommands([
-    ...actionCommands(t, theme),
+    ...actionCommands(t, theme, { canSee, installedCodes }),
     ...extraNavigationCommands(t),
     ...navigationCommandsForApps(installed, (code) => pagesForModule(code, t), getAppLucideIcon, canSee),
     ...settingsCommands(t, installedCodes, { includeDesktop: isDesktop() }),
@@ -223,6 +230,11 @@ export function CommandPalette() {
         void signOut({ redirectUrl: '/auth/login' });
         return;
       }
+      if (command.run === 'create-company' || command.run === 'create-person') {
+        close();
+        setCreateTarget(command.run === 'create-company' ? 'company' : 'person');
+        return;
+      }
       if (!command.href) return;
       goTo(command.href, {
         id: command.id,
@@ -266,6 +278,7 @@ export function CommandPalette() {
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(next) => (next ? setCommandPaletteOpen(true) : close())}>
       <DialogContent
         data-testid="command-palette"
@@ -391,5 +404,24 @@ export function CommandPalette() {
         </div>
       </DialogContent>
     </Dialog>
+    <QuickAddCompanyDialog
+      open={createTarget === 'company'}
+      onOpenChange={(next) => {
+        if (!next) setCreateTarget(null);
+      }}
+      onCreated={(company) => {
+        openObjectPanel({ type: 'company', id: company.id });
+      }}
+    />
+    <QuickAddPersonDialog
+      open={createTarget === 'person'}
+      onOpenChange={(next) => {
+        if (!next) setCreateTarget(null);
+      }}
+      onCreated={(person) => {
+        openObjectPanel({ type: 'person', id: person.id });
+      }}
+    />
+    </>
   );
 }
