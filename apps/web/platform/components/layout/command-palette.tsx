@@ -4,14 +4,16 @@
  *  - dropdown popover directly under the input (NOT a fullscreen Dialog)
  *  - Cmd+K focuses the input
  *
- * Federated search backed by POST /api/search.
+ * Federated search backed by POST /api/search, plus actions (Create company,
+ * Create person) that open the same quick-add dialogs as the CRM grids.
  */
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useRouter } from '@/lib/router';
 import { useOrganization } from '@clerk/clerk-react';
-import { Search, Loader2 } from 'lucide-react';
+import { usePermissionsMaybe } from '@weldsuite/permissions/react';
+import { Building2, Loader2, Search, UserPlus, type LucideIcon } from 'lucide-react';
 import { Input } from '@weldsuite/ui/components/input';
 import { Kbd } from '@weldsuite/ui/components/kbd';
 import {
@@ -25,10 +27,28 @@ import { useGlobalSearch } from '@/hooks/queries/use-global-search-queries';
 import { RESULT_TYPE_ICON, RESULT_TYPE_LABEL } from '@/lib/search/result-types';
 import { getRecents, pushRecent, type RecentItem } from '@/lib/search/recents';
 import { useEntitySheet, hasEntitySheetRenderer } from '@/components/entity-sheet';
+import { useObjectPanel } from '@/components/object-panel';
+import { QuickAddCompanyDialog } from '@/app/weldcrm/companies/components/quick-add-company-dialog';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import {
+  CREATE_COMPANY_SYNONYMS,
+  CREATE_PERSON_SYNONYMS,
+  commandActionKeywords,
+  filterCommandActions,
+} from './command-actions';
 import type {
   SearchEntityType,
   SearchResultItem,
 } from '@weldsuite/core-api-client/schemas/search';
+
+type CreateTarget = 'company' | 'person';
+
+interface PaletteAction {
+  id: CreateTarget;
+  label: string;
+  keywords: string[];
+  icon: LucideIcon;
+}
 
 export interface CommandPaletteHandle {
   focus: () => void;
@@ -74,7 +94,44 @@ export const CommandPalette = forwardRef<CommandPaletteHandle>(function CommandP
   );
 
   const { open: openEntitySheet } = useEntitySheet();
+  const { open: openObjectPanel } = useObjectPanel();
+  const permissions = usePermissionsMaybe();
   const newTabRef = useRef(false);
+  const [createTarget, setCreateTarget] = useState<CreateTarget | null>(null);
+
+  const canCreate = useCallback(
+    (permission: string) =>
+      !!permissions && !permissions.isLoading && (permissions.isOwner || permissions.can(permission)),
+    [permissions],
+  );
+
+  const companyLabel = t('companies.actions.create');
+  const personLabel = t('people.actions.create');
+  const availableActions: PaletteAction[] = [];
+  if (canCreate('companies:create')) {
+    availableActions.push({
+      id: 'company',
+      label: companyLabel,
+      keywords: commandActionKeywords(companyLabel, CREATE_COMPANY_SYNONYMS),
+      icon: Building2,
+    });
+  }
+  if (canCreate('people:create')) {
+    availableActions.push({
+      id: 'person',
+      label: personLabel,
+      keywords: commandActionKeywords(personLabel, CREATE_PERSON_SYNONYMS),
+      icon: UserPlus,
+    });
+  }
+  const actions = filterCommandActions(query, availableActions);
+
+  const runAction = useCallback((id: CreateTarget) => {
+    setQuery('');
+    setOpen(false);
+    inputRef.current?.blur();
+    setCreateTarget(id);
+  }, []);
 
   const goToResult = useCallback(
     (item: SearchResultItem | RecentItem) => {
@@ -156,6 +213,26 @@ export const CommandPalette = forwardRef<CommandPaletteHandle>(function CommandP
         >
           <Command shouldFilter={false}>
             <CommandList className="max-h-none">
+              {actions.length > 0 && (
+                <CommandGroup heading={t('sweep.shared.actions')}>
+                  {actions.map((action) => {
+                    const Icon = action.icon;
+                    return (
+                      <CommandItem
+                        key={action.id}
+                        value={`action ${action.label} ${action.id}`}
+                        onSelect={() => runAction(action.id)}
+                        className="cursor-pointer flex items-center gap-2"
+                        data-testid={`cmdk-action-${action.id}`}
+                      >
+                        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="font-medium truncate">{action.label}</span>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              )}
+
               {showRecents && (
                 <CommandGroup heading={t('sweep.shared.recent')}>
                   {recents.map((r) => {
@@ -183,11 +260,11 @@ export const CommandPalette = forwardRef<CommandPaletteHandle>(function CommandP
                 </CommandGroup>
               )}
 
-              {!showRecents && query.trim() && !hasAnyResults && !isFetching && (
+              {!showRecents && query.trim() && !hasAnyResults && !isFetching && actions.length === 0 && (
                 <CommandEmpty>{t('sweep.shared.noResultsFound')}</CommandEmpty>
               )}
 
-              {!showRecents && query.trim() && isFetching && !hasAnyResults && (
+              {!showRecents && query.trim() && isFetching && !hasAnyResults && actions.length === 0 && (
                 <div className="py-6 text-center text-sm text-muted-foreground">
                   {t('sweep.shared.searching')}
                 </div>
@@ -229,6 +306,25 @@ export const CommandPalette = forwardRef<CommandPaletteHandle>(function CommandP
           </Command>
         </div>
       )}
+
+      <QuickAddCompanyDialog
+        open={createTarget === 'company'}
+        onOpenChange={(next) => {
+          if (!next) setCreateTarget(null);
+        }}
+        onCreated={(company) => {
+          openObjectPanel({ type: 'company', id: company.id });
+        }}
+      />
+      <QuickAddPersonDialog
+        open={createTarget === 'person'}
+        onOpenChange={(next) => {
+          if (!next) setCreateTarget(null);
+        }}
+        onCreated={(person) => {
+          openObjectPanel({ type: 'person', id: person.id });
+        }}
+      />
     </div>
   );
 });

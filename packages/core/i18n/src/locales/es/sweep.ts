@@ -788,6 +788,7 @@ export const sweep = {
     "notifications": "Notifications",
     "searchAnythingPlaceholder": "Search anything…",
     "recent": "Recent",
+    "actions": "Acciones",
     "noResultsFound": "No results found.",
     "searching": "Searching…",
     "toggleNavigationMenu": "Toggle navigation menu",
