@@ -374,6 +374,7 @@ export function settingsCommands(
     { code: 'weldcrm', title: 'WeldCRM', keywords: 'weldcrm crm settings', href: '/settings/apps/weldcrm' },
     { code: 'welddesk', title: search.helpdeskSettings, keywords: `${search.helpdeskSettings} ${search.configureHelpdesk}`, href: '/settings/apps/welddesk' },
     { code: 'weldmail', title: search.mailAccounts, keywords: `${search.mailAccounts} ${search.manageMailAccounts} weldmail`, href: '/settings/apps/weldmail' },
+    { code: 'weldhr', title: search.weldhrSettings, keywords: `${search.weldhrSettings} ${search.configureWeldhr} weldhr`, href: '/settings/apps/weldhr' },
   ];
   for (const app of appSettings) {
     if (!installed.has(app.code)) continue;

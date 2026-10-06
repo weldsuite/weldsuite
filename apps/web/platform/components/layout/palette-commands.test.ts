@@ -64,6 +64,9 @@ describe('visibleCommands', () => {
     expect(titles(visibleCommands(commands, 'billing'))).toContain('Billing');
     expect(titles(visibleCommands(commands, 'crm'))).toContain('WeldCRM');
     expect(titles(visibleCommands(commands, 'parcel'))).not.toContain('Parcel Settings');
+    expect(visibleCommands(commands, 'weldhr').some((command) => command.href === '/settings/apps/weldhr')).toBe(false);
+    const withHr = settingsCommands(en, new Set(['weldhr']));
+    expect(visibleCommands(withHr, 'weldhr').some((command) => command.href === '/settings/apps/weldhr')).toBe(true);
   });
 
   it('requires every word in the query to match', () => {

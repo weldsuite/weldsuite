@@ -108,7 +108,7 @@ export default function WeldHrLifecyclePage() {
         filters={[]}
         actionButtons={
           <Button asChild variant="outline" size="sm" className="h-8">
-            <Link to="/weldhr/settings" search={{ tab: 'templates' }}>
+            <Link to="/settings/apps/weldhr" search={{ tab: 'templates' }}>
               <Settings className="mr-1.5 h-4 w-4" />
               {t('weldhr.lifecycle.manageTemplates')}
             </Link>
