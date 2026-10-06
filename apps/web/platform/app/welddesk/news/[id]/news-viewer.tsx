@@ -28,6 +28,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import type { NewsArticle } from '@/hooks/queries/use-helpdesk-queries';
+import { copyText } from '@/lib/clipboard';
 
 interface NewsViewerProps {
   article: NewsArticle;
@@ -199,8 +200,7 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
   };
 
   const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
-    toast.success(tn.linkCopied);
+    copyText(window.location.href, () => toast.success(tn.linkCopied));
   };
 
   const handlePrint = () => {

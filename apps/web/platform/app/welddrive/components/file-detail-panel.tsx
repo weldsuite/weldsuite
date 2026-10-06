@@ -33,6 +33,7 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import { useUser } from '@clerk/clerk-react';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
+import { copyText } from '@/lib/clipboard';
 
 // ---------- Types ----------
 
@@ -220,7 +221,7 @@ export function FileDetailPanel({
               )}
               <DropdownMenuItem onClick={() => {
                 if (onCopyLink) onCopyLink(file);
-                else if (file.url) navigator.clipboard.writeText(file.url);
+                else if (file.url) copyText(file.url);
               }}>
                 <Link className="h-4 w-4 mr-0.5" />
                 {t.welddrive.fileDetail.actions.copyLink}
