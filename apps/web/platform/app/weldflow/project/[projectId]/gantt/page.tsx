@@ -57,6 +57,7 @@ import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { useI18n } from '@/lib/i18n/provider';
+import { copyText } from '@/lib/clipboard';
 
 const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 
@@ -541,7 +542,7 @@ const GanttPage = () => {
         setAvailableLabels(result.data);
       }
     }
-    loadLabels();
+    void loadLabels();
   }, [projectId]);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
@@ -658,7 +659,7 @@ const GanttPage = () => {
         setProjectMembers(result.data);
       }
     }
-    loadMembers();
+    void loadMembers();
   }, [projectId]);
 
   const handleViewFeature = (id: string) => {
@@ -697,8 +698,7 @@ const GanttPage = () => {
 
 
   const handleCopyLink = (id: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/projects/task/${id}`);
-    toast.success(t.projects.gantt.linkCopied);
+    copyText(`${window.location.origin}/projects/task/${id}`, () => toast.success(t.projects.gantt.linkCopied));
   };
 
   const handleRemoveFeature = async (id: string) => {
@@ -1299,7 +1299,7 @@ const GanttPage = () => {
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    handleSaveRename();
+                    void handleSaveRename();
                   }
                 }}
               />
@@ -1331,7 +1331,7 @@ const GanttPage = () => {
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    handleSaveMarkerRename();
+                    void handleSaveMarkerRename();
                   }
                 }}
               />
@@ -1389,7 +1389,7 @@ const GanttPage = () => {
                       if (date) {
                         const prev = selectedMarker.date;
                         date.setHours(prev.getHours(), prev.getMinutes());
-                        handleChangeMarkerDate(selectedMarker.id, date);
+                        void handleChangeMarkerDate(selectedMarker.id, date);
                       }
                     }}
                     initialFocus
@@ -1401,7 +1401,7 @@ const GanttPage = () => {
                       onValueChange={(h) => {
                         const newDate = new Date(selectedMarker.date);
                         newDate.setHours(Number.parseInt(h));
-                        handleChangeMarkerDate(selectedMarker.id, newDate);
+                        void handleChangeMarkerDate(selectedMarker.id, newDate);
                       }}
                     >
                       <SelectTrigger className="w-24 h-8 text-sm">
@@ -1419,7 +1419,7 @@ const GanttPage = () => {
                       onValueChange={(m) => {
                         const newDate = new Date(selectedMarker.date);
                         newDate.setMinutes(Number.parseInt(m));
-                        handleChangeMarkerDate(selectedMarker.id, newDate);
+                        void handleChangeMarkerDate(selectedMarker.id, newDate);
                       }}
                     >
                       <SelectTrigger className="w-24 h-8 text-sm">
@@ -1546,7 +1546,7 @@ const GanttPage = () => {
           if (data.dueDate !== undefined) updateData.dueDate = data.dueDate?.toISOString();
           if (data.labels !== undefined) updateData.labels = data.labels;
 
-          (async () => {
+          void (async () => {
             const result = await tasksApi.update(projectId, taskId, updateData);
             if (result.success) {
               void loadData();
