@@ -12,7 +12,7 @@
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
-import { and, eq, isNull, or } from 'drizzle-orm';
+import { and, eq, isNull, ne, or } from 'drizzle-orm';
 import { cancelQueuedExecutionRow, startExecutionRow } from './engine/execution-row';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { getTenantDbForWorkspace, schema, type Database } from './db';
@@ -172,6 +172,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       workspaceId: params.workspaceId,
       executionId,
       totalSteps: steps.length,
+      workflowId: params.workflowId,
     });
     const context: WorkflowRunContext = {
       tenant: { workspaceId: params.workspaceId, userId: params.userId },
@@ -199,7 +200,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
         await db
           .update(schema.workflowExecutions)
           .set({ status: 'running', updatedAt: new Date() })
-          .where(eq(schema.workflowExecutions.id, executionId));
+          .where(and(eq(schema.workflowExecutions.id, executionId), ne(schema.workflowExecutions.status, 'cancelled')));
       });
       // The step that waited for input has now finished: count it in the progress.
       await hooks.markFinished(waitingIndex);
@@ -213,7 +214,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
     }
 
     // 5. Finalize.
-    await step.do('finalize', async () => {
+    const finalized = (await step.do('finalize', async () => {
       const finalizeDb = await getTenantDbForWorkspace(this.env, params.workspaceId);
       const succeeded = result.status === 'completed';
       const completedAt = new Date();
@@ -222,12 +223,16 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       // worker picked the run up), and the row also says whether this is a test run.
       const [row] = await finalizeDb
         .select({
+          status: schema.workflowExecutions.status,
           startedAt: schema.workflowExecutions.startedAt,
           executionContext: schema.workflowExecutions.executionContext,
         })
         .from(schema.workflowExecutions)
         .where(eq(schema.workflowExecutions.id, executionId))
         .limit(1);
+      // Cancelled from the UI while the last step was finishing: the cancel
+      // stands, and a cancelled run neither counts nor chains nor notifies.
+      if (row?.status === 'cancelled') return { cancelled: true };
       const duration = row?.startedAt ? Math.max(0, completedAt.getTime() - row.startedAt.getTime()) : null;
       const isTest = params.isTest === true || row?.executionContext?.isTest === true;
 
@@ -243,7 +248,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
           error: result.error ? { message: result.error.message, stepId: result.error.stepId } : null,
           updatedAt: completedAt,
         })
-        .where(eq(schema.workflowExecutions.id, executionId));
+        .where(and(eq(schema.workflowExecutions.id, executionId), ne(schema.workflowExecutions.status, 'cancelled')));
 
       // Test runs stay out of the workflow's counters and notifications.
       if (!isTest) await updateWorkflowStats(finalizeDb, params.workflowId, succeeded, params.source);
@@ -277,7 +282,12 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
           errorMessage: result.error?.message,
         });
       }
-    });
+      return { cancelled: false };
+    })) as { cancelled: boolean };
+
+    if (finalized.cancelled) {
+      return { success: false, cancelled: true, executionId };
+    }
 
     await rt?.workflowExecutionEvent(
       params.workspaceId,
