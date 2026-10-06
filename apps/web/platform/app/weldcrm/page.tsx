@@ -111,7 +111,7 @@ function applyTaskFilters(items: Task[], filters: ActiveFilter[]): Task[] {
     if (!filter.operator || !filter.value) continue;
     const matches = makeTaskFilterMatcher(filter);
     if (!matches) continue;
-    result = filter.operator === 'is' ? result.filter(matches) : result.filter((t) => !matches(t));
+    result = filter.operator === 'is' ? result.filter((t) => matches(t)) : result.filter((t) => !matches(t));
   }
   return result;
 }
@@ -821,7 +821,7 @@ export default function CrmTasksClient() {
                 mode="single"
                 selected={task.dueDate}
                 onSelect={(date) => handlers.onUpdate(task.id, { dueDate: date })}
-                initialFocus
+                autoFocus
               />
               {task.dueDate && (
                 <div className="p-1 border-t border-border">
