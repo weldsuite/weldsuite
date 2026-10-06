@@ -1,7 +1,8 @@
 /**
- * WeldCalendar attendee mail: invite, update, reschedule, cancel, and "removed
- * you" (the event goes on, this guest is no longer on it). One template with a
- * `kind`, because the five share the layout and differ only in copy. The event
+ * WeldCalendar attendee mail: invite, update, reschedule, cancel, "removed
+ * you" (the event goes on, this guest is no longer on it) and restored (a
+ * cancelled event is on again). One template with a
+ * `kind`, because they share the layout and differ only in copy. The event
  * title is the heading; it is struck through once the event is off for this guest.
  * The .ics is attached by the sender, not rendered here.
  */
@@ -23,7 +24,7 @@ import { defineTemplate } from '../../define';
 import { formatWhen, zoneOr } from '../../format';
 import { emailStrings, fill, rich } from '../../i18n';
 
-export type CalendarEventKind = 'invite' | 'update' | 'reschedule' | 'cancel' | 'removed';
+export type CalendarEventKind = 'invite' | 'update' | 'reschedule' | 'cancel' | 'removed' | 'restored';
 
 export interface CalendarEventEmailProps {
   kind: CalendarEventKind;
@@ -180,6 +181,18 @@ export default defineTemplate<CalendarEventEmailProps>({
         startTime: '2026-10-12T13:00:00.000Z',
         endTime: '2026-10-12T14:30:00.000Z',
         timezone: 'Europe/Amsterdam',
+      },
+    },
+    restored: {
+      props: {
+        kind: 'restored',
+        organizerName: 'Sanne de Vries',
+        title: 'Quarterly planning',
+        startTime: '2026-10-12T13:00:00.000Z',
+        endTime: '2026-10-12T14:30:00.000Z',
+        timezone: 'Europe/Amsterdam',
+        meetingUrl: 'https://meet.weldsuite.org/r/abc-defg-hij',
+        eventUrl: 'https://app.weldsuite.org/weldcalendar',
       },
     },
   },
