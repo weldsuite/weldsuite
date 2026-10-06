@@ -121,7 +121,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
         const cleanup = notifUtils.setupNotificationListeners(
           (notification: any) => {
             const data = notification.request.content.data;
-            if (data?.unreadCount !== undefined) { setUnreadCount(data.unreadCount); notifUtils!.setBadgeCount(data.unreadCount); }
+            if (data?.unreadCount !== undefined) { setUnreadCount(data.unreadCount); void notifUtils!.setBadgeCount(data.unreadCount); }
           },
           (response: any) => {
             const data = response.notification.request.content.data;
@@ -147,7 +147,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
     };
 
-    init();
+    void init();
     return () => { if (cleanupRef.current) cleanupRef.current(); };
   }, [user, organizationId, getCredentials]);
 
