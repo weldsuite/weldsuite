@@ -652,7 +652,7 @@ export function ApiKeysSection() {
         setHasApiAccess(false)
       }
     }
-    checkApiAccess()
+    void checkApiAccess()
   }, [getClient])
 
   // Create new API key
