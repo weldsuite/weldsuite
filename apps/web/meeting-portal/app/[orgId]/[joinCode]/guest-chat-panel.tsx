@@ -149,7 +149,7 @@ export function GuestChatPanel({
     let cancelled = false;
     setIsLoading(true);
 
-    (async () => {
+    void (async () => {
       try {
         const params = new URLSearchParams({ orgId });
         const res = await fetch(`/api/meeting/${meetingId}/messages?${params.toString()}`, {

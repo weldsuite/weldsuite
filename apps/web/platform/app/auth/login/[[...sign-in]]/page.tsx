@@ -329,7 +329,7 @@ export default function LoginPage() {
     if (!isDesktopHandoff) return;
 
     autoGoogleRef.current = true;
-    handleGoogleSignIn();
+    void handleGoogleSignIn();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, signIn, isDesktopHandoff]);
 

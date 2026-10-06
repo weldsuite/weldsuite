@@ -233,7 +233,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                             if (app.isInstalled) {
                               setAppToUninstall(app);
                             } else {
-                              handleInstallApp(app);
+                              void handleInstallApp(app);
                             }
                           }}
                         >
@@ -286,7 +286,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
         confirmLabel={t.appstore.uninstall}
         onConfirm={() => {
           if (appToUninstall) {
-            handleUninstallApp(appToUninstall);
+            void handleUninstallApp(appToUninstall);
           }
         }}
       />
