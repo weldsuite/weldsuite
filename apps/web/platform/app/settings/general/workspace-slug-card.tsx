@@ -38,7 +38,7 @@ function formatTemplate(
   tpl: string,
   vars: Record<string, string>,
 ): string {
-  return tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
+  return tpl.replaceAll(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
 }
 
 export function WorkspaceSlugCard() {
@@ -184,7 +184,7 @@ export function WorkspaceSlugCard() {
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
-                handleSubmit();
+                void handleSubmit();
               }}
               disabled={!canSubmit}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"

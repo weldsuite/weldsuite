@@ -133,7 +133,7 @@ const NUMBER_TYPES = [
 ];
 
 function pricingKey(countryCode: string, numberType: string): string {
-  return `${countryCode.trim().toUpperCase()}:${numberType.trim().toLowerCase().replace(/_/g, '-')}`;
+  return `${countryCode.trim().toUpperCase()}:${numberType.trim().toLowerCase().replaceAll('_', '-')}`;
 }
 
 type NewNumberStrings = TranslationNamespaces['settings']['phoneNumbers']['newNumber'];
@@ -456,7 +456,7 @@ export function NewNumberClient({
   const tn = ts.phoneNumbers.newNumber;
   const tna = ts.phoneNumbers.newNumber.addressDialog;
   const [addresses, setAddresses] = useState(initialAddresses);
-  const [bundles] = useState(initialBundles);
+  const bundles = initialBundles;
 
   // Mutation hooks
   const searchMutation = useSearchAvailableNumbers();
@@ -536,7 +536,7 @@ export function NewNumberClient({
 
   // Auto-search on filter change
   useEffect(() => {
-    handleSearchNumbers();
+    void handleSearchNumbers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchCountry, searchType, searchAreaCode, searchContains]);
 
@@ -688,7 +688,7 @@ export function NewNumberClient({
       setPreviewedNumber(null);
       return;
     }
-    handleProvisionNumbers(e);
+    void handleProvisionNumbers(e);
   };
 
   const cartNeedsAddress = !isPreviewingNumber && cartNumbers.length > 0 && selectedCountryRequiresAddress && !selectedAddressId && !selectedBundleId;

@@ -451,7 +451,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
                     if (isConnected) {
                       setShowDisconnectDialog(true);
                     } else {
-                      handleConnect();
+                      void handleConnect();
                     }
                   }}
                 >

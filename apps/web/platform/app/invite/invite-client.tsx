@@ -694,7 +694,7 @@ export function InviteClient({
       }
     };
 
-    handleClerkTicket();
+    void handleClerkTicket();
   }, [
     clerkTicket,
     clerkStatus,
