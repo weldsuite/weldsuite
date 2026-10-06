@@ -1211,7 +1211,9 @@ export const weldconnect = {
     quotas: {
       title: 'Quotas',
       maxCreditsLabel: 'Maximum credits used per run',
-      maxCreditsHint: 'Workflow run will stop if this limit is reached',
+      maxCreditsHint: 'Leave empty for no limit. The run stops at an AI step that would push this run over the limit.',
+      noLimitPlaceholder: 'No limit',
+      invalidValue: 'Enter a whole number between 1 and 100,000, or leave it empty',
       creditsUnit: 'credits',
     },
     notifications: {

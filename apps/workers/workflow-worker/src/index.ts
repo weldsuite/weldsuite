@@ -69,6 +69,8 @@ type LoadResult =
       createdBy: string | null;
       steps: WorkflowDefinition['steps'];
       variables: Record<string, unknown>;
+      /** `settings.maxCreditsPerRun`, validated — `null` when unset or invalid. */
+      maxCreditsPerRun: number | null;
     };
 
 export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWorkflowParams> {
@@ -108,6 +110,12 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       const variables: Record<string, unknown> = {};
       for (const v of variableRecords) variables[v.name] = v.value;
 
+      // Validated the same way the connect-api settings route does (sane
+      // positive integer, else no cap) — an older row can hold a value that's
+      // no longer valid (the field used to accept e.g. -5).
+      const rawCap = (workflow.settings as { maxCreditsPerRun?: unknown } | null)?.maxCreditsPerRun;
+      const maxCreditsPerRun = Number.isInteger(rawCap) && (rawCap as number) >= 1 ? (rawCap as number) : null;
+
       return {
         skipped: false as const,
         name: workflow.name,
@@ -115,6 +123,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
         version: workflow.version,
         steps: (workflow.steps || []) as WorkflowDefinition['steps'],
         variables,
+        maxCreditsPerRun,
       };
     })) as LoadResult;
 
@@ -129,7 +138,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       }
       return { skipped: true, reason: loadResult.reason };
     }
-    const { name: workflowName, version, steps, variables } = loadResult;
+    const { name: workflowName, version, steps, variables, maxCreditsPerRun } = loadResult;
     const ownerUserId = loadResult.createdBy ?? undefined;
 
     // 2. Create (or upgrade the dispatcher's queued) execution record + publish started.
@@ -187,6 +196,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       variables,
       contactData: {},
       chainDepth: params.chainDepth ?? 0,
+      maxCreditsPerRun,
     };
     const workflow: WorkflowDefinition = { id: params.workflowId, name: workflowName, version, steps };
 

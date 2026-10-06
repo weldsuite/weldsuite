@@ -41,6 +41,52 @@ describe('validateWeldConnectWorkflow', () => {
     ).toEqual([{ code: 'missing_field', stepId: 's', type: 'http_request', field: 'url' }]);
   });
 
+  it('accepts configured ai_generate / ai_classify steps', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [webhookTrigger],
+        steps: [
+          { id: 'g', type: 'ai_generate', config: { prompt: 'Summarize {{trigger.record.notes}}' } },
+          { id: 'c', type: 'ai_classify', config: { text: '{{trigger.record.message}}', categories: ['billing', 'support'] } },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('accepts ai_classify with the input/labels aliases', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [webhookTrigger],
+        steps: [{ id: 'c', type: 'ai_classify', config: { input: 'hello', labels: ['a', 'b'] } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('flags ai_generate / ai_classify missing required fields', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [webhookTrigger],
+        steps: [
+          { id: 'g', type: 'ai_generate', config: {} },
+          { id: 'c', type: 'ai_classify', config: {} },
+        ],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'g', type: 'ai_generate', field: 'prompt' },
+      { code: 'missing_field', stepId: 'c', type: 'ai_classify', field: 'text' },
+      { code: 'missing_field', stepId: 'c', type: 'ai_classify', field: 'categories' },
+    ]);
+  });
+
+  it('still rejects ai_agent (removed in the platform-wide AI teardown, never re-enabled)', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [webhookTrigger],
+        steps: [{ id: 's', type: 'ai_agent', config: {} }],
+      }),
+    ).toEqual([{ code: 'unsupported_action', stepId: 's', type: 'ai_agent' }]);
+  });
+
   it('reads schedule fields nested under config and treats a missing scheduleType as recurring', () => {
     const nested = { id: 't', type: 'schedule', config: { cronExpression: '*/15 * * * *' } };
     expect(validateWeldConnectWorkflow({ triggers: [nested], steps: [emailStep] })).toEqual([]);

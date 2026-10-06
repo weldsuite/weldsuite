@@ -155,6 +155,14 @@ export interface ActionContext {
   chainDepth?: number;
   loopItem?: unknown;
   loopIndex?: number;
+  /**
+   * `workflows.settings.maxCreditsPerRun` — the per-run cap `ai_generate` /
+   * `ai_classify` enforce before each call (engine/actions/ai.ts). Loaded once
+   * in the `load-workflow` step (so a replay keeps the value it started with,
+   * even if the setting changes mid-run) and carried through every step's
+   * context. `undefined`/`null` ⇒ no cap.
+   */
+  maxCreditsPerRun?: number | null;
 }
 
 export type ActionHandler = (
@@ -239,6 +247,8 @@ export interface WorkflowRunContext {
   variables?: Record<string, unknown>;
   contactData?: Record<string, unknown>;
   chainDepth?: number;
+  /** See `ActionContext.maxCreditsPerRun`. */
+  maxCreditsPerRun?: number | null;
 }
 
 export interface ExecuteStepsDeps {

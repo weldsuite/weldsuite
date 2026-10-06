@@ -22,6 +22,21 @@
  * Cloudflare Workflow step retry — which re-runs `runtime.do` under a NEW
  * attempt name but the SAME logical step — never double-charges.
  *
+ * Per-run credit cap (`workflows.settings.maxCreditsPerRun`, carried on
+ * `ActionContext.maxCreditsPerRun` — see the `load-workflow` step in
+ * `apps/workers/workflow-worker/src/index.ts`): before every call, the credits
+ * this run has ALREADY charged plus this call's worst-case cost must not
+ * exceed the cap, or the step fails without retrying
+ * (`assertWithinCreditCap`). "Already charged" is read straight from the
+ * `credit_transactions` ledger by `executionId` (`@weldsuite/credits`'
+ * `sumChargedCredits`) rather than kept in memory, so it's exact across steps
+ * and replay-safe — the idempotency key above already guarantees a retried
+ * step's charge is recorded at most once, so re-summing the ledger on a
+ * replay can never over-count. "Worst case" is an ESTIMATE
+ * (`estimateMaxCredits`) from the input size and the step's own `maxTokens`
+ * (or a conservative default when unset) — it never changes what's actually
+ * billed, which always comes from the provider's real usage (`chargeUsage`).
+ *
  * Field names (`prompt`/`systemPrompt`/`model`/`temperature`/`maxTokens` for
  * ai_generate; `text`/`categories`/`model` for ai_classify, plus the
  * `input`/`labels`/`max_tokens` aliases) match the pre-teardown api-worker
@@ -38,10 +53,17 @@ import {
   creditsForUsage,
   type AiUsage,
 } from '@weldsuite/ai';
-import { checkCredits, consumeCredits, grantCredits, resolveInternalWorkspaceId } from '@weldsuite/credits';
+import {
+  checkCredits,
+  consumeCredits,
+  grantCredits,
+  resolveInternalWorkspaceId,
+  sumChargedCredits,
+} from '@weldsuite/credits';
 import { nanoUsd, recordProviderUsage, type Gateway } from '@weldsuite/credits/gateway-costs';
 import { readGatewayCreditSnapshot, toCreditStates } from '@weldsuite/credits/gateway-cache';
 import { getMasterDb, type MasterDatabase } from '../../db';
+import { NonRetryableStepError } from '../errors';
 import type { ActionContext, ActionHandler } from '../types';
 
 /** Thrown when the workspace wallet can't cover even the minimum precheck —
@@ -87,6 +109,66 @@ async function assertCredits(metering: AiMetering | null): Promise<void> {
   const check = await checkCredits(metering.masterDb, metering.internalWsId, MIN_PRECHECK_CREDITS);
   if (!check.available) {
     throw new AiInsufficientCreditsError(check.currentBalance, check.required);
+  }
+}
+
+// --- Per-run credit cap (workflows.settings.maxCreditsPerRun) --------------
+
+/** Rough chars→tokens ratio for a worst-case cost ESTIMATE only — never used
+ *  to bill (the real charge always comes from the provider's own usage). */
+const CHARS_PER_TOKEN_ESTIMATE = 4;
+/** Worst-case output tokens assumed for ai_generate when the step sets no `maxTokens`. */
+const GENERATE_OUTPUT_TOKENS_ESTIMATE = 4096;
+/** ai_classify always asks for one small structured object (category + confidence + reasoning). */
+const CLASSIFY_OUTPUT_TOKENS_ESTIMATE = 300;
+
+function estimateTokens(text: string): number {
+  return Math.max(1, Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE));
+}
+
+/** Worst-case credits one call could cost, computed BEFORE making it. */
+function estimateMaxCredits(
+  modelId: string,
+  inputText: string,
+  maxOutputTokens: number | undefined,
+  defaultOutputTokens: number,
+): number {
+  return creditsForUsage(modelId, {
+    inputTokens: estimateTokens(inputText),
+    outputTokens: maxOutputTokens ?? defaultOutputTokens,
+  });
+}
+
+/**
+ * Enforce `maxCreditsPerRun`: the credits this run has already charged (exact,
+ * read from the ledger — see file header) plus this call's worst-case cost
+ * must not exceed the cap. No-op when there's no cap, or metering itself is
+ * unavailable (same fail-open posture as {@link assertCredits} — nothing is
+ * actually being charged in that case, so there is nothing to cap).
+ */
+async function assertWithinCreditCap(
+  metering: AiMetering | null,
+  ctx: ActionContext,
+  op: 'ai_generate' | 'ai_classify',
+  estimatedCredits: number,
+): Promise<void> {
+  if (!metering) return;
+  const cap = ctx.maxCreditsPerRun;
+  if (cap === undefined || cap === null) return;
+
+  const alreadyCharged = await sumChargedCredits(metering.masterDb, {
+    workspaceId: metering.internalWsId,
+    referenceId: ctx.executionId,
+    referenceType: 'workflow_step',
+    serviceType: 'ai_tokens',
+  });
+  if (alreadyCharged + estimatedCredits > cap) {
+    throw new NonRetryableStepError(
+      `This workflow run's AI credit cap of ${cap} would be exceeded by this ${op} step ` +
+        `(already used ${alreadyCharged} credit(s) this run, this step could use up to ` +
+        `${estimatedCredits} more).`,
+      { code: 'ai_credit_cap_exceeded', cap, alreadyCharged, estimatedCredits },
+    );
   }
 }
 
@@ -227,6 +309,12 @@ export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext
 
   const metering = await resolveMetering(ctx);
   await assertCredits(metering);
+  await assertWithinCreditCap(
+    metering,
+    ctx,
+    'ai_generate',
+    estimateMaxCredits(modelId, `${systemPrompt ?? ''}\n${prompt}`, maxOutputTokens, GENERATE_OUTPUT_TOKENS_ESTIMATE),
+  );
 
   let served: { gateway: Gateway; providerCostUsd: number; covered: boolean } | undefined;
   const { value: result } = await runWithFallback(
@@ -287,6 +375,12 @@ export const handleAiClassify: ActionHandler = async (inputs, ctx: ActionContext
 
   const metering = await resolveMetering(ctx);
   await assertCredits(metering);
+  await assertWithinCreditCap(
+    metering,
+    ctx,
+    'ai_classify',
+    estimateMaxCredits(modelId, `${text}\n${categories.join(', ')}`, undefined, CLASSIFY_OUTPUT_TOKENS_ESTIMATE),
+  );
 
   // Plain JSON schema (not zod) — a dynamic enum built from the caller's
   // categories, and keeps structured-output inference shallow (matches the
