@@ -26,7 +26,7 @@ export default function CrmDashboard() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    loadDashboardData();
+    void loadDashboardData();
   }, []);
 
   useEffect(() => {
@@ -62,7 +62,7 @@ export default function CrmDashboard() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadDashboardData();
+    void loadDashboardData();
   };
 
   const formatCurrency = (value: number): string => {
