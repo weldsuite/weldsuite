@@ -6,6 +6,7 @@ import {
   validateWeldConnectWorkflow,
   webhookTriggerIds,
   webhookTriggers,
+  workflowCompleteSourceIds,
 } from './weldconnect-mvp';
 
 const entityTrigger = { id: 'trigger-1', type: 'entity_event', entityType: 'person', eventType: 'created' };
@@ -316,6 +317,60 @@ describe('webhookTriggerIds', () => {
     expect(
       webhookTriggerIds([webhookTrigger, { ...webhookTrigger, id: 'trigger-4', isEnabled: false }, scheduleTrigger]),
     ).toEqual(['trigger-3', 'trigger-4']);
+  });
+});
+
+describe('validateWeldConnectWorkflow: after another workflow, approvals', () => {
+  const email = { id: 's', type: 'send_email', config: { to: 'a@b.co', subject: 's', body: 'b' } };
+  const chained = (extra: Record<string, unknown>) => ({ id: 't', type: 'workflow_complete', ...extra });
+
+  it('accepts a workflow_complete trigger flat (editor) or nested under config', () => {
+    expect(validateWeldConnectWorkflow({ triggers: [chained({ sourceWorkflowId: 'wf_a', triggerOn: 'failure' })], steps: [email] })).toEqual([]);
+    expect(validateWeldConnectWorkflow({ triggers: [chained({ config: { sourceWorkflowId: 'wf_a' } })], steps: [email] })).toEqual([]);
+  });
+
+  it('needs a source workflow that is not itself, and a known outcome', () => {
+    const codes = (trigger: Record<string, unknown>) =>
+      validateWeldConnectWorkflow({ triggers: [trigger], steps: [email] }, { workflowId: 'wf_self' }).map((i) => i.code);
+    expect(codes(chained({}))).toEqual(['missing_source_workflow']);
+    expect(codes(chained({ sourceWorkflowId: 'wf_self' }))).toEqual(['self_chained_workflow']);
+    expect(codes(chained({ sourceWorkflowId: 'wf_a', triggerOn: 'sometimes' }))).toEqual(['invalid_trigger_on']);
+  });
+
+  it('accepts an approval in the main flow and flags one inside a branch or loop', () => {
+    const trigger = { id: 't', type: 'webhook' };
+    expect(
+      validateWeldConnectWorkflow({ triggers: [trigger], steps: [{ id: 'a', type: 'manual_step', config: { title: 'Approve' } }] }),
+    ).toEqual([]);
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          { id: 'l', type: 'loop', config: { items: '{{trigger.body.items}}' } },
+          { id: 'a', type: 'manual_step', parentBranchId: 'l_each', config: {} },
+        ],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'manual_step', field: 'title' },
+      { code: 'nested_waiting_step', stepId: 'a', type: 'manual_step' },
+    ]);
+  });
+});
+
+describe('workflowCompleteSourceIds', () => {
+  it('lists the sources of the enabled workflow_complete triggers', () => {
+    expect(
+      workflowCompleteSourceIds([
+        { id: 't1', type: 'workflow_complete', sourceWorkflowId: 'wf_a' },
+        { id: 't2', type: 'workflow_complete', config: { sourceWorkflowId: 'wf_b' } },
+        { id: 't3', type: 'workflow_complete', sourceWorkflowId: 'wf_c', isEnabled: false },
+        { id: 't4', type: 'workflow_complete', sourceWorkflowId: '' },
+        { id: 't5', type: 'schedule' },
+      ]),
+    ).toEqual([
+      { triggerId: 't1', sourceWorkflowId: 'wf_a' },
+      { triggerId: 't2', sourceWorkflowId: 'wf_b' },
+    ]);
   });
 });
 

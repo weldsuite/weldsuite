@@ -154,6 +154,68 @@ describe('/api/workflows · pglite integration', () => {
       expect((await setStatus(request, id, 'active')).status).toBe(200);
     });
 
+    describe('"After another workflow finishes" (workflow_complete)', () => {
+      const chainedFlow = (sourceWorkflowId: string, extra: Record<string, unknown> = {}) => ({
+        triggers: [{ id: 'trigger-1', type: 'workflow_complete', isEnabled: true, sourceWorkflowId, triggerOn: 'both', ...extra }],
+        steps: validFlow.steps,
+      });
+
+      async function issueCodes(res: Response) {
+        const body = (await res.json()) as { error: { details: { issues: Array<{ code: string }> } } };
+        return body.error.details.issues.map((i) => i.code);
+      }
+
+      it('activates a workflow chained to an existing one', async () => {
+        const request = app();
+        const { id: sourceId } = await create(request, { name: 'Source', ...validFlow });
+        const { id } = await create(request, { name: 'Follow-up', ...chainedFlow(sourceId) });
+        expect((await setStatus(request, id, 'active')).status).toBe(200);
+      });
+
+      it('refuses a missing, deleted or self-referencing source workflow', async () => {
+        const request = app();
+        const { id: missing } = await create(request, { name: 'No source', ...chainedFlow('') });
+        expect(await issueCodes(await setStatus(request, missing, 'active'))).toEqual(['missing_source_workflow']);
+
+        const { id: dangling } = await create(request, { name: 'Gone source', ...chainedFlow('wf_does_not_exist') });
+        expect(await issueCodes(await setStatus(request, dangling, 'active'))).toEqual(['unknown_source_workflow']);
+
+        const { id: self } = await create(request, { name: 'Self', ...validFlow });
+        const update = await request(`/api/workflows/${self}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'active', ...chainedFlow(self) }),
+        });
+        expect(await issueCodes(update)).toEqual(['self_chained_workflow']);
+      });
+
+      it('refuses an approval step inside a branch', async () => {
+        const request = app();
+        const { id } = await create(request, {
+          name: 'Nested approval',
+          triggers: validFlow.triggers,
+          steps: [
+            { id: 'c', type: 'condition', config: { field: '{{trigger.record.email}}', operator: 'isNotEmpty' } },
+            { id: 'a', type: 'manual_step', parentBranchId: 'c_if', config: { title: 'Approve' } },
+          ],
+        });
+        expect(await issueCodes(await setStatus(request, id, 'active'))).toEqual(['nested_waiting_step']);
+      });
+
+      it('offers other WeldConnect workflows, not CRM sequences, as sources', async () => {
+        const request = app();
+        const { id: sequenceId } = await create(request, { name: 'A sequence', tags: ['__type:sequence'] });
+        const { id: workflowId } = await create(request, { name: 'A workflow' });
+        const { id: selfId } = await create(request, { name: 'Me' });
+
+        const res = await request(`/api/workflows/for-chaining?exclude=${selfId}`);
+        const ids = ((await res.json()) as { data: Array<{ id: string }> }).data.map((w) => w.id);
+        expect(ids).toContain(workflowId);
+        expect(ids).not.toContain(sequenceId);
+        expect(ids).not.toContain(selfId);
+      });
+    });
+
     it('excludes sequences from the list when asked', async () => {
       const request = app();
       const { id: sequenceId } = await create(request, { name: 'Hidden sequence', tags: ['__type:sequence'] });

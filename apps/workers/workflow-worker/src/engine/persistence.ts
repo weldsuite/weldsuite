@@ -73,8 +73,17 @@ function outcomeLog(outcome: StepOutcome, duration: number | null): StepLog {
 }
 
 export type ExecutionHooksWithProgress = ExecutionHooks & {
-  /** Count a step as finished outside the engine loop (a waiting step resumed by its input). */
-  markFinished(index: number): Promise<void>;
+  /**
+   * Count a step as finished outside the engine loop (a waiting step resumed
+   * by its input). `output` replaces the step row's output (an approval's decision).
+   */
+  markFinished(index: number, output?: Record<string, unknown>): Promise<void>;
+  /**
+   * Fail a step that waited for input and never got it (the wait timed out).
+   * Only a row still `waiting_for_input` is touched, so a replay neither
+   * rewrites the row nor logs the error twice.
+   */
+  markWaitExpired(step: WorkflowStep, index: number, message: string): Promise<void>;
 };
 
 /** One `workflow_error_logs` row per failed step. Never throws: logging must not fail the run. */
@@ -122,14 +131,14 @@ export function buildExecutionHooks(args: BuildHooksArgs): ExecutionHooksWithPro
   }
 
   return {
-    async markFinished(index: number) {
+    async markFinished(index: number, output?: Record<string, unknown>) {
       finished.add(index);
       const rowId = stepRowIds.get(index);
       if (rowId) {
         // The input arrived: the waiting step is done.
         await db
           .update(schema.workflowExecutionSteps)
-          .set({ status: 'completed', completedAt: new Date() })
+          .set({ status: 'completed', completedAt: new Date(), ...(output ? { output } : {}) })
           .where(
             and(
               eq(schema.workflowExecutionSteps.id, rowId),
@@ -138,6 +147,42 @@ export function buildExecutionHooks(args: BuildHooksArgs): ExecutionHooksWithPro
           );
       }
       await writeProgress();
+    },
+
+    async markWaitExpired(step: WorkflowStep, index: number, message: string) {
+      const rowId = stepRowIds.get(index);
+      if (!rowId) return;
+      const completedAt = new Date();
+      const start = startedAt.get(index);
+      const duration = start ? completedAt.getTime() - start : null;
+      const updated = await db
+        .update(schema.workflowExecutionSteps)
+        .set({
+          status: 'failed',
+          completedAt,
+          duration,
+          error: { message },
+          logs: [...(stepLogs.get(index) ?? []), outcomeLog({ status: 'failed', error: message }, duration)],
+        })
+        .where(
+          and(
+            eq(schema.workflowExecutionSteps.id, rowId),
+            eq(schema.workflowExecutionSteps.status, 'waiting_for_input'),
+          ),
+        )
+        .returning({ id: schema.workflowExecutionSteps.id });
+      if (updated.length === 0) return;
+      const outcome: StepOutcome = { status: 'failed', error: message, errorType: 'WaitExpiredError' };
+      await recordStepError(db, { workflowId, executionId, step, outcome });
+      if (rt) {
+        await rt.workflowExecutionEvent(workspaceId, executionId, STATUS_EVENT.failed, {
+          stepIndex: index + 1,
+          totalSteps,
+          stepId: step.id,
+          stepName: step.name,
+          error: message,
+        });
+      }
     },
 
     async onStepStart(step: WorkflowStep, index: number) {
