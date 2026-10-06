@@ -6,7 +6,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { usePageAgentContext } from '@/components/weldagent-wrapper';
 import { useDataEvent } from '@/lib/events/data-events';
 import { automationKeys } from '@/hooks/queries/use-automation-queries';
-import { workflowEditorKeys } from '@/hooks/use-workflow-editor-data';
+import { workflowEditorKeys, useRotateWebhookSecret, useDisableWebhookSignature } from '@/hooks/use-workflow-editor-data';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -31,6 +31,7 @@ import {
   Pencil,
   Search,
   MessageSquare,
+  MessageCircle,
   Bell,
   Building2,
   Calendar,
@@ -65,6 +66,9 @@ import {
   Plug,
   Pause,
   Play,
+  Briefcase,
+  Move,
+  Activity,
 } from 'lucide-react';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
@@ -78,6 +82,7 @@ import { WorkflowCanvas } from '@weldsuite/ui/components/workflow-canvas';
 import {
   getConditionBranchIds,
   getMissingRequiredFields,
+  isBranchingStepType,
   isStepConfigured,
 } from '@weldsuite/ui/components/workflow-canvas';
 import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepConfig } from '@weldsuite/ui/components/workflow-canvas';
@@ -89,7 +94,7 @@ import { TriggerEmptyState } from './components/trigger-empty-state';
 import { RunsPanel } from './components/runs-panel';
 import { TestRunDialog, type TestRunRequest } from './components/test-run-dialog';
 import { isValidCronExpression, nextCronRun } from './lib/cron';
-import { findUnknownVariables, getStepFormatIssues } from './lib/step-issues';
+import { findUnknownVariables, getStepFormatIssues, isInsideLoop } from './lib/step-issues';
 import { TriggerRecordFieldsProvider } from './lib/editor-field-context';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
@@ -206,6 +211,7 @@ interface WorkflowEditorClientProps {
     url: string;
     externalUrl: string | null;
     secret: string | null;
+    validateSignature: boolean;
     isEnabled: boolean;
   } | null;
   basePath?: string;
@@ -286,6 +292,14 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   create_record: { icon: Package, color: 'text-green-600', bgColor: 'bg-green-100 dark:bg-green-900/30' },
   update_record: { icon: Settings, color: 'text-yellow-600', bgColor: 'bg-yellow-100 dark:bg-yellow-900/30' },
   create_customer: { icon: Building2, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  create_contact: { icon: UserPlus, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  update_contact: { icon: UserCheck, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  create_lead: { icon: UserPlus, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  create_deal: { icon: Briefcase, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  move_deal_stage: { icon: Move, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  log_activity: { icon: Activity, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  post_chat_message: { icon: MessageCircle, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30' },
+  create_task: { icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
   assign_conversation: { icon: UserPlus, color: 'text-teal-600', bgColor: 'bg-teal-100 dark:bg-teal-900/30' },
@@ -385,7 +399,15 @@ interface SidebarActionType {
 const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'send_email', name: 'Send Email', description: 'Send an email message', icon: Mail, category: 'communication' },
   { id: 'send_notification', name: 'Send Notification', description: 'Send an in-app notification', icon: Bell, category: 'communication' },
+  { id: 'post_chat_message', name: 'Post Chat Message', description: 'Post a message to a WeldChat channel', icon: MessageCircle, category: 'communication' },
   { id: 'create_customer', name: 'Create Company', description: 'Add a company to WeldCRM', icon: Building2, category: 'data' },
+  { id: 'create_contact', name: 'Create Contact', description: 'Add a person to WeldCRM', icon: UserPlus, category: 'data' },
+  { id: 'update_contact', name: 'Update Contact', description: 'Change a person in WeldCRM', icon: UserCheck, category: 'data' },
+  { id: 'create_lead', name: 'Create Lead', description: 'Add a lead to WeldCRM', icon: UserPlus, category: 'data' },
+  { id: 'create_deal', name: 'Create Deal', description: 'Add an opportunity to WeldCRM', icon: Briefcase, category: 'data' },
+  { id: 'move_deal_stage', name: 'Move Deal Stage', description: 'Move a deal to a different pipeline stage', icon: Move, category: 'data' },
+  { id: 'log_activity', name: 'Log Activity', description: 'Log a call, email, meeting, task or note', icon: Activity, category: 'data' },
+  { id: 'create_task', name: 'Create Task', description: 'Create a project task in WeldFlow', icon: ClipboardList, category: 'data' },
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', icon: Plus, category: 'data' },
   { id: 'update_record', name: 'Update Record', description: 'Update an existing record', icon: Pencil, category: 'data' },
   { id: 'delete_record', name: 'Delete Record', description: 'Delete a record', icon: Trash2, category: 'data' },
@@ -528,6 +550,32 @@ function summarizeCreateCustomer(config: Record<string, unknown>): string {
   return typeof config.name === 'string' ? config.name : '';
 }
 
+function summarizeContact(config: Record<string, unknown>): string {
+  const name = [config.firstName, config.lastName].filter((part) => typeof part === 'string' && part).join(' ');
+  return name || (typeof config.email === 'string' ? config.email : '');
+}
+
+function summarizeCreateDeal(config: Record<string, unknown>): string {
+  return typeof config.name === 'string' ? config.name : '';
+}
+
+function summarizeMoveDealStage(config: Record<string, unknown>): string {
+  return typeof config.dealId === 'string' ? config.dealId : '';
+}
+
+function summarizeLogActivity(config: Record<string, unknown>): string {
+  return typeof config.subject === 'string' ? config.subject : '';
+}
+
+function summarizePostChatMessage(config: Record<string, unknown>): string {
+  const message = typeof config.message === 'string' ? config.message : typeof config.content === 'string' ? config.content : '';
+  return message.substring(0, 60) + (message.length > 60 ? '...' : '');
+}
+
+function summarizeTask(config: Record<string, unknown>): string {
+  return typeof config.title === 'string' ? config.title : '';
+}
+
 const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['send_email', summarizeSendEmail],
   ['http_request', summarizeHttpRequest],
@@ -537,6 +585,14 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['create_record', summarizeRecordAction],
   ['update_record', summarizeRecordAction],
   ['create_customer', summarizeCreateCustomer],
+  ['create_contact', summarizeContact],
+  ['update_contact', summarizeContact],
+  ['create_lead', summarizeContact],
+  ['create_deal', summarizeCreateDeal],
+  ['move_deal_stage', summarizeMoveDealStage],
+  ['log_activity', summarizeLogActivity],
+  ['post_chat_message', summarizePostChatMessage],
+  ['create_task', summarizeTask],
 ]);
 
 function getConfigSummary(actionType: string, config: Record<string, unknown>): string {
@@ -1569,9 +1625,41 @@ function WebhookSecretField({ webhookSecret, form }: { webhookSecret: string; fo
   );
 }
 
-function WebhookDetails({ webhookData, form }: { webhookData: WebhookData; form: TriggerFormApi }) {
+function WebhookDetails({
+  webhookData,
+  workflowId,
+  form,
+}: {
+  webhookData: WebhookData;
+  workflowId: string;
+  form: TriggerFormApi;
+}) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
+  const rotateSecret = useRotateWebhookSecret(workflowId);
+  const disableSignature = useDisableWebhookSignature(workflowId);
+  const pending = rotateSecret.isPending || disableSignature.isPending;
+  // `GET .../workflow/:id` never returns the secret (it's masked by design —
+  // see services/weldconnect-mvp.ts). The ONLY place it's ever visible is the
+  // one-time response of the rotate-secret call this toggle makes when
+  // turning signing on, so it's held here, not read off `webhookData`.
+  const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
+
+  const handleSignatureToggle = async (checked: boolean) => {
+    try {
+      if (checked) {
+        const result = await rotateSecret.mutateAsync({ webhookId: webhookData.id, enableSignature: true });
+        setRevealedSecret(result.secret);
+        toast.success(tec.toasts.signatureEnabled);
+      } else {
+        await disableSignature.mutateAsync(webhookData.id);
+        setRevealedSecret(null);
+        toast.success(tec.toasts.signatureDisabled);
+      }
+    } catch {
+      toast.error(tec.toasts.signatureUpdateFailed);
+    }
+  };
 
   return (
     <>
@@ -1601,8 +1689,17 @@ function WebhookDetails({ webhookData, form }: { webhookData: WebhookData; form:
         </p>
       </div>
 
-      {/* Webhook Secret */}
-      {webhookData.secret && <WebhookSecretField webhookSecret={webhookData.secret} form={form} />}
+      {/* Signature validation toggle — off by default; the unguessable URL is the credential. */}
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <div className="space-y-0.5">
+          <p className="text-xs font-medium">{tec.triggerPanel.webhookSignatureLabel}</p>
+          <p className="text-xs text-muted-foreground">{tec.triggerPanel.webhookSignatureHint}</p>
+        </div>
+        <Switch checked={webhookData.validateSignature} disabled={pending} onCheckedChange={handleSignatureToggle} />
+      </div>
+
+      {/* Webhook Secret — shown once, right after signing is turned on. */}
+      {revealedSecret && <WebhookSecretField webhookSecret={revealedSecret} form={form} />}
 
       {/* Status indicator */}
       <div className="p-3 bg-muted/50 rounded-lg">
@@ -1620,14 +1717,22 @@ function WebhookDetails({ webhookData, form }: { webhookData: WebhookData; form:
   );
 }
 
-function WebhookFields({ webhookData, form }: { webhookData: WebhookData | null | undefined; form: TriggerFormApi }) {
+function WebhookFields({
+  webhookData,
+  workflowId,
+  form,
+}: {
+  webhookData: WebhookData | null | undefined;
+  workflowId: string;
+  form: TriggerFormApi;
+}) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
 
   return (
     <div className="pt-3 border-t space-y-4">
       {webhookData ? (
-        <WebhookDetails webhookData={webhookData} form={form} />
+        <WebhookDetails webhookData={webhookData} workflowId={workflowId} form={form} />
       ) : (
         <div className="p-3 bg-muted/50 rounded-lg">
           <p className="text-xs text-muted-foreground">
@@ -1661,6 +1766,8 @@ interface TriggerPanelProps {
   integrationTriggers: TriggerType[];
   workflowsForChaining: Array<{ id: string; name: string; status: string }>;
   webhookData: WebhookData | null | undefined;
+  /** Needed by the webhook signature toggle (rotate-secret / disable-signing calls). */
+  workflowId: string;
   cronPresets: CronPreset[];
   oneTimeScheduleAllowed: boolean;
   form: TriggerFormApi;
@@ -1676,6 +1783,7 @@ function TriggerTypeDetails({
   integrationTriggers,
   workflowsForChaining,
   webhookData,
+  workflowId,
   cronPresets,
   oneTimeScheduleAllowed,
   form,
@@ -1709,7 +1817,7 @@ function TriggerTypeDetails({
     case 'workflow_complete':
       return <WorkflowCompleteFields form={form} workflowsForChaining={workflowsForChaining} applyTriggerData={applyTriggerData} />;
     case 'webhook':
-      return <WebhookFields webhookData={webhookData} form={form} />;
+      return <WebhookFields webhookData={webhookData} workflowId={workflowId} form={form} />;
     case 'manual':
       return <TriggerHint text={tec.triggerPanel.manualHint} />;
     case 'api':
@@ -1879,8 +1987,15 @@ interface BranchStyle {
   description: string;
 }
 
+/**
+ * Marks an add-step request as "after this condition/loop, at its level"
+ * (`<stepId>` + suffix) rather than "under this node".
+ */
+const ADD_STEP_AFTER_SUFFIX = '::after';
+
 // Branch display styling
 const BRANCH_STYLE_MAP: Record<string, BranchStyle> = {
+  each: { bg: 'bg-blue-100 dark:bg-blue-900/30', icon: Repeat, iconColor: 'text-blue-600', label: 'For each item', borderColor: 'border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900', description: 'Runs once for every item in the list' },
   if: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: 'If True', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the condition is true' },
   if_not: { bg: 'bg-gray-100 dark:bg-secondary', icon: X, iconColor: 'text-gray-500 dark:text-muted-foreground', label: 'If False', borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border', description: 'Executes when the condition is false' },
   escalated: { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: ArrowUpRight, iconColor: 'text-amber-600', label: 'Escalated', borderColor: 'border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900', description: 'Executes when the agent escalates to a human' },
@@ -1975,13 +2090,28 @@ interface BranchEditPanelProps {
 }
 
 function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: BranchEditPanelProps) {
+  const { t } = useI18n();
+  const tbp = t.weldconnect.workflowEditorClient.branchPanel;
   const parentStep = steps[branch.parentConditionStepIndex];
+  const isLoop = parentStep?.type === 'loop';
   const branchChildren = steps.filter((s) => s.parentBranchId === branch.branchNodeId);
-  const conditionExpression = parentStep?.config?.field
-    ? `${parentStep.config.field} ${parentStep.config.operator || ''} ${parentStep.config.value || ''}`
-    : (parentStep?.config?.expression as string | undefined) || '';
-  const branchStyle = getBranchStyle(branch.branchType);
+  let conditionExpression: string;
+  if (isLoop) {
+    conditionExpression = typeof parentStep?.config?.items === 'string' ? parentStep.config.items : '';
+  } else if (parentStep?.config?.field) {
+    conditionExpression = `${parentStep.config.field} ${parentStep.config.operator || ''} ${parentStep.config.value || ''}`;
+  } else {
+    conditionExpression = (parentStep?.config?.expression as string | undefined) || '';
+  }
+  const translatedBranch: Record<string, { label: string; description: string }> = {
+    if: tbp.ifTrue,
+    if_not: tbp.ifFalse,
+    each: tbp.forEachItem,
+  };
+  const baseStyle = getBranchStyle(branch.branchType);
+  const branchStyle = { ...baseStyle, ...translatedBranch[branch.branchType] };
   const BranchIcon = branchStyle.icon;
+  const ParentIcon = isLoop ? Repeat : GitBranch;
 
   return (
     <>
@@ -2000,7 +2130,9 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Br
         <div className="p-4 space-y-4">
           {/* Condition Info */}
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Parent Condition</Label>
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {isLoop ? tbp.parentLoop : tbp.parentCondition}
+            </Label>
             <Button
               variant="ghost"
               onClick={() => onSelectStep(branch.parentConditionStepIndex)}
@@ -2008,9 +2140,9 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Br
             >
               <div className="flex items-center gap-2">
                 <div className="w-6 h-6 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                  <GitBranch className="w-3.5 h-3.5 text-amber-600" />
+                  <ParentIcon className="w-3.5 h-3.5 text-amber-600" />
                 </div>
-                <span className="text-sm font-medium">{parentStep?.name || 'Condition'}</span>
+                <span className="text-sm font-medium">{parentStep?.name || (isLoop ? tbp.parentLoop : tbp.parentCondition)}</span>
               </div>
               {conditionExpression && (
                 <p className="text-xs text-muted-foreground mt-2 truncate">{conditionExpression}</p>
@@ -2020,7 +2152,7 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Br
 
           {/* Branch Description */}
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Branch</Label>
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{tbp.branch}</Label>
             <div className={cn('p-3 rounded-lg border', branchStyle.borderColor)}>
               <p className="text-sm font-medium">{branchStyle.description}</p>
             </div>
@@ -2163,6 +2295,8 @@ interface EditStepPanelProps {
   onStepChange: (step: WorkflowStepBag) => void;
   onUpdateStep: (stepId: string, data: Record<string, unknown>) => void;
   onDelete: () => void;
+  /** Set for conditions and loops: add a step at the same level, after the step and its branches. */
+  onAddStepAfter?: () => void;
   onClose: () => void;
 }
 
@@ -2180,6 +2314,7 @@ function EditStepPanel({
   onStepChange,
   onUpdateStep,
   onDelete,
+  onAddStepAfter,
   onClose,
 }: EditStepPanelProps) {
   const { t } = useI18n();
@@ -2260,7 +2395,13 @@ function EditStepPanel({
           </div>
         </div>
       </ScrollArea>
-      <div className="p-3">
+      <div className="p-3 space-y-2">
+        {onAddStepAfter && (
+          <Button variant="outline" className="w-full" onClick={onAddStepAfter}>
+            <Plus className="h-4 w-4 mr-0.5" />
+            {step.type === 'loop' ? tec.editStepPanel.addStepAfterLoop : tec.editStepPanel.addStepAfterCondition}
+          </Button>
+        )}
         <Button
           variant="outline"
           className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
@@ -3262,6 +3403,7 @@ export function WorkflowEditorClient({
         previousStepIds: workflow.steps.slice(0, Math.max(index, 0)).map((s) => s.id || ''),
         variableNames: workflowVariables.map((variable) => variable.name),
         extraRoots: extraVariableGroups?.flatMap((group) => group.variables.map((v) => v.path.split('.')[0])),
+        inLoop: isInsideLoop(step, workflow.steps),
       });
     },
     [flagUnknownVariables, workflow.steps, triggerLocked, firstTrigger?.type, recordFieldDefs, workflowVariables, extraVariableGroups],
@@ -3637,12 +3779,25 @@ export function WorkflowEditorClient({
       position: undefined, // Let flow editor auto-position
     };
 
-    // Determine which branch the new step belongs to
-    if (addStepSourceNodeId) {
+    // Determine which branch the new step belongs to, and where it goes
+    let insertAt = workflow.steps.length;
+    if (addStepSourceNodeId?.endsWith(ADD_STEP_AFTER_SUFFIX)) {
+      // "Add step after" a condition or loop: same level, right after it
+      // (steps at one level run in array order, whatever sits in between).
+      const anchorId = addStepSourceNodeId.slice(0, -ADD_STEP_AFTER_SUFFIX.length);
+      const anchorIndex = workflow.steps.findIndex((s) => s.id === anchorId);
+      if (anchorIndex >= 0) {
+        insertAt = anchorIndex + 1;
+        if (workflow.steps[anchorIndex].parentBranchId) {
+          newStep.parentBranchId = workflow.steps[anchorIndex].parentBranchId;
+        }
+      }
+    } else if (addStepSourceNodeId) {
       if (addStepSourceNodeId.includes('_branch_') ||
           addStepSourceNodeId.endsWith('_if') ||
-          addStepSourceNodeId.endsWith('_if_not')) {
-        // Adding directly from a branch node ("+" on If true / If false / multi-branch)
+          addStepSourceNodeId.endsWith('_if_not') ||
+          addStepSourceNodeId.endsWith('_each')) {
+        // Adding directly from a branch node ("+" on If true / If false / multi-branch / For each item)
         newStep.parentBranchId = addStepSourceNodeId;
       } else {
         // Adding from a step that may itself be a branch child — inherit its branch
@@ -3653,7 +3808,7 @@ export function WorkflowEditorClient({
       }
     }
 
-    const updatedSteps = [...workflow.steps, newStep];
+    const updatedSteps = [...workflow.steps.slice(0, insertAt), newStep, ...workflow.steps.slice(insertAt)];
     updatedSteps.forEach((step, i) => (step.order = i));
 
     setWorkflow({ ...workflow, steps: updatedSteps });
@@ -3691,8 +3846,8 @@ export function WorkflowEditorClient({
     const idsToDelete = new Set<string>();
     function collectDeletions(id: string, type: string, config?: unknown) {
       idsToDelete.add(id);
-      if (type === 'condition') {
-        const branchIds = getConditionBranchIds({ id, config: config as ConditionStepConfig | undefined });
+      if (isBranchingStepType(type)) {
+        const branchIds = getConditionBranchIds({ id, type, config: config as ConditionStepConfig | undefined });
         branchIds.forEach((branchId) => {
           workflow.steps.forEach((s) => {
             if (s.parentBranchId === branchId) {
@@ -3973,6 +4128,7 @@ export function WorkflowEditorClient({
           integrationTriggers={integrationTriggers}
           workflowsForChaining={workflowsForChaining}
           webhookData={webhookData}
+          workflowId={workflow.id}
           cronPresets={CRON_PRESETS}
           oneTimeScheduleAllowed={oneTimeScheduleAllowed}
           form={triggerForm}
@@ -4036,6 +4192,11 @@ export function WorkflowEditorClient({
           onStepChange={setEditingStep}
           onUpdateStep={handleUpdateStep}
           onDelete={handleDeleteEditingStep}
+          onAddStepAfter={
+            isBranchingStepType(editingStep.type)
+              ? () => handleAddStep(`${editingStep.id}${ADD_STEP_AFTER_SUFFIX}`)
+              : undefined
+          }
           onClose={() => {
             setEditingStep(null);
             setShowMobileSidebar(false);

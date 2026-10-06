@@ -98,6 +98,50 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'record', label: 'Created Record', type: 'object' },
       { path: 'record.id', label: 'Record ID', type: 'string' },
     ],
+    create_contact: [
+      { path: 'contactId', label: 'Contact ID', type: 'string' },
+      { path: 'name', label: 'Contact Name', type: 'string' },
+      { path: 'email', label: 'Contact Email', type: 'string' },
+      { path: 'created', label: 'Created', type: 'boolean' },
+    ],
+    update_contact: [
+      { path: 'contactId', label: 'Contact ID', type: 'string' },
+      { path: 'name', label: 'Contact Name', type: 'string' },
+      { path: 'email', label: 'Contact Email', type: 'string' },
+    ],
+    create_lead: [
+      { path: 'leadId', label: 'Lead ID', type: 'string' },
+      { path: 'name', label: 'Lead Name', type: 'string' },
+      { path: 'email', label: 'Lead Email', type: 'string' },
+    ],
+    create_deal: [
+      { path: 'dealId', label: 'Deal ID', type: 'string' },
+      { path: 'name', label: 'Deal Name', type: 'string' },
+      { path: 'stage', label: 'Stage', type: 'string' },
+      { path: 'status', label: 'Status', type: 'string' },
+    ],
+    move_deal_stage: [
+      { path: 'dealId', label: 'Deal ID', type: 'string' },
+      { path: 'stageId', label: 'Stage ID', type: 'string' },
+      { path: 'status', label: 'Status', type: 'string' },
+    ],
+    log_activity: [
+      { path: 'activityId', label: 'Activity ID', type: 'string' },
+      { path: 'type', label: 'Activity Type', type: 'string' },
+      { path: 'subject', label: 'Subject', type: 'string' },
+    ],
+    post_chat_message: [
+      { path: 'messageId', label: 'Message ID', type: 'string' },
+      { path: 'channelId', label: 'Channel ID', type: 'string' },
+    ],
+    create_task: [
+      { path: 'taskId', label: 'Task ID', type: 'string' },
+      { path: 'number', label: 'Task Number', type: 'number' },
+      { path: 'key', label: 'Task Key', type: 'string' },
+      { path: 'projectId', label: 'Project ID', type: 'string' },
+      { path: 'title', label: 'Task Title', type: 'string' },
+      { path: 'url', label: 'Task URL', type: 'string' },
+    ],
     create_customer: [
       { path: 'created', label: 'Created', type: 'boolean' },
       { path: 'customerId', label: 'Customer ID', type: 'string' },
@@ -114,16 +158,16 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'records', label: 'Records', type: 'array' },
       { path: 'count', label: 'Count', type: 'number' },
     ],
-    condition: [{ path: 'result', label: 'Result', type: 'boolean' }],
+    condition: [
+      { path: 'passed', label: 'Passed', type: 'boolean' },
+      { path: 'value', label: 'Checked Value', type: 'string' },
+    ],
     transform: [{ path: 'result', label: 'Transformed Data', type: 'object' }],
     set_variable: [
       { path: 'name', label: 'Variable Name', type: 'string' },
       { path: 'value', label: 'Variable Value', type: 'string' },
     ],
-    loop: [
-      { path: 'items', label: 'Loop Results', type: 'array' },
-      { path: 'count', label: 'Item Count', type: 'number' },
-    ],
+    loop: [{ path: 'count', label: 'Item Count', type: 'number' }],
     delay: [
       { path: 'delayed', label: 'Delayed', type: 'boolean' },
       { path: 'duration', label: 'Duration', type: 'string' },
@@ -132,7 +176,7 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'sent', label: 'Sent', type: 'boolean' },
       { path: 'notificationIds', label: 'Notification IDs', type: 'array' },
       { path: 'count', label: 'Notification Count', type: 'number' },
-      { path: 'message', label: 'Message', type: 'string' },
+      { path: 'skipped', label: 'Skipped Recipients', type: 'number' },
     ],
     assign_conversation: [
       { path: 'success', label: 'Success', type: 'boolean' },

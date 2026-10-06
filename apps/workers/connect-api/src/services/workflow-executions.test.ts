@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import {
+  cancelExecution,
   getExecutionTrends,
   getRecentExecutions,
   getSlowExecutions,
@@ -331,5 +332,59 @@ describe('trends', () => {
     expect(getStartDate('month', now).toISOString()).toBe('2026-09-06T12:00:00.000Z');
     expect(trendBucket('year', new Date('2026-03-17T08:00:00Z'))).toBe('2026-03-01');
     expect(trendBucket('week', new Date('2026-03-17T08:00:00Z'))).toBe('2026-03-17');
+  });
+});
+
+describe('cancelExecution', () => {
+  function fakeInstanceBinding(terminate = vi.fn(async () => undefined)) {
+    const get = vi.fn(async (_id: string) => ({ terminate }));
+    return { binding: { get } as unknown as Workflow, get, terminate };
+  }
+
+  it('flips a running run to cancelled and terminates its Cloudflare instance', async () => {
+    const wf = await seedWorkflow();
+    const id = await seedRun(wf, { status: 'running', cfWorkflowInstanceId: 'cf_run_1' });
+    const fake = fakeInstanceBinding();
+
+    const result = await cancelExecution(db, id, fake.binding);
+
+    expect(result).toEqual({ kind: 'cancelled', id, workflowId: wf, status: 'cancelled' });
+    expect(fake.get).toHaveBeenCalledWith('cf_run_1');
+    expect(fake.terminate).toHaveBeenCalledOnce();
+    const [row] = await db.select().from(schema.workflowExecutions).where(eq(schema.workflowExecutions.id, id));
+    expect(row.status).toBe('cancelled');
+    expect(row.completedAt).toBeInstanceOf(Date);
+  });
+
+  it('cancels a run waiting for input', async () => {
+    const wf = await seedWorkflow();
+    const id = await seedRun(wf, { status: 'waiting_for_input' });
+    expect((await cancelExecution(db, id)).kind).toBe('cancelled');
+  });
+
+  it('still cancels the row when terminate fails (the instance may already be gone)', async () => {
+    const wf = await seedWorkflow();
+    const id = await seedRun(wf, { status: 'queued', cfWorkflowInstanceId: 'cf_gone' });
+    const fake = fakeInstanceBinding(vi.fn(async () => { throw new Error('instance not found'); }));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    expect((await cancelExecution(db, id, fake.binding)).kind).toBe('cancelled');
+    const [row] = await db.select().from(schema.workflowExecutions).where(eq(schema.workflowExecutions.id, id));
+    expect(row.status).toBe('cancelled');
+  });
+
+  it('refuses a run that already finished and leaves it untouched', async () => {
+    const wf = await seedWorkflow();
+    const id = await seedRun(wf, { status: 'completed', cfWorkflowInstanceId: 'cf_done' });
+    const fake = fakeInstanceBinding();
+
+    expect(await cancelExecution(db, id, fake.binding)).toEqual({ kind: 'not_cancellable', status: 'completed' });
+    expect(fake.terminate).not.toHaveBeenCalled();
+    const [row] = await db.select().from(schema.workflowExecutions).where(eq(schema.workflowExecutions.id, id));
+    expect(row.status).toBe('completed');
+  });
+
+  it('returns not_found for an unknown run', async () => {
+    expect(await cancelExecution(db, 'wex_missing')).toEqual({ kind: 'not_found' });
   });
 });

@@ -59,7 +59,20 @@ function createCustomerIssues(config: Config): StepFormatIssue[] {
   return issues;
 }
 
+function contactIssues(config: Config): StepFormatIssue[] {
+  const email = literal(config.email);
+  return email && !EMAIL_PATTERN.test(email) ? [{ labelKey: 'contactEmail', kind: 'email', value: email }] : [];
+}
+
+function createLeadIssues(config: Config): StepFormatIssue[] {
+  const email = literal(config.email);
+  return email && !EMAIL_PATTERN.test(email) ? [{ labelKey: 'leadEmail', kind: 'email', value: email }] : [];
+}
+
 const FORMAT_CHECKS: Record<string, (config: Config) => StepFormatIssue[]> = {
+  create_contact: contactIssues,
+  update_contact: contactIssues,
+  create_lead: createLeadIssues,
   send_email: sendEmailIssues,
   email: sendEmailIssues,
   create_customer: createCustomerIssues,
@@ -92,6 +105,8 @@ export interface VariableScope {
    * `contact` (apps/workers/workflow-worker/src/engine/resolve-inputs.ts).
    */
   extraRoots?: readonly string[];
+  /** The step sits inside a loop body, where `{{loop.item}}` / `{{loop.index}}` resolve. */
+  inLoop?: boolean;
 }
 
 // What `buildTriggerData` (apps/workers/workflow-worker/src/engine/trigger-data.ts)
@@ -132,6 +147,8 @@ function isKnownVariable(path: string, scope: VariableScope): boolean {
       return !!rest[0] && scope.previousStepIds.includes(rest[0]);
     case 'variables':
       return scope.variableNames.includes(rest.join('.'));
+    case 'loop':
+      return !!scope.inLoop && (rest[0] === 'item' || (rest[0] === 'index' && rest.length === 1));
     default:
       return !!scope.extraRoots?.includes(root);
   }
@@ -159,4 +176,20 @@ export function findUnknownVariables(config: Config | null | undefined, scope: V
     }
   }
   return [...unknown];
+}
+
+/** Whether a step sits (at any depth) inside a loop's `<loopId>_each` body. */
+export function isInsideLoop(
+  step: { parentBranchId?: string },
+  steps: ReadonlyArray<{ id?: string; parentBranchId?: string }>,
+): boolean {
+  const seen = new Set<string>();
+  let branchId = step.parentBranchId;
+  while (branchId && !seen.has(branchId)) {
+    seen.add(branchId);
+    if (branchId.endsWith('_each')) return true;
+    const parentId = branchId.replace(/_branch_.+$/, '').replace(/_if_not$/, '').replace(/_if$/, '');
+    branchId = steps.find((s) => s.id === parentId)?.parentBranchId;
+  }
+  return false;
 }

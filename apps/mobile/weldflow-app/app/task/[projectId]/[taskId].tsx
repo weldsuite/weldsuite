@@ -32,6 +32,7 @@ import { PriorityIndicator } from '@/components/PriorityIndicator';
 import { useProjectMembers, useSubtasks, useTask, useUpdateTaskStatus } from '@/hooks/use-weldflow';
 import { formatTaskAssigneeDisplay } from '@/lib/assignee-display';
 import { statusLabel, useI18n } from '@/lib/i18n';
+import { formatTaskNumber, joinSubtitle } from '@/lib/task-number';
 import { hideAppSplash } from '@/utils/splash';
 import type { TaskStatus } from '@/types/weldflow';
 
@@ -126,14 +127,15 @@ export default function TaskDetailScreen() {
           key={child.id}
           leading={<IconTile icon={CheckSquare} color={ACCENTS.tasks} />}
           title={child.title}
-          subtitle={
+          subtitle={joinSubtitle(
+            formatTaskNumber(child.number),
             child.subtaskCount
               ? format(t.task.subtaskProgress, {
                   done: child.completedSubtaskCount ?? 0,
                   total: child.subtaskCount,
                 })
-              : undefined
-          }
+              : undefined,
+          )}
           meta={
             child.dueDate
               ? format(t.common.dueOn, { date: formatShortDate(child.dueDate) })
@@ -155,6 +157,7 @@ export default function TaskDetailScreen() {
       header={
         <ScreenHeader
           title={task.title}
+          subtitle={formatTaskNumber(task.number)}
           showBack
           actions={
             <IconButton

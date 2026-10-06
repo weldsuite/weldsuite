@@ -25,6 +25,7 @@ import { ErrorState } from '@/components/data-states';
 import { ProjectStatusBadge, TaskStatusBadge } from '@/components/status-badge';
 import { useProjects, useMyTasks } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
+import { formatTaskNumber, joinSubtitle } from '@/lib/task-number';
 import { hideAppSplash } from '@/utils/splash';
 
 /** `excludeStatus` that leaves "open" tasks, i.e. everything not finished. */
@@ -212,7 +213,7 @@ export default function HomeScreen() {
                 key={task.id}
                 leading={<IconTile icon={CheckSquare} color={ACCENTS.tasks} />}
                 title={task.title}
-                subtitle={projectName}
+                subtitle={joinSubtitle(formatTaskNumber(task.number), projectName)}
                 meta={
                   task.dueDate
                     ? format(t.common.dueOn, { date: formatShortDate(task.dueDate) })

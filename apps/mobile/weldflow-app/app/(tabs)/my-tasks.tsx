@@ -38,6 +38,7 @@ import { ProjectStatusBadge, TaskStatusBadge } from '@/components/status-badge';
 import { useInfiniteMyTasks, useInfiniteProjects } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
 import { flattenPages } from '@/lib/pagination';
+import { formatTaskNumber, joinSubtitle } from '@/lib/task-number';
 
 export default function MyTasksScreen() {
   const { colors } = useTheme();
@@ -216,7 +217,7 @@ export default function MyTasksScreen() {
             <RecordRow
               leading={<IconTile icon={CheckSquare} color={ACCENTS.tasks} />}
               title={item.title}
-              subtitle={projectName}
+              subtitle={joinSubtitle(formatTaskNumber(item.number), projectName)}
               meta={
                 item.dueDate
                   ? format(t.common.dueOn, { date: formatShortDate(item.dueDate) })

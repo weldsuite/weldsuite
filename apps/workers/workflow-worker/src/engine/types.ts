@@ -46,6 +46,8 @@ export interface WorkflowStep {
   retryPolicy?: RetryPolicy;
   continueOnError?: boolean;
   position?: { x: number; y: number };
+  /** The branch this step sits under (see step-tree.ts); absent for main-flow steps. */
+  parentBranchId?: string;
 }
 
 export interface WorkflowDefinition {
@@ -116,8 +118,20 @@ export interface WorkflowEnv {
   CF_AIG_TOKEN?: string;
 }
 
+/**
+ * Who a run belongs to. `userId` is whoever caused the run (`system` for
+ * schedules); `ownerUserId` is the workflow's owner (`workflows.created_by`),
+ * whose workspace permissions WeldSuite actions are checked against.
+ */
+export interface WorkflowTenant {
+  workspaceId: string;
+  userId: string;
+  /** Absent for runs started before owners were carried (their cached load step lacks it). */
+  ownerUserId?: string;
+}
+
 export interface ActionContext {
-  tenant: { workspaceId: string; userId: string };
+  tenant: WorkflowTenant;
   executionId: string;
   /** The workflow step's own id — used by ai_generate/ai_classify to key
    *  idempotent credit charges (`executionId:stepId:op`) so a step retry never
@@ -202,6 +216,8 @@ export interface StepOutcome {
   error?: string;
   /** Raw provider payload behind `error` (e.g. the mail service's response), if any. */
   errorDetails?: unknown;
+  /** The thrown error's class name (`NonRetryableStepError`, `TypeError`, …), if any. */
+  errorType?: string;
   /** A failed step the workflow carried on past (continueOnError): the run did not halt on it. */
   continued?: boolean;
   /** How many attempts the step took (1 = succeeded first try). */
@@ -215,7 +231,7 @@ export interface ExecutionHooks {
 }
 
 export interface WorkflowRunContext {
-  tenant: { workspaceId: string; userId: string };
+  tenant: WorkflowTenant;
   executionId: string;
   db: WorkflowDb;
   env: WorkflowEnv;

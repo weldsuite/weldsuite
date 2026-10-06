@@ -4,12 +4,19 @@
  * Turns the engine's `ExecutionHooks` callbacks into `workflow_execution_steps`
  * rows and realtime events, keeping the orchestrator itself free of I/O.
  *
+ * Replay safety: Cloudflare Workflows re-runs `run()` from the top after every
+ * sleep / waitForEvent, memoising only the `step.do` results. These hooks run
+ * outside `step.do`, so they are called again for every step that already
+ * ran. Each step row is therefore looked up by (execution, step index) before
+ * it is inserted, and a step whose row is already terminal is "replayed": no
+ * second row, no second error log, no duplicate realtime events.
+ *
  * NOTE: these write to the `task`-source tables. helpdesk-source parity
  * (helpdesk_workflow_execution_steps) is wired during integration; the table
  * set is the only thing that differs.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { schema } from '../db';
 import { generateId } from '../lib/id';
 import type { ExecutionHooks, StepOutcome, WorkflowDb, WorkflowStep } from './types';
@@ -30,6 +37,8 @@ export interface BuildHooksArgs {
   workspaceId: string;
   executionId: string;
   totalSteps: number;
+  /** Stamped on `workflow_error_logs` rows so the error dashboard can filter by workflow. */
+  workflowId?: string;
 }
 
 const STATUS_EVENT: Record<StepOutcome['status'], string> = {
@@ -68,14 +77,42 @@ export type ExecutionHooksWithProgress = ExecutionHooks & {
   markFinished(index: number): Promise<void>;
 };
 
+/** One `workflow_error_logs` row per failed step. Never throws: logging must not fail the run. */
+async function recordStepError(
+  db: WorkflowDb,
+  args: { workflowId?: string; executionId: string; step: WorkflowStep; outcome: StepOutcome },
+): Promise<void> {
+  const { workflowId, executionId, step, outcome } = args;
+  try {
+    await db.insert(schema.workflowErrorLogs).values({
+      id: generateId('wel'),
+      workflowId: workflowId ?? null,
+      executionId,
+      errorMessage: outcome.error ?? 'Unknown error',
+      errorType: outcome.errorType?.slice(0, 100) ?? null,
+      // A step the run carried on past is worth a look, not an alarm.
+      severity: outcome.continued ? 'warning' : 'error',
+      stepId: step.id.slice(0, 50),
+      stepName: step.name?.slice(0, 255) ?? null,
+      stepType: step.type.slice(0, 100),
+      input: outcome.errorDetails !== undefined ? { details: outcome.errorDetails } : null,
+      occurredAt: new Date(),
+    });
+  } catch (err) {
+    console.warn('[ExecutionHooks] could not write error log:', err);
+  }
+}
+
 export function buildExecutionHooks(args: BuildHooksArgs): ExecutionHooksWithProgress {
-  const { db, rt, workspaceId, executionId, totalSteps } = args;
+  const { db, rt, workspaceId, executionId, totalSteps, workflowId } = args;
   const stepRowIds = new Map<number, string>();
   const startedAt = new Map<number, number>();
   const stepLogs = new Map<number, StepLog[]>();
   // Steps that have finished (completed, skipped, or failed but carried on).
   // `currentStepIndex` is its size, so a failure on step N leaves N-1.
   const finished = new Set<number>();
+  // Steps whose row was already terminal when this invocation reached them.
+  const replayed = new Set<number>();
 
   async function writeProgress() {
     await db
@@ -87,10 +124,47 @@ export function buildExecutionHooks(args: BuildHooksArgs): ExecutionHooksWithPro
   return {
     async markFinished(index: number) {
       finished.add(index);
+      const rowId = stepRowIds.get(index);
+      if (rowId) {
+        // The input arrived: the waiting step is done.
+        await db
+          .update(schema.workflowExecutionSteps)
+          .set({ status: 'completed', completedAt: new Date() })
+          .where(
+            and(
+              eq(schema.workflowExecutionSteps.id, rowId),
+              eq(schema.workflowExecutionSteps.status, 'waiting_for_input'),
+            ),
+          );
+      }
       await writeProgress();
     },
 
     async onStepStart(step: WorkflowStep, index: number) {
+      const [existing] = await db
+        .select({
+          id: schema.workflowExecutionSteps.id,
+          status: schema.workflowExecutionSteps.status,
+          startedAt: schema.workflowExecutionSteps.startedAt,
+          logs: schema.workflowExecutionSteps.logs,
+        })
+        .from(schema.workflowExecutionSteps)
+        .where(
+          and(
+            eq(schema.workflowExecutionSteps.executionId, executionId),
+            eq(schema.workflowExecutionSteps.stepIndex, index + 1),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        // A replay (or a step resumed mid-retry): keep the row already written.
+        stepRowIds.set(index, existing.id);
+        startedAt.set(index, existing.startedAt?.getTime() ?? Date.now());
+        stepLogs.set(index, existing.logs ?? []);
+        if (existing.status !== 'running') replayed.add(index);
+        return;
+      }
+
       const rowId = generateId('wes');
       stepRowIds.set(index, rowId);
       startedAt.set(index, Date.now());
@@ -119,6 +193,17 @@ export function buildExecutionHooks(args: BuildHooksArgs): ExecutionHooksWithPro
     },
 
     async onStepResult(step: WorkflowStep, index: number, outcome: StepOutcome) {
+      const stepFinished =
+        outcome.status === 'completed' ||
+        outcome.status === 'skipped' ||
+        (outcome.status === 'failed' && outcome.continued === true);
+
+      if (replayed.has(index)) {
+        // Recorded by an earlier invocation; only rebuild the progress count.
+        if (stepFinished) finished.add(index);
+        return;
+      }
+
       const rowId = stepRowIds.get(index);
       const start = startedAt.get(index);
       const completedAt = new Date();
@@ -147,10 +232,10 @@ export function buildExecutionHooks(args: BuildHooksArgs): ExecutionHooksWithPro
           .where(eq(schema.workflowExecutionSteps.id, rowId));
       }
 
-      const stepFinished =
-        outcome.status === 'completed' ||
-        outcome.status === 'skipped' ||
-        (outcome.status === 'failed' && outcome.continued === true);
+      if (outcome.status === 'failed') {
+        await recordStepError(db, { workflowId, executionId, step, outcome });
+      }
+
       if (stepFinished) {
         finished.add(index);
         await writeProgress();

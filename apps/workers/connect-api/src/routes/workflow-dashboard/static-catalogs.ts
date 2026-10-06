@@ -19,6 +19,7 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'send_email', name: 'Send Email', description: 'Send an email message', category: 'communication', icon: 'mail' },
   { id: 'send_sms', name: 'Send SMS', description: 'Send an SMS message', category: 'communication', icon: 'message-square' },
   { id: 'send_notification', name: 'Send Notification', description: 'Send a push notification', category: 'communication', icon: 'bell' },
+  { id: 'post_chat_message', name: 'Post Chat Message', description: 'Post a message to a WeldChat channel', category: 'communication', icon: 'message-circle' },
   { id: 'slack_message', name: 'Slack Message', description: 'Send a message to Slack', category: 'communication', icon: 'slack' },
   // Data
   { id: 'create_record', name: 'Create Record', description: 'Create a new database record', category: 'data', icon: 'plus' },
@@ -26,6 +27,13 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'delete_record', name: 'Delete Record', description: 'Delete a record', category: 'data', icon: 'trash' },
   { id: 'query_data', name: 'Query Data', description: 'Query and filter data', category: 'data', icon: 'search' },
   { id: 'create_customer', name: 'Create Customer', description: 'Create a customer (CRM company)', category: 'data', icon: 'building' },
+  { id: 'create_contact', name: 'Create Contact', description: 'Create a CRM contact (person)', category: 'data', icon: 'user-plus' },
+  { id: 'update_contact', name: 'Update Contact', description: 'Update a CRM contact (person)', category: 'data', icon: 'user-check' },
+  { id: 'create_lead', name: 'Create Lead', description: 'Create a CRM lead', category: 'data', icon: 'user-plus' },
+  { id: 'create_deal', name: 'Create Deal', description: 'Create a CRM opportunity', category: 'data', icon: 'briefcase' },
+  { id: 'move_deal_stage', name: 'Move Deal Stage', description: 'Move a deal to a different pipeline stage', category: 'data', icon: 'move' },
+  { id: 'log_activity', name: 'Log Activity', description: 'Log a CRM activity (call, email, meeting, task, note)', category: 'data', icon: 'activity' },
+  { id: 'create_task', name: 'Create Task', description: 'Create a WeldFlow project task', category: 'data', icon: 'clipboard-list' },
   // Logic
   { id: 'condition', name: 'Condition', description: 'Branch based on conditions', category: 'logic', icon: 'git-branch' },
   { id: 'loop', name: 'Loop', description: 'Iterate over a list', category: 'logic', icon: 'repeat' },

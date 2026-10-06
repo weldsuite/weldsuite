@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeWorkflowSteps } from './execute-steps';
 import { NonRetryableStepError } from './errors';
+import { handleCondition, handleLoop } from './actions/control';
 import type {
   WorkflowDefinition,
   WorkflowStep,
@@ -389,5 +390,229 @@ describe('executeWorkflowSteps', () => {
     expect(calls.map((c) => c.type)).toEqual(['t2', 't3']);
     expect(res.output.s1).toEqual({ resumed: true });
     expect(res.status).toBe('completed');
+  });
+});
+
+// --- branches and loops (real condition / loop handlers) ---------------------
+
+describe('executeWorkflowSteps: branches and loops', () => {
+  /** Runs `condition` / `loop` through their real handlers and records every other step. */
+  function engineWith(results: Record<string, unknown> = {}) {
+    const ran: Array<{ id: string; inputs: Record<string, unknown> }> = [];
+    const executeAction: ExecuteStepsDeps['executeAction'] = async (type, inputs, ctx) => {
+      if (type === 'condition') return handleCondition(inputs, ctx);
+      if (type === 'loop') return handleLoop(inputs, ctx);
+      ran.push({ id: ctx.stepId, inputs });
+      const r = results[ctx.stepId];
+      if (typeof r === 'function') return (r as (i: Record<string, unknown>) => unknown)(inputs);
+      return r ?? { ok: true };
+    };
+    return { executeAction, ran };
+  }
+
+  function recordingHooks() {
+    const rows: Array<{ id: string; status: string; error?: string }> = [];
+    const hooks: ExecuteStepsDeps['hooks'] = {
+      onStepResult: (s, _i, outcome) => void rows.push({ id: s.id, status: outcome.status, error: outcome.error }),
+    };
+    return { rows, hooks };
+  }
+
+  const ifElse = (field: string, operator: string, value?: unknown) =>
+    step('c1', 'condition', { config: { field, operator, value } });
+
+  it('runs only the branch the condition picks, then continues the main flow', async () => {
+    const { runtime } = fakeRuntime();
+    const { executeAction, ran } = engineWith();
+    const { rows, hooks } = recordingHooks();
+
+    const res = await executeWorkflowSteps(
+      wf([
+        ifElse('{{trigger.data.status}}', 'eq', 'won'),
+        step('after', 'notify'),
+        step('yes', 'notify', { parentBranchId: 'c1_if' }),
+        step('no', 'notify', { parentBranchId: 'c1_if_not' }),
+      ]),
+      runContext({ triggerData: { data: { status: 'won' } } }),
+      { runtime, executeAction, hooks },
+    );
+
+    expect(res.status).toBe('completed');
+    expect(ran.map((r) => r.id)).toEqual(['yes', 'after']);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { id: 'c1', status: 'completed', error: undefined },
+        { id: 'no', status: 'skipped', error: undefined },
+        { id: 'yes', status: 'completed', error: undefined },
+      ]),
+    );
+  });
+
+  it('takes the If false branch, and nested branches only run when their parent does', async () => {
+    const { runtime } = fakeRuntime();
+    const { executeAction, ran } = engineWith();
+    const { rows, hooks } = recordingHooks();
+
+    await executeWorkflowSteps(
+      wf([
+        ifElse('{{trigger.amount}}', 'gt', 100),
+        step('big', 'notify', { parentBranchId: 'c1_if' }),
+        step('c2', 'condition', { parentBranchId: 'c1_if', config: { field: 'x', operator: 'eq', value: 'x' } }),
+        step('big-x', 'notify', { parentBranchId: 'c2_if' }),
+        step('small', 'notify', { parentBranchId: 'c1_if_not' }),
+      ]),
+      runContext({ triggerData: { amount: 20 } }),
+      { runtime, executeAction, hooks },
+    );
+
+    expect(ran.map((r) => r.id)).toEqual(['small']);
+    const skipped = rows.filter((r) => r.status === 'skipped').map((r) => r.id);
+    expect(skipped.sort()).toEqual(['big', 'big-x', 'c2']);
+  });
+
+  it('runs the matching value branch of a multi-branch condition', async () => {
+    const { runtime } = fakeRuntime();
+    const { executeAction, ran } = engineWith();
+
+    await executeWorkflowSteps(
+      wf([
+        step('route', 'condition', {
+          config: { field: '{{trigger.country}}', branches: [{ value: 'nl' }, { value: 'default' }] },
+        }),
+        step('dutch', 'notify', { parentBranchId: 'route_branch_nl' }),
+        step('other', 'notify', { parentBranchId: 'route_branch_default' }),
+      ]),
+      runContext({ triggerData: { country: 'nl' } }),
+      { runtime, executeAction },
+    );
+
+    expect(ran.map((r) => r.id)).toEqual(['dutch']);
+  });
+
+  it('runs a loop body once per item with loop.item / loop.index, under per-iteration durable names', async () => {
+    const { runtime, doCalls } = fakeRuntime();
+    const { executeAction, ran } = engineWith();
+    const { rows, hooks } = recordingHooks();
+
+    const res = await executeWorkflowSteps(
+      wf([
+        step('l1', 'loop', { config: { items: '{{trigger.lines}}' } }),
+        step('each', 'notify', {
+          parentBranchId: 'l1_each',
+          config: { text: '{{loop.index}}: {{loop.item.sku}}' },
+        }),
+        step('after', 'notify'),
+      ]),
+      runContext({ triggerData: { lines: [{ sku: 'A' }, { sku: 'B' }] } }),
+      { runtime, executeAction, hooks },
+    );
+
+    expect(res.status).toBe('completed');
+    expect(ran.map((r) => [r.id, r.inputs.text])).toEqual([
+      ['each', '0: A'],
+      ['each', '1: B'],
+      ['after', undefined],
+    ]);
+    expect(doCalls).toContain('step-1-each-i0-attempt-1');
+    expect(doCalls).toContain('step-1-each-i1-attempt-1');
+    // One row for the body step (all iterations), one for the loop.
+    expect(rows.filter((r) => r.id === 'each')).toEqual([{ id: 'each', status: 'completed', error: undefined }]);
+    expect(res.output.l1).toEqual({ count: 2, iterations: 2 });
+  });
+
+  it('fails the loop (and the run) when a body step fails, naming the item', async () => {
+    const { runtime } = fakeRuntime();
+    const { executeAction } = engineWith({
+      each: (inputs: Record<string, unknown>) => {
+        if (inputs.n === 2) throw new NonRetryableStepError('bad item');
+        return { ok: true };
+      },
+    });
+    const { rows, hooks } = recordingHooks();
+
+    const res = await executeWorkflowSteps(
+      wf([
+        step('l1', 'loop', { config: { items: [1, 2, 3] } }),
+        step('each', 'notify', { parentBranchId: 'l1_each', config: { n: '{{loop.item}}' } }),
+        step('after', 'notify'),
+      ]),
+      runContext(),
+      { runtime, executeAction, hooks },
+    );
+
+    expect(res.status).toBe('failed');
+    expect(res.error).toEqual({ stepId: 'l1', message: 'Item 2: bad item' });
+    expect(rows.find((r) => r.id === 'each')).toMatchObject({ status: 'failed', error: 'bad item' });
+  });
+
+  it('carries on past a failed loop when the loop step continues on error', async () => {
+    const { runtime } = fakeRuntime();
+    const { executeAction, ran } = engineWith({
+      each: () => {
+        throw new NonRetryableStepError('nope');
+      },
+    });
+
+    const res = await executeWorkflowSteps(
+      wf([
+        step('l1', 'loop', { config: { items: [1] }, continueOnError: true }),
+        step('each', 'notify', { parentBranchId: 'l1_each' }),
+        step('after', 'notify'),
+      ]),
+      runContext(),
+      { runtime, executeAction },
+    );
+
+    expect(res.status).toBe('completed');
+    expect(ran.map((r) => r.id)).toContain('after');
+  });
+
+  it('sleeps inside a loop body under per-iteration names', async () => {
+    const { runtime, sleeps } = fakeRuntime();
+    const { executeAction } = engineWith({ wait: { __delayMs: 1000 } });
+
+    await executeWorkflowSteps(
+      wf([
+        step('l1', 'loop', { config: { items: ['a', 'b'] } }),
+        step('wait', 'delay', { parentBranchId: 'l1_each' }),
+      ]),
+      runContext(),
+      { runtime, executeAction },
+    );
+
+    expect(sleeps.map((s) => s.name)).toEqual(['delay-1-i0', 'delay-1-i1']);
+  });
+
+  it('refuses a step that waits for input inside a branch', async () => {
+    const { runtime } = fakeRuntime();
+    const { executeAction } = engineWith({ ask: { __waitingForInput: true, stepType: 'collect_input' } });
+
+    const res = await executeWorkflowSteps(
+      wf([ifElse('a', 'eq', 'a'), step('ask', 'collect_input', { parentBranchId: 'c1_if' })]),
+      runContext(),
+      { runtime, executeAction },
+    );
+
+    expect(res.status).toBe('failed');
+    expect(res.error?.stepId).toBe('ask');
+  });
+
+  it('calls onComplete exactly once, also when a branch step fails', async () => {
+    const { runtime } = fakeRuntime();
+    const { executeAction } = engineWith({
+      boom: () => {
+        throw new NonRetryableStepError('x');
+      },
+    });
+    const onComplete = vi.fn();
+
+    await executeWorkflowSteps(
+      wf([ifElse('a', 'eq', 'a'), step('boom', 'notify', { parentBranchId: 'c1_if' })]),
+      runContext(),
+      { runtime, executeAction, hooks: { onComplete } },
+    );
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete.mock.calls[0][0].status).toBe('failed');
   });
 });

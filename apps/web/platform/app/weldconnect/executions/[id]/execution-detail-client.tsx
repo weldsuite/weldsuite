@@ -34,6 +34,7 @@ import {
 import { toast } from 'sonner';
 import {
   isActiveExecutionStatus,
+  isCancellableExecutionStatus,
   isWorkflowInactiveError,
   useCancelExecution,
   useRetryExecution,
@@ -478,7 +479,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
   // Primary actions
   const primaryActions: DetailAction[] = [];
 
-  if (isCurrentlyRunning) {
+  if (isCancellableExecutionStatus(liveStatus)) {
     primaryActions.push({
       label: t.weldconnect.executionDetail.cancelExecution,
       icon: Pause,

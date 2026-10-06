@@ -30,6 +30,8 @@ export {
   getActionIcon,
   getActionColor,
   getConditionBranchIds,
+  getLoopBodyBranchId,
+  isBranchingStepType,
 } from './flow-utils';
 export type {
   FlowNodeType,
@@ -59,5 +61,6 @@ export type {
   TriggerCategory,
   VariableItem,
   WorkflowCanvasLabels,
+  BranchLabels,
 } from './types';
 export { DEFAULT_CANVAS_LABELS } from './types';

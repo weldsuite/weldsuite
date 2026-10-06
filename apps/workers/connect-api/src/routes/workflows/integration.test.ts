@@ -65,9 +65,12 @@ describe('/api/workflows · pglite integration', () => {
         },
       ],
     };
+    // `webhook`/`http_request` are now in the MVP (WELDCONNECT_TRIGGER_TYPES /
+    // WELDCONNECT_ACTION_TYPES) — use trigger/action types that stay outside
+    // it to exercise the "unsupported" path.
     const unsupportedFlow = {
-      triggers: [{ id: 'trigger-1', type: 'webhook' }],
-      steps: [{ id: 'step-1', type: 'http_request', config: { url: 'https://example.test', method: 'GET' } }],
+      triggers: [{ id: 'trigger-1', type: 'manual' }],
+      steps: [{ id: 'step-1', type: 'ai_agent', config: {} }],
     };
 
     function app() {
@@ -128,7 +131,7 @@ describe('/api/workflows · pglite integration', () => {
       const addStep = await request(`/api/workflows/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ steps: [...validFlow.steps, { id: 'step-2', type: 'delay', config: { minutes: 5 } }] }),
+        body: JSON.stringify({ steps: [...validFlow.steps, { id: 'step-2', type: 'run_script', config: { code: '1' } }] }),
       });
       expect(addStep.status).toBe(400);
 

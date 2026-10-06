@@ -11,7 +11,9 @@ import { X } from 'lucide-react';
 
 import {
   MeetingRoomView,
+  MeetingToaster,
   PeopleEntityListPanel,
+  useBreakoutParticipants,
   type RecordingState,
   type ViewMode,
   type MeetingPeer,
@@ -461,8 +463,10 @@ export function GuestMeetingRoom({
   );
 
   // Out-of-browser Picture-in-Picture: focus the first remote (active-speaker
-  // proxy) or fall back to self, mirroring the platform PiP widget.
-  const pipParts = participants as Array<{ id?: string; name?: string; videoEnabled?: boolean; videoTrack?: MediaStreamTrack | null }>;
+  // proxy) or fall back to self, mirroring the platform PiP widget. While
+  // breakout rooms are open, only someone from the guest's own room qualifies.
+  const roomParticipants = useBreakoutParticipants(rtkClient, participants);
+  const pipParts = roomParticipants as Array<{ id?: string; name?: string; videoEnabled?: boolean; videoTrack?: MediaStreamTrack | null }>;
   const focusedRemote = pipParts.find((p) => p?.id && p.id !== selfId);
   const focusedP = focusedRemote ?? pipParts.find((p) => p?.id === selfId) ?? pipParts[0] ?? null;
   const pipFocused: PiPFocused = {
@@ -523,7 +527,6 @@ export function GuestMeetingRoom({
         onToggleFullscreen={toggleFullscreen}
         onPictureInPicture={openPiP}
         showHostControlsButton={false}
-        showToolsButton={false}
         selfColorSeed={colorSeed}
         peoplePanelSlot={
           <PeopleEntityListPanel
@@ -549,6 +552,8 @@ export function GuestMeetingRoom({
         <RecordingNotice onDismiss={() => setDismissedNotice(recording.notice)} />
       )}
       {pipNode}
+      {/* The meeting tools (polls, Q&A, timer, breakout rooms) notify with toasts. */}
+      <MeetingToaster position="top-center" theme="system" />
     </div>
   );
 }

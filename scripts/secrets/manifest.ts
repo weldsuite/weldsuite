@@ -352,6 +352,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // AI token for the ExecuteSequence ai_generate / ai_classify steps:
     // @weldsuite/ai uses AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the
     // one app-api has), so carry the same token app-api runs on.
+    // The dedicated AI token (Workers AI + AI Gateway Run scopes). @weldsuite/ai
+    // prefers it over CLOUDFLARE_API_TOKEN, which is a general-purpose token
+    // that is not guaranteed to carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
@@ -390,6 +394,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // AI token for accounting document OCR: @weldsuite/ai uses
     // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has),
     // so carry the same token app-api runs on.
+    // The dedicated AI token (Workers AI + AI Gateway Run scopes). @weldsuite/ai
+    // prefers it over CLOUDFLARE_API_TOKEN, which is a general-purpose token
+    // that is not guaranteed to carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
@@ -429,6 +437,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // through @weldsuite/ai; same Cloudflare token app-api and mail-api carry
     // (@weldsuite/ai falls back to CLOUDFLARE_API_TOKEN when there is no
     // AI_GATEWAY_API_TOKEN). The owner syncs the value.
+    // The dedicated AI token (Workers AI + AI Gateway Run scopes). @weldsuite/ai
+    // prefers it over CLOUDFLARE_API_TOKEN, which is a general-purpose token
+    // that is not guaranteed to carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
     // Set by hand on app-api before the split (never in this manifest); moved
     // with the module. `secrets:sync` warns when Doppler does not have one yet.
@@ -498,6 +510,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // (@weldsuite/worker-email; moved here from app-api), and the AI token
     // /api/mail-ai runs on: @weldsuite/ai uses AI_GATEWAY_API_TOKEN, else
     // CLOUDFLARE_API_TOKEN (the one app-api has), so carry the same token.
+    // The dedicated AI token (Workers AI + AI Gateway Run scopes). @weldsuite/ai
+    // prefers it over CLOUDFLARE_API_TOKEN, which is a general-purpose token
+    // that is not guaranteed to carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
@@ -531,6 +547,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // (@weldsuite/ai uses AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN — the
     // one app-api has) and the agent-runtime bearer (computer/browser tools).
     // Same values as app-api / agent-api.
+    // The dedicated AI token (Workers AI + AI Gateway Run scopes). @weldsuite/ai
+    // prefers it over CLOUDFLARE_API_TOKEN, which is a general-purpose token
+    // that is not guaranteed to carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
     "INTERNAL_API_SECRET",
     "DATABASE_URL_MASTER",
@@ -553,6 +573,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has), so
     // carry the same token. INTERNAL_API_SECRET is the bearer the
     // computer/browser tools send to the agent-runtime worker (must match it).
+    // The dedicated AI token (Workers AI + AI Gateway Run scopes). @weldsuite/ai
+    // prefers it over CLOUDFLARE_API_TOKEN, which is a general-purpose token
+    // that is not guaranteed to carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
     "INTERNAL_API_SECRET",
     "DATABASE_URL_MASTER",
@@ -592,6 +616,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // AI token for /api/workflows/generate: @weldsuite/ai uses
     // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has),
     // so carry the same token app-api runs on.
+    // The dedicated AI token (Workers AI + AI Gateway Run scopes). @weldsuite/ai
+    // prefers it over CLOUDFLARE_API_TOKEN, which is a general-purpose token
+    // that is not guaranteed to carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
     // Set by hand on app-api before the split (never in this manifest); moved
     // with the module. `secrets:sync` warns when Doppler does not have one yet.

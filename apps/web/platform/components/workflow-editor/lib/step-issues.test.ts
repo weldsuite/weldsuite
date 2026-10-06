@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findUnknownVariables, getStepFormatIssues, type VariableScope } from './step-issues';
+import { findUnknownVariables, getStepFormatIssues, isInsideLoop, type VariableScope } from './step-issues';
 
 describe('getStepFormatIssues', () => {
   it('flags a literal recipient that is not an email address', () => {
@@ -39,6 +39,13 @@ describe('getStepFormatIssues', () => {
     expect(
       getStepFormatIssues({ type: 'create_customer', config: { name: 'Acme', website: 'https://acme.com/about' } }),
     ).toEqual([]);
+  });
+
+  it('checks the email of a create_lead step', () => {
+    expect(getStepFormatIssues({ type: 'create_lead', config: { email: 'info@' } })).toEqual([
+      { labelKey: 'leadEmail', kind: 'email', value: 'info@' },
+    ]);
+    expect(getStepFormatIssues({ type: 'create_lead', config: { email: 'info@acme.com' } })).toEqual([]);
   });
 
   it('has nothing to say about other step types', () => {
@@ -99,5 +106,30 @@ describe('findUnknownVariables', () => {
     expect(findUnknownVariables({ fields: [{ value: '{{contact.firstName}}' }, { value: '{{nope.x}}' }] }, scope)).toEqual([
       'nope.x',
     ]);
+  });
+});
+
+describe('loop variables', () => {
+  const scope: VariableScope = { triggerType: 'schedule', previousStepIds: [], variableNames: [] };
+
+  it('knows {{loop.item}} and {{loop.index}} inside a loop body only', () => {
+    const config = { text: '{{loop.item.sku}} #{{loop.index}}' };
+    expect(findUnknownVariables(config, { ...scope, inLoop: true })).toEqual([]);
+    expect(findUnknownVariables(config, scope)).toEqual(['loop.item.sku', 'loop.index']);
+    expect(findUnknownVariables({ text: '{{loop.other}}' }, { ...scope, inLoop: true })).toEqual(['loop.other']);
+  });
+
+  it('finds a loop body through nested branches', () => {
+    const steps = [
+      { id: 'l1' },
+      { id: 'c1', parentBranchId: 'l1_each' },
+      { id: 'deep', parentBranchId: 'c1_if' },
+      { id: 'plain', parentBranchId: 'c2_if_not' },
+      { id: 'c2' },
+    ];
+    expect(isInsideLoop(steps[2], steps)).toBe(true);
+    expect(isInsideLoop(steps[1], steps)).toBe(true);
+    expect(isInsideLoop(steps[3], steps)).toBe(false);
+    expect(isInsideLoop(steps[0], steps)).toBe(false);
   });
 });

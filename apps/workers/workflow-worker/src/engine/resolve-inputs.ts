@@ -7,6 +7,7 @@
  *   - {{trigger.field.path}}      — trigger data
  *   - {{variables.name}}          — a workflow/global variable
  *   - {{contact.field}}           — contact/customer context
+ *   - {{loop.item}} / {{loop.index}} — the current item inside a loop body
  *
  * A value that is a single whole expression preserves the resolved value's
  * original type; an expression embedded in surrounding text coerces to string;
@@ -18,8 +19,15 @@
  * markup is left intact.
  */
 
+export interface LoopScope {
+  item: unknown;
+  index: number;
+}
+
 export interface ResolveInputsOptions {
   escapeHtmlKeys?: readonly string[];
+  /** Set inside a loop body: what `{{loop.item}}` / `{{loop.index}}` resolve to. */
+  loop?: LoopScope;
 }
 
 /** Escape text for safe inclusion in HTML (email bodies). */
@@ -39,6 +47,7 @@ interface TemplateScope {
   triggerData: unknown;
   variables: Record<string, unknown>;
   contactData: Record<string, unknown>;
+  loop?: LoopScope;
 }
 
 /** Walk a dotted property path (already split) through a value, tolerating gaps. */
@@ -55,6 +64,11 @@ function lookupTemplatePath(path: string, scope: TemplateScope): unknown {
   if (path.startsWith('trigger.')) return getPath(scope.triggerData, path.slice(8).split('.'));
   if (path.startsWith('variables.')) return scope.variables[path.slice(10)];
   if (path.startsWith('contact.')) return scope.contactData[path.slice(8)];
+  if (path.startsWith('loop.') && scope.loop) {
+    const [, prop, ...rest] = path.split('.');
+    if (prop === 'index') return scope.loop.index;
+    if (prop === 'item') return getPath(scope.loop.item, rest);
+  }
   return undefined;
 }
 
@@ -102,7 +116,14 @@ function resolveStringInput(
 /** Recurse into nested objects and arrays (no per-key escaping options). */
 function resolveNestedInput(value: unknown, scope: TemplateScope): unknown {
   const recurse = (obj: Record<string, unknown>) =>
-    resolveInputs(obj, scope.previousResults, scope.triggerData, scope.variables, scope.contactData);
+    resolveInputs(
+      obj,
+      scope.previousResults,
+      scope.triggerData,
+      scope.variables,
+      scope.contactData,
+      scope.loop ? { loop: scope.loop } : undefined,
+    );
   if (Array.isArray(value)) {
     return value.map((item) =>
       typeof item === 'object' && item !== null ? recurse(item as Record<string, unknown>) : item,
@@ -120,7 +141,7 @@ export function resolveInputs(
   contactData: Record<string, unknown>,
   options?: ResolveInputsOptions,
 ): Record<string, unknown> {
-  const scope: TemplateScope = { previousResults, triggerData, variables, contactData };
+  const scope: TemplateScope = { previousResults, triggerData, variables, contactData, loop: options?.loop };
   const resolved: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(inputs)) {

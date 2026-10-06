@@ -7,6 +7,9 @@ import { MeetingHeader } from './meeting-header';
 import { MeetingRightPanel, type RightPanelKind } from './meeting-right-panel';
 import { ShareLinkCard } from './share-link-card';
 import { AdmitGuestsPill } from './admit-guests-pill';
+import { StageIndicators } from './tools/stage-indicators';
+import { filterBreakoutParticipants } from '../tools/tools-store';
+import { useMeetingToolsController } from '../tools/use-meeting-tools-controller';
 import type { MeetingRoomViewProps, ViewMode } from '../types';
 import type { MeetingPeer } from '../types';
 
@@ -626,6 +629,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     showPeopleButton = true,
     showHostControlsButton = true,
     showToolsButton = true,
+    toolsLabels,
     peoplePanelSlot,
     hostControlsSlot,
     addPeopleDialogContent,
@@ -642,7 +646,6 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     onTogglePin: onTogglePinProp,
   } = props;
 
-  const showCaptions = !!hostControls?.enableCaptions && (captions?.length ?? 0) > 0;
   const isMobile = useIsMobile();
 
   const gate = resolveGates(hostControls, isOrganizer);
@@ -725,6 +728,29 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     };
   }, [meeting]);
 
+  // Timer, polls, Q&A, breakout rooms, transcript, translation, live stream.
+  const openToolsPanel = useCallback(() => {
+    setShowChat(false);
+    setRightPanel('tools');
+    // One panel at a time: ask the host app to close its own (e.g. WeldAgent).
+    if (externalPanelOpen) onActivatePanel?.();
+  }, [externalPanelOpen, onActivatePanel]);
+  const tools = useMeetingToolsController({
+    // A host app that hides the tools button (WeldChat calls) has no tools:
+    // nothing is synced, and nobody in such a call could start one anyway.
+    meeting: showToolsButton ? meeting : null,
+    participants,
+    isOrganizer,
+    meetingTitle,
+    labels: toolsLabels,
+    captions,
+    panelOpen: rightPanel === 'tools',
+    onOpenPanel: openToolsPanel,
+  });
+  const captionLines = tools?.captions ?? captions ?? [];
+  const showCaptions =
+    (!!hostControls?.enableCaptions || !!tools?.wantsCaptions) && captionLines.length > 0;
+
   const toggleRightPanel = useCallback((panel: 'info' | 'people' | 'settings' | 'tools') => {
     const isSwitching = showChat || externalPanelOpen;
     if (isSwitching) setSkipTransition(true);
@@ -739,7 +765,10 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     else setInternalPinnedId(prev => prev === id ? null : id);
   }, [onTogglePinProp]);
 
-  const allParticipants = participants.map((p, i) => ({ p, isSelf: i === 0 }));
+  // While breakout rooms are open the stage only holds the people in the
+  // local participant's room; a tile that is not rendered is not heard either.
+  const stageParticipants = tools ? filterBreakoutParticipants(tools.state.breakout, participants) : participants;
+  const allParticipants = stageParticipants.map((p, i) => ({ p, isSelf: i === 0 }));
 
   // Derive screen-share pseudo-tiles from any participant (self or remote)
   // that currently has an active screen-share track.  RTK exposes
@@ -835,7 +864,9 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
 
           {meeting && <AdmitGuestsPill meeting={meeting} />}
 
-          {showCaptions && captions && <CaptionsOverlay captions={captions} />}
+          {tools && <StageIndicators tools={tools} />}
+
+          {showCaptions && <CaptionsOverlay captions={captionLines} />}
         </div>
 
         <CallControlsBar
@@ -895,6 +926,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
         recordingStartElapsedSeconds={recordingStartElapsedSeconds}
         recordingLabels={recordingLabels}
         recordingAvailable={isOrganizer}
+        tools={tools}
       />
 
       {chatPanelSlot?.({ isOpen: showChat, onClose: () => setShowChat(false), onOpen: () => setShowChat(true), notificationHost, skipTransition })}

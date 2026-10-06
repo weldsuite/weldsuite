@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 
-const matchAndDispatchWorkflowTriggers = vi.fn(async () => undefined);
-const getTenantDbForWorkspace = vi.fn(async () => ({ mocked: true }));
+const matchAndDispatchWorkflowTriggers = vi.fn(async (..._args: unknown[]) => undefined);
+const getTenantDbForWorkspace = vi.fn(async (..._args: unknown[]) => ({ mocked: true }));
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(

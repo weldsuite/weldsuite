@@ -14,11 +14,11 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { createSchedule } from '../../services/workflow-schedules';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.workflowTriggers;
 const wf = schema.workflows;
-const ws = schema.workflowSchedules;
 
 const triggerCategory = z.enum(['schedule', 'entity_event', 'webhook', 'manual', 'api']);
 
@@ -197,11 +197,7 @@ app.post(
       if (!(await verifyWorkflow(db, data.workflowId))) return error.notFound(c, 'Workflow', data.workflowId);
 
       const triggerId = generateId('trg');
-      const scheduleId = generateId('sched');
       const now = new Date();
-
-      // TODO: route schedule creation through workflow-schedules service so
-      // D1 index sync and nextRunAt calculation stay consistent with POST /api/workflow-schedules.
 
       await db.insert(t).values({
         id: triggerId,
@@ -218,19 +214,23 @@ app.post(
         createdAt: now,
         updatedAt: now,
       });
-      await db.insert(ws).values({
-        id: scheduleId,
-        workflowId: data.workflowId,
-        triggerId,
-        name: data.name || 'Schedule',
-        cronExpression: data.cronExpression,
-        timezone: data.timezone || 'UTC',
-        startDate: data.startDate ? new Date(data.startDate) : undefined,
-        endDate: data.endDate ? new Date(data.endDate) : undefined,
-        isEnabled: true,
-        createdAt: now,
-        updatedAt: now,
-      });
+      // Through the schedules service, so the D1 schedule index the sweep reads stays in sync.
+      const created = await createSchedule(
+        db,
+        {
+          workflowId: data.workflowId,
+          triggerId,
+          name: data.name || 'Schedule',
+          cronExpression: data.cronExpression,
+          timezone: data.timezone || 'UTC',
+          startDate: data.startDate,
+          endDate: data.endDate,
+        },
+        c.get('userId'),
+        { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') },
+      );
+      if ('error' in created) return error.notFound(c, 'Workflow', data.workflowId);
+      const scheduleId = created.id;
 
       const [trigger] = await db.select().from(t).where(eq(t.id, triggerId)).limit(1);
       publishEntityEvent({

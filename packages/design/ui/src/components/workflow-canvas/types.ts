@@ -84,6 +84,22 @@ export interface WorkflowCanvasLabels {
   setupRequired?: string;
   /** Text (and accessible name) of the add-step control under the last node. */
   addStep?: string;
+  /** Labels of the branch nodes under a condition or a loop. */
+  branchLabels?: BranchLabels;
+}
+
+/** Labels of the branch nodes the canvas draws under a condition or a loop. */
+export interface BranchLabels {
+  /** "If true" branch of a condition. */
+  ifTrue?: string;
+  /** "If false" branch of a condition. */
+  ifFalse?: string;
+  /** Subtitle of the "If true" branch when the condition has no summary. */
+  conditionMet?: string;
+  /** Subtitle of the "If false" branch. */
+  conditionNotMet?: string;
+  /** The body branch of a loop. */
+  forEachItem?: string;
 }
 
 export const DEFAULT_CANVAS_LABELS: Required<WorkflowCanvasLabels> = {
@@ -110,10 +126,18 @@ export const DEFAULT_CANVAS_LABELS: Required<WorkflowCanvasLabels> = {
     transform_data: 'Transform Data',
     create_record: 'Create Record',
     create_customer: 'Create Company',
+    create_contact: 'Create Contact',
+    update_contact: 'Update Contact',
+    create_lead: 'Create Lead',
+    create_deal: 'Create Deal',
+    move_deal_stage: 'Move Deal Stage',
+    log_activity: 'Log Activity',
+    create_task: 'Create Task',
     update_record: 'Update Record',
     delete_record: 'Delete Record',
     query_data: 'Query Data',
     send_notification: 'Send Notification',
+    post_chat_message: 'Post Chat Message',
     run_script: 'Run Script',
     ai_generate: 'AI Generate',
     ai_extract: 'AI Extract',
@@ -127,4 +151,11 @@ export const DEFAULT_CANVAS_LABELS: Required<WorkflowCanvasLabels> = {
   subAgentNodeAgentLabel: 'Agent',
   setupRequired: 'Setup required',
   addStep: 'Add step',
+  branchLabels: {
+    ifTrue: 'If true',
+    ifFalse: 'If false',
+    conditionMet: 'Condition met',
+    conditionNotMet: 'Condition not met',
+    forEachItem: 'For each item',
+  },
 };

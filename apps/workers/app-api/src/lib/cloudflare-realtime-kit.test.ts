@@ -164,7 +164,7 @@ describe('participants', () => {
     expect(calls[0]!.url).toContain('/realtime/kit/app_1/meetings/m1/participants');
     expect(calls[0]!.body).toEqual({
       name: 'Gert',
-      preset_name: 'group_call_host_v2',
+      preset_name: 'group_call_host_v3',
       custom_participant_id: 'user_42',
     });
     expect(participant).toEqual({
@@ -242,12 +242,17 @@ describe('presets', () => {
       return found;
     };
 
-    // Hosts skip the waiting room and can record; guests wait.
+    // Hosts skip the waiting room, can record and can live stream; guests wait.
     expect(preset(RTK_PRESETS.HOST).permissions).toMatchObject({
       waiting_room_type: 'SKIP',
       accept_waiting_requests: true,
       can_record: true,
+      can_livestream: true,
     });
+    // Live streaming is the host's call only.
+    for (const name of [RTK_PRESETS.MEMBER, RTK_PRESETS.GUEST, RTK_PRESETS.GUEST_WAITING]) {
+      expect(preset(name).permissions.can_livestream).toBe(false);
+    }
     expect(preset(RTK_PRESETS.GUEST).permissions.waiting_room_type).toBe(
       'ON_PRIVILEGED_USER_ENTRY',
     );
@@ -266,6 +271,39 @@ describe('presets', () => {
     // body outright otherwise.
     expect(preset(RTK_PRESETS.HOST)).toHaveProperty('ui.design_tokens.colors.brand.500');
     expect(preset(RTK_PRESETS.HOST).config.view_type).toBe('GROUP_CALL');
+  });
+
+  it('seeds the host preset without live streaming when RealtimeKit rejects it', async () => {
+    const puts: string[] = [];
+    const { env, calls } = withResponses([
+      // List: only the host preset is missing.
+      {
+        body: {
+          success: true,
+          data: [{ name: RTK_PRESETS.MEMBER }, { name: RTK_PRESETS.GUEST }, { name: RTK_PRESETS.GUEST_WAITING }],
+          paging: {},
+        },
+      },
+      { status: 400, body: { success: false, errors: [{ code: 1, message: 'livestream is not enabled' }] } },
+      { body: ok({ id: 'preset_host' }) },
+    ]);
+    env.WORKSPACE_CACHE = {
+      get: async () => null,
+      put: async (key: string) => {
+        puts.push(key);
+      },
+    };
+
+    await seedPresets(env);
+
+    // A host who cannot join is worse than a host who cannot stream.
+    type HostBody = { name: string; permissions: { can_livestream: boolean } };
+    const creates = calls.slice(1).map((c) => body<HostBody>(c));
+    expect(creates.map((c) => [c.name, c.permissions.can_livestream])).toEqual([
+      [RTK_PRESETS.HOST, true],
+      [RTK_PRESETS.HOST, false],
+    ]);
+    expect(puts).toHaveLength(1);
   });
 
   it('does not write the seeded marker when a create fails', async () => {

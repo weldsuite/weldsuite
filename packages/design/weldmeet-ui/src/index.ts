@@ -39,6 +39,18 @@ export { MeetingHeader } from './components/meeting-header';
 export { MeetingRightPanel, type RightPanelKind } from './components/meeting-right-panel';
 export { MeetingToolsPanel, type MeetingToolsPanelProps } from './components/meeting-tools-panel';
 export { ShareLinkCard } from './components/share-link-card';
+
+// Meeting tools (timer, polls, Q&A, breakout rooms, transcript, translation, live stream)
+export { DEFAULT_MEETING_TOOLS_LABELS, type MeetingToolsLabels } from './tools/labels';
+export {
+  useMeetingToolsController,
+  type MeetingToolKey,
+  type MeetingToolsController,
+} from './tools/use-meeting-tools-controller';
+export { useBreakoutParticipants } from './tools/use-meeting-tools';
+// The tools announce a new poll, a question, a finished timer or a room change
+// with a toast. Host apps without a toaster of their own mount this one.
+export { Toaster as MeetingToaster } from 'sonner';
 export { InvitePopover, type InvitePopoverProps } from './components/invite-popover';
 export {
   PreviewView,

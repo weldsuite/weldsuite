@@ -235,6 +235,11 @@ export function isActiveExecutionStatus(status: string | null | undefined): bool
   return status === 'queued' || status === 'running' || status === 'pending';
 }
 
+/** A run that can still be cancelled: an active one, or one waiting for input. */
+export function isCancellableExecutionStatus(status: string | null | undefined): boolean {
+  return isActiveExecutionStatus(status) || status === 'waiting_for_input';
+}
+
 export interface ExecutionListFilters {
   status?: string;
   workflowId?: string;
@@ -579,6 +584,14 @@ export function useUpdateWorkflow(apiBasePath: string = WELDCONNECT_API.workflow
       } else {
         qc.invalidateQueries({ queryKey: automationKeys.workflows() });
         qc.invalidateQueries({ queryKey: automationKeys.workflow(variables.id) });
+        if (variables.data.triggers !== undefined) {
+          // Saving triggers may have just provisioned (or retired) a webhook
+          // row (services/workflow-webhook-sync.ts on connect-api) — refetch
+          // so its URL appears without a manual reload. Inlined key (not
+          // imported from use-workflow-editor-data.ts, which imports
+          // WELDCONNECT_API from this file) to avoid a circular import.
+          qc.invalidateQueries({ queryKey: ['workflow-editor', 'workflow-webhook', variables.id] });
+        }
       }
       refreshEditorWorkflow(qc, variables.id, variables.data);
     },

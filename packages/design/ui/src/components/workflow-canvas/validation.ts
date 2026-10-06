@@ -60,6 +60,10 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     { labelKey: 'title', isMissing: (c) => isBlank(c.title) },
     { labelKey: 'recipient', isMissing: (c) => isEmptyArray(c.userIds) },
   ],
+  post_chat_message: [
+    { labelKey: 'chatChannel', isMissing: (c) => isBlank(c.channelId) },
+    { labelKey: 'chatMessage', isMissing: (c) => isBlank(c.message) && isBlank(c.content) },
+  ],
 
   // --- Integration ---------------------------------------------------------
   http_request: [
@@ -69,6 +73,27 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
 
   // --- Data ----------------------------------------------------------------
   create_customer: [{ labelKey: 'customerName', isMissing: (c) => isBlank(c.name) }],
+  create_contact: [
+    {
+      labelKey: 'contactNameOrEmail',
+      isMissing: (c) => isBlank(c.firstName) && isBlank(c.lastName) && isBlank(c.email),
+    },
+  ],
+  update_contact: [{ labelKey: 'contactToUpdate', isMissing: (c) => isBlank(c.contactId) }],
+  create_lead: [{ labelKey: 'leadEmail', isMissing: (c) => isBlank(c.email) }],
+  create_deal: [
+    { labelKey: 'dealName', isMissing: (c) => isBlank(c.name) },
+    { labelKey: 'dealCustomer', isMissing: (c) => isBlank(c.customerId) },
+  ],
+  move_deal_stage: [
+    { labelKey: 'dealToMove', isMissing: (c) => isBlank(c.dealId) },
+    { labelKey: 'dealStage', isMissing: (c) => isBlank(c.stageId) },
+  ],
+  log_activity: [{ labelKey: 'activitySubject', isMissing: (c) => isBlank(c.subject) }],
+  create_task: [
+    { labelKey: 'taskProject', isMissing: (c) => isBlank(c.projectId) },
+    { labelKey: 'title', isMissing: (c) => isBlank(c.title) },
+  ],
   create_record: [
     { labelKey: 'entityType', isMissing: (c) => isBlank(c.entityType) && isBlank(c.entity) },
     { labelKey: 'fields', isMissing: (c) => isEmptyObject(c.data) },

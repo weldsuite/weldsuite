@@ -53,17 +53,15 @@ describe('action registry', () => {
     }
   });
 
-  it('returns a passthrough result for an unknown action type', async () => {
-    const res = (await executeAction('totally_unknown', { a: 1 }, makeActionContext())) as Record<
-      string,
-      unknown
-    >;
-    expect(res).toEqual({ executed: true, type: 'totally_unknown', inputs: { a: 1 } });
+  it('fails an unknown action type with a non-retryable error', async () => {
+    await expect(executeAction('totally_unknown', { a: 1 }, makeActionContext())).rejects.toMatchObject({
+      name: 'NonRetryableStepError',
+      message: 'Step type "totally_unknown" is not supported by the workflow engine',
+    });
   });
 
   it('dispatches to the registered handler for a known type', async () => {
-    // A known type routes to its handler (the log handler), NOT the unknown
-    // passthrough branch.
+    // A known type routes to its handler (the log handler).
     const res = (await executeAction('log', { message: 'hi' }, makeActionContext())) as Record<
       string,
       unknown
