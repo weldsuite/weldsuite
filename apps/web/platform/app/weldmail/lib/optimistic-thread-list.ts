@@ -15,14 +15,18 @@ export function folderHidesOnArchive(folder: string): boolean {
   return folder.toLowerCase() === 'inbox';
 }
 
-/** Stable identity for the paginated threads query currently on screen. */
+/**
+ * Stable identity for the thread list currently on screen.
+ * Infinite scroll uses one continuous list per folder, so page is not part of the key.
+ */
 export function mailThreadListKey(parts: {
   accountId: string;
   folder: string;
-  page: number;
-  pageSize: number;
+  pageSize?: number;
+  /** @deprecated Ignored; kept so older call sites still type-check. */
+  page?: number;
 }): string {
-  return `${parts.accountId}:${parts.folder}:${parts.page}:${parts.pageSize}`;
+  return `${parts.accountId}:${parts.folder}:${parts.pageSize ?? 25}`;
 }
 
 export function findThreadIdToHide(

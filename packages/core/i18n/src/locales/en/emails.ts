@@ -20,6 +20,7 @@ export const emails = {
       reschedule: 'Rescheduled: {title}',
       cancel: 'Cancelled: {title}',
       removed: 'You were removed from: {title}',
+      restored: 'Back on: {title}',
     },
     preview: {
       invite: '{organizer} invited you to {title}',
@@ -27,6 +28,7 @@ export const emails = {
       reschedule: '{organizer} moved {title} to a new time',
       cancel: '{organizer} cancelled {title}',
       removed: '{organizer} removed you from {title}',
+      restored: '{organizer} put {title} back on',
     },
     intro: {
       invite: '{organizer} invited you to an event.',
@@ -34,6 +36,7 @@ export const emails = {
       reschedule: '{organizer} moved an event to a new time.',
       cancel: '{organizer} cancelled an event.',
       removed: '{organizer} removed you from an event.',
+      restored: '{organizer} put a cancelled event back on.',
     },
     when: 'When',
     where: 'Where',

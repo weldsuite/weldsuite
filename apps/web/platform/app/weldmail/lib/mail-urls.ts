@@ -1,8 +1,9 @@
 /**
  * Helpers for WeldMail list / message URLs.
  *
- * The label layouts read `page` from the query string to fetch the thread list.
- * Opening a message must keep that param, otherwise the list jumps back to page 1.
+ * The thread list uses infinite scroll, so `page` is no longer required for
+ * browsing. `accountId` is still kept on unified message deep-links so the
+ * detail pane opens the right mailbox.
  */
 
 export function buildMailSearch(params: {

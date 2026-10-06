@@ -9,6 +9,9 @@
  *
  * Only meetings that are still `scheduled` are touched. A meeting that is
  * running or finished is history and an edit to its event must not rewrite it.
+ * The one exception: when a cancelled event is put back on, its cancelled
+ * meetings are set back to `scheduled` (TASK-935), so the join link the event
+ * still shows works again.
  *
  * Pure functions, no Hono context. Event access is the caller's concern
  * (same as `pinRescheduledSource`): anyone who may edit the event may sync
@@ -31,7 +34,7 @@ export interface MeetingSyncResult {
   /** ISO start of the meeting after the change, or null when unscheduled. */
   startAt: string | null;
   hostId: string;
-  /** Status before the change; differs from `status` only when it was cancelled. */
+  /** Status before the change; differs from `status` only when it was cancelled or restored. */
   oldStatus: string;
 }
 
@@ -184,6 +187,39 @@ export async function cancelMeetingsForEvent(
 }
 
 /**
+ * Put the cancelled meetings of an event back to `scheduled`, for an event
+ * that is on again. Only a meeting whose join link the event still carries
+ * comes back: one the event was unlinked from stays cancelled. Returns the ids
+ * of the meetings it restored.
+ */
+export async function restoreMeetingsForEvent(
+  db: Database,
+  event: Pick<CalendarEventRow, 'id' | 'meetingUrl'>,
+): Promise<string[]> {
+  const { meetings } = schema;
+  const rows = await db
+    .select()
+    .from(meetings)
+    .where(
+      and(
+        eq(meetings.calendarEventId, event.id),
+        isNull(meetings.deletedAt),
+        eq(meetings.status, 'cancelled'),
+      ),
+    );
+  const restored: string[] = [];
+  for (const row of rows) {
+    if (lostMeetingLink(row, event.meetingUrl)) continue;
+    await db
+      .update(meetings)
+      .set({ status: 'scheduled', updatedAt: new Date() })
+      .where(and(eq(meetings.id, row.id), eq(meetings.status, 'cancelled')));
+    restored.push(row.id);
+  }
+  return restored;
+}
+
+/**
  * Bring the meetings linked to an event in line with the event's new state.
  * `before` is the event as it was prior to the edit (for the attendee diff),
  * `after` the re-read row. Returns only the meetings that actually changed.
@@ -194,10 +230,18 @@ export async function syncMeetingsFromEvent(
 ): Promise<MeetingSyncResult[]> {
   const { before, after } = params;
   const { meetings } = schema;
+
+  // A cancelled event that is on again gets its meetings back first, so the
+  // pass below also brings them up to date with edits made while it was off.
+  const uncancelled =
+    before.status === 'cancelled' && after.status !== 'cancelled' && !after.deletedAt;
+  const restored = new Set(uncancelled ? await restoreMeetingsForEvent(db, after) : []);
+
   const rows = await scheduledMeetingsForEvent(db, after.id);
   const out: MeetingSyncResult[] = [];
 
   for (const row of rows) {
+    const oldStatus = restored.has(row.id) ? 'cancelled' : row.status;
     if (after.deletedAt || after.status === 'cancelled' || lostMeetingLink(row, after.meetingUrl)) {
       out.push(await cancelMeeting(db, row));
       continue;
@@ -211,19 +255,22 @@ export async function syncMeetingsFromEvent(
     const diff = applyEventAttendeeChange(row.attendees ?? [], before.attendees, after.attendees);
     if (diff.changed) update.attendees = diff.attendees;
 
-    if (Object.keys(update).length === 0) continue;
+    const changed = Object.keys(update).length > 0;
+    if (!changed && !restored.has(row.id)) continue;
 
-    await db
-      .update(meetings)
-      .set({ ...update, updatedAt: new Date() })
-      .where(and(eq(meetings.id, row.id), eq(meetings.status, 'scheduled')));
+    if (changed) {
+      await db
+        .update(meetings)
+        .set({ ...update, updatedAt: new Date() })
+        .where(and(eq(meetings.id, row.id), eq(meetings.status, 'scheduled')));
+    }
     out.push({
       id: row.id,
       title: update.title ?? row.title,
       status: row.status,
       startAt: iso(update.scheduledStart !== undefined ? update.scheduledStart : row.scheduledStart),
       hostId: row.organizerId,
-      oldStatus: row.status,
+      oldStatus,
     });
   }
 

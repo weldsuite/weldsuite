@@ -1368,6 +1368,8 @@ export const sweep = {
     "createNewAttribute": "Create new attribute",
     "createNoteFailed": "Failed to create note",
     "createPersonFailed": "Failed to create person",
+    "createPersonFromSearch": "Add \"{name}\" as a new person",
+    "personCreatedNeedsEmail": "Person created. Add an email address to use them here.",
     "createSubtaskFailed": "Failed to create subtask",
     "customAttributesHeading": "Custom attributes",
     "customFieldsHeading": "Custom Fields",

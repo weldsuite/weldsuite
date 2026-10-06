@@ -401,7 +401,7 @@ export function PipelineKanban({
 
     const colors = ['#f43f5e', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ec4899', '#f97316', '#06b6d4', '#10b981', '#6366f1'];
 
-    // Instant big burst â€” wall of confetti raining down from the entire top
+    // Instant big burst — wall of confetti raining down from the entire top
     // angle: 270 = downward (0=right, 90=up, 180=left, 270=down)
     for (let x = 0; x <= 1; x += 0.07) {
       confetti({

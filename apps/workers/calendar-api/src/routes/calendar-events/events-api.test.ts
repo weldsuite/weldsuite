@@ -488,6 +488,77 @@ describe('cancel mail', () => {
   });
 });
 
+// ── TASK-935: cancelling / un-cancelling through the status field ──────────
+
+describe('status change mail', () => {
+  it('PATCH ?sendNotification=true to cancelled sends the cancellation', async () => {
+    const userId = `user_status_cancel_${next()}`;
+    const { id } = await createEvent(userId, {
+      meetingUrl: MEETING_URL,
+      attendees: [{ email: 'guest@example.com' }],
+    });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    sent.length = 0;
+
+    const res = await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'cancelled' });
+    expect(res.status).toBe(200);
+    expect((await eventRow(id)).status).toBe('cancelled');
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].to).toEqual(['guest@example.com']);
+    expect(sent[0].subject).toBe('Cancelled: Planning');
+    expect(sent[0].html).not.toContain(MEETING_URL);
+    expect(sent[0].attachments[0].content).toContain('METHOD:CANCEL');
+  });
+
+  it('PATCH to cancelled without sendNotification mails nobody', async () => {
+    const userId = `user_status_quiet_${next()}`;
+    const { id } = await createEvent(userId, { attendees: [{ email: 'guest@example.com' }] });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    sent.length = 0;
+
+    expect((await send(userId, 'PATCH', `/${id}`, { status: 'cancelled' })).status).toBe(200);
+    expect((await eventRow(id)).status).toBe('cancelled');
+    expect(await settle()).toHaveLength(0);
+  });
+
+  it('PATCH ?sendNotification=true off cancelled tells guests the event is on again', async () => {
+    const userId = `user_status_restore_${next()}`;
+    const { id } = await createEvent(userId, {
+      meetingUrl: MEETING_URL,
+      timezone: 'Europe/Amsterdam',
+      attendees: [{ email: 'guest@example.com' }],
+    });
+    await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'cancelled' });
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    const cancelSequence = Number(/SEQUENCE:(\d+)/.exec(sent[1].attachments[0].content)?.[1]);
+    sent.length = 0;
+
+    const res = await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'confirmed' });
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].to).toEqual(['guest@example.com']);
+    expect(sent[0].subject).toBe('Back on: Planning');
+    // The join link is back, and the .ics re-adds the event: a REQUEST that
+    // supersedes the cancellation.
+    expect(sent[0].html).toContain(`href="${MEETING_URL}"`);
+    expect(sent[0].html).toContain('11:00 AM – 12:00 PM GMT+1');
+    const ics = sent[0].attachments[0].content;
+    expect(ics).toContain('METHOD:REQUEST');
+    expect(Number(/SEQUENCE:(\d+)/.exec(ics)?.[1])).toBeGreaterThanOrEqual(cancelSequence);
+  });
+
+  it('confirmed <-> tentative is not a cancellation and mails nobody', async () => {
+    const userId = `user_status_tentative_${next()}`;
+    const { id } = await createEvent(userId, { attendees: [{ email: 'guest@example.com' }] });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    sent.length = 0;
+
+    await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'tentative' });
+    await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'confirmed' });
+    expect(await settle()).toHaveLength(0);
+  });
+});
+
 describe('GET / search', () => {
   it('matches title, description and location case-insensitively, tenant-scoped, without a date range', async () => {
     const userId = `user_search_${next()}`;

@@ -55,5 +55,8 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './'),
     },
+    // Same list as vite.config.ts, so tests resolve singletons the way the
+    // bundle does.
+    dedupe: ['sonner'],
   },
 });

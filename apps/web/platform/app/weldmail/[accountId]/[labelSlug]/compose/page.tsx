@@ -47,8 +47,9 @@ import { useDraftAutosave } from '@/app/weldmail/lib/use-draft-autosave';
 import {
   usePersonSearch,
   useRecentCorrespondents,
-  useCreatePerson,
+  type Person,
 } from '@/hooks/queries/use-people-queries';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -144,17 +145,6 @@ const toPersonSuggestion = (p: PersonLike): PersonSuggestion => ({
   email: p.email ?? '',
   avatarUrl: p.avatarUrl ?? null,
 });
-
-// Splits "jane.doe@acme.com" into the person fields used for a quick-create.
-function personFieldsFromEmail(email: string) {
-  const localPart = email.includes('@') ? email.split('@')[0] : email;
-  const parts = localPart.split(/[._-]/);
-  return {
-    firstName: parts[0] || localPart,
-    lastName: parts.length > 1 ? parts.slice(1).join(' ') : undefined,
-    email: email.includes('@') ? email : `${email}@unknown.com`,
-  };
-}
 
 function getInitialComposeValues(composeContext: ComposeContextValue) {
   const data = composeContext?.composeData;
@@ -430,8 +420,9 @@ function useRecipientInput({
   setToInput: (value: string) => void;
   suggestions: ContactSuggestionsApi;
 }) {
-  const { t } = useI18n();
-  const createPersonMutation = useCreatePerson();
+  const st = useTranslations();
+  const suppressBlurCommitRef = useRef(false);
+  const [createPersonQuery, setCreatePersonQuery] = useState<string | null>(null);
 
   const addRecipient = (email: string) => {
     const trimmed = email.trim();
@@ -487,9 +478,15 @@ function useRecipientInput({
     }
   };
 
-  // Commit pending input on blur (with small delay for click events)
+  // Commit pending input on blur (with small delay for click events).
+  // Opening the create-person dialog blurs the field; that must not turn the
+  // unfinished query into a recipient chip.
   const handleToInputBlur = () => {
     setTimeout(() => {
+      if (suppressBlurCommitRef.current) {
+        suppressBlurCommitRef.current = false;
+        return;
+      }
       if (toInput.trim()) {
         addRecipient(toInput);
       }
@@ -506,16 +503,23 @@ function useRecipientInput({
     suggestions.inputRef.current?.focus();
   };
 
-  const handleCreatePerson = async () => {
-    const email = suggestions.query.trim();
-    if (!email) return;
-    addRecipient(email);
-    try {
-      await createPersonMutation.mutateAsync(personFieldsFromEmail(email));
-      toast.success(t.mail.composePage.personCreated);
-    } catch {
-      toast.error(t.mail.composePage.failedToCreatePerson);
+  const handleCreatePerson = () => {
+    const query = suggestions.query.trim();
+    if (!query) return;
+    suppressBlurCommitRef.current = true;
+    suggestions.setShow(false);
+    setCreatePersonQuery(query);
+  };
+
+  const handlePersonCreated = (person: Person) => {
+    const email = person.email?.trim();
+    if (email) {
+      addRecipient(email);
+      return;
     }
+    setToInput('');
+    suggestions.setQuery('');
+    toast.info(st('sweep.entities.personCreatedNeedsEmail'));
   };
 
   return {
@@ -526,6 +530,9 @@ function useRecipientInput({
     handleToInputFocus,
     removeRecipient,
     handleCreatePerson,
+    createPersonQuery,
+    setCreatePersonQuery,
+    handlePersonCreated,
   };
 }
 
@@ -1099,6 +1106,15 @@ export default function ComposePage(props: ComposePageProps = {}) {
               />
             )}
 
+            <QuickAddPersonDialog
+              open={recipientInput.createPersonQuery !== null}
+              onOpenChange={(open) => {
+                if (!open) recipientInput.setCreatePersonQuery(null);
+              }}
+              initialName={recipientInput.createPersonQuery ?? ''}
+              onCreated={recipientInput.handlePersonCreated}
+            />
+
             <CcBccInputs
               showCc={showCc}
               showBcc={showBcc}
@@ -1525,6 +1541,31 @@ function ContactSuggestionItem({
   );
 }
 
+function CreatePersonSuggestion({
+  query,
+  onCreatePerson,
+}: Readonly<{
+  query: string;
+  onCreatePerson: () => void;
+}>) {
+  const { t } = useI18n();
+
+  return (
+    <Button
+      variant="ghost"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onCreatePerson}
+      className="relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors text-left"
+    >
+      <UserPlus className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium">{t.mail.composePage.createNewPerson}</div>
+        <div className="text-xs text-muted-foreground truncate">{query.trim()}</div>
+      </div>
+    </Button>
+  );
+}
+
 function NoContactsMessage({
   query,
   onCreatePerson,
@@ -1542,18 +1583,7 @@ function NoContactsMessage({
     <>
       <div className="px-2 py-1.5 text-sm text-muted-foreground text-center">{t.mail.composePage.noPeopleFound}</div>
       <div className="-mx-1 my-1 h-px bg-border" />
-      <Button
-        variant="ghost"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={onCreatePerson}
-        className="relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors text-left"
-      >
-        <UserPlus className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium">{t.mail.composePage.createNewPerson}</div>
-          <div className="text-xs text-muted-foreground truncate">{query.trim()}</div>
-        </div>
-      </Button>
+      <CreatePersonSuggestion query={query} onCreatePerson={onCreatePerson} />
     </>
   );
 }
@@ -1578,6 +1608,8 @@ function ContactSuggestionsList({
   const { t } = useI18n();
   const available = contacts.filter((c) => !toRecipients.includes(c.email));
 
+  const showCreate = query.trim().length > 0 && !(isLoading && contacts.length === 0);
+
   const renderBody = () => {
     if (isLoading && contacts.length === 0) {
       return (
@@ -1588,9 +1620,19 @@ function ContactSuggestionsList({
       );
     }
     if (available.length > 0) {
-      return available.map((contact) => (
-        <ContactSuggestionItem key={contact.id} contact={contact} onSelect={onSelect} />
-      ));
+      return (
+        <>
+          {available.map((contact) => (
+            <ContactSuggestionItem key={contact.id} contact={contact} onSelect={onSelect} />
+          ))}
+          {showCreate && (
+            <>
+              <div className="-mx-1 my-1 h-px bg-border" />
+              <CreatePersonSuggestion query={query} onCreatePerson={onCreatePerson} />
+            </>
+          )}
+        </>
+      );
     }
     return <NoContactsMessage query={query} onCreatePerson={onCreatePerson} />;
   };

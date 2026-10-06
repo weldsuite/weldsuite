@@ -46,6 +46,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
+      - name: Check for mojibake
+        run: pnpm check:mojibake
       - name: Lint
         run: pnpm lint
 

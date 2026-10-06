@@ -36,8 +36,8 @@ function thread(
 const a = thread({ threadId: 't1', latestMessageId: 'm1' });
 const b = thread({ threadId: 't2', latestMessageId: 'm2' });
 const c = thread({ threadId: 't3', latestMessageId: 'm3' });
-const page1 = mailThreadListKey({ accountId: 'unified', folder: 'inbox', page: 1, pageSize: 25 });
-const page2 = mailThreadListKey({ accountId: 'unified', folder: 'inbox', page: 2, pageSize: 25 });
+const inboxKey = mailThreadListKey({ accountId: 'unified', folder: 'inbox', pageSize: 25 });
+const starredKey = mailThreadListKey({ accountId: 'unified', folder: 'starred', pageSize: 25 });
 
 describe('folderHidesOnArchive', () => {
   it('hides from inbox only', () => {
@@ -46,6 +46,15 @@ describe('folderHidesOnArchive', () => {
     expect(folderHidesOnArchive('starred')).toBe(false);
     expect(folderHidesOnArchive('all')).toBe(false);
     expect(folderHidesOnArchive('archive')).toBe(false);
+  });
+});
+
+describe('mailThreadListKey', () => {
+  it('is stable per folder, not per page', () => {
+    expect(
+      mailThreadListKey({ accountId: 'unified', folder: 'inbox', page: 1, pageSize: 25 }),
+    ).toBe(mailThreadListKey({ accountId: 'unified', folder: 'inbox', page: 2, pageSize: 25 }));
+    expect(inboxKey).not.toBe(starredKey);
   });
 });
 
@@ -73,7 +82,7 @@ describe('filterHiddenThreads', () => {
 
   it('drops hidden rows without mutating the source', () => {
     const list = [a, b, c];
-    expect(filterHiddenThreads(list, new Map([['t1', page1]]))).toEqual([b, c]);
+    expect(filterHiddenThreads(list, new Map([['t1', inboxKey]]))).toEqual([b, c]);
     expect(list).toHaveLength(3);
   });
 });
@@ -104,7 +113,7 @@ describe('topUpThreadList', () => {
   });
 
   it('skips threads already hidden from a prior top-up', () => {
-    const hidden = new Map([['t4', page1]]);
+    const hidden = new Map([['t4', inboxKey]]);
     expect(topUpThreadList([b, c], [d, e], 3, hidden).map((t) => t.threadId)).toEqual([
       't2',
       't3',
@@ -120,7 +129,7 @@ describe('topUpThreadList', () => {
 
 describe('countHiddenOnServer', () => {
   it('counts only rows present in the current snapshot', () => {
-    const hidden = new Map([['t1', page1], ['t9', page1]]);
+    const hidden = new Map([['t1', inboxKey], ['t9', inboxKey]]);
     expect(countHiddenOnServer([a, b, c], hidden)).toBe(1);
     expect(countHiddenOnServer([b, c], hidden)).toBe(0);
   });
@@ -129,75 +138,75 @@ describe('countHiddenOnServer', () => {
 describe('countHiddenForList', () => {
   it('counts every overlay entry scoped to the list key', () => {
     const hidden = new Map([
-      ['t1', page1],
-      ['t4', page1],
-      ['t9', page2],
+      ['t1', inboxKey],
+      ['t4', inboxKey],
+      ['t9', starredKey],
     ]);
-    expect(countHiddenForList(hidden, page1)).toBe(2);
-    expect(countHiddenForList(hidden, page2)).toBe(1);
+    expect(countHiddenForList(hidden, inboxKey)).toBe(2);
+    expect(countHiddenForList(hidden, starredKey)).toBe(1);
   });
 });
 
 describe('retainHiddenIdsStillOnServer', () => {
-  it('keeps the same Map when the originating page still has the row (stale refetch)', () => {
-    const hidden = new Map([['t1', page1]]);
-    expect(retainHiddenIdsStillOnServer([a, b], hidden, page1)).toBe(hidden);
+  it('keeps the same Map when the originating list still has the row (stale refetch)', () => {
+    const hidden = new Map([['t1', inboxKey]]);
+    expect(retainHiddenIdsStillOnServer([a, b], hidden, inboxKey)).toBe(hidden);
   });
 
-  it('drops ids once the originating page refreshes without them', () => {
-    const hidden = new Map([['t1', page1], ['t2', page1]]);
-    expect([...retainHiddenIdsStillOnServer([b, c], hidden, page1).keys()]).toEqual(['t2']);
+  it('drops ids once the originating list refreshes without them', () => {
+    const hidden = new Map([['t1', inboxKey], ['t2', inboxKey]]);
+    expect([...retainHiddenIdsStillOnServer([b, c], hidden, inboxKey).keys()]).toEqual(['t2']);
   });
 
-  it('keeps ids from another page when the current snapshot omits them', () => {
-    const hidden = new Map([['t1', page1]]);
-    const retained = retainHiddenIdsStillOnServer([b, c], hidden, page2);
+  it('keeps ids from another folder when the current snapshot omits them', () => {
+    const hidden = new Map([['t1', inboxKey]]);
+    const retained = retainHiddenIdsStillOnServer([b, c], hidden, starredKey);
     expect(retained).toBe(hidden);
-    expect(retained.get('t1')).toBe(page1);
+    expect(retained.get('t1')).toBe(inboxKey);
   });
 
   it('keeps ids when the originating query has no rows yet (loading placeholder)', () => {
-    const hidden = new Map([['t1', page1]]);
-    expect(retainHiddenIdsStillOnServer([], hidden, page1)).toBe(hidden);
-    expect(retainHiddenIdsStillOnServer([], hidden, page2)).toBe(hidden);
+    const hidden = new Map([['t1', inboxKey]]);
+    expect(retainHiddenIdsStillOnServer([], hidden, inboxKey)).toBe(hidden);
+    expect(retainHiddenIdsStillOnServer([], hidden, starredKey)).toBe(hidden);
   });
 
   it('keeps topped-up ids that are only present on the next page', () => {
-    const hidden = new Map([['t4', page1]]);
+    const hidden = new Map([['t4', inboxKey]]);
     const retained = retainHiddenIdsStillOnServer(
       [a, b],
       hidden,
-      page1,
+      inboxKey,
       new Set(['t4']),
     );
     expect(retained).toBe(hidden);
   });
 
   it('drops topped-up ids once neither page still has them', () => {
-    const hidden = new Map([['t4', page1]]);
+    const hidden = new Map([['t4', inboxKey]]);
     expect([
-      ...retainHiddenIdsStillOnServer([a, b], hidden, page1, new Set(['t5'])).keys(),
+      ...retainHiddenIdsStillOnServer([a, b], hidden, inboxKey, new Set(['t5'])).keys(),
     ]).toEqual([]);
   });
 
   it('returns the original empty map without allocating', () => {
     const hidden = new Map<string, string>();
-    expect(retainHiddenIdsStillOnServer([a], hidden, page1)).toBe(hidden);
+    expect(retainHiddenIdsStillOnServer([a], hidden, inboxKey)).toBe(hidden);
   });
 });
 
 describe('addHiddenId / removeHiddenId', () => {
   it('is a no-op when the id is already present or absent', () => {
-    const hidden = new Map([['t1', page1]]);
-    expect(addHiddenId(hidden, 't1', page1)).toBe(hidden);
+    const hidden = new Map([['t1', inboxKey]]);
+    expect(addHiddenId(hidden, 't1', inboxKey)).toBe(hidden);
     expect(removeHiddenId(hidden, 't2')).toBe(hidden);
   });
 
   it('adds and removes without mutating the source', () => {
-    const hidden = new Map([['t1', page1]]);
-    const added = addHiddenId(hidden, 't2', page1);
+    const hidden = new Map([['t1', inboxKey]]);
+    const added = addHiddenId(hidden, 't2', inboxKey);
     expect([...added.keys()]).toEqual(['t1', 't2']);
-    expect(added.get('t2')).toBe(page1);
+    expect(added.get('t2')).toBe(inboxKey);
     expect([...hidden.keys()]).toEqual(['t1']);
     expect([...removeHiddenId(hidden, 't1').keys()]).toEqual([]);
     expect([...hidden.keys()]).toEqual(['t1']);
