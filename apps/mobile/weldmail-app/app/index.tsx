@@ -492,7 +492,9 @@ export default function MailScreen() {
         }
       }
       if (!cancelled) fetchMessagesRef.current();
-    })();
+    })().catch((err) => {
+      console.error('[inbox] Failed to paint cached messages:', err);
+    });
 
     // Fetch draft count
     const fetchDraftCount = async () => {
@@ -506,7 +508,7 @@ export default function MailScreen() {
         if (drafts.length > 0) updateLabelCount('DRAFTS', drafts.length);
       } catch {}
     };
-    fetchDraftCount();
+    void fetchDraftCount();
 
     return () => {
       cancelled = true;
@@ -610,7 +612,7 @@ export default function MailScreen() {
         await fetchMessagesRef.current();
       }
     };
-    tick();
+    void tick();
     return () => {
       cancelled = true;
     };

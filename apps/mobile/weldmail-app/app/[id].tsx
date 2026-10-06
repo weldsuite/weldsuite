@@ -1068,7 +1068,7 @@ export default function EmailDetailScreen() {
     if (!id) return;
     let cancelled = false;
     setLoadOutcome(null);
-    loadEmail({
+    void loadEmail({
       id,
       cache,
       stub,

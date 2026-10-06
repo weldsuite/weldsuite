@@ -451,7 +451,7 @@ function useContactSuggestions() {
         setContactSuggestions(mapContactSuggestions(data));
       } catch {}
     };
-    loadRecent();
+    void loadRecent();
   }, []);
 
   const searchContacts = useCallback((text: string) => {
@@ -757,7 +757,7 @@ function useSendTimePicker({ hasAccount, hasRecipient, sendScheduled, setSchedul
 
   const applyPickedSendTime = (date: Date) => {
     setSendTimeSheet(null);
-    if (sendTimeSheet === 'send-later') sendScheduled(date);
+    if (sendTimeSheet === 'send-later') void sendScheduled(date);
     else setScheduledDate(date);
   };
 
@@ -804,7 +804,7 @@ function useSendTimePicker({ hasAccount, hasRecipient, sendScheduled, setSchedul
     setShowCustomPicker(false);
     if (sendAfterPickRef.current) {
       sendAfterPickRef.current = false;
-      sendScheduled(picked);
+      void sendScheduled(picked);
     } else {
       setScheduledDate(picked);
     }

@@ -377,7 +377,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
         orgId,
       );
       setAccounts(normalized);
-      if (orgId) mailCache.setAccounts(orgId, normalized);
+      if (orgId) void mailCache.setAccounts(orgId, normalized);
       await applySavedSelection(normalized);
     } catch (error) {
       if (seq !== accountsFetchSeqRef.current) return;

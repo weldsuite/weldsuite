@@ -670,7 +670,7 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
 
       if (!cancelled) setLoading(false);
     };
-    load();
+    void load();
     return () => {
       cancelled = true;
     };
