@@ -46,9 +46,9 @@ function parseListLine(line: string): { type: ListType; text: string } | null {
 
 function renderInlineMarkdown(line: string): string {
   return line
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/`(.*?)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">$1</code>');
+    .replaceAll(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replaceAll(/\*(.*?)\*/g, '<em>$1</em>')
+    .replaceAll(/`(.*?)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">$1</code>');
 }
 
 // Headings, blockquotes and paragraphs (every non-list, non-blank, non-code line)

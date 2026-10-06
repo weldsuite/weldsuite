@@ -481,13 +481,13 @@ export function MyTasksClient({
     cancelled: { label: t.projects.myTasks.statusLabels.cancelled, ...statusConfigBase.cancelled },
   }), [t]);
 
-  const [tasks, setTasks] = useState<Task[]>(initialTasks.map(transformApiTask));
+  const [tasks, setTasks] = useState<Task[]>(initialTasks.map((task) => transformApiTask(task)));
   const prevInitialTasksRef = useRef(initialTasks);
   useEffect(() => {
     if (prevInitialTasksRef.current !== initialTasks) {
       prevInitialTasksRef.current = initialTasks;
       setTasks((prev) => {
-        const fresh = initialTasks.map(transformApiTask);
+        const fresh = initialTasks.map((task) => transformApiTask(task));
         const freshById = new Map(fresh.map((f) => [f.id, f]));
         const prevById = new Map(prev.map((p) => [p.id, p]));
 
@@ -1228,7 +1228,7 @@ export function MyTasksClient({
                 mode="single"
                 selected={task.dueDate}
                 onSelect={(date) => updateTaskInline(task.id, { dueDate: date || undefined })}
-                initialFocus
+                autoFocus
               />
               {task.dueDate && (
                 <div className="p-1 border-t border-border">

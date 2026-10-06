@@ -329,7 +329,7 @@ export function FileDetailPanel({
                           <span className={cn(driveLabelClass, 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950')}>{t.welddrive.fileDetail.accessRoles.owner}</span>
                         </div>
                       )}
-                      {user && (!owner || owner.userId !== user.id) && (
+                      {user && owner?.userId !== user.id && (
                         <div className="flex items-center gap-2.5">
                           {user.imageUrl ? (
                             <img src={user.imageUrl} alt={user.fullName || ''} className="w-[22px] h-[22px] rounded-[8px] object-cover shrink-0" />
