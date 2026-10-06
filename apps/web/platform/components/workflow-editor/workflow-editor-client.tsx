@@ -78,6 +78,7 @@ import { WorkflowCanvas } from '@weldsuite/ui/components/workflow-canvas';
 import {
   getConditionBranchIds,
   getMissingRequiredFields,
+  isBranchingStepType,
   isStepConfigured,
 } from '@weldsuite/ui/components/workflow-canvas';
 import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepConfig } from '@weldsuite/ui/components/workflow-canvas';
@@ -1879,8 +1880,15 @@ interface BranchStyle {
   description: string;
 }
 
+/**
+ * Marks an add-step request as "after this condition/loop, at its level"
+ * (`<stepId>` + suffix) rather than "under this node".
+ */
+const ADD_STEP_AFTER_SUFFIX = '::after';
+
 // Branch display styling
 const BRANCH_STYLE_MAP: Record<string, BranchStyle> = {
+  each: { bg: 'bg-blue-100 dark:bg-blue-900/30', icon: Repeat, iconColor: 'text-blue-600', label: 'For each item', borderColor: 'border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900', description: 'Runs once for every item in the list' },
   if: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: 'If True', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the condition is true' },
   if_not: { bg: 'bg-gray-100 dark:bg-secondary', icon: X, iconColor: 'text-gray-500 dark:text-muted-foreground', label: 'If False', borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border', description: 'Executes when the condition is false' },
   escalated: { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: ArrowUpRight, iconColor: 'text-amber-600', label: 'Escalated', borderColor: 'border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900', description: 'Executes when the agent escalates to a human' },
@@ -1975,13 +1983,28 @@ interface BranchEditPanelProps {
 }
 
 function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: BranchEditPanelProps) {
+  const { t } = useI18n();
+  const tbp = t.weldconnect.workflowEditorClient.branchPanel;
   const parentStep = steps[branch.parentConditionStepIndex];
+  const isLoop = parentStep?.type === 'loop';
   const branchChildren = steps.filter((s) => s.parentBranchId === branch.branchNodeId);
-  const conditionExpression = parentStep?.config?.field
-    ? `${parentStep.config.field} ${parentStep.config.operator || ''} ${parentStep.config.value || ''}`
-    : (parentStep?.config?.expression as string | undefined) || '';
-  const branchStyle = getBranchStyle(branch.branchType);
+  let conditionExpression: string;
+  if (isLoop) {
+    conditionExpression = typeof parentStep?.config?.items === 'string' ? parentStep.config.items : '';
+  } else if (parentStep?.config?.field) {
+    conditionExpression = `${parentStep.config.field} ${parentStep.config.operator || ''} ${parentStep.config.value || ''}`;
+  } else {
+    conditionExpression = (parentStep?.config?.expression as string | undefined) || '';
+  }
+  const translatedBranch: Record<string, { label: string; description: string }> = {
+    if: tbp.ifTrue,
+    if_not: tbp.ifFalse,
+    each: tbp.forEachItem,
+  };
+  const baseStyle = getBranchStyle(branch.branchType);
+  const branchStyle = { ...baseStyle, ...translatedBranch[branch.branchType] };
   const BranchIcon = branchStyle.icon;
+  const ParentIcon = isLoop ? Repeat : GitBranch;
 
   return (
     <>
@@ -2000,7 +2023,9 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Br
         <div className="p-4 space-y-4">
           {/* Condition Info */}
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Parent Condition</Label>
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {isLoop ? tbp.parentLoop : tbp.parentCondition}
+            </Label>
             <Button
               variant="ghost"
               onClick={() => onSelectStep(branch.parentConditionStepIndex)}
@@ -2008,9 +2033,9 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Br
             >
               <div className="flex items-center gap-2">
                 <div className="w-6 h-6 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                  <GitBranch className="w-3.5 h-3.5 text-amber-600" />
+                  <ParentIcon className="w-3.5 h-3.5 text-amber-600" />
                 </div>
-                <span className="text-sm font-medium">{parentStep?.name || 'Condition'}</span>
+                <span className="text-sm font-medium">{parentStep?.name || (isLoop ? tbp.parentLoop : tbp.parentCondition)}</span>
               </div>
               {conditionExpression && (
                 <p className="text-xs text-muted-foreground mt-2 truncate">{conditionExpression}</p>
@@ -2020,7 +2045,7 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Br
 
           {/* Branch Description */}
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Branch</Label>
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{tbp.branch}</Label>
             <div className={cn('p-3 rounded-lg border', branchStyle.borderColor)}>
               <p className="text-sm font-medium">{branchStyle.description}</p>
             </div>
@@ -2163,6 +2188,8 @@ interface EditStepPanelProps {
   onStepChange: (step: WorkflowStepBag) => void;
   onUpdateStep: (stepId: string, data: Record<string, unknown>) => void;
   onDelete: () => void;
+  /** Set for conditions and loops: add a step at the same level, after the step and its branches. */
+  onAddStepAfter?: () => void;
   onClose: () => void;
 }
 
@@ -2180,6 +2207,7 @@ function EditStepPanel({
   onStepChange,
   onUpdateStep,
   onDelete,
+  onAddStepAfter,
   onClose,
 }: EditStepPanelProps) {
   const { t } = useI18n();
@@ -2260,7 +2288,13 @@ function EditStepPanel({
           </div>
         </div>
       </ScrollArea>
-      <div className="p-3">
+      <div className="p-3 space-y-2">
+        {onAddStepAfter && (
+          <Button variant="outline" className="w-full" onClick={onAddStepAfter}>
+            <Plus className="h-4 w-4 mr-0.5" />
+            {step.type === 'loop' ? tec.editStepPanel.addStepAfterLoop : tec.editStepPanel.addStepAfterCondition}
+          </Button>
+        )}
         <Button
           variant="outline"
           className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
@@ -3637,12 +3671,25 @@ export function WorkflowEditorClient({
       position: undefined, // Let flow editor auto-position
     };
 
-    // Determine which branch the new step belongs to
-    if (addStepSourceNodeId) {
+    // Determine which branch the new step belongs to, and where it goes
+    let insertAt = workflow.steps.length;
+    if (addStepSourceNodeId?.endsWith(ADD_STEP_AFTER_SUFFIX)) {
+      // "Add step after" a condition or loop: same level, right after it
+      // (steps at one level run in array order, whatever sits in between).
+      const anchorId = addStepSourceNodeId.slice(0, -ADD_STEP_AFTER_SUFFIX.length);
+      const anchorIndex = workflow.steps.findIndex((s) => s.id === anchorId);
+      if (anchorIndex >= 0) {
+        insertAt = anchorIndex + 1;
+        if (workflow.steps[anchorIndex].parentBranchId) {
+          newStep.parentBranchId = workflow.steps[anchorIndex].parentBranchId;
+        }
+      }
+    } else if (addStepSourceNodeId) {
       if (addStepSourceNodeId.includes('_branch_') ||
           addStepSourceNodeId.endsWith('_if') ||
-          addStepSourceNodeId.endsWith('_if_not')) {
-        // Adding directly from a branch node ("+" on If true / If false / multi-branch)
+          addStepSourceNodeId.endsWith('_if_not') ||
+          addStepSourceNodeId.endsWith('_each')) {
+        // Adding directly from a branch node ("+" on If true / If false / multi-branch / For each item)
         newStep.parentBranchId = addStepSourceNodeId;
       } else {
         // Adding from a step that may itself be a branch child — inherit its branch
@@ -3653,7 +3700,7 @@ export function WorkflowEditorClient({
       }
     }
 
-    const updatedSteps = [...workflow.steps, newStep];
+    const updatedSteps = [...workflow.steps.slice(0, insertAt), newStep, ...workflow.steps.slice(insertAt)];
     updatedSteps.forEach((step, i) => (step.order = i));
 
     setWorkflow({ ...workflow, steps: updatedSteps });
@@ -3691,8 +3738,8 @@ export function WorkflowEditorClient({
     const idsToDelete = new Set<string>();
     function collectDeletions(id: string, type: string, config?: unknown) {
       idsToDelete.add(id);
-      if (type === 'condition') {
-        const branchIds = getConditionBranchIds({ id, config: config as ConditionStepConfig | undefined });
+      if (isBranchingStepType(type)) {
+        const branchIds = getConditionBranchIds({ id, type, config: config as ConditionStepConfig | undefined });
         branchIds.forEach((branchId) => {
           workflow.steps.forEach((s) => {
             if (s.parentBranchId === branchId) {
@@ -4036,6 +4083,11 @@ export function WorkflowEditorClient({
           onStepChange={setEditingStep}
           onUpdateStep={handleUpdateStep}
           onDelete={handleDeleteEditingStep}
+          onAddStepAfter={
+            isBranchingStepType(editingStep.type)
+              ? () => handleAddStep(`${editingStep.id}${ADD_STEP_AFTER_SUFFIX}`)
+              : undefined
+          }
           onClose={() => {
             setEditingStep(null);
             setShowMobileSidebar(false);
