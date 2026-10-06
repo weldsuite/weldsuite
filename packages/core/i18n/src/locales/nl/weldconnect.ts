@@ -1392,6 +1392,7 @@ export const weldconnect = {
       create_deal: { name: 'Deal aanmaken', description: 'Een opportunity toevoegen aan WeldCRM' },
       move_deal_stage: { name: 'Dealfase verplaatsen', description: 'Een deal naar een andere pipelinefase verplaatsen' },
       log_activity: { name: 'Activiteit loggen', description: 'Een gesprek, e-mail, afspraak, taak of notitie loggen' },
+      post_chat_message: { name: 'Chatbericht plaatsen', description: 'Een bericht plaatsen in een WeldChat-kanaal' },
       create_task: { name: 'Taak aanmaken', description: 'Een projecttaak aanmaken in WeldFlow' },
       set_variable: { name: 'Variabele instellen', description: 'Een waarde opslaan voor later gebruik' },
       transform_data: { name: 'Data transformeren', description: 'Data omzetten en koppelen' },
@@ -1844,6 +1845,7 @@ export const weldconnect = {
       create_deal: 'CRM',
       move_deal_stage: 'CRM',
       log_activity: 'CRM',
+      post_chat_message: 'Chat',
       create_task: 'Projecten',
       send_notification: 'Meldingen',
       run_script: 'Scripts',
@@ -2002,6 +2004,7 @@ export const weldconnect = {
       create_deal: 'Deal aanmaken',
       move_deal_stage: 'Dealfase verplaatsen',
       log_activity: 'Activiteit loggen',
+      post_chat_message: 'Chatbericht plaatsen',
       create_task: 'Taak aanmaken',
       send_notification: 'Melding verzenden',
       run_script: 'Script uitvoeren',
@@ -2190,6 +2193,22 @@ export const weldconnect = {
       },
       ownerPermissionHint: 'De workflow handelt namens de eigenaar: hij kan alleen doen wat de rol van de eigenaar toestaat.',
     },
+    // PostChatMessageForm
+    postChatMessage: {
+      channel: 'Kanaal',
+      channelDesc: 'Het WeldChat-kanaal om het bericht in te plaatsen.',
+      selectChannel: 'Selecteer een kanaal',
+      loadingChannels: 'Kanalen laden…',
+      noChannels: 'Geen kanalen gevonden. Maak er eerst een aan in WeldChat.',
+      message: 'Bericht',
+      messageDesc: 'Geplaatst als de workflow, nooit als de eigenaar. Ondersteunt {{variabelen}}.',
+      messagePlaceholder: 'Het weekrapport is gereed: {{steps.<stap>.url}}',
+      mentions: 'Vermeldingen (optioneel)',
+      mentionsDesc: 'Komma-gescheiden lid-id\'s om te waarschuwen, naast eventuele <@id>-vermeldingen die al in het bericht staan.',
+      mentionsPlaceholder: '{{trigger.record.ownerId}}',
+      ownerPermissionHint:
+        'De workflow handelt namens de eigenaar: hij kan alleen plaatsen waar de eigenaar dat ook zou kunnen — een kanaal dat de eigenaar niet kan zien wordt geweigerd.',
+    },
     // CreateTaskForm
     taskProject: 'Project',
     taskProjectDesc: 'Het WeldFlow-project waarin de taak wordt aangemaakt',
@@ -2372,6 +2391,9 @@ export const weldconnect = {
     },
     actionUrl: 'Actie-URL',
     actionUrlDesc: 'Optionele koppeling wanneer op de melding wordt geklikt',
+    // PostChatMessageForm required-field labels (flat, read by validation.ts)
+    chatChannel: 'Kanaal',
+    chatMessage: 'Bericht',
     assignmentStrategy: 'Toewijzingsstrategie',
     strategies: {
       specific_agent: 'Specifieke agent',

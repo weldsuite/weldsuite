@@ -26,6 +26,7 @@ export const WELDCONNECT_ACTION_TYPES = [
   'log_activity',
   'create_task',
   'send_notification',
+  'post_chat_message',
   'http_request',
   'condition',
   'loop',

@@ -1392,6 +1392,7 @@ export const weldconnect = {
       create_deal: { name: 'Create Deal', description: 'Add an opportunity to WeldCRM' },
       move_deal_stage: { name: 'Move Deal Stage', description: 'Move a deal to a different pipeline stage' },
       log_activity: { name: 'Log Activity', description: 'Log a call, email, meeting, task or note' },
+      post_chat_message: { name: 'Post Chat Message', description: 'Post a message to a WeldChat channel' },
       create_task: { name: 'Create Task', description: 'Create a project task in WeldFlow' },
       set_variable: { name: 'Set Variable', description: 'Store a value for later use' },
       transform_data: { name: 'Transform Data', description: 'Transform and map data' },
@@ -1844,6 +1845,7 @@ export const weldconnect = {
       create_deal: 'CRM',
       move_deal_stage: 'CRM',
       log_activity: 'CRM',
+      post_chat_message: 'Chat',
       create_task: 'Projects',
       send_notification: 'Notifications',
       run_script: 'Scripts',
@@ -2002,6 +2004,7 @@ export const weldconnect = {
       create_deal: 'Create Deal',
       move_deal_stage: 'Move Deal Stage',
       log_activity: 'Log Activity',
+      post_chat_message: 'Post Chat Message',
       create_task: 'Create Task',
       send_notification: 'Send Notification',
       run_script: 'Run Script',
@@ -2190,6 +2193,22 @@ export const weldconnect = {
         presentation: 'Presentation',
       },
       ownerPermissionHint: "The workflow acts as its owner: it can only do what the owner's role allows.",
+    },
+    // PostChatMessageForm
+    postChatMessage: {
+      channel: 'Channel',
+      channelDesc: 'The WeldChat channel to post to.',
+      selectChannel: 'Select a channel',
+      loadingChannels: 'Loading channels…',
+      noChannels: 'No channels found. Create one in WeldChat first.',
+      message: 'Message',
+      messageDesc: 'Posted as the workflow, never as the owner. Supports {{variables}}.',
+      messagePlaceholder: 'The weekly report is ready: {{steps.<step>.url}}',
+      mentions: 'Mentions (optional)',
+      mentionsDesc: 'Comma-separated member ids to notify, in addition to any <@id> mentions already in the message.',
+      mentionsPlaceholder: '{{trigger.record.ownerId}}',
+      ownerPermissionHint:
+        "The workflow acts as its owner: it can only post where the owner could — a channel the owner can't see is refused.",
     },
     // CreateTaskForm
     taskProject: 'Project',
@@ -2382,6 +2401,9 @@ export const weldconnect = {
     },
     actionUrl: 'Action URL',
     actionUrlDesc: 'Optional link when notification is clicked',
+    // PostChatMessageForm required-field labels (flat, read by validation.ts)
+    chatChannel: 'Channel',
+    chatMessage: 'Message',
     // AssignConversationForm
     assignmentStrategy: 'Assignment Strategy',
     strategies: {

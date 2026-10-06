@@ -578,6 +578,8 @@ export const weldchat = {
       agentThinking: 'Bezig',
       viewProfile: 'Profiel van {name} bekijken',
       agentClickDetails: '(Agent) — klik voor details',
+      workflowBadge: 'Workflow',
+      workflowClickDetails: '(Workflow) — automatisch geplaatst',
     },
     thread: {
       title: 'Thread',

@@ -8,7 +8,7 @@ import { MessageContextMenu } from './message-context-menu';
 import { FilePreview } from './file-preview';
 import { cn } from '@/lib/utils';
 import { Link } from '@tanstack/react-router';
-import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot, Workflow, type LucideIcon } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
@@ -274,6 +274,20 @@ function MessageAvatar({
     );
   }
 
+  // A WeldConnect workflow step (post_chat_message) — never clickable (there is
+  // no teammate/agent profile behind it), just a workflow icon + its name.
+  if (message.authorType === 'system') {
+    return (
+      <div
+        style={{ marginTop: '3px' }}
+        className="h-7 w-7 flex-shrink-0 rounded-[9px] bg-muted flex items-center justify-center"
+        title={`${message.authorName} ${t.weldchat.messageItem.workflowClickDetails}`}
+      >
+        <Workflow className="h-3.5 w-3.5 text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <Button
       type="button"
@@ -322,6 +336,9 @@ export function MessageItem({
       message.content?.includes('<@everyone>'));
   const handleAuthorClick = () => {
     if (!message.authorId) return;
+    // A workflow-posted message (authorId "workflow:<id>") has no profile
+    // behind it — nothing to open.
+    if (message.authorType === 'system') return;
     // Agent replies open the agent profile panel; human replies open the
     // teammate profile panel (same UX, different data source).
     if (message.authorType === 'agent') {
@@ -380,16 +397,23 @@ export function MessageItem({
       <div className="flex-1 min-w-0">
         {!compact && (
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={handleAuthorClick}
-              className="h-auto px-0 py-0 font-semibold text-sm hover:underline focus:outline-none focus-visible:underline hover:bg-transparent"
-            >
-              {message.authorName}
-            </Button>
+            {message.authorType === 'system' ? (
+              <span className="font-semibold text-sm">{message.authorName}</span>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleAuthorClick}
+                className="h-auto px-0 py-0 font-semibold text-sm hover:underline focus:outline-none focus-visible:underline hover:bg-transparent"
+              >
+                {message.authorName}
+              </Button>
+            )}
             {message.authorType === 'agent' && (
               <Badge variant="secondary" className="text-[10px] h-4 px-1 font-normal">{t.weldchat.memberList.agentBadge}</Badge>
+            )}
+            {message.authorType === 'system' && (
+              <Badge variant="secondary" className="text-[10px] h-4 px-1 font-normal">{t.weldchat.messageItem.workflowBadge}</Badge>
             )}
             <span className="text-xs text-muted-foreground" title={fullTime}>
               {timeStr}
