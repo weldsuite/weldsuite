@@ -2,7 +2,8 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TouchableHighlight, RefreshControl, Image, ScrollView, Platform } from 'react-native';
 import { Plus, Archive, Trash2, BellOff, Bell, Pin, PinOff } from 'lucide-react-native';
 import Svg, { Defs, Pattern, Path, Rect } from 'react-native-svg';
-import { FlatList, Swipeable } from 'react-native-gesture-handler';
+import { FlatList } from 'react-native-gesture-handler';
+import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '@clerk/expo';
@@ -101,7 +102,7 @@ export default function DmsTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [filter, setFilter] = useState<'all' | 'unread' | 'favourites' | 'muted'>('all');
-  const swipeableRefs = useRef<Map<string, any>>(new Map());
+  const swipeableRefs = useRef<Map<string, SwipeableMethods>>(new Map());
   const router = useRouter();
   const { user } = useUser();
   const { colors } = useTheme();
@@ -133,7 +134,7 @@ export default function DmsTab() {
       const next = (res.data || []).map((dm: any) => mapDm(dm, user?.id));
       networkLoadedRef.current = true;
       setDms(next);
-      cache.setDms(next);
+      void cache.setDms(next);
     } catch (err) {
       // Keep any cached / previously-loaded list instead of clearing to [].
       console.error('Failed to load DMs:', err);
@@ -153,13 +154,13 @@ export default function DmsTab() {
   const onScrollEndDrag = useCallback(
     (e: { nativeEvent: { contentOffset: { y: number } } }) => {
       if (Platform.OS !== 'ios') return;
-      if (e.nativeEvent.contentOffset.y <= -85) onRefresh();
+      if (e.nativeEvent.contentOffset.y <= -85) void onRefresh();
     },
     [onRefresh],
   );
 
   useFocusEffect(useCallback(() => {
-    loadDms();
+    void loadDms();
   }, [loadDms]));
 
   useChatUserEvents(loadDms);
@@ -210,7 +211,7 @@ export default function DmsTab() {
     try {
       await appApi.chatDm.archive(item.id);
     } catch {
-      loadDms();
+      void loadDms();
     }
   }, [loadDms]);
 
@@ -219,7 +220,7 @@ export default function DmsTab() {
     try {
       await appApi.chatDm.delete(item.id);
     } catch {
-      loadDms();
+      void loadDms();
     }
   }, [loadDms]);
 
@@ -359,7 +360,7 @@ export default function DmsTab() {
           );
 
           return (
-            <Swipeable
+            <ReanimatedSwipeable
               ref={(ref) => {
                 if (ref) swipeableRefs.current.set(item.id, ref);
                 else swipeableRefs.current.delete(item.id);
@@ -441,7 +442,7 @@ export default function DmsTab() {
                   </View>
                 </View>
               </TouchableHighlight>
-            </Swipeable>
+            </ReanimatedSwipeable>
           );
         }}
         ListEmptyComponent={

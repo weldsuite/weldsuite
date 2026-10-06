@@ -167,7 +167,7 @@ function toSearchResult(m: ChatSearchResult): SearchResult {
 async function searchMessages(text: string): Promise<SearchResult[]> {
   const res = await appApi.chatSearch.search({ q: text.trim(), limit: 50 });
   const messages: ChatSearchResult[] = res.data?.messages ?? [];
-  return messages.map(toSearchResult);
+  return messages.map((m) => toSearchResult(m));
 }
 
 /** Runs the search for the active tab; never throws (`ok` is false on failure). */
@@ -453,7 +453,7 @@ export default function SearchScreen() {
       setMembers(outcome.members);
       setLoading(false);
       setSearched(true);
-      if (outcome.ok) saveRecentSearch(text.trim());
+      if (outcome.ok) saveRecentSearch(text.trim()).catch(() => {});
     }, 400);
   }, [saveRecentSearch]);
 

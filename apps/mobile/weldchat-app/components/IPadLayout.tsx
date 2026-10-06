@@ -98,7 +98,7 @@ export function IPadLayout() {
       networkLoadedRef.current = true;
       setChannels(chs);
       setDms(dmList);
-      cache.setChannels(chs);
+      void cache.setChannels(chs);
       // Auto-select first channel if none selected
       setSelectedChannelId((prev) => {
         if (prev) return prev;
@@ -113,7 +113,7 @@ export function IPadLayout() {
   }, [cache]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   useChatUserEvents(loadData);
