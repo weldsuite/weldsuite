@@ -21,6 +21,9 @@ import type { WorkflowStep } from 'cloudflare:workers';
 import type { StepRuntime } from './types';
 
 /** Shape of `NonRetryableError` from `cloudflare:workflows` (injected: that module only exists in the Workers runtime). */
+/** Cloudflare's duration type for a wait (`'7 days'`, or ms). */
+type WaitTimeout = Parameters<WorkflowStep['waitForEvent']>[1]['timeout'];
+
 export type NonRetryableErrorCtor = new (message: string, name?: string) => Error;
 
 export function makeStepRuntime(step: WorkflowStep, NonRetryableError: NonRetryableErrorCtor): StepRuntime {
@@ -51,7 +54,7 @@ export function makeStepRuntime(step: WorkflowStep, NonRetryableError: NonRetrya
       }
     },
     sleep: (name: string, ms: number) => step.sleep(name, ms),
-    waitForEvent: (name: string, opts: { type: string; timeoutMs?: number }) =>
-      step.waitForEvent(name, { type: opts.type, timeout: opts.timeoutMs }),
+    waitForEvent: (name: string, opts: { type: string; timeout?: string | number }) =>
+      step.waitForEvent(name, { type: opts.type, timeout: opts.timeout as WaitTimeout }),
   } as StepRuntime;
 }

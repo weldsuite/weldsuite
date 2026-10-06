@@ -35,6 +35,14 @@ describe('buildBreadcrumbSegments', () => {
     ]);
   });
 
+  it('keeps the WeldHR override', () => {
+    expect(buildBreadcrumbSegments('/settings/apps/weldhr', en.settings.title, en.settings.menu)).toEqual([
+      { label: en.settings.title, href: '/settings' },
+      { label: 'Apps', href: '/settings/apps' },
+      { label: 'WeldHR' },
+    ]);
+  });
+
   it('falls back to a capitalized segment for unknown paths', () => {
     expect(labels('/settings/some-new-page')).toEqual([en.settings.title, 'Some new page']);
   });

@@ -3,8 +3,8 @@
  *
  * The durable shell around the runtime-agnostic engine: it adapts the
  * Cloudflare `WorkflowStep` to the engine's `StepRuntime` port, loads the
- * workflow + tenant db, runs `executeWorkflowSteps`, handles waiting-for-input
- * resume, and finalizes. All step orchestration logic lives in `src/engine/`.
+ * workflow + tenant db, runs the engine through its waits for input
+ * (`runWithInputWaits`), and finalizes. All step orchestration logic lives in `src/engine/`.
  *
  * NOTE: this wires the `weldconnect` source. helpdesk-source table parity is completed
  * during integration (only the execution/step/variable table set differs).
@@ -20,7 +20,7 @@ import { generateId } from './lib/id';
 import type { TriggerType, WorkflowEnv, WorkflowDefinition, WorkflowRunContext } from './engine/types';
 import { makeStepRuntime } from './engine/step-runtime';
 import { notifyRunFinished } from './engine/run-notifications';
-import { executeWorkflowSteps } from './engine/execute-steps';
+import { runWithInputWaits } from './engine/wait-for-input';
 import { buildTriggerData } from './engine/trigger-data';
 import { executeAction } from './engine/actions';
 import { buildExecutionHooks, type RealtimeLike } from './engine/persistence';
@@ -200,32 +200,15 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
     };
     const workflow: WorkflowDefinition = { id: params.workflowId, name: workflowName, version, steps };
 
-    let result = await executeWorkflowSteps(workflow, context, { runtime, executeAction, hooks });
-
-    // 4. Waiting-for-input resume loop.
-    while (result.status === 'waiting_for_input' && result.waiting) {
-      const waitingStepId = result.waiting.stepId;
-      const waitingIndex = steps.findIndex((s) => s.id === waitingStepId);
-      const resumeEvent = (await step.waitForEvent(`wait-input-${waitingIndex}`, {
-        type: 'resume-step',
-        timeout: '7 days',
-      })) as { payload?: Record<string, unknown> };
-      await step.do(`resume-${waitingIndex}`, async () => {
-        await db
-          .update(schema.workflowExecutions)
-          .set({ status: 'running', updatedAt: new Date() })
-          .where(and(eq(schema.workflowExecutions.id, executionId), ne(schema.workflowExecutions.status, 'cancelled')));
-      });
-      // The step that waited for input has now finished: count it in the progress.
-      await hooks.markFinished(waitingIndex);
-      const seedOutput = { ...result.output, [waitingStepId]: resumeEvent.payload ?? {} };
-      result = await executeWorkflowSteps(
-        workflow,
-        context,
-        { runtime, executeAction, hooks },
-        { startIndex: waitingIndex + 1, seedOutput },
-      );
-    }
+    // 4. Run the steps, pausing (status `waiting_for_input`) on approvals until
+    // their resume event arrives or the wait expires (engine/wait-for-input.ts).
+    const result = await runWithInputWaits(workflow, context, {
+      runtime,
+      executeAction,
+      hooks,
+      db: db as Database,
+      executionId,
+    });
 
     // 5. Finalize.
     const finalized = (await step.do('finalize', async () => {
@@ -266,16 +249,19 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
 
       // Test runs stay out of the workflow's counters and notifications.
       if (!isTest) await updateWorkflowStats(finalizeDb, params.workflowId, succeeded, params.source);
-      await fireWorkflowCompleteTriggers(
-        this.env,
-        finalizeDb,
-        params.workflowId,
-        params.workspaceId,
-        params.userId,
-        succeeded,
-        result.output,
-        params.chainDepth ?? 0,
-      );
+      // "After another workflow finishes": a Test run never starts the next workflow.
+      if (!isTest) {
+        await fireWorkflowCompleteTriggers(this.env, finalizeDb, {
+          workflowId: params.workflowId,
+          workflowName,
+          executionId,
+          workspaceId: params.workspaceId,
+          userId: params.userId,
+          succeeded,
+          output: result.output,
+          chainDepth: params.chainDepth ?? 0,
+        });
+      }
 
       if (!isTest && params.source !== 'helpdesk') {
         const [owner] = await finalizeDb
@@ -354,8 +340,9 @@ export default {
           console.error('[ScheduleSweep] Failed:', err);
         }),
       );
-      // AI gateway credit rollup — this worker owns the only cron in the fleet,
-      // so it is the single writer of the credit snapshot every worker routes on.
+      // AI gateway credit rollup. Production is the single writer of the credit
+      // snapshot (this cron, every minute). Test returns immediately — the
+      // query would keep the test master compute from scaling to zero.
       // Independent of the sweep: neither should be able to fail the other.
       ctx.waitUntil(
         runGatewayCreditRollup(env).catch((err) => {

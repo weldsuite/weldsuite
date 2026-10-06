@@ -348,7 +348,8 @@ export interface WorkflowVariable {
   type: string;
   value: string;
   isSecret: boolean;
-  isGlobal: boolean;
+  /** `global` (no workflowId; every workflow sees it) or `workflow`. */
+  scope: string;
   workflowId: string | null;
   createdBy: string | null;
   createdAt: string;

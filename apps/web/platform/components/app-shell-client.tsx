@@ -23,6 +23,7 @@ const GlobalFloatingCall = lazy(() =>
   import('@/components/weldcrm/calls/global-floating-call').then((m) => ({ default: m.GlobalFloatingCall })),
 );
 import { PlatformShell } from '@/components/layout/platform-shell';
+import { CommandPalette } from '@/components/layout/command-palette';
 import { WorkspaceLockGate } from '@/components/billing/workspace-lock-gate';
 import { WeldChatCallProvider } from '@/contexts/weldchat-call-context';
 import { WeldMeetCallProvider } from '@/contexts/weldmeet-call-context';
@@ -189,6 +190,7 @@ export function AppShellClient({ children }: AppShellClientProps) {
     if (isEmbeddedRoute) {
       return (
         <div className="h-screen w-full flex flex-col overflow-hidden">
+          <CommandPalette />
           {children}
         </div>
       );
@@ -236,6 +238,7 @@ export function AppShellClient({ children }: AppShellClientProps) {
                       routes short-circuit earlier (isMinimalRoute) and never
                       reach this gate. */}
                   <WorkspaceLockGate>
+                    <CommandPalette />
                     <DesktopNotificationBridge />
                     <PlatformShell>
                       {children}

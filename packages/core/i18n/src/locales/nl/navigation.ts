@@ -118,7 +118,6 @@ export const navigation = {
         evaluations: 'Beoordelingen',
         performance: "KPI's & mijlpalen",
         portal: 'Medewerkersportaal',
-        settings: 'Instellingen',
         groups: {
           people: 'Mensen',
           time: 'Tijd',

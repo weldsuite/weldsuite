@@ -74,6 +74,8 @@ export type TriggerType =
 /** Cloudflare Worker env / service bindings available to the engine. */
 export interface WorkflowEnv {
   [key: string]: unknown;
+  /** `development` | `test` | `production`, from wrangler `[vars]`. */
+  ENVIRONMENT?: string;
   // Tenant DB resolution
   DATABASE_URL_MASTER?: string;
   NEON_API_KEY?: string;
@@ -213,7 +215,8 @@ export interface StepRuntime {
    */
   do<T>(name: string, fn: () => Promise<T>, opts?: { engineRetries?: boolean }): Promise<T>;
   sleep(name: string, ms: number): Promise<void>;
-  waitForEvent<T = unknown>(name: string, opts: { type: string; timeoutMs?: number }): Promise<T>;
+  /** Throws when `timeout` (a duration like `'7 days'`, or ms) passes without the event. */
+  waitForEvent<T = unknown>(name: string, opts: { type: string; timeout?: string | number }): Promise<T>;
 }
 
 export type StepStatus = 'completed' | 'failed' | 'skipped' | 'waiting_for_input';

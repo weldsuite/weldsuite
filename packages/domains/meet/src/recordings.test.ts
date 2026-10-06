@@ -71,6 +71,18 @@ describe('recording parts', () => {
     expect(mirrorLatestReadyPart([]).recordingVideoKey).toBeNull();
   });
 
+  it('stores whole seconds in the integer duration column, keeping the part exact', () => {
+    // RealtimeKit reports e.g. 10.444; writing that to `recording_duration_seconds`
+    // failed the update and marked a finished recording as failed.
+    const parts = [part({ status: 'ready', videoKey: 'v', sizeBytes: 414805, durationSeconds: 10.444 })];
+    const patch = recordingPatchFromParts(parts);
+    expect(patch.recordingDurationSeconds).toBe(10);
+    expect(patch.recordingParts[0]!.durationSeconds).toBe(10.444);
+    expect(mirrorLatestReadyPart([part({ status: 'ready', durationSeconds: 89.5 })]).recordingDurationSeconds).toBe(90);
+    expect(mirrorLatestReadyPart([part({ status: 'ready', durationSeconds: 0 })]).recordingDurationSeconds).toBe(0);
+    expect(mirrorLatestReadyPart([part({ status: 'ready', durationSeconds: null })]).recordingDurationSeconds).toBeNull();
+  });
+
   it('builds the full patch, flagging recordingEnabled only while recording', () => {
     const now = new Date('2026-10-02T12:00:00.000Z');
     const recording = recordingPatchFromParts([part({ status: 'recording' })], now);

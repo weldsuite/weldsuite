@@ -119,6 +119,73 @@ describe('EventDetailPanel status (TASK-887)', () => {
   });
 });
 
+describe('EventDetailPanel status with guests (TASK-935)', () => {
+  const withGuest = { attendees: [{ email: 'guest@example.com', name: 'Guest' }] };
+
+  it('asks whether to notify before cancelling, and sends the cancellation by default', async () => {
+    renderPanel(withGuest);
+
+    pick('Confirmed', 'Cancelled');
+    // Nothing is saved until the dialog is answered.
+    expect(updateMutate).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText('Send cancellation email to all participants')).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel event' }));
+    expect(updateMutate).toHaveBeenCalledWith(
+      { id: 'evt_1', data: { status: 'cancelled' }, sendNotification: true },
+      expect.any(Object),
+    );
+  });
+
+  it('cancels without mail when the checkbox is cleared', async () => {
+    renderPanel(withGuest);
+
+    pick('Confirmed', 'Cancelled');
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('checkbox'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel event' }));
+
+    expect(updateMutate).toHaveBeenCalledWith(
+      { id: 'evt_1', data: { status: 'cancelled' }, sendNotification: false },
+      expect.any(Object),
+    );
+  });
+
+  it('leaves the event as it was when the dialog is dismissed', async () => {
+    renderPanel(withGuest);
+
+    pick('Confirmed', 'Cancelled');
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep event' }));
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it('asks whether to tell guests a cancelled event is on again', async () => {
+    renderPanel({ ...withGuest, status: 'cancelled' });
+
+    pick('Cancelled', 'Confirmed');
+    expect(updateMutate).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText('Let all participants know the event is on again')).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    expect(updateMutate).toHaveBeenCalledWith(
+      { id: 'evt_1', data: { status: 'confirmed' }, sendNotification: true },
+      expect.any(Object),
+    );
+  });
+
+  it('saves confirmed <-> tentative at once: guests are still expected either way', () => {
+    renderPanel(withGuest);
+    pick('Confirmed', 'Tentative');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(updateMutate).toHaveBeenCalledWith({ id: 'evt_1', data: { status: 'tentative' } }, expect.any(Object));
+  });
+});
+
 describe('EventDetailPanel selectors (TASK-888, TASK-895)', () => {
   it('names the type like the toolbar filter and closes the popover on select', async () => {
     renderPanel({ type: 'reminder' });

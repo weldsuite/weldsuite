@@ -9,14 +9,15 @@ import { useTemplatePicker } from '@/app/settings/object-templates/use-template-
 import { TemplateFieldsRenderer } from '@/app/settings/object-templates/template-fields-renderer';
 import { DialogFooter } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
+import { personSeedFromQuery } from '@/app/weldcrm/people/lib/person-seed';
 
 /**
  * Create-a-Person form body — the `<form>` only, with no surrounding dialog.
  *
  * Rendered both by {@link QuickAddPersonDialog} (its own modal) and inline as a
  * second "page" of the list add-member picker (Attio-style back navigation).
- * Mount it fresh per use; it derives its initial values from `initialName` and
- * does not reset itself.
+ * Mount it fresh per use; it derives its initial values from `initialName`
+ * (a name, an email, or "Name <email>") and does not reset itself.
  */
 
 const schema = z
@@ -39,7 +40,10 @@ const schema = z
 type FormValues = z.infer<typeof schema>;
 
 interface Props {
-  /** Prefill the name fields (e.g. from a search term that found no match). */
+  /**
+   * Prefill from a people-search query. An email fills the email field, a
+   * name fills first/last name, and "Name <email>" fills both.
+   */
   initialName?: string;
   /** Fired with the created record after a successful save. */
   onCreated?: (person: Person) => void;
@@ -53,17 +57,18 @@ export function QuickAddPersonForm({ initialName, onCreated, onCancel }: Readonl
   const picker = useTemplatePicker('person');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const trimmed = initialName?.trim() ?? '';
-  const [firstPart, ...restParts] = trimmed.split(/\s+/);
+  const seed = personSeedFromQuery(initialName ?? '');
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      firstName: trimmed ? firstPart ?? '' : '',
-      lastName: trimmed ? restParts.join(' ') : '',
-      email: '',
+      firstName: seed.firstName,
+      lastName: seed.lastName,
+      email: seed.email,
       title: '',
       directPhone: '',
+      mobilePhone: '',
+      department: '',
       customFields: {},
     },
   });
@@ -96,7 +101,9 @@ export function QuickAddPersonForm({ initialName, onCreated, onCancel }: Readonl
 
       {form.formState.errors.firstName && (
         <p className="text-xs text-destructive">
-          {form.formState.errors.firstName.message as string}
+          {form.formState.errors.firstName.type === 'custom'
+            ? t('crm.quickAddPerson.validationAtLeastOne')
+            : (form.formState.errors.firstName.message as string)}
         </p>
       )}
 

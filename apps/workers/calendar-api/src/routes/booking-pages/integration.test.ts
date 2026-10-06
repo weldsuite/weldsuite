@@ -175,6 +175,15 @@ describe('/api/booking-pages · pglite integration', () => {
       body: JSON.stringify({ ...basePage('-badrange'), availability: mondayOnly('18:00', '17:00') }),
     });
     expect(res.status).toBe(400);
+    // The standard error envelope, not zod-validator's `{ success: false, error: ZodError }`.
+    const body = (await res.json()) as {
+      success?: boolean;
+      error: { code: string; message: string; details: { issues: Array<{ path: string; message: string }> } };
+    };
+    expect(body.success).toBeUndefined();
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toContain('availability.monday');
+    expect(body.error.details.issues[0].path).toMatch(/^availability.monday/);
   });
 
   it('POST / rejects overlapping ranges on the same day but allows touching ranges', async () => {
@@ -235,6 +244,9 @@ describe('/api/booking-pages · pglite integration', () => {
       body: JSON.stringify({ availability: mondayOnly('18:00', '17:00') }),
     });
     expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toContain('availability.monday');
   });
 
   it('persists custom form fields as questions on create and update', async () => {

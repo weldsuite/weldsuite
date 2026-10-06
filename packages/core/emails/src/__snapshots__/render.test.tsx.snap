@@ -480,6 +480,42 @@ Of open deze link: https://zoom.us/j/123456789
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'calendar.event' / 'restored' / 'en' > matches the text snapshot 1`] = `
+"Back on: Quarterly planning
+
+Sanne de Vries put a cancelled event back on.
+
+Quarterly planning
+
+When: Monday, October 12, 2026 at 3:00 PM – 4:30 PM GMT+2
+
+Join WeldMeet meeting https://meet.weldsuite.org/r/abc-defg-hij
+
+View in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+Or open this link: https://meet.weldsuite.org/r/abc-defg-hij
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'calendar.event' / 'restored' / 'nl' > matches the text snapshot 1`] = `
+"Gaat toch door: Quarterly planning
+
+Sanne de Vries laat een geannuleerde afspraak toch doorgaan.
+
+Quarterly planning
+
+Wanneer: maandag 12 oktober 2026 om 15:00 – 16:30 CEST
+
+Deelnemen aan WeldMeet-vergadering https://meet.weldsuite.org/r/abc-defg-hij
+
+Bekijken in WeldCalendar https://app.weldsuite.org/weldcalendar
+
+Of open deze link: https://meet.weldsuite.org/r/abc-defg-hij
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'flow.digest' / 'default' / 'en' > matches the text snapshot 1`] = `
 "Your tasks: 1 overdue
 
