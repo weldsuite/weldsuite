@@ -190,6 +190,8 @@ export interface ProjectTask {
   title: string;
   description?: string | null;
   key?: string | null;
+  /** Workspace-wide sequential number, shown as `TASK-<number>`. Null on pre-backfill rows. */
+  number?: number | null;
   status: string;
   priority: string;
   progress: string;
