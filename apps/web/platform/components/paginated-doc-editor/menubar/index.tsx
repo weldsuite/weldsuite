@@ -41,7 +41,7 @@ export function PaginatedDocMenubar({ cmd, actions, editable = true }: Paginated
           '[data-menu-value]',
         ) as HTMLElement | null;
         if (!trigger) return;
-        const next = trigger.getAttribute('data-menu-value');
+        const next = trigger.dataset.menuValue;
         if (next && next !== value) setValue(next);
       }}
       className={

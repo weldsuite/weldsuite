@@ -2303,6 +2303,43 @@ app.post(
   },
 );
 
+/** The dependency lists a PATCH echoes back: only the ones the body sent. */
+function dependencyEchoFor(
+  plan: DependencyPlan | null,
+  sent: { dependsOn?: unknown; blocks?: unknown },
+): { dependsOn?: string[]; blocks?: string[] } {
+  if (!plan) return {};
+  return {
+    ...(sent.dependsOn !== undefined && { dependsOn: plan.dependsOn }),
+    ...(sent.blocks !== undefined && { blocks: plan.blocks }),
+  };
+}
+
+/** Assignment notifications for the assignees a PATCH newly added. */
+function notifyAddedAssigneesOnUpdate(
+  c: TaskCtx,
+  args: {
+    id: string;
+    existing: any;
+    update: Record<string, any>;
+    data: Record<string, any>;
+  },
+): void {
+  const { id, existing, update, data } = args;
+  const addedAssignees = newlyAddedAssignees(existing, update);
+  if (addedAssignees.length === 0) return;
+  dispatchAssignmentNotifications(c, {
+    assigneeIds: addedAssignees,
+    taskId: id,
+    taskTitle: (data.title as string) || existing.title,
+    projectId: existing.projectId ?? null,
+    taskPriority: (data.priority as string | null) ?? existing.priority ?? null,
+    dueDate: resolveUpdatedDate(data.dueDate, existing.dueDate),
+    taskDescription:
+      data.description !== undefined ? (data.description as string | null) : existing.description,
+  });
+}
+
 // ============================================================================
 // PATCH /:id — Full update with calendar sync, recurrence, notifications
 // ============================================================================
@@ -2340,12 +2377,7 @@ app.patch(
         if (!plan.ok) return dependencyFailureResponse(c, id, plan);
         dependencyPlan = plan;
       }
-      const dependencyEcho: { dependsOn?: string[]; blocks?: string[] } = dependencyPlan
-        ? {
-            ...(dependsOn !== undefined && { dependsOn: dependencyPlan.dependsOn }),
-            ...(blocks !== undefined && { blocks: dependencyPlan.blocks }),
-          }
-        : {};
+      const dependencyEcho = dependencyEchoFor(dependencyPlan, { dependsOn, blocks });
 
       const update = buildTaskUpdate(data);
 
@@ -2377,22 +2409,7 @@ app.patch(
         resolvedStatus,
       );
 
-      // Assignment notifications for newly added assignees
-      const addedAssignees = newlyAddedAssignees(existing, update);
-      if (addedAssignees.length > 0) {
-        dispatchAssignmentNotifications(c, {
-          assigneeIds: addedAssignees,
-          taskId: id,
-          taskTitle: (data.title as string) || (existing as any).title,
-          projectId: (existing as any).projectId ?? null,
-          taskPriority: (data.priority as string | null) ?? (existing as any).priority ?? null,
-          dueDate: resolveUpdatedDate(data.dueDate, (existing as any).dueDate),
-          taskDescription:
-            data.description !== undefined
-              ? (data.description as string | null)
-              : (existing as any).description,
-        });
-      }
+      notifyAddedAssigneesOnUpdate(c, { id, existing, update, data });
 
       publishEntityEvent({
         c,
