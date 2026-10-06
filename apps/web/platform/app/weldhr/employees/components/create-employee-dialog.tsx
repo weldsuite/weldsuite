@@ -1,6 +1,6 @@
-/** "New employee" dialog: core fields, optional onboarding checklist, optional first client assignment. */
+/** "New employee" dialog: blank form or prefill from an active workspace member. */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -24,6 +24,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@weldsuite/ui/components/form';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { usePermissions } from '@weldsuite/permissions/react';
 import {
   hrEmployeeStatusSchema,
   hrEmploymentTypeSchema,
@@ -31,9 +32,12 @@ import {
 import {
   useCreateHrAssignment,
   useCreateHrEmployee,
+  useCreateHrEmployeeFromMember,
   useHrChecklistTemplates,
   useHrDepartments,
+  useHrEmployees,
 } from '@/hooks/queries/use-weldhr-queries';
+import { useTeamMembers } from '@/hooks/queries/use-team-queries';
 import {
   EmployeePicker,
   CompanyPicker,
@@ -60,19 +64,55 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
+type CreateMode = 'blank' | 'fromMember';
+
+function splitName(name: string | null | undefined): { firstName: string; lastName: string } {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: '', lastName: '' };
+  if (parts.length === 1) return { firstName: parts[0]!, lastName: parts[0]! };
+  return { firstName: parts[0]!, lastName: parts.slice(1).join(' ') };
+}
 
 export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void }>) {
   const t = useTranslations();
   const navigate = useNavigate();
+  const { can } = usePermissions();
   const createEmployee = useCreateHrEmployee();
+  const createFromMember = useCreateHrEmployeeFromMember();
   const createAssignment = useCreateHrAssignment();
   const { data: departments } = useHrDepartments();
   const { data: templates } = useHrChecklistTemplates('onboarding');
+  const canReadTeam = can('team:read');
+  const { data: membersResponse } = useTeamMembers(
+    canReadTeam ? { limit: 100, status: 'ACTIVE', memberType: 'INTERNAL' } : undefined,
+  );
+  const { data: linkedEmployees } = useHrEmployees({ limit: 200 });
+  const [mode, setMode] = useState<CreateMode>('blank');
+  const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
   const [managerLabel, setManagerLabel] = useState<string | null>(null);
   const [companyLabel, setCompanyLabel] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   const defaultTemplateId = templates?.find((tpl) => tpl.isDefault)?.id;
+
+  const linkedUserIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const emp of linkedEmployees?.data ?? []) {
+      if (emp.userId) ids.add(emp.userId);
+    }
+    return ids;
+  }, [linkedEmployees]);
+
+  const availableMembers = useMemo(() => {
+    const members = membersResponse?.data ?? [];
+    return members.filter(
+      (m) =>
+        m.status === 'ACTIVE' &&
+        m.memberType !== 'EXTERNAL_GUEST' &&
+        !m.userId.startsWith('invited_') &&
+        !linkedUserIds.has(m.userId),
+    );
+  }, [membersResponse, linkedUserIds]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -94,12 +134,54 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
     },
   });
 
-  const isSubmitting = createEmployee.isPending || createAssignment.isPending;
+  const isSubmitting =
+    createEmployee.isPending || createFromMember.isPending || createAssignment.isPending;
+
+  function applyMember(userId: string) {
+    const member = availableMembers.find((m) => m.userId === userId);
+    setSelectedUserId(userId);
+    if (!member) return;
+    const names = splitName(member.name);
+    form.setValue('firstName', names.firstName);
+    form.setValue('lastName', names.lastName);
+    form.setValue('email', member.email ?? '');
+    if ('phone' in member && typeof member.phone === 'string') {
+      form.setValue('phone', member.phone);
+    }
+  }
+
+  function switchMode(next: CreateMode) {
+    setMode(next);
+    setFailure(null);
+    setSelectedUserId(undefined);
+    form.reset({
+      firstName: '',
+      lastName: '',
+      preferredName: '',
+      email: '',
+      phone: '',
+      jobTitle: '',
+      employmentType: 'full_time',
+      status: 'onboarding',
+      startDate: todayIso(),
+      departmentId: undefined,
+      managerId: undefined,
+      onboardingTemplateId: undefined,
+      assignCompanyId: undefined,
+      assignRole: '',
+    });
+    setManagerLabel(null);
+    setCompanyLabel(null);
+  }
 
   async function onSubmit(values: FormValues) {
     setFailure(null);
+    if (mode === 'fromMember' && !selectedUserId) {
+      setFailure(t('weldhr.employees.create.fromMemberRequired'));
+      return;
+    }
     try {
-      const created = await createEmployee.mutateAsync({
+      const payload = {
         firstName: values.firstName.trim(),
         lastName: values.lastName.trim(),
         preferredName: values.preferredName?.trim() || null,
@@ -112,7 +194,12 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
         departmentId: values.departmentId || null,
         managerId: values.managerId || null,
         onboardingTemplateId: values.onboardingTemplateId || undefined,
-      });
+      };
+
+      const created =
+        mode === 'fromMember' && selectedUserId
+          ? await createFromMember.mutateAsync({ ...payload, userId: selectedUserId })
+          : await createEmployee.mutateAsync(payload);
 
       if (values.assignCompanyId) {
         try {
@@ -145,6 +232,53 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
+
+            {canReadTeam && (
+              <div className="space-y-2">
+                <Label>{t('weldhr.employees.create.sourceLabel')}</Label>
+                <Select value={mode} onValueChange={(v) => switchMode(v as CreateMode)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="blank">{t('weldhr.employees.create.sourceBlank')}</SelectItem>
+                    <SelectItem value="fromMember">{t('weldhr.employees.create.sourceFromMember')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {mode === 'fromMember' && (
+              <div className="space-y-2">
+                <Label>{t('weldhr.employees.create.teamMember')}</Label>
+                <Select
+                  value={selectedUserId ?? '__none'}
+                  onValueChange={(v) => {
+                    if (v === '__none') {
+                      setSelectedUserId(undefined);
+                      return;
+                    }
+                    applyMember(v);
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t('weldhr.employees.create.teamMemberPlaceholder')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">{t('weldhr.employees.create.teamMemberPlaceholder')}</SelectItem>
+                    {availableMembers.map((member) => (
+                      <SelectItem key={member.userId} value={member.userId}>
+                        {member.name || member.email || member.userId}
+                        {member.email ? ` · ${member.email}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {availableMembers.length === 0 && (
+                  <p className="text-xs text-muted-foreground">{t('weldhr.employees.create.noMembersAvailable')}</p>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <FormField
@@ -402,7 +536,7 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
               <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
                 {t('weldhr.common.cancel')}
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || (mode === 'fromMember' && !selectedUserId)}>
                 {isSubmitting ? t('weldhr.common.saving') : t('weldhr.employees.create.submit')}
               </Button>
             </DialogFooter>
