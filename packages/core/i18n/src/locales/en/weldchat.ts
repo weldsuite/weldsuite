@@ -58,6 +58,7 @@ export const weldchat = {
     },
     callRoom: {
       connecting: 'Connecting...',
+      reconnecting: 'Connection lost. Reconnecting…',
       callEnded: 'Call ended',
       unableToJoin: 'Unable to join call',
       callLinkExpired: 'The call link may have expired.',
@@ -70,6 +71,9 @@ export const weldchat = {
     calling: {
       ringing: 'Ringing…',
       autoEnded: 'Call ended automatically after 3 minutes alone.',
+      reconnecting: 'Connection lost. Reconnecting…',
+      reconnected: 'You are back in the call',
+      connectionLost: "Couldn't reconnect to the call. Call again to continue.",
     },
     callOverlay: {
       microphone: 'Microphone',

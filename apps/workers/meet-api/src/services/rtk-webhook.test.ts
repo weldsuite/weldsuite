@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { applyParticipantJoined, applyParticipantLeft, findLeavingParticipant } from './rtk-webhook';
+import {
+  applyParticipantJoined,
+  applyParticipantLeft,
+  findLeavingCallParticipant,
+  findLeavingParticipant,
+} from './rtk-webhook';
 
 const ids = (over: Partial<Parameters<typeof findLeavingParticipant>[1]> = {}) => ({
   cfSessionId: undefined,
@@ -56,6 +61,47 @@ describe('findLeavingParticipant · connection that predates the latest join', (
     ];
     const leave = ids({ leftAt: '2026-10-02T10:40:00.000Z', peerJoinedAt: '2026-10-02T10:20:04.000Z' });
     expect(findLeavingParticipant(participants, leave)).toBe(0);
+  });
+});
+
+describe('findLeavingCallParticipant', () => {
+  const callParticipant = (userId: string, joinedAt: string, extra: { leftAt?: string } = {}) => ({
+    userId,
+    userName: userId,
+    joinedAt,
+    cfSessionId: `cf_${userId}`,
+    hasAudio: false,
+    hasVideo: false,
+    hasScreenShare: false,
+    ...extra,
+  });
+
+  it('ignores the leave of the connection a participant had before they rejoined the call', () => {
+    // Rejoined at 10:20 (a fresh entry); the session they had since 10:00 is
+    // evicted by that join and RealtimeKit reports its leave afterwards.
+    const participants = [callParticipant('user_1', '2026-10-02T10:20:00.000Z')];
+    const leave = ids({ leftAt: '2026-10-02T10:20:02.000Z', peerJoinedAt: '2026-10-02T10:00:05.000Z' });
+    expect(findLeavingCallParticipant(participants, leave)).toBe(-1);
+  });
+
+  it('matches the leave of the connection that belongs to the current join', () => {
+    const participants = [callParticipant('user_1', '2026-10-02T10:20:00.000Z')];
+    const leave = ids({ leftAt: '2026-10-02T10:40:00.000Z', peerJoinedAt: '2026-10-02T10:20:04.000Z' });
+    expect(findLeavingCallParticipant(participants, leave)).toBe(0);
+  });
+
+  it('matches a leave that does not say when its connection joined', () => {
+    const participants = [callParticipant('user_1', '2026-10-02T10:20:00.000Z')];
+    expect(findLeavingCallParticipant(participants, ids({ leftAt: '2026-10-02T10:40:00.000Z' }))).toBe(0);
+  });
+
+  it('returns the index in the stored list and skips entries that already left', () => {
+    const participants = [
+      callParticipant('user_2', '2026-10-02T10:00:00.000Z'),
+      callParticipant('user_1', '2026-10-02T10:00:00.000Z', { leftAt: '2026-10-02T10:05:00.000Z' }),
+    ];
+    expect(findLeavingCallParticipant(participants, ids())).toBe(-1);
+    expect(findLeavingCallParticipant(participants, ids({ customId: 'user_2' }))).toBe(0);
   });
 });
 

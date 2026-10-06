@@ -5,7 +5,7 @@
  * (legacy worker phase-out, W3). Handles meeting.ended,
  * meeting.participantJoined and meeting.participantLeft events. Meeting/call
  * end goes through the lifecycle services (endMeetingSessionIfEmpty /
- * endChatCall), which already publish their own realtime events.
+ * endChatCallIfEmpty), which already publish their own realtime events.
  *
  * Presence is tracked per CONNECTION (RealtimeKit peer), not per user: the
  * payload identifies the peer that joined or left, and one participant can
@@ -42,7 +42,7 @@ import {
   type RecordingPart,
 } from '@weldsuite/meet-domain/recordings';
 import { endMeetingSession, endMeetingSessionIfEmpty } from './weldmeet/meeting-lifecycle';
-import { endChatCall } from '@weldsuite/chat-domain/call-lifecycle';
+import { endChatCall, endChatCallIfEmpty } from '@weldsuite/chat-domain/call-lifecycle';
 
 // ============================================================================
 // Types
@@ -258,21 +258,44 @@ export async function handleMeetingEnded(
     }
     console.log(`[RTK Webhook] Ended session ${logSafe(mapping.sessionId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
   } else if (mapping.type === 'call' && mapping.callId) {
-    const { chatCalls } = schema;
-    const [call] = await db
-      .select()
-      .from(chatCalls)
-      .where(eq(chatCalls.id, mapping.callId))
-      .limit(1);
-
-    if (!call || call.status === 'ended') {
-      console.log(`[RTK Webhook] Call ${mapping.callId} already ended or not found`);
-      return;
-    }
-
-    await endChatCall(db, env, mapping.orgId, mapping.callId, call, call.initiatorId);
-    console.log(`[RTK Webhook] Ended call ${logSafe(mapping.callId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
+    await handleCallMeetingEnded(env, db, mapping.orgId, mapping.callId, rtkMeetingId);
   }
+}
+
+/** meeting.ended for a WeldChat call. */
+async function handleCallMeetingEnded(
+  env: Env,
+  db: TenantDb,
+  orgId: string,
+  callId: string,
+  rtkMeetingId: string,
+): Promise<void> {
+  const { chatCalls } = schema;
+  const [call] = await db
+    .select()
+    .from(chatCalls)
+    .where(eq(chatCalls.id, callId))
+    .limit(1);
+
+  if (!call || call.status === 'ended') {
+    console.log(`[RTK Webhook] Call ${callId} already ended or not found`);
+    return;
+  }
+
+  // Same guard as for a session: a late or replayed meeting.ended must not
+  // throw out the people who are in the call's room now.
+  const outcome = await endChatCallIfEmpty(db, env, orgId, callId, call, call.initiatorId);
+  if (outcome === 'occupied') {
+    console.log(
+      `[RTK Webhook] meeting.ended for ${logSafe(rtkMeetingId)} ignored: the call has live participants`,
+    );
+    return;
+  }
+  if (outcome === 'unknown') {
+    // RealtimeKit could not be asked, but it is RealtimeKit that reported the end.
+    await endChatCall(db, env, orgId, callId, call, call.initiatorId);
+  }
+  console.log(`[RTK Webhook] Ended call ${logSafe(callId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
 }
 
 /** Match a stored participant against the RTK ids (cfSessionId first, then app-controlled id). */
@@ -483,6 +506,28 @@ async function handleSessionParticipantJoined(
   await publishSessionParticipantsChanged(env, db, orgId, written.session, written.result.participants);
 }
 
+/**
+ * {@link findLeavingParticipant} for a WeldChat call. Every join of a call
+ * writes a fresh entry, so its `joinedAt` is the participant's latest join: a
+ * connection that started before it is the one they had before rejoining (a
+ * reloaded tab, or the session evicted when they joined again) and its leave
+ * must not mark them as left.
+ *
+ * Calls keep no per-connection state beyond this. A participant the SDK
+ * reconnected on its own can still be recorded as left while present; that
+ * only makes the list wrong, because nothing ends a call from the list alone
+ * (see endChatCallIfEmpty).
+ */
+export function findLeavingCallParticipant(
+  participants: ReadonlyArray<ChatCallParticipant>,
+  ids: LeftParticipantIds,
+): number {
+  return findLeavingParticipant(
+    participants.map((p) => ({ ...p, lastJoinAt: p.joinedAt })),
+    ids,
+  );
+}
+
 async function handleCallParticipantLeft(
   env: Env,
   db: TenantDb,
@@ -500,7 +545,7 @@ async function handleCallParticipantLeft(
   if (!call || call.status === 'ended') return;
 
   const participants: ChatCallParticipant[] = [...(call.participants ?? [])];
-  const idx = findLeavingParticipant(participants, ids);
+  const idx = findLeavingCallParticipant(participants, ids);
   if (idx < 0) return;
 
   participants[idx] = { ...participants[idx], leftAt: new Date().toISOString() };

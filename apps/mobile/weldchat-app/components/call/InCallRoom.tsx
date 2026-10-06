@@ -43,6 +43,7 @@ function JoinedCallBody({
   peerAvatar,
   callType,
   duration,
+  reconnecting,
   onMinimize,
   onLeave,
 }: Readonly<{
@@ -51,6 +52,8 @@ function JoinedCallBody({
   peerAvatar?: string;
   callType: 'voice' | 'video';
   duration: number;
+  /** The connection dropped and the SDK is restoring it. */
+  reconnecting?: boolean;
   onMinimize: () => void;
   onLeave: () => void;
 }>) {
@@ -87,13 +90,13 @@ function JoinedCallBody({
   }, [meeting]);
 
   const toggleMute = useCallback(() => {
-    if (meeting.self.audioEnabled) meeting.self.disableAudio();
-    else meeting.self.enableAudio();
+    if (meeting.self.audioEnabled) void meeting.self.disableAudio();
+    else void meeting.self.enableAudio();
   }, [meeting]);
 
   const toggleVideo = useCallback(() => {
-    if (meeting.self.videoEnabled) meeting.self.disableVideo();
-    else meeting.self.enableVideo();
+    if (meeting.self.videoEnabled) void meeting.self.disableVideo();
+    else void meeting.self.enableVideo();
   }, [meeting]);
 
   const initial = (peerName ?? '?').trim()[0]?.toUpperCase() ?? '?';
@@ -115,7 +118,7 @@ function JoinedCallBody({
             {peerName || (isVideo ? 'Video call' : 'Voice call')}
           </Text>
           <Text style={[styles.headerSubtitle, { color: colors.muted }]}>
-            {formatDuration(duration)}
+            {reconnecting ? 'Reconnecting…' : formatDuration(duration)}
           </Text>
         </View>
         <View style={styles.headerBtn} />
@@ -188,6 +191,7 @@ export function InCallRoom({
   peerAvatar,
   callType,
   duration,
+  reconnecting,
   onMinimize,
   onLeave,
 }: Readonly<{
@@ -196,6 +200,8 @@ export function InCallRoom({
   peerAvatar?: string;
   callType: 'voice' | 'video';
   duration: number;
+  /** The connection dropped and the SDK is restoring it. */
+  reconnecting?: boolean;
   onMinimize: () => void;
   onLeave: () => void;
 }>) {
@@ -207,6 +213,7 @@ export function InCallRoom({
         peerAvatar={peerAvatar}
         callType={callType}
         duration={duration}
+        reconnecting={reconnecting}
         onMinimize={onMinimize}
         onLeave={onLeave}
       />
