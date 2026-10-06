@@ -240,7 +240,7 @@ export function GuestSearchInput({
             role="option"
             aria-selected={results[activeIndex]?.id === item.id}
             className={cn(
-              'w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent transition-colors',
+              'h-auto w-full justify-start whitespace-normal px-3 py-2 text-left hover:bg-accent',
               results[activeIndex]?.id === item.id && 'bg-accent',
             )}
             onMouseDown={(e) => pickWithMouse(e, item)}
@@ -278,8 +278,10 @@ export function GuestSearchInput({
   };
 
   const hasMembers = results.some((r) => r.type === 'member');
-  const hasContacts = results.some((r) => r.type === 'contact');
+  const contactCount = results.filter((r) => r.type === 'contact').length;
+  const hasContacts = contactCount > 0;
   const hasInvite = results.some((r) => r.type === 'invite');
+  const peopleLabel = contactCount === 1 ? t.eventPreview.personGroup : t.eventPreview.peopleGroup;
 
   let guestSearchPlaceholder = t.eventPreview.searchMembersContacts;
   if (membersOnly) guestSearchPlaceholder = t.eventPreview.searchMembersOnly;
@@ -311,7 +313,7 @@ export function GuestSearchInput({
         >
           {renderGroup('member', t.eventPreview.teamMembersGroup, 'bg-blue-500/10 text-blue-600')}
           {hasMembers && hasContacts && <Separator />}
-          {renderGroup('contact', t.eventPreview.contactsGroup, 'bg-primary/10 text-primary')}
+          {renderGroup('contact', peopleLabel, 'bg-primary/10 text-primary')}
           {(hasMembers || hasContacts) && hasInvite && <Separator />}
           {renderGroup('invite', null, 'bg-primary/10 text-primary')}
           {(hasMembers || hasContacts || hasInvite) && results.some((r) => r.type === 'create') && <Separator />}

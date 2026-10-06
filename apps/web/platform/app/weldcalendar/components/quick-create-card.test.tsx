@@ -167,7 +167,7 @@ describe('QuickCreateCard WeldMeet', () => {
 describe('QuickCreateCard participants', () => {
   const openGuestSearch = () => {
     fireEvent.click(screen.getByText('Add participants'));
-    return screen.getByPlaceholderText(/Search team members, contacts or type an email/);
+    return screen.getByPlaceholderText(/Search team members, people or type an email/);
   };
 
   it('does not save the event when Enter is pressed in the participants search', async () => {
@@ -231,6 +231,31 @@ describe('QuickCreateCard participants', () => {
 
     expect(screen.getByText('Ann Has')).toBeInTheDocument();
     expect(screen.queryByText('Nora Mail')).not.toBeInTheDocument();
+    expect(screen.getByText('Person')).toBeInTheDocument();
+    expect(screen.queryByText('Contacts')).not.toBeInTheDocument();
+  });
+
+  it('labels several people as People and lines every result up on the left', () => {
+    memberRows.current = [{ id: 'm1', userId: 'user_gert', name: 'Gert van den Berg', email: 'gert@example.com' }];
+    peopleRows.current = [
+      { id: 'p1', firstName: 'Weld', lastName: 'Suite', fullName: 'WeldSuite', email: 'notifications@accounts.dev' },
+      { id: 'p2', firstName: 'Figma', lastName: '', fullName: 'Figma', email: 'events@figma.com' },
+    ];
+    renderCard();
+    const input = openGuestSearch();
+
+    fireEvent.change(input, { target: { value: 'e' } });
+
+    expect(screen.getByText('Team members')).toBeInTheDocument();
+    expect(screen.getByText('People')).toBeInTheDocument();
+    expect(screen.queryByText('Contacts')).not.toBeInTheDocument();
+    expect(screen.queryByText('Person')).not.toBeInTheDocument();
+
+    for (const name of ['Gert van den Berg', 'WeldSuite', 'Figma']) {
+      const option = screen.getByRole('option', { name: new RegExp(name) });
+      expect(option.className).toContain('justify-start');
+      expect(option.className).not.toContain('justify-center');
+    }
   });
 
   it('does not offer an invite for an address that is already listed', () => {
