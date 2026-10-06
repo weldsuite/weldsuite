@@ -45,6 +45,7 @@ import { EditEmployeeDialog } from '../components/edit-employee-dialog';
 import { LifecycleStartDialog } from '../components/lifecycle-start-dialog';
 import { AssignmentDialog } from '../components/assignment-dialog';
 import { SensitivePanel } from '../components/sensitive-panel';
+import { EmployeeWorkspaceMemberCard } from '../components/workspace-member-card';
 
 type TabId = 'overview' | 'clients' | 'personal' | 'lifecycle' | 'attendance' | 'leave' | 'coaching' | 'evaluations' | 'performance';
 
@@ -167,7 +168,13 @@ export default function WeldHrEmployeeDetailPage() {
 
       <DetailTabs tabs={tabs} activeTab={activeTab} onTabChange={(v) => setTab(v as TabId)} />
 
-      {activeTab === 'overview' && <OverviewTab employee={employee} canManagePortal={canManagePortal} />}
+      {activeTab === 'overview' && (
+        <OverviewTab
+          employee={employee}
+          canManagePortal={canManagePortal}
+          showWorkspaceCard={canUpdate || can('team:create') || can('team:read')}
+        />
+      )}
       {activeTab === 'clients' && <ClientsTab employeeId={employeeId} canUpdate={canUpdate} />}
       {activeTab === 'personal' && canSensitive && <SensitivePanel employeeId={employeeId} />}
       {activeTab === 'lifecycle' && <EmployeeLifecycleTab employeeId={employeeId} />}
@@ -203,9 +210,11 @@ export default function WeldHrEmployeeDetailPage() {
 function OverviewTab({
   employee,
   canManagePortal,
+  showWorkspaceCard,
 }: Readonly<{
   employee: NonNullable<ReturnType<typeof useHrEmployee>['data']>;
   canManagePortal: boolean;
+  showWorkspaceCard: boolean;
 }>) {
   const t = useTranslations();
   return (
@@ -264,6 +273,7 @@ function OverviewTab({
         )}
       </SectionCard>
 
+      {showWorkspaceCard && <EmployeeWorkspaceMemberCard employee={employee} />}
       {canManagePortal && <EmployeePortalAccessCard employeeId={employee.id} employeeStatus={employee.status} />}
     </div>
   );

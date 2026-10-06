@@ -237,6 +237,42 @@ async function assertEmailFree(db: Database, email: string, exceptId?: string) {
   }
 }
 
+async function assertUserIdFree(db: Database, userId: string | null | undefined, exceptId?: string) {
+  if (!userId) return;
+  const [dupe] = await db
+    .select({ id: t.id })
+    .from(t)
+    .where(and(eq(t.userId, userId), isNull(t.deletedAt)))
+    .limit(1);
+  if (dupe && dupe.id !== exceptId) {
+    throw new HrConflictError('Another employee is already linked to this workspace member');
+  }
+}
+
+/** Active Clerk-backed workspace member (not a pending invite placeholder). */
+export async function requireActiveWorkspaceMember(db: Database, userId: string) {
+  if (!userId || userId.startsWith('invited_')) {
+    throw new HrValidationError('That is not an active workspace member');
+  }
+  const [row] = await db
+    .select()
+    .from(schema.workspaceMembers)
+    .where(and(eq(schema.workspaceMembers.userId, userId), isNull(schema.workspaceMembers.deletedAt)))
+    .limit(1);
+  if (!row) throw new HrNotFoundError('Workspace member', userId);
+  if (row.status !== 'ACTIVE') {
+    throw new HrValidationError('Only active workspace members can be linked to an employee');
+  }
+  return row;
+}
+
+function splitMemberName(name: string | null | undefined): { firstName: string; lastName: string } {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: 'Unknown', lastName: 'Member' };
+  if (parts.length === 1) return { firstName: parts[0]!, lastName: parts[0]! };
+  return { firstName: parts[0]!, lastName: parts.slice(1).join(' ') };
+}
+
 async function assertManager(db: Database, managerId: string | null | undefined, selfId?: string) {
   if (!managerId) return;
   if (managerId === selfId) throw new HrValidationError('An employee cannot be their own manager');
@@ -283,6 +319,10 @@ export async function createEmployee(
   assertDateOrder(input.startDate, input.endDate, 'Employment');
   await assertEmailFree(db, input.email);
   await assertManager(db, input.managerId);
+  if (input.userId) {
+    await requireActiveWorkspaceMember(db, input.userId);
+    await assertUserIdFree(db, input.userId);
+  }
 
   const id = generateId('hremp');
   const sensitiveEncrypted =
@@ -303,6 +343,44 @@ export async function createEmployee(
   return row!;
 }
 
+/**
+ * Prefill a directory employee from an active workspace member and link
+ * `hr_employees.user_id` to their Clerk id.
+ */
+export async function createEmployeeFromMember(
+  db: Database,
+  input: EmployeeWriteInput & { userId: string },
+  opts: { createdBy: string; sensitive?: HrEmployeeSensitive; keyring?: EncryptionKeyring },
+): Promise<HrEmployee> {
+  const member = await requireActiveWorkspaceMember(db, input.userId);
+  if (!member.email && !input.email) {
+    throw new HrValidationError('This workspace member has no email address');
+  }
+  const names = splitMemberName(member.name);
+  return createEmployee(
+    db,
+    {
+      ...input,
+      firstName: input.firstName?.trim() || names.firstName,
+      lastName: input.lastName?.trim() || names.lastName,
+      email: (input.email ?? member.email)!.trim(),
+      phone: input.phone !== undefined ? input.phone : member.phone,
+      jobTitle: input.jobTitle !== undefined ? input.jobTitle : member.title,
+      avatarUrl: input.avatarUrl !== undefined ? input.avatarUrl : member.picture,
+      pronouns: input.pronouns !== undefined ? input.pronouns : member.pronouns,
+      location: input.location !== undefined ? input.location : member.location,
+      weeklyHours:
+        input.weeklyHours !== undefined
+          ? input.weeklyHours
+          : member.hoursPerWeek != null
+            ? Number(member.hoursPerWeek)
+            : null,
+      userId: member.userId,
+    },
+    opts,
+  );
+}
+
 export async function updateEmployee(db: Database, id: string, input: EmployeeWriteInput): Promise<HrEmployee> {
   const existing = await requireEmployee(db, id);
   assertDateOrder(
@@ -314,6 +392,12 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
     await assertEmailFree(db, input.email, id);
   }
   if (input.managerId !== undefined) await assertManager(db, input.managerId, id);
+  if (input.userId !== undefined && input.userId !== existing.userId) {
+    if (input.userId) {
+      await requireActiveWorkspaceMember(db, input.userId);
+      await assertUserIdFree(db, input.userId, id);
+    }
+  }
 
   const [row] = await db
     .update(t)

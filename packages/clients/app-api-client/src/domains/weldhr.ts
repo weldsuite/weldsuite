@@ -16,6 +16,7 @@ import type {
   CreateHrChecklistTemplateInput,
   CreateHrCoachingLogInput,
   CreateHrDepartmentInput,
+  CreateHrEmployeeFromMemberInput,
   CreateHrEmployeeInput,
   CreateHrEvaluationFormInput,
   CreateHrEvaluationInput,
@@ -629,6 +630,9 @@ export function createWeldHrApi(api: ClientApi) {
     },
     createEmployee(body: CreateHrEmployeeInput): Promise<DataResponse<HrEmployee>> {
       return api.post(`${base}/employees`, body);
+    },
+    createEmployeeFromMember(body: CreateHrEmployeeFromMemberInput): Promise<DataResponse<HrEmployee>> {
+      return api.post(`${base}/employees/from-member`, body);
     },
     updateEmployee(id: string, body: UpdateHrEmployeeInput): Promise<DataResponse<HrEmployee>> {
       return api.patch(`${base}/employees/${id}`, body);
