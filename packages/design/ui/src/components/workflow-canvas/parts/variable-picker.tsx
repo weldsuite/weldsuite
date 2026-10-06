@@ -109,6 +109,10 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'name', label: 'Contact Name', type: 'string' },
       { path: 'email', label: 'Contact Email', type: 'string' },
     ],
+    post_chat_message: [
+      { path: 'messageId', label: 'Message ID', type: 'string' },
+      { path: 'channelId', label: 'Channel ID', type: 'string' },
+    ],
     create_task: [
       { path: 'taskId', label: 'Task ID', type: 'string' },
       { path: 'number', label: 'Task Number', type: 'number' },

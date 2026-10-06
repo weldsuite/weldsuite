@@ -590,6 +590,7 @@ function getActionLabel(actionType: string): string {
     delete_record: 'Delete Record',
     query_data: 'Query Data',
     send_notification: 'Send Notification',
+    post_chat_message: 'Post Chat Message',
     run_script: 'Run Script',
     ai_generate: 'AI Generate',
     ai_extract: 'AI Extract',
@@ -1327,6 +1328,7 @@ export function getActionIcon(actionType: string): string {
     delete_record: 'Trash',
     query_data: 'Search',
     send_notification: 'Bell',
+    post_chat_message: 'MessageCircle',
     create_task: 'ClipboardList',
     run_script: 'Code',
     ai_generate: 'Sparkles',
@@ -1347,6 +1349,7 @@ export function getActionColor(actionType: string): string {
   const categoryColors: Record<string, string> = {
     send_email: 'bg-blue-500',
     send_notification: 'bg-indigo-500',
+    post_chat_message: 'bg-cyan-500',
     create_record: 'bg-green-500',
     create_customer: 'bg-emerald-500',
     create_contact: 'bg-emerald-500',

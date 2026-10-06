@@ -60,6 +60,10 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     { labelKey: 'title', isMissing: (c) => isBlank(c.title) },
     { labelKey: 'recipient', isMissing: (c) => isEmptyArray(c.userIds) },
   ],
+  post_chat_message: [
+    { labelKey: 'chatChannel', isMissing: (c) => isBlank(c.channelId) },
+    { labelKey: 'chatMessage', isMissing: (c) => isBlank(c.message) && isBlank(c.content) },
+  ],
 
   // --- Integration ---------------------------------------------------------
   http_request: [

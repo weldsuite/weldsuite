@@ -30,6 +30,8 @@ import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
 import { InvalidMemberIdError } from '@weldsuite/crm-domain/people';
+import { canAccessChannel } from '@weldsuite/chat-domain/channel-access';
+import { postSystemChatMessage } from '@weldsuite/chat-domain/post-system-message';
 import { resolveProjectAccess } from '@weldsuite/flow-domain/project-access';
 import { taskAnalyticsPayload } from '@weldsuite/flow-domain/analytics-payload';
 import {
@@ -273,6 +275,74 @@ internalWorkflowActionsRoutes.post(
       });
     } catch (err) {
       return actionFailure(c, 'update-contact', err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /post-chat-message — WeldConnect `post_chat_message` step
+// (apps/workers/workflow-worker/src/engine/actions/chat.ts). Posts to a
+// WeldChat channel through `@weldsuite/chat-domain/post-system-message`,
+// checked against the SAME two gates chat-api's human send route applies for
+// the owner: `channels:create` (requirePermission) and `canAccessChannel`
+// (membership boundary — public channels open, a private channel/DM needs the
+// owner to actually be a member). The message is attributed to the workflow
+// itself (`authorType: 'system'`, `authorId: 'workflow:<workflowId>'`), never
+// to the owner, and publishes `chat_message:created` with the run's chain
+// depth so a workflow that reacts to new messages can't loop forever
+// (packages/core/entity-events/src/workflow-dispatch.ts MAX_ENTITY_WORKFLOW_DEPTH).
+// ---------------------------------------------------------------------------
+
+const postChatMessageSchema = actorSchema.extend({
+  channelId: z.string().trim().min(1).max(30),
+  content: z.string().trim().min(1).max(10000),
+  mentions: z.array(z.string().trim().min(1).max(255)).max(50).optional(),
+  /** Carried from the run's trigger data so the message is attributed to the workflow, not its owner. */
+  workflowId: optionalTrimmed(30),
+  workflowName: optionalTrimmed(255),
+});
+
+internalWorkflowActionsRoutes.post(
+  '/post-chat-message',
+  zValidator('json', postChatMessageSchema),
+  async (c) => {
+    const { workspaceId, ownerUserId, chainDepth, channelId, content, mentions, workflowId, workflowName } =
+      c.req.valid('json');
+    try {
+      const db = await getTenantDbForWorkspace(c.env, workspaceId);
+      await authorizeWorkflowOwner(db, c.env, ownerUserId, {
+        permission: 'channels:create',
+        app: 'weldchat',
+        doing: 'post chat messages',
+      });
+      if (!(await canAccessChannel(db, channelId, ownerUserId))) {
+        return c.json(
+          { success: false, error: "The workflow's owner doesn't have access to this channel" },
+          403,
+        );
+      }
+
+      const authorId = `workflow:${workflowId || workspaceId}`;
+      const authorName = workflowName || 'Workflow';
+      const message = await postSystemChatMessage(
+        { db, env: c.env, orgId: workspaceId, channelId, authorId, authorName, invokerUserId: ownerUserId },
+        { content, mentions },
+      );
+
+      await publishEntityEventRaw({
+        env: c.env,
+        workspaceId,
+        userId: ownerUserId,
+        entityType: 'chat_message',
+        action: 'created',
+        entityId: message.id,
+        data: { id: message.id, channelId, authorId, authorType: 'system' },
+        workflowDepth: chainDepth,
+      });
+
+      return c.json({ success: true, message: { id: message.id, channelId } });
+    } catch (err) {
+      return actionFailure(c, 'post-chat-message', err);
     }
   },
 );

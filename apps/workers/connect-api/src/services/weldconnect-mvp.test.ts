@@ -162,7 +162,7 @@ describe('validateWeldConnectWorkflow: logic steps', () => {
 describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
   const trigger = { id: 't', type: 'schedule', cronExpression: '0 9 * * 1' };
 
-  it('accepts configured contact and notification steps', () => {
+  it('accepts configured contact, notification and chat-message steps', () => {
     expect(
       validateWeldConnectWorkflow({
         triggers: [trigger],
@@ -170,7 +170,17 @@ describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
           { id: 'a', type: 'create_contact', config: { email: '{{trigger.data.email}}' } },
           { id: 'b', type: 'update_contact', config: { contactId: '{{steps.a.contactId}}', title: 'CTO' } },
           { id: 'c', type: 'send_notification', config: { title: 'New contact' } },
+          { id: 'd', type: 'post_chat_message', config: { channelId: 'chan_1', message: 'New contact: {{steps.a.name}}' } },
         ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('accepts post_chat_message with `content` as an alias for `message`', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'd', type: 'post_chat_message', config: { channelId: 'chan_1', content: 'Hi' } }],
       }),
     ).toEqual([]);
   });
@@ -183,12 +193,15 @@ describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
           { id: 'a', type: 'create_contact', config: { title: 'CTO' } },
           { id: 'b', type: 'update_contact', config: {} },
           { id: 'c', type: 'send_notification', config: {} },
+          { id: 'd', type: 'post_chat_message', config: {} },
         ],
       }),
     ).toEqual([
       { code: 'missing_field', stepId: 'a', type: 'create_contact', field: 'name' },
       { code: 'missing_field', stepId: 'b', type: 'update_contact', field: 'contactId' },
       { code: 'missing_field', stepId: 'c', type: 'send_notification', field: 'title' },
+      { code: 'missing_field', stepId: 'd', type: 'post_chat_message', field: 'channelId' },
+      { code: 'missing_field', stepId: 'd', type: 'post_chat_message', field: 'message' },
     ]);
   });
 
