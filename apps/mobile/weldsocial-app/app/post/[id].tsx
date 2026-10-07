@@ -248,7 +248,7 @@ export default function PostDetailScreen() {
         variant="destructive"
         onConfirm={() => {
           setConfirm(null);
-          runAction('cancel', () => appApi.social.posts.cancel(postId), 'Post cancelled');
+          void runAction('cancel', () => appApi.social.posts.cancel(postId), 'Post cancelled');
         }}
         onCancel={() => setConfirm(null)}
       />
@@ -260,7 +260,7 @@ export default function PostDetailScreen() {
         variant="destructive"
         onConfirm={() => {
           setConfirm(null);
-          handleDelete();
+          void handleDelete();
         }}
         onCancel={() => setConfirm(null)}
       />
