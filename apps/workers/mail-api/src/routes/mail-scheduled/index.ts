@@ -19,7 +19,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import * as scheduled from '../../services/mail/scheduled';
 import { MailScheduledError } from '../../services/mail/scheduled';
-import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { checkAccountAccess, emailEventData } from '@weldsuite/mail-domain/access';
 import { getMessageAccountId } from '../../services/mail/messages';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -112,13 +112,13 @@ app.post(
         entityType: 'email',
         entityId: result.messageId,
         action: 'email_scheduled',
-        data: {
+        data: await emailEventData(db, {
           id: result.messageId,
           accountId: data.accountId,
           subject: data.subject ?? null,
           from: null,
           to: data.to,
-        },
+        }),
       });
       return success(c, result, 201);
     } catch (err) {

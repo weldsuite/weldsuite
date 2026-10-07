@@ -26,6 +26,7 @@ vi.mock('@weldsuite/mail-domain/access', () => ({
   isAdminOrOwner: vi.fn(),
   userAccessCondition: vi.fn(() => ({ _tag: 'sql' })),
   hasAccessToAccount: vi.fn(),
+  emailEventData: vi.fn(async (_db: unknown, data: unknown) => data),
 }));
 
 vi.mock('../../services/mail/messages', () => ({

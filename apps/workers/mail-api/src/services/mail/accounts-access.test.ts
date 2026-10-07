@@ -7,11 +7,15 @@
  * nobody is assigned to.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 
 import { getMailAccount, listMailAccounts } from './accounts';
 import { listThreadsByLabel } from './threads';
-import { checkAccountAccess, checkAccountManageAccess } from '@weldsuite/mail-domain/access';
+import {
+  checkAccountAccess,
+  checkAccountManageAccess,
+  emailEventData,
+} from '@weldsuite/mail-domain/access';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -161,5 +165,67 @@ describe('listThreadsByLabel', () => {
   it('shows the private mailbox to its assignee', async () => {
     const { threads } = await listThreadsByLabel(db, ASSIGNEE, { labelSlug: 'inbox' });
     expect(threads.map((t) => t.latestMessageId)).toContain(privateMessage);
+  });
+});
+
+// `email` entity events are workspace-wide (realtime to every member, audit
+// log, webhooks, workflows, agents), so their payload is not covered by the
+// per-account checks above. `emailEventData` is the gate.
+describe('emailEventData', () => {
+  const content = {
+    id: 'mmsg_1',
+    subject: 'Offer letter',
+    from: 'hr@example.com',
+    to: ['candidate@example.com'],
+    conversationId: 'mmsg_0',
+  };
+  const idsOnly = { id: 'mmsg_1', subject: null, from: null, to: null, conversationId: 'mmsg_0' };
+
+  it('keeps message content for a shared mailbox', async () => {
+    const data = { ...content, accountId: shared };
+    expect(await emailEventData(db, data)).toEqual(data);
+  });
+
+  it('drops subject, sender and recipients for a private mailbox, keeping the ids', async () => {
+    expect(await emailEventData(db, { ...content, accountId: privateAssigned })).toEqual({
+      ...idsOnly,
+      accountId: privateAssigned,
+    });
+    expect(await emailEventData(db, { ...content, accountId: privateUnassigned })).toEqual({
+      ...idsOnly,
+      accountId: privateUnassigned,
+    });
+  });
+
+  it('treats an account it cannot resolve as private', async () => {
+    expect(await emailEventData(db, { ...content, accountId: 'mail_missing' })).toEqual({
+      ...idsOnly,
+      accountId: 'mail_missing',
+    });
+    expect(await emailEventData(db, { ...content, accountId: '' })).toEqual({
+      ...idsOnly,
+      accountId: '',
+    });
+
+    const deleted = await seedAccount({ isShared: true, deletedAt: new Date() });
+    expect(await emailEventData(db, { ...content, accountId: deleted })).toEqual({
+      ...idsOnly,
+      accountId: deleted,
+    });
+  });
+
+  it('drops the content instead of throwing when the lookup fails', async () => {
+    const broken = {
+      select: () => {
+        throw new Error('connection lost');
+      },
+    } as unknown as Database;
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await emailEventData(broken, { ...content, accountId: shared })).toEqual({
+      ...idsOnly,
+      accountId: shared,
+    });
+    expect(logged).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
   });
 });

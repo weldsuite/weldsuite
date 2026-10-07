@@ -59,7 +59,7 @@ describe('inbound mail dual-path publish', () => {
 
   it('publishInboundEmailCreated enqueues hub email:created once', async () => {
     const env = { ENTITY_EVENTS: { send: vi.fn() } } as never;
-    await publishInboundEmailCreated(env, 'org_1', payload);
+    await publishInboundEmailCreated(env, 'org_1', payload, true);
     expect(publishEntityEventRaw).toHaveBeenCalledTimes(1);
     expect(publishEntityEventRaw).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -75,10 +75,38 @@ describe('inbound mail dual-path publish', () => {
           threadId: 'thr_1',
           subject: 'Hello',
           from: 'a@example.com',
+          preview: 'Hi',
         }),
       }),
     );
     expect(mailEvent).not.toHaveBeenCalled();
+  });
+
+  // The hub event is workspace-wide (realtime to every member, audit log,
+  // webhooks, workflows, agents), so a private mailbox must not put message
+  // content on it.
+  it('publishInboundEmailCreated publishes ids only for a private mailbox', async () => {
+    const env = { ENTITY_EVENTS: { send: vi.fn() } } as never;
+    await publishInboundEmailCreated(env, 'org_1', payload, false);
+    expect(publishEntityEventRaw).toHaveBeenCalledTimes(1);
+    const event = publishEntityEventRaw.mock.calls[0]![0] as {
+      entityId: string;
+      data: Record<string, unknown>;
+    };
+    expect(event.entityId).toBe('msg_1');
+    expect(event.data).toEqual({
+      id: 'msg_1',
+      accountId: 'acc_1',
+      subject: null,
+      from: null,
+      receivedAt: '2026-09-18T00:00:00.000Z',
+    });
+    // Nothing of the message itself, wherever it might hide in the payload:
+    // not the subject, sender, preview, or the RFC ids that name the sender's host.
+    const wire = JSON.stringify(event);
+    for (const secret of ['Hello', 'a@example.com', 'Hi', 'thr_1', 'smtp@example.com']) {
+      expect(wire).not.toContain(secret);
+    }
   });
 
   it('personal consumer path does not use hub email:created', async () => {

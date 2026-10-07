@@ -135,14 +135,18 @@ function handleError(c: AppContext, err: unknown) {
   );
 }
 
-/** Publish an `email` `updated` event after a classification write-back. */
+/**
+ * Publish an `email` `updated` event after a classification write-back. Ids
+ * only, like the other label updates: the event is workspace-wide, so it must
+ * not carry the subject of a message in a private mailbox.
+ */
 function publishClassified(c: AppContext, r: ClassificationResult) {
   publishEntityEvent({
     c,
     entityType: 'email',
     entityId: r.messageId,
     action: 'updated',
-    data: { id: r.messageId, accountId: r.accountId, subject: r.subject, from: null, to: null },
+    data: { id: r.messageId, accountId: r.accountId, subject: null, from: null, to: null },
   });
 }
 
