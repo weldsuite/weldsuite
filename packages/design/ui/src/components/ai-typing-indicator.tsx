@@ -7,7 +7,7 @@ interface TypingIndicatorProps {
   className?: string
 }
 
-export function TypingIndicator({ className }: TypingIndicatorProps) {
+export function TypingIndicator({ className }: Readonly<TypingIndicatorProps>) {
   return (
     <div className={cn("flex items-center gap-1", className)}>
       <span className="animate-bounce h-2 w-2 rounded-full bg-current opacity-75 [animation-delay:-0.3s]" />
@@ -17,7 +17,7 @@ export function TypingIndicator({ className }: TypingIndicatorProps) {
   )
 }
 
-export function StreamingCursor({ className }: { className?: string }) {
+export function StreamingCursor({ className }: Readonly<{ className?: string }>) {
   return (
     <span 
       className={cn(

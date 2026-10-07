@@ -84,7 +84,7 @@ export function MultiSelect({
   id,
   "aria-label": ariaLabel,
   modal = false,
-}: MultiSelectProps) {
+}: Readonly<MultiSelectProps>) {
   const [open, setOpen] = React.useState(false)
   const selected = value ?? []
 

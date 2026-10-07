@@ -9,7 +9,7 @@ export interface EmptyStateProps extends Omit<HTMLAttributes<HTMLDivElement>, 't
 }
 
 /** Centered empty list state (platform EntityList empty). */
-export function EmptyState({ title, description, icon, action, className, ...props }: EmptyStateProps) {
+export function EmptyState({ title, description, icon, action, className, ...props }: Readonly<EmptyStateProps>) {
   return (
     <div data-slot="empty-state" className={cn('wui-empty', className)} {...props}>
       {icon ? <div className="wui-empty__icon">{icon}</div> : null}

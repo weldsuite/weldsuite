@@ -33,7 +33,7 @@ export function ReplyInput({
   rightActions,
   showAiButton = false,
   aiIcon,
-}: ReplyInputProps) {
+}: Readonly<ReplyInputProps>) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const aiInputRef = useRef<HTMLInputElement>(null);
   const [aiPromptOpen, setAiPromptOpen] = useState(false);

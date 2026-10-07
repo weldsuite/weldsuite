@@ -8,7 +8,7 @@ export interface DividerProps {
   style?: StyleProp<ViewStyle>;
 }
 
-export function Divider({ orientation = 'horizontal', inset = 0, style }: DividerProps) {
+export function Divider({ orientation = 'horizontal', inset = 0, style }: Readonly<DividerProps>) {
   const { colors } = useTheme();
 
   if (orientation === 'vertical') {

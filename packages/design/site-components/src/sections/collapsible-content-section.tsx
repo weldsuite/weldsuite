@@ -31,7 +31,7 @@ export function CollapsibleContentSection({
   textColor = '#000000',
   paddingTop = 60,
   paddingBottom = 60,
-}: CollapsibleContentSectionProps) {
+}: Readonly<CollapsibleContentSectionProps>) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   const toggleItem = (index: number) => {

@@ -58,7 +58,7 @@ function toWorkspace(summary: WorkspaceSummary): Workspace {
   };
 }
 
-export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
+export function WorkspaceProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [currentWorkspace, setCurrentWorkspaceState] = useState<Workspace | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);

@@ -140,11 +140,11 @@ function FilterSection({
   title,
   children,
   defaultOpen = true
-}: {
+}: Readonly<{
   title: string;
   children: React.ReactNode;
   defaultOpen?: boolean
-}) {
+}>) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -177,7 +177,7 @@ export function ProductCollectionBlock({
   imageRounding = 0,
   mode = 'live',
   store,
-}: ProductCollectionBlockProps) {
+}: Readonly<ProductCollectionBlockProps>) {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);

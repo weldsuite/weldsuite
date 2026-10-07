@@ -50,7 +50,7 @@ export function Button({
   style,
   textStyle,
   ...rest
-}: ButtonProps) {
+}: Readonly<ButtonProps>) {
   const { colors } = useTheme();
   const sz = SIZES[size];
   const isDisabled = disabled || loading;

@@ -18,7 +18,7 @@ export function MenuBlock({
   orientation = 'horizontal',
   alignment = 'left',
   mode = 'live'
-}: MenuBlockProps) {
+}: Readonly<MenuBlockProps>) {
   const [openDropdown, setOpenDropdown] = React.useState<number | null>(null);
 
   const alignmentClass = {

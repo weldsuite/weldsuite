@@ -42,7 +42,7 @@ export type BreadcrumbLinkComponent = React.ComponentType<BreadcrumbLinkComponen
  * `linkComponent` (e.g. `next/link` or the platform's `@/lib/router` Link),
  * both of which accept an `href` prop and are therefore drop-in compatible.
  */
-function DefaultLink({ href, children }: BreadcrumbLinkComponentProps) {
+function DefaultLink({ href, children }: Readonly<BreadcrumbLinkComponentProps>) {
   return <a href={href}>{children}</a>
 }
 
@@ -88,7 +88,7 @@ export function GlobalBreadcrumb({
   onStartStream,
   onGetChunks,
   showAiAgent = true,
-}: GlobalBreadcrumbProps) {
+}: Readonly<GlobalBreadcrumbProps>) {
   const LinkComp: BreadcrumbLinkComponent = linkComponent ?? DefaultLink
   const { toggleSidebar, state } = useSidebar()
 

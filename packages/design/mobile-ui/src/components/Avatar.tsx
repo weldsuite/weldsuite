@@ -18,7 +18,7 @@ function getInitials(name: string): string {
   return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
 }
 
-export function Avatar({ source, name, size = 40, shape = 'circle', style }: AvatarProps) {
+export function Avatar({ source, name, size = 40, shape = 'circle', style }: Readonly<AvatarProps>) {
   const { colors } = useTheme();
   const borderRadius = shape === 'circle' ? size / 2 : Radii.md;
   const fontSize = Math.round(size * 0.4);

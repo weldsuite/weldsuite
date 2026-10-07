@@ -33,7 +33,7 @@ export function Button({
   className,
   type = 'button',
   ...props
-}: ButtonProps) {
+}: Readonly<ButtonProps>) {
   return (
     <button
       type={type}

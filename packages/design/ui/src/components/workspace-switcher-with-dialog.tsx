@@ -33,7 +33,7 @@ export function WorkspaceSwitcherWithDialog({
   onSwitch,
   onCreate,
   appName = "this app",
-}: WorkspaceSwitcherWithDialogProps) {
+}: Readonly<WorkspaceSwitcherWithDialogProps>) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);

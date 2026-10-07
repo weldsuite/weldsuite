@@ -106,7 +106,7 @@ export function SectionWrapper({
   settings = {},
   children,
   mode = 'live'
-}: SectionWrapperProps) {
+}: Readonly<SectionWrapperProps>) {
   const [isVisible, setIsVisible] = React.useState(false);
   const sectionRef = React.useRef<HTMLElement>(null);
 

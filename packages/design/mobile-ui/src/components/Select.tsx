@@ -37,7 +37,7 @@ export function Select({
   label,
   disabled = false,
   style,
-}: SelectProps) {
+}: Readonly<SelectProps>) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
 

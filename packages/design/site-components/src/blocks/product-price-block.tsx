@@ -19,7 +19,7 @@ export function ProductPriceBlock({
   currency = '€',
   textColor = '#000000',
   store,
-}: ProductPriceBlockProps) {
+}: Readonly<ProductPriceBlockProps>) {
   // Use product data from store if available
   const productPrice = store?.selectedProduct?.price;
   const productComparePrice = store?.selectedProduct?.compareAtPrice;

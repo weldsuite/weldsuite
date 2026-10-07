@@ -13,7 +13,7 @@ export function HeroArrowButtonBlock({
   text = "Get Started",
   link = "#",
   mode = 'live',
-}: HeroArrowButtonBlockProps) {
+}: Readonly<HeroArrowButtonBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
 
   return (

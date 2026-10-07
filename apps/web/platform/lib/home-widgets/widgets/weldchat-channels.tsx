@@ -47,7 +47,7 @@ function mapChannel(api: ApiChannel): ChannelRow {
   };
 }
 
-function Render({ settings }: { settings: WeldchatChannelsSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldchatChannelsSettings }>) {
   const res = useChannels();
   const apiRows = ((res.data as { data?: ApiChannel[] } | undefined)?.data ?? []) as ApiChannel[];
   const rows = apiRows.map(mapChannel).slice(0, settings.maxCount);

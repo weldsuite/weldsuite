@@ -25,7 +25,7 @@ export function FormFieldWrapper({
   className,
   children,
   htmlFor,
-}: FormFieldWrapperProps) {
+}: Readonly<FormFieldWrapperProps>) {
   return (
     <div className={cn("space-y-2", className)}>
       {label && (
@@ -141,7 +141,7 @@ export function SelectWithError({
   name,
   id,
   className,
-}: SelectWithErrorProps) {
+}: Readonly<SelectWithErrorProps>) {
   const selectId = id || name;
   
   return (

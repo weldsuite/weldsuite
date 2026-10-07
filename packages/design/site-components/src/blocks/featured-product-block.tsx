@@ -73,7 +73,7 @@ export function FeaturedProductBlock({
   showColorSelector = true,
   showShippingPolicy = true,
   showRefundPolicy = true,
-}: FeaturedProductBlockProps) {
+}: Readonly<FeaturedProductBlockProps>) {
   const [quantity, setQuantity] = React.useState(1);
   const [activeImage, setActiveImage] = useState(0);
   const [selectedSize, setSelectedSize] = useState('XS');

@@ -27,13 +27,13 @@ function ClockCard({
   clocking,
   clockError,
   onClock,
-}: {
+}: Readonly<{
   overview: Overview;
   canClockIn: boolean;
   clocking: boolean;
   clockError: string | null;
   onClock: (action: 'in' | 'out') => void;
-}) {
+}>) {
   const { dict, locale, format, timeZone } = useI18n();
   if (!canClockIn) {
     return (
@@ -69,7 +69,7 @@ function ClockCard({
   );
 }
 
-function UpcomingShiftsCard({ overview }: { overview: Overview }) {
+function UpcomingShiftsCard({ overview }: Readonly<{ overview: Overview }>) {
   const { dict, locale, timeZone } = useI18n();
   return (
     <Card>
@@ -90,7 +90,7 @@ function UpcomingShiftsCard({ overview }: { overview: Overview }) {
   );
 }
 
-function LeaveBalancesCard({ overview }: { overview: Overview }) {
+function LeaveBalancesCard({ overview }: Readonly<{ overview: Overview }>) {
   const { dict } = useI18n();
   return (
     <Card>
@@ -116,12 +116,12 @@ function AcknowledgeLink({
   count,
   singular,
   plural,
-}: {
+}: Readonly<{
   href: string;
   count: number;
   singular: string;
   plural: string;
-}) {
+}>) {
   const { format } = useI18n();
   return (
     <li>
@@ -132,7 +132,7 @@ function AcknowledgeLink({
   );
 }
 
-function AcknowledgeCard({ overview, slug }: { overview: Overview; slug: string }) {
+function AcknowledgeCard({ overview, slug }: Readonly<{ overview: Overview; slug: string }>) {
   const { dict } = useI18n();
   const { coaching, evaluations } = overview.toAcknowledge;
   return (
@@ -164,7 +164,7 @@ function AcknowledgeCard({ overview, slug }: { overview: Overview; slug: string 
   );
 }
 
-function OpenTasksCard({ overview, slug }: { overview: Overview; slug: string }) {
+function OpenTasksCard({ overview, slug }: Readonly<{ overview: Overview; slug: string }>) {
   const { dict } = useI18n();
   return (
     <Card>
@@ -180,7 +180,7 @@ function OpenTasksCard({ overview, slug }: { overview: Overview; slug: string })
   );
 }
 
-function LatestEvaluationCard({ overview }: { overview: Overview }) {
+function LatestEvaluationCard({ overview }: Readonly<{ overview: Overview }>) {
   const { dict, locale, timeZone } = useI18n();
   const evaluation = overview.latestEvaluation;
   return (
@@ -200,7 +200,7 @@ function LatestEvaluationCard({ overview }: { overview: Overview }) {
   );
 }
 
-function ManagerCard({ overview }: { overview: Overview }) {
+function ManagerCard({ overview }: Readonly<{ overview: Overview }>) {
   const { dict } = useI18n();
   const { manager, clients } = overview.profile;
   return (

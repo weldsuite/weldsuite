@@ -21,7 +21,7 @@ export function HeroVideoBackgroundBlock({
   fontSize = "clamp(4rem, 15vw, 15rem)",
   backgroundOpacity = 20,
   minHeight = "100vh",
-}: HeroVideoBackgroundBlockProps) {
+}: Readonly<HeroVideoBackgroundBlockProps>) {
   const [isLoaded, setIsLoaded] = React.useState(false);
 
   return (

@@ -46,7 +46,7 @@ export function PermissionGate({
   app,
   fallback = null,
   children,
-}: PermissionGateProps): ReactNode {
+}: Readonly<PermissionGateProps>): ReactNode {
   // Hook must always run unconditionally — only its result is used when `app`
   // is provided.
   const ctx = usePermissionsMaybe();

@@ -437,7 +437,7 @@ interface PipVideoAreaProps {
 }
 
 /** Video / avatar area — inset, floating inside the panel. */
-function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, onPopOut }: PipVideoAreaProps) {
+function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, onPopOut }: Readonly<PipVideoAreaProps>) {
   const { focused, focusedIsSelf, focusedName, focusedTrack, focusedTheme, focusedInitials } = focus;
   const showMutedIcon = focusedIsSelf ? isMuted : !focused?.audioEnabled;
   return (
@@ -516,7 +516,7 @@ const OFF_BUTTON_CLASS =
   'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400';
 const NEUTRAL_BUTTON_CLASS = '[&]:hover:brightness-95 dark:[&]:hover:brightness-110';
 
-function MicControl({ t, isMuted, onToggle }: { t: WeldmeetStrings; isMuted: boolean; onToggle: () => void }) {
+function MicControl({ t, isMuted, onToggle }: Readonly<{ t: WeldmeetStrings; isMuted: boolean; onToggle: () => void }>) {
   return (
     <div className={cn('rounded-[14px] ring-1', isMuted ? 'ring-red-400/40' : 'ring-border')}>
       <Button
@@ -535,7 +535,7 @@ function MicControl({ t, isMuted, onToggle }: { t: WeldmeetStrings; isMuted: boo
   );
 }
 
-function CameraControl({ t, isVideoOff, onToggle }: { t: WeldmeetStrings; isVideoOff: boolean; onToggle: () => void }) {
+function CameraControl({ t, isVideoOff, onToggle }: Readonly<{ t: WeldmeetStrings; isVideoOff: boolean; onToggle: () => void }>) {
   return (
     <div className={cn('relative rounded-[14px] ring-1', isVideoOff ? 'ring-red-400/40' : 'ring-border')}>
       <Button
@@ -581,11 +581,11 @@ function ScreenShareControl({
   t,
   isScreenSharing,
   onToggle,
-}: {
+}: Readonly<{
   t: WeldmeetStrings;
   isScreenSharing: boolean;
   onToggle: () => void;
-}) {
+}>) {
   return (
     <div className="rounded-[14px] ring-1 ring-border">
       <Button
@@ -607,13 +607,13 @@ function MoreControl({
   onToggleHandRaise,
   onExpand,
   onCopyJoiningInfo,
-}: {
+}: Readonly<{
   t: WeldmeetStrings;
   handRaised: boolean;
   onToggleHandRaise: () => void;
   onExpand: () => void;
   onCopyJoiningInfo: () => void;
-}) {
+}>) {
   return (
     <div className="rounded-[14px] ring-1 ring-border">
       <DropdownMenu>
@@ -679,7 +679,7 @@ function PipControlsBar({
   onCopyJoiningInfo,
   onLeave,
   onEndForAll,
-}: PipControlsBarProps) {
+}: Readonly<PipControlsBarProps>) {
   return (
     <div className="flex items-center justify-center gap-2 px-1 pt-2.5 pb-1">
       <MicControl t={t} isMuted={isMuted} onToggle={onToggleMute} />

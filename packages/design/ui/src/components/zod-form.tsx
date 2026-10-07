@@ -27,7 +27,7 @@ export function ZodForm<T extends ZodSchema>({
   submitLabel = "Submit",
   resetLabel = "Reset",
   showReset = false,
-}: ZodFormProps<T>) {
+}: Readonly<ZodFormProps<T>>) {
   const {
     values,
     errors,
@@ -87,10 +87,10 @@ const FormContext = React.createContext<FormContextValue | undefined>(undefined)
 function FormProvider({
   value,
   children,
-}: {
+}: Readonly<{
   value: FormContextValue;
   children: React.ReactNode;
-}) {
+}>) {
   return <FormContext.Provider value={value}>{children}</FormContext.Provider>;
 }
 

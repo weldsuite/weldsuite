@@ -207,7 +207,7 @@ export function ProductGridBlock({
   backgroundColor,
   textColor,
   priceColor,
-}: ProductGridBlockProps) {
+}: Readonly<ProductGridBlockProps>) {
 
   const [activeTab, setActiveTab] = React.useState(navigationTabs[0]?.id || 'all');
 

@@ -61,7 +61,7 @@ export function Autocomplete({
   onSearch,
   debounceMs = 300,
   minSearchLength = 2,
-}: AutocompleteProps) {
+}: Readonly<AutocompleteProps>) {
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState("")
   const [fetchedOptions, setFetchedOptions] = React.useState<AutocompleteOption[]>([])

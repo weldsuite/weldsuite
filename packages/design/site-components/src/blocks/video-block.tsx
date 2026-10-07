@@ -71,7 +71,7 @@ export function VideoBlock({
   // Legacy props
   controls = true,
   store
-}: VideoBlockProps) {
+}: Readonly<VideoBlockProps>) {
   return (
     <VideoSection
       url={url}

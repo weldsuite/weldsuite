@@ -345,7 +345,7 @@ export function VariablePicker({
   triggerRecordFields,
   className,
   labels = {},
-}: VariablePickerProps) {
+}: Readonly<VariablePickerProps>) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['trigger']);
@@ -509,7 +509,7 @@ export function VariablePickerButton({
   onSelect,
   labels = {},
   ...props
-}: Omit<VariablePickerProps, 'trigger'>) {
+}: Readonly<Omit<VariablePickerProps, 'trigger'>>) {
   return (
     <VariablePicker
       {...props}

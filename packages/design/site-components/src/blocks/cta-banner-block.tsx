@@ -33,7 +33,7 @@ export function CtaBannerBlock({
   borderRadius = 16,
   className,
   mode = 'live',
-}: CtaBannerBlockProps) {
+}: Readonly<CtaBannerBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
 
   return (

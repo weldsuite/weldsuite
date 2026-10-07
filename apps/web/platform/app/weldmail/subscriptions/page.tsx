@@ -77,12 +77,12 @@ function EmptyState({
   status,
   scanning,
   onScan,
-}: {
+}: Readonly<{
   query: string;
   status: StatusFilter;
   scanning: boolean;
   onScan: () => void;
-}) {
+}>) {
   const { t } = useI18n();
   const ts = t.mail.subscriptions;
   let message = ts.emptyUnsubscribed;
@@ -109,12 +109,12 @@ function SubscriptionAction({
   stillSending,
   busy,
   onUnsubscribe,
-}: {
+}: Readonly<{
   sub: MailSubscription;
   stillSending: boolean;
   busy: boolean;
   onUnsubscribe: (sub: MailSubscription) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const ts = t.mail.subscriptions;
   if (sub.status === 'unsubscribed') {
@@ -139,12 +139,12 @@ function SubscriptionRow({
   dateLocale,
   busy,
   onUnsubscribe,
-}: {
+}: Readonly<{
   sub: MailSubscription;
   dateLocale: typeof nl | undefined;
   busy: boolean;
   onUnsubscribe: (sub: MailSubscription) => void;
-}) {
+}>) {
   const { t, plural } = useI18n();
   const ts = t.mail.subscriptions;
   const sender = senderLabel(sub);

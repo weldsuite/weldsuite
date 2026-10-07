@@ -10,7 +10,7 @@ export interface SpinnerProps {
   fullscreen?: boolean;
 }
 
-export function Spinner({ size = 'small', color, label, fullscreen = false }: SpinnerProps) {
+export function Spinner({ size = 'small', color, label, fullscreen = false }: Readonly<SpinnerProps>) {
   const { colors } = useTheme();
   const resolvedColor = color ?? colors.primary;
 

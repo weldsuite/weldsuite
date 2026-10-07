@@ -17,7 +17,7 @@ export function GridBlock({
   mobileColumns = 1,
   tabletColumns = 2,
   children
-}: GridBlockProps) {
+}: Readonly<GridBlockProps>) {
   // Responsive grid classes
   const gridCols = {
     1: 'lg:grid-cols-1',

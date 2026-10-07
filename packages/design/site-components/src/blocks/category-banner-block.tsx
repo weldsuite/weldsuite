@@ -27,7 +27,7 @@ export function CategoryBannerBlock({
   overlayOpacity = 30,
   borderRadius = 12,
   textColor = '#ffffff',
-}: CategoryBannerBlockProps) {
+}: Readonly<CategoryBannerBlockProps>) {
   return (
     <section className="py-32">
       <div className="container mx-auto px-4">

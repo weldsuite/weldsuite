@@ -35,7 +35,7 @@ export interface StatusDotProps {
   className?: string;
 }
 
-export function StatusDot({ status, size = 'md', showTooltip = false, className }: StatusDotProps) {
+export function StatusDot({ status, size = 'md', showTooltip = false, className }: Readonly<StatusDotProps>) {
   const resolved = (status as PresenceStatus) || 'offline';
   const color = STATUS_COLORS[resolved] || STATUS_COLORS.offline;
   const label = STATUS_LABELS[resolved] || STATUS_LABELS.offline;

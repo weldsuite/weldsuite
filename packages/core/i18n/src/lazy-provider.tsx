@@ -31,7 +31,7 @@ export function LazyI18nProvider({
   children,
   initialLanguage,
   adapter = cookieAdapter,
-}: LazyI18nProviderProps) {
+}: Readonly<LazyI18nProviderProps>) {
   const [language, setLanguageState] = useState<Language>(() => {
     return initialLanguage ?? adapter.read?.() ?? defaultLanguage;
   });

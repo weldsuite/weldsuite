@@ -182,7 +182,7 @@ export function ActionStepCard({
   renderConfigForm,
   onSaved,
   labels = {},
-}: ActionStepCardProps) {
+}: Readonly<ActionStepCardProps>) {
   const [showConfig, setShowConfig] = useState(false);
   const [config, setConfig] = useState(step.config || {});
   const [name, setName] = useState(step.name || '');

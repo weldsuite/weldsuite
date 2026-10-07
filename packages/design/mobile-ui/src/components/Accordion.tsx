@@ -40,7 +40,7 @@ interface AccordionRowProps {
   onToggle: (key: string) => void;
 }
 
-function AccordionRow({ item, isOpen, isLast, onToggle }: AccordionRowProps) {
+function AccordionRow({ item, isOpen, isLast, onToggle }: Readonly<AccordionRowProps>) {
   const { colors } = useTheme();
   const rotation = useRef(new Animated.Value(isOpen ? 1 : 0)).current;
 
@@ -94,7 +94,7 @@ export function Accordion({
   allowMultiple = false,
   defaultOpenKeys = [],
   style,
-}: AccordionProps) {
+}: Readonly<AccordionProps>) {
   const [openKeys, setOpenKeys] = useState<Set<string>>(new Set(defaultOpenKeys));
 
   const handleToggle = (key: string) => {

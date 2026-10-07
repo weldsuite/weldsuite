@@ -43,7 +43,7 @@ export function MonthEventChip({
   className,
   style,
   ...props
-}: MonthEventChipProps) {
+}: Readonly<MonthEventChipProps>) {
   const kind = eventStatusKind({ status });
   return (
     <Button
@@ -82,7 +82,7 @@ interface MonthMoreButtonProps {
 }
 
 /** The "+N more" line at the bottom of an overflowing day cell. */
-export function MonthMoreButton({ label, onClick }: MonthMoreButtonProps) {
+export function MonthMoreButton({ label, onClick }: Readonly<MonthMoreButtonProps>) {
   return (
     <Button
       variant="ghost"

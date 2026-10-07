@@ -26,7 +26,7 @@ interface LeaderboardProps {
   className?: string;
 }
 
-export function Leaderboard({ entries, currentUserId, className }: LeaderboardProps) {
+export function Leaderboard({ entries, currentUserId, className }: Readonly<LeaderboardProps>) {
   const getRankIcon = (position: number) => {
     switch (position) {
       case 1:

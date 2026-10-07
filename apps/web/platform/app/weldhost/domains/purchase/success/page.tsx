@@ -91,13 +91,13 @@ function DomainRow({
   tse,
   statusBadge,
   onOpenDomain,
-}: {
+}: Readonly<{
   status: DomainPurchaseStatusResponse | undefined;
   ts: PurchaseTexts;
   tse: PurchaseExtraTexts;
   statusBadge: React.ReactNode;
   onOpenDomain: (domainId: string) => void;
-}) {
+}>) {
   const tone = (status && ROW_TONE[status.status]) || ROW_TONE_DEFAULT;
   const openableDomainId = status?.status === 'completed' ? status.domainId : undefined;
   return (

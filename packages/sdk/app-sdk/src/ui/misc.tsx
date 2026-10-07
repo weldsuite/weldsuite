@@ -6,7 +6,7 @@ export interface DescriptionListProps {
   className?: string;
 }
 
-export function DescriptionList({ children, className }: DescriptionListProps) {
+export function DescriptionList({ children, className }: Readonly<DescriptionListProps>) {
   return (
     <dl data-slot="description-list" className={cn('wui-dl', className)}>
       {children}
@@ -18,11 +18,11 @@ export function DescriptionItem({
   term,
   children,
   className,
-}: {
+}: Readonly<{
   term: ReactNode;
   children: ReactNode;
   className?: string;
-}) {
+}>) {
   return (
     <div className={cn('wui-dl__row', className)}>
       <dt className="wui-dl__term">{term}</dt>
@@ -31,7 +31,7 @@ export function DescriptionItem({
   );
 }
 
-export function Code({ children, className }: { children: ReactNode; className?: string }) {
+export function Code({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
   return <code className={cn('wui-code', className)}>{children}</code>;
 }
 
@@ -43,7 +43,7 @@ export function Muted({ className, ...props }: HTMLAttributes<HTMLParagraphEleme
   return <p className={cn('wui-muted', className)} {...props} />;
 }
 
-export function LoadingState({ label = 'Loading…' }: { label?: string }) {
+export function LoadingState({ label = 'Loading…' }: Readonly<{ label?: string }>) {
   return (
     <div className="wui-loading" role="status">
       <span className="wui-spinner" aria-hidden="true" />

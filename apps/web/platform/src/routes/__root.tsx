@@ -63,7 +63,7 @@ function RealtimeSyncBridge() {
 
 const REALTIME_URL = getRealtimeUrl();
 
-function RealtimeProviderWrapper({ children }: { children: React.ReactNode }) {
+function RealtimeProviderWrapper({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getToken, orgId } = useAuth();
   const stableGetToken = useCallback(async () => (await getToken()) || '', [getToken]);
   // Cursor store is scoped per-workspace so switching orgs starts a fresh

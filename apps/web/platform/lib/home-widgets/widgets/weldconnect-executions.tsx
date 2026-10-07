@@ -52,7 +52,7 @@ function mapExec(api: WorkflowExecution): ExecutionRow {
   };
 }
 
-function Render({ settings }: { settings: WeldconnectExecutionsSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldconnectExecutionsSettings }>) {
   const router = useRouter();
   const res = useExecutions({ limit: settings.maxCount });
   const apiRows = ((res.data as { data?: WorkflowExecution[] } | undefined)?.data ?? []) as WorkflowExecution[];

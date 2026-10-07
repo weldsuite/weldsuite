@@ -27,7 +27,7 @@ export function SegmentedControl({
   value,
   onValueChange,
   style,
-}: SegmentedControlProps) {
+}: Readonly<SegmentedControlProps>) {
   const { colors } = useTheme();
 
   return (

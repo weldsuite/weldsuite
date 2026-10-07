@@ -13,7 +13,7 @@ export function ColumnsBlock({
   children,
   columns = 2,
   gap = 16
-}: ColumnsBlockProps) {
+}: Readonly<ColumnsBlockProps>) {
   const gridColsClass = {
     2: 'grid-cols-1 md:grid-cols-2',
     3: 'grid-cols-1 md:grid-cols-3',

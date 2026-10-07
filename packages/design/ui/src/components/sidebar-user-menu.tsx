@@ -152,7 +152,7 @@ export function SidebarUserMenu({
   onSettings,
   collapsed = false,
   presence,
-}: SidebarUserMenuProps) {
+}: Readonly<SidebarUserMenuProps>) {
   const [open, setOpen] = useState(false);
   const [showCustomStatus, setShowCustomStatus] = useState(false);
 

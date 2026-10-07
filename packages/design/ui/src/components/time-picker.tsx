@@ -19,7 +19,7 @@ export function TimePicker({
   placeholder = 'Select time',
   className,
   id,
-}: TimePickerProps) {
+}: Readonly<TimePickerProps>) {
   const [open, setOpen] = React.useState(false);
 
   // Parse the current value (format: "HH:MM")

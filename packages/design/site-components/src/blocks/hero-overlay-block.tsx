@@ -23,7 +23,7 @@ export function HeroOverlayBlock({
   minHeight = "100vh",
   headingFontFamily = "Playfair Display, serif",
   mode = 'live',
-}: HeroOverlayBlockProps) {
+}: Readonly<HeroOverlayBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
 
   return (

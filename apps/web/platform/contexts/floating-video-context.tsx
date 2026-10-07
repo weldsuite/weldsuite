@@ -30,7 +30,7 @@ export function useFloatingVideo() {
   return useContext(FloatingVideoContext);
 }
 
-export function FloatingVideoProvider({ children }: { children: ReactNode }) {
+export function FloatingVideoProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [floatingVideo, setFloatingVideo] = useState<FloatingVideoState | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const rafRef = useRef<number>(0);

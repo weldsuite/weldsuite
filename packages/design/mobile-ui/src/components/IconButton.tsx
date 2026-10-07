@@ -35,7 +35,7 @@ export function IconButton({
   accessibilityLabel,
   style,
   ...rest
-}: IconButtonProps) {
+}: Readonly<IconButtonProps>) {
   const { colors } = useTheme();
   const dim = DIMENSIONS[size];
   const isDisabled = disabled || loading;

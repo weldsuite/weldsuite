@@ -11,7 +11,7 @@ export function EmptyStateIllustration({
   children,
   width = 240,
   height = 170,
-}: EmptyStateIllustrationProps) {
+}: Readonly<EmptyStateIllustrationProps>) {
   const patternId = useId();
   const maskId = `${patternId}-mask`;
 

@@ -37,7 +37,7 @@ export function ChangelogClient({
   additionalFilters,
   // `counts` (total/published/draft) surfaces via statusFilters; it stays in
   // the props for a future summary UI.
-}: ChangelogClientProps) {
+}: Readonly<ChangelogClientProps>) {
   const { t } = useI18n();
   const tc = t.helpdesk.changelog;
   useBreadcrumbs([

@@ -51,7 +51,7 @@ export function PermissionFormProvider({
   children,
   wrapInFieldset = true,
   className,
-}: PermissionFormProviderProps) {
+}: Readonly<PermissionFormProviderProps>) {
   const ctx = usePermissionsMaybe();
 
   const value = useMemo<PermissionFormContextValue>(() => {

@@ -168,9 +168,9 @@ function statusStyle(
 /** The connected-cards illustration used as the default empty-state visual. */
 export function WorkflowListEmptyIllustration({
   className,
-}: {
+}: Readonly<{
   className?: string
-}) {
+}>) {
   return (
     <svg
       width="140"
@@ -211,12 +211,12 @@ function WorkflowListHeader({
   showTrigger,
   showMeta,
   showActions,
-}: {
+}: Readonly<{
   labels: WorkflowListLabels
   showTrigger: boolean
   showMeta: boolean
   showActions: boolean
-}) {
+}>) {
   return (
     <div className="flex items-center gap-4 px-4 py-2 border-b border-gray-200/70 dark:border-border text-xs font-medium uppercase tracking-wide text-muted-foreground">
       <div className="flex-1 min-w-[250px]">{labels.name}</div>
@@ -269,7 +269,7 @@ export function WorkflowListRow({
   selected = false,
   onSelectChange,
   selectLabel,
-}: WorkflowListRowProps) {
+}: Readonly<WorkflowListRowProps>) {
   const statusConfig = { ...DEFAULT_STATUS_CONFIG, ...statusOverrides }
   const status = statusStyle(item.status, statusConfig)
   const triggerVariant = item.triggerVariant ?? "default"
@@ -417,7 +417,7 @@ export function WorkflowList({
   statusConfig: statusOverrides,
   emptyState,
   className,
-}: WorkflowListProps) {
+}: Readonly<WorkflowListProps>) {
   const labels = { ...DEFAULT_LABELS, ...labelOverrides }
   const statusConfig = { ...DEFAULT_STATUS_CONFIG, ...statusOverrides }
   const resolvedShowMeta = showMeta ?? items.some((item) => item.meta != null)

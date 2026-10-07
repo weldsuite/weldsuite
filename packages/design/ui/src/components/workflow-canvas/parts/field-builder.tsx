@@ -136,7 +136,7 @@ export function FieldBuilder({
   workflowVariables = [],
   className,
   labels = {},
-}: FieldBuilderProps) {
+}: Readonly<FieldBuilderProps>) {
   const [entries, setEntries] = useState<FieldEntry[]>(() => {
     return Object.entries(fields).map(([key, value], index) => ({
       id: `field_${index}`,

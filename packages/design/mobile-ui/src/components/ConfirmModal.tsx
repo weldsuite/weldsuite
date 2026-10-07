@@ -20,7 +20,7 @@ interface ConfirmModalProps {
 export function ConfirmModal({
   visible, title, message, confirmText = 'Confirm', cancelText = 'Cancel',
   variant = 'default', loading = false, onConfirm, onCancel,
-}: ConfirmModalProps) {
+}: Readonly<ConfirmModalProps>) {
   const { colors } = useTheme();
 
   const confirmButtonStyle = variant === 'destructive'

@@ -27,7 +27,7 @@ const persister =
         key: CACHE_KEY,
       });
 
-export function QueryProvider({ children }: { children: React.ReactNode }) {
+export function QueryProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { isLoaded, orgId } = useAuth();
   const pendingOrgId = typeof window !== 'undefined' ? peekPendingOrganization() : null;
   // A just-created workspace is waiting to become active — don't hydrate the

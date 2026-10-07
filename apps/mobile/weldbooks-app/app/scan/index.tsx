@@ -316,11 +316,11 @@ function ScanStatusBanner({
   status,
   scan,
   readySummary,
-}: {
+}: Readonly<{
   status: ScanStatus;
   scan: Translations['scan'];
   readySummary: string;
-}) {
+}>) {
   const banners: Record<ScanStatus, { variant: BannerVariant; text: string }> = {
     uploading: { variant: 'info', text: scan.uploading },
     reading: { variant: 'info', text: scan.reading },

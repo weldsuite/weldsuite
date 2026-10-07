@@ -111,7 +111,7 @@ const BANNER_BUTTON_BASE = `
 const BANNER_BUTTON_PRIMARY = 'bg-gray-700 text-white hover:bg-gray-800';
 const BANNER_BUTTON_SECONDARY = 'bg-transparent border-2 border-gray-700 text-gray-700 hover:bg-gray-700 hover:text-white';
 
-function BannerButtons({ button1Text, button1Link, button1Style, button2Text, button2Link, button2Style }: BannerButtonsProps) {
+function BannerButtons({ button1Text, button1Link, button1Style, button2Text, button2Link, button2Style }: Readonly<BannerButtonsProps>) {
   if (!button1Text && !button2Text) return null;
   const styleClass = (style: 'primary' | 'secondary') =>
     style === 'primary' ? BANNER_BUTTON_PRIMARY : BANNER_BUTTON_SECONDARY;
@@ -141,7 +141,7 @@ interface MobileButtonProps {
   style: 'primary' | 'secondary';
 }
 
-function MobileBannerButton({ text, link, style }: MobileButtonProps) {
+function MobileBannerButton({ text, link, style }: Readonly<MobileButtonProps>) {
   const isPrimary = style === 'primary';
   return (
     <Button
@@ -175,7 +175,7 @@ function MobileTextBelow({
   button2Text,
   button2Link,
   button2Style,
-}: MobileTextBelowProps) {
+}: Readonly<MobileTextBelowProps>) {
   return (
     <div className="md:hidden bg-white p-6">
       <div className={`flex flex-col gap-4 ${alignmentClass}`}>
@@ -222,7 +222,7 @@ export function ImageBannerBlock({
   button2Text,
   button2Link = '#',
   button2Style = 'secondary',
-}: ImageBannerBlockProps) {
+}: Readonly<ImageBannerBlockProps>) {
 
   const headingClass = getHeadingClass(headingSize);
   const textClass = getTextClass(textStyle);

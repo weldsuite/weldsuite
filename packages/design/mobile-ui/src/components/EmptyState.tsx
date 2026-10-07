@@ -17,7 +17,7 @@ export function EmptyState({
   description,
   action,
   style,
-}: EmptyStateProps) {
+}: Readonly<EmptyStateProps>) {
   const { colors } = useTheme();
 
   return (

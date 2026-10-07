@@ -25,7 +25,7 @@ export function SlidingPanel({
   className,
   position = "right",
   width = "w-[400px]"
-}: SlidingPanelProps) {
+}: Readonly<SlidingPanelProps>) {
   return (
     <>
       {/* Overlay */}

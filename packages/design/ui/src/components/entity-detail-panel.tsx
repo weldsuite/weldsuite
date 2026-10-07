@@ -159,7 +159,7 @@ export function EntityDetailPanel({
   className,
   children,
   customFooter,
-}: EntityDetailPanelProps) {
+}: Readonly<EntityDetailPanelProps>) {
   const [activeTab, setActiveTab] = useState<'comments' | 'activity'>('comments');
   const [commentsHeight, setCommentsHeight] = useState(250);
   const [showCommentInput, setShowCommentInput] = useState(true);

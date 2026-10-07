@@ -17,7 +17,7 @@ export function TextBlock({
   fontSize = 'base',
   fontWeight = 'normal',
   color = '#000000'
-}: TextBlockProps) {
+}: Readonly<TextBlockProps>) {
   const alignmentClass = {
     left: 'text-left',
     center: 'text-center',

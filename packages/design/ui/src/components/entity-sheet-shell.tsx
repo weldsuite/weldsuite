@@ -44,7 +44,7 @@ export function EntitySheetShell({
   topOffset = 60,
   skipMountAnimation = false,
   children,
-}: EntitySheetShellProps) {
+}: Readonly<EntitySheetShellProps>) {
   const isFull = view === 'full';
 
   return (

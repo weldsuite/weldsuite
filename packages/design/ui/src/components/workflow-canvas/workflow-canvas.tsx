@@ -233,7 +233,7 @@ function computeAlignmentGuides(
 }
 
 // Custom controls component with Lucide icons
-function CustomControls({ onResetLayout, labels }: { onResetLayout?: () => void; labels: Required<WorkflowCanvasLabels> }) {
+function CustomControls({ onResetLayout, labels }: Readonly<{ onResetLayout?: () => void; labels: Required<WorkflowCanvasLabels> }>) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
 
   return (
@@ -271,7 +271,7 @@ function CustomControls({ onResetLayout, labels }: { onResetLayout?: () => void;
 }
 
 // Alignment guides overlay
-function AlignmentGuidesOverlay({ guides }: { guides: AlignmentGuide[] }) {
+function AlignmentGuidesOverlay({ guides }: Readonly<{ guides: AlignmentGuide[] }>) {
   const { getViewport } = useReactFlow();
 
   if (guides.length === 0) return null;
@@ -359,7 +359,7 @@ function WorkflowCanvasInner({
   variableItems: variableItemsProp,
   labels: rawLabelsProp,
   className,
-}: WorkflowCanvasProps) {
+}: Readonly<WorkflowCanvasProps>) {
   const trigger = useStructurallyStable(triggerProp);
   const steps = useStructurallyStable(stepsProp);
   const variableItems = useStructurallyStable(variableItemsProp);
@@ -685,7 +685,7 @@ function WorkflowCanvasInner({
  *
  * Shared by WeldConnect (workflows) and WeldCRM (sequences).
  */
-export function WorkflowCanvas(props: WorkflowCanvasProps) {
+export function WorkflowCanvas(props: Readonly<WorkflowCanvasProps>) {
   return (
     <ReactFlowProvider>
       <div className={props.className} style={{ position: 'relative', width: '100%', height: '100%' }}>

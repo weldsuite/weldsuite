@@ -15,7 +15,7 @@ export interface SwitchProps {
   label?: string;
 }
 
-export function Switch({ value, onValueChange, disabled, label }: SwitchProps) {
+export function Switch({ value, onValueChange, disabled, label }: Readonly<SwitchProps>) {
   const { colors } = useTheme();
 
   const control = (

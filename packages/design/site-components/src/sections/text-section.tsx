@@ -13,7 +13,7 @@ export default function TextSection({
   title,
   content = "Add your text content here",
   align = 'center'
-}: TextSectionProps) {
+}: Readonly<TextSectionProps>) {
   const textAlign = align === 'left' ? 'text-left' : align === 'right' ? 'text-right' : 'text-center';
   
   return (

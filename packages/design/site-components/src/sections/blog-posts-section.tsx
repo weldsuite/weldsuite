@@ -79,7 +79,7 @@ export function BlogPostsSection({
   paddingBottom = 80,
   store,
   posts,
-}: BlogPostsSectionProps) {
+}: Readonly<BlogPostsSectionProps>) {
   // Use real posts if available, otherwise fall back to mock data
   const sourcePosts = posts && posts.length > 0 ? posts :
                       (store?.blogPosts && store.blogPosts.length > 0 ? store.blogPosts : mockPosts);

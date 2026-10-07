@@ -44,7 +44,7 @@ function mapWorkflow(api: Workflow): WorkflowRow {
   };
 }
 
-function Render({ settings }: { settings: WeldconnectWorkflowsSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldconnectWorkflowsSettings }>) {
   const router = useRouter();
   const res = useWorkflows({ pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: Workflow[] } | undefined)?.data ?? []) as Workflow[];

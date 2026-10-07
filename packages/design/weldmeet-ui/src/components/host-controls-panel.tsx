@@ -64,7 +64,7 @@ const SETTING_SWITCH_CLASS = [
   '[&_[data-slot=switch-thumb][data-state=unchecked]]:!translate-x-[4px]',
 ].join(' ');
 
-export function HostControlsPanel({ meeting, controls, onChange, readOnly }: HostControlsPanelProps) {
+export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Readonly<HostControlsPanelProps>) {
   const SettingRow = ({ icon: Icon, label, description, checked, onCheckedChange, disabled }: {
     icon: LucideIcon; label: string; description?: string; checked: boolean; onCheckedChange: (v: boolean) => void; disabled?: boolean;
   }) => (

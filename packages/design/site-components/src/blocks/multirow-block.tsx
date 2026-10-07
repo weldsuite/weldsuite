@@ -52,7 +52,7 @@ export function MultirowBlock({
   containerColorScheme = 'scheme-1',
   blocks = [],
   selectedBlockId,
-}: MultirowBlockProps) {
+}: Readonly<MultirowBlockProps>) {
 
   // Get heading size class
   const getHeadingClass = () => {

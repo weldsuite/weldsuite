@@ -35,7 +35,7 @@ export function SearchBar({
   autoCorrect,
   autoCapitalize,
   containerStyle,
-}: SearchBarProps) {
+}: Readonly<SearchBarProps>) {
   const { colors } = useTheme();
 
   function handleClear() {

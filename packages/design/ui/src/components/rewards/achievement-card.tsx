@@ -37,7 +37,7 @@ export function AchievementCard({
   onClaim,
   claimable,
   className
-}: AchievementCardProps) {
+}: Readonly<AchievementCardProps>) {
   const progressPercentage = Math.min((progress / threshold) * 100, 100);
 
   return (

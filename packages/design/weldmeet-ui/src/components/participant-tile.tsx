@@ -174,7 +174,7 @@ function TileNameTag({ participant, name, isSelf, ringing, localMuted, onClickDe
   );
 }
 
-export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false, onRemoveParticipant }: ParticipantTileProps) {
+export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false, onRemoveParticipant }: Readonly<ParticipantTileProps>) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   useSpeakerOutput(audioRef);

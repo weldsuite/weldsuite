@@ -55,7 +55,7 @@ function mapMeeting(api: ApiMeeting): MeetingRow {
   };
 }
 
-function Render({ settings }: { settings: WeldmeetUpcomingSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldmeetUpcomingSettings }>) {
   const res = useMeetings({ status: 'scheduled', pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: ApiMeeting[] } | undefined)?.data ?? []) as ApiMeeting[];
   const rows = apiRows.map(mapMeeting).slice(0, settings.maxCount);

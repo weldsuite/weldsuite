@@ -965,7 +965,7 @@ export function TaskDialog({
   onSave,
   onUpdate,
   isPending,
-}: TaskDialogProps) {
+}: Readonly<TaskDialogProps>) {
   const tCrm = getTranslations('crm');
   const st = useTranslations();
   const effectiveRecordLabel = recordLabel === 'Select record' ? tCrm.taskDialog.selectRecord : recordLabel;

@@ -40,7 +40,7 @@ const sectionToRoute: Record<string, string> = {
   'helpdesk-settings': '/settings/apps/welddesk',
 };
 
-export function SettingsProvider({ children }: SettingsProviderProps) {
+export function SettingsProvider({ children }: Readonly<SettingsProviderProps>) {
   const router = useRouter();
   const pathname = usePathname();
 

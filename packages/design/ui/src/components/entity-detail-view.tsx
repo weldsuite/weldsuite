@@ -146,7 +146,7 @@ function readBoolFromStorage(key: string | undefined, fallback: boolean): boolea
   return raw === "true";
 }
 
-export function EntityDetailView(props: EntityDetailViewProps) {
+export function EntityDetailView(props: Readonly<EntityDetailViewProps>) {
   const { mode: controlledMode, defaultMode = "panel", onToggleExpand } = props;
 
   const [internalMode, setInternalMode] = React.useState<EntityDetailMode>(
@@ -218,10 +218,10 @@ function HeaderControls({
   onToggleExpand,
   showExpandButton,
   showCloseButton,
-}: Pick<
+}: Readonly<Pick<
   HeaderRenderProps,
   "onClose" | "isExpanded" | "onToggleExpand" | "showExpandButton" | "showCloseButton"
->) {
+>>) {
   return (
     <div className="flex items-center gap-0.5">
       {showExpandButton && (
@@ -265,7 +265,7 @@ function HeaderRow({
   onToggleExpand,
   showExpandButton,
   showCloseButton,
-}: HeaderRenderProps) {
+}: Readonly<HeaderRenderProps>) {
   return (
     <div
       className={cn(
@@ -510,7 +510,7 @@ function PanelBody({
   sidebarDefaultCollapsed,
   loading,
   contentClassName,
-}: PanelBodyProps) {
+}: Readonly<PanelBodyProps>) {
   const [sidebarHeight, setSidebarHeight] = React.useState<number>(() =>
     readNumberFromStorage(sidebarPersistKey, sidebarDefaultSize, sidebarMinSize),
   );
@@ -716,7 +716,7 @@ function FullscreenBody({
   sidebarLocked = false,
   loading,
   contentClassName,
-}: FullscreenBodyProps) {
+}: Readonly<FullscreenBodyProps>) {
   const [sidebarWidth, setSidebarWidth] = React.useState<number>(() =>
     readNumberFromStorage(sidebarPersistKey, sidebarDefaultSize, sidebarMinSize),
   );

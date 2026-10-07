@@ -35,7 +35,7 @@ export function CountdownBlock({
   },
   textColor = '#000000',
   backgroundColor = '#f3f4f6'
-}: CountdownBlockProps) {
+}: Readonly<CountdownBlockProps>) {
   const [timeLeft, setTimeLeft] = useState({
     days: 0,
     hours: 0,

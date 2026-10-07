@@ -7,7 +7,7 @@ interface VideoCoverProps {
   onPlay: () => void;
 }
 
-export function VideoCover({ coverImage, heading, onPlay }: VideoCoverProps) {
+export function VideoCover({ coverImage, heading, onPlay }: Readonly<VideoCoverProps>) {
   return (
     <div className="relative w-full h-full">
       <img

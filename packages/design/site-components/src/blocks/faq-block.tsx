@@ -50,7 +50,7 @@ export function FAQBlock({
   paddingTop = 64,
   paddingBottom = 64,
   mode = 'live',
-}: FAQBlockProps) {
+}: Readonly<FAQBlockProps>) {
   return (
     <FAQSection
       heading={heading}

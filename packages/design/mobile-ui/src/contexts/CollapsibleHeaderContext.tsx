@@ -24,7 +24,7 @@ interface CollapsibleHeaderContextType {
 
 const CollapsibleHeaderContext = createContext<CollapsibleHeaderContextType | null>(null);
 
-export function CollapsibleHeaderProvider({ children }: { children: React.ReactNode }) {
+export function CollapsibleHeaderProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const lastScrollY = useRef(0);
   const isHidden = useRef(false);

@@ -109,7 +109,7 @@ function getMicrophoneErrorMessage(error: Error): string {
   }
 }
 
-export function CallProvider({ children }: { children: ReactNode }) {
+export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [isDialerOpen, setIsDialerOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [callState, setCallState] = useState<CallState | null>(null);

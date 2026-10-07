@@ -30,7 +30,7 @@ export function CommentInput({
   onImageClick,
   onPaperclipClick,
   onSettingsClick,
-}: CommentInputProps) {
+}: Readonly<CommentInputProps>) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

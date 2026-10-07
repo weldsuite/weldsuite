@@ -15,7 +15,7 @@ export function Skeleton({
   height = 16,
   borderRadius = Radii.sm,
   style,
-}: SkeletonProps) {
+}: Readonly<SkeletonProps>) {
   const { colors } = useTheme();
   const opacity = useRef(new Animated.Value(1)).current;
 

@@ -36,7 +36,7 @@ const defaultComposeData: ComposeData = {
 
 const ComposeContext = createContext<ComposeContextType | undefined>(undefined);
 
-export function ComposeProvider({ children }: { children: ReactNode }) {
+export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeData, setComposeData] = useState<ComposeData>(defaultComposeData);
   const [previousUrl, setPreviousUrlState] = useState<string | null>(null);

@@ -25,7 +25,7 @@ function relativeWhen(iso: string | undefined): string {
   return d.toLocaleDateString(undefined, { weekday: 'short' });
 }
 
-function Render({ settings }: { settings: WelddeskLiveChatSettings }) {
+function Render({ settings }: Readonly<{ settings: WelddeskLiveChatSettings }>) {
   const { data, isLoading } = useDeskConversations({ state: 'open' }, 'newest');
   const conversations = data?.pages.flatMap((page) => page.data) ?? [];
   const rows: DeskLiveChatRow[] = conversations.slice(0, settings.maxCount).map((conversation) => {

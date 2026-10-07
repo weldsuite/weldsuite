@@ -23,7 +23,7 @@ export function EmailSignupSection({
   textColor = '#000000',
   paddingTop = 80,
   paddingBottom = 80,
-}: EmailSignupSectionProps) {
+}: Readonly<EmailSignupSectionProps>) {
   const [email, setEmail] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {

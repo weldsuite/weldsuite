@@ -16,7 +16,7 @@ export function LogoBlock({
   height = 50,
   link = '/',
   mode = 'live'
-}: LogoBlockProps) {
+}: Readonly<LogoBlockProps>) {
   const logo = (
     <img
       src={src || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="150" height="50"%3E%3Crect width="150" height="50" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-family="sans-serif" font-size="14"%3ELogo%3C/text%3E%3C/svg%3E'}

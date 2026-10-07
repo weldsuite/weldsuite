@@ -15,7 +15,7 @@ const variantClass: Record<AlertVariant, string> = {
 };
 
 /** Inline status / error banner. */
-export function Alert({ variant = 'default', className, role = 'alert', ...props }: AlertProps) {
+export function Alert({ variant = 'default', className, role = 'alert', ...props }: Readonly<AlertProps>) {
   return (
     <div
       data-slot="alert"

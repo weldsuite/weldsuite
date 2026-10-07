@@ -37,7 +37,7 @@ export function Sheet({
   children,
   heightRatio = 0.5,
   style,
-}: SheetProps) {
+}: Readonly<SheetProps>) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 

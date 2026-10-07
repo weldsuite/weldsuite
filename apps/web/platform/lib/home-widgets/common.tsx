@@ -29,7 +29,7 @@ export function DemoBadge() {
  *   - `chart` : tall block                (analytics, calendar-week)
  *   - `kanban`: 4 column groups           (pipeline)
  */
-export function SkeletonRows({ count = 5, variant = 'list' }: { count?: number; variant?: 'list' | 'table' | 'chart' | 'kanban' }) {
+export function SkeletonRows({ count = 5, variant = 'list' }: Readonly<{ count?: number; variant?: 'list' | 'table' | 'chart' | 'kanban' }>) {
   if (variant === 'chart') {
     return <div className="h-[220px] animate-pulse rounded-md bg-muted/60" />;
   }
@@ -85,7 +85,7 @@ export function SkeletonRows({ count = 5, variant = 'list' }: { count?: number; 
  * the application pages render so widget empty states feel consistent with
  * their full-page counterparts.
  */
-export function EmptyState({ kind, icon }: { kind: string; icon?: ReactNode }) {
+export function EmptyState({ kind, icon }: Readonly<{ kind: string; icon?: ReactNode }>) {
   const { t } = useI18n();
   const rt = t.weldsuiteHome.runtime;
   const empty = rt.empty as Record<string, string>;

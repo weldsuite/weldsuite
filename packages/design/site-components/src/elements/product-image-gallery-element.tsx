@@ -21,7 +21,7 @@ export function ProductImageGalleryElement({
   productName = 'Product',
   activeImage,
   onImageChange,
-}: ProductImageGalleryElementProps) {
+}: Readonly<ProductImageGalleryElementProps>) {
   return (
     <div style={{
       flex: '1 1 auto',

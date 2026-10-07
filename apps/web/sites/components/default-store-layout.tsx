@@ -24,7 +24,7 @@ interface DefaultStoreLayoutProps {
   } | null;
 }
 
-export default function DefaultStoreLayout({ store }: DefaultStoreLayoutProps) {
+export default function DefaultStoreLayout({ store }: Readonly<DefaultStoreLayoutProps>) {
   if (!store) {
     return (
       <div className="min-h-screen flex items-center justify-center">

@@ -225,7 +225,7 @@ export function MeetingToolsPanel({
   recordingLabels,
   tools,
   labels: labelsProp,
-}: MeetingToolsPanelProps) {
+}: Readonly<MeetingToolsPanelProps>) {
   const labels = labelsProp ?? tools?.labels ?? DEFAULT_MEETING_TOOLS_LABELS;
   // Standalone (no controller) the panel keeps track of the open tool itself.
   const [localTool, setLocalTool] = useState<MeetingToolKey | null>(null);
@@ -313,11 +313,11 @@ function ToolView({
   tool,
   tools,
   labels,
-}: {
+}: Readonly<{
   tool: MeetingToolKey;
   tools: MeetingToolsController;
   labels: MeetingToolsLabels;
-}) {
+}>) {
   const { store, state, isOrganizer } = tools;
   switch (tool) {
     case 'timer':
@@ -363,7 +363,7 @@ function ToolView({
   }
 }
 
-function ToolRow({ item }: { item: ToolItem }) {
+function ToolRow({ item }: Readonly<{ item: ToolItem }>) {
   const Icon = item.icon;
   // `busy` rows (recording starting/stopping) stay visible but are not
   // clickable — `onClick` already no-ops while busy, this just stops the

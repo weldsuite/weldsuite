@@ -17,7 +17,7 @@ export function ProductSizeSelectorElement({
   onSizeChange,
   buttonColor = '#000000',
   label = 'Size',
-}: ProductSizeSelectorElementProps) {
+}: Readonly<ProductSizeSelectorElementProps>) {
   return (
     <div>
       <p style={{ fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.5rem' }}>

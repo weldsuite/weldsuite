@@ -6,6 +6,6 @@ export interface ToolbarProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 /** List filter / action bar. */
-export function Toolbar({ className, ...props }: ToolbarProps) {
+export function Toolbar({ className, ...props }: Readonly<ToolbarProps>) {
   return <div data-slot="toolbar" className={cn('wui-toolbar', className)} {...props} />;
 }

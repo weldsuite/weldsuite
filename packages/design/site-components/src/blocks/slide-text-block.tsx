@@ -15,7 +15,7 @@ export function SlideTextBlock({
   fontSize = 24,
   color = '#ffffff',
   maxWidth = 672, // 2xl = 42rem = 672px
-}: SlideTextBlockProps) {
+}: Readonly<SlideTextBlockProps>) {
   return (
     <p
       className="mb-8 md:mb-10 transition-all duration-700"

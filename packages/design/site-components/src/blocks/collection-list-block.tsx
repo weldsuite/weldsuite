@@ -63,7 +63,7 @@ const mockCollections: Collection[] = [
 ];
 
 // Collection Card Component
-function CollectionCard({ collection, imageRatioClass }: { collection: Collection; imageRatioClass: string }) {
+function CollectionCard({ collection, imageRatioClass }: Readonly<{ collection: Collection; imageRatioClass: string }>) {
   const [isFavorited, setIsFavorited] = React.useState(false);
 
   return (
@@ -135,7 +135,7 @@ export function CollectionListBlock({
   headingSize = 'h1',
   collections,
   store,
-}: CollectionListBlockProps) {
+}: Readonly<CollectionListBlockProps>) {
 
   // Use real collections from store if available, otherwise fall back to mock
   const displayCollections = React.useMemo(() => {

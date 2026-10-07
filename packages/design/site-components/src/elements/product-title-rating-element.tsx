@@ -16,7 +16,7 @@ export function ProductTitleRatingElement({
   showRating = true,
   rating = 4.8,
   reviewCount = 14600,
-}: ProductTitleRatingElementProps) {
+}: Readonly<ProductTitleRatingElementProps>) {
   return (
     <div>
       <h1 style={{

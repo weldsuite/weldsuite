@@ -8,7 +8,7 @@ export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLElement>, 'titl
 }
 
 /** Title row used by platform module pages (title + optional actions). */
-export function PageHeader({ title, description, actions, className, ...props }: PageHeaderProps) {
+export function PageHeader({ title, description, actions, className, ...props }: Readonly<PageHeaderProps>) {
   return (
     <header data-slot="page-header" className={cn('wui-page-header', className)} {...props}>
       <div className="wui-page-header__titles">
@@ -25,7 +25,7 @@ export interface PageProps extends HTMLAttributes<HTMLElement> {
 }
 
 /** Content-area page shell for WeldApps (fills the host iframe). */
-export function Page({ className, children, ...props }: PageProps) {
+export function Page({ className, children, ...props }: Readonly<PageProps>) {
   return (
     <main data-slot="page" className={cn('wui-page', className)} {...props}>
       {children}

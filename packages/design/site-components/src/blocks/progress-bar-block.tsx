@@ -23,7 +23,7 @@ export function ProgressBarBlock({
   height = 'md',
   animated = true,
   striped = false
-}: ProgressBarBlockProps) {
+}: Readonly<ProgressBarBlockProps>) {
   const clampedPercentage = Math.min(Math.max(percentage, 0), 100);
 
   const heightClasses = {

@@ -138,7 +138,7 @@ export function PermissionProvider({
   app = null,
   enforceApp = true,
   children,
-}: PermissionProviderProps) {
+}: Readonly<PermissionProviderProps>) {
   const appCode = app ? normalizeAppCode(app) : null;
   const value = useMemo(
     () => buildValue({ permissions, denies: denies ?? [] }, isLoading, role, appCode, enforceApp),
@@ -157,7 +157,7 @@ export function PermissionProvider({
  * one the user is in — e.g. a WeldBooks invoice panel opened from WeldCRM.
  * Must be rendered inside a <PermissionProvider>.
  */
-export function AppPermissionScope({ app, children }: { app: string | null; children: React.ReactNode }) {
+export function AppPermissionScope({ app, children }: Readonly<{ app: string | null; children: React.ReactNode }>) {
   const parent = useContext(PermissionContext);
   const appCode = app ? normalizeAppCode(app) : null;
   const value = useMemo(

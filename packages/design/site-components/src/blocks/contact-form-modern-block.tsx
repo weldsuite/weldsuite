@@ -29,6 +29,6 @@ interface ContactFormModernBlockProps {
   customFields?: FormField[];
 }
 
-export function ContactFormModernBlock(props: ContactFormModernBlockProps) {
+export function ContactFormModernBlock(props: Readonly<ContactFormModernBlockProps>) {
   return <ContactFormModernSection {...props} />;
 }

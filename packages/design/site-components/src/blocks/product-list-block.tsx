@@ -155,7 +155,7 @@ export function ProductListBlock({
   arrowBorderColor,
   arrowBorderRadius = 20,
   cardSpacing = 16,
-}: ProductListBlockProps) {
+}: Readonly<ProductListBlockProps>) {
   const isFullWidth = layout === 'fullWidth';
   const isEditMode = mode === 'edit';
   const scrollContainerRef = useRef<HTMLDivElement>(null);

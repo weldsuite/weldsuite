@@ -17,7 +17,7 @@ export function DividerBlock({
   color = '#e5e7eb',
   width = 100,
   alignment = 'center'
-}: DividerBlockProps) {
+}: Readonly<DividerBlockProps>) {
   const alignmentClass = {
     left: 'mr-auto',
     center: 'mx-auto',

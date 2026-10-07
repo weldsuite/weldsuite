@@ -27,7 +27,7 @@ export function ProductCardBlock({
   variant = 'default',
   productUrl = '#',
   onAddToCart
-}: ProductCardBlockProps) {
+}: Readonly<ProductCardBlockProps>) {
   const isCompact = variant === 'compact';
   const isFeatured = variant === 'featured';
 

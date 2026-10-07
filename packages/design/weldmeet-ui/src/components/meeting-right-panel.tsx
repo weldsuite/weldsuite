@@ -92,7 +92,7 @@ export function MeetingRightPanel({
   recordingStartElapsedSeconds,
   recordingLabels,
   tools,
-}: MeetingRightPanelProps) {
+}: Readonly<MeetingRightPanelProps>) {
   const isOpen = panel !== null;
   const isMobile = useIsMobile();
 
@@ -182,7 +182,7 @@ function MeetingInfoPanel({
   description,
   scheduledStart,
   participantsCount,
-}: MeetingInfoPanelProps) {
+}: Readonly<MeetingInfoPanelProps>) {
   const [copied, setCopied] = useState(false);
 
   const formattedDate = scheduledStart ? formatMeetingDate(scheduledStart) : null;

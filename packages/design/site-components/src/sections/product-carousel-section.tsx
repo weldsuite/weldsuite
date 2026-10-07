@@ -16,7 +16,7 @@ interface ProductCarouselSectionProps {
 export function ProductCarouselSection({ 
   title = "More from our collection",
   products = []
-}: ProductCarouselSectionProps) {
+}: Readonly<ProductCarouselSectionProps>) {
   // If no products provided, use placeholder data
   const displayProducts = products.length > 0 ? products : [
     { id: '1', name: 'Sample Product 1', brand: 'Brand', image: '/api/placeholder/200/200', price: 29.99 },

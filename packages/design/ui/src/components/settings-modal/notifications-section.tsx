@@ -24,7 +24,7 @@ interface NotificationsSectionProps {
 export function NotificationsSection({
   notifications,
   onNotificationsChange
-}: NotificationsSectionProps) {
+}: Readonly<NotificationsSectionProps>) {
   const handleChange = (key: keyof typeof notifications, value: boolean) => {
     onNotificationsChange({ ...notifications, [key]: value })
   }

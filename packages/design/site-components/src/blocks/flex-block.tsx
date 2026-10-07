@@ -33,7 +33,7 @@ export function FlexBlock({
   borderWidth = 1,
   borderRadius = 8,
   children
-}: FlexBlockProps) {
+}: Readonly<FlexBlockProps>) {
   const directionClass = direction === 'row' ? 'flex-row' : 'flex-col';
 
   const justifyClass = {

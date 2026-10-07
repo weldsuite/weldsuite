@@ -63,7 +63,7 @@ interface SettingsDialogProps {
   onOpenChange?: (open: boolean) => void
 }
 
-export function SettingsDialog({ open = false, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({ open = false, onOpenChange }: Readonly<SettingsDialogProps>) {
   const [activeSection, setActiveSection] = React.useState("Messages & media")
 
   return (

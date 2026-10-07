@@ -19,7 +19,7 @@ export default function ImageSection({
   caption,
   fullWidth = false,
   height = 400
-}: ImageSectionProps) {
+}: Readonly<ImageSectionProps>) {
   return (
     <section className={`py-12 ${fullWidth ? '' : 'px-4'}`}>
       <div className={`${fullWidth ? '' : 'container mx-auto'}`}>

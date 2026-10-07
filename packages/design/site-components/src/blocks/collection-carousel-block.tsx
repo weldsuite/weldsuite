@@ -126,7 +126,7 @@ export function CollectionCarouselBlock({
   arrowBackgroundColor = 'transparent',
   arrowBorderColor,
   arrowBorderRadius = 20,
-}: CollectionCarouselBlockProps) {
+}: Readonly<CollectionCarouselBlockProps>) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);

@@ -169,7 +169,7 @@ export function FeaturedCollectionSection({
   // Store data
   store,
   products,
-}: FeaturedCollectionSectionProps) {
+}: Readonly<FeaturedCollectionSectionProps>) {
   // Use real products if available, otherwise fall back to mock data
   const sourceProducts = products && products.length > 0 ? products :
                          (store?.products && store.products.length > 0 ? store.products : mockProducts);

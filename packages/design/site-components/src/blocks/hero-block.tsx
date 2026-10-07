@@ -34,7 +34,7 @@ export function HeroBlock({
   backgroundColor = '#f9fafb',
   textColor = '#000000',
   mode = 'live',
-}: HeroBlockProps) {
+}: Readonly<HeroBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
 
   const heightClasses = {
