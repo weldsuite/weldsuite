@@ -87,7 +87,16 @@ export const navigation = [
   },
   {
     title: 'WeldConnect',
-    links: [{ title: 'Overview', href: '/weldconnect' }],
+    links: [
+      { title: 'Overview', href: '/weldconnect' },
+      { title: 'Create a workflow', href: '/weldconnect/create-workflow' },
+      { title: 'Triggers', href: '/weldconnect/triggers' },
+      { title: 'Logic steps', href: '/weldconnect/logic-steps' },
+      { title: 'WeldSuite steps', href: '/weldconnect/weldsuite-steps' },
+      { title: 'AI steps', href: '/weldconnect/ai-steps' },
+      { title: 'Connect Slack, Google and GitHub', href: '/weldconnect/connect-apps' },
+      { title: 'Runs and history', href: '/weldconnect/runs-and-history' },
+    ],
   },
   {
     title: 'WeldSocial',
