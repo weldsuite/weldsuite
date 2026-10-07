@@ -81,10 +81,10 @@ export default function WeldHrEmployeesPage() {
       width: 'flex-1',
       render: (emp) => (
         <span className="flex min-w-0 items-center gap-2">
-          <EmployeeAvatar name={emp.displayName} src={emp.avatarUrl} />
-          <span className="min-w-0">
-            <span className="block truncate font-medium">{emp.displayName}</span>
-            <span className="block truncate text-xs text-muted-foreground">{emp.email}</span>
+          <EmployeeAvatar name={emp.displayName} src={emp.avatarUrl} className="h-6 w-6" />
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="max-w-[70%] shrink-0 truncate font-medium">{emp.displayName}</span>
+            <span className="min-w-0 truncate text-xs text-muted-foreground">{emp.email}</span>
           </span>
         </span>
       ),
@@ -134,7 +134,7 @@ export default function WeldHrEmployeesPage() {
       id: 'startDate',
       header: t('weldhr.employees.table.startDate'),
       width: 'w-[120px]',
-      render: (emp) => <span className="text-muted-foreground">{formatDate(emp.startDate)}</span>,
+      render: (emp) => <span className="font-mono text-muted-foreground">{formatDate(emp.startDate)}</span>,
     },
   ];
 
