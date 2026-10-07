@@ -460,8 +460,8 @@ export function ProductDetailQuantityBlock({
           type="number"
           value={quantity}
           onChange={(e) => {
-            const val = parseInt(e.target.value);
-            if (!isNaN(val) && val >= 1 && val <= 99) setQuantity(val);
+            const val = Number.parseInt(e.target.value, 10);
+            if (!Number.isNaN(val) && val >= 1 && val <= 99) setQuantity(val);
           }}
           className="w-full text-center text-sm py-2 border-0 focus:outline-none focus:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           style={{ color: textColor, backgroundColor: 'transparent' }}

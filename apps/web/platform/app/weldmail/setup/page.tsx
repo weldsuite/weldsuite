@@ -3,7 +3,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
+import { useMailAccounts ,
+  useCreateMailAccount,
+  useCheckWeldMailAvailability,
+  useReserveWeldMailAddress,
+  useWeldMailDomain,
+  useMailDomains,
+} from '@/hooks/queries/use-mail-queries';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -40,13 +46,6 @@ import {
   MailAccessPicker,
   useMailAccessSelection,
 } from '@/app/weldmail/components/mail-access-picker';
-import {
-  useCreateMailAccount,
-  useCheckWeldMailAvailability,
-  useReserveWeldMailAddress,
-  useWeldMailDomain,
-  useMailDomains,
-} from '@/hooks/queries/use-mail-queries';
 import { toast } from 'sonner';
 
 type SetupMethod = 'select' | 'weldmail' | 'custom-domain';
@@ -220,7 +219,7 @@ function WeldMailContent({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
             type="text"
             placeholder="mycompany"
             value={address}
-            onChange={(e) => setAddress(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+            onChange={(e) => setAddress(e.target.value.toLowerCase().replaceAll(/[^a-z0-9._-]/g, ''))}
             required
             className="flex-1"
           />
@@ -413,7 +412,7 @@ function CustomDomainContent({ onSuccess }: Readonly<{ onSuccess: () => void }>)
             type="text"
             placeholder="john.doe"
             value={emailPrefix}
-            onChange={(e) => setEmailPrefix(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+            onChange={(e) => setEmailPrefix(e.target.value.toLowerCase().replaceAll(/[^a-z0-9._-]/g, ''))}
             required
             className="flex-1"
           />

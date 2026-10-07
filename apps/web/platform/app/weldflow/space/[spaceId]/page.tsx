@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { useParams, useRouter } from '@/lib/router';
-import { useSpaces } from '@/contexts/spaces-context';
+import { useSpaces, ModuleType } from '@/contexts/spaces-context';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import {
@@ -17,7 +17,6 @@ import {
   Settings,
   Trash2,
 } from 'lucide-react';
-import { ModuleType } from '@/contexts/spaces-context';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 const moduleIcons: Record<ModuleType, React.ElementType> = {

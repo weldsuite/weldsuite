@@ -12,14 +12,13 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { publishEntityEvent, computeChanges } from '@weldsuite/entity-events';
+import { publishEntityEvent, computeChanges, isCustomObjectEntityKey } from '@weldsuite/entity-events';
 import {
   createCustomFieldSchema,
   updateCustomFieldSchema,
   reorderCustomFieldsSchema,
 } from '@weldsuite/app-api-client/schemas/custom-fields';
 import { isReservedFieldSlug } from '@weldsuite/app-api-client/schemas/custom-objects';
-import { isCustomObjectEntityKey } from '@weldsuite/entity-events';
 import { z } from 'zod';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';

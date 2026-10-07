@@ -276,9 +276,9 @@ async function importRsaPrivateKey(pem: string): Promise<CryptoKey> {
   // Strip ANY PEM armor (PKCS#1 "RSA PRIVATE KEY", PKCS#8 "PRIVATE KEY", or a
   // bare base64 body where the header was stripped before storage) + whitespace.
   const body = pem
-    .replace(/-----BEGIN [^-]+-----/g, '')
-    .replace(/-----END [^-]+-----/g, '')
-    .replace(/\s/g, '');
+    .replaceAll(/-----BEGIN [^-]+-----/g, '')
+    .replaceAll(/-----END [^-]+-----/g, '')
+    .replaceAll(/\s/g, '');
 
   const raw = new Uint8Array(base64ToBuffer(body));
   const algo = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
@@ -355,11 +355,11 @@ function base64urlFromBuffer(buffer: ArrayBuffer): string {
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 function base64urlDecode(input: string): string {
-  const base64 = input.replace(/-/g, '+').replace(/_/g, '/');
+  const base64 = input.replaceAll('-', '+').replaceAll('_', '/');
   const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
   return atob(padded);
 }

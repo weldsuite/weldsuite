@@ -234,7 +234,7 @@ export async function renderTemplate(
 }
 
 function substitute(input: string, vars: Record<string, unknown>, escapeHtml: boolean): string {
-  return input.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_, key) => {
+  return input.replaceAll(/\{\{\s*([\w.-]+)\s*\}\}/g, (_, key) => {
     const raw = String(vars[key] ?? '');
     return escapeHtml ? htmlEscape(raw) : raw;
   });
@@ -242,9 +242,9 @@ function substitute(input: string, vars: Record<string, unknown>, escapeHtml: bo
 
 function htmlEscape(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('\'', '&#39;');
 }

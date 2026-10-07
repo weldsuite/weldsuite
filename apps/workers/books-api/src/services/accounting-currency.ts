@@ -174,7 +174,7 @@ function parseEcbXml(xml: string): Record<string, number> {
   const cubePattern = /<Cube currency='([A-Z]{3})' rate='([\d.]+)'\/>/g;
   let match;
   while ((match = cubePattern.exec(xml)) !== null) {
-    rates[match[1]] = parseFloat(match[2]);
+    rates[match[1]] = Number.parseFloat(match[2]);
   }
   return rates;
 }

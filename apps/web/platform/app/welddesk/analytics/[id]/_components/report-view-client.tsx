@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useTransition, type ComponentProps, type ReactNode } from 'react';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
-import { Plus, Edit2, GripVertical, MoreVertical, Trash2, Copy, Unlock } from 'lucide-react';
+import { Plus, Edit2, GripVertical, MoreVertical, Trash2, Copy, Unlock, Check, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import GridLayout, { Layout } from 'react-grid-layout';
 const GridLayoutFixed = GridLayout;
 import 'react-grid-layout/css/styles.css';
@@ -38,7 +38,6 @@ import {
   CommandList,
   CommandSeparator,
 } from '@weldsuite/ui/components/command';
-import { Check, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Area,

@@ -3,7 +3,7 @@ import { useChannelMembers, useWorkspaceMembers, useAddChannelMembers, useRemove
 import type { ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
-import { X, ShieldCheck, Crown, Plus, Search, UserMinus } from 'lucide-react';
+import { X, ShieldCheck, Crown, Plus, Search, UserMinus, UserPlus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { StatusDot } from '@weldsuite/ui/components/status-dot';
@@ -11,7 +11,6 @@ import { usePresence } from '@/contexts/presence-context';
 import { useChatContext } from './chat-context';
 import { useUser } from '@clerk/clerk-react';
 import { InviteExternalUserModal } from './invite-external-user-modal';
-import { UserPlus } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { useI18n } from '@/lib/i18n/provider';
 

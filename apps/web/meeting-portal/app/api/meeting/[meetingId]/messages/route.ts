@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { eq, and, isNull, lt, desc } from 'drizzle-orm';
+import { eq, and, isNull, lt, desc, sql } from 'drizzle-orm';
 import { getTenantDb } from '@/lib/db';
 import {
   meetingMessages,
   people,
 } from '@weldsuite/db/schema';
-import { sql } from 'drizzle-orm';
 import { messagesListQuerySchema, messagesPostInputSchema } from '@/lib/schemas';
 import {
   guestUnauthorized,

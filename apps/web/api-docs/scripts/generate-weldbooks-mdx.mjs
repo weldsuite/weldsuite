@@ -658,7 +658,7 @@ ${propsBlock(config.modelProperties)}
     ### Query parameters
 
     <Properties>
-${propsBlock(listFilters).replace(/^/gm, '    ')}
+${propsBlock(listFilters).replaceAll(/^/gm, '    ')}
     </Properties>
 
   </Col>
@@ -702,7 +702,7 @@ ${propsBlock(listFilters).replace(/^/gm, '    ')}
     curl ${path} \\
       -H "Authorization: Bearer wsk_your_api_key" \\
       -H "Content-Type: application/json" \\
-      -d '${createBody.replace(/\n/g, '\n      ')}'
+      -d '${createBody.replaceAll('\n', '\n      ')}'
     \`\`\`
 
     </CodeGroup>
@@ -1047,7 +1047,7 @@ function layoutTsx(title, description) {
 
 export const metadata: Metadata = {
   title: '${title}',
-  description: '${description.replace(/'/g, "\\'")}',
+  description: '${description.replaceAll('\'', "\\'")}',
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {

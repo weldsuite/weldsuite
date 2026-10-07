@@ -512,7 +512,7 @@ app.post(
       const integration = await resolveDiscordIntegration(db, data.integrationId);
       if (!integration) return error.notFound(c, 'Discord integration');
 
-      const colorInt = parseInt(data.embedColor.replace('#', ''), 16) || 0x5865f2;
+      const colorInt = Number.parseInt(data.embedColor.replace('#', ''), 16) || 0x5865f2;
 
       const embed: Record<string, unknown> = {
         title: data.embedTitle,

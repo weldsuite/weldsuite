@@ -30,13 +30,13 @@ function formatClerkError(err: unknown): string {
 }
 
 function normalizePem(key: string): string {
-  return key.replace(/\\n/g, '\n').replace(/\\r/g, '').trim();
+  return key.replaceAll('\\n', '\n').replaceAll('\\r', '').trim();
 }
 
 function decodeJwtPayload(token: string): ClerkJwtPayload {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('Invalid JWT format');
-  const json = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+  const json = atob(parts[1].replaceAll('-', '+').replaceAll('_', '/'));
   return JSON.parse(json) as ClerkJwtPayload;
 }
 
@@ -69,7 +69,7 @@ async function verifyClerkJwtLocal(token: string, pemKey: string): Promise<Clerk
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('Invalid JWT format');
 
-  const header = JSON.parse(atob(parts[0].replace(/-/g, '+').replace(/_/g, '/'))) as { alg?: string };
+  const header = JSON.parse(atob(parts[0].replaceAll('-', '+').replaceAll('_', '/'))) as { alg?: string };
   if (header.alg !== 'RS256') throw new Error(`Unsupported algorithm: ${header.alg}`);
 
   const cryptoKey = await crypto.subtle.importKey(

@@ -27,15 +27,15 @@ export interface BuildIcsParams {
 
 function toIcsDate(value: string | Date): string {
   const d = typeof value === 'string' ? new Date(value) : value;
-  return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  return d.toISOString().replaceAll(/[-:]/g, '').replace(/\.\d{3}/, '');
 }
 
 function escapeText(value: string): string {
   return value
-    .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\n')
-    .replace(/,/g, '\\,')
-    .replace(/;/g, '\\;');
+    .replaceAll('\\', '\\\\')
+    .replaceAll('\n', '\\n')
+    .replaceAll(',', '\\,')
+    .replaceAll(';', '\\;');
 }
 
 // RFC 5545 §3.1: lines longer than 75 *octets* must be folded.

@@ -484,7 +484,7 @@ app.post(
         return success(c, { id: existing.id, name: existing.name, generated: false });
       }
 
-      let title = firstUserMessage.replace(/\s+/g, ' ').trim().slice(0, 60) || 'New Chat';
+      let title = firstUserMessage.replaceAll(/\s+/g, ' ').trim().slice(0, 60) || 'New Chat';
       if (title.length > 80) title = title.slice(0, 80).trim();
 
       await db

@@ -21,11 +21,11 @@ const TOKEN_TTL_SECONDS = 24 * 60 * 60;
 function base64UrlEncode(bytes: Uint8Array): string {
   let bin = '';
   for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]!);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll(/=+$/g, '');
 }
 
 function base64UrlDecode(input: string): Uint8Array {
-  const padded = input.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = input.replaceAll('-', '+').replaceAll('_', '/');
   const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
   const bin = atob(padded + pad);
   const bytes = new Uint8Array(bin.length);

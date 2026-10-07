@@ -82,10 +82,10 @@ export function buildQuotedSuffix(
 
 function escapeHtml(text: string): string {
   return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }
 
 /**
@@ -95,7 +95,7 @@ function escapeHtml(text: string): string {
  */
 export function quotedSuffixToHtml(quotedSuffix: string): string {
   if (!quotedSuffix) return '';
-  return `<div>${escapeHtml(quotedSuffix).replace(/\r?\n/g, '<br>')}</div>`;
+  return `<div>${escapeHtml(quotedSuffix).replaceAll(/\r?\n/g, '<br>')}</div>`;
 }
 
 /**

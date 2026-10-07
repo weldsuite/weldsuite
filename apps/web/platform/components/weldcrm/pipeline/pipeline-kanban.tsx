@@ -50,6 +50,12 @@ import {
   Search,
   Settings,
   Trash2,
+  Calculator,
+  TrendingUp,
+  Percent,
+  DollarSign,
+  BarChart3,
+  PieChart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@weldsuite/ui/components/input';
@@ -80,14 +86,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import {
-  Calculator,
-  TrendingUp,
-  Percent,
-  DollarSign,
-  BarChart3,
-  PieChart
-} from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { secureRandom } from '@/lib/random';
 import { toast } from 'sonner';

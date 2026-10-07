@@ -208,7 +208,7 @@ export function ContactFormModernSection({
                 transition: 'background-color 0.2s',
               }}
               onMouseOver={(e) => {
-                const rgb = parseInt(buttonBackgroundColor.replace('#', ''), 16);
+                const rgb = Number.parseInt(buttonBackgroundColor.replace('#', ''), 16);
                 const r = (rgb >> 16) & 0xff;
                 const g = (rgb >> 8) & 0xff;
                 const b = rgb & 0xff;

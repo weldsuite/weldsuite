@@ -43,7 +43,7 @@ export const metadataCorsHeaders = {
  */
 export function clerkFrontendApiUrl(publishableKey: string): string {
   const payload = publishableKey.replace(/^pk_(test|live)_/, '');
-  const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+  const base64 = payload.replaceAll('-', '+').replaceAll('_', '/');
   const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
   const host = atob(padded).replace(/\$$/, '');
   return `https://${host}`;

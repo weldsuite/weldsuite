@@ -23,7 +23,7 @@ import {
   Trash2,
   UserMinus,
   RefreshCw,
-} from 'lucide-react';
+ Ticket as TicketIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -41,7 +41,6 @@ import {
   TableRow,
 } from '@weldsuite/ui/components/table';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { Ticket as TicketIcon } from 'lucide-react';
 import {
   PersonDetailLayout,
 } from '@/components/person-detail';

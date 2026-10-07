@@ -73,7 +73,7 @@ export async function listOrderingRequirements(
 ): Promise<PhoneOrderingRequirement[]> {
   const params = new URLSearchParams();
   params.set('filter[country_code]', countryCode.toUpperCase());
-  params.set('filter[phone_number_type]', numberType.replace(/-/g, '_'));
+  params.set('filter[phone_number_type]', numberType.replaceAll('-', '_'));
   params.set('filter[action]', 'ordering');
 
   try {
@@ -117,7 +117,7 @@ export async function createOrderingRequirementGroup(
     method: 'POST',
     body: JSON.stringify({
       country_code: args.countryCode.toUpperCase(),
-      phone_number_type: args.numberType.replace(/-/g, '_'),
+      phone_number_type: args.numberType.replaceAll('-', '_'),
       action: 'ordering',
       customer_reference: args.customerReference.slice(0, 100),
       regulatory_requirements: args.values.map((v) => ({

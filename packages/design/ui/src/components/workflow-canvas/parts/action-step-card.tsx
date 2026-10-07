@@ -228,7 +228,7 @@ export function ActionStepCard({
                   )}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground capitalize mt-0.5">
-                  {actionType?.name || step.type?.replace(/_/g, ' ')}
+                  {actionType?.name || step.type?.replaceAll('_', ' ')}
                 </p>
               </div>
             </div>

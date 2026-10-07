@@ -6,12 +6,11 @@
  * Needs Playwright Chromium. If it is not installed:
  *   npx --yes playwright install chromium
  */
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { mkdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HTML = path.join(ROOT, 'scenes.html');

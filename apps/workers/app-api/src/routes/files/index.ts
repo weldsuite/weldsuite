@@ -270,7 +270,7 @@ app.get('/:id/content', requirePermission('files:read'), async (c) => {
       'Cache-Control': 'private, no-cache',
     };
     if (wantsDownload) {
-      const safeName = (row.fileName || `file-${id}`).replace(/"/g, '');
+      const safeName = (row.fileName || `file-${id}`).replaceAll('"', '');
       const encoded = encodeURIComponent(safeName);
       headers['Content-Disposition'] = `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`;
     }

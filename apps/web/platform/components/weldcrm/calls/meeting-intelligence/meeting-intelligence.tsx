@@ -10,7 +10,7 @@ import {
   Sparkles,
   Users,
   Video,
-} from 'lucide-react';
+ Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -953,7 +953,6 @@ ${transcriptionText}
 
 // Inline small toolbar components to keep them co-located with the orchestrator
 
-import { Search } from 'lucide-react';
 
 function AutoScrollSelect({
   autoScroll,

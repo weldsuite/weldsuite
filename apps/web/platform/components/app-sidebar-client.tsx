@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Link, usePathname, useRouter } from '@/lib/router';
 import { cn } from '@/lib/utils';
-import { Plus } from 'lucide-react';
+import { Plus, Box, Puzzle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { useI18n } from '@/lib/i18n/provider';
 import type { InstalledApp } from '@/lib/api/apps';
@@ -30,7 +30,6 @@ import { CSS } from '@dnd-kit/utilities';
 import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
-import { Box, Puzzle } from 'lucide-react';
 
 /** Path this app's sidebar icon links to — WeldApps (`appType: 'user'`) are
  * hosted at `/apps/{code}`, first-party system apps keep their own `/{code}`

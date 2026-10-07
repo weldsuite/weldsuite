@@ -10,8 +10,7 @@ import { AdmitGuestsPill } from './admit-guests-pill';
 import { StageIndicators } from './tools/stage-indicators';
 import { filterBreakoutParticipants } from '../tools/tools-store';
 import { useMeetingToolsController } from '../tools/use-meeting-tools-controller';
-import type { MeetingRoomViewProps, ViewMode } from '../types';
-import type { MeetingPeer } from '../types';
+import type { MeetingRoomViewProps, ViewMode, MeetingPeer } from '../types';
 
 /**
  * Audio-only playback for a single remote participant.

@@ -29,7 +29,7 @@ import {
   Smile,
   AtSign,
   Baseline,
-} from 'lucide-react';
+ Hash, Lock, Users as UsersIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Input } from '@weldsuite/ui/components/input';
@@ -63,7 +63,6 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useChannels, useCreateDm, useSendMessage, useDmChannels } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
-import { Hash, Lock, Users as UsersIcon } from 'lucide-react';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useTranslations } from '@weldsuite/i18n/client';

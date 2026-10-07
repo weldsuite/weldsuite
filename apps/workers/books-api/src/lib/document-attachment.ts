@@ -49,7 +49,7 @@ export async function streamDocumentAttachment(
   headers.set('Cache-Control', 'private, max-age=3600');
   headers.set(
     'Content-Disposition',
-    `inline; filename="${filename.replace(/"/g, '')}"`,
+    `inline; filename="${filename.replaceAll('"', '')}"`,
   );
   return new Response(obj.body, { status: 200, headers });
 }

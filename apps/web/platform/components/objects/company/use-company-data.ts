@@ -27,12 +27,10 @@ import type {
   CreateCompanyInput,
   UpdateCompanyInput,
   ListCompaniesQuery,
-} from '@weldsuite/app-api-client/schemas/companies';
-import type {
+
   ImportCompanyRecord,
   ImportResult as CompanyImportResult,
-  ExportCompaniesQuery,
-} from '@weldsuite/app-api-client/schemas/companies';
+  ExportCompaniesQuery} from '@weldsuite/app-api-client/schemas/companies';
 
 export type { Company, CreateCompanyInput, UpdateCompanyInput, ListCompaniesQuery };
 export type { ImportCompanyRecord, CompanyImportResult, ExportCompaniesQuery };

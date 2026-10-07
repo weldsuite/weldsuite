@@ -27,7 +27,7 @@ import {
   Bot,
   RefreshCw,
   Ticket,
-} from 'lucide-react';
+ Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { toast } from 'sonner';
@@ -37,7 +37,6 @@ import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { useUpdateDiscordSettings, useDiscordChannels, usePostTicketPanel } from '@/hooks/queries/use-helpdesk-integration-queries';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
-import { Upload } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   ColorPicker,

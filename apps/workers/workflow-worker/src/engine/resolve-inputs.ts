@@ -33,11 +33,11 @@ export interface ResolveInputsOptions {
 /** Escape text for safe inclusion in HTML (email bodies). */
 export function escapeHtml(value: string): string {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('\'', '&#39;');
 }
 
 const identity = (value: string) => value;
@@ -98,7 +98,7 @@ function resolveStringInput(
   if (!(value.includes('{{') && value.includes('}}'))) return value;
 
   const escapeValue = options?.escapeHtmlKeys?.includes(key) ? escapeHtml : identity;
-  let resolved: unknown = value.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
+  let resolved: unknown = value.replaceAll(/\{\{([^}]+)\}\}/g, (match, path) => {
     const result = lookupTemplatePath(String(path).trim(), scope);
     if (result !== undefined) return escapeValue(stringifyForTemplate(result));
     console.warn(`Unresolved template: ${match}`);

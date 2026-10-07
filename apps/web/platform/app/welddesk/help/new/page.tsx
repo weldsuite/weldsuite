@@ -7,29 +7,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { toast } from 'sonner';
-import { Upload, Loader2 } from 'lucide-react';
-import { useCreateHelpArticle } from '@/hooks/queries/use-helpdesk-queries';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@weldsuite/ui/components/command';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@weldsuite/ui/components/popover';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import {
+import { Upload, Loader2 ,
   ImageIcon,
   X,
   Type,
@@ -61,6 +39,27 @@ import {
   Tag,
   FolderOpen,
 } from 'lucide-react';
+import { useCreateHelpArticle } from '@/hooks/queries/use-helpdesk-queries';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@weldsuite/ui/components/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@weldsuite/ui/components/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
 import { cn } from '@/lib/utils';
 
 interface CommandItem {
@@ -411,7 +410,7 @@ export default function NewHelpArticlePage() {
     const computedStyle = window.getComputedStyle(element);
 
     // Check font family
-    const currentFontFamily = computedStyle.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
+    const currentFontFamily = computedStyle.fontFamily.split(',')[0].replaceAll(/['"]/g, '').trim();
     const matchedFont = fontFamilies.find(f =>
       f.value.toLowerCase() === currentFontFamily.toLowerCase()
     );
