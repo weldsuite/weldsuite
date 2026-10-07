@@ -6,6 +6,8 @@
  */
 import { asText } from '@weldsuite/text';
 
+type ExpandableRef = string | { id: string } | null;
+
 const STRIPE_API_BASE = 'https://api.stripe.com';
 
 async function stripeRequest(
@@ -145,9 +147,9 @@ export interface StripeSubscription {
   id: string;
   status?: string;
   items?: { data?: Array<{ id: string; quantity?: number }> };
-  latest_invoice?: string | { id: string } | null;
+  latest_invoice?: ExpandableRef;
   /** Overrides the customer-level default when set — see `setSubscriptionDefaultPaymentMethod`. */
-  default_payment_method?: string | { id: string } | null;
+  default_payment_method?: ExpandableRef;
 }
 
 /** Minimal Stripe invoice shape used by the billing routes. */
@@ -162,7 +164,7 @@ export interface StripeCustomer {
   id: string;
   /** Customer-level fallback default. Subscription-level defaults win over it. */
   invoice_settings?: {
-    default_payment_method?: string | { id: string } | null;
+    default_payment_method?: ExpandableRef;
   } | null;
 }
 
@@ -195,7 +197,7 @@ export interface StripeSetupIntent {
   id: string;
   client_secret: string | null;
   status?: string;
-  payment_method?: string | { id: string } | null;
+  payment_method?: ExpandableRef;
 }
 
 /** Minimal Stripe Checkout Session shape used by the billing routes. */
@@ -564,12 +566,12 @@ export async function listPaymentMethods(
 export async function retrievePaymentMethod(
   secretKey: string,
   paymentMethodId: string,
-): Promise<StripePaymentMethod & { customer?: string | { id: string } | null }> {
+): Promise<StripePaymentMethod & { customer?: ExpandableRef }> {
   return (await stripeRequest(
     secretKey,
     'GET',
     `/v1/payment_methods/${encodeURIComponent(paymentMethodId)}`,
-  )) as StripePaymentMethod & { customer?: string | { id: string } | null };
+  )) as StripePaymentMethod & { customer?: ExpandableRef };
 }
 
 /**

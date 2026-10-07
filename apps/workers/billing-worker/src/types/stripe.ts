@@ -2,6 +2,8 @@
  * Minimal Stripe Webhook Types (No SDK Dependency)
  */
 
+type ExpandableRef = string | { id: string } | null;
+
 export interface StripeEvent {
   id: string;
   type: string;
@@ -14,11 +16,11 @@ export interface StripeCheckoutSession {
   id: string;
   mode: string;
   subscription: string | null;
-  customer: string | { id: string } | null;
+  customer: ExpandableRef;
   metadata: Record<string, string> | null;
   /** 'paid' | 'unpaid' | 'no_payment_required' — relevant for mode='payment'. */
   payment_status?: string;
-  payment_intent?: string | { id: string } | null;
+  payment_intent?: ExpandableRef;
   /** Total in the smallest currency unit (cents). */
   amount_total?: number | null;
   currency?: string | null;
@@ -64,7 +66,7 @@ export interface StripeSubscription {
 
 export interface StripeInvoice {
   id: string;
-  subscription: string | { id: string } | null;
+  subscription: ExpandableRef;
   billing_reason: string | null;
   customer: string | null;
   number: string | null;
@@ -100,7 +102,7 @@ export interface StripeProduct {
 
 export interface StripePrice {
   id: string;
-  product: string | { id: string } | null;
+  product: ExpandableRef;
   unit_amount: number | null;
   currency: string;
   recurring: {
@@ -140,7 +142,7 @@ export interface StripeCharge {
   amount: number;
   currency: string;
   status: string;
-  payment_intent?: string | { id: string } | null;
+  payment_intent?: ExpandableRef;
   payment_method_details: {
     type: string;
     card?: {

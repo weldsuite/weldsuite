@@ -15,18 +15,20 @@ import { useTrialBalanceReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
+type Amount = string | number | null;
+
 interface TrialBalanceAccountRow {
   accountId?: string;
   accountCode: string;
   accountName: string;
-  debit: string | number | null;
-  credit: string | number | null;
+  debit: Amount;
+  credit: Amount;
 }
 
 interface TrialBalanceReport {
   accounts?: TrialBalanceAccountRow[];
-  totalDebit?: string | number | null;
-  totalCredit?: string | number | null;
+  totalDebit?: Amount;
+  totalCredit?: Amount;
 }
 
 export default function TrialBalanceReportPage() {

@@ -7,6 +7,8 @@ import { ArrowRight } from "lucide-react";
 import { cn } from "@weldsuite/ui/lib/utils";
 import { VideoText } from "../components/video-text";
 
+type RenderMode = 'live' | 'edit' | 'preview';
+
 /** Builder settings that mirror this block's props, spread in from the parent section. */
 interface HeroVideoTextSettings {
   text?: string;
@@ -22,7 +24,7 @@ export interface HeroVideoTextHeadingBlockProps {
   fontFamily?: string;
   fontSize?: string;
   className?: string;
-  mode?: 'live' | 'edit' | 'preview';
+  mode?: RenderMode;
   store?: StoreData;
 }
 
@@ -67,7 +69,7 @@ export interface HeroVideoTextDescriptionBlockProps {
   fontSize?: string;
   maxWidth?: string;
   className?: string;
-  mode?: 'live' | 'edit' | 'preview';
+  mode?: RenderMode;
   store?: StoreData;
 }
 
@@ -119,7 +121,7 @@ export interface HeroVideoTextButtonBlockProps {
   textColor?: string;
   showIcon?: boolean;
   className?: string;
-  mode?: 'live' | 'edit' | 'preview';
+  mode?: RenderMode;
   store?: StoreData;
 }
 
@@ -166,7 +168,7 @@ export interface HeroVideoTextBlockProps {
   paddingBottom?: number;
   gap?: number;
   className?: string;
-  mode?: 'live' | 'edit' | 'preview';
+  mode?: RenderMode;
   store?: StoreData;
   children?: React.ReactNode;
   // Legacy props for backward compatibility (when no children)

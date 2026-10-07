@@ -17,18 +17,20 @@ import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
+type Amount = string | number | null;
+
 interface CashFlowMonthRow {
   month: string;
-  inflows: string | number | null;
-  outflows: string | number | null;
-  net: string | number | null;
+  inflows: Amount;
+  outflows: Amount;
+  net: Amount;
 }
 
 interface CashFlowReport {
   months?: CashFlowMonthRow[];
-  totalInflows?: string | number | null;
-  totalOutflows?: string | number | null;
-  netCashFlow?: string | number | null;
+  totalInflows?: Amount;
+  totalOutflows?: Amount;
+  netCashFlow?: Amount;
 }
 
 export default function CashFlowReportPage() {

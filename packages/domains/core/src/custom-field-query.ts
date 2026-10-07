@@ -37,6 +37,8 @@ import {
   type CustomFieldDefinitionLike,
 } from '@weldsuite/app-api-client/schemas/custom-fields';
 
+type RawFieldValue = string | number | boolean;
+
 /** Grid/API sort + filter keys namespace custom fields as `custom:<slug>`. */
 export const CUSTOM_FIELD_KEY_PREFIX = 'custom:';
 
@@ -100,7 +102,7 @@ export function customFieldOrderBy(
   return direction === 'asc' ? sql`${inner} ASC NULLS LAST` : sql`${inner} DESC NULLS LAST`;
 }
 
-function coerceBool(rawValue: string | number | boolean): boolean | null {
+function coerceBool(rawValue: RawFieldValue): boolean | null {
   if (typeof rawValue === 'boolean') return rawValue;
   const str = String(rawValue);
   if (str === 'true') return true;
@@ -112,7 +114,7 @@ function coerceBool(rawValue: string | number | boolean): boolean | null {
 function valuePredicate(
   kind: ReturnType<typeof fieldTypeToValueColumn>,
   column: SQL,
-  rawValue: string | number | boolean,
+  rawValue: RawFieldValue,
 ): SQL | null {
   switch (kind) {
     case 'number': {
@@ -162,7 +164,7 @@ export function customFieldFilter(
   entityType: string,
   entityId: AnyPgColumn,
   def: CustomFieldDefinitionLike & { id: string },
-  rawValue: string | number | boolean,
+  rawValue: RawFieldValue,
 ): SQL | null {
   const kind = fieldTypeToValueColumn(def.fieldType);
   const column = sql.raw(valueColumnName(def));

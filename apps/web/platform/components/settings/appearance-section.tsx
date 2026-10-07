@@ -8,10 +8,12 @@ import { Slider } from "@weldsuite/ui/components/slider"
 import { Label } from "@weldsuite/ui/components/label"
 import { cn } from "@/lib/utils"
 
+type ThemePreference = "light" | "dark" | "system";
+
 interface AppearanceSectionProps {
-  theme: "light" | "dark" | "system"
+  theme: ThemePreference
   fontSize: number
-  onThemeChange: (theme: "light" | "dark" | "system") => void
+  onThemeChange: (theme: ThemePreference) => void
   onFontSizeChange: (size: number) => void
 }
 
@@ -30,7 +32,7 @@ export function AppearanceSection({
           <CardDescription>{t('sweep.settings.appearance.themeDescription')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <RadioGroup value={theme} onValueChange={(v) => onThemeChange(v as "light" | "dark" | "system")}>
+          <RadioGroup value={theme} onValueChange={(v) => onThemeChange(v as ThemePreference)}>
             <div className="grid grid-cols-3 gap-2 md:gap-4">
               <label className={cn(
                 "flex flex-col items-center justify-center rounded-lg border-2 p-4 cursor-pointer hover:bg-accent",

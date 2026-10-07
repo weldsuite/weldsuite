@@ -19,6 +19,8 @@ import type { MappedCompany, MappedPerson, ExternalNote, ExternalTask } from './
 import { computeChecksum } from './integrations/providers/attio/mapper';
 import { upsertByMapping } from './engine/sync/upsert';
 
+type SyncAction = 'created' | 'updated' | 'skipped';
+
 type TenantDb = NeonHttpDatabase<typeof schema>;
 
 /** Cryptographically secure random base36 string of the given length. */
@@ -50,7 +52,7 @@ export async function upsertCompany(
   externalEntityId: string,
   mapped: MappedCompany,
   rawData: unknown,
-): Promise<{ action: 'created' | 'updated' | 'skipped'; companyId: string }> {
+): Promise<{ action: SyncAction; companyId: string }> {
   const checksum = await computeChecksum(rawData);
   const name = mapped.data.name ?? 'Unknown Company';
   const values = {
@@ -86,7 +88,7 @@ export async function upsertPerson(
   mapped: MappedPerson,
   parentCompanyId: string | undefined,
   rawData: unknown,
-): Promise<{ action: 'created' | 'updated' | 'skipped'; personId: string }> {
+): Promise<{ action: SyncAction; personId: string }> {
   const checksum = await computeChecksum(rawData);
   const displayName =
     mapped.data.displayName ||
@@ -243,7 +245,7 @@ export async function upsertNote(
   note: ExternalNote,
   parentEntityId: string | undefined,
   parentEntityType: string | undefined,
-): Promise<{ action: 'created' | 'updated' | 'skipped'; activityId: string }> {
+): Promise<{ action: SyncAction; activityId: string }> {
   const checksum = await computeChecksum(note.raw);
 
   const [existingMapping] = await db
@@ -329,7 +331,7 @@ export async function upsertTask(
   task: ExternalTask,
   linkedEntityId: string | undefined,
   linkedEntityType: string | undefined,
-): Promise<{ action: 'created' | 'updated' | 'skipped'; activityId: string }> {
+): Promise<{ action: SyncAction; activityId: string }> {
   const checksum = await computeChecksum(task.raw);
 
   const [existingMapping] = await db
@@ -452,7 +454,7 @@ export async function upsertListAndEntry(
   externalEntryId: string,
   parentCompanyId: string,
   _rawData: unknown,
-): Promise<{ action: 'created' | 'updated' | 'skipped'; listId: string; memberId: string }> {
+): Promise<{ action: SyncAction; listId: string; memberId: string }> {
   // Step 1: Ensure `lists` row exists (mapped under externalEntityType='list')
   const [listMapping] = await db
     .select()

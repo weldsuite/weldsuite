@@ -1,3 +1,5 @@
+type DateLike = string | Date | null;
+
 export type ActivityThreshold = 'any' | '24h' | '7d' | '30d' | '90d' | 'older1y';
 export type ChannelMode = 'all' | 'include' | 'exclude';
 export type SortBy =
@@ -162,9 +164,9 @@ interface FilterChannel {
   isPinned?: boolean | null;
   isFavorite?: boolean | null;
   topic?: string | null;
-  createdAt?: string | Date | null;
-  lastMessageAt?: string | Date | null;
-  lastReadAt?: string | Date | null;
+  createdAt?: DateLike;
+  lastMessageAt?: DateLike;
+  lastReadAt?: DateLike;
   unreadMentionCount?: number | null;
   unreadCount?: number | null;
   memberCount?: number | null;

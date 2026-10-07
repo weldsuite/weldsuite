@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Facebook, Twitter, Instagram, Youtube, Linkedin, Mail, Globe, ChevronDown } from 'lucide-react';
 
+type HorizontalPosition = 'left' | 'center' | 'right';
+
 /** A link inside a footer column. */
 interface FooterLink {
   label?: string;
@@ -41,9 +43,9 @@ interface FooterBlockSettings {
   availableCurrencies?: CurrencyOption[];
   availableLanguages?: LanguageOption[];
   socialMediaLinks?: SocialMediaLink[];
-  socialIconsPosition?: 'left' | 'center' | 'right';
+  socialIconsPosition?: HorizontalPosition;
   copyright?: string;
-  copyrightPosition?: 'left' | 'center' | 'right';
+  copyrightPosition?: HorizontalPosition;
   showPaymentIcons?: boolean;
 }
 
@@ -76,9 +78,9 @@ export interface FooterBlockProps {
     url: string;
     enabled: boolean;
   }>;
-  socialIconsPosition?: 'left' | 'center' | 'right';
+  socialIconsPosition?: HorizontalPosition;
   copyright?: string;
-  copyrightPosition?: 'left' | 'center' | 'right';
+  copyrightPosition?: HorizontalPosition;
   showPaymentIcons?: boolean;
   showCurrencySelector?: boolean;
   showLanguageSelector?: boolean;
@@ -116,7 +118,7 @@ const POSITION_TEXT_ALIGN: Record<string, string> = {
   center: 'text-center',
 };
 
-const BOTTOM_AREA_CLASS: Record<'left' | 'center' | 'right', (isMobileView: boolean) => string> = {
+const BOTTOM_AREA_CLASS: Record<HorizontalPosition, (isMobileView: boolean) => string> = {
   left: (isMobileView) => (isMobileView ? '' : 'flex justify-start'),
   center: () => 'flex justify-center',
   right: () => 'flex justify-end',
@@ -372,11 +374,11 @@ function PaymentMethods({ isMobileView, textColor }: Readonly<PaymentMethodsProp
 }
 
 interface BottomAreaProps {
-  area: 'left' | 'center' | 'right';
+  area: HorizontalPosition;
   className: string;
   socialLinks: SocialLinkItem[];
-  socialIconsPosition: 'left' | 'center' | 'right';
-  copyrightPosition: 'left' | 'center' | 'right';
+  socialIconsPosition: HorizontalPosition;
+  copyrightPosition: HorizontalPosition;
   copyright: string;
   isEditing: boolean;
   textColor: string;

@@ -5,6 +5,8 @@ import { toPriceNumber } from '../lib/price';
 import React, { useState, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react';
 
+type RenderMode = 'live' | 'preview' | 'edit';
+
 // ============================================
 // Product Gallery Block
 // ============================================
@@ -22,7 +24,7 @@ export interface ProductDetailGalleryBlockProps {
   imageRounding?: number;
   images?: ProductImage[];
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -275,7 +277,7 @@ export interface ProductDetailTitleBlockProps {
   textColor?: string;
   fontSize?: 'sm' | 'md' | 'lg' | 'xl';
   fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -321,7 +323,7 @@ export interface ProductDetailPriceBlockProps {
   salePrice?: number;
   currency?: string;
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -381,7 +383,7 @@ export interface ProductDetailVariantSelectorBlockProps {
   label?: string;
   options?: VariantOption[];
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -433,7 +435,7 @@ export function ProductDetailVariantSelectorBlock({
 export interface ProductDetailQuantityBlockProps {
   label?: string;
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -486,7 +488,7 @@ export interface ProductDetailButtonsBlockProps {
   showAddToCart?: boolean;
   showBuyNow?: boolean;
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -531,7 +533,7 @@ export function ProductDetailButtonsBlock({
 export interface ProductDetailDescriptionBlockProps {
   description?: string;
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -566,7 +568,7 @@ export interface ProductDetailAccordionBlockProps {
   items?: AccordionItem[];
   textColor?: string;
   borderColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -623,7 +625,7 @@ export interface ProductDetailBlockProps {
   backgroundColor?: string;
   textColor?: string;
   showAccordion?: boolean;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
   };

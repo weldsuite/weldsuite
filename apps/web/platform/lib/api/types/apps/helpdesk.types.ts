@@ -5,6 +5,10 @@
 
 import { BaseEntity, Attachment } from '../common.types';
 
+type ChangelogEntryType = 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking';
+
+type PublishStatus = 'draft' | 'published' | 'archived';
+
 // The `Helpdesk.X` / `Helpdesk.Api.X` dot-access pattern below is consumed
 // across many files outside this module's scope (app/welddesk, hooks/queries,
 // hooks/helpdesk); converting away from namespaces would require updating
@@ -653,7 +657,7 @@ export namespace Helpdesk {
 
   export type MessageType = 'reply' | 'note' | 'system' | 'forward';
 
-  export type ArticleStatus = 'draft' | 'published' | 'archived';
+  export type ArticleStatus = PublishStatus;
 
   export type ArticleVisibility = 'public' | 'internal' | 'restricted';
 
@@ -840,7 +844,7 @@ export namespace Helpdesk {
       content: string;
       excerpt?: string;
       type: 'info' | 'warning' | 'success' | 'error';
-      status: 'draft' | 'published' | 'archived';
+      status: PublishStatus;
       visibility: 'public' | 'internal' | 'specific_groups';
       targetGroups?: string[];
       featuredImage?: string;
@@ -868,7 +872,7 @@ export namespace Helpdesk {
     }
 
     export interface UpdateAnnouncementRequest extends Partial<CreateAnnouncementRequest> {
-      status?: 'draft' | 'published' | 'archived';
+      status?: PublishStatus;
     }
 
     // Changelog
@@ -879,10 +883,10 @@ export namespace Helpdesk {
       description: string;
       releaseDate: Date;
       status: 'draft' | 'published';
-      type: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking';
+      type: ChangelogEntryType;
       changes: {
         id: string;
-        type: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking';
+        type: ChangelogEntryType;
         description: string;
         issueNumber?: string;
       }[];
@@ -897,9 +901,9 @@ export namespace Helpdesk {
       title: string;
       description: string;
       releaseDate: Date;
-      type: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking';
+      type: ChangelogEntryType;
       changes: {
-        type: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking';
+        type: ChangelogEntryType;
         description: string;
         issueNumber?: string;
       }[];
@@ -967,7 +971,7 @@ export namespace Helpdesk {
       excerpt?: string;
       category: string;
       tags?: string[];
-      status: 'draft' | 'published' | 'archived';
+      status: PublishStatus;
       featuredImage?: string;
       authorId: string;
       authorName?: string;
@@ -992,7 +996,7 @@ export namespace Helpdesk {
     }
 
     export interface UpdateNewsItemRequest extends Partial<CreateNewsItemRequest> {
-      status?: 'draft' | 'published' | 'archived';
+      status?: PublishStatus;
     }
 
     // Feedback
