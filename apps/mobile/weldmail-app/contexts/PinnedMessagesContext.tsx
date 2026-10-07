@@ -21,7 +21,7 @@ export function PinnedMessagesProvider({ children }: Readonly<{ children: ReactN
 
   // Hydrate from storage once on mount.
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
         if (raw) {
