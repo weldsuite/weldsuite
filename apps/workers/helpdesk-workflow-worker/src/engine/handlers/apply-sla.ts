@@ -2,6 +2,7 @@ import type { StepHandler, StepContext, StepResult } from '../../types';
 import { eq } from 'drizzle-orm';
 import { schema } from '../../db';
 import { resolveConversationId } from '../../lib/workflow-shared';
+import { asText } from '@weldsuite/text';
 
 export const applySlaHandler: StepHandler = {
   type: 'apply_sla',
@@ -10,7 +11,7 @@ export const applySlaHandler: StepHandler = {
     const conversationId = resolveConversationId(ctx.inputs, ctx.state.triggerData) || ctx.state.conversationId;
     const { db } = ctx.options;
 
-    const slaId = String(ctx.inputs.slaId || '');
+    const slaId = asText(ctx.inputs.slaId || '');
     if (!slaId) return { success: false, error: 'No SLA ID specified' };
 
     if (conversationId) {

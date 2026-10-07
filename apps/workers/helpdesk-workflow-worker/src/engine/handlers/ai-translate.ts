@@ -9,13 +9,14 @@ import type { StepHandler, StepContext, StepResult } from '../../types';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { schema } from '../../db';
 import { createHelpdeskAgent } from '../../lib/helpdesk-agent-stub';
+import { asText } from '@weldsuite/text';
 
 export const aiTranslateHandler: StepHandler = {
   type: 'ai_translate',
 
   async execute(ctx: StepContext): Promise<StepResult> {
     const { db, env, conversationId, workspaceId } = ctx.options;
-    const targetLanguage = String(ctx.inputs.targetLanguage || 'en');
+    const targetLanguage = asText(ctx.inputs.targetLanguage || 'en');
 
     // Get the last customer message
     const [lastCustomerMessage] = await db
@@ -40,9 +41,9 @@ export const aiTranslateHandler: StepHandler = {
     const originalContent = lastCustomerMessage.content;
 
     const modelId = ctx.inputs.model
-      ? String(ctx.inputs.model).includes('/')
-        ? String(ctx.inputs.model)
-        : `openai/${ctx.inputs.model}`
+      ? asText(ctx.inputs.model).includes('/')
+        ? asText(ctx.inputs.model)
+        : `openai/${asText(ctx.inputs.model)}`
       : 'openai/gpt-4o';
 
     // Create Mastra agent for translation

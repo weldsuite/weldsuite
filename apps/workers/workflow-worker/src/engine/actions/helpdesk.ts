@@ -10,6 +10,7 @@ import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import type { ActionContext, ActionHandler } from '../types';
 import { resolveConversationId, publishRealtime } from './helpers';
+import { asText } from '@weldsuite/text';
 
 /**
  * Pick the least-loaded active agent (optionally within a department) for
@@ -52,13 +53,13 @@ export const handleAssignConversation: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const strategy = String(inputs.strategy || 'specific_agent');
-  const departmentId = inputs.departmentId ? String(inputs.departmentId) : undefined;
+  const strategy = asText(inputs.strategy || 'specific_agent');
+  const departmentId = inputs.departmentId ? asText(inputs.departmentId) : undefined;
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
 
   if (strategy === 'specific_agent' && inputs.agentId) {
-    updateData.assigneeId = String(inputs.agentId);
-    if (inputs.agentName) updateData.assigneeName = String(inputs.agentName);
+    updateData.assigneeId = asText(inputs.agentId);
+    if (inputs.agentName) updateData.assigneeName = asText(inputs.agentName);
   } else if (strategy === 'department' && departmentId) {
     updateData.departmentId = departmentId;
   } else if (strategy === 'round_robin' || strategy === 'least_busy') {
@@ -87,7 +88,7 @@ export const handleTagConversation: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const mode = String(inputs.mode || 'add');
+  const mode = asText(inputs.mode || 'add');
   const inputTags = (Array.isArray(inputs.tags) ? inputs.tags : []).map(String);
   const [conversation] = await ctx.db
     .select({ tags: schema.helpdeskConversations.tags })
@@ -147,8 +148,8 @@ export const handleSendReply: ActionHandler = async (inputs, ctx) => {
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
   const messageId = generateId('msg');
-  const authorType = String(inputs.authorType || 'system');
-  const content = String(inputs.message || '');
+  const authorType = asText(inputs.authorType || 'system');
+  const content = asText(inputs.message || '');
   await ctx.db.insert(schema.helpdeskConversationMessages).values({
     id: messageId,
     conversationId,
@@ -184,7 +185,7 @@ export const handleAddInternalNote: ActionHandler = async (inputs, ctx) => {
   await ctx.db.insert(schema.helpdeskConversationMessages).values({
     id: messageId,
     conversationId,
-    content: String(inputs.content || ''),
+    content: asText(inputs.content || ''),
     authorType: 'agent',
     authorId: ctx.tenant.userId,
     authorName: 'System',

@@ -1,11 +1,12 @@
 import type { StepHandler, StepContext, StepResult } from '../../types';
 import { createBotMessage } from '../helpers';
+import { asText } from '@weldsuite/text';
 
 export const sendMessageHandler: StepHandler = {
   type: 'send_message',
 
   async execute(ctx: StepContext): Promise<StepResult> {
-    const content = String(ctx.inputs.message || '');
+    const content = asText(ctx.inputs.message || '');
     if (!content) return { success: true, skipped: true };
 
     const messageId = await createBotMessage(ctx.options.db, {

@@ -9,6 +9,7 @@ import type { StepHandler, StepContext, StepResult } from '../../types';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { schema } from '../../db';
 import { createHelpdeskAgent } from '../../lib/helpdesk-agent-stub';
+import { asText } from '@weldsuite/text';
 
 export const aiSentimentHandler: StepHandler = {
   type: 'ai_sentiment',
@@ -55,9 +56,9 @@ export const aiSentimentHandler: StepHandler = {
     }
 
     const modelId = ctx.inputs.model
-      ? String(ctx.inputs.model).includes('/')
-        ? String(ctx.inputs.model)
-        : `openai/${ctx.inputs.model}`
+      ? asText(ctx.inputs.model).includes('/')
+        ? asText(ctx.inputs.model)
+        : `openai/${asText(ctx.inputs.model)}`
       : 'openai/gpt-4o';
 
     // Create Mastra agent for sentiment analysis

@@ -5,6 +5,8 @@
  * Ported from helpdesk-workflow-worker (canonical source).
  */
 
+import { asText } from '@weldsuite/text';
+
 // ============================================================================
 // Step Classification
 // ============================================================================
@@ -91,7 +93,7 @@ function resolveStringInput(value: string, scope: ResolveScope): unknown {
 
   const interpolated = value.replace(/\{\{([^}]+)\}\}/g, (_match, path) => {
     const r = resolveReference((path as string).trim(), scope);
-    return r !== undefined ? String(r) : '';
+    return r !== undefined ? asText(r) : '';
   });
 
   // A value that is exactly one template keeps the referenced value's original type
@@ -148,7 +150,7 @@ export function evaluateCondition(
 ): boolean {
   if (!condition.field || !condition.operator) return false;
 
-  const field = String(condition.field);
+  const field = asText(condition.field);
   const fieldValue: unknown = isReference(field)
     ? resolveReference(field, { previousResults, triggerData, variables, contactData })
     : condition.field;
@@ -180,7 +182,7 @@ export function resolveConversationId(
   inputs: Record<string, unknown>,
   triggerData: unknown,
 ): string | null {
-  if (inputs.conversationId) return String(inputs.conversationId);
+  if (inputs.conversationId) return asText(inputs.conversationId);
   const td = triggerData as Record<string, unknown> | undefined;
   if (td?.entityType === 'helpdesk_conversation') return String(td.entityId);
   if (td?.data && typeof td.data === 'object' && 'conversationId' in (td.data as object)) {

@@ -2,6 +2,7 @@ import type { StepHandler, StepContext, StepResult } from '../../types';
 import { schema } from '../../db';
 import { resolveConversationId } from '../../lib/workflow-shared';
 import { generateId } from '../../lib/id';
+import { asText } from '@weldsuite/text';
 
 export const addInternalNoteHandler: StepHandler = {
   type: 'add_internal_note',
@@ -13,7 +14,7 @@ export const addInternalNoteHandler: StepHandler = {
     await ctx.options.db.insert(schema.helpdeskConversationMessages).values({
       id: messageId,
       conversationId,
-      content: String(ctx.inputs.content || ''),
+      content: asText(ctx.inputs.content || ''),
       authorType: 'agent',
       authorId: 'system',
       authorName: 'System',

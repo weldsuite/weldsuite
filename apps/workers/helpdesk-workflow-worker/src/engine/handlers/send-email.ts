@@ -7,15 +7,16 @@
  */
 
 import type { StepHandler, StepContext, StepResult } from '../../types';
+import { asText } from '@weldsuite/text';
 
 export const sendEmailHandler: StepHandler = {
   type: 'send_email',
 
   async execute(ctx: StepContext): Promise<StepResult> {
-    const to = String(ctx.inputs.to || '');
-    const subject = String(ctx.inputs.subject || '');
-    const message = String(ctx.inputs.message || '');
-    const from = String(ctx.inputs.from || 'noreply@weldsuite.com');
+    const to = asText(ctx.inputs.to || '');
+    const subject = asText(ctx.inputs.subject || '');
+    const message = asText(ctx.inputs.message || '');
+    const from = asText(ctx.inputs.from || 'noreply@weldsuite.com');
 
     if (!to) {
       return { success: false, error: 'Missing required field: to' };
@@ -30,9 +31,9 @@ export const sendEmailHandler: StepHandler = {
     // Determine email endpoint — check for configured API worker URL or email service
     const envAny = env as unknown as Record<string, unknown>;
     const emailEndpoint = envAny.EMAIL_API_URL
-      ? String(envAny.EMAIL_API_URL)
+      ? asText(envAny.EMAIL_API_URL)
       : envAny.API_WORKER_URL
-        ? `${String(envAny.API_WORKER_URL)}/api/mail/send`
+        ? `${asText(envAny.API_WORKER_URL)}/api/mail/send`
         : null;
 
     if (!emailEndpoint) {

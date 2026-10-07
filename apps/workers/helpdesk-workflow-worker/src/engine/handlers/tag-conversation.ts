@@ -2,6 +2,7 @@ import type { StepHandler, StepContext, StepResult } from '../../types';
 import { eq } from 'drizzle-orm';
 import { schema } from '../../db';
 import { resolveConversationId } from '../../lib/workflow-shared';
+import { asText } from '@weldsuite/text';
 
 export const tagConversationHandler: StepHandler = {
   type: 'tag_conversation',
@@ -10,7 +11,7 @@ export const tagConversationHandler: StepHandler = {
     const conversationId = resolveConversationId(ctx.inputs, ctx.state.triggerData) || ctx.state.conversationId;
     const { db } = ctx.options;
 
-    const mode = String(ctx.inputs.mode || 'add');
+    const mode = asText(ctx.inputs.mode || 'add');
     const inputTags = (Array.isArray(ctx.inputs.tags) ? ctx.inputs.tags : []).map(String);
 
     const [conversation] = await db

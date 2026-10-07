@@ -1,11 +1,12 @@
 import type { StepHandler, StepContext, StepResult } from '../../types';
 import { createBotMessage } from '../helpers';
+import { asText } from '@weldsuite/text';
 
 export const sendChoicesHandler: StepHandler = {
   type: 'send_choices',
 
   async execute(ctx: StepContext): Promise<StepResult> {
-    const content = String(ctx.inputs.message || '');
+    const content = asText(ctx.inputs.message || '');
     const rawOptions =
       (ctx.inputs.options as Array<{ id?: string; label: string; value: string }>) || [];
     const choiceOptions = rawOptions.map((o) => ({

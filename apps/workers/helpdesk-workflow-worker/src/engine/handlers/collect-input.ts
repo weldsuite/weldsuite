@@ -1,11 +1,12 @@
 import type { StepHandler, StepContext, StepResult } from '../../types';
 import { createBotMessage } from '../helpers';
+import { asText } from '@weldsuite/text';
 
 export const collectInputHandler: StepHandler = {
   type: 'collect_input',
 
   async execute(ctx: StepContext): Promise<StepResult> {
-    const content = String(ctx.inputs.message || '');
+    const content = asText(ctx.inputs.message || '');
     const fields =
       (ctx.inputs.fields as Array<{
         id: string;
