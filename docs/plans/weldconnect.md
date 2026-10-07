@@ -1,7 +1,11 @@
 # WeldConnect: from MVP to a working automation app
 
-Status: phase 1 in review (October 2026). Phase 2 is parked until phase 1 is
-merged and tried on the test environment.
+Status (7 October 2026): phase 1 and most of phase 2 are merged on `develop`
+(#859 to #906). Next: run the browser QA script
+(`docs/plans/weldconnect-qa-checklist.md`) on `app-test.weldsuite.org`, finish
+the server-backed templates (`feat/weldconnect-templates`, in progress), then
+the parked items listed under "Still open" below. User guides live on
+help.weldsuite.org (`apps/web/docs/src/app/weldconnect/`).
 
 WeldConnect is the workspace workflow automation module (editor in
 `apps/web/platform/app/weldconnect`, API in `apps/workers/connect-api`, engine
@@ -25,90 +29,87 @@ Decisions taken with the product owner:
   flagged in the PR.
 - **Delivery**: phased PRs against `develop`.
 
-## Phase 1: in review
+## Phase 1: merged
 
-| PR | Branch | Base | What |
+| PR | Branch | What |
+|---|---|---|
+| #859 | `feat/weldconnect-reliability` | Cancel terminates the run; replay-safe step rows; error logs; unknown step types fail |
+| #860 | `feat/weldconnect-logic` | Real branching (if/else, value branches), loops ("for each item"), delays; "add step after" in the editor |
+| #861 | `feat/weldconnect-actions` | Runs act as the owner with run-time permission checks; `create_contact`, `update_contact`, `send_notification` |
+| #862 | `feat/weldconnect-webhook-http` | Webhook trigger (master registry, raw-body HMAC, provisioning on save) and hardened `http_request`; master migration `0048` |
+| #864 | `feat/weldconnect-task-action` | `create_task` (logic extracted to `@weldsuite/flow-domain`) |
+| #869 | `feat/weldconnect-chat-action` | `post_chat_message` as the workflow (system author via `@weldsuite/chat-domain`) |
+| #870 | `feat/weldconnect-crm-actions` | `create_lead`, `create_deal`, `move_deal_stage`, `log_activity` (logic extracted to `@weldsuite/crm-domain`) |
+
+#860, #861 and #864 merged into their stacked parents and reached `develop`
+through #867; #869 and #870 through #872. #862's master migration also widened
+`user_apps.icon` to `text` (pending drift from the WeldApps work).
+
+## Phase 2
+
+Done (all merged on `develop`):
+
+| # | Item | PR | What |
 |---|---|---|---|
-| #859 | `feat/weldconnect-reliability` | `develop` | Cancel terminates the run; replay-safe step rows; error logs; unknown step types fail |
-| #860 | `feat/weldconnect-logic` | #859 | Real branching (if/else, value branches), loops ("for each item"), delays; "add step after" in the editor |
-| #861 | `feat/weldconnect-actions` | #860 | Runs act as the owner with run-time permission checks; `create_contact`, `update_contact`, `send_notification` |
-| #862 | `feat/weldconnect-webhook-http` | `develop` | Webhook trigger (master registry, raw-body HMAC, provisioning on save) and hardened `http_request`; master migration `0048` |
-| 3b | `feat/weldconnect-crm-actions` | #861 | `create_lead`, `create_deal`, `move_deal_stage`, `log_activity` (logic extracted to `@weldsuite/crm-domain`) |
-| 3c | `feat/weldconnect-task-action` | #861 | `create_task` (logic extracted to `@weldsuite/flow-domain`) |
-| 3d | `feat/weldconnect-chat-action` | #861 | `post_chat_message` as the workflow (system author via `@weldsuite/chat-domain`) |
+| 2 | "After another workflow" trigger | #891 | `workflow_complete` unlocked with a workflow picker; matcher reads the flat editor shape; idempotent chained starts; Test runs don't chain; `{{trigger.*}}` incl. source step outputs |
+| 4 | AI steps | #892 | `ai_generate` / `ai_classify` unlocked, metered against the credit wallet, `settings.maxCreditsPerRun` enforced (ledger sum + worst-case estimate); settings field restored; workflow-worker secrets manifest fixed |
+| 5 | Unhide finished sections | #891 | Variables, Webhooks (managed rows can't be deleted), Analytics with error log + acknowledge. Actions / Triggers libraries and Templates stay hidden (`WELDCONNECT_OUT_OF_SCOPE_SECTIONS`) |
+| 6 | Approvals + waiting status | #891 | `manual_step` as "Approval" (approvers, notifications, approve/reject + comment, 7-day expiry), `waiting_for_input` status, badge, filter; refused inside branches/loops (`nested_waiting_step`) |
+| 7 | Providers: Slack | #894 | OAuth connect, test, channel picker, `slack.post_message` (thread replies, mapped errors); provider owner-membership check in `providers/token.ts`; `PUBLIC_APP_URL` fixed for test/production |
+| 7 | Providers: Google | #904 | `google_sheets.append_row` / `update_row`, `gmail.send_email`, `google_calendar.create_event`; least-privilege scopes, paste-a-link spreadsheet picker, token refresh on workflow-worker |
+| 7 | Providers: GitHub | #905 | `app_installation` auth reusing WeldFlow's GitHub App installation, repo picker, `github.create_issue` / `github.create_comment` |
+| 8 | Help docs | `docs/weldconnect-guides` | Guides on help.weldsuite.org (`apps/web/docs/src/app/weldconnect/`); screenshots still to capture (TODO list in each page's `screenshots_todo` frontmatter) |
+| 9 | Extras | #906 | One-time schedules (`scheduleType: 'one_time'`, `executeAt`, fires once then disables itself), version history (`workflow_versions`, restore through `updateWorkflow`), `settings.maxConcurrentRuns` with a `skipped` run status; tenant migration `0199_far_tomas`, D1 `0003_schedule_index_one_time.sql` |
 
-Finishing phase 1:
+Next:
 
-- Merge #859 → #860 → #861 → 3b / 3c / 3d, retargeting each stacked PR to
-  `develop` once its parent merges.
-- #862 is independent; whichever of #862 / #860 / #861 merges second gets small
-  conflicts in the shared step-type lists (both activation allowlists, the
-  editor catalog, canvas labels, i18n). 3b, 3c and 3d conflict with each other
-  in the same lists.
-- #862's migration also widens `user_apps.icon` to `text` (pending drift from
-  the WeldApps work, safe).
+- **(1) Browser QA on test**: `docs/plans/weldconnect-qa-checklist.md`, the
+  consolidated script from the QA sections of #859 to #906. Everything above is
+  verified by unit/integration tests and type-checks; only a few paths were
+  tried in a browser. Needs the workflow-worker secrets and the Slack/Google
+  OAuth configuration listed there.
+- **(3) Server-backed templates** (in progress, `feat/weldconnect-templates`).
+  The gallery (`app/weldconnect/templates/components/templates-client.tsx`)
+  shows hardcoded client templates from
+  `components/workflow-template-dialog.tsx`; list `workflow_templates` from the
+  API instead, ship a starter set built only from steps that work, and unhide
+  the section.
+- **(10) Backfill legacy webhooks** into `workflow_webhook_registry`, only if
+  any pre-#862 webhook workflows are still live (they register again on their
+  next save).
 
-## Phase 2: later
+### Still open / parked
 
-Roughly in the recommended order.
+- **More providers**: Microsoft Teams, Notion, Airtable, Asana, Twilio. Parked
+  until their apps/keys exist. Adapters exist in
+  `workflow-worker/src/engine/actions/providers/`; each needs a working
+  connect/OAuth flow (or an app-installation link, see "Provider pattern"
+  below), a connection test, a resource picker where the action needs one, an
+  editor form, gate entries and a test against the real service. Their cards
+  already show on `/weldconnect/integrations` (the page lists the whole
+  catalog), which the help docs call out.
+- **Poll / integration triggers**: `integration_event` and the catalogued poll
+  triggers (`google_sheets.new_row`, `gmail.new_email` (needs the restricted
+  `gmail.readonly` scope and re-verification), `google_calendar.new_event`,
+  Slack/GitHub events) are not unlocked; there is no poll-trigger runtime for
+  this catalog yet.
+- **Concurrency gating** for the `integration_event` matcher and the
+  `workflow_complete` dispatch (same `@weldsuite/db/lib/workflow-concurrency`
+  helper, same pattern as `startRun` / the entity-event matcher / the schedule
+  sweep).
+- **Version diff view**: History is a list + restore dialog on the Settings
+  page, no diff yet.
+- **Run → version link**: the execution page doesn't show which
+  `workflow_versions` row produced a run.
+- **Integrations entry point**: `/weldconnect/integrations` has no sidebar or
+  Settings link; users reach it through the URL or links in the editor. Worth a
+  sidebar entry now that providers work.
 
-1. **Try phase 1 end to end on test** (`app-test.weldsuite.org`): every trigger
-   and step in a real browser, including branches, loops, delays, a webhook
-   call and the owner-permission refusals. Everything so far is verified by
-   unit/integration tests and type-checks only.
-2. **In review (`feat/weldconnect-flow-p2`).** **"After another workflow" trigger** (`workflow_complete`). The engine
-   implements it (`workflow-worker/src/engine/workflow-complete.ts`); unlock it
-   in the gate and give the editor a workflow picker.
-3. **Server-backed templates.** The gallery
-   (`app/weldconnect/templates/components/templates-client.tsx`) shows
-   hardcoded client templates from `components/workflow-template-dialog.tsx`;
-   list `workflow_templates` from the API instead, ship a starter set built only
-   from steps that work, and unhide the section.
-4. **AI steps** (`ai_generate`, `ai_classify`): unlock, meter against the
-   workspace credit wallet (`@weldsuite/core-domain/ai-billing`), and enforce
-   the per-run credit cap. `settings.maxCreditsPerRun` is stored but nothing
-   reads it, and the settings page no longer shows it.
-5. **In review (`feat/weldconnect-flow-p2`); actions/triggers libraries stay hidden.** **Unhide the finished sections**: variables, webhooks, analytics/errors
-   (the errors view has data since #859). See
-   `WELDCONNECT_OUT_OF_SCOPE_SECTIONS` in `app/weldconnect/mvp.ts`.
-6. **In review (`feat/weldconnect-flow-p2`).** **Approval / waiting steps**: write a `waiting_for_input` run status (badge,
-   filter, i18n) and unlock `manual_step`. Waiting is only allowed in the main
-   flow, not inside branches or loops (engine refuses it there).
-7. **Third-party providers, one PR each** (or a few grouped once the pattern is
-   set): **Slack done** (`feat/weldconnect-slack` — connect/OAuth, test
-   connection, channel picker, `slack.post_message` with thread replies and
-   mapped errors, gate; see "Provider pattern" above), **Google done**
-   (`feat/weldconnect-google` — `google_sheets.append_row`/`update_row`,
-   `gmail.send_email`, `google_calendar.create_event`), **GitHub done**
-   (`feat/weldconnect-github` — `app_installation` auth reusing WeldFlow's
-   existing GitHub App installation, repo picker, `github.create_issue` /
-   `github.create_comment`), then Teams, Notion, Airtable, Asana, Twilio
-   (parked until their apps/keys exist). Adapters exist in
-   `workflow-worker/src/engine/actions/providers/`; each needs a working
-   connect/OAuth flow (or an app-installation link, if the provider already
-   has a platform-level installation elsewhere — see "Provider pattern"
-   below), a connection test, a resource picker where the action needs one, an
-   editor form, gate entries and a test against the real service.
-8. **Help docs**: guides and screenshots on help.weldsuite.org for the new
-   triggers and steps (`.agents/skills/help-docs`).
-9. **Extras** (`feat/weldconnect-extras`, tenant migration `0199_far_tomas`):
-   one-time (`scheduleType: 'one_time'`, `executeAt`) scheduled runs — fires
-   exactly once via the D1 schedule index, then disables itself for good;
-   workflow version history (`workflow_versions` table, snapshotted on
-   activation and on every save of an active workflow, with restore);
-   and `settings.maxConcurrentRuns`, enforced best-effort at every dispatcher
-   (`startRun`, the entity-event matcher, the schedule sweep — NOT yet the
-   `integration_event` matcher or `workflow_complete` trigger, which share the
-   same `@weldsuite/db/lib/workflow-concurrency` helper and could pick it up
-   the same way). Editor History panel is a dialog on the workflow Settings
-   page, not yet a full diff view.
-10. **Backfill legacy webhooks** into `workflow_webhook_registry`, only if any
-    pre-#862 webhook workflows are still live (they register again on their
-    next save).
-
-Known limits that phase 1 sets on purpose: 100 items per loop and 250 loop
-iterations per run (`workflow-worker/src/engine/execute-steps.ts`,
-`actions/control.ts`); delays up to 365 days.
+Known limits set on purpose: 100 items per loop and 250 loop iterations per run
+(`workflow-worker/src/engine/execute-steps.ts`, `actions/control.ts`); delays up
+to 365 days; approvals expire after 7 days and only sit in the main flow;
+webhook bodies up to 1 MB; `http_request` 30 s default timeout (120 s cap), 1 MB
+response; record-event chains stop at depth 3, workflow chains at depth 10.
 
 ## Provider pattern (established by Slack `feat/weldconnect-slack`, extended by Google `feat/weldconnect-google` and GitHub `feat/weldconnect-github`)
 
