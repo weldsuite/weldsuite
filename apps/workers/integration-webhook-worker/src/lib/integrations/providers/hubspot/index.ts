@@ -128,7 +128,7 @@ export class HubSpotProvider implements IntegrationProvider {
       if (signature.length !== expected.length) return false;
       let mismatch = 0;
       for (let i = 0; i < signature.length; i++) {
-        mismatch |= signature.charCodeAt(i) ^ expected.charCodeAt(i);
+        mismatch |= signature.codePointAt(i)! ^ expected.codePointAt(i)!;
       }
       return mismatch === 0;
     } catch {

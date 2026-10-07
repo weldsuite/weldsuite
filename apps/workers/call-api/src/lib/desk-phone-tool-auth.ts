@@ -20,7 +20,7 @@ const TOKEN_TTL_SECONDS = 24 * 60 * 60;
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let bin = '';
-  for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]!);
+  for (let i = 0; i < bytes.length; i += 1) bin += String.fromCodePoint(bytes[i]!);
   return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll(/=+$/g, '');
 }
 
@@ -29,7 +29,7 @@ function base64UrlDecode(input: string): Uint8Array {
   const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
   const bin = atob(padded + pad);
   const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.codePointAt(i)!;
   return bytes;
 }
 

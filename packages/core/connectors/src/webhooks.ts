@@ -155,7 +155,7 @@ export interface ConnectorWebhookKvEntry {
 function bytesToBase64(bytes: ArrayBuffer): string {
   const view = new Uint8Array(bytes);
   let binary = '';
-  for (const byte of view) binary += String.fromCharCode(byte);
+  for (const byte of view) binary += String.fromCodePoint(byte);
   return btoa(binary);
 }
 
@@ -188,7 +188,7 @@ export async function hmacSha256Base64(secret: string, body: string): Promise<st
 export function timingSafeEqual(left: string, right: string): boolean {
   if (left.length !== right.length) return false;
   let mismatch = 0;
-  for (let i = 0; i < left.length; i++) mismatch |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  for (let i = 0; i < left.length; i++) mismatch |= left.codePointAt(i)! ^ right.codePointAt(i)!;
   return mismatch === 0;
 }
 
@@ -318,6 +318,6 @@ export function generateWebhookSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) binary += String.fromCodePoint(byte);
   return btoa(binary);
 }

@@ -47,7 +47,7 @@ function generateBars(seed: number, count: number): { key: string; height: numbe
 function hashString(s: string): number {
   let h = 0;
   // 31 * h + charCode, wrapped to int32 (Math.imul wraps its operands; same result as `| 0`).
-  for (let i = 0; i < s.length; i++) h = Math.imul(h, 31) + s.charCodeAt(i);
+  for (let i = 0; i < s.length; i++) h = Math.imul(h, 31) + s.codePointAt(i)!;
   return Math.imul(h, 1);
 }
 

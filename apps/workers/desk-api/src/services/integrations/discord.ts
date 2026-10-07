@@ -253,7 +253,7 @@ export async function setBotAvatar(botToken: string, avatarUrl: string | null): 
     const chunkSize = 8192;
     let binary = '';
     for (let i = 0; i < bytes.length; i += chunkSize) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      binary += String.fromCodePoint(...bytes.subarray(i, i + chunkSize));
     }
     avatar = `data:${contentType};base64,${btoa(binary)}`;
   }

@@ -18,7 +18,7 @@ const tagColors = [
 const getTagColor = (tagName: string) => {
   let hash = 0;
   for (let i = 0; i < tagName.length; i++) {
-    hash = tagName.charCodeAt(i) + ((hash << 5) - hash);
+    hash = tagName.codePointAt(i)! + ((hash << 5) - hash);
   }
   return tagColors[Math.abs(hash) % tagColors.length];
 };

@@ -43,7 +43,7 @@ export class AttioProvider implements IntegrationProvider {
       if (signature.length !== expectedSignature.length) return false;
       let mismatch = 0;
       for (let i = 0; i < signature.length; i++) {
-        mismatch |= signature.charCodeAt(i) ^ expectedSignature.charCodeAt(i);
+        mismatch |= signature.codePointAt(i)! ^ expectedSignature.codePointAt(i)!;
       }
       return mismatch === 0;
     } catch (err) {

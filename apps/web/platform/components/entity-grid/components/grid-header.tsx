@@ -39,7 +39,7 @@ function colIndexToLetter(index: number): string {
   let result = '';
   let n = index;
   while (n >= 0) {
-    result = String.fromCharCode(65 + (n % 26)) + result;
+    result = String.fromCodePoint(65 + (n % 26)) + result;
     n = Math.floor(n / 26) - 1;
   }
   return result;
