@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { useSmartReplies } from '@/hooks/queries/use-mail-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
+import { copyText } from '@/lib/clipboard';
 
 interface Email {
   id: string;
@@ -83,10 +84,11 @@ export function SmartReplyClient({ emails, suggestedReplies: initialReplies, sta
   });
 
   const handleCopy = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    toast.success(t.mail.ai.replyCopied);
-    setTimeout(() => setCopiedIndex(null), 2000);
+    copyText(text, () => {
+      setCopiedIndex(index);
+      toast.success(t.mail.ai.replyCopied);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    });
   };
 
   const handleSelectEmail = (email: Email) => {

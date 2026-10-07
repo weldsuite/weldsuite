@@ -178,7 +178,7 @@ export async function handleMessage(message: Message): Promise<void> {
     });
 
     // 6. Publish message to ConversationRoom (real-time for platform agents)
-    publishConversationEvent(conversationId, {
+    void publishConversationEvent(conversationId, {
       type: 'message',
       id: msgId,
       content: messageContent,

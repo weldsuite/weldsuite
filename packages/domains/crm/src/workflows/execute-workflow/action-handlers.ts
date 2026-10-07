@@ -64,6 +64,25 @@ export type ActionHandler = (
 ) => Promise<unknown>;
 
 // ============================================================================
+// Input coercion
+// ============================================================================
+
+/**
+ * Workflow inputs are untyped (resolved templates, trigger payloads). Same
+ * output as `String()` for primitives and arrays, but a plain object becomes
+ * JSON instead of "[object Object]".
+ */
+function asText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return String(value);
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (typeof value === 'symbol' || typeof value === 'function') return value.toString();
+  if (value instanceof Date) return value.toString();
+  if (Array.isArray(value)) return value.map((item) => (item == null ? '' : asText(item))).join(',');
+  return JSON.stringify(value);
+}
+
+// ============================================================================
 // Waiting-for-input result type
 // ============================================================================
 
@@ -154,9 +173,9 @@ async function handleSendEmail(
   const result = await cfEmail.sendEmail(ctx.env, {
     from: fromAddress,
     to: toRecipients,
-    subject: String(inputs.subject || ''),
-    html: String(inputs.body || inputs.html || ''),
-    text: String(inputs.body || '').replace(/<[^>]*>/g, ''),
+    subject: asText(inputs.subject || ''),
+    html: asText(inputs.body || inputs.html || ''),
+    text: asText(inputs.body || '').replaceAll(/<[^<>]*>/g, ''),
     cc: inputs.cc as string[] | undefined,
     bcc: inputs.bcc as string[] | undefined,
   });
@@ -168,15 +187,15 @@ async function handleSendNotification(
   inputs: Record<string, unknown>,
   ctx: ActionContext,
 ): Promise<unknown> {
-  const title = String(inputs.title || '');
-  const body = String(inputs.body || inputs.message || '');
+  const title = asText(inputs.title || '');
+  const body = asText(inputs.body || inputs.message || '');
   if (!title) throw new Error('Notification title is required');
 
   let userIds: string[] = [];
   if (Array.isArray(inputs.userIds) && inputs.userIds.length > 0) {
-    userIds = inputs.userIds.map(id => String(id));
+    userIds = inputs.userIds.map((id) => asText(id));
   } else if (inputs.userId) {
-    userIds = [String(inputs.userId)];
+    userIds = [asText(inputs.userId)];
   } else if (ctx.tenant.userId) {
     userIds = [ctx.tenant.userId];
   }
@@ -196,13 +215,13 @@ async function handleSendNotification(
       userId,
       title,
       body: body || null,
-      category: String(inputs.category || 'task'),
-      notificationType: String(inputs.notificationType || inputs.type || 'custom'),
-      entityType: inputs.entityType ? String(inputs.entityType) : null,
-      entityId: inputs.entityId ? String(inputs.entityId) : null,
-      actionUrl: inputs.actionUrl ? String(inputs.actionUrl) : null,
-      icon: inputs.icon ? String(inputs.icon) : null,
-      severity: String(inputs.severity || 'info'),
+      category: asText(inputs.category || 'task'),
+      notificationType: asText(inputs.notificationType || inputs.type || 'custom'),
+      entityType: inputs.entityType ? asText(inputs.entityType) : null,
+      entityId: inputs.entityId ? asText(inputs.entityId) : null,
+      actionUrl: inputs.actionUrl ? asText(inputs.actionUrl) : null,
+      icon: inputs.icon ? asText(inputs.icon) : null,
+      severity: asText(inputs.severity || 'info'),
       data: (inputs.data as Record<string, unknown>) || null,
       isRead: false,
       deliveredInApp: true,
@@ -216,7 +235,7 @@ async function handleSendNotification(
 }
 
 async function handleCreateRecord(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const entityType = String(inputs.entity || inputs.entityType || '');
+  const entityType = asText(inputs.entity || inputs.entityType || '');
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
 
@@ -232,8 +251,8 @@ async function handleCreateRecord(inputs: Record<string, unknown>, ctx: ActionCo
 }
 
 async function handleUpdateRecord(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const entityType = String(inputs.entity || inputs.entityType || '');
-  const recordId = String(inputs.id || inputs.recordId || '');
+  const entityType = asText(inputs.entity || inputs.entityType || '');
+  const recordId = asText(inputs.id || inputs.recordId || '');
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
@@ -248,8 +267,8 @@ async function handleUpdateRecord(inputs: Record<string, unknown>, ctx: ActionCo
 }
 
 async function handleDeleteRecord(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const entityType = String(inputs.entity || inputs.entityType || '');
-  const recordId = String(inputs.id || inputs.recordId || '');
+  const entityType = asText(inputs.entity || inputs.entityType || '');
+  const recordId = asText(inputs.id || inputs.recordId || '');
   const hardDelete = inputs.hardDelete === true;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
@@ -267,7 +286,7 @@ async function handleDeleteRecord(inputs: Record<string, unknown>, ctx: ActionCo
 }
 
 async function handleQueryData(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const entityType = String(inputs.entity || inputs.entityType || '');
+  const entityType = asText(inputs.entity || inputs.entityType || '');
   if (!entityType) throw new Error('Entity type is required');
 
   const table = getEntityTable(entityType);
@@ -285,7 +304,7 @@ async function handleQueryData(inputs: Record<string, unknown>, ctx: ActionConte
         switch (op.operator) {
           case 'eq': case 'equals': return record[key] === op.value;
           case 'neq': case 'not_equals': return record[key] !== op.value;
-          case 'contains': return String(record[key]).includes(String(op.value));
+          case 'contains': return asText(record[key]).includes(asText(op.value));
           case 'gt': return Number(record[key]) > Number(op.value);
           case 'lt': return Number(record[key]) < Number(op.value);
           default: return record[key] === op.value;
@@ -299,7 +318,7 @@ async function handleQueryData(inputs: Record<string, unknown>, ctx: ActionConte
 }
 
 async function handleSetVariable(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const varName = String(inputs.name || inputs.variableName || '');
+  const varName = asText(inputs.name || inputs.variableName || '');
   if (!varName) throw new Error('Variable name is required');
   ctx.variables[varName] = inputs.value;
   return { set: true, name: varName, value: inputs.value };
@@ -307,7 +326,7 @@ async function handleSetVariable(inputs: Record<string, unknown>, ctx: ActionCon
 
 async function handleLoop(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
   const items = inputs.items as unknown[];
-  const iteratorName = String(inputs.iteratorName || 'item');
+  const iteratorName = asText(inputs.iteratorName || 'item');
   if (!Array.isArray(items)) throw new Error('Items must be an array');
 
   const results: unknown[] = [];
@@ -320,8 +339,8 @@ async function handleLoop(inputs: Record<string, unknown>, ctx: ActionContext): 
 }
 
 async function handleWebhook(inputs: Record<string, unknown>, _ctx: ActionContext): Promise<unknown> {
-  const url = String(inputs.url || inputs.webhookUrl || '');
-  const method = String(inputs.method || 'POST').toUpperCase();
+  const url = asText(inputs.url || inputs.webhookUrl || '');
+  const method = asText(inputs.method || 'POST').toUpperCase();
   const headers = (inputs.headers || {}) as Record<string, string>;
   const body = inputs.body || inputs.payload || inputs.data;
   if (!url) throw new Error('Webhook URL is required');
@@ -341,8 +360,8 @@ async function handleWebhook(inputs: Record<string, unknown>, _ctx: ActionContex
 }
 
 async function handleLog(inputs: Record<string, unknown>): Promise<unknown> {
-  const message = String(inputs.message || inputs.text || '');
-  const level = String(inputs.level || 'info').toLowerCase();
+  const message = asText(inputs.message || inputs.text || '');
+  const level = asText(inputs.level || 'info').toLowerCase();
   switch (level) {
     case 'error': console.error(`[LOG] ${message}`); break;
     case 'warn': case 'warning': console.warn(`[LOG] ${message}`); break;
@@ -359,16 +378,16 @@ async function handleDelay(inputs: Record<string, unknown>): Promise<unknown> {
 
   if (inputs.days && Number(inputs.days) > 0) {
     durationMs = Number(inputs.days) * 86400000;
-    durationDescription = `${inputs.days} day(s)`;
+    durationDescription = `${asText(inputs.days)} day(s)`;
   } else if (inputs.hours && Number(inputs.hours) > 0) {
     durationMs = Number(inputs.hours) * 3600000;
-    durationDescription = `${inputs.hours} hour(s)`;
+    durationDescription = `${asText(inputs.hours)} hour(s)`;
   } else if (inputs.minutes && Number(inputs.minutes) > 0) {
     durationMs = Number(inputs.minutes) * 60000;
-    durationDescription = `${inputs.minutes} minute(s)`;
+    durationDescription = `${asText(inputs.minutes)} minute(s)`;
   } else if (inputs.seconds && Number(inputs.seconds) > 0) {
     durationMs = Number(inputs.seconds) * 1000;
-    durationDescription = `${inputs.seconds} second(s)`;
+    durationDescription = `${asText(inputs.seconds)} second(s)`;
   } else if (inputs.duration || inputs.ms) {
     durationMs = Number(inputs.duration || inputs.ms || 1000);
     durationDescription = `${Math.ceil(durationMs / 1000)} second(s)`;
@@ -378,8 +397,8 @@ async function handleDelay(inputs: Record<string, unknown>): Promise<unknown> {
 }
 
 async function handleHttpRequest(inputs: Record<string, unknown>): Promise<unknown> {
-  const url = String(inputs.url);
-  const method = String(inputs.method || 'GET').toUpperCase();
+  const url = asText(inputs.url);
+  const method = asText(inputs.method || 'GET').toUpperCase();
   const headers = (inputs.headers as Record<string, string>) || {};
   const body = inputs.body;
   const timeout = Number(inputs.timeout) || 30000;
@@ -410,7 +429,7 @@ async function handleHttpRequest(inputs: Record<string, unknown>): Promise<unkno
 }
 
 async function handleTransform(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const transform = String(inputs.transform || inputs.operation || 'pick');
+  const transform = asText(inputs.transform || inputs.operation || 'pick');
   const data = inputs.data || ctx.previousResults;
 
   switch (transform) {
@@ -424,12 +443,12 @@ async function handleTransform(inputs: Record<string, unknown>, ctx: ActionConte
     case 'map': {
       const sourceArray = inputs.source || data;
       if (!Array.isArray(sourceArray)) throw new Error('Source must be an array for map');
-      return sourceArray.map((item: any) => item[String(inputs.mapField || 'id')]);
+      return sourceArray.map((item: any) => item[asText(inputs.mapField || 'id')]);
     }
     case 'filter': {
       const sourceArray = inputs.source || data;
       if (!Array.isArray(sourceArray)) throw new Error('Source must be an array for filter');
-      return sourceArray.filter((item: any) => item[String(inputs.filterField || '')] === inputs.filterValue);
+      return sourceArray.filter((item: any) => item[asText(inputs.filterField || '')] === inputs.filterValue);
     }
     case 'merge': {
       const objects = inputs.objects as Record<string, unknown>[];
@@ -470,28 +489,28 @@ function applyConditionOperator(operator: string, fieldValue: unknown, value: un
     case 'gte': case 'greater_than_or_equals': return Number(fieldValue) >= Number(value);
     case 'lt': case 'less_than': return Number(fieldValue) < Number(value);
     case 'lte': case 'less_than_or_equals': return Number(fieldValue) <= Number(value);
-    case 'contains': return String(fieldValue).includes(String(value));
-    case 'starts_with': return String(fieldValue).startsWith(String(value));
-    case 'ends_with': return String(fieldValue).endsWith(String(value));
+    case 'contains': return asText(fieldValue).includes(asText(value));
+    case 'starts_with': return asText(fieldValue).startsWith(asText(value));
+    case 'ends_with': return asText(fieldValue).endsWith(asText(value));
     case 'exists': return fieldValue !== undefined && fieldValue !== null;
     case 'not_exists': return fieldValue === undefined || fieldValue === null;
     case 'in': return Array.isArray(value) && value.includes(fieldValue);
     case 'not_in': return !Array.isArray(value) || !value.includes(fieldValue);
-    case 'matches': return new RegExp(String(value)).test(String(fieldValue));
+    case 'matches': return new RegExp(asText(value)).test(asText(fieldValue));
     default: return true;
   }
 }
 
 async function handleCondition(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const operator = String(inputs.operator || 'eq');
+  const operator = asText(inputs.operator || 'eq');
   const fieldValue = resolveConditionField(inputs.field, inputs, ctx);
   const passed = applyConditionOperator(operator, fieldValue, inputs.value);
   return { passed, result: fieldValue };
 }
 
 async function handleSendSms(inputs: Record<string, unknown>): Promise<unknown> {
-  const to = String(inputs.to || inputs.phoneNumber || '');
-  const body = String(inputs.body || inputs.message || '');
+  const to = asText(inputs.to || inputs.phoneNumber || '');
+  const body = asText(inputs.body || inputs.message || '');
   if (!to) throw new Error('Phone number is required');
   if (!body) throw new Error('Message body is required');
   // TODO: Integrate with Telnyx SMS API via env.TELNYX_API_KEY
@@ -543,13 +562,13 @@ async function callAiGateway(
 }
 
 async function handleAiGenerate(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const prompt = String(inputs.prompt || '');
+  const prompt = asText(inputs.prompt || '');
   if (!prompt) throw new Error('Prompt is required');
 
-  const model = inputs.model ? String(inputs.model) : undefined;
+  const model = inputs.model ? asText(inputs.model) : undefined;
   const modelId = model && !model.includes('/') ? `openai/${model}` : model;
   const messages: Array<{ role: string; content: string }> = [];
-  if (inputs.systemPrompt) messages.push({ role: 'system', content: String(inputs.systemPrompt) });
+  if (inputs.systemPrompt) messages.push({ role: 'system', content: asText(inputs.systemPrompt) });
   messages.push({ role: 'user', content: prompt });
 
   const result = await callAiGateway(ctx.env, messages, {
@@ -564,12 +583,12 @@ async function handleAiGenerate(inputs: Record<string, unknown>, ctx: ActionCont
 }
 
 async function handleAiClassify(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
-  const text = String(inputs.text || inputs.input || '');
+  const text = asText(inputs.text || inputs.input || '');
   const categories = inputs.categories as string[];
   if (!text) throw new Error('Text input is required');
   if (!categories || !Array.isArray(categories) || categories.length === 0) throw new Error('Categories array is required');
 
-  const model = inputs.model ? String(inputs.model) : undefined;
+  const model = inputs.model ? asText(inputs.model) : undefined;
   const modelId = model && !model.includes('/') ? `openai/${model}` : model;
 
   const result = await callAiGateway(ctx.env, [
@@ -586,11 +605,11 @@ async function handleAiClassify(inputs: Record<string, unknown>, ctx: ActionCont
 // ============================================================================
 
 function resolveConversationId(inputs: Record<string, unknown>, context: ActionContext): string | null {
-  if (inputs.conversationId) return String(inputs.conversationId);
+  if (inputs.conversationId) return asText(inputs.conversationId);
   const td = context.triggerData as Record<string, unknown> | undefined;
-  if (td?.entityType === 'helpdesk_conversation') return String(td.entityId);
+  if (td?.entityType === 'helpdesk_conversation') return asText(td.entityId);
   if (td?.data && typeof td.data === 'object' && 'conversationId' in (td.data as object)) {
-    return String((td.data as Record<string, unknown>).conversationId);
+    return asText((td.data as Record<string, unknown>).conversationId);
   }
   return null;
 }
@@ -628,13 +647,13 @@ async function handleAssignConversation(inputs: Record<string, unknown>, ctx: Ac
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const strategy = String(inputs.strategy || 'specific_agent');
-  const departmentId = inputs.departmentId ? String(inputs.departmentId) : undefined;
+  const strategy = asText(inputs.strategy || 'specific_agent');
+  const departmentId = inputs.departmentId ? asText(inputs.departmentId) : undefined;
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
 
   if (strategy === 'specific_agent' && inputs.agentId) {
-    updateData.assigneeId = String(inputs.agentId);
-    if (inputs.agentName) updateData.assigneeName = String(inputs.agentName);
+    updateData.assigneeId = asText(inputs.agentId);
+    if (inputs.agentName) updateData.assigneeName = asText(inputs.agentName);
   } else if (strategy === 'department' && departmentId) {
     updateData.departmentId = departmentId;
   } else if (strategy === 'round_robin' || strategy === 'least_busy') {
@@ -657,7 +676,7 @@ async function handleTagConversation(inputs: Record<string, unknown>, ctx: Actio
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const mode = String(inputs.mode || 'add');
+  const mode = asText(inputs.mode || 'add');
   const inputTags = (Array.isArray(inputs.tags) ? inputs.tags : []).map(String);
 
   const [conversation] = await ctx.db.select({ tags: schema.helpdeskConversations.tags })
@@ -681,7 +700,7 @@ async function handleChangeConversationStatus(inputs: Record<string, unknown>, c
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const status = String(inputs.status);
+  const status = asText(inputs.status);
   const updateData: Record<string, unknown> = { status, updatedAt: new Date() };
   if (status === 'resolved') updateData.resolvedAt = new Date();
   if (status === 'closed') updateData.closedAt = new Date();
@@ -694,7 +713,7 @@ async function handleChangePriority(inputs: Record<string, unknown>, ctx: Action
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const priority = String(inputs.priority);
+  const priority = asText(inputs.priority);
   await ctx.db.update(schema.helpdeskConversations).set({ priority, updatedAt: new Date() }).where(eq(schema.helpdeskConversations.id, conversationId));
   return { success: true, conversationId, priority };
 }
@@ -704,8 +723,8 @@ async function handleSendReply(inputs: Record<string, unknown>, ctx: ActionConte
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
   const messageId = generateId('msg');
-  const authorType = String(inputs.authorType || 'system');
-  const content = String(inputs.message || '');
+  const authorType = asText(inputs.authorType || 'system');
+  const content = asText(inputs.message || '');
 
   await ctx.db.insert(schema.helpdeskConversationMessages).values({
     id: messageId, conversationId, content, authorType,
@@ -733,7 +752,7 @@ async function handleAddInternalNote(inputs: Record<string, unknown>, ctx: Actio
 
   const messageId = generateId('msg');
   await ctx.db.insert(schema.helpdeskConversationMessages).values({
-    id: messageId, conversationId, content: String(inputs.content || ''),
+    id: messageId, conversationId, content: asText(inputs.content || ''),
     authorType: 'agent', authorId: ctx.tenant.userId, authorName: 'System',
     type: 'note', isPublic: false, isInternal: true, status: 'sent',
     createdAt: new Date(), updatedAt: new Date(),
@@ -745,7 +764,7 @@ async function handleSendMessage(inputs: Record<string, unknown>, ctx: ActionCon
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const content = String(inputs.message || '');
+  const content = asText(inputs.message || '');
   const messageId = generateId('msg');
   const now = new Date();
 
@@ -764,7 +783,7 @@ async function handleSendChoices(inputs: Record<string, unknown>, ctx: ActionCon
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const content = String(inputs.message || '');
+  const content = asText(inputs.message || '');
   const options = (inputs.options as Array<{ id: string; label: string; value: string }>) || [];
   const messageId = generateId('msg');
   const now = new Date();
@@ -786,7 +805,7 @@ async function handleCollectInput(inputs: Record<string, unknown>, ctx: ActionCo
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const content = String(inputs.message || '');
+  const content = asText(inputs.message || '');
   const fields = (inputs.fields as Array<{ id: string; label: string; type: string; required: boolean }>) || [];
   const messageId = generateId('msg');
   const now = new Date();
@@ -805,15 +824,15 @@ async function handleCollectInput(inputs: Record<string, unknown>, ctx: ActionCo
 }
 
 async function handleManualStep(inputs: Record<string, unknown>, ctx: ActionContext): Promise<WaitingForInputResult> {
-  const title = String(inputs.title || 'Manual Review Required');
+  const title = asText(inputs.title || 'Manual Review Required');
   let targetUserId = ctx.tenant.userId;
-  if (inputs.assignTo === 'specific_user' && inputs.assigneeId) targetUserId = String(inputs.assigneeId);
+  if (inputs.assignTo === 'specific_user' && inputs.assigneeId) targetUserId = asText(inputs.assigneeId);
 
   const notificationId = generateId('notif');
   // No workspaceId — tenant `notifications` table has no workspace_id column.
   await ctx.db.insert(schema.notifications).values({
     id: notificationId, userId: targetUserId, title,
-    body: inputs.description ? String(inputs.description) : 'A workflow step requires your action.',
+    body: inputs.description ? asText(inputs.description) : 'A workflow step requires your action.',
     category: 'task', notificationType: 'manual_step', entityType: 'workflow_execution',
     entityId: ctx.executionId, actionUrl: `/weldconnect/executions/${ctx.executionId}`,
     severity: 'info', data: { stepConfig: inputs }, isRead: false,

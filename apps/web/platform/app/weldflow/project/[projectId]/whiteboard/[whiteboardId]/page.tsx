@@ -26,7 +26,7 @@ export default function WhiteboardDetailPage() {
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    whiteboardApi.getById(projectId, whiteboardId).then((result) => {
+    void whiteboardApi.getById(projectId, whiteboardId).then((result) => {
       if (cancelled) return;
       if (result.success && result.data) {
         setElements(result.data.elements ?? []);

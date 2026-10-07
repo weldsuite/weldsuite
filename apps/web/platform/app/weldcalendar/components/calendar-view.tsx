@@ -20,7 +20,7 @@ import { defaultQuickCreateRange, defaultRangeForDay, normalizeQuickCreateRange,
 import { useDismissOnOutsideMouseDown } from './quick-create-dismiss';
 import { setQuickCreatePreviewTitle, useQuickCreatePreviewTitle } from './quick-create-preview-store';
 import { inviteEmailFromQuery } from './guest-invite';
-import { Mail } from 'lucide-react';
+import { Mail, UserPlus } from 'lucide-react';
 import { placeCardNearAnchor } from '../lib/popover-position';
 import { WEEK_STARTS_ON, formatClock, useTimeFormat, type TimeFormat } from '../lib/calendar-format';
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
@@ -118,6 +118,7 @@ import { CalendarSearchResults } from './calendar-search-results';
 import { RescheduleNotifyDialog } from './reschedule-notify-dialog';
 import { EntityList, FilterPills, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { usePeople, type Person } from '@/components/objects/person/use-person-data';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
 import { useCreateTask, type Task } from '@/hooks/use-crm-tasks';
 import { useWorkspaceMembers, useWorkingHours, type WorkingHours, type DayHours } from '@/hooks/queries/use-settings-queries';
 import { EventDialog } from './event-dialog';
@@ -4953,6 +4954,8 @@ function EventAttendeesField({
   onChange: (next: { email: string; name?: string }[]) => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const sweep = getTranslations('sweep').entities;
+  const [createQuery, setCreateQuery] = useState<string | null>(null);
   const { data: peopleData } = usePeople({ limit: 50 });
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const contacts = useMemo(() => (peopleData?.data || []) as Person[], [peopleData]);
@@ -5113,6 +5116,20 @@ function EventAttendeesField({
                     <span className="truncate">{t.eventPreview.inviteGuest.replace('{email}', inviteEmail)}</span>
                   </CommandItem>
                 )}
+                {query.trim() && (
+                  <CommandItem
+                    value={`create person ${query}`}
+                    onSelect={() => setCreateQuery(query.trim())}
+                    className="flex items-center gap-2 px-1.5"
+                  >
+                    <div className="h-5 w-5 flex items-center justify-center shrink-0">
+                      <UserPlus className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                    <span className="truncate">
+                      {sweep.createPersonFromSearch.replace('{name}', query.trim())}
+                    </span>
+                  </CommandItem>
+                )}
                 {options.map((o) => {
                   const selected = isSelected(o.email);
                   return (
@@ -5151,6 +5168,31 @@ function EventAttendeesField({
             </Command>
           </PopoverContent>
         </Popover>
+        {createQuery !== null && (
+          <QuickAddPersonDialog
+            open
+            onOpenChange={(next) => {
+              if (!next) setCreateQuery(null);
+            }}
+            initialName={createQuery}
+            onCreated={(person) => {
+              const email = person.email?.trim();
+              if (!email) {
+                toast.info(sweep.personCreatedNeedsEmail);
+                return;
+              }
+              if (attendees.some((a) => a.email.toLowerCase() === email.toLowerCase())) {
+                setQuery('');
+                return;
+              }
+              onChange([
+                ...attendees.map((a) => ({ email: a.email, name: a.name })),
+                { email, name: person.displayName || email },
+              ]);
+              setQuery('');
+            }}
+          />
+        )}
       </div>
     </div>
   );

@@ -107,6 +107,12 @@ export interface VariableScope {
   extraRoots?: readonly string[];
   /** The step sits inside a loop body, where `{{loop.item}}` / `{{loop.index}}` resolve. */
   inLoop?: boolean;
+  /**
+   * Trigger keys this workflow's trigger adds on top of its type's fixed set,
+   * e.g. `output` when an "after another workflow" trigger passes the
+   * previous run's output along.
+   */
+  extraTriggerKeys?: readonly string[];
 }
 
 // What `buildTriggerData` (apps/workers/workflow-worker/src/engine/trigger-data.ts)
@@ -121,6 +127,8 @@ const TRIGGER_KEYS: Record<string, string[]> = {
   ],
   schedule: ['scheduledTime', 'scheduledTimeLocal', 'runId', 'scheduleId', 'cronExpression', 'timezone'],
   manual: ['timestamp'],
+  // `output` only when the trigger passes it along: see `extraTriggerKeys`.
+  workflow_complete: ['sourceWorkflowId', 'sourceWorkflowName', 'sourceExecutionId', 'status'],
 };
 
 function isKnownTriggerPath(segments: string[], scope: VariableScope): boolean {
@@ -130,7 +138,7 @@ function isKnownTriggerPath(segments: string[], scope: VariableScope): boolean {
   const known = TRIGGER_KEYS[scope.triggerType ?? ''];
   // Trigger types without a key list (webhook, api, …) carry caller-defined payloads.
   if (!known) return true;
-  if (!known.includes(key)) return false;
+  if (!known.includes(key) && !scope.extraTriggerKeys?.includes(key)) return false;
   // Checked on the top-level field only: anything below a known object field is the record's business.
   if (key === 'record' && field && scope.recordFields) {
     return scope.recordFields.some((path) => path.split('.')[0] === field);
@@ -192,4 +200,16 @@ export function isInsideLoop(
     branchId = steps.find((s) => s.id === parentId)?.parentBranchId;
   }
   return false;
+}
+
+/** Steps that pause the run for input. The engine only resumes them in the main flow. */
+const WAITING_STEP_TYPES = new Set(['manual_step']);
+
+/**
+ * A step that waits for input (an approval) placed inside a branch or a loop:
+ * the run would fail when it gets there, so publishing is refused
+ * (connect-api gate code `nested_waiting_step`).
+ */
+export function isNestedWaitingStep(step: { type?: string; parentBranchId?: string }): boolean {
+  return WAITING_STEP_TYPES.has(step.type ?? '') && !!step.parentBranchId;
 }

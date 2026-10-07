@@ -4,7 +4,7 @@
  * queued row that will never run.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { schema } from '../db';
 import type { TriggerType, WorkflowDb } from './types';
 
@@ -71,6 +71,44 @@ export async function startExecutionRow(db: WorkflowDb, input: StartExecutionInp
           : {}),
       },
     });
+}
+
+/**
+ * The run paused on a step that waits for input (an approval): `running` →
+ * `waiting_for_input`. Only a `running` row moves, so a run cancelled in the
+ * meantime stays cancelled, and only while that step's row is itself still
+ * waiting, so a replay after the input arrived cannot flip the run back.
+ * Returns whether the row moved.
+ */
+export async function markExecutionWaiting(db: WorkflowDb, id: string, waitingStepIndex: number): Promise<boolean> {
+  const runs = schema.workflowExecutions;
+  const steps = schema.workflowExecutionSteps;
+  const updated = await db
+    .update(runs)
+    .set({ status: 'waiting_for_input', updatedAt: new Date() })
+    .where(
+      and(
+        eq(runs.id, id),
+        eq(runs.status, 'running'),
+        sql`exists (select 1 from ${steps} where ${steps.executionId} = ${id} and ${steps.stepIndex} = ${waitingStepIndex + 1} and ${steps.status} = 'waiting_for_input')`,
+      ),
+    )
+    .returning({ id: runs.id });
+  return updated.length > 0;
+}
+
+/**
+ * The input arrived (or the wait expired): `waiting_for_input` → `running`.
+ * Never touches any other status, so a cancelled run is not revived.
+ */
+export async function markExecutionResumed(db: WorkflowDb, id: string): Promise<boolean> {
+  const runs = schema.workflowExecutions;
+  const updated = await db
+    .update(runs)
+    .set({ status: 'running', updatedAt: new Date() })
+    .where(and(eq(runs.id, id), eq(runs.status, 'waiting_for_input')))
+    .returning({ id: runs.id });
+  return updated.length > 0;
 }
 
 /** Flip a dispatcher-created row that will never run to `cancelled`, with the reason. */

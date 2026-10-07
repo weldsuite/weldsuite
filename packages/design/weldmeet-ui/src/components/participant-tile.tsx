@@ -27,8 +27,8 @@ const PERSON_THEMES = [
 
 function hashString(input: string): number {
   let h = 0;
-  for (let i = 0; i < input.length; i++) {
-    h = ((h << 5) - h) + input.charCodeAt(i);
+  for (const char of input) {
+    h = ((h << 5) - h) + char.codePointAt(0)!;
     h |= 0;
   }
   return Math.abs(h);
@@ -42,7 +42,7 @@ export function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0]!.charAt(0).toUpperCase();
-  return (parts[0]!.charAt(0) + parts[parts.length - 1]!.charAt(0)).toUpperCase();
+  return (parts[0]!.charAt(0) + parts.at(-1)!.charAt(0)).toUpperCase();
 }
 
 // ─── Audio-level speaking detection ──────────────────────────────────────────
@@ -64,7 +64,8 @@ export function useIsSpeaking(audioTrack: MediaStreamTrack | null | undefined): 
       const data = new Uint8Array(analyser.frequencyBinCount);
       ctx.createMediaStreamSource(new MediaStream([audioTrack])).connect(analyser);
 
-      ctx.resume();
+      // Best effort: a suspended context just reads as not speaking.
+      ctx.resume().catch(() => {});
 
       intervalId = setInterval(() => {
         if (ctx?.state === 'running') {
@@ -79,7 +80,7 @@ export function useIsSpeaking(audioTrack: MediaStreamTrack | null | undefined): 
 
     return () => {
       if (intervalId !== null) clearInterval(intervalId);
-      ctx?.close();
+      ctx?.close().catch(() => {});
       setIsSpeaking(false);
     };
   }, [audioTrack]);
@@ -162,7 +163,7 @@ interface TileNameTagProps {
   onClickDetails?: (participant: MeetingPeer) => void;
 }
 
-function TileNameTag({ participant, name, isSelf, ringing, localMuted, onClickDetails }: TileNameTagProps) {
+function TileNameTag({ participant, name, isSelf, ringing, localMuted, onClickDetails }: Readonly<TileNameTagProps>) {
   return (
     <ParticipantNameTag
       name={isSelf ? 'You' : name}
@@ -394,7 +395,7 @@ function clampScreenOffset(x: number, y: number, scale: number, w: number, h: nu
  * AUDIO track (the one captured when they tick "share audio" in the browser
  * picker), and remote viewers actually hear that audio here.
  */
-export function ScreenShareTile({ participant, isSelf, onClick, focused }: ScreenShareTileProps) {
+export function ScreenShareTile({ participant, isSelf, onClick, focused }: Readonly<ScreenShareTileProps>) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const shareAudioRef = useRef<HTMLAudioElement>(null);
   useSpeakerOutput(shareAudioRef);
@@ -451,6 +452,8 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Scree
   const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
   const [dragging, setDragging] = useState(false);
   const zoomed = view.scale > 1;
+  let zoomCursor: string | undefined;
+  if (zoomed) zoomCursor = dragging ? 'grabbing' : 'grab';
 
   // Native, non-passive wheel listener — React's onWheel is passive, so calling
   // preventDefault() there warns and doesn't stop the page from scrolling.
@@ -538,7 +541,7 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Scree
           transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
           transformOrigin: 'center center',
           transition: dragging ? 'none' : 'transform 90ms ease-out',
-          cursor: zoomed ? (dragging ? 'grabbing' : 'grab') : undefined,
+          cursor: zoomCursor,
         }}
       />
 

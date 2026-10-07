@@ -11,10 +11,12 @@ function row(overrides: Partial<ScheduleIndexRow> = {}): ScheduleIndexRow {
     workspace_id: 'org_test',
     workflow_id: 'wfl_1',
     trigger_id: null,
+    schedule_type: 'recurring',
     cron_expression: '* * * * *',
     timezone: 'UTC',
     start_date: null,
     end_date: null,
+    execute_at: null,
     next_run_at: NOW - 60_000, // due a minute ago by default
     last_run_at: null,
     source: 'weldconnect',
@@ -147,5 +149,101 @@ describe('sweepDueSchedules', () => {
     expect(dispatched).toBe(0);
     // Not advanced — it should retry once a binding exists.
     expect(store.rows.get('sched_1')!.last_run_at).toBeNull();
+  });
+});
+
+describe('sweepDueSchedules — one-time schedules', () => {
+  function onceRow(overrides: Partial<ScheduleIndexRow> = {}): ScheduleIndexRow {
+    return row({
+      schedule_type: 'one_time',
+      cron_expression: '',
+      execute_at: NOW - 60_000,
+      next_run_at: null,
+      ...overrides,
+    });
+  }
+
+  it('materializes next_run_at from execute_at without firing that tick', async () => {
+    const store = fakeStore([onceRow()]);
+    const execute = { create: vi.fn(async () => ({})) };
+
+    const dispatched = await sweepDueSchedules(store, execute, async () => {}, NOW);
+
+    expect(dispatched).toBe(0);
+    expect(execute.create).not.toHaveBeenCalled();
+    expect(store.rows.get('sched_1')!.next_run_at).toBe(NOW - 60_000);
+  });
+
+  it('fires exactly once, then disables itself permanently (no next_run_at)', async () => {
+    const store = fakeStore([onceRow({ next_run_at: NOW - 60_000 })]);
+    const execute = { create: vi.fn(async () => ({ id: 'inst_1' })) };
+    const onFired = vi.fn(async () => {});
+
+    const dispatched = await sweepDueSchedules(store, execute, onFired, NOW);
+
+    expect(dispatched).toBe(1);
+    expect(execute.create).toHaveBeenCalledOnce();
+    const fired = store.rows.get('sched_1')!;
+    expect(fired.next_run_at).toBeNull();
+    expect(fired.is_enabled).toBe(0);
+    expect(onFired).toHaveBeenCalledWith(expect.objectContaining({ schedule_id: 'sched_1' }), true, null, NOW);
+
+    // A second sweep tick (e.g. an overlapping/late invocation) must not refire it:
+    // dueRows() only returns is_enabled=1 rows, and this one is now disabled.
+    const dispatchedAgain = await sweepDueSchedules(store, execute, onFired, NOW + 60_000);
+    expect(dispatchedAgain).toBe(0);
+    expect(execute.create).toHaveBeenCalledOnce();
+  });
+
+  it('respects the 55s double-fire guard like a recurring schedule', async () => {
+    const store = fakeStore([onceRow({ next_run_at: NOW - 60_000, last_run_at: NOW - 10_000 })]);
+    const execute = { create: vi.fn(async () => ({})) };
+    const dispatched = await sweepDueSchedules(store, execute, async () => {}, NOW);
+    expect(dispatched).toBe(0);
+    expect(execute.create).not.toHaveBeenCalled();
+  });
+
+  it('disables a malformed one-time row (no execute_at) instead of looping forever', async () => {
+    const store = fakeStore([onceRow({ execute_at: null, next_run_at: null })]);
+    const execute = { create: vi.fn(async () => ({})) };
+    const dispatched = await sweepDueSchedules(store, execute, async () => {}, NOW);
+    expect(dispatched).toBe(0);
+    expect(store.rows.get('sched_1')!.is_enabled).toBe(0);
+  });
+});
+
+describe('sweepDueSchedules — concurrency gate', () => {
+  it('skips dispatch when checkConcurrency disallows it, but still advances timing', async () => {
+    const store = fakeStore([row({ next_run_at: NOW - 60_000 })]);
+    const execute = { create: vi.fn(async () => ({})) };
+    const onFired = vi.fn(async () => {});
+    const checkConcurrency = vi.fn(async () => ({ allowed: false }));
+
+    const dispatched = await sweepDueSchedules(store, execute, onFired, NOW, checkConcurrency);
+
+    expect(dispatched).toBe(0);
+    expect(execute.create).not.toHaveBeenCalled();
+    expect(checkConcurrency).toHaveBeenCalledWith(expect.objectContaining({ schedule_id: 'sched_1' }), NOW);
+    // Recurring: still advances to its normal next tick, same as any other fire.
+    expect(store.rows.get('sched_1')!.next_run_at).toBe(NOW + 60_000);
+    expect(onFired).toHaveBeenCalledWith(expect.any(Object), false, NOW + 60_000, NOW);
+  });
+
+  it('dispatches normally when checkConcurrency allows it', async () => {
+    const store = fakeStore([row({ next_run_at: NOW - 60_000 })]);
+    const execute = { create: vi.fn(async () => ({})) };
+    const checkConcurrency = vi.fn(async () => ({ allowed: true }));
+
+    const dispatched = await sweepDueSchedules(store, execute, async () => {}, NOW, checkConcurrency);
+
+    expect(dispatched).toBe(1);
+    expect(execute.create).toHaveBeenCalledOnce();
+  });
+
+  it('defaults to always-allowed when no checkConcurrency is passed', async () => {
+    const store = fakeStore([row({ next_run_at: NOW - 60_000 })]);
+    const execute = { create: vi.fn(async () => ({})) };
+    const dispatched = await sweepDueSchedules(store, execute, async () => {}, NOW);
+    expect(dispatched).toBe(1);
   });
 });

@@ -7,6 +7,11 @@
  * `workflow_schedules`. Without this bridge an editor-configured schedule
  * never fires. One row per (workflow, schedule trigger id):
  *   - a recurring trigger on an active workflow → enabled row
+ *   - a one-time (`scheduleType: 'one_time'`) trigger on an active workflow →
+ *     enabled row, UNLESS it has already fired once (`lastRunAt` set) — a
+ *     fired one-time schedule is never re-enabled by a later save, it stays
+ *     done forever. The editor only lets a never-fired one get edited, so
+ *     this never fights the UI.
  *   - workflow paused/draft or trigger disabled → row kept but disabled
  *     (preserving its run stats), not created if it doesn't exist yet
  *   - trigger removed or workflow deleted → row soft-deleted, index entry removed
@@ -24,7 +29,7 @@ import {
   syncUpsertScheduleIndex,
   type ScheduleIndexSync,
 } from '../lib/schedule-index';
-import { recurringScheduleTriggers, scheduleTriggerIds } from './weldconnect-mvp';
+import { oneTimeScheduleTriggers, recurringScheduleTriggers, scheduleTriggerIds } from './weldconnect-mvp';
 
 const { workflowSchedules } = schema;
 
@@ -43,7 +48,8 @@ export async function syncWorkflowSchedules(
   params: SyncWorkflowSchedulesParams,
 ): Promise<void> {
   const { workflowId, workflowActive } = params;
-  const desired = recurringScheduleTriggers(params.nextTriggers);
+  const desiredRecurring = recurringScheduleTriggers(params.nextTriggers);
+  const desiredOnce = oneTimeScheduleTriggers(params.nextTriggers);
   const managedIds = [
     ...new Set([...scheduleTriggerIds(params.previousTriggers), ...scheduleTriggerIds(params.nextTriggers)]),
   ];
@@ -62,7 +68,7 @@ export async function syncWorkflowSchedules(
   const existingByTrigger = new Map(existing.map((row) => [row.triggerId, row]));
   const now = new Date();
 
-  for (const trigger of desired) {
+  for (const trigger of desiredRecurring) {
     const isEnabled = workflowActive && trigger.isEnabled;
     const row = existingByTrigger.get(trigger.triggerId);
     existingByTrigger.delete(trigger.triggerId);
@@ -76,6 +82,7 @@ export async function syncWorkflowSchedules(
         workflowId,
         triggerId: trigger.triggerId,
         name: trigger.name,
+        scheduleType: 'recurring',
         cronExpression: trigger.cronExpression,
         timezone: trigger.timezone,
         isEnabled,
@@ -87,6 +94,7 @@ export async function syncWorkflowSchedules(
         workspaceId: sync?.workspaceId ?? '',
         workflowId,
         triggerId: trigger.triggerId,
+        scheduleType: 'recurring',
         cronExpression: trigger.cronExpression,
         timezone: trigger.timezone,
         isEnabled,
@@ -104,7 +112,9 @@ export async function syncWorkflowSchedules(
       .update(workflowSchedules)
       .set({
         name: trigger.name,
+        scheduleType: 'recurring',
         cronExpression: trigger.cronExpression,
+        executeAt: null,
         timezone: trigger.timezone,
         isEnabled,
         updatedAt: now,
@@ -117,6 +127,7 @@ export async function syncWorkflowSchedules(
         workspaceId: sync?.workspaceId ?? '',
         workflowId,
         triggerId: trigger.triggerId,
+        scheduleType: 'recurring',
         cronExpression: trigger.cronExpression,
         timezone: trigger.timezone,
         startDate: row.startDate,
@@ -126,8 +137,87 @@ export async function syncWorkflowSchedules(
     }
   }
 
+  for (const trigger of desiredOnce) {
+    const row = existingByTrigger.get(trigger.triggerId);
+    existingByTrigger.delete(trigger.triggerId);
+    // Once a one-time schedule has fired, it is done forever — a later save
+    // of the workflow (even reactivating it) must never resurrect it.
+    const alreadyFired = row?.lastRunAt != null;
+    const isEnabled = !alreadyFired && workflowActive && trigger.isEnabled;
+
+    if (!row) {
+      if (!isEnabled) continue;
+      const id = generateId('sched');
+      await db.insert(workflowSchedules).values({
+        id,
+        workflowId,
+        triggerId: trigger.triggerId,
+        name: trigger.name,
+        scheduleType: 'one_time',
+        cronExpression: null,
+        executeAt: trigger.executeAt,
+        timezone: trigger.timezone,
+        isEnabled,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await syncUpsertScheduleIndex(sync, {
+        scheduleId: id,
+        workspaceId: sync?.workspaceId ?? '',
+        workflowId,
+        triggerId: trigger.triggerId,
+        scheduleType: 'one_time',
+        cronExpression: '',
+        executeAt: trigger.executeAt,
+        timezone: trigger.timezone,
+        isEnabled,
+      });
+      continue;
+    }
+
+    if (alreadyFired) {
+      // A cosmetic rename is harmless; nothing timing-related can change once fired.
+      if (row.name !== trigger.name) {
+        await db.update(workflowSchedules).set({ name: trigger.name, updatedAt: now }).where(eq(workflowSchedules.id, row.id));
+      }
+      continue;
+    }
+
+    const timingChanged =
+      row.executeAt?.getTime() !== trigger.executeAt.getTime() ||
+      row.timezone !== trigger.timezone ||
+      row.isEnabled !== isEnabled;
+    if (!timingChanged && row.name === trigger.name) continue;
+
+    await db
+      .update(workflowSchedules)
+      .set({
+        name: trigger.name,
+        scheduleType: 'one_time',
+        cronExpression: null,
+        executeAt: trigger.executeAt,
+        timezone: trigger.timezone,
+        isEnabled,
+        updatedAt: now,
+      })
+      .where(eq(workflowSchedules.id, row.id));
+    if (timingChanged) {
+      await syncUpsertScheduleIndex(sync, {
+        scheduleId: row.id,
+        workspaceId: sync?.workspaceId ?? '',
+        workflowId,
+        triggerId: trigger.triggerId,
+        scheduleType: 'one_time',
+        cronExpression: '',
+        executeAt: trigger.executeAt,
+        timezone: trigger.timezone,
+        isEnabled,
+      });
+    }
+  }
+
   // Whatever is left belonged to a schedule trigger that's gone (or is no
-  // longer a valid recurring schedule): retire it.
+  // longer a valid schedule): retire it.
   for (const row of existingByTrigger.values()) {
     await db
       .update(workflowSchedules)

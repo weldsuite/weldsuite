@@ -38,7 +38,7 @@ export function useMeetingSession(meetingId: string | undefined): State {
     if (!meetingId) return;
     let cancelled = false;
 
-    (async () => {
+    void (async () => {
       setLoading(true);
       setError(null);
 

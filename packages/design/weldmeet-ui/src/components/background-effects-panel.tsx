@@ -103,7 +103,7 @@ export interface BackgroundEffectsPanelProps {
   onClose: () => void;
 }
 
-function VideoPreview({ participant }: { participant?: MeetingPeer }) {
+function VideoPreview({ participant }: Readonly<{ participant?: MeetingPeer }>) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -133,19 +133,26 @@ function VideoPreview({ participant }: { participant?: MeetingPeer }) {
   );
 }
 
-function BackgroundGrid({ images, backgroundType, backgroundValue, isLoading, onApplyImage }: {
+/** Runs the consumer's (possibly async) image callback, logging a rejection instead of dropping it. */
+function applyImage(onApplyImage: (url: string) => void | Promise<void>, url: string): void {
+  void Promise.resolve(onApplyImage(url)).catch((err: unknown) => {
+    console.warn('[BackgroundEffectsPanel] applying the image background failed:', err);
+  });
+}
+
+function BackgroundGrid({ images, backgroundType, backgroundValue, isLoading, onApplyImage }: Readonly<{
   images: { label: string; url: string }[];
   backgroundType: VirtualBackgroundType;
   backgroundValue: string | null;
   isLoading: boolean;
   onApplyImage: (url: string) => void | Promise<void>;
-}) {
+}>) {
   return (
     <div className="grid grid-cols-4 gap-1.5">
       {images.map((bg) => (
         <button
           key={bg.label}
-          onClick={() => onApplyImage(bg.url)}
+          onClick={() => applyImage(onApplyImage, bg.url)}
           disabled={isLoading}
           className={cn(
             'relative aspect-square rounded-lg overflow-hidden border-2 transition-colors',
@@ -176,7 +183,7 @@ export function BackgroundEffectsPanel({
   onApplyImage,
   onRemove,
   onClose,
-}: BackgroundEffectsPanelProps) {
+}: Readonly<BackgroundEffectsPanelProps>) {
   return (
     <div
       className="flex-shrink-0 border-l flex flex-col min-h-0 overflow-hidden"
@@ -266,7 +273,7 @@ export function BackgroundEffectsPanel({
                     const file = e.target.files?.[0];
                     if (file) {
                       const url = URL.createObjectURL(file);
-                      onApplyImage(url);
+                      applyImage(onApplyImage, url);
                     }
                     e.target.value = '';
                   }}

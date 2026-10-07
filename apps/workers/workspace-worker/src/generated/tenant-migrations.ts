@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit manually.
  * Run `pnpm bundle-migrations` to regenerate.
  *
- * Contains 200 tenant database migrations bundled for Cloudflare Workers.
+ * Contains 201 tenant database migrations bundled for Cloudflare Workers.
  * Generated from: packages/core/db/drizzle/tenant-migrations/
  */
 
@@ -206,7 +206,8 @@ export const MIGRATION_JOURNAL = [
   { idx: 196, tag: "0196_burly_the_twelve", when: 1790961019143 },
   { idx: 197, tag: "0197_weldpass_password_manager", when: 1791115443291 },
   { idx: 198, tag: "0198_military_secret_warriors", when: 1791150513192 },
-  { idx: 199, tag: "0199_knowledge_teamspaces", when: 1791317372434 },
+  { idx: 199, tag: "0199_far_tomas", when: 1791320017605 },
+  { idx: 200, tag: "0200_knowledge_teamspaces", when: 1791387733827 },
 ] as const;
 
 export const MIGRATION_SQL: Record<string, string> = {
@@ -11336,7 +11337,28 @@ CREATE INDEX "weldpass_vaults_workspace_idx" ON "weldpass_vaults" USING btree ("
 CREATE UNIQUE INDEX "weldpass_vaults_personal_owner_idx" ON "weldpass_vaults" USING btree ("workspace_id","owner_id") WHERE "weldpass_vaults"."kind" = 'personal' AND "weldpass_vaults"."deleted_at" IS NULL;`,
   "0198_military_secret_warriors": `ALTER TABLE "calendar_booking_pages" ADD COLUMN "date_overrides" jsonb;--> statement-breakpoint
 ALTER TABLE "calendar_booking_pages" ADD COLUMN "max_bookings_per_day" integer;`,
-  "0199_knowledge_teamspaces": `CREATE TABLE "knowledge_space_members" (
+  "0199_far_tomas": `CREATE TABLE "workflow_versions" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"workflow_id" varchar(30) NOT NULL,
+	"version" integer NOT NULL,
+	"name" varchar(255) NOT NULL,
+	"status" varchar(20) NOT NULL,
+	"triggers" jsonb,
+	"steps" jsonb,
+	"settings" jsonb,
+	"created_by" varchar(255),
+	"reason" varchar(20) NOT NULL,
+	"restored_from_version" integer,
+	"note" text,
+	CONSTRAINT "workflow_versions_workflow_version_unique" UNIQUE("workflow_id","version")
+);
+--> statement-breakpoint
+ALTER TABLE "workflow_schedules" ALTER COLUMN "cron_expression" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "workflow_schedules" ADD COLUMN "schedule_type" varchar(20) DEFAULT 'recurring' NOT NULL;--> statement-breakpoint
+ALTER TABLE "workflow_schedules" ADD COLUMN "execute_at" timestamp;--> statement-breakpoint
+CREATE INDEX "workflow_versions_workflow_idx" ON "workflow_versions" USING btree ("workflow_id");`,
+  "0200_knowledge_teamspaces": `CREATE TABLE "knowledge_space_members" (
 	"id" varchar(255) PRIMARY KEY NOT NULL,
 	"space_id" varchar(255) NOT NULL,
 	"user_id" varchar(255) NOT NULL,
@@ -11566,5 +11588,6 @@ export const MIGRATION_HASHES: Record<string, string> = {
   "0196_burly_the_twelve": "54f826393467c33bc8868c65f31396a583987d47c25acc9f6c253c23a569c8d2",
   "0197_weldpass_password_manager": "1cf39de1e885a951be4f7b416d8cd589ad4a9fa0f7a0a72e7d1293319fdd00b4",
   "0198_military_secret_warriors": "d98f9aa6a112a8776f5fe53e367c29240ae7abc1a63401ca46aeb1a1363bbd04",
-  "0199_knowledge_teamspaces": "6f050f87d4c3fcf79fb8c0ccf18f62dd34ea4f6c5bedc30707c3e013196a0def",
+  "0199_far_tomas": "cc8b424756fe129426458324e8d96c5aa409bcb036383ed31de55862f681583d",
+  "0200_knowledge_teamspaces": "6f050f87d4c3fcf79fb8c0ccf18f62dd34ea4f6c5bedc30707c3e013196a0def",
 };

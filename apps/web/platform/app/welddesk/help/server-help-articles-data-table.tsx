@@ -474,7 +474,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
 
   // Fetch articles when dependencies change
   useEffect(() => {
-    loadArticles();
+    void loadArticles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     pagination.page,
@@ -616,8 +616,8 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
           setNewFolderName("");
           setSelectedFolderId(null);
           setSelectedFolderPath(null);
-          refreshFolders();
-          loadArticles();
+          void refreshFolders();
+          void loadArticles();
         },
         onError: () => {
           toast.error(th.failedToCreateFolder);
@@ -659,7 +659,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
           deleteHelpFolderMutation.mutate(deleteTarget.id, {
             onSuccess: () => {
               toast.success(th.deletedFolderSuccess.replace('{name}', deleteTarget.name));
-              refreshFolders();
+              void refreshFolders();
               resolve();
             },
             onError: (error: Error) => {
@@ -684,7 +684,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
       }
       setShowDeleteDialog(false);
       setDeleteTarget(null);
-      loadArticles();
+      void loadArticles();
     } catch {
       toast.error(th.failedToDelete);
     }
@@ -1438,7 +1438,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    handleCreateFolder();
+                    void handleCreateFolder();
                   }
                 }}
               />
@@ -1476,7 +1476,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    handleRenameFolder();
+                    void handleRenameFolder();
                   }
                 }}
               />

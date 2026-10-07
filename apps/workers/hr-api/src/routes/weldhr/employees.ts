@@ -8,6 +8,7 @@ import { keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import {
   createHrDepartmentSchema,
+  createHrEmployeeFromMemberSchema,
   createHrEmployeeSchema,
   hrEmployeeSensitiveSchema,
   listHrEmployeesQuerySchema,
@@ -19,6 +20,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import {
   createDepartment,
   createEmployee,
+  createEmployeeFromMember,
   deleteDepartment,
   deleteEmployee,
   getEmployeeDetail,
@@ -78,6 +80,44 @@ employeesRoutes.post('/', requirePermission('employees:create'), zValidator('jso
   }
   return success(c, toPublicEmployee(employee), 201);
 });
+
+employeesRoutes.post(
+  '/from-member',
+  requirePermission('employees:create'),
+  zValidator('json', createHrEmployeeFromMemberSchema),
+  async (c) => {
+    const { sensitive, onboardingTemplateId, ...input } = c.req.valid('json');
+    const database = db(c);
+
+    if (sensitive) {
+      if (!(await hasContextPermission(c, 'employees:sensitive'))) {
+        return error.forbidden(c, 'You do not have permission to set sensitive employee data');
+      }
+    }
+
+    const employee = await createEmployeeFromMember(database, input, {
+      createdBy: actor(c),
+      sensitive,
+      keyring: keyringFromEnv(c.env),
+    });
+    if (sensitive) {
+      await recordHrAudit(database, {
+        actorId: actor(c),
+        action: 'employee.sensitive_updated',
+        employeeId: employee.id,
+        metadata: { fields: Object.keys(sensitive) },
+        ip: clientIp(c),
+      });
+    }
+    emit(c, 'hr_employee', 'created', employee.id, { status: employee.status });
+
+    if (onboardingTemplateId) {
+      const checklist = await startChecklist(database, employee.id, { templateId: onboardingTemplateId }, actor(c));
+      emit(c, 'hr_checklist', 'created', checklist.id, { employeeId: employee.id, status: checklist.status });
+    }
+    return success(c, toPublicEmployee(employee), 201);
+  },
+);
 
 employeesRoutes.patch('/:employeeId', requirePermission('employees:update'), zValidator('json', updateHrEmployeeSchema), async (c) => {
   const { sensitive, ...input } = c.req.valid('json');

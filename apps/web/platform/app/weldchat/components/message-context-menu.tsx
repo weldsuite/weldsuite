@@ -100,13 +100,17 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
 
   const handleCopyLink = () => {
     const url = `${window.location.origin}/weldchat/${channelId}?msg=${message.id}`;
-    navigator.clipboard.writeText(url);
-    toast.success(t.weldchat.messageContextMenu.messageLinkCopied);
+    navigator.clipboard.writeText(url).then(
+      () => toast.success(t.weldchat.messageContextMenu.messageLinkCopied),
+      () => toast.error(t.sweep.entities.copyLinkFailed),
+    );
   };
 
   const handleCopyText = () => {
-    navigator.clipboard.writeText(message.content ?? '');
-    toast.success(t.weldchat.messageContextMenu.messageTextCopied);
+    navigator.clipboard.writeText(message.content ?? '').then(
+      () => toast.success(t.weldchat.messageContextMenu.messageTextCopied),
+      () => toast.error(t.sweep.shared.failedToCopy),
+    );
   };
 
   const handleMarkUnread = () => {

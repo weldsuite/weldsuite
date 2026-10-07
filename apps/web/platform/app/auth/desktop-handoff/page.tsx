@@ -61,7 +61,7 @@ export default function DesktopHandoffPage() {
       return;
     }
 
-    (async () => {
+    void (async () => {
       try {
         const client = await getClient();
         const res = await client.post<{

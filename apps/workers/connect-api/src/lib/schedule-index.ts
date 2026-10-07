@@ -26,10 +26,15 @@ export interface UpsertScheduleIndexInput {
   workspaceId: string;
   workflowId: string;
   triggerId?: string | null;
+  /** 'recurring' (default) | 'one_time'. */
+  scheduleType?: 'recurring' | 'one_time';
+  /** Required for 'recurring'; pass '' for 'one_time' (column is NOT NULL). */
   cronExpression: string;
   timezone?: string | null;
   startDate?: Date | null;
   endDate?: Date | null;
+  /** 'one_time' only: the UTC instant to fire at. */
+  executeAt?: Date | null;
   isEnabled: boolean;
 }
 
@@ -48,17 +53,19 @@ export async function syncUpsertScheduleIndex(
     await sync.d1
       .prepare(
         `INSERT INTO schedule_index
-           (schedule_id, workspace_id, workflow_id, trigger_id, cron_expression, timezone,
-            start_date, end_date, next_run_at, last_run_at, source, is_enabled, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+           (schedule_id, workspace_id, workflow_id, trigger_id, schedule_type, cron_expression, timezone,
+            start_date, end_date, execute_at, next_run_at, last_run_at, source, is_enabled, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
          ON CONFLICT(schedule_id) DO UPDATE SET
            workspace_id    = excluded.workspace_id,
            workflow_id     = excluded.workflow_id,
            trigger_id      = excluded.trigger_id,
+           schedule_type   = excluded.schedule_type,
            cron_expression = excluded.cron_expression,
            timezone        = excluded.timezone,
            start_date      = excluded.start_date,
            end_date        = excluded.end_date,
+           execute_at      = excluded.execute_at,
            next_run_at     = NULL,
            source          = excluded.source,
            is_enabled      = excluded.is_enabled,
@@ -69,10 +76,12 @@ export async function syncUpsertScheduleIndex(
         input.workspaceId,
         input.workflowId,
         input.triggerId ?? null,
+        input.scheduleType ?? 'recurring',
         input.cronExpression,
         input.timezone || 'UTC',
         input.startDate ? input.startDate.getTime() : null,
         input.endDate ? input.endDate.getTime() : null,
+        input.executeAt ? input.executeAt.getTime() : null,
         sourceForWorkflowId(input.workflowId),
         input.isEnabled ? 1 : 0,
         now,
@@ -103,6 +112,8 @@ export function updateTouchesTiming(data: Record<string, unknown>): boolean {
     'timezone' in data ||
     'startDate' in data ||
     'endDate' in data ||
+    'executeAt' in data ||
+    'scheduleType' in data ||
     'isEnabled' in data
   );
 }

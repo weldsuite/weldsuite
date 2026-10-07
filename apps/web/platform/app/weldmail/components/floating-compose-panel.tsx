@@ -23,6 +23,7 @@ import {
   CircleCheck,
   Trash2,
   ArrowUp,
+  UserPlus,
 } from 'lucide-react';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
 import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
@@ -54,6 +55,9 @@ import { useCallSafe } from '@/contexts/call-context';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { mailApi } from '../lib/api-client';
 import { useI18n } from '@/lib/i18n/provider';
+import { useTranslations } from '@weldsuite/i18n/client';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import type { Person } from '@/hooks/queries/use-people-queries';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
 import {
@@ -139,8 +143,13 @@ function buildPanelDraftFields(form: PanelDraftForm, editorHtml: string | undefi
 
 type UploadedMailAttachments = Awaited<ReturnType<typeof uploadMailAttachments>>;
 
+function attachmentCountLabel(count: number, singular: string, plural: string): string {
+  return (count > 1 ? plural : singular).replace('{n}', String(count));
+}
+
 export function FloatingComposePanel() {
   const { t } = useI18n();
+  const st = useTranslations();
   const handleAiCreditsError = useAiCreditsToast();
   const router = useRouter();
   const params = useParams();
@@ -170,7 +179,7 @@ export function FloatingComposePanel() {
   const [ccRecipients, setCcRecipients] = useState('');
   const [bccRecipients, setBccRecipients] = useState('');
   const [fontSize, setFontSize] = useState('14');
-  const [textAlignment] = useState<'left' | 'center' | 'right'>('left');
+  const textAlignment: 'left' | 'center' | 'right' = 'left';
   const [scheduledTime, setScheduledTime] = useState<Date | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const attachmentsInitializedRef = useRef(false);
@@ -189,6 +198,7 @@ export function FloatingComposePanel() {
   // Person autocomplete
   const [showContactSuggestions, setShowContactSuggestions] = useState(false);
   const [contactSearchQuery, setContactSearchQuery] = useState('');
+  const [createPersonQuery, setCreatePersonQuery] = useState<string | null>(null);
   const toInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
@@ -434,6 +444,22 @@ export function FloatingComposePanel() {
 
   const { composeData, updateComposeData, closeCompose } = composeContext;
 
+  const openCreatePerson = () => {
+    const query = contactSearchQuery.trim();
+    if (!query) return;
+    setShowContactSuggestions(false);
+    setCreatePersonQuery(query);
+  };
+
+  const handlePersonCreated = (person: Person) => {
+    const email = person.email?.trim();
+    if (!email) {
+      toast.info(st('sweep.entities.personCreatedNeedsEmail'));
+      return;
+    }
+    handleSelectContact({ name: person.displayName || email, email });
+  };
+
   const handleSelectContact = (contact: { name: string; email: string }) => {
     // Replace the in-progress fragment (the text being searched) with the chosen
     // email rather than appending it — otherwise the typed query lingers and the
@@ -451,7 +477,7 @@ export function FloatingComposePanel() {
     const value = e.target.value;
     updateComposeData({ to: value });
     const parts = value.split(',');
-    const lastPart = parts[parts.length - 1].trim();
+    const lastPart = (parts.at(-1) ?? '').trim();
     setContactSearchQuery(lastPart);
     setShowContactSuggestions(lastPart.length > 0);
   };
@@ -741,7 +767,7 @@ export function FloatingComposePanel() {
                   <DropdownMenuItem
                     onSelect={(e) => {
                       e.preventDefault();
-                      handleSaveDraft();
+                      void handleSaveDraft();
                     }}
                   >
                     <CircleCheck className="h-4 w-4 mr-0.5" />
@@ -813,7 +839,7 @@ export function FloatingComposePanel() {
                   selected={scheduledTime || undefined}
                   onSelect={handleScheduleDateSelect}
                   disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0)) || date > addDays(new Date(), 7)}
-                  initialFocus
+                  autoFocus
                 />
                 <div className="border-t border-border px-3 py-3">
                   <div className="text-xs font-medium text-muted-foreground mb-2">{t.mail.floatingCompose.time}</div>
@@ -890,7 +916,7 @@ export function FloatingComposePanel() {
                   onFocus={() => {
                     if (composeData.to) {
                       const parts = composeData.to.split(',');
-                      const lastPart = parts[parts.length - 1].trim();
+                      const lastPart = (parts.at(-1) ?? '').trim();
                       if (lastPart) {
                         setContactSearchQuery(lastPart);
                         setShowContactSuggestions(true);
@@ -911,11 +937,16 @@ export function FloatingComposePanel() {
             </div>
 
             {/* Contact Suggestions Dropdown — shadcn popover/command styling */}
-            {showContactSuggestions && filteredContacts.length > 0 && (
+            {showContactSuggestions && (filteredContacts.length > 0 || contactSearchQuery.trim()) && (
               <div
                 ref={suggestionsRef}
                 className="absolute left-0 top-full mt-1 w-full max-w-md bg-popover text-popover-foreground border rounded-md shadow-md z-50 overflow-hidden p-1"
               >
+                {filteredContacts.length === 0 && (
+                  <div className="px-2 py-1.5 text-sm text-muted-foreground text-center">
+                    {t.mail.composePage.noPeopleFound}
+                  </div>
+                )}
                 {filteredContacts.map((contact) => (
                   <Button
                     variant="ghost"
@@ -943,6 +974,23 @@ export function FloatingComposePanel() {
                     </div>
                   </Button>
                 ))}
+                {contactSearchQuery.trim() && (
+                  <>
+                    <div className="-mx-1 my-1 h-px bg-border" />
+                    <Button
+                      variant="ghost"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={openCreatePerson}
+                      className="relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors text-left"
+                    >
+                      <UserPlus className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium">{t.mail.composePage.createNewPerson}</div>
+                        <div className="text-xs text-muted-foreground truncate">{contactSearchQuery.trim()}</div>
+                      </div>
+                    </Button>
+                  </>
+                )}
                 <div className="-mx-1 my-1 h-px bg-border" />
                 <Button
                   variant="ghost"
@@ -954,6 +1002,15 @@ export function FloatingComposePanel() {
                 </Button>
               </div>
             )}
+
+            <QuickAddPersonDialog
+              open={createPersonQuery !== null}
+              onOpenChange={(open) => {
+                if (!open) setCreatePersonQuery(null);
+              }}
+              initialName={createPersonQuery ?? ''}
+              onCreated={handlePersonCreated}
+            />
 
             {showCcBcc && (
               <div className="space-y-2 mt-2">
@@ -1028,7 +1085,7 @@ export function FloatingComposePanel() {
                 <div className="flex items-center gap-2 text-foreground mb-3">
                   <Paperclip className="h-3.5 w-3.5" />
                   <span className="text-sm font-medium">
-                    {attachedFiles.length > 1 ? t.mail.floatingCompose.attachmentCountPlural.replace('{n}', String(attachedFiles.length)) : t.mail.floatingCompose.attachmentCount.replace('{n}', String(attachedFiles.length))}
+                    {attachmentCountLabel(attachedFiles.length, t.mail.floatingCompose.attachmentCount, t.mail.floatingCompose.attachmentCountPlural)}
                   </span>
                   <span className="text-sm text-muted-foreground">
                     {(attachedFiles.reduce((acc, file) => acc + file.size, 0) / 1024).toFixed(2)} KB
@@ -1098,7 +1155,7 @@ export function FloatingComposePanel() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && aiPrompt.trim()) {
                   e.preventDefault();
-                  handleAiGenerate();
+                  void handleAiGenerate();
                 }
                 if (e.key === 'Escape') {
                   handleCloseAiInput();
@@ -1113,7 +1170,7 @@ export function FloatingComposePanel() {
               type="button"
               onClick={() => {
                 if (aiPrompt.trim()) {
-                  handleAiGenerate();
+                  void handleAiGenerate();
                 }
               }}
               disabled={!aiPrompt.trim() || isAiGenerating}

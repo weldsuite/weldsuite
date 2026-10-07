@@ -131,7 +131,7 @@ export function VersionHistorySheet({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  handleCreate();
+                  void handleCreate();
                 }
               }}
             />

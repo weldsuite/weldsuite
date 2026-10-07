@@ -186,7 +186,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       }
     };
 
-    fetchData();
+    void fetchData();
   }, [isActive, getClient]);
 
   // Sync the sidebar lists from the React Query cache so create/update/delete
@@ -264,7 +264,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       const result = await client.get<{ data?: { memberCount?: number } }>(`/lists/${pageId}`);
       const memberCount = result.data?.memberCount;
       if (typeof memberCount === 'number') {
-        setListToDelete((prev) => (prev && prev.id === pageId ? { ...prev, memberCount } : prev));
+        setListToDelete((prev) => (prev?.id === pageId ? { ...prev, memberCount } : prev));
       }
     } catch (error) {
       console.error('Failed to load list member count:', error);
@@ -521,7 +521,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       );
       const dealCount = result.pagination?.totalCount;
       if (typeof dealCount === 'number') {
-        setPipelineToDelete((prev) => (prev && prev.id === pageId ? { ...prev, dealCount } : prev));
+        setPipelineToDelete((prev) => (prev?.id === pageId ? { ...prev, dealCount } : prev));
       }
     } catch (error) {
       console.error('Failed to load pipeline deal count:', error);
@@ -748,7 +748,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `pipeline-${exportData.pipeline.name.toLowerCase().replace(/\s+/g, '-')}.json`;
+      a.download = `pipeline-${exportData.pipeline.name.toLowerCase().replaceAll(/\s+/g, '-')}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -819,6 +819,22 @@ export function useCrmSidebarItems(isActive: boolean): {
     },
   ];
 
+  const listMemberCount = listToDelete?.memberCount;
+  let deleteListDescription = t('crm.sidebar.deleteListDescriptionGeneric');
+  if (listMemberCount === 1) {
+    deleteListDescription = t('crm.sidebar.deleteListDescriptionWithMembersSingular');
+  } else if (listMemberCount != null) {
+    deleteListDescription = t('crm.sidebar.deleteListDescriptionWithMembersPlural', { count: listMemberCount });
+  }
+
+  const pipelineDealCount = pipelineToDelete?.dealCount;
+  let deletePipelineDescription = t('crm.sidebar.deletePipelineDescriptionGeneric');
+  if (pipelineDealCount === 1) {
+    deletePipelineDescription = t('crm.sidebar.deletePipelineDescriptionWithDealsSingular');
+  } else if (pipelineDealCount != null) {
+    deletePipelineDescription = t('crm.sidebar.deletePipelineDescriptionWithDealsPlural', { count: pipelineDealCount });
+  }
+
   const dialogs = (
     <>
       <PipelineTemplateDialog
@@ -852,13 +868,7 @@ export function useCrmSidebarItems(isActive: boolean): {
           if (!open) setListToDelete(null);
         }}
         title={t('crm.sidebar.deleteListTitle', { name: listToDelete?.name ?? '' })}
-        description={
-          listToDelete?.memberCount == null
-            ? t('crm.sidebar.deleteListDescriptionGeneric')
-            : listToDelete.memberCount === 1
-              ? t('crm.sidebar.deleteListDescriptionWithMembersSingular')
-              : t('crm.sidebar.deleteListDescriptionWithMembersPlural', { count: listToDelete.memberCount })
-        }
+        description={deleteListDescription}
         variant="destructive"
         confirmLabel={t('crm.sidebar.deleteListConfirm')}
         loading={deleteListPending}
@@ -870,13 +880,7 @@ export function useCrmSidebarItems(isActive: boolean): {
           if (!open) setPipelineToDelete(null);
         }}
         title={t('crm.sidebar.deletePipelineTitle', { name: pipelineToDelete?.name ?? '' })}
-        description={
-          pipelineToDelete?.dealCount == null
-            ? t('crm.sidebar.deletePipelineDescriptionGeneric')
-            : pipelineToDelete.dealCount === 1
-              ? t('crm.sidebar.deletePipelineDescriptionWithDealsSingular')
-              : t('crm.sidebar.deletePipelineDescriptionWithDealsPlural', { count: pipelineToDelete.dealCount })
-        }
+        description={deletePipelineDescription}
         variant="destructive"
         confirmLabel={t('crm.sidebar.deletePipelineConfirm')}
         loading={deletePipelinePending}

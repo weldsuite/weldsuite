@@ -26,7 +26,8 @@ async function playSound(url: string): Promise<void> {
 function playFallbackTone(type: 'sent' | 'received'): void {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    if (ctx.state === 'suspended') ctx.resume();
+    // A tone that can't resume (no user gesture yet) just stays silent.
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
     const now = ctx.currentTime;
 

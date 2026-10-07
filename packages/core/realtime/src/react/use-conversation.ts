@@ -51,7 +51,7 @@ export function useConversation(conversationId: string, config: UseConversationC
     client.onPresence(setPresence);
     client.onTyping(setTypingUsers);
 
-    client.connect().then(() => {
+    void client.connect().then(() => {
       if (config.presenceData) {
         client.enterPresence(config.presenceData);
       }

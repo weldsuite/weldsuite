@@ -31,6 +31,7 @@ export * from './workflow-trigger-index';
 /** @deprecated Dual CRUD table — use embedded workflows.triggers + workflow_trigger_index */
 export * from './workflow-triggers';
 export * from './workflow-schedules';
+export * from './workflow-versions';
 export * from './workflow-webhooks';
 export * from './workflow-variables';
 export * from './workflow-integrations';

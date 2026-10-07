@@ -34,7 +34,7 @@ type TicketErrorOutcome =
   | { status: 'password_required' }
   | { status: 'error'; message: string };
 
-const ALREADY_USED_CODES = ['ticket_already_used', 'ticket_already_accepted'];
+const ALREADY_USED_CODES = new Set(['ticket_already_used', 'ticket_already_accepted']);
 const ALREADY_USED_MESSAGES = ['already been used', 'already been accepted', 'already accepted'];
 
 // Maps an error thrown while processing a Clerk ticket onto the state to show.
@@ -53,7 +53,7 @@ function classifyTicketError(err: unknown): TicketErrorOutcome {
 
   // Check if invitation is already used/accepted
   if (
-    (errorCode !== undefined && ALREADY_USED_CODES.includes(errorCode)) ||
+    (errorCode !== undefined && ALREADY_USED_CODES.has(errorCode)) ||
     ALREADY_USED_MESSAGES.some((fragment) => lowerMessage.includes(fragment))
   ) {
     return { status: 'used' };
@@ -694,7 +694,7 @@ export function InviteClient({
       }
     };
 
-    handleClerkTicket();
+    void handleClerkTicket();
   }, [
     clerkTicket,
     clerkStatus,
@@ -764,7 +764,7 @@ export function InviteClient({
     }
   };
 
-  const handleAcceptInvitation = async () => {
+  const handleAcceptInvitation = () => {
     setIsLoading(true);
 
     // Build redirect URL with invitation context for after login

@@ -1,5 +1,7 @@
 /**
- * Gmail integration (Google Workspace). Reuses the shared Google OAuth client.
+ * Gmail integration (Google Workspace). Reuses the shared Google OAuth client
+ * (see "Provider pattern" in docs/plans/weldconnect.md). Scoped to
+ * `gmail.send` only — see GOOGLE_SCOPES.gmail in ./google for why.
  */
 
 import type { IntegrationDef } from '../types';
@@ -19,9 +21,11 @@ export const gmail: IntegrationDef = {
       name: 'Send Email',
       description: 'Send an email from the connected Gmail account.',
       inputs: [
-        { key: 'to', label: 'To', type: 'string', required: true, placeholder: 'jane@acme.com' },
+        { key: 'integrationId', label: 'Connection', type: 'string', description: 'Which connected Gmail account to send from, when more than one is connected.' },
+        { key: 'to', label: 'To', type: 'string', required: true, placeholder: 'jane@acme.com', description: 'Comma-separated recipient addresses. Every resolved address is validated before sending.' },
         { key: 'subject', label: 'Subject', type: 'string', required: true },
-        { key: 'body', label: 'Body (HTML allowed)', type: 'text', required: true },
+        { key: 'body', label: 'Body', type: 'text', required: true },
+        { key: 'isHtml', label: 'Body is HTML', type: 'boolean', required: false, description: 'Off treats the body as plain text (escaped and line-broken into HTML).' },
         { key: 'cc', label: 'Cc', type: 'string', required: false },
         { key: 'bcc', label: 'Bcc', type: 'string', required: false },
       ],

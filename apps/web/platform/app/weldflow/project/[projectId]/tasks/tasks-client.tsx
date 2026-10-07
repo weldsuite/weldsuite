@@ -61,6 +61,8 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { tasksApi, membersApi, labelsApi, stagesApi } from '@/app/weldflow/lib/api-client';
 import { useFeatureFlag } from '@/hooks/queries/use-feature-flags-queries';
+import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
+import { buildEntityAssigneeDirectory } from './entity-assignees';
 import { MoveTaskDialog } from '@/components/weldflow/move-task-dialog';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
@@ -148,7 +150,8 @@ interface TasksClientProps {
    * When set, the board renders in entity-scoped mode (CRM company/person panel).
    * Tasks come from the entity wrapper (useTasks with customerId/personId) and
    * span multiple projects. Project-only features (DnD reorder, sprints/sections
-   * group-by, project stages, project members, breadcrumbs) are suppressed.
+   * group-by, project stages, breadcrumbs) are suppressed. Assignees come from
+   * the workspace member directory instead of a per-project member list.
    */
   entityScope?: { kind: 'company' | 'person'; id: string };
 }
@@ -204,7 +207,7 @@ function transformApiTask(apiTask: RawApiTask): Task {
     completedSubtaskCount: apiTask.completedSubtaskCount || 0,
     key: apiTask.key || undefined,
     repeat: apiTask.repeat || undefined,
-    children: Array.isArray(rawChildren) ? rawChildren.map(transformApiTask) : undefined,
+    children: Array.isArray(rawChildren) ? rawChildren.map((child) => transformApiTask(child)) : undefined,
   };
 }
 
@@ -569,6 +572,9 @@ export function TasksClient({
   // Only needed in entity mode, to pre-fill the "Add Task" dialog's assignee
   // the way the My Tasks dialog does (defaults to the current user).
   const { userId: currentUserId } = useAuth();
+  // Entity mode has no project member list. Walk every cursor page of the
+  // workspace directory only there; project boards keep using membersApi.list.
+  const { data: workspaceMembersData } = useWorkspaceMemberDirectory(isEntityMode);
 
   const priorityConfig = useMemo(() => ({
     low: { label: t.projects.tasks.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
@@ -601,7 +607,7 @@ export function TasksClient({
         ],
   );
 
-  const initialFlattened = useMemo(() => flattenTaskTree(initialTasks.map(transformApiTask)), [initialTasks]);
+  const initialFlattened = useMemo(() => flattenTaskTree(initialTasks.map((task) => transformApiTask(task))), [initialTasks]);
   const [tasks, setTasks] = useState<Task[]>(initialFlattened.topLevel);
   const [inlineSubtasks, setInlineSubtasks] = useState<Record<string, Task[]>>(initialFlattened.inlineSubtasks);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(initialFlattened.expandedIds);
@@ -642,7 +648,7 @@ export function TasksClient({
 
   const [editingCrmTask, setEditingCrmTask] = useState<CrmTask | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
-  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [loadedProjectMembers, setLoadedProjectMembers] = useState<ProjectMember[]>([]);
   // Fetch companies so the task detail panel's Company picker has real
   // options to choose from (instead of "No records available").
   const companiesQuery = useCompanies({ limit: 100 });
@@ -799,13 +805,13 @@ export function TasksClient({
     // edge cases (e.g. a task created while offline then re-synced) — the row
     // expands instantly and populates when the fetch resolves.
     if (!inlineSubtasksRef.current[taskId]) {
-      tasksApi.listSubtasks(projectId, taskId).then((result) => {
+      void tasksApi.listSubtasks(projectId, taskId).then((result) => {
         if (result.success && result.data && Array.isArray(result.data)) {
           const children = result.data;
           setInlineSubtasks((prev) =>
             prev[taskId]
               ? prev
-              : { ...prev, [taskId]: children.map(transformApiTask) },
+              : { ...prev, [taskId]: children.map((child) => transformApiTask(child)) },
           );
         }
       });
@@ -821,7 +827,7 @@ export function TasksClient({
         setAvailableLabels(result.data);
       }
     }
-    loadLabels();
+    void loadLabels();
   }, [projectId, isEntityMode]);
 
   // Fetch this project's pipeline stages for the Create Task dialog.
@@ -842,7 +848,7 @@ export function TasksClient({
         })));
       }
     }
-    loadStages();
+    void loadStages();
   }, [projectId, isEntityMode]);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
@@ -860,47 +866,30 @@ export function TasksClient({
   // Live task sync: useRealtimeSync(platformSyncMap) invalidates project/task
   // query roots — no parallel useTaskEvents bridge (Phase 9 stub cleanup).
 
-  // Fetch project members for assignee dropdown.
-  // In entity mode there is no single project to query for members. Instead we
-  // derive a synthetic member list from the assignees embedded in the task data,
-  // so the assignee column + popover still renders correctly.
+  // Fetch project members for the assignee dropdown. Entity mode has no single
+  // project, so that board uses the workspace directory instead (see below).
   useEffect(() => {
     if (isEntityMode) return;
     async function loadMembers() {
       const result = await membersApi.list(projectId);
       if (result.success && result.data) {
-        setProjectMembers(result.data);
+        setLoadedProjectMembers(result.data);
       }
     }
-    loadMembers();
+    void loadMembers();
   }, [projectId, isEntityMode]);
 
-  // In entity mode: build a synthetic ProjectMember list from assignees already
-  // embedded in the task data. This populates the assignee column without a
-  // per-project API call.
-  useEffect(() => {
-    if (!isEntityMode) return;
-    const seen = new Map<string, ProjectMember>();
-    for (const task of tasks) {
-      const assigneesList = task.assignees ?? [];
-      for (const a of assigneesList) {
-        if (!seen.has(a.id)) {
-          seen.set(a.id, {
-            userId: a.id,
-            user: { id: a.id, name: a.name, email: a.email ?? '', avatar: a.avatar },
-          });
-        }
-      }
-      // Also handle legacy single-assignee fields
-      if (!seen.has(task.assigneeId ?? '') && task.assigneeId && task.assignee) {
-        seen.set(task.assigneeId, {
-          userId: task.assigneeId,
-          user: { id: task.assigneeId, name: task.assignee, email: '' },
-        });
-      }
-    }
-    setProjectMembers(Array.from(seen.values()));
-  }, [isEntityMode, tasks]);
+  // Customer/person Tasks tab: every workspace member is selectable, including
+  // on a customer that has no tasks yet. People already assigned who have left
+  // the workspace stay in the list so their name still renders.
+  const entityAssigneeDirectory = useMemo(
+    () =>
+      isEntityMode
+        ? buildEntityAssigneeDirectory(workspaceMembersData?.data ?? [], tasks)
+        : null,
+    [isEntityMode, workspaceMembersData, tasks],
+  );
+  const projectMembers = entityAssigneeDirectory ?? loadedProjectMembers;
 
   const handleTaskDialogSave = async (data: {
     title: string;
@@ -930,6 +919,9 @@ export function TasksClient({
     const resolvedStageId = pickedStage?.id;
     const resolvedStatus = pickedStage?.systemStatus ?? statusMap[data.status] ?? 'todo';
 
+    const assigneeIds = data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined);
+    const repeat = data.repeat ? { frequency: data.repeat.frequency } : undefined;
+
     setIsCreatingTask(true);
     // Entity mode has no single project to create into — create via the global
     // /tasks endpoint instead, linked to the CRM company/person this panel is
@@ -940,10 +932,10 @@ export function TasksClient({
           description: data.description,
           status: resolvedStatus,
           priority: data.priority,
-          assigneeIds: data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined),
+          assigneeIds,
           dueDate: data.dueDate?.toISOString(),
           labels: data.labels,
-          repeat: data.repeat ? { frequency: data.repeat.frequency } : undefined,
+          repeat,
           customerId: entityScope!.kind === 'company' ? entityScope!.id : undefined,
           personId: entityScope!.kind === 'person' ? entityScope!.id : undefined,
         })
@@ -953,10 +945,10 @@ export function TasksClient({
           stageId: resolvedStageId,
           status: resolvedStatus,
           priority: data.priority,
-          assigneeIds: data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined),
+          assigneeIds,
           dueDate: data.dueDate?.toISOString(),
           labels: data.labels,
-          repeat: data.repeat ? { frequency: data.repeat.frequency } : undefined,
+          repeat,
         });
     setIsCreatingTask(false);
 
@@ -1017,7 +1009,7 @@ export function TasksClient({
     // Going from done → todo: toggle immediately without animation
     if (currentStatus === 'done') {
       patchTaskStatus('todo');
-      tasksApi.toggle(projectId, taskId, 'done').then((result) => {
+      void tasksApi.toggle(projectId, taskId, 'done').then((result) => {
         if (!result.success) {
           patchTaskStatus('done');
           toast.error(t.projects.tasks.failedToUpdateTask);
@@ -1048,7 +1040,7 @@ export function TasksClient({
     // subtask is done.
     if (subtaskParentId) {
       patchTaskStatus('done');
-      tasksApi.toggle(projectId, taskId, task.status).then((result) => {
+      void tasksApi.toggle(projectId, taskId, task.status).then((result) => {
         if (!result.success) {
           patchTaskStatus(task!.status);
           toast.error(t.projects.tasks.failedToUpdateTask);
@@ -1120,7 +1112,7 @@ export function TasksClient({
         next.delete(parentId);
         return next;
       });
-      tasksApi.toggle(projectId, parentId, parent.status).then((result) => {
+      void tasksApi.toggle(projectId, parentId, parent.status).then((result) => {
         if (result.success) {
           setTasks(prev => prev.map(t => t.id === parentId ? { ...t, status: 'done' as Task['status'] } : t));
         } else {
@@ -1670,7 +1662,7 @@ export function TasksClient({
                 mode="single"
                 selected={task.dueDate}
                 onSelect={(date) => updateTaskInline(task.id, { dueDate: date || undefined })}
-                initialFocus
+                autoFocus
               />
               {task.dueDate && (
                 <div className="p-1 border-t border-border">
@@ -1719,7 +1711,7 @@ export function TasksClient({
                             { id: member.userId, name: member.user!.name, avatar: member.user?.avatar },
                           ];
                       const primary = nextAssignees[0];
-                      updateTaskInline(task.id, {
+                      void updateTaskInline(task.id, {
                         assigneeId: primary?.id ?? null,
                         assignee: primary?.name,
                         assignees: nextAssignees,

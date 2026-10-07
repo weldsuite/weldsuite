@@ -32,6 +32,7 @@ import { workflowSchedulesRoutes } from './routes/workflow-schedules';
 import { workflowTemplatesRoutes } from './routes/workflow-templates';
 import { workflowTriggersRoutes } from './routes/workflow-triggers';
 import { workflowVariablesRoutes } from './routes/workflow-variables';
+import { workflowVersionsRoutes } from './routes/workflow-versions';
 import { workflowWebhooksRoutes } from './routes/workflow-webhooks';
 import { workflowsRoutes } from './routes/workflows';
 import type { Env, Variables } from './types';
@@ -87,6 +88,7 @@ app.route('/api/workflow-schedules', workflowSchedulesRoutes);
 app.route('/api/workflow-templates', workflowTemplatesRoutes);
 app.route('/api/workflow-triggers', workflowTriggersRoutes);
 app.route('/api/workflow-variables', workflowVariablesRoutes);
+app.route('/api/workflow-versions', workflowVersionsRoutes);
 app.route('/api/workflow-webhooks', workflowWebhooksRoutes);
 app.route('/api/workflows', workflowsRoutes);
 

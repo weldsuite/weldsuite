@@ -32,7 +32,7 @@ export default function FeedbackSettingsPage() {
       }
     }
 
-    loadData();
+    void loadData();
   }, [getClient]);
 
   if (loading) {

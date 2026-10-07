@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from '@/lib/router';
 import { MessageList } from '../../components/message-list';
@@ -15,10 +14,11 @@ interface LabelRealtimeWrapperProps {
   labelSlug: string;
   displayName: string;
   error: string | null;
-  currentPage: number;
-  totalPages: number;
   totalCount: number;
-  pageSize: number;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+  onFetchNextPage?: () => void;
+  isLoading?: boolean;
   onRefetch?: () => void;
   onThreadLabelUpdate?: (threadId: string, labelName: string, action: 'add' | 'remove') => void;
   /** Passed to the list so its search box and filters query the server. */
@@ -36,10 +36,11 @@ export function LabelRealtimeWrapper({
   accountId,
   labelSlug,
   error: initialError,
-  currentPage,
-  totalPages,
   totalCount,
-  pageSize,
+  hasNextPage,
+  isFetchingNextPage,
+  onFetchNextPage,
+  isLoading,
   onRefetch,
   onThreadLabelUpdate,
   onServerFilterChange,
@@ -185,10 +186,11 @@ export function LabelRealtimeWrapper({
         accountId={accountId}
         folder={labelSlug}
         error={error}
-        currentPage={currentPage}
-        totalPages={totalPages}
         totalCount={totalCount}
-        pageSize={pageSize}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        onFetchNextPage={onFetchNextPage}
+        isLoading={isLoading}
         onThreadLabelUpdate={onThreadLabelUpdate}
         onServerFilterChange={onServerFilterChange}
       />

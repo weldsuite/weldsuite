@@ -24,10 +24,15 @@ export interface ScheduleIndexRow {
   workspace_id: string;
   workflow_id: string;
   trigger_id: string | null;
+  /** 'recurring' (default) | 'one_time'. Older rows read as 'recurring' via the column DEFAULT. */
+  schedule_type: string;
+  /** Required for 'recurring'; '' for 'one_time' rows (column stays NOT NULL). */
   cron_expression: string;
   timezone: string;
   start_date: number | null;
   end_date: number | null;
+  /** 'one_time' only: epoch ms to fire at. */
+  execute_at: number | null;
   next_run_at: number | null;
   last_run_at: number | null;
   source: string;
@@ -40,10 +45,12 @@ export interface UpsertScheduleInput {
   workspaceId: string;
   workflowId: string;
   triggerId?: string | null;
+  scheduleType?: 'recurring' | 'one_time';
   cronExpression: string;
   timezone?: string | null;
   startDate?: number | null;
   endDate?: number | null;
+  executeAt?: number | null;
   source?: 'weldconnect' | 'helpdesk';
   isEnabled: boolean;
 }
@@ -66,17 +73,19 @@ export async function upsertScheduleIndex(
   await d1
     .prepare(
       `INSERT INTO schedule_index
-         (schedule_id, workspace_id, workflow_id, trigger_id, cron_expression, timezone,
-          start_date, end_date, next_run_at, last_run_at, source, is_enabled, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+         (schedule_id, workspace_id, workflow_id, trigger_id, schedule_type, cron_expression, timezone,
+          start_date, end_date, execute_at, next_run_at, last_run_at, source, is_enabled, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
        ON CONFLICT(schedule_id) DO UPDATE SET
          workspace_id    = excluded.workspace_id,
          workflow_id     = excluded.workflow_id,
          trigger_id      = excluded.trigger_id,
+         schedule_type   = excluded.schedule_type,
          cron_expression = excluded.cron_expression,
          timezone        = excluded.timezone,
          start_date      = excluded.start_date,
          end_date        = excluded.end_date,
+         execute_at      = excluded.execute_at,
          next_run_at     = NULL,
          source          = excluded.source,
          is_enabled      = excluded.is_enabled,
@@ -87,10 +96,12 @@ export async function upsertScheduleIndex(
       input.workspaceId,
       input.workflowId,
       input.triggerId ?? null,
+      input.scheduleType ?? 'recurring',
       input.cronExpression,
       input.timezone || 'UTC',
       input.startDate ?? null,
       input.endDate ?? null,
+      input.executeAt ?? null,
       input.source || sourceForWorkflowId(input.workflowId),
       input.isEnabled ? 1 : 0,
       now,
@@ -137,10 +148,12 @@ export async function rebuildScheduleIndex(env: WorkflowEnv): Promise<number> {
           workspaceId: ws.clerkOrgId,
           workflowId: s.workflowId,
           triggerId: s.triggerId,
-          cronExpression: s.cronExpression,
+          scheduleType: s.scheduleType === 'one_time' ? 'one_time' : 'recurring',
+          cronExpression: s.cronExpression ?? '',
           timezone: s.timezone,
           startDate: s.startDate ? s.startDate.getTime() : null,
           endDate: s.endDate ? s.endDate.getTime() : null,
+          executeAt: s.executeAt ? s.executeAt.getTime() : null,
           source: sourceForWorkflowId(s.workflowId),
           isEnabled: s.isEnabled,
         });

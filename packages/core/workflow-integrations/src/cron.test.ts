@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cronMatchesNow, cronMatchesAt, computeNextRunAt } from './cron';
+import { cronMatchesNow, cronMatchesAt, computeNextRunAt, zonedTimeToUtc } from './cron';
 
 describe('cronMatchesAt / cronMatchesNow', () => {
   // Thursday 2026-07-09 14:32:00 UTC
@@ -97,5 +97,34 @@ describe('computeNextRunAt', () => {
 
   it('returns null for a malformed cron', () => {
     expect(computeNextRunAt('nope', 'UTC', new Date())).toBeNull();
+  });
+});
+
+describe('zonedTimeToUtc', () => {
+  it('converts a naive local time to UTC in a fixed-offset zone', () => {
+    // 09:00 in Etc/GMT+5 (UTC-5) == 14:00 UTC.
+    const at = zonedTimeToUtc('2026-10-20T09:00', 'Etc/GMT+5');
+    expect(at?.toISOString()).toBe('2026-10-20T14:00:00.000Z');
+  });
+
+  it('round-trips UTC itself', () => {
+    const at = zonedTimeToUtc('2026-10-20T09:00', 'UTC');
+    expect(at?.toISOString()).toBe('2026-10-20T09:00:00.000Z');
+  });
+
+  it('accounts for DST in a real IANA zone', () => {
+    // Europe/Brussels is UTC+2 in July (CEST) and UTC+1 in January (CET).
+    const summer = zonedTimeToUtc('2026-07-15T09:00', 'Europe/Brussels');
+    expect(summer?.toISOString()).toBe('2026-07-15T07:00:00.000Z');
+    const winter = zonedTimeToUtc('2026-01-15T09:00', 'Europe/Brussels');
+    expect(winter?.toISOString()).toBe('2026-01-15T08:00:00.000Z');
+  });
+
+  it('returns null for an unparseable string', () => {
+    expect(zonedTimeToUtc('not-a-date', 'UTC')).toBeNull();
+  });
+
+  it('returns null for an invalid timezone', () => {
+    expect(zonedTimeToUtc('2026-10-20T09:00', 'Not/AZone')).toBeNull();
   });
 });

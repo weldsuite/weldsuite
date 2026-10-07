@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useRouter } from 'expo-router';
 
@@ -10,7 +10,7 @@ const APP_CODE = 'weldsocial';
 
 // Push notifications are not supported in Expo Go (SDK 53+).
 // Only import when running in a dev build or standalone app.
-const isExpoGo = Constants.appOwnership === 'expo';
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 let Notifications: typeof import('expo-notifications') | null = null;
 let notifUtils: {
   registerForPushNotificationsAsync: (id: string) => Promise<string | null>;
@@ -122,7 +122,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
         const cleanup = notifUtils.setupNotificationListeners(
           (notification: any) => {
             const data = notification.request.content.data;
-            if (data?.unreadCount !== undefined) { setUnreadCount(data.unreadCount); notifUtils!.setBadgeCount(data.unreadCount); }
+            if (data?.unreadCount !== undefined) { setUnreadCount(data.unreadCount); void notifUtils!.setBadgeCount(data.unreadCount); }
           },
           (response: any) => {
             const data = response.notification.request.content.data;
@@ -156,7 +156,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
     };
 
-    init();
+    void init();
     return () => { if (cleanupRef.current) cleanupRef.current(); };
   }, [user, organizationId, getCredentials]);
 

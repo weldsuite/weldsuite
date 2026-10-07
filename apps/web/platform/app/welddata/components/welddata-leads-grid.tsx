@@ -319,7 +319,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: Readonly<Weldd
             className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border text-muted-foreground/60 opacity-0 transition-all hover:bg-muted hover:text-foreground group-hover/cell:opacity-100"
             onClick={(e) => {
               e.stopPropagation();
-              rerunCell(column, lead.id);
+              void rerunCell(column, lead.id);
             }}
             title={status === 'done' || status === 'error' ? t('welddata.enrich.rerun') : t('welddata.enrich.runCell')}
           >
@@ -612,7 +612,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: Readonly<Weldd
               disabled={runCounts.missing === 0}
               className="rounded-lg border p-3 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => {
-                if (runChoice) runWholeColumn(runChoice.columnId, true);
+                if (runChoice) void runWholeColumn(runChoice.columnId, true);
                 setRunChoice(null);
               }}
             >
@@ -629,7 +629,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: Readonly<Weldd
               variant="ghost"
               className="rounded-lg border p-3 text-left transition-colors hover:bg-muted"
               onClick={() => {
-                if (runChoice) runWholeColumn(runChoice.columnId, false);
+                if (runChoice) void runWholeColumn(runChoice.columnId, false);
                 setRunChoice(null);
               }}
             >

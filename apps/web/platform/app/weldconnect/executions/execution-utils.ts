@@ -3,7 +3,15 @@
  * dashboard's recent activity, so every surface reads a run the same way.
  */
 
-export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout';
+export type ExecutionStatus =
+  | 'queued'
+  | 'running'
+  | 'waiting_for_input'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout'
+  | 'skipped';
 
 interface DurationSource {
   status: string;
@@ -44,7 +52,8 @@ export function getExecutionDuration(execution: DurationSource, now: number): nu
   if (completedAt !== null) return Math.max(0, completedAt - startedAt);
 
   const status = normalizeExecutionStatus(execution.status);
-  if (status === 'running') return Math.max(0, now - startedAt);
+  // A run paused on an approval is still going: its clock keeps running.
+  if (status === 'running' || status === 'waiting_for_input') return Math.max(0, now - startedAt);
 
   return execution.duration ?? null;
 }

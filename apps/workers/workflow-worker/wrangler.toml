@@ -27,6 +27,16 @@
 #                              INTERNAL_API_SECRET per env). Also guards the operator
 #                              /internal/schedule-index/rebuild endpoint.
 #   TELNYX_API_KEY           — (optional) send_sms
+#   GOOGLE_CLIENT_ID +       — the WeldConnect workflow-integrations Google OAuth
+#   GOOGLE_CLIENT_SECRET       app (same app connect-api's /api/workflow-integrations
+#                              connects with). Needed HERE too, not just on
+#                              connect-api: Google access tokens expire after an
+#                              hour, and every google_sheets/gmail/google_calendar
+#                              step refreshes its token in-process via
+#                              engine/actions/providers/token.ts before calling the
+#                              API — without these, that refresh throws and every
+#                              Google step fails once its token is stale. Slack
+#                              never needed this here because bot tokens don't expire.
 #   AI (ai_generate / ai_classify, via @weldsuite/ai) — the Cloudflare AI Gateway.
 #                              Model ids and pricing are canonical. Set:
 #   AI_GATEWAY_API_TOKEN     — CF API token with Workers AI + AI Gateway Run
@@ -38,6 +48,14 @@
 #                              named gateway id; omit for the account default) +
 #                              CF_AIG_TOKEN (authenticated gateways only).
 #   AI_DEFAULT_MODEL         — ([vars], optional) overrides the default model.
+#   GITHUB_APP_ID            — (github.create_issue / github.create_comment) numeric
+#                              id of the GitHub App WeldFlow's project sync already
+#                              installs per workspace (connect-api owns the install
+#                              flow). The engine mints its own fresh ~1h installation
+#                              token per call (providers/token.ts, @weldsuite/
+#                              connect-domain/github/app-auth) — MUST be the SAME App
+#                              as connect-api's GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY.
+#   GITHUB_APP_PRIVATE_KEY   — PEM private key for that same GitHub App.
 #
 # Per-env KV ids + queue/service names mirror api-worker; fill the REPLACE_ME
 # ids before deploying each environment.

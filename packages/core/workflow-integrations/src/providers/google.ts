@@ -20,15 +20,29 @@ export const GOOGLE_AUTH_BASE: Omit<OAuthConfig, 'scopes'> = {
   authorizeParams: { access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true' },
 };
 
-/** Per-product scope sets, composed into each provider's `auth.scopes`. */
+/**
+ * Per-product scope sets, composed into each provider's `auth.scopes`.
+ *
+ * `gmail` is deliberately `gmail.send` only — NOT `gmail.readonly` — because
+ * only `gmail.send_email` is unlocked this phase. `gmail.readonly` is a Google
+ * "restricted" scope (full mailbox read access): requesting it would put the
+ * OAuth consent screen through Google's CASA security assessment, not just
+ * standard verification. `gmail.send` is "sensitive" (standard verification
+ * only). Add `gmail.readonly` back — and re-run verification — only when the
+ * `gmail.new_email` poll trigger is unlocked (docs/plans/weldconnect.md).
+ */
 export const GOOGLE_SCOPES = {
   userinfo: ['openid', 'email', 'profile'],
   sheets: ['https://www.googleapis.com/auth/spreadsheets'],
-  gmail: [
-    'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/gmail.readonly',
+  gmail: ['https://www.googleapis.com/auth/gmail.send'],
+  // calendar.events: create/edit events. calendar.calendarlist.readonly: list
+  // which calendars the account has (the create_event step's calendar
+  // picker, calendarList.list) — calendar.events alone doesn't cover that
+  // call. Both are "non-sensitive"/"sensitive" tier, never "restricted".
+  calendar: [
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
   ],
-  calendar: ['https://www.googleapis.com/auth/calendar.events'],
 } as const;
 
 /** Build a Google `OAuthConfig` for a product by merging its scopes with the

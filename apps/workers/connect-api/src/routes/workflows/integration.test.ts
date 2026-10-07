@@ -8,7 +8,8 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { workflowsRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import { type Database } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
@@ -143,6 +144,109 @@ describe('/api/workflows · pglite integration', () => {
       expect(rename.status).toBe(200);
     });
 
+    it('refuses activating a slack.post_message step with no connected Slack integration', async () => {
+      const request = app();
+      const { res, id } = await create(request, {
+        name: 'Slack ping',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'slack.post_message', config: { channel: 'C1', text: 'hi' } }],
+      });
+      expect(res.status).toBe(201);
+
+      const activate = await setStatus(request, id, 'active');
+      expect(activate.status).toBe(400);
+      const body = (await activate.json()) as {
+        error: { details: { reason: string; issues: Array<{ code: string }> } };
+      };
+      expect(body.error.details.issues.map((i) => i.code)).toEqual(['integration_not_connected']);
+    });
+
+    it('activates a slack.post_message step once a Slack integration is connected', async () => {
+      await db.insert(schema.workflowIntegrations).values({
+        id: generateId('win'),
+        name: 'Team Slack',
+        type: 'slack',
+        status: 'connected',
+      });
+
+      const request = app();
+      const { id } = await create(request, {
+        name: 'Slack ping (connected)',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'slack.post_message', config: { channel: 'C1', text: 'hi' } }],
+      });
+      expect((await setStatus(request, id, 'active')).status).toBe(200);
+    });
+
+    it('refuses activating a github.create_issue step with no connected GitHub integration', async () => {
+      const request = app();
+      const { res, id } = await create(request, {
+        name: 'File a GitHub issue',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'github.create_issue', config: { repo: 'acme/widgets', title: 'Bug' } }],
+      });
+      expect(res.status).toBe(201);
+
+      const activate = await setStatus(request, id, 'active');
+      expect(activate.status).toBe(400);
+      const body = (await activate.json()) as {
+        error: { details: { reason: string; issues: Array<{ code: string }> } };
+      };
+      expect(body.error.details.issues.map((i) => i.code)).toEqual(['integration_not_connected']);
+    });
+
+    it('activates a github.create_comment step once a GitHub integration is connected', async () => {
+      await db.insert(schema.workflowIntegrations).values({
+        id: generateId('int'),
+        name: 'GitHub',
+        type: 'github',
+        status: 'connected',
+        settings: { installationId: 42 },
+      });
+
+      const request = app();
+      const { id } = await create(request, {
+        name: 'Comment on issue (connected)',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'github.create_comment', config: { repo: 'acme/widgets', issueNumber: 1, body: 'hi' } }],
+      });
+      expect((await setStatus(request, id, 'active')).status).toBe(200);
+    });
+
+    it('refuses activating a gmail.send_email step with no connected Gmail integration', async () => {
+      const request = app();
+      const { res, id } = await create(request, {
+        name: 'Gmail ping',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'gmail.send_email', config: { to: 'jane@acme.com', subject: 'Hi', body: 'Hi' } }],
+      });
+      expect(res.status).toBe(201);
+
+      const activate = await setStatus(request, id, 'active');
+      expect(activate.status).toBe(400);
+      const body = (await activate.json()) as {
+        error: { details: { reason: string; issues: Array<{ code: string }> } };
+      };
+      expect(body.error.details.issues.map((i) => i.code)).toEqual(['integration_not_connected']);
+    });
+
+    it('activates a gmail.send_email step once a Gmail integration is connected', async () => {
+      await db.insert(schema.workflowIntegrations).values({
+        id: generateId('win'),
+        name: 'Gmail',
+        type: 'gmail',
+        status: 'connected',
+      });
+
+      const request = app();
+      const { id } = await create(request, {
+        name: 'Gmail ping (connected)',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'gmail.send_email', config: { to: 'jane@acme.com', subject: 'Hi', body: 'Hi' } }],
+      });
+      expect((await setStatus(request, id, 'active')).status).toBe(200);
+    });
+
     it('leaves CRM sequences out of the gate', async () => {
       const request = app();
       const { id } = await create(request, {
@@ -152,6 +256,68 @@ describe('/api/workflows · pglite integration', () => {
         steps: [{ id: 'step-1', type: 'delay', config: { days: 1 } }],
       });
       expect((await setStatus(request, id, 'active')).status).toBe(200);
+    });
+
+    describe('"After another workflow finishes" (workflow_complete)', () => {
+      const chainedFlow = (sourceWorkflowId: string, extra: Record<string, unknown> = {}) => ({
+        triggers: [{ id: 'trigger-1', type: 'workflow_complete', isEnabled: true, sourceWorkflowId, triggerOn: 'both', ...extra }],
+        steps: validFlow.steps,
+      });
+
+      async function issueCodes(res: Response) {
+        const body = (await res.json()) as { error: { details: { issues: Array<{ code: string }> } } };
+        return body.error.details.issues.map((i) => i.code);
+      }
+
+      it('activates a workflow chained to an existing one', async () => {
+        const request = app();
+        const { id: sourceId } = await create(request, { name: 'Source', ...validFlow });
+        const { id } = await create(request, { name: 'Follow-up', ...chainedFlow(sourceId) });
+        expect((await setStatus(request, id, 'active')).status).toBe(200);
+      });
+
+      it('refuses a missing, deleted or self-referencing source workflow', async () => {
+        const request = app();
+        const { id: missing } = await create(request, { name: 'No source', ...chainedFlow('') });
+        expect(await issueCodes(await setStatus(request, missing, 'active'))).toEqual(['missing_source_workflow']);
+
+        const { id: dangling } = await create(request, { name: 'Gone source', ...chainedFlow('wf_does_not_exist') });
+        expect(await issueCodes(await setStatus(request, dangling, 'active'))).toEqual(['unknown_source_workflow']);
+
+        const { id: self } = await create(request, { name: 'Self', ...validFlow });
+        const update = await request(`/api/workflows/${self}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'active', ...chainedFlow(self) }),
+        });
+        expect(await issueCodes(update)).toEqual(['self_chained_workflow']);
+      });
+
+      it('refuses an approval step inside a branch', async () => {
+        const request = app();
+        const { id } = await create(request, {
+          name: 'Nested approval',
+          triggers: validFlow.triggers,
+          steps: [
+            { id: 'c', type: 'condition', config: { field: '{{trigger.record.email}}', operator: 'isNotEmpty' } },
+            { id: 'a', type: 'manual_step', parentBranchId: 'c_if', config: { title: 'Approve' } },
+          ],
+        });
+        expect(await issueCodes(await setStatus(request, id, 'active'))).toEqual(['nested_waiting_step']);
+      });
+
+      it('offers other WeldConnect workflows, not CRM sequences, as sources', async () => {
+        const request = app();
+        const { id: sequenceId } = await create(request, { name: 'A sequence', tags: ['__type:sequence'] });
+        const { id: workflowId } = await create(request, { name: 'A workflow' });
+        const { id: selfId } = await create(request, { name: 'Me' });
+
+        const res = await request(`/api/workflows/for-chaining?exclude=${selfId}`);
+        const ids = ((await res.json()) as { data: Array<{ id: string }> }).data.map((w) => w.id);
+        expect(ids).toContain(workflowId);
+        expect(ids).not.toContain(sequenceId);
+        expect(ids).not.toContain(selfId);
+      });
     });
 
     it('excludes sequences from the list when asked', async () => {

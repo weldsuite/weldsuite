@@ -35,6 +35,7 @@ import { fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, form
 import { cn } from '@/lib/utils';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
+import { copyText } from '@/lib/clipboard';
 
 function PreviewTooltip({ label, children, side = 'top' }: Readonly<{ label: string; children: React.ReactNode; side?: 'top' | 'bottom' }>) {
   const [show, setShow] = useState(false);
@@ -333,7 +334,7 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
                   if (onCopyLink) {
                     onCopyLink(file);
                   } else if (file.url) {
-                    navigator.clipboard.writeText(file.url);
+                    copyText(file.url);
                   }
                 }}>
                   <Link className="h-4 w-4 mr-0.5" />

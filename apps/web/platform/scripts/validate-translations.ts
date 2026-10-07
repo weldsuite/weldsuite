@@ -18,8 +18,8 @@
  *   --source <locale>  Source-of-truth locale (default: en).
  */
 
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const SOURCE_DEFAULT = 'en';
@@ -100,16 +100,17 @@ async function loadLocaleConfig(localesDir: string): Promise<Record<string, Loca
 }
 
 async function loadLocales(localesDir: string, codes: string[]): Promise<Record<string, TranslationNode>> {
-  const out: Record<string, TranslationNode> = {};
-  for (const code of codes) {
-    const indexPath = path.join(localesDir, code, 'index.ts');
-    const mod = (await import(pathToFileURL(indexPath).href)) as Record<string, unknown>;
-    if (!mod[code]) {
-      throw new Error(`Expected named export "${code}" in ${indexPath}; got ${Object.keys(mod).join(',')}`);
-    }
-    out[code] = mod[code] as TranslationNode;
-  }
-  return out;
+  const entries = await Promise.all(
+    codes.map(async (code) => {
+      const indexPath = path.join(localesDir, code, 'index.ts');
+      const mod = (await import(pathToFileURL(indexPath).href)) as Record<string, unknown>;
+      if (!mod[code]) {
+        throw new Error(`Expected named export "${code}" in ${indexPath}; got ${Object.keys(mod).join(',')}`);
+      }
+      return [code, mod[code] as TranslationNode] as const;
+    }),
+  );
+  return Object.fromEntries(entries);
 }
 
 // Count total keys in nested object
@@ -269,6 +270,18 @@ function validateLocale(
   return issues;
 }
 
+const CATEGORY_ICONS: Record<string, string> = {
+  missing_key: '🔍',
+  untranslated: '⚠️',
+  type_mismatch: '⚡',
+};
+
+const ISSUE_TYPE_ICONS: Record<ValidationIssue['type'], string> = {
+  error: '❌',
+  warning: '⚠️',
+  info: 'ℹ️',
+};
+
 // Display validation results
 function displayResults(report: ValidationReport, verbose: boolean = true) {
   console.log('\n' + '='.repeat(80));
@@ -301,21 +314,14 @@ function displayResults(report: ValidationReport, verbose: boolean = true) {
 
   // Display by category
   Object.entries(byCategory).forEach(([category, issues]) => {
-    const icon =
-      category === 'missing_key'
-        ? '🔍'
-        : category === 'untranslated'
-          ? '⚠️'
-          : category === 'type_mismatch'
-            ? '⚡'
-            : '📝';
+    const icon = CATEGORY_ICONS[category] ?? '📝';
 
-    console.log(`${icon} ${category.replace(/_/g, ' ').toUpperCase()} (${issues.length})`);
+    console.log(`${icon} ${category.replaceAll('_', ' ').toUpperCase()} (${issues.length})`);
     console.log('='.repeat(80));
 
     if (verbose) {
       issues.slice(0, 10).forEach((issue, i) => {
-        const typeIcon = issue.type === 'error' ? '❌' : issue.type === 'warning' ? '⚠️' : 'ℹ️';
+        const typeIcon = ISSUE_TYPE_ICONS[issue.type] ?? 'ℹ️';
         console.log(`\n${i + 1}. ${typeIcon} ${issue.path}`);
         console.log(`   ${issue.message}`);
         if (issue.suggestion) {
@@ -557,4 +563,4 @@ async function main() {
   }
 }
 
-main();
+void main();

@@ -43,7 +43,7 @@ const STEP_LABEL_CLASSES: Record<ProvisioningStepStatus, string> = {
   pending: 'text-muted-foreground/60',
 };
 
-function ProvisioningStepIcon({ step }: { step: ProvisioningStep }) {
+function ProvisioningStepIcon({ step }: Readonly<{ step: ProvisioningStep }>) {
   if (step.status === 'completed') return <CheckCircle2 className="h-4 w-4" />;
   if (step.status === 'in_progress') return <Loader2 className="h-4 w-4 animate-spin" />;
   if (step.id === 'database') return <Database className="h-4 w-4" />;
@@ -51,7 +51,7 @@ function ProvisioningStepIcon({ step }: { step: ProvisioningStep }) {
   return <Sparkles className="h-4 w-4" />;
 }
 
-function ProvisioningStepRow({ step, doneLabel }: { step: ProvisioningStep; doneLabel: string }) {
+function ProvisioningStepRow({ step, doneLabel }: Readonly<{ step: ProvisioningStep; doneLabel: string }>) {
   return (
     <div className={`flex items-center gap-3 p-3 rounded-lg border ${STEP_ROW_CLASSES[step.status]}`}>
       <div className={`flex-shrink-0 ${STEP_ICON_CLASSES[step.status]}`}>
@@ -70,7 +70,7 @@ interface CreateWorkspaceDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDialogProps) {
+export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWorkspaceDialogProps>) {
   const t = useTranslations();
   const [workspaceName, setWorkspaceName] = React.useState('');
   const [selectedApps, setSelectedApps] = React.useState<string[]>([]);
@@ -168,7 +168,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     if (!dbStatus?.provisioned || !dbStatus?.migrated || finalizationTriggered.current) return;
     finalizationTriggered.current = true;
 
-    (async () => {
+    void (async () => {
       try {
         await finalizeMutation.mutateAsync();
       } catch (err) {
@@ -337,7 +337,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                   onChange={(e) => setWorkspaceName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && workspaceName.trim() && !isCreating) {
-                      handleCreate();
+                      void handleCreate();
                     }
                   }}
                   disabled={isCreating}

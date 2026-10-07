@@ -14,8 +14,13 @@ import { useUpdateWorkflow } from '@/hooks/queries/use-automation-queries';
 import { useWorkflowDetail } from '@/hooks/use-workflow-editor-data';
 import type { WorkflowSettings } from '@/lib/db/schema/workflows';
 import { useI18n } from '@/lib/i18n/provider';
+import { WorkflowVersionHistoryDialog } from '../../components/workflow-version-history-dialog';
+import { SaveAsTemplateButton } from '../../components/save-as-template-button';
 
 const NAME_MAX_LENGTH = 255;
+// Mirrors workflowSettingsSchema.maxCreditsPerRun (packages/clients/app-api-client/src/schemas/weldconnect.ts).
+const MAX_CREDITS_PER_RUN_MIN = 1;
+const MAX_CREDITS_PER_RUN_MAX = 100_000;
 
 interface WorkflowSettingsContentProps {
   workflowId: string;
@@ -28,15 +33,19 @@ interface WorkflowSettingsContentProps {
    * workflow elsewhere, like CRM sequences, leave this off.
    */
   showGeneral?: boolean;
+  /** Offer "Save as template" (WeldConnect; not for CRM sequences, which have no template gallery). */
+  showSaveAsTemplate?: boolean;
 }
 
-export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader, showGeneral }: Readonly<WorkflowSettingsContentProps>) {
+export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader, showGeneral, showSaveAsTemplate }: Readonly<WorkflowSettingsContentProps>) {
   const { t } = useI18n();
   const tws = t.weldconnect.workflowSettings;
   const nameFieldId = useId();
   const descriptionFieldId = useId();
+  const maxCreditsFieldId = useId();
   const notifyOnErrorId = useId();
   const notifyOnCompleteId = useId();
+  const maxConcurrentRunsId = useId();
 
   // Same cache entry the editor reads, and the same mutation the editor saves
   // through: a rename here is what the editor (and its next Save) sees.
@@ -49,6 +58,13 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
   const [notifyOnError, setNotifyOnError] = useState(true);
   const [notifyOnComplete, setNotifyOnComplete] = useState(false);
   const [nameError, setNameError] = useState(false);
+  // Empty string = no cap / unlimited. Kept as text so the field can be blank
+  // rather than forced to 0 (which the API rejects anyway — 0 is not "no
+  // cap", it's invalid).
+  const [maxCreditsPerRun, setMaxCreditsPerRun] = useState('');
+  const [maxCreditsError, setMaxCreditsError] = useState(false);
+  const [maxConcurrentRuns, setMaxConcurrentRuns] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Fill the form when the workflow arrives, and again only when the saved row
   // itself changed (our own save, or an edit made elsewhere), not on every
@@ -63,6 +79,14 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
     setDescription(workflow.description ?? '');
     setNotifyOnError(settings?.notifyOnError ?? true);
     setNotifyOnComplete(settings?.notifyOnComplete ?? false);
+    setMaxCreditsPerRun(
+      Number.isInteger(settings?.maxCreditsPerRun) ? String(settings?.maxCreditsPerRun) : '',
+    );
+    setMaxConcurrentRuns(
+      Number.isInteger(settings?.maxConcurrentRuns) && (settings!.maxConcurrentRuns as number) > 0
+        ? String(settings!.maxConcurrentRuns)
+        : '',
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedVersion]);
 
@@ -73,20 +97,53 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
       toast.error(tws.general.nameRequired);
       return;
     }
-    // Keep what the row holds besides the two switches. The per-run credit cap
-    // is no longer shown (nothing enforces it), and older rows can hold a value
-    // the API now rejects (the field used to accept -5), so only pass a sane one.
-    const { maxCreditsPerRun, ...keptSettings } =
-      (workflow as { settings?: WorkflowSettings | null } | null | undefined)?.settings ?? {};
-    if (Number.isInteger(maxCreditsPerRun) && (maxCreditsPerRun as number) >= 1) {
-      (keptSettings as WorkflowSettings).maxCreditsPerRun = maxCreditsPerRun;
+    // Empty = no cap. Otherwise must be a sane positive integer (the API
+    // rejects anything else — 0, negatives, fractions, or a value above the
+    // max the schema allows).
+    const trimmedCap = maxCreditsPerRun.trim();
+    let parsedCap: number | null = null;
+    if (trimmedCap) {
+      const n = Number(trimmedCap);
+      if (
+        !Number.isInteger(n) ||
+        n < MAX_CREDITS_PER_RUN_MIN ||
+        n > MAX_CREDITS_PER_RUN_MAX
+      ) {
+        setMaxCreditsError(true);
+        toast.error(tws.quotas.invalidValue);
+        return;
+      }
+      parsedCap = n;
     }
+    setMaxCreditsError(false);
+
+    // Empty = unlimited concurrency. Otherwise must be a sane positive integer.
+    const trimmedConcurrency = maxConcurrentRuns.trim();
+    let parsedConcurrency: number | null = null;
+    if (trimmedConcurrency) {
+      const n = Number(trimmedConcurrency);
+      if (!Number.isInteger(n) || n < 1) {
+        toast.error(tws.concurrency.invalidValue);
+        return;
+      }
+      parsedConcurrency = n;
+    }
+
+    // Keep what the row holds besides the fields below.
+    const { maxCreditsPerRun: _existingCap, maxConcurrentRuns: _existingConcurrency, ...keptSettings } =
+      (workflow as { settings?: WorkflowSettings | null } | null | undefined)?.settings ?? {};
     try {
       await updateWorkflow.mutateAsync({
         id: workflowId,
         data: {
           ...(showGeneral ? { name: trimmedName, description: description.trim() } : {}),
-          settings: { ...keptSettings, notifyOnError, notifyOnComplete },
+          settings: {
+            ...keptSettings,
+            notifyOnError,
+            notifyOnComplete,
+            ...(parsedCap !== null ? { maxCreditsPerRun: parsedCap } : {}),
+            ...(parsedConcurrency !== null ? { maxConcurrentRuns: parsedConcurrency } : {}),
+          },
         },
       });
       toast.success(tws.toasts.saved);
@@ -281,8 +338,90 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
               />
             </div>
           </div>
+
+          <div className="border-t my-8" />
+
+          {/* Quotas Section */}
+          <div className="space-y-4">
+            <h2 className="text-base font-semibold">{tws.quotas.title}</h2>
+            <div className="space-y-2">
+              <Label htmlFor={maxCreditsFieldId}>{tws.quotas.maxCreditsLabel}</Label>
+              <div className="flex items-center gap-2 max-w-xs">
+                <Input
+                  id={maxCreditsFieldId}
+                  type="number"
+                  inputMode="numeric"
+                  min={MAX_CREDITS_PER_RUN_MIN}
+                  max={MAX_CREDITS_PER_RUN_MAX}
+                  step={1}
+                  value={maxCreditsPerRun}
+                  onChange={(e) => {
+                    setMaxCreditsPerRun(e.target.value);
+                    if (maxCreditsError) setMaxCreditsError(false);
+                  }}
+                  placeholder={tws.quotas.noLimitPlaceholder}
+                  aria-invalid={maxCreditsError}
+                  className={maxCreditsError ? 'border-destructive focus-visible:ring-destructive' : undefined}
+                />
+                <span className="text-sm text-muted-foreground">{tws.quotas.creditsUnit}</span>
+              </div>
+              <p className="text-sm text-muted-foreground">{tws.quotas.maxCreditsHint}</p>
+            </div>
+          </div>
+
+          <div className="border-t my-8" />
+
+          {/* Concurrency Section */}
+          <div className="space-y-4">
+            <h2 className="text-base font-semibold">{tws.concurrency.title}</h2>
+            <div className="space-y-2">
+              <Label htmlFor={maxConcurrentRunsId}>{tws.concurrency.maxConcurrentRunsLabel}</Label>
+              <div className="flex items-center gap-2 max-w-xs">
+                <Input
+                  id={maxConcurrentRunsId}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  step={1}
+                  value={maxConcurrentRuns}
+                  onChange={(e) => setMaxConcurrentRuns(e.target.value)}
+                  placeholder="∞"
+                />
+                <span className="text-sm text-muted-foreground shrink-0">{tws.concurrency.runsUnit}</span>
+              </div>
+              <p className="text-sm text-muted-foreground">{tws.concurrency.maxConcurrentRunsHint}</p>
+            </div>
+          </div>
+
+          <div className="border-t my-8" />
+
+          {/* History Section */}
+          <div className="space-y-4">
+            <h2 className="text-base font-semibold">{t.weldconnect.versionHistory.title}</h2>
+            <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
+              <History className="h-3.5 w-3.5 mr-1.5" />
+              {tws.history.button}
+            </Button>
+          </div>
+
+          {showSaveAsTemplate && (
+            <>
+              <div className="border-t my-8" />
+              <div className="space-y-4">
+                <h2 className="text-base font-semibold">{t.weldconnect.templates.saveAsTemplate.title}</h2>
+                <p className="text-sm text-muted-foreground">{t.weldconnect.templates.saveAsTemplate.hint}</p>
+                <SaveAsTemplateButton
+                  workflowId={workflowId}
+                  workflowName={workflow.name ?? ''}
+                  workflowDescription={workflow.description ?? ''}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
+
+      <WorkflowVersionHistoryDialog workflowId={workflowId} open={historyOpen} onOpenChange={setHistoryOpen} />
     </div>
   );
 }
@@ -302,5 +441,5 @@ export default function WorkflowSettingsPage() {
     { label: crumbs.settings },
   ]);
 
-  return <WorkflowSettingsContent workflowId={workflowId} showGeneral />;
+  return <WorkflowSettingsContent workflowId={workflowId} showGeneral showSaveAsTemplate />;
 }

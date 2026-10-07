@@ -23,11 +23,18 @@ export const workflowSchedules = pgTable('workflow_schedules', {
   description: text('description'),
 
   // Schedule Configuration
-  cronExpression: varchar('cron_expression', { length: 100 }).notNull(),
+  // 'recurring' (cron) | 'one_time' (fires once at executeAt, then disables itself).
+  scheduleType: varchar('schedule_type', { length: 20 }).notNull().default('recurring'),
+  // Required for 'recurring'; null for 'one_time'.
+  cronExpression: varchar('cron_expression', { length: 100 }),
   timezone: varchar('timezone', { length: 100 }).notNull().default('UTC'),
   interval: varchar('interval', { length: 50 }), // Human-readable: 'every 5 minutes', 'daily at 9am'
+  // 'one_time' only: the wall-clock moment to fire, in `timezone`. Stored as a
+  // plain timestamp (no tz conversion) — the sweep interprets it in `timezone`,
+  // same as it does cron fields.
+  executeAt: timestamp('execute_at'),
 
-  // Date Range
+  // Date Range (recurring only)
   startDate: timestamp('start_date'),
   endDate: timestamp('end_date'),
 

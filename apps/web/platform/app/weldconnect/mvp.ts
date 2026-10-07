@@ -10,10 +10,15 @@
 
 import { isApiError } from '@weldsuite/api-client';
 
-export const WELDCONNECT_TRIGGER_TYPES = ['entity_event', 'schedule', 'webhook'] as const;
+export const WELDCONNECT_TRIGGER_TYPES = [
+  'entity_event',
+  'schedule',
+  'webhook',
+  'workflow_complete',
+] as const;
 
-/** Only recurring schedules are supported (the cron sweep has no one-off runs). */
-export const WELDCONNECT_SCHEDULE_TYPES = ['recurring'] as const;
+/** Recurring (cron) and one-time (fires once at a date/time, then disables itself) schedules are both supported. */
+export const WELDCONNECT_SCHEDULE_TYPES = ['recurring', 'one_time'] as const;
 
 export const WELDCONNECT_ACTION_TYPES = [
   'send_email',
@@ -28,9 +33,24 @@ export const WELDCONNECT_ACTION_TYPES = [
   'send_notification',
   'post_chat_message',
   'http_request',
+  // AI steps, metered against the workspace credit wallet (@weldsuite/credits).
+  'ai_generate',
+  'ai_classify',
   'condition',
   'loop',
   'delay',
+  // Third-party provider actions — see "Provider pattern" in
+  // docs/plans/weldconnect.md.
+  'slack.post_message',
+  // GitHub (app_installation auth — reuses WeldFlow's existing GitHub App
+  // installation instead of a second OAuth app or a PAT).
+  'github.create_issue',
+  'github.create_comment',
+  'google_sheets.append_row',
+  'google_sheets.update_row',
+  'gmail.send_email',
+  'google_calendar.create_event',
+  'manual_step',
 ] as const;
 
 /**
@@ -38,15 +58,17 @@ export const WELDCONNECT_ACTION_TYPES = [
  * the sidebar (hooks/use-weldconnect-sidebar-items.tsx) and, for anyone who
  * still lands on them through an old link, marked with a notice saying that
  * nothing set up there can be used in a workflow yet. Integrations and
- * connectors are not listed: Settings links to them and they work on their own.
+ * connectors are not listed: they work on their own (Integrations is in the
+ * sidebar's Library group, Connectors under Settings → Integrations).
+ *
+ * `actions` / `triggers` are static reference catalogs (connect-api
+ * workflow-dashboard/static-catalogs.ts) with placeholder fields (premium,
+ * usage counts, inputs/outputs) nothing backs; the editor already offers
+ * exactly what can go live.
  */
 export const WELDCONNECT_OUT_OF_SCOPE_SECTIONS = [
   'actions',
-  'analytics',
-  'templates',
   'triggers',
-  'variables',
-  'webhooks',
 ] as const;
 
 /** CRM sequences are `workflows` rows too; WeldConnect lists exclude them. */
