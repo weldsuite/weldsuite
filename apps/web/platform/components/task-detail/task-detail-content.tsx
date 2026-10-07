@@ -27,7 +27,7 @@ import {
   Sparkles,
   Github,
   ExternalLink,
-} from 'lucide-react';
+ ListCollapse, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { getTranslations } from '@/lib/i18n';
 import { Input } from '@weldsuite/ui/components/input';
@@ -66,7 +66,6 @@ import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
-import { ListCollapse, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
 import { EmojiPicker } from '@/app/weldchat/components/emoji-picker';
 import { MentionAutocomplete, type MentionSelection } from '@/app/weldchat/components/mention-autocomplete';
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
@@ -201,7 +200,7 @@ const ASSIGNEE_AVATAR_PALETTE = [
 function assigneeFallbackColor(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+    hash = (hash * 31 + seed.codePointAt(i)!) | 0;
   }
   const idx = Math.abs(hash) % ASSIGNEE_AVATAR_PALETTE.length;
   return ASSIGNEE_AVATAR_PALETTE[idx]!;
@@ -219,7 +218,7 @@ interface AssigneeAvatarProps {
  * everywhere a user pill is shown (the assigned-row trigger and the picker
  * dropdown items) routes through this so the styling can never drift.
  */
-function AssigneeAvatar({ id, name, avatar, className }: AssigneeAvatarProps) {
+function AssigneeAvatar({ id, name, avatar, className }: Readonly<AssigneeAvatarProps>) {
   const seed = id || name || '?';
   const bg = assigneeFallbackColor(seed);
   const initial = (name || '?').charAt(0).toUpperCase();
@@ -283,14 +282,14 @@ export interface TaskUpdateData {
   title?: string;
   description?: string;
   status?: Task['status'];
-  priority?: Task['priority'];
+  priority?: NonNullable<Task['priority']>;
   dueDate?: Date;
   startDate?: Date;
-  assignee?: Task['assignee'] | null;
-  assignees?: Task['assignees'] | null;
-  linkedCompany?: Task['linkedCompany'] | null;
+  assignee?: NonNullable<Task['assignee']> | null;
+  assignees?: NonNullable<Task['assignees']> | null;
+  linkedCompany?: NonNullable<Task['linkedCompany']> | null;
   labels?: string[];
-  repeat?: Task['repeat'] | null;
+  repeat?: NonNullable<Task['repeat']> | null;
   customFields?: Record<string, unknown>;
 }
 
@@ -355,7 +354,7 @@ function formatRelativeTime(dateStr: string | null): string {
   return `${diffDays}d ago`;
 }
 
-function GithubIssueBadge({ task }: { task: Task }) {
+function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
   const t = getTranslations('settings');
   const github = t.integrations.github;
 
@@ -442,7 +441,7 @@ function formatFileSize(bytes: number): string {
   return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100} ${sizes[i]}`;
 }
 
-function PriorityField({ task, onUpdate }: { task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }) {
+function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }>) {
   const t = useTranslations();
   const priorityLabels = useTaskPriorityLabels(t);
   return (
@@ -497,7 +496,7 @@ function PriorityField({ task, onUpdate }: { task: Task; onUpdate: (taskId: stri
   );
 }
 
-function DueDateField({ task, onUpdate }: { task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }) {
+function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }>) {
   const t = useTranslations();
   return (
     <div className="flex items-center gap-3">
@@ -547,7 +546,7 @@ function DueDateField({ task, onUpdate }: { task: Task; onUpdate: (taskId: strin
   );
 }
 
-function ScheduledSlotField({ task }: { task: Task }) {
+function ScheduledSlotField({ task }: Readonly<{ task: Task }>) {
   const t = useTranslations();
   const scheduledStart = task.scheduledStart
     ? new Date(task.scheduledStart)
@@ -557,14 +556,13 @@ function ScheduledSlotField({ task }: { task: Task }) {
     : null;
   const autoScheduled = task.autoScheduled;
   if (!scheduledStart) return null;
-  const sameDay =
-    scheduledEnd &&
-    scheduledStart.toDateString() === scheduledEnd.toDateString();
-  const display = scheduledEnd
-    ? sameDay
-      ? `${format(scheduledStart, 'MMM d, HH:mm')}–${format(scheduledEnd, 'HH:mm')}`
-      : `${format(scheduledStart, 'MMM d, HH:mm')} – ${format(scheduledEnd, 'MMM d, HH:mm')}`
-    : format(scheduledStart, 'MMM d, HH:mm');
+  let display = format(scheduledStart, 'MMM d, HH:mm');
+  if (scheduledEnd) {
+    const sameDay = scheduledStart.toDateString() === scheduledEnd.toDateString();
+    display = sameDay
+      ? `${display}–${format(scheduledEnd, 'HH:mm')}`
+      : `${display} – ${format(scheduledEnd, 'MMM d, HH:mm')}`;
+  }
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2 w-32 flex-shrink-0">
@@ -600,11 +598,11 @@ function AssigneesField({
   task,
   onUpdate,
   availableAssignees,
-}: {
+}: Readonly<{
   task: Task;
   onUpdate: (taskId: string, data: TaskUpdateData) => void;
   availableAssignees: TaskDetailContentProps['availableAssignees'];
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="flex items-start gap-3 group/assignees">
@@ -761,7 +759,7 @@ export function TaskDetailContent({
   onRemoveDependency,
   hiddenFields,
   alwaysShowFields,
-}: TaskDetailContentProps) {
+}: Readonly<TaskDetailContentProps>) {
 /* eslint-enable @typescript-eslint/no-unused-vars */
   const t = useTranslations();
   const statusLabels = useTaskStatusLabels(t);
@@ -1530,7 +1528,7 @@ export function SubtasksSection({
   onCreateSubtask,
   onToggleSubtask,
   onNavigateToTask,
-}: {
+}: Readonly<{
   subtasks: SubtaskItem[];
   parentTask?: { id: string; title: string; status?: string } | null;
   /** The task currently shown in the panel — if it matches a subtask row,
@@ -1544,7 +1542,7 @@ export function SubtasksSection({
   onCreateSubtask: (title: string) => void;
   onToggleSubtask?: (subtaskId: string, currentStatus: string) => void;
   onNavigateToTask?: (taskId: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const [collapsed, setCollapsed] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
@@ -1837,7 +1835,7 @@ function DependenciesSection({
   onAddDependency,
   onRemoveDependency,
   onNavigateToTask,
-}: {
+}: Readonly<{
   taskId: string;
   dependencyTasks: DependencyTask[];
   blockingTasks: DependencyTask[];
@@ -1845,7 +1843,7 @@ function DependenciesSection({
   onAddDependency?: (targetTaskId: string, type: 'blocks' | 'blockedBy') => void;
   onRemoveDependency?: (targetTaskId: string, type: 'blocks' | 'blockedBy') => void;
   onNavigateToTask?: (taskId: string) => void;
-}) {
+}>) {
   const st = useTranslations();
   const [collapsed, setCollapsed] = useState(dependencyTasks.length === 0 && blockingTasks.length === 0);
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -2026,7 +2024,7 @@ function DependenciesSection({
   );
 }
 
-function CommentContent({ content, membersMap }: { content: string; membersMap: Map<string, string> }) {
+function CommentContent({ content, membersMap }: Readonly<{ content: string; membersMap: Map<string, string> }>) {
   const mentionRegex = /<@([^>]+)>/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -2058,13 +2056,13 @@ export function CommentsList({
   onAddComment,
   onUpdateComment,
   onDeleteComment,
-}: {
+}: Readonly<{
   comments: TaskComment[];
   currentUserId?: string;
   onAddComment: (content: string) => void;
   onUpdateComment?: (commentId: string, content: string) => void;
   onDeleteComment?: (commentId: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const [newComment, setNewComment] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -2093,7 +2091,7 @@ export function CommentsList({
 
   // Convert raw content (with <@userId> tokens) to HTML with badge spans
   const contentToHtml = useCallback((text: string): string => {
-    return text.replace(/<@([^>]+)>/g, (_, uid) => {
+    return text.replaceAll(/<@([^>]+)>/g, (_, uid) => {
       const name = membersMapRef.current.get(uid) ?? uid;
       return `<span class="comment-mention-badge" contenteditable="false" data-userid="${uid}">@${name}</span>`;
     });
@@ -2500,11 +2498,11 @@ export function DescriptionField({
   taskId,
   description,
   onUpdate,
-}: {
+}: Readonly<{
   taskId: string;
   description?: string;
   onUpdate: (taskId: string, data: TaskUpdateData) => void;
-}) {
+}>) {
   const t = useTranslations();
   const [isEditing, setIsEditing] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -2645,9 +2643,9 @@ export function DescriptionField({
     // Image / file paste — intercept and upload
     if (items) {
       const files: File[] = [];
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].kind === 'file') {
-          const file = items[i].getAsFile();
+      for (const item of items) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
           if (file) files.push(file);
         }
       }
@@ -2704,6 +2702,17 @@ export function DescriptionField({
   // One shared outer wrapper across display + edit so the text's horizontal
   // and vertical position is identical — clicking to edit only changes the
   // border colour / reveals the toolbar, it never shifts the content.
+  const readOnlyView = displayHtml ? (
+    <div
+      className={cn(textBoxClass, 'min-h-[32px] text-muted-foreground')}
+      dangerouslySetInnerHTML={{ __html: displayHtml }}
+    />
+  ) : (
+    <div className={cn(textBoxClass, 'min-h-[32px] text-muted-foreground')}>
+      {t('sweep.shared.addDescriptionEllipsis')}
+    </div>
+  );
+
   return (
     <div
       className={cn(
@@ -2794,16 +2803,7 @@ export function DescriptionField({
           )}
         </>
       ) : (
-        displayHtml ? (
-          <div
-            className={cn(textBoxClass, 'min-h-[32px] text-muted-foreground')}
-            dangerouslySetInnerHTML={{ __html: displayHtml }}
-          />
-        ) : (
-          <div className={cn(textBoxClass, 'min-h-[32px] text-muted-foreground')}>
-            {t('sweep.shared.addDescriptionEllipsis')}
-          </div>
-        )
+        readOnlyView
       )}
     </div>
   );
