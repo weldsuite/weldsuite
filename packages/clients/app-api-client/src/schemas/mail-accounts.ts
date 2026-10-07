@@ -50,6 +50,12 @@ export const listMailAccountsQuery = z.object({
   search: z.string().optional(),
   status: z.string().optional(),
   provider: z.string().optional(),
+  /**
+   * `manage` asks for the settings view: admins/owners get every account,
+   * including private mailboxes they cannot open. Omitted, the list is the
+   * mailboxes the caller can open.
+   */
+  scope: z.enum(['manage']).optional(),
 });
 
 export const assignMailAccountUsersSchema = z.object({

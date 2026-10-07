@@ -14,7 +14,12 @@ import type { Database, MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import * as cfEmail from '@weldsuite/worker-email';
-import { hasAccessToAccount, isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
+import {
+  canManageAccount,
+  hasAccessToAccount,
+  isAdminOrOwner,
+  userAccessCondition,
+} from '@weldsuite/mail-domain/access';
 import { clearCatchAllForAccount } from './domains';
 
 const { mailAccounts, mailDomains, mailLabels, hostDomains, workspaceMembers } = schema;
@@ -101,6 +106,12 @@ export interface MailAccountFilters {
   search?: string;
   status?: string;
   provider?: string;
+  /**
+   * `manage` is the settings view: admins/owners get every account, including
+   * private mailboxes they cannot open. Without it the list is the mailboxes
+   * the caller can open, whatever their role.
+   */
+  scope?: 'manage';
 }
 
 export async function listMailAccounts(
@@ -112,7 +123,7 @@ export async function listMailAccounts(
 
   const admin = await isAdminOrOwner(db, userId);
   const conditions: SQL[] = [isNull(mailAccounts.deletedAt)!];
-  if (!admin) conditions.push(userAccessCondition(userId));
+  if (!(admin && filters.scope === 'manage')) conditions.push(userAccessCondition(userId, admin));
 
   if (filters.search) {
     const term = `%${filters.search}%`;
@@ -268,10 +279,21 @@ async function assertNoDuplicateAccount(db: Database, email: string): Promise<vo
   }
 }
 
-/** Auto-add the creator when the account is private. */
-function withCreatorAssigned(data: CreateMailAccountInput, userId: string): string[] | undefined {
+/**
+ * Auto-add the creator when the account is private, so they cannot lose the
+ * mailbox they just made. An admin can manage it either way, so one setting up
+ * a mailbox for someone else is not quietly added to it — only when nobody was
+ * chosen at all.
+ */
+function withCreatorAssigned(
+  data: CreateMailAccountInput,
+  userId: string,
+  creatorIsAdmin: boolean,
+): string[] | undefined {
   if (data.isShared || !userId) return data.assignedUserIds;
-  return Array.from(new Set([...(data.assignedUserIds ?? []), userId]));
+  const chosen = data.assignedUserIds ?? [];
+  if (creatorIsAdmin && chosen.length > 0) return chosen;
+  return Array.from(new Set([...chosen, userId]));
 }
 
 /**
@@ -370,7 +392,11 @@ export async function createMailAccount(
   const id = generateId('mail');
   const now = new Date();
 
-  const assignedUserIds = withCreatorAssigned(data, userId);
+  const assignedUserIds = withCreatorAssigned(
+    data,
+    userId,
+    data.isShared ? false : await isAdminOrOwner(db, userId),
+  );
 
   // ---- Domain wiring -----------------------------------------------------
   await ensureManagedDomain(env, db, emailDomain, now);
@@ -536,7 +562,7 @@ export async function deleteMailAccount(env: Env, db: Database, id: string, user
   if (!account) return { found: false as const };
 
   const admin = await isAdminOrOwner(db, userId);
-  if (!hasAccessToAccount(account, userId, admin)) return { found: false as const };
+  if (!canManageAccount(account, userId, admin)) return { found: false as const };
 
   // Cloudflare Email Routing has no per-mailbox principal to delete — the
   // catch-all rule is zone-scoped, not account-scoped. So delete is a pure

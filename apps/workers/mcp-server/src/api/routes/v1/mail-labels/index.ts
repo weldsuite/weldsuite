@@ -54,7 +54,7 @@ app.get('/', requireScope('accounts:read'), zValidator('query', listQuery), asyn
 
   const where: (SQL | undefined)[] = [];
   const scope = accountScopeCondition(table.accountId, await accessibleAccountIds(db, userId));
-  if (scope) where.push(scope);
+  where.push(scope);
   if (q.accountId) where.push(eq(table.accountId, q.accountId));
   // `search` is what `lib/proxy.ts` retries with when a tool was handed a label
   // name instead of an id, so this filter is load-bearing beyond convenience.

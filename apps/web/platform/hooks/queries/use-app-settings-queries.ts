@@ -87,7 +87,11 @@ export function useMailAppSettings() {
     queryFn: async () => {
       const [accountsRes, domainsRes] = await Promise.all([
         // Email accounts + domains load from app-api (api-worker is obsolete).
-        mailAccounts.list({ limit: 100 }).catch(() => ({ data: [] as MailAccountRow[] })),
+        // `manage` so admins also see the private mailboxes they administer
+        // but cannot open.
+        mailAccounts
+          .list({ limit: 100, scope: 'manage' })
+          .catch(() => ({ data: [] as MailAccountRow[] })),
         mailDomains.list().catch(() => ({ data: [] as MailDomainRow[] })),
       ]);
       return {
