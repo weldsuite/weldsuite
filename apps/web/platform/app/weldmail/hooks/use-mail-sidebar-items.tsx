@@ -1,6 +1,6 @@
 
 import * as React from 'react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter, usePathname, Link } from '@/lib/router';
 import {
   Inbox,
@@ -136,7 +136,7 @@ function KeywordTagInput({
     if (val.includes(',')) {
       const parts = val.split(',');
       parts.slice(0, -1).forEach((p) => addTag(p));
-      setInputValue(parts[parts.length - 1]);
+      setInputValue(parts.at(-1) ?? '');
     } else {
       setInputValue(val);
     }
@@ -264,7 +264,7 @@ export function useMailSidebarItems(isActive: boolean): {
   const [isUpdatingLabel, setIsUpdatingLabel] = useState(false);
 
   // Map label name (lowercase) → accountIds that own this label (for unified mode cross-account check)
-  const [labelAccountMap] = useState<Record<string, string[]>>({});
+  const labelAccountMap = useMemo<Record<string, string[]>>(() => ({}), []);
   const [showMore, setShowMore] = useState(false);
 
   // Agent Auto-Labeling settings
@@ -397,7 +397,7 @@ export function useMailSidebarItems(isActive: boolean): {
   // instead of invalidating queries.
   React.useEffect(() => {
     const handler = () => {
-      queryClient.invalidateQueries({ queryKey: [...mailKeys.all, 'messages', 'stats'] });
+      void queryClient.invalidateQueries({ queryKey: [...mailKeys.all, 'messages', 'stats'] });
     };
     window.addEventListener('mail-messages-changed', handler);
     return () => window.removeEventListener('mail-messages-changed', handler);
@@ -677,7 +677,7 @@ export function useMailSidebarItems(isActive: boolean): {
           })}
         <SidebarMenuItem>
           <SidebarMenuButton onClick={() => setShowMore(!showMore)}>
-            <MoreToggleIcon className="h-4 w-4 text-gray-500" />
+            <MoreToggleIcon className="h-4 w-4" />
             <span>{moreToggleLabel}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -871,7 +871,7 @@ export function useMailSidebarItems(isActive: boolean): {
                 value={editLabelName}
                 onChange={(e) => setEditLabelName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !isUpdatingLabel) handleUpdateLabel();
+                  if (e.key === 'Enter' && !isUpdatingLabel) void handleUpdateLabel();
                 }}
                 autoFocus
               />
@@ -992,7 +992,7 @@ export function useMailSidebarItems(isActive: boolean): {
                 onChange={(e) => setNewLabelName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isCreatingLabel) {
-                    handleCreateLabel();
+                    void handleCreateLabel();
                   }
                 }}
                 autoFocus

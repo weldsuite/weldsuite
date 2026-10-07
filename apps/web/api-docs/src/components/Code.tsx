@@ -81,9 +81,13 @@ function CopyButton({ code }: Readonly<{ code: string }>) {
           : 'bg-white/5 hover:bg-white/7.5 dark:bg-white/2.5 dark:hover:bg-white/5',
       )}
       onClick={() => {
-        window.navigator.clipboard.writeText(code).then(() => {
-          setCopyCount((count) => count + 1)
-        })
+        window.navigator.clipboard
+          .writeText(code)
+          .then(() => {
+            setCopyCount((count) => count + 1)
+          })
+          // Clipboard access can be denied; the button just doesn't flip to "Copied".
+          .catch(() => {})
       }}
     >
       <span

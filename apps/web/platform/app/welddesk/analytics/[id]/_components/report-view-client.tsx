@@ -203,7 +203,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
       }
     };
 
-    fetchChartData();
+    void fetchChartData();
   }, [charts, widgetPeriods, getClient]);
 
   // Handle layout changes

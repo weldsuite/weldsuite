@@ -51,7 +51,7 @@ export function RenamePageDialog({ pageId, initialTitle, open, onOpenChange }: R
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
-              handleSubmit();
+              void handleSubmit();
             }
           }}
         />

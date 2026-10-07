@@ -130,7 +130,7 @@ export default function CompanyListsPage() {
               placeholder={t('sweep.weldcrm.companyLists.namePlaceholder')}
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreate();
+                if (e.key === 'Enter') void handleCreate();
               }}
             />
           </div>

@@ -156,7 +156,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
   }, [apps]);
 
   const scrollToCategory = (category: string) => {
-    const element = document.getElementById(`category-${category.replace(/\s+/g, '-').toLowerCase()}`);
+    const element = document.getElementById(`category-${category.replaceAll(/\s+/g, '-').toLowerCase()}`);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -198,7 +198,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
             {consolidatedCategories.map((category, index) => (
               <div
                 key={category}
-                id={`category-${category.replace(/\s+/g, '-').toLowerCase()}`}
+                id={`category-${category.replaceAll(/\s+/g, '-').toLowerCase()}`}
                 className="scroll-mt-6"
               >
                 {index > 0 && (
@@ -233,7 +233,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                             if (app.isInstalled) {
                               setAppToUninstall(app);
                             } else {
-                              handleInstallApp(app);
+                              void handleInstallApp(app);
                             }
                           }}
                         >
@@ -286,7 +286,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
         confirmLabel={t.appstore.uninstall}
         onConfirm={() => {
           if (appToUninstall) {
-            handleUninstallApp(appToUninstall);
+            void handleUninstallApp(appToUninstall);
           }
         }}
       />

@@ -419,7 +419,7 @@ export function MessageInput({
     voiceRecorder.setMode('audio');
     // Don't await — we want this to run in the background. The auto-start
     // useEffect below will fire `startRecording` as soon as state flips.
-    voiceRecorder.startPreview();
+    void voiceRecorder.startPreview();
   }, [voiceRecorder]);
 
   const startVoiceRecording = useCallback(async () => {
@@ -433,7 +433,7 @@ export function MessageInput({
     }
     if (!voicePrewarmedRef.current) {
       voiceRecorder.setMode('audio');
-      voiceRecorder.startPreview();
+      void voiceRecorder.startPreview();
     }
   }, [voiceRecorder]);
 

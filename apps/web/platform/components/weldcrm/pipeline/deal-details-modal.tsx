@@ -229,7 +229,7 @@ export function DealDetailsModal({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (title.trim() && !loading && !isSubmittingRef.current) {
-        handleSubmit();
+        void handleSubmit();
       }
     }
   };
@@ -402,7 +402,7 @@ export function DealDetailsModal({
                   mode="single"
                   selected={closeDate}
                   onSelect={setCloseDate}
-                  initialFocus
+                  autoFocus
                 />
                 {closeDate && (
                   <div className="p-1 border-t border-gray-200 dark:border-border">

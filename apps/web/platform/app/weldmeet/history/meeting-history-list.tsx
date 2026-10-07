@@ -84,6 +84,7 @@ import {
   type RecordingAiKind,
 } from '../components/recording-dialogs';
 import { useDownloadRecording } from '../components/use-recording-download';
+import { copyText } from '@/lib/clipboard';
 
 type MeetingWithRecording = Meeting & { recording?: MeetingRecordingEntry };
 
@@ -445,7 +446,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
           if (e.target !== e.currentTarget) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            openMeeting();
+            void openMeeting();
           }
         }}
         className={cn(
@@ -512,16 +513,14 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
                 {t.historyPage.actions.viewDetails}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => {
-                navigator.clipboard.writeText(meeting.joinCode ?? '');
-                toast.success(t.historyPage.actions.joinCodeCopied);
+                copyText(meeting.joinCode ?? '', () => toast.success(t.historyPage.actions.joinCodeCopied));
               }}>
                 <Copy className="h-3.5 w-3.5 mr-0.5" />
                 {t.historyPage.actions.copyJoinCode}
               </DropdownMenuItem>
               {shareUrl && (
                 <DropdownMenuItem onClick={() => {
-                  void navigator.clipboard.writeText(shareUrl);
-                  toast.success(t.historyPage.actions.meetingLinkCopied);
+                  copyText(shareUrl, () => toast.success(t.historyPage.actions.meetingLinkCopied));
                 }}>
                   <Link className="h-3.5 w-3.5 mr-0.5" />
                   {t.historyPage.actions.copyMeetingLink}
@@ -532,7 +531,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
                 {t.historyPage.actions.rename}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => {
-                navigate({ to: '/weldmeet/new', search: { from: meeting.id } });
+                void navigate({ to: '/weldmeet/new', search: { from: meeting.id } });
               }}>
                 <CalendarPlus className="h-3.5 w-3.5 mr-0.5" />
                 {t.historyPage.actions.scheduleAgain}

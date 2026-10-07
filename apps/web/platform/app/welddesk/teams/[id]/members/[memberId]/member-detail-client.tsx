@@ -45,6 +45,7 @@ import { Ticket as TicketIcon } from 'lucide-react';
 import {
   PersonDetailLayout,
 } from '@/components/person-detail';
+import { copyText } from '@/lib/clipboard';
 
 interface TicketData {
   id: string;
@@ -164,7 +165,7 @@ function TicketsTable({ tickets }: Readonly<{ tickets: TicketData[] }>) {
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={(e) => {
                         e.stopPropagation();
-                        navigator.clipboard.writeText(ticket.id);
+                        copyText(ticket.id);
                       }}>
                         <Copy className="h-3.5 w-3.5 mr-2" />
                         {md.copyId}
