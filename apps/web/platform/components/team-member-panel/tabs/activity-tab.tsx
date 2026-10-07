@@ -251,7 +251,7 @@ const NOUN_WORDS = [
   'member',
   'members',
 ];
-const NOUN_REGEX_SRC = `\\b(${NOUN_WORDS.join('|')})\\b`;
+const NOUN_REGEX_SRC = String.raw`\b(${NOUN_WORDS.join('|')})\b`;
 
 /**
  * Renders the description, turning quoted names into EntityChips and

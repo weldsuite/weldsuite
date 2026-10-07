@@ -83,7 +83,7 @@ export function TranscriptTabContent({
   const t = useTranslations();
   const highlightText = useCallback((text: string) => {
     if (!searchQuery) return text;
-    const regex = new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const regex = new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)})`, 'gi');
     const parts = text.split(regex);
     if (parts.length === 1) return text;
     return parts.map((part, i) =>

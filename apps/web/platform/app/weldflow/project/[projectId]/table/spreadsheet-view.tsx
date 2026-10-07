@@ -1199,7 +1199,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Reado
     if (!activeSheetId || !activeFilter) return;
     const col = columns[colIndex];
     if (!col) return;
-    const criteria = { ...(activeFilter.criteria ?? {}) };
+    const criteria = { ...activeFilter.criteria };
     if (allowed === null) delete criteria[col.id];
     else criteria[col.id] = allowed;
     updateSheetSettings.mutate({ sheetId: activeSheetId, settings: { filter: { ...activeFilter, criteria } } });
@@ -1227,13 +1227,13 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Reado
         tableName={tableName}
         onFormat={handleToolbarFormat}
         onUndo={undoStack.length > 0 ? () => {
-          const cmd = undoStack[undoStack.length - 1];
+          const cmd = undoStack.at(-1)!;
           setUndoStack(s => s.slice(0, -1));
           setRedoStack(s => [...s, cmd]);
           cmd.undo();
         } : undefined}
         onRedo={redoStack.length > 0 ? () => {
-          const cmd = redoStack[redoStack.length - 1];
+          const cmd = redoStack.at(-1)!;
           setRedoStack(s => s.slice(0, -1));
           setUndoStack(s => [...s, cmd]);
           cmd.redo();

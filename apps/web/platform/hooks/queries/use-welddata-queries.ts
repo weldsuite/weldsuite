@@ -511,7 +511,7 @@ export function useRunCell() {
       const prev = qc.getQueryData<CellMap>(key);
       qc.setQueryData<CellMap>(key, (old) => {
         const cellKey = `${columnId}:${leadId}`;
-        return { ...(old ?? {}), [cellKey]: optimisticPending(columnId, leadId, old?.[cellKey]) };
+        return { ...old, [cellKey]: optimisticPending(columnId, leadId, old?.[cellKey]) };
       });
       return { prev, key };
     },

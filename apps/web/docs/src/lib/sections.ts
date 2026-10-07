@@ -76,7 +76,7 @@ function addHeadingSection(
     return
   }
 
-  let parent = sections[sections.length - 1]
+  let parent = sections.at(-1)
   if (!parent) {
     throw new Error(
       'Cannot add `h3` to table of contents without a preceding `h2`',

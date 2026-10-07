@@ -32,7 +32,7 @@ function setNestedValue(obj: Record<string, unknown>, path: string, value: unkno
     }
     current = current[part] as Record<string, unknown>;
   }
-  current[parts[parts.length - 1]!] = value;
+  current[parts.at(-1)!] = value;
 }
 
 function applyTransform(

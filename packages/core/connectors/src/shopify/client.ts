@@ -349,7 +349,7 @@ function toShopifyProductBody(product: OutboundCatalogProduct): Record<string, u
 
 function shopifyGidToId(gid: string): string {
   const parts = gid.split('/');
-  return parts[parts.length - 1] || gid;
+  return parts.at(-1) || gid;
 }
 
 function shopifyProductRef(product: Record<string, unknown> | undefined, storeUrl: string): ExternalProductRef {

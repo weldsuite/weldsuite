@@ -146,8 +146,8 @@ export function FieldBuilder({
   });
 
   const suggestedFields = entityType ? getEntityFields(entityType) : [];
-  const usedKeys = entries.map((e) => e.key);
-  const availableFields = suggestedFields.filter((f) => !usedKeys.includes(f.name));
+  const usedKeys = new Set(entries.map((e) => e.key));
+  const availableFields = suggestedFields.filter((f) => !usedKeys.has(f.name));
 
   const updateParent = (newEntries: FieldEntry[]) => {
     const result: Record<string, unknown> = {};
@@ -207,7 +207,7 @@ export function FieldBuilder({
                         </SelectItem>
                       )}
                       {suggestedFields.map((field) => (
-                        <SelectItem key={field.name} value={field.name} disabled={usedKeys.includes(field.name) && entry.key !== field.name}>
+                        <SelectItem key={field.name} value={field.name} disabled={usedKeys.has(field.name) && entry.key !== field.name}>
                           <div className="flex flex-col">
                             <span>{field.label}</span>
                             <span className="text-xs text-muted-foreground font-mono">{field.name}</span>

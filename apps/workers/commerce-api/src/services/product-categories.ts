@@ -212,7 +212,7 @@ const RULE_COLUMNS: Record<CategoryRuleColumn, { col: SQL | ReturnType<typeof sq
 
 /** Escape the wildcards so a condition containing `%` matches literally. */
 function likeLiteral(value: string): string {
-  return value.replace(/([\\%_])/g, '\\$1');
+  return value.replace(/([\\%_])/g, String.raw`\$1`);
 }
 
 /**
@@ -418,7 +418,7 @@ async function pageManualMembers(
     rows: orderedRows,
     totalCount: ordered.length,
     hasMore,
-    nextCursor: hasMore && pageIds.length ? pageIds[pageIds.length - 1] : null,
+    nextCursor: hasMore && pageIds.length ? pageIds.at(-1)! : null,
   };
 }
 
@@ -508,7 +508,7 @@ export async function listCategoryMembers(
     rows: page,
     totalCount: Number(countRes[0]?.count ?? 0),
     hasMore,
-    nextCursor: hasMore && page.length ? page[page.length - 1].id : null,
+    nextCursor: hasMore && page.length ? page.at(-1)!.id : null,
   };
 }
 

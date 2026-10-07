@@ -179,7 +179,7 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
       flushList();
 
       if (line.trim() === '') {
-        if (elements.length > 0 && elements[elements.length - 1].type !== 'br') {
+        if (elements.length > 0 && elements.at(-1)!.type !== 'br') {
           elements.push(<br key={elements.length} />);
         }
         return;

@@ -2413,7 +2413,7 @@ async function submitDomainRenewal(
   }
 
   const metadata = {
-    ...(domainRow.metadata ?? {}),
+    ...domainRow.metadata,
     stripeRenewalInvoiceId: invoiceId,
     ...(billedExpiry ? { stripeRenewalForExpiresAt: billedExpiry } : {}),
     stripeRenewalProcessedInvoiceId: invoiceId,

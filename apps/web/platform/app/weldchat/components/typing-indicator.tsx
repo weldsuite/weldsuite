@@ -32,7 +32,7 @@ export function TypingIndicator({ client }: Readonly<TypingIndicatorProps>) {
   } else if (names.length === 2) {
     text = t.weldchat.typingIndicator.twoTyping.replace('{name1}', names[0]).replace('{name2}', names[1]);
   } else if (names.length <= 3) {
-    text = t.weldchat.typingIndicator.multipleTyping.replace('{names}', names.slice(0, -1).join(', ')).replace('{last}', names[names.length - 1]);
+    text = t.weldchat.typingIndicator.multipleTyping.replace('{names}', names.slice(0, -1).join(', ')).replace('{last}', names.at(-1)!);
   } else {
     text = t.weldchat.typingIndicator.manyTyping;
   }

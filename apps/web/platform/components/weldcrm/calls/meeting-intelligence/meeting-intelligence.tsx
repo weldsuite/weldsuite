@@ -187,7 +187,7 @@ export function MeetingIntelligence({
 
   const transcriptionTotalDuration = useMemo(() => {
     if (!transcription?.segments?.length) return 0;
-    const lastSegment = transcription.segments[transcription.segments.length - 1];
+    const lastSegment = transcription.segments.at(-1)!;
     return lastSegment.end || 0;
   }, [transcription?.segments]);
 
@@ -202,7 +202,7 @@ export function MeetingIntelligence({
     });
     const merged: FlatTimelineSegment[] = [];
     for (const seg of raw) {
-      const prev = merged[merged.length - 1];
+      const prev = merged.at(-1);
       if (prev && prev.speakerId === seg.speakerId && Math.abs(seg.start - prev.end) < 0.5) {
         prev.end = seg.end;
       } else {

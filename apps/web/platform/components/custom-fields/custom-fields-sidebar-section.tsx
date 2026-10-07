@@ -97,7 +97,7 @@ export function CustomFieldsSidebarSection({
 
   const handleUpdateField = useCallback(async (slug: string, newValue: unknown) => {
     try {
-      const updatedFields = { ...(values || {}), [slug]: newValue };
+      const updatedFields = { ...values, [slug]: newValue };
       await onSave(updatedFields);
       onSaved?.();
     } catch {

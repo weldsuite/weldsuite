@@ -184,7 +184,7 @@ function aggregateKpis(values: KpiRow[]) {
         };
       })
       .sort((x, y) => x.periodStart.localeCompare(y.periodStart));
-    const latest = trend[trend.length - 1] ?? null;
+    const latest = trend.at(-1) ?? null;
     const first = rows[0]!;
     const latestRows = latest ? periods.get(`${latest.periodStart}|${latest.periodEnd}`) ?? [] : [];
     return {

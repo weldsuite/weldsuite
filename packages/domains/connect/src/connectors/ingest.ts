@@ -1534,7 +1534,7 @@ async function resolveLinkedIds(args: {
   const picklistId = await linkedInternalId(args, links.picklistExternalId, 'picklist');
   if (picklistId) {
     extra.metadata = {
-      ...((args.mapped.values.metadata as Record<string, unknown> | undefined) ?? {}),
+      ...(args.mapped.values.metadata as Record<string, unknown> | undefined),
       pickListId: picklistId,
     };
   }

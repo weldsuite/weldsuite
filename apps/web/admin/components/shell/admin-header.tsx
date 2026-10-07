@@ -42,7 +42,7 @@ function buildCrumbs(pathname: string, areaName: string, areaHref: string): Crum
     crumbs.push({ label: humanize(segments[i]!), href });
   }
 
-  const last = crumbs[crumbs.length - 1];
+  const last = crumbs.at(-1);
   if (last) delete last.href;
   return crumbs;
 }

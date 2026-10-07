@@ -81,7 +81,7 @@ app.get('/', requirePermission('warehouses:read'), async (c) => {
 
     const hasMore = rows.length > limit;
     const data = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
     const stats = statsRes[0] ?? { total: 0, active: 0, inactive: 0, on_break: 0 };
 

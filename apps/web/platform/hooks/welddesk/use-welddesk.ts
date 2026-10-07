@@ -218,7 +218,7 @@ export function useWeldDesk(options: UseWeldDeskOptions): UseWeldDeskReturn {
       // Optimistically update the message in cache
       updateMessageInCache(messageId, {
         blockResponses: {
-          ...(messages.find((m) => m.id === messageId)?.blockResponses || {}),
+          ...messages.find((m) => m.id === messageId)?.blockResponses,
           [actionId]: {
             actionId,
             type: 'button',

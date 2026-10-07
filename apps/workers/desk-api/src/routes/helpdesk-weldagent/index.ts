@@ -126,7 +126,7 @@ app.post('/conversations', requirePermission('conversations:create'), zValidator
       isArchived: false,
       hasAttachments: false,
       tags: ['ai-managed'],
-      metadata: { sessionId: data.sessionId, ...(data.conversationContext ?? {}) },
+      metadata: { sessionId: data.sessionId, ...data.conversationContext },
       createdAt: now,
       updatedAt: now,
     } as unknown as typeof helpdeskConversations.$inferInsert);

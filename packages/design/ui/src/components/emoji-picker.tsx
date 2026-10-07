@@ -589,10 +589,10 @@ export default function EmojiPicker({
       "Flags",
     ];
 
-    const availableCategories = Array.from(
+    const availableCategories = new Set(Array.from(
       new Set(emojis.map((emoji) => emoji.category)),
-    );
-    return categoryOrder.filter((cat) => availableCategories.includes(cat));
+    ));
+    return categoryOrder.filter((cat) => availableCategories.has(cat));
   }, []);
 
   // Enhanced search with keywords and fuzzy matching

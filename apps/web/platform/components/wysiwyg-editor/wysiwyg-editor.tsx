@@ -1241,7 +1241,7 @@ export function WysiwygEditor({
         )}
 
         {/* Custom Styles for contenteditable */}
-        <style>{`
+        <style>{String.raw`
           [contenteditable] {
             direction: ltr;
           }
@@ -1260,7 +1260,7 @@ export function WysiwygEditor({
             width: 100%;
           }
           [contenteditable] p:empty:before {
-            content: '\\200B';
+            content: '\200B';
           }
           [contenteditable] h1 {
             font-size: 2em;

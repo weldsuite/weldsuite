@@ -45,7 +45,7 @@ export function mergeAgentRoomPolicy(
     agentMaxHops: patch.agentMaxHops ?? current.agentMaxHops,
   };
   return {
-    ...(existing ?? {}),
+    ...existing,
     agentReplyPolicy: next.agentReplyPolicy,
     agentMaxHops: next.agentMaxHops,
   };

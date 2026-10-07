@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const RESERVED_SLUGS = [
+const RESERVED_SLUGS = new Set([
   'www',
   'app',
   'api',
@@ -10,7 +10,7 @@ const RESERVED_SLUGS = [
   'weldmail',
   'support',
   'help',
-];
+]);
 
 export const SLUG_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/;
 
@@ -24,7 +24,7 @@ export const updateWorkspaceSlugInput = z.object({
       'Slug must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens',
     )
     .refine(
-      (value) => !RESERVED_SLUGS.includes(value),
+      (value) => !RESERVED_SLUGS.has(value),
       { message: 'This slug is reserved' },
     ),
 });

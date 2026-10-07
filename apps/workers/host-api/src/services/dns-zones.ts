@@ -54,7 +54,7 @@ export async function listDnsZones(db: Database, params: ListDnsZonesParams) {
 
   const hasMore = rows.length > limit;
   const data = hasMore ? rows.slice(0, limit) : rows;
-  const cursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+  const cursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
   return { data, totalCount: countRow?.count ?? 0, hasMore, cursor };
 }
 

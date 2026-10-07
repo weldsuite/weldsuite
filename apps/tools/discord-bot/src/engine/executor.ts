@@ -321,7 +321,7 @@ async function executeStep(
   ctx: ExecutionContext,
   executionId: string,
 ): Promise<Record<string, unknown>> {
-  const inputs = { ...(step.config || {}), ...(step.inputs || {}) } as Record<string, unknown>;
+  const inputs = { ...step.config, ...step.inputs } as Record<string, unknown>;
 
   switch (step.type) {
     case 'send_message':

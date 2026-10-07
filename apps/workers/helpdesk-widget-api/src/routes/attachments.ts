@@ -11,7 +11,7 @@ import { generateId } from '../lib/id';
 import { publishEntityEvent } from '../lib/entity-events';
 
 // Allowed file types for attachments
-const ALLOWED_TYPES = [
+const ALLOWED_TYPES = new Set([
   // Images
   'image/jpeg',
   'image/png',
@@ -25,7 +25,7 @@ const ALLOWED_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-];
+]);
 
 // Max file size: 10MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -63,7 +63,7 @@ attachmentsRoutes.post('/upload', async (c) => {
       return error.badRequest(c, 'File too large (max 10MB)');
     }
 
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    if (!ALLOWED_TYPES.has(file.type)) {
       return error.badRequest(c, `File type not allowed: ${file.type}`);
     }
 

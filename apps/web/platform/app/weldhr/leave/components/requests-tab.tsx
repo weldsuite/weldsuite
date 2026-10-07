@@ -15,7 +15,7 @@ import { StatusBadge, errorMessage, formatDate } from '../../components/shared';
 import { LeaveRequestDialog } from './request-dialog';
 import { LeaveReviewDialog } from './review-dialog';
 
-const KNOWN_STATUSES = ['pending', 'approved', 'rejected', 'cancelled'];
+const KNOWN_STATUSES = new Set(['pending', 'approved', 'rejected', 'cancelled']);
 
 export function RequestsTab() {
   const t = useTranslations();
@@ -38,7 +38,7 @@ export function RequestsTab() {
     { id: 'pending', label: t('weldhr.leave.requests.groups.pending'), sortOrder: 1, filter: (r) => r.status === 'pending' },
     { id: 'approved', label: t('weldhr.leave.requests.groups.approved'), sortOrder: 2, filter: (r) => r.status === 'approved' },
     { id: 'rejectedCancelled', label: t('weldhr.leave.requests.groups.rejectedCancelled'), sortOrder: 3, filter: (r) => r.status === 'rejected' || r.status === 'cancelled' },
-    { id: 'other', label: t('weldhr.leave.requests.groups.other'), sortOrder: 4, filter: (r) => !KNOWN_STATUSES.includes(r.status) },
+    { id: 'other', label: t('weldhr.leave.requests.groups.other'), sortOrder: 4, filter: (r) => !KNOWN_STATUSES.has(r.status) },
   ];
 
   const columns: ColumnDef<HrLeaveRequest>[] = [

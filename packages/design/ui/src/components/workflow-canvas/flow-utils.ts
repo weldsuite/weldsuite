@@ -721,7 +721,7 @@ function positionBranchChild(
   // Use the branch node center as anchor for horizontal centering
   const branchCenterX = branchNode.position.x + NODE_WIDTH / 2;
   const thisWidth = getStepWidth(step.type);
-  const lastSibling = siblings[siblings.length - 1];
+  const lastSibling = siblings.at(-1);
 
   if (lastSibling) {
     // Stack below the last sibling, centering based on the branch anchor X
@@ -1043,7 +1043,7 @@ function buildActionFlowNodes(
 
   // A branch child is "last" when it ends its branch; a main-flow step when it ends the main flow
   const branchChildren = step.parentBranchId ? branchChildrenMap.get(step.parentBranchId) || [] : [];
-  const isLastBranchChild = branchChildren.length > 0 && branchChildren[branchChildren.length - 1]!.id === step.id;
+  const isLastBranchChild = branchChildren.length > 0 && branchChildren.at(-1)!.id === step.id;
   const finalIsLastNode = step.parentBranchId ? isLastBranchChild : isLastMainStep;
 
   const actionNode: Node<ActionNodeData> = {
@@ -1090,7 +1090,7 @@ function buildMainFlowEdges(steps: WorkflowStep[], branchChildrenMap: Map<string
 
     for (const branchId of getConditionBranchIds(currentStep)) {
       const branchChildren = branchChildrenMap.get(branchId) || [];
-      const lastNodeId = branchChildren.length > 0 ? branchChildren[branchChildren.length - 1]!.id : branchId;
+      const lastNodeId = branchChildren.length > 0 ? branchChildren.at(-1)!.id : branchId;
       edges.push(smoothstepEdge(`${lastNodeId}-${nextStep.id}`, lastNodeId, nextStep.id));
     }
   }
@@ -1143,7 +1143,7 @@ export function workflowToFlow(
 
   // The last step that is not under a condition branch
   const mainFlowSteps = steps.filter((s) => !s.parentBranchId);
-  const lastMainStepId = mainFlowSteps[mainFlowSteps.length - 1]?.id;
+  const lastMainStepId = mainFlowSteps.at(-1)?.id;
 
   // Create action nodes
   steps.forEach((step, index) => {

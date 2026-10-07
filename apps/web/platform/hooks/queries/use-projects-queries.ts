@@ -78,7 +78,7 @@ export function useProjects(params?: {
     queryKey: projectKeys.list(params),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { ...(params ?? {}) };
+      const qs: Record<string, unknown> = { ...params };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;
@@ -146,7 +146,7 @@ export function useProjectTasks(projectId: string, params?: { page?: number; pag
     queryKey: projectKeys.tasks(projectId, params),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { projectId, ...(params ?? {}) };
+      const qs: Record<string, unknown> = { projectId, ...params };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;

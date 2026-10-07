@@ -100,8 +100,7 @@ export function AppHeader({
   if (hideAll) return null;
 
   return (
-    <>
-      <header
+    <header
         data-slot="app-header"
         className="sticky top-0 z-40 hidden md:flex h-[60px] shrink-0 items-center bg-[var(--shell-panel)] border-b border-border relative"
       >
@@ -181,6 +180,5 @@ export function AppHeader({
           </div>
         </div>
       </header>
-    </>
   );
 }

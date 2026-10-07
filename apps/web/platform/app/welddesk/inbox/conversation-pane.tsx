@@ -36,13 +36,13 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
 
   const conversation = data?.data;
   const messages = conversation?.messages ?? [];
-  const events = messages.map((m) => m.metadata?.event).filter(Boolean);
+  const events = new Set(messages.map((m) => m.metadata?.event).filter(Boolean));
   const liveCall =
     conversation?.channel === 'phone' &&
-    (events.includes('ai_answered') ||
-      events.includes('ai_transcript') ||
-      events.includes('call_started')) &&
-    !events.includes('call_ended');
+    (events.has('ai_answered') ||
+      events.has('ai_transcript') ||
+      events.has('call_started')) &&
+    !events.has('call_ended');
 
   // Phone transcripts are written by the voice agent without a realtime
   // publish, so a live call still polls.

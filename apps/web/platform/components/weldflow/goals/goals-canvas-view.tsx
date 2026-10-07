@@ -2228,8 +2228,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
 
           <div className="grid gap-4 py-4">
             {goalCreationType === 'new' ? (
-              <>
-                <div className="grid gap-2">
+              <div className="grid gap-2">
                   <Label htmlFor="goal-title">{st('sweep.weldflow.goalsCanvas.goalTitle')}</Label>
                   <Input
                     id="goal-title"
@@ -2239,7 +2238,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
                     autoFocus
                   />
                 </div>
-              </>
             ) : (
               <div className="grid gap-2">
                 <Label>{st('sweep.weldflow.goalsCanvas.selectTask')}</Label>

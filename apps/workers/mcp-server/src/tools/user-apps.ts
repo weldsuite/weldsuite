@@ -196,7 +196,7 @@ export function userAppInputShape(
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
-const API_REQUEST_METHODS: readonly HttpMethod[] = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'];
+const API_REQUEST_METHODS: ReadonlySet<HttpMethod> = new Set(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']);
 
 interface ShapedRequest {
   method: HttpMethod;
@@ -266,7 +266,7 @@ function shapeStorageRequest(
 function shapeApiRequest(tool: UserAppTool, args: Record<string, unknown>): ShapedRequest | string {
   const { action } = tool;
   const method = action.method?.toUpperCase() as HttpMethod | undefined;
-  if (!method || !API_REQUEST_METHODS.includes(method)) {
+  if (!method || !API_REQUEST_METHODS.has(method)) {
     return `Unsupported API request method: ${action.method ?? '(none)'}`;
   }
   const path = action.path ?? '';

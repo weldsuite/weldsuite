@@ -58,7 +58,7 @@ export function TableOfContents({
     if (!section.children) {
       return false
     }
-    return section.children.findIndex(isActive) > -1
+    return section.children.some(isActive)
   }
 
   return (

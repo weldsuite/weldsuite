@@ -628,19 +628,19 @@ export function PhoneNumberSettingsClient({
 // workspace has port-in orders that haven't reached 'completed' or 'cancelled'.
 // ──────────────────────────────────────────────────────────────────────────────
 
-const PENDING_STATUSES: PortingOrderStatus[] = [
+const PENDING_STATUSES: Set<PortingOrderStatus> = new Set([
   'draft',
   'awaiting_documents',
   'submitted',
   'in_process',
   'exception',
-];
+]);
 
 function PendingPortsSection() {
   const router = useRouter();
   const { data: orders } = usePortingOrders();
   const tp = getTranslations('settings').phoneNumbers;
-  const pending = (orders ?? []).filter((o) => PENDING_STATUSES.includes(o.status));
+  const pending = (orders ?? []).filter((o) => PENDING_STATUSES.has(o.status));
   if (pending.length === 0) return null;
 
   return (

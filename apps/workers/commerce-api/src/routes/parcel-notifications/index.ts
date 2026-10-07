@@ -689,7 +689,7 @@ app.post('/webhooks/:id/test', requirePermission('orders:read'), async (c) => {
 
       const response = await fetch(webhook.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Webhook-Event': 'test', 'X-Webhook-Signature': sigHex, ...(webhook.headers as Record<string, string> ?? {}) },
+        headers: { 'Content-Type': 'application/json', 'X-Webhook-Event': 'test', 'X-Webhook-Signature': sigHex, ...webhook.headers as Record<string, string> },
         body: payloadStr,
       });
       const responseTimeMs = Date.now() - startTime;

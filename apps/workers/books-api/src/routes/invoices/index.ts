@@ -225,7 +225,7 @@ function buildComponentTaxLines(
 
   // Absorb rounding remainder into the last component so credits match taxTotal
   const remainder = Math.round((taxTotal - postedTax) * 100) / 100;
-  const last = componentLines[componentLines.length - 1];
+  const last = componentLines.at(-1);
   if (last && Math.abs(remainder) >= 0.01) {
     last.credit = (Number(last.credit) + remainder).toFixed(2);
   }

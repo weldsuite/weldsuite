@@ -60,7 +60,7 @@ export async function executeStepHandler(
   }
 
   // Resolve template inputs
-  const rawInputs = { ...(stepDef.config || {}), ...(stepDef.inputs || {}) } as Record<string, unknown>;
+  const rawInputs = { ...stepDef.config, ...stepDef.inputs } as Record<string, unknown>;
   const resolvedInputs = resolveInputs(rawInputs, stepResults, triggerData, variables, {});
 
   // Get handler

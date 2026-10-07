@@ -259,7 +259,7 @@ export async function resolveAccessRequest(
 
   for (const n of existingAdminNotifications) {
     const nextData = {
-      ...((n.data as Record<string, unknown> | null) ?? {}),
+      ...(n.data as Record<string, unknown> | null),
       resolvedStatus: params.status,
       resolvedBy: params.resolverUserId,
     };

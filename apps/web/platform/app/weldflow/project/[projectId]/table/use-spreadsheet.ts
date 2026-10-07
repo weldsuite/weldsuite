@@ -688,7 +688,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
                     ...m.rowsBySheet,
                     [effectiveSheetId]: rows.map((r) =>
                       r.position === args.position
-                        ? { ...r, data: { ...r.data, ...(args.data ?? {}) }, updatedAt: nowIso() }
+                        ? { ...r, data: { ...r.data, ...args.data }, updatedAt: nowIso() }
                         : r,
                     ),
                   },
@@ -976,7 +976,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
           ...m,
           sheets: m.sheets.map((s) =>
             s.id === sheetId
-              ? { ...s, settings: { ...(s.settings ?? {}), ...settings }, updatedAt: nowIso() }
+              ? { ...s, settings: { ...s.settings, ...settings }, updatedAt: nowIso() }
               : s,
           ),
         }));

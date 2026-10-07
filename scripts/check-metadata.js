@@ -5,8 +5,8 @@
  * Usage: node scripts/check-metadata.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const { glob } = require('glob');
 
 const PLATFORM_APP_DIR = path.join(__dirname, '../apps/web/platform/app');

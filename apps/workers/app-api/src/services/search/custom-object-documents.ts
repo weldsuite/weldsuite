@@ -159,7 +159,7 @@ export function buildCustomObjectLoader(object: CustomObjectRow): CustomObjectDo
         // record is dropped from `documents` but must still advance the
         // cursor, or the backfill would stall on it forever.
         rowsRead: rows.length,
-        lastScannedId: rows.length > 0 ? rows[rows.length - 1]!.id : null,
+        lastScannedId: rows.length > 0 ? rows.at(-1)!.id : null,
       };
     },
   };

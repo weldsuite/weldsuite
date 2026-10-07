@@ -206,7 +206,7 @@ export function buildLeadGridConfig<T extends LeadRowLike>(
     getEntityName: (r) => r.name ?? '—',
     getEntityInitials: (r) => {
       const parts = (r.name ?? '').split(/\s+/).filter(Boolean);
-      if (parts.length >= 2) return (parts[0]!.charAt(0) + parts[parts.length - 1]!.charAt(0)).toUpperCase();
+      if (parts.length >= 2) return (parts[0]!.charAt(0) + parts.at(-1)!.charAt(0)).toUpperCase();
       return (r.name ?? '?').charAt(0).toUpperCase();
     },
     getEntityAvatar: opts.getAvatar ?? ((r) => r.avatarUrl ?? undefined),

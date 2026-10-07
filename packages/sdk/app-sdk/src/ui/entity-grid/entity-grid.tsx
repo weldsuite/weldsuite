@@ -126,7 +126,7 @@ export function EntityGrid<TEntity>({
     setEditingCell(null);
     if (!column.setValue) return;
     const updates = column.setValue(entity, value);
-    setOptimistic((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), ...updates } }));
+    setOptimistic((prev) => ({ ...prev, [id]: { ...prev[id], ...updates } }));
     const result = await actions.onUpdateEntity(id, updates);
     if (!result.success) {
       setOptimistic((prev) => {

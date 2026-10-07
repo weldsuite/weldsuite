@@ -1636,9 +1636,7 @@ function PipelineSettingsModal({
               </div>
             </div>
           ) : (
-            <>
-              <DialogTitle>{t('sweep.weldcrm.pipelineSettingsModal.pipelineSettings')}</DialogTitle>
-            </>
+            <DialogTitle>{t('sweep.weldcrm.pipelineSettingsModal.pipelineSettings')}</DialogTitle>
           )}
         </DialogHeader>
 

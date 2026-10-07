@@ -104,7 +104,7 @@ app.get('/', requirePermission('workflow-webhooks:read'), async (c) => {
     const sliced = hasMore ? rows.slice(0, limit) : rows;
     const base = publicApiBase(c.env);
     const data = sliced.map((r) => toWebhookView(r.webhook, r.workflowName, r.workflowTriggers, base));
-    const cursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    const cursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     return list(c, data, cursorPagination(Number(countRes[0]?.count ?? 0), hasMore, cursor));
   } catch (err) {
     console.error('[app-api/workflow-webhooks] list failed:', err);

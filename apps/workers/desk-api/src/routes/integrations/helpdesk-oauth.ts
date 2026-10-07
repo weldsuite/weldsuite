@@ -262,7 +262,7 @@ app.get('/slack/callback', async (c) => {
         metadata: { teamId, botUserId: tokenData.bot_user_id },
       },
       config: {
-        ...((existing?.config as Record<string, unknown>) || {}),
+        ...(existing?.config as Record<string, unknown>),
         botToken,
       },
       accessToken: botToken,

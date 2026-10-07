@@ -40,7 +40,7 @@ export function mergeRefreshedFirstPage<T extends Row>(
   if (prevCursor === undefined || firstPageCursor === null || firstPage.length === 0) {
     return { list: firstPage, cursor: firstPageCursor };
   }
-  const boundary = firstPage[firstPage.length - 1]!;
+  const boundary = firstPage.at(-1)!;
   const ids = new Set(firstPage.map((m) => m.id));
   const tail = prev.filter((m) => !ids.has(m.id) && isOlderThan(m, boundary));
   if (tail.length === 0) return { list: firstPage, cursor: firstPageCursor };

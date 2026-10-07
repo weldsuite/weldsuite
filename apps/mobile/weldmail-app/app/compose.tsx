@@ -131,7 +131,7 @@ const RECIPIENT_FIELDS: { field: RecipientField; label: string }[] = [
   { field: 'bcc', label: 'Bcc:' },
 ];
 
-const PREFILL_MODES = ['reply', 'replyAll', 'forward'];
+const PREFILL_MODES = new Set(['reply', 'replyAll', 'forward']);
 
 const HEADER_TITLES = new Map<string, string>([
   ['reply', 'Reply'],
@@ -153,7 +153,7 @@ function getHeaderTitle(mode: string | undefined): string {
 }
 
 function isPrefillMode(mode: string | undefined): boolean {
-  return !!mode && PREFILL_MODES.includes(mode);
+  return !!mode && PREFILL_MODES.has(mode);
 }
 
 function splitCommaList(raw: string): string[] {

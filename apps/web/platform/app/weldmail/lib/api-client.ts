@@ -89,7 +89,7 @@ async function request<T>(
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(init.headers ?? {}),
+        ...init.headers,
       },
     });
 

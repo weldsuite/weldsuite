@@ -52,13 +52,13 @@ export default function BillsPage() {
   // Group by lifecycle status, most-urgent first. The trailing "other" group is
   // an explicit catch-all: EntityList drops items matching no group, so any
   // status outside the known set stays visible here.
-  const knownStatuses = ['overdue', 'approved', 'partial', 'draft', 'paid'];
+  const knownStatuses = new Set(['overdue', 'approved', 'partial', 'draft', 'paid']);
   const groups: GroupConfig<BillRow>[] = [
     { id: 'overdue', label: tbp.groupOverdue, sortOrder: 1, filter: (b) => b.status === 'overdue' },
     { id: 'approved', label: tbp.groupApproved, sortOrder: 2, filter: (b) => b.status === 'approved' || b.status === 'partial' },
     { id: 'draft', label: tbp.groupDraft, sortOrder: 3, filter: (b) => b.status === 'draft' },
     { id: 'paid', label: tbp.groupPaid, sortOrder: 4, filter: (b) => b.status === 'paid' },
-    { id: 'other', label: tbp.groupOther, sortOrder: 5, filter: (b) => !knownStatuses.includes(b.status) },
+    { id: 'other', label: tbp.groupOther, sortOrder: 5, filter: (b) => !knownStatuses.has(b.status) },
   ];
 
   const columns: ColumnDef<BillRow>[] = [

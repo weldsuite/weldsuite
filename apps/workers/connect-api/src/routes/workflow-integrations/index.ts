@@ -87,7 +87,7 @@ app.get('/', requirePermission('integrations:read'), async (c) => {
     const hasMore = rows.length > limit;
     const sliced = hasMore ? rows.slice(0, limit) : rows;
     const data = sliced.map(stripCredentials);
-    const cursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    const cursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     return list(c, data, cursorPagination(Number(countRes[0]?.count ?? 0), hasMore, cursor));
   } catch (err) {
     console.error('[app-api/workflow-integrations] list failed:', err);
