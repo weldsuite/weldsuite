@@ -15,19 +15,21 @@ import { useProfitLossReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
+type Amount = string | number | null;
+
 interface ProfitLossAccountRow {
   accountId: string;
   accountCode: string;
   accountName: string;
-  total: string | number | null;
+  total: Amount;
 }
 
 interface ProfitLossReport {
   revenue?: ProfitLossAccountRow[];
   expenses?: ProfitLossAccountRow[];
-  totalRevenue?: string | number | null;
-  totalExpenses?: string | number | null;
-  netProfit?: string | number | null;
+  totalRevenue?: Amount;
+  totalExpenses?: Amount;
+  netProfit?: Amount;
 }
 
 export default function ProfitLossReportPage() {

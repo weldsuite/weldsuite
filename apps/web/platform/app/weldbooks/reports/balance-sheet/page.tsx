@@ -15,20 +15,22 @@ import { useBalanceSheetReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
+type Amount = string | number | null;
+
 interface BalanceSheetAccountRow {
   accountId: string;
   accountCode: string;
   accountName: string;
-  balance: string | number | null;
+  balance: Amount;
 }
 
 interface BalanceSheetReport {
   assets?: BalanceSheetAccountRow[];
   liabilities?: BalanceSheetAccountRow[];
   equity?: BalanceSheetAccountRow[];
-  totalAssets?: string | number | null;
-  totalLiabilities?: string | number | null;
-  totalEquity?: string | number | null;
+  totalAssets?: Amount;
+  totalLiabilities?: Amount;
+  totalEquity?: Amount;
 }
 
 function AccountSection({

@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
+type SyncDirection = 'inbound' | 'outbound' | 'bidirectional';
+
 /**
  * WeldConnect connector queries — first-party sync (`/connectors/*`).
  */
@@ -45,8 +47,8 @@ export interface ConnectorConnection {
   externalAccountId: string | null;
   entityId: string | null;
   enabledSyncs: string[];
-  direction: 'inbound' | 'outbound' | 'bidirectional';
-  objectSyncDirections: Record<string, 'inbound' | 'outbound' | 'bidirectional'>;
+  direction: SyncDirection;
+  objectSyncDirections: Record<string, SyncDirection>;
   authFields: ConnectorAuthField[];
   syncs: ConnectorSyncDef[];
   lastSyncAt: string | null;
@@ -116,8 +118,8 @@ export interface ConnectConnectorInput {
 export interface UpdateConnectorInput {
   displayName?: string;
   enabledSyncs?: string[];
-  direction?: 'inbound' | 'outbound' | 'bidirectional';
-  objectSyncDirections?: Record<string, 'inbound' | 'outbound' | 'bidirectional'> | null;
+  direction?: SyncDirection;
+  objectSyncDirections?: Record<string, SyncDirection> | null;
   credentials?: Record<string, string>;
   entityId?: string | null;
 }
@@ -332,7 +334,7 @@ export interface ConnectorFieldMapping {
   entityType: string;
   externalFieldPath: string;
   internalFieldPath: string;
-  direction: 'inbound' | 'outbound' | 'bidirectional';
+  direction: SyncDirection;
   transformType: 'direct' | 'lookup' | 'format_date' | 'custom';
   transformConfig: Record<string, unknown> | null;
   isRequired: boolean;
@@ -343,7 +345,7 @@ export interface ConnectorFieldMapping {
 export interface ConnectorFieldMappingDefinition {
   externalFieldPath: string;
   internalFieldPath: string;
-  direction: 'inbound' | 'outbound' | 'bidirectional';
+  direction: SyncDirection;
   transformType: 'direct' | 'lookup' | 'format_date' | 'custom';
   transformConfig?: Record<string, unknown>;
   isRequired?: boolean;

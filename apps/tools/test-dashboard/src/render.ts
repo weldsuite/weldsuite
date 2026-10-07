@@ -1,5 +1,7 @@
 import type { Dashboard, Framework, SuiteResult } from './aggregate.js';
 
+type SuiteStatus = 'pass' | 'fail' | 'empty';
+
 /**
  * Renders the aggregated model into a single self-contained HTML page —
  * no external CSS/JS, no client fetch. Collapsible failure lists use native
@@ -29,7 +31,7 @@ const FRAMEWORK_LABELS: Record<Framework, string> = {
   unknown: 'Other',
 };
 
-function statusOf(s: SuiteResult): 'pass' | 'fail' | 'empty' {
+function statusOf(s: SuiteResult): SuiteStatus {
   if (s.tests === 0) return 'empty';
   return s.failed > 0 ? 'fail' : 'pass';
 }
@@ -92,12 +94,12 @@ function frameworkSection(framework: Framework, suites: SuiteResult[]): string {
     </section>`;
 }
 
-function overallStatus(totals: Dashboard['totals']): 'pass' | 'fail' | 'empty' {
+function overallStatus(totals: Dashboard['totals']): SuiteStatus {
   if (totals.failed > 0) return 'fail';
   return totals.tests > 0 ? 'pass' : 'empty';
 }
 
-function overallLabelOf(overall: 'pass' | 'fail' | 'empty', failed: number): string {
+function overallLabelOf(overall: SuiteStatus, failed: number): string {
   if (overall === 'fail') return `${failed} failing`;
   return overall === 'pass' ? 'All passing' : 'No data';
 }

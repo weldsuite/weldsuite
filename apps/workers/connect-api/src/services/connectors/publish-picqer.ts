@@ -25,6 +25,8 @@ import {
   type ConnectorConnectionRow,
 } from '@weldsuite/connect-domain/connectors/connections';
 
+type PicqerId = string | number | undefined;
+
 async function sha256Hex(payload: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
   return Array.from(new Uint8Array(digest))
@@ -205,7 +207,7 @@ export async function pushOrderToPicqer(args: {
     .from(schema.orderItems)
     .where(eq(schema.orderItems.orderId, args.orderId));
 
-  let idcustomer: string | number | undefined;
+  let idcustomer: PicqerId;
   if (order.personId) {
     const mapping = await findExternalId(args.db, args.connectionId, 'picqer_customer', order.personId);
     if (mapping) idcustomer = Number(mapping.externalEntityId) || mapping.externalEntityId;
@@ -222,7 +224,7 @@ export async function pushOrderToPicqer(args: {
 
   const products: Array<Record<string, unknown>> = [];
   for (const item of items) {
-    let idproduct: string | number | undefined;
+    let idproduct: PicqerId;
     if (item.productId) {
       const mapping = await findExternalId(args.db, args.connectionId, 'picqer_product', item.productId);
       if (mapping) idproduct = Number(mapping.externalEntityId) || mapping.externalEntityId;
@@ -427,13 +429,13 @@ export async function pushPurchaseOrderToPicqer(args: {
     .from(schema.purchaseOrderItems)
     .where(eq(schema.purchaseOrderItems.purchaseOrderId, args.purchaseOrderId));
 
-  let idsupplier: string | number | undefined;
+  let idsupplier: PicqerId;
   if (po.supplierId) {
     const mapping = await findExternalId(args.db, args.connectionId, 'picqer_supplier', po.supplierId);
     if (mapping) idsupplier = Number(mapping.externalEntityId) || mapping.externalEntityId;
   }
 
-  let idwarehouse: string | number | undefined;
+  let idwarehouse: PicqerId;
   if (po.warehouseId) {
     const mapping = await findExternalId(args.db, args.connectionId, 'picqer_warehouse', po.warehouseId);
     if (mapping) idwarehouse = Number(mapping.externalEntityId) || mapping.externalEntityId;
@@ -441,7 +443,7 @@ export async function pushPurchaseOrderToPicqer(args: {
 
   const products: Array<Record<string, unknown>> = [];
   for (const item of items) {
-    let idproduct: string | number | undefined;
+    let idproduct: PicqerId;
     if (item.productId) {
       const mapping = await findExternalId(args.db, args.connectionId, 'picqer_product', item.productId);
       if (mapping) idproduct = Number(mapping.externalEntityId) || mapping.externalEntityId;
@@ -505,7 +507,7 @@ export async function pushReturnToPicqer(args: {
     throw new ConnectorApiError({ message: 'Return not found', status: 404, kind: 'permanent' });
   }
 
-  let idorder: string | number | undefined;
+  let idorder: PicqerId;
   if (ret.originalOrderId) {
     const mapping = await findExternalId(args.db, args.connectionId, 'picqer_order', ret.originalOrderId);
     if (mapping) idorder = Number(mapping.externalEntityId) || mapping.externalEntityId;

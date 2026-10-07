@@ -90,6 +90,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { secureRandom } from '@/lib/random';
 import { toast } from 'sonner';
 
+type FieldInputType = 'text' | 'number' | 'date' | 'select' | 'textarea';
+
 interface Deal {
   id: string;
   title: string;
@@ -1459,7 +1461,7 @@ function CustomFormulaModal({
 interface CustomFieldDef {
   id: string;
   name: string;
-  type: 'text' | 'number' | 'date' | 'select' | 'textarea';
+  type: FieldInputType;
   required: boolean;
   options?: string[];
 }
@@ -1511,7 +1513,7 @@ function PipelineSettingsModal({
   const [fieldTypeOpen, setFieldTypeOpen] = useState(false);
   const [newField, setNewField] = useState({
     name: '',
-    type: 'text' as 'text' | 'number' | 'date' | 'select' | 'textarea',
+    type: 'text' as FieldInputType,
     required: false,
     options: [] as string[],
   });
@@ -1998,7 +2000,7 @@ function PipelineSettingsModal({
                               key={type.value}
                               value={type.value}
                               onSelect={(currentValue) => {
-                                setNewField({ ...newField, type: currentValue as 'text' | 'number' | 'date' | 'select' | 'textarea' });
+                                setNewField({ ...newField, type: currentValue as FieldInputType });
                                 setFieldTypeOpen(false);
                               }}
                             >

@@ -26,6 +26,8 @@ import type { DataResponse, ListResponse } from '@weldsuite/core-api-client/type
 import { buildQueryString } from '@weldsuite/core-api-client/types';
 import { randomSuffix } from '@/lib/random';
 
+type NumericValue = string | number | null;
+
 // ============================================================================
 // Row types — shaped to what the app-api routes actually return today.
 // ============================================================================
@@ -80,9 +82,9 @@ export interface CommerceOrder {
   source?: string | null;
   status: string | null;
   currency?: string | null;
-  subtotal?: string | number | null;
-  taxTotal?: string | number | null;
-  total?: string | number | null;
+  subtotal?: NumericValue;
+  taxTotal?: NumericValue;
+  total?: NumericValue;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,8 +101,8 @@ export interface CommerceOrderItem {
   imageUrl?: string | null;
   quantity: number;
   unitPrice: string | number;
-  discountAmount?: string | number | null;
-  taxAmount?: string | number | null;
+  discountAmount?: NumericValue;
+  taxAmount?: NumericValue;
   total: string | number;
   fulfilledQuantity?: number | null;
   createdAt: string;

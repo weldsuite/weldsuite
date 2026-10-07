@@ -8,6 +8,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
+type SyncDirection = 'inbound' | 'outbound' | 'bidirectional';
+
 // =============================================================================
 // Query Keys
 // =============================================================================
@@ -37,7 +39,7 @@ export interface IntegrationConnection {
   name: string | null;
   status: string;
   direction: 'inbound' | 'outbound' | 'bidirectional' | string;
-  entityConfig?: Record<string, 'inbound' | 'outbound' | 'bidirectional'> | null;
+  entityConfig?: Record<string, SyncDirection> | null;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
   lastError: string | null;
@@ -203,8 +205,8 @@ export function useUpdateConnectionSettings() {
     }: {
       connectionId: string;
       name?: string;
-      direction?: 'inbound' | 'outbound' | 'bidirectional';
-      entityConfig?: Record<string, 'inbound' | 'outbound' | 'bidirectional'>;
+      direction?: SyncDirection;
+      entityConfig?: Record<string, SyncDirection>;
       syncSettings?: {
         syncCompanies?: boolean;
         syncPeople?: boolean;
@@ -272,7 +274,7 @@ export interface FieldMapping {
   entityType: string;
   externalFieldPath: string;
   internalFieldPath: string;
-  direction: 'inbound' | 'outbound' | 'bidirectional';
+  direction: SyncDirection;
   transformType: 'direct' | 'lookup' | 'format_date' | 'custom';
   transformConfig: Record<string, unknown> | null;
   isRequired: boolean;
@@ -283,7 +285,7 @@ export interface FieldMapping {
 export interface FieldMappingDefinition {
   externalFieldPath: string;
   internalFieldPath: string;
-  direction: 'inbound' | 'outbound' | 'bidirectional';
+  direction: SyncDirection;
   transformType: 'direct' | 'lookup' | 'format_date' | 'custom';
   transformConfig?: Record<string, unknown>;
   isRequired?: boolean;

@@ -45,6 +45,8 @@ import {
 } from './moneybird-attachments';
 import { asText } from '@weldsuite/text';
 
+type IngestEntity = 'product' | 'order' | 'person';
+
 export interface IngestCounts {
   created: number;
   modified: number;
@@ -144,11 +146,11 @@ export function sanitiseErrorMessage(err: unknown): string {
     .slice(0, MAX_ERROR_MESSAGE_LENGTH);
 }
 
-function targetFor(entity: 'product' | 'order' | 'person'): {
+function targetFor(entity: IngestEntity): {
   table: PgTable;
   idPrefix: string;
   dedupColumn: string | null;
-  entityType: 'product' | 'order' | 'person';
+  entityType: IngestEntity;
 } {
   switch (entity) {
     case 'product':
@@ -1719,7 +1721,7 @@ async function syncProductListing(
 }
 
 async function ingestCatalogRecords(args: IngestArgs): Promise<IngestResult> {
-  const target = targetFor(args.sync.internalEntity as 'product' | 'order' | 'person');
+  const target = targetFor(args.sync.internalEntity as IngestEntity);
   const customerType = `${args.provider}_customer`;
   const fieldMappings = await loadConnectorFieldMappings(
     args.db,

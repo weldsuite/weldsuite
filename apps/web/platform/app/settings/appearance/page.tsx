@@ -14,8 +14,10 @@ import { stableLanguages, languageNames, type Language } from '@/lib/i18n/locale
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
+type ThemePreference = 'light' | 'dark' | 'system';
+
 export default function AppearanceSettingsPage() {
-  const [theme, setThemeState] = React.useState<'light' | 'dark' | 'system'>('system');
+  const [theme, setThemeState] = React.useState<ThemePreference>('system');
   const [fontSize, setFontSize] = React.useState([16]);
   const { setTheme: setAppTheme } = useTheme();
   const { language, setLanguage, t } = useI18n();
@@ -34,7 +36,7 @@ export default function AppearanceSettingsPage() {
     }
   }, [preferences]);
 
-  const handleThemeChange = async (newTheme: 'light' | 'dark' | 'system') => {
+  const handleThemeChange = async (newTheme: ThemePreference) => {
     const previousTheme = theme;
     setThemeState(newTheme);
     setAppTheme(newTheme);
@@ -78,7 +80,7 @@ export default function AppearanceSettingsPage() {
 
       <div>
         <h3 className="text-lg font-semibold mb-4">{ta.theme.title}</h3>
-        <RadioGroup value={theme} onValueChange={(value) => handleThemeChange(value as 'light' | 'dark' | 'system')}>
+        <RadioGroup value={theme} onValueChange={(value) => handleThemeChange(value as ThemePreference)}>
           <div className="grid grid-cols-3 gap-4">
             {/* Light theme */}
             <label className="cursor-pointer">

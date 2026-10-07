@@ -25,24 +25,26 @@ import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
+type Amount = string | number | null;
+
 interface GeneralLedgerLineRow {
   id: string;
   date: string;
   entryNumber: string | null;
   description: string | null;
-  debit: string | number | null;
-  credit: string | number | null;
-  runningBalance: string | number | null;
+  debit: Amount;
+  credit: Amount;
+  runningBalance: Amount;
 }
 
 interface GeneralLedgerReport {
   account?: { code: string; name: string; type: string; subtype?: string | null };
   lines?: GeneralLedgerLineRow[];
   totals?: {
-    openingBalance: string | number | null;
-    totalDebits: string | number | null;
-    totalCredits: string | number | null;
-    closingBalance: string | number | null;
+    openingBalance: Amount;
+    totalDebits: Amount;
+    totalCredits: Amount;
+    closingBalance: Amount;
   };
 }
 

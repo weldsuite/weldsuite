@@ -46,6 +46,10 @@ import { appApi } from '../app-api-browser-client';
 import type { Helpdesk } from '../types/apps/helpdesk.types';
 import { asText } from '@weldsuite/text';
 
+type PublishStatus = 'draft' | 'published' | 'archived';
+
+type CannedResponseScope = 'personal' | 'team' | 'department' | 'global';
+
 // ============================================================================
 // Re-export core types from the central type definitions
 // ============================================================================
@@ -104,7 +108,7 @@ export interface CannedResponse {
   subject: string | null;
   content: string;
   category: string | null;
-  scope: 'personal' | 'team' | 'department' | 'global';
+  scope: CannedResponseScope;
   agentId: string | null;
   teamId: string | null;
   departmentId: string | null;
@@ -1175,7 +1179,7 @@ export const helpdeskWorkerApi = {
     subject?: string;
     content: string;
     category?: string;
-    scope?: 'personal' | 'team' | 'department' | 'global';
+    scope?: CannedResponseScope;
     agentId?: string;
     teamId?: string;
     departmentId?: string;
@@ -1197,7 +1201,7 @@ export const helpdeskWorkerApi = {
     subject?: string;
     content?: string;
     category?: string;
-    scope?: 'personal' | 'team' | 'department' | 'global';
+    scope?: CannedResponseScope;
     agentId?: string;
     teamId?: string;
     departmentId?: string;
@@ -1339,7 +1343,7 @@ export const helpdeskWorkerApi = {
     pageSize?: number;
     search?: string;
     category?: string;
-    status?: 'draft' | 'published' | 'archived';
+    status?: PublishStatus;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   } = {}) {
@@ -1366,7 +1370,7 @@ export const helpdeskWorkerApi = {
     category?: string;
     tags?: string[];
     featuredImage?: string;
-    status?: 'draft' | 'published' | 'archived';
+    status?: PublishStatus;
     isPinned?: boolean;
   }) {
     return adaptSingle(
@@ -1387,7 +1391,7 @@ export const helpdeskWorkerApi = {
     category?: string;
     tags?: string[];
     featuredImage?: string;
-    status?: 'draft' | 'published' | 'archived';
+    status?: PublishStatus;
     isPinned?: boolean;
   }) {
     return adaptSingle(await appApi.patch<AppApiSingle<HelpdeskNewsRecord>>(`/helpdesk-news/${id}`, data));

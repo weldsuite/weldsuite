@@ -3,6 +3,8 @@
 import type { StoreData } from '../types';
 import React from 'react';
 
+type HorizontalPosition = 'left' | 'center' | 'right';
+
 interface Block {
   id: string;
   type: string;
@@ -24,9 +26,9 @@ export interface MultirowBlockProps {
   headingSize?: 'h2' | 'h1' | 'h0' | 'hxl';
   imageHeight?: 'small' | 'medium' | 'large';
   desktopImageWidth?: 'small' | 'medium' | 'large';
-  desktopContentPosition?: 'left' | 'center' | 'right';
-  desktopContentAlignment?: 'left' | 'center' | 'right';
-  mobileContentAlignment?: 'left' | 'center' | 'right';
+  desktopContentPosition?: HorizontalPosition;
+  desktopContentAlignment?: HorizontalPosition;
+  mobileContentAlignment?: HorizontalPosition;
   colorScheme?: 'scheme-1' | 'scheme-2' | 'scheme-3';
   containerColorScheme?: 'scheme-1' | 'scheme-2' | 'scheme-3';
 

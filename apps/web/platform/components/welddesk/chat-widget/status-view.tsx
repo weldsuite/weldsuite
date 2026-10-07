@@ -19,6 +19,8 @@ import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 import { Button } from '@weldsuite/ui/components/button';
 import { secureRandom } from '@/lib/random';
 
+type DailyStatus = 'operational' | 'minor' | 'moderate' | 'major';
+
 interface StatusViewProps {
   onClose: () => void;
   onNavigateHome?: () => void;
@@ -36,7 +38,7 @@ interface StatusViewProps {
 interface ServiceData {
   name: string;
   uptimePercentage: string;
-  dailyStatus: ('operational' | 'minor' | 'moderate' | 'major')[];
+  dailyStatus: (DailyStatus)[];
 }
 
 export function StatusView({
@@ -59,8 +61,8 @@ export function StatusView({
   const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Generate mock uptime data for each service
-  const generateUptimeData = (): ('operational' | 'minor' | 'moderate' | 'major')[] => {
-    const data: ('operational' | 'minor' | 'moderate' | 'major')[] = [];
+  const generateUptimeData = (): (DailyStatus)[] => {
+    const data: (DailyStatus)[] = [];
     for (let i = 0; i < 90; i++) {
       const random = secureRandom();
       if (random > 0.98) {
@@ -85,7 +87,7 @@ export function StatusView({
     { name: 'Customer Helpdesk', uptimePercentage: '100%', dailyStatus: generateUptimeData() },
   ], []);
 
-  const getSegmentColor = (status: 'operational' | 'minor' | 'moderate' | 'major') => {
+  const getSegmentColor = (status: DailyStatus) => {
     switch (status) {
       case 'operational': return '#10B981';
       case 'minor': return '#FCD34D';
@@ -94,7 +96,7 @@ export function StatusView({
     }
   };
 
-  const getStatusText = (status: 'operational' | 'minor' | 'moderate' | 'major') => {
+  const getStatusText = (status: DailyStatus) => {
     switch (status) {
       case 'operational': return 'Operational';
       case 'minor': return 'Minor degradation';
