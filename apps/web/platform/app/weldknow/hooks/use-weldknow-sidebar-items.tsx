@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { BookOpen, FileText, Trash2 } from 'lucide-react';
+import { BookOpen, FileText, LayoutGrid, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { isApiError } from '@weldsuite/api-client';
 import { useCan } from '@weldsuite/permissions/react';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -15,12 +16,14 @@ import {
   useKnowledgeFavorites,
   useKnowledgePageTree,
   useKnowledgeSpaces,
+  useLeaveKnowledgeSpace,
   useRemoveKnowledgeFavorite,
   type KnowledgeSpace,
 } from '@/hooks/queries/use-knowledge-queries';
 import { CreateSpaceDialog } from '../components/create-space-dialog';
 import { MovePageDialog } from '../components/move-page-dialog';
 import { RenamePageDialog } from '../components/rename-page-dialog';
+import { SpaceMembersDialog } from '../components/space-members-dialog';
 import {
   KnowledgeSpaceTree,
   buildKnowledgeTree,
@@ -44,9 +47,10 @@ function pageIcon(emoji: string | null | undefined): MenuItemProps['icon'] {
 }
 
 /**
- * WeldKnow entries for the shared module sidebar: General (Home, Trash),
- * Favorites, and a Spaces group whose page tree is rendered as custom content
- * so it can nest arbitrarily deep.
+ * WeldKnow entries for the shared module sidebar: General (Home, Teamspaces,
+ * Trash), Favorites, Private (the caller's personal space) and Teamspaces (the
+ * ones they joined). Page trees are rendered as custom content so they can
+ * nest arbitrarily deep.
  */
 export function useWeldknowSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
@@ -73,26 +77,32 @@ export function useWeldknowSidebarItems(isActive: boolean): {
   const [movingPageId, setMovingPageId] = React.useState<string | null>(null);
   const [renamingPage, setRenamingPage] = React.useState<{ id: string; title: string } | null>(null);
   const [deletingSpace, setDeletingSpace] = React.useState<KnowledgeSpace | null>(null);
+  const [membersSpaceId, setMembersSpaceId] = React.useState<string | null>(null);
+  const [leavingSpace, setLeavingSpace] = React.useState<KnowledgeSpace | null>(null);
   const [deletingPageId, setDeletingPageId] = React.useState<string | null>(null);
 
   const createPage = useCreateKnowledgePage();
   const deletePage = useDeleteKnowledgePage();
   const deleteSpace = useDeleteKnowledgeSpace();
+  const leaveSpace = useLeaveKnowledgeSpace();
   const addFavorite = useAddKnowledgeFavorite();
   const removeFavorite = useRemoveKnowledgeFavorite();
 
-  const spaces = React.useMemo(() => spacesData?.data ?? [], [spacesData]);
+  const allSpaces = React.useMemo(() => spacesData?.data ?? [], [spacesData]);
+  const personalSpaces = React.useMemo(() => allSpaces.filter((s) => s.kind === 'personal'), [allSpaces]);
+  // The sidebar lists joined teamspaces only; the rest live on the Teamspaces page.
+  const spaces = React.useMemo(() => allSpaces.filter((s) => s.kind === 'team' && s.isMember), [allSpaces]);
   const allNodes = React.useMemo(() => treeData?.data ?? [], [treeData]);
   const favorites = React.useMemo(() => favoritesData?.data ?? [], [favoritesData]);
   const favoritePageIds = React.useMemo(() => new Set(favorites.map((f) => f.pageId)), [favorites]);
 
   const treesBySpace = React.useMemo(() => {
     const map = new Map<string, KnowledgeTreeNode[]>();
-    for (const space of spaces) {
+    for (const space of allSpaces) {
       map.set(space.id, buildKnowledgeTree(allNodes.filter((n) => n.spaceId === space.id)));
     }
     return map;
-  }, [spaces, allNodes]);
+  }, [allSpaces, allNodes]);
 
   const activePageId = React.useMemo(() => {
     const match = pathname?.match(/\/weldknow\/page\/([^/]+)/);
@@ -187,6 +197,18 @@ export function useWeldknowSidebarItems(isActive: boolean): {
     }
   }, [deletingSpace, deleteSpace, t]);
 
+  const handleLeaveSpace = React.useCallback(async () => {
+    if (!leavingSpace) return;
+    try {
+      await leaveSpace.mutateAsync(leavingSpace.id);
+      toast.success(t.teamspaces.leaveSuccess);
+    } catch (err) {
+      toast.error(isApiError(err) && err.status === 409 ? t.members.lastOwner : t.teamspaces.leaveError);
+    } finally {
+      setLeavingSpace(null);
+    }
+  }, [leavingSpace, leaveSpace, t]);
+
   const toggleSpace = React.useCallback((id: string) => setCollapsedSpaces((prev) => toggleInSet(prev, id)), []);
   const togglePage = React.useCallback((id: string) => setExpandedPages((prev) => toggleInSet(prev, id)), []);
   const openCreateSpace = React.useCallback(() => setShowCreateSpace(true), []);
@@ -199,6 +221,7 @@ export function useWeldknowSidebarItems(isActive: boolean): {
         group: tAll.navigation.moduleSidebar.groups.general,
         items: [
           { title: t.sidebar.home, href: '/weldknow', icon: BookOpen, isActive: pathname === '/weldknow' },
+          { title: t.sidebar.allTeamspaces, href: '/weldknow/teamspaces', icon: LayoutGrid },
           { title: t.sidebar.trash, href: '/weldknow/trash', icon: Trash2 },
         ],
       },
@@ -217,40 +240,53 @@ export function useWeldknowSidebarItems(isActive: boolean): {
       });
     }
 
+    const treeProps = {
+      treesBySpace,
+      isLoading: spacesLoading || treeLoading,
+      activePageId,
+      favoritePageIds,
+      expandedSpaces,
+      expandedPages,
+      canCreate,
+      canDelete,
+      onToggleSpace: toggleSpace,
+      onTogglePage: togglePage,
+      onCreateSpace: openCreateSpace,
+      onCreatePage: handleCreatePage,
+      onEditSpace: setEditingSpace,
+      onShowMembers: (space: KnowledgeSpace) => setMembersSpaceId(space.id),
+      onLeaveSpace: setLeavingSpace,
+      onDeleteSpace: setDeletingSpace,
+      onToggleFavorite: handleToggleFavorite,
+      onRenamePage: setRenamingPage,
+      onMovePage: setMovingPageId,
+      onDeletePage: setDeletingPageId,
+    };
+
+    const personal = personalSpaces[0];
+    if (personal) {
+      groups.push({
+        group: t.sidebar.private,
+        items: [],
+        onAdd: canCreate ? () => void handleCreatePage(personal.id, null) : undefined,
+        customContent: (
+          <KnowledgeSpaceTree {...treeProps} spaces={[personal]} flat emptyLabel={t.sidebar.noPrivatePages} />
+        ),
+      });
+    }
+
     groups.push({
-      group: t.sidebar.spaces,
+      group: t.sidebar.teamspaces,
       items: [],
       onAdd: canCreate && spaces.length > 0 ? openCreateSpace : undefined,
-      customContent: (
-        <KnowledgeSpaceTree
-          spaces={spaces}
-          treesBySpace={treesBySpace}
-          isLoading={spacesLoading || treeLoading}
-          activePageId={activePageId}
-          favoritePageIds={favoritePageIds}
-          expandedSpaces={expandedSpaces}
-          expandedPages={expandedPages}
-          canCreate={canCreate}
-          canDelete={canDelete}
-          onToggleSpace={toggleSpace}
-          onTogglePage={togglePage}
-          onCreateSpace={openCreateSpace}
-          onCreatePage={handleCreatePage}
-          onEditSpace={setEditingSpace}
-          onDeleteSpace={setDeletingSpace}
-          onToggleFavorite={handleToggleFavorite}
-          onRenamePage={setRenamingPage}
-          onMovePage={setMovingPageId}
-          onDeletePage={setDeletingPageId}
-        />
-      ),
+      customContent: <KnowledgeSpaceTree {...treeProps} spaces={spaces} />,
     });
 
     return groups;
   }, [
-    isActive, tAll, t, pathname, favorites, canCreate, canDelete, spaces, treesBySpace, spacesLoading, treeLoading,
-    activePageId, favoritePageIds, expandedSpaces, expandedPages, toggleSpace, togglePage, openCreateSpace,
-    handleCreatePage, handleToggleFavorite,
+    isActive, tAll, t, pathname, favorites, canCreate, canDelete, spaces, personalSpaces, treesBySpace, spacesLoading,
+    treeLoading, activePageId, favoritePageIds, expandedSpaces, expandedPages, toggleSpace, togglePage,
+    openCreateSpace, handleCreatePage, handleToggleFavorite,
   ]);
 
   const dialogs = (
@@ -264,6 +300,23 @@ export function useWeldknowSidebarItems(isActive: boolean): {
           }
         }}
         space={editingSpace}
+      />
+
+      <SpaceMembersDialog
+        space={allSpaces.find((s) => s.id === membersSpaceId) ?? null}
+        onOpenChange={(open) => !open && setMembersSpaceId(null)}
+      />
+
+      <ConfirmDialog
+        open={!!leavingSpace}
+        onOpenChange={(open) => !open && setLeavingSpace(null)}
+        title={t.teamspaces.leaveTitle}
+        description={t.teamspaces.leaveDescription}
+        confirmLabel={t.sidebar.leave}
+        cancelLabel={t.common.cancel}
+        variant="destructive"
+        loading={leaveSpace.isPending}
+        onConfirm={handleLeaveSpace}
       />
 
       {movingPageId && (

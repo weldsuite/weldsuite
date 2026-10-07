@@ -9,8 +9,8 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { SpaceNotFoundError, readableSpaceIds, requireSpace } from '@weldsuite/know-domain/access';
 
-const spaces = schema.knowledgeSpaces;
 const pages = schema.knowledgePages;
 const app = new Hono<HonoEnv>();
 
@@ -96,24 +96,22 @@ function resolveContent(body: {
 }
 
 // ---------------------------------------------------------------------------
-// Access helpers (mirrors app-api routes/knowledge)
+// Access helpers — the teamspace rules shared with know-api. A key with no
+// user behind it reaches open teamspaces only; a user token follows that
+// user's teamspace memberships.
 // ---------------------------------------------------------------------------
 
-function canAccessSpace(
-  space: { visibility: string; createdBy: string | null },
-  userId: string | null | undefined,
-): boolean {
-  return space.visibility !== 'private' || (!!userId && space.createdBy === userId);
+/** The caller's access to a space, or null when it is invisible to them. */
+async function spaceAccess(db: Db, spaceId: string, userId: string | null | undefined) {
+  try {
+    return await requireSpace(db, userId ?? null, spaceId);
+  } catch (err) {
+    if (err instanceof SpaceNotFoundError) return null;
+    throw err;
+  }
 }
 
-async function accessibleSpaceIds(db: Db, userId: string | null | undefined): Promise<string[]> {
-  const rows = await db
-    .select({ id: spaces.id, visibility: spaces.visibility, createdBy: spaces.createdBy })
-    .from(spaces)
-    .where(isNull(spaces.deletedAt));
-  return rows.filter((s) => canAccessSpace(s, userId)).map((s) => s.id);
-}
-
+/** A live page in a space the caller can read, with their access to that space. */
 async function loadAccessiblePage(db: Db, id: string, userId: string | null | undefined) {
   const [page] = await db
     .select()
@@ -121,10 +119,12 @@ async function loadAccessiblePage(db: Db, id: string, userId: string | null | un
     .where(and(eq(pages.id, id), isNull(pages.deletedAt)))
     .limit(1);
   if (!page) return null;
-  const [space] = await db.select().from(spaces).where(eq(spaces.id, page.spaceId)).limit(1);
-  if (!space || !canAccessSpace(space, userId)) return null;
-  return page;
+  const access = await spaceAccess(db, page.spaceId, userId);
+  if (!access?.canRead) return null;
+  return { page, access };
 }
+
+const NOT_EDITOR = 'This needs the editor role in the teamspace.';
 
 async function nextPosition(db: Db, spaceId: string, parentId: string | null): Promise<number> {
   const rows = await db
@@ -222,7 +222,7 @@ app.get('/', requireScope('knowledge:read'), zValidator('query', listPagesQuery)
   const userId = c.get('apiSession').userId;
   const q = c.req.valid('query');
 
-  const spaceIds = await accessibleSpaceIds(db, userId);
+  const spaceIds = await readableSpaceIds(db, userId ?? null);
   const scope = q.spaceId ? spaceIds.filter((s) => s === q.spaceId) : spaceIds;
   if (scope.length === 0) return list(c, [], cursorPagination(0, false, null));
 
@@ -241,7 +241,7 @@ app.get('/tree', requireScope('knowledge:read'), async (c) => {
   const userId = c.get('apiSession').userId;
   const spaceIdFilter = c.req.query('spaceId');
 
-  const spaceIds = await accessibleSpaceIds(db, userId);
+  const spaceIds = await readableSpaceIds(db, userId ?? null);
   const scope = spaceIdFilter ? spaceIds.filter((s) => s === spaceIdFilter) : spaceIds;
   if (scope.length === 0) return list(c, [], cursorPagination(0, false, null));
 
@@ -265,9 +265,9 @@ app.get('/:id', requireScope('knowledge:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('apiSession').userId;
   const id = c.req.param('id');
-  const page = await loadAccessiblePage(db, id, userId);
-  if (!page) return error.notFound(c, 'Knowledge page', id);
-  return success(c, page);
+  const loaded = await loadAccessiblePage(db, id, userId);
+  if (!loaded) return error.notFound(c, 'Knowledge page', id);
+  return success(c, loaded.page);
 });
 
 app.post('/', requireScope('knowledge:write'), zValidator('json', createPageSchema), async (c) => {
@@ -277,17 +277,14 @@ app.post('/', requireScope('knowledge:write'), zValidator('json', createPageSche
   const id = generateId('kpag');
   const now = new Date();
 
-  const [space] = await db
-    .select()
-    .from(spaces)
-    .where(and(eq(spaces.id, body.spaceId), isNull(spaces.deletedAt)))
-    .limit(1);
-  if (!space || !canAccessSpace(space, userId)) return error.notFound(c, 'Knowledge space', body.spaceId);
+  const space = await spaceAccess(db, body.spaceId, userId);
+  if (!space?.canRead) return error.notFound(c, 'Knowledge space', body.spaceId);
+  if (!space.canWrite) return error.forbidden(c, NOT_EDITOR);
 
   if (body.parentId) {
     const parent = await loadAccessiblePage(db, body.parentId, userId);
     if (!parent) return error.notFound(c, 'Parent page', body.parentId);
-    if (parent.spaceId !== body.spaceId) {
+    if (parent.page.spaceId !== body.spaceId) {
       return error.badRequest(c, 'Parent page belongs to a different space');
     }
   }
@@ -329,8 +326,10 @@ app.patch('/:id', requireScope('knowledge:write'), zValidator('json', updatePage
   const id = c.req.param('id');
   const body = c.req.valid('json');
 
-  const page = await loadAccessiblePage(db, id, userId);
-  if (!page) return error.notFound(c, 'Knowledge page', id);
+  const loaded = await loadAccessiblePage(db, id, userId);
+  if (!loaded) return error.notFound(c, 'Knowledge page', id);
+  if (!loaded.access.canWrite) return error.forbidden(c, NOT_EDITOR);
+  const { page } = loaded;
 
   const content = resolveContent(body);
   if (content && page.isLocked && body.isLocked !== false) {
@@ -364,23 +363,22 @@ app.post('/:id/move', requireScope('knowledge:write'), zValidator('json', movePa
   const id = c.req.param('id');
   const body = c.req.valid('json');
 
-  const page = await loadAccessiblePage(db, id, userId);
-  if (!page) return error.notFound(c, 'Knowledge page', id);
+  const loaded = await loadAccessiblePage(db, id, userId);
+  if (!loaded) return error.notFound(c, 'Knowledge page', id);
+  if (!loaded.access.canWrite) return error.forbidden(c, NOT_EDITOR);
+  const { page } = loaded;
 
   const targetSpaceId = body.spaceId ?? page.spaceId;
   if (targetSpaceId !== page.spaceId) {
-    const [space] = await db
-      .select()
-      .from(spaces)
-      .where(and(eq(spaces.id, targetSpaceId), isNull(spaces.deletedAt)))
-      .limit(1);
-    if (!space || !canAccessSpace(space, userId)) return error.notFound(c, 'Knowledge space', targetSpaceId);
+    const space = await spaceAccess(db, targetSpaceId, userId);
+    if (!space?.canRead) return error.notFound(c, 'Knowledge space', targetSpaceId);
+    if (!space.canWrite) return error.forbidden(c, NOT_EDITOR);
   }
 
   if (body.parentId) {
     const parent = await loadAccessiblePage(db, body.parentId, userId);
     if (!parent) return error.notFound(c, 'Parent page', body.parentId);
-    if (parent.spaceId !== targetSpaceId) {
+    if (parent.page.spaceId !== targetSpaceId) {
       return error.badRequest(c, 'Parent page belongs to a different space');
     }
     if (await wouldCreateCycle(db, id, body.parentId)) {
@@ -421,8 +419,10 @@ app.delete('/:id', requireScope('knowledge:write'), async (c) => {
   const userId = c.get('apiSession').userId;
   const id = c.req.param('id');
 
-  const page = await loadAccessiblePage(db, id, userId);
-  if (!page) return error.notFound(c, 'Knowledge page', id);
+  const loaded = await loadAccessiblePage(db, id, userId);
+  if (!loaded) return error.notFound(c, 'Knowledge page', id);
+  if (!loaded.access.canWrite) return error.forbidden(c, NOT_EDITOR);
+  const { page } = loaded;
 
   const subtree = await collectSubtreeIds(db, id);
   const now = new Date();

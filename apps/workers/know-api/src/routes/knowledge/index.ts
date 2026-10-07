@@ -1,22 +1,28 @@
 /**
  * Knowledge routes — /api/knowledge/* backing the WeldKnow workspace wiki.
  *
- * Surface: spaces CRUD, nested pages (tree metadata / detail / create /
- * metadata patch / content autosave / move / soft-delete subtree / trash /
- * restore), throttled version history, and per-user favorites.
+ * Surface: teamspaces + each person's private space (CRUD, members, join,
+ * leave), nested pages (tree metadata / detail / create / metadata patch /
+ * content autosave / move / soft-delete subtree / trash / restore), throttled
+ * version history, and per-user favorites.
  *
- * Permissions: knowledge:read | knowledge:create | knowledge:update | knowledge:delete.
- * Private spaces (visibility='private') are only visible to their creator.
+ * Two layers of access, both required:
+ *   - workspace permissions: knowledge:read | create | update | delete, plus
+ *     knowledge:manage to see and fix every teamspace;
+ *   - teamspace membership, resolved in @weldsuite/know-domain/access (viewer
+ *     reads, editor writes, owner manages; open teamspaces are readable by all).
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, desc, eq, inArray, isNull, isNotNull, sql } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createKnowledgeSpaceSchema,
   updateKnowledgeSpaceSchema,
+  addKnowledgeSpaceMemberSchema,
+  updateKnowledgeSpaceMemberSchema,
   createKnowledgePageSchema,
   updateKnowledgePageSchema,
   saveKnowledgePageContentSchema,
@@ -34,37 +40,86 @@ import {
   listPageVersions,
   maybeAutoSnapshotPage,
 } from '../../services/knowledge-versions';
+import {
+  SpaceAccessError,
+  SpaceConflictError,
+  SpaceNotFoundError,
+  addEveryoneToSpace,
+  addSpaceMember,
+  assertCanManage,
+  assertCanWrite,
+  ensurePersonalSpace,
+  joinDefaultSpaces,
+  joinSpace,
+  listSpaceMembers,
+  listSpaces,
+  listTeammates,
+  readableSpaceIds,
+  removeSpaceMember,
+  requireSpace,
+  setSpaceMemberRole,
+  writableSpaceIds,
+  type SpaceAccess,
+} from '@weldsuite/know-domain/access';
 
-const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+type KnowledgeEnv = { Bindings: Env; Variables: Variables };
+type KnowledgeContext = Context<KnowledgeEnv>;
+
+const app = new Hono<KnowledgeEnv>();
 const spaces = schema.knowledgeSpaces;
 const pages = schema.knowledgePages;
 const favorites = schema.knowledgeFavorites;
 
-/** A private space is only accessible to its creator. */
-function canAccessSpace(space: { visibility: string; createdBy: string | null }, userId: string) {
-  return space.visibility !== 'private' || space.createdBy === userId;
+/** Map the access service's errors onto the response envelope. */
+function accessError(c: KnowledgeContext, err: unknown, fallback: string) {
+  if (err instanceof SpaceNotFoundError) return error.notFound(c, err.resource, err.id);
+  if (err instanceof SpaceAccessError) return error.forbidden(c, err.message);
+  if (err instanceof SpaceConflictError) return error.conflict(c, err.message);
+  console.error(`[know-api/knowledge] ${fallback}:`, err);
+  return error.internal(c, fallback);
 }
 
-/** IDs of all spaces the user may see (workspace spaces + own private spaces). */
-async function accessibleSpaceIds(db: Database, userId: string): Promise<string[]> {
-  const rows = await db
-    .select({ id: spaces.id, visibility: spaces.visibility, createdBy: spaces.createdBy })
-    .from(spaces)
-    .where(isNull(spaces.deletedAt));
-  return rows.filter((s) => canAccessSpace(s, userId)).map((s) => s.id);
+const canManageAll = (c: KnowledgeContext) => hasContextPermission(c, 'knowledge:manage');
+
+/** The `:id` space, resolved for this caller. */
+async function spaceFor(c: KnowledgeContext, spaceId: string): Promise<SpaceAccess> {
+  return requireSpace(c.get('tenantDb'), c.get('userId'), spaceId, { canManageAll: await canManageAll(c) });
 }
 
-/** Load a live page and verify the caller may access its space. */
-async function loadAccessiblePage(db: Database, id: string, userId: string) {
+/**
+ * Load a live page plus the caller's access to its space. A page in a space
+ * the caller cannot read is reported as missing.
+ */
+async function loadPage(db: Database, id: string, userId: string) {
   const [page] = await db
     .select()
     .from(pages)
     .where(and(eq(pages.id, id), isNull(pages.deletedAt)))
     .limit(1);
-  if (!page) return null;
-  const [space] = await db.select().from(spaces).where(eq(spaces.id, page.spaceId)).limit(1);
-  if (!space || !canAccessSpace(space, userId)) return null;
-  return page;
+  if (!page) throw new SpaceNotFoundError('Page', id);
+  let access: SpaceAccess;
+  try {
+    access = await requireSpace(db, userId, page.spaceId);
+  } catch (err) {
+    if (err instanceof SpaceNotFoundError) throw new SpaceNotFoundError('Page', id);
+    throw err;
+  }
+  if (!access.canRead) throw new SpaceNotFoundError('Page', id);
+  return { page, access };
+}
+
+/** A page the caller may write: readable, and they have the editor role. */
+async function loadWritablePage(db: Database, id: string, userId: string) {
+  const loaded = await loadPage(db, id, userId);
+  assertCanWrite(loaded.access);
+  return loaded;
+}
+
+/** A space the caller may add pages to. */
+async function writableSpace(db: Database, spaceId: string, userId: string) {
+  const access = await requireSpace(db, userId, spaceId);
+  assertCanWrite(access);
+  return access;
 }
 
 /** Next sibling position under a parent (append semantics). */
@@ -121,20 +176,21 @@ async function wouldCreateCycle(db: Database, pageId: string, newParentId: strin
 // Spaces
 // ---------------------------------------------------------------------------
 
+/**
+ * Every space the caller can see, with what they may do in each. Creates their
+ * personal space on first use and adds them to default teamspaces they have
+ * never been in.
+ */
 app.get('/spaces', requirePermission('knowledge:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   try {
-    const rows = await db
-      .select()
-      .from(spaces)
-      .where(isNull(spaces.deletedAt))
-      .orderBy(asc(spaces.sortOrder), asc(spaces.createdAt));
-    const visible = rows.filter((s) => canAccessSpace(s, userId));
-    return list(c, visible, { totalCount: visible.length, hasMore: false, cursor: null });
+    if (await hasContextPermission(c, 'knowledge:create')) await ensurePersonalSpace(db, userId);
+    await joinDefaultSpaces(db, userId);
+    const rows = await listSpaces(db, userId, { canManageAll: await canManageAll(c) });
+    return list(c, rows, { totalCount: rows.length, hasMore: false, cursor: null });
   } catch (err) {
-    console.error('[app-api/knowledge] list spaces failed:', err);
-    return error.internal(c, 'Failed to list spaces');
+    return accessError(c, err, 'Failed to list spaces');
   }
 });
 
@@ -145,6 +201,9 @@ app.post('/spaces', requirePermission('knowledge:create'), zValidator('json', cr
   const id = generateId('kspc');
   const now = new Date();
   try {
+    if (data.isDefault && !(await canManageAll(c))) {
+      return error.forbidden(c, 'Only workspace admins can make a teamspace default.');
+    }
     let sortOrder = data.sortOrder;
     if (sortOrder === undefined) {
       const [row] = await db
@@ -159,18 +218,23 @@ app.post('/spaces', requirePermission('knowledge:create'), zValidator('json', cr
       description: data.description ?? null,
       icon: data.icon ?? null,
       color: data.color ?? null,
-      visibility: data.visibility ?? 'workspace',
+      kind: 'team',
+      visibility: data.visibility ?? 'open',
+      isDefault: data.isDefault ?? false,
       sortOrder,
       createdBy: userId,
       createdAt: now,
       updatedAt: now,
     });
+    // The creator is the teamspace's first owner.
+    await addSpaceMember(db, id, { userId, role: 'owner', addedBy: userId });
+    if (data.isDefault) await addEveryoneToSpace(db, id, userId);
+
     publishEntityEvent({ c, entityType: 'knowledge_space', entityId: id, action: 'created', data: { id, name: data.name } });
     const [row] = await db.select().from(spaces).where(eq(spaces.id, id)).limit(1);
     return success(c, row, 201);
   } catch (err) {
-    console.error('[app-api/knowledge] create space failed:', err);
-    return error.internal(c, 'Failed to create space');
+    return accessError(c, err, 'Failed to create space');
   }
 });
 
@@ -180,30 +244,34 @@ app.patch('/spaces/:id', requirePermission('knowledge:update'), zValidator('json
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
-    const [existing] = await db.select().from(spaces).where(and(eq(spaces.id, id), isNull(spaces.deletedAt))).limit(1);
-    if (!existing || !canAccessSpace(existing, userId)) return error.notFound(c, 'Space', id);
+    const access = await spaceFor(c, id);
+    assertCanManage(access);
+    const turnsDefaultOn = data.isDefault === true && !access.space.isDefault;
+    if (data.isDefault !== undefined && data.isDefault !== access.space.isDefault && !(await canManageAll(c))) {
+      return error.forbidden(c, 'Only workspace admins can change which teamspaces are default.');
+    }
 
     const update: Record<string, unknown> = { updatedAt: new Date() };
-    for (const key of ['name', 'description', 'icon', 'color', 'visibility', 'sortOrder'] as const) {
+    for (const key of ['name', 'description', 'icon', 'color', 'visibility', 'isDefault', 'sortOrder'] as const) {
       if (data[key] !== undefined) update[key] = data[key];
     }
     await db.update(spaces).set(update).where(eq(spaces.id, id));
-    publishEntityEvent({ c, entityType: 'knowledge_space', entityId: id, action: 'updated', data: { id, name: (update.name as string | undefined) ?? existing.name } });
+    if (turnsDefaultOn) await addEveryoneToSpace(db, id, userId);
+
+    publishEntityEvent({ c, entityType: 'knowledge_space', entityId: id, action: 'updated', data: { id, name: (update.name as string | undefined) ?? access.space.name } });
     const [row] = await db.select().from(spaces).where(eq(spaces.id, id)).limit(1);
     return success(c, row);
   } catch (err) {
-    console.error('[app-api/knowledge] update space failed:', err);
-    return error.internal(c, 'Failed to update space');
+    return accessError(c, err, 'Failed to update space');
   }
 });
 
 app.delete('/spaces/:id', requirePermission('knowledge:delete'), async (c) => {
   const db = c.get('tenantDb');
-  const userId = c.get('userId');
   const id = c.req.param('id');
   try {
-    const [existing] = await db.select().from(spaces).where(and(eq(spaces.id, id), isNull(spaces.deletedAt))).limit(1);
-    if (!existing || !canAccessSpace(existing, userId)) return error.notFound(c, 'Space', id);
+    const access = await spaceFor(c, id);
+    assertCanManage(access);
 
     const now = new Date();
     await db.update(spaces).set({ deletedAt: now, updatedAt: now }).where(eq(spaces.id, id));
@@ -215,8 +283,118 @@ app.delete('/spaces/:id', requirePermission('knowledge:delete'), async (c) => {
     publishEntityEvent({ c, entityType: 'knowledge_space', entityId: id, action: 'deleted', data: { id } });
     return noContent(c);
   } catch (err) {
-    console.error('[app-api/knowledge] delete space failed:', err);
-    return error.internal(c, 'Failed to delete space');
+    return accessError(c, err, 'Failed to delete space');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Teamspace members
+// ---------------------------------------------------------------------------
+
+/** People a teamspace can be shared with. */
+app.get('/teammates', requirePermission('knowledge:read'), async (c) => {
+  try {
+    const rows = await listTeammates(c.get('tenantDb'));
+    return list(c, rows, { totalCount: rows.length, hasMore: false, cursor: null });
+  } catch (err) {
+    return accessError(c, err, 'Failed to list teammates');
+  }
+});
+
+/** Anyone who can see a teamspace can see who is in it, and so who to ask. */
+app.get('/spaces/:id/members', requirePermission('knowledge:read'), async (c) => {
+  const id = c.req.param('id');
+  try {
+    const access = await spaceFor(c, id);
+    if (access.space.kind === 'personal') return list(c, [], { totalCount: 0, hasMore: false, cursor: null });
+    const rows = await listSpaceMembers(c.get('tenantDb'), id);
+    return list(c, rows, { totalCount: rows.length, hasMore: false, cursor: null });
+  } catch (err) {
+    return accessError(c, err, 'Failed to list members');
+  }
+});
+
+/** Add a teammate, or change their role if they are already in. Owners only. */
+app.post('/spaces/:id/members', requirePermission('knowledge:read'), zValidator('json', addKnowledgeSpaceMemberSchema), async (c) => {
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+  try {
+    const access = await spaceFor(c, id);
+    assertCanManage(access);
+    const { created } = await addSpaceMember(c.get('tenantDb'), id, {
+      userId: data.userId,
+      role: data.role,
+      addedBy: c.get('userId'),
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'knowledge_space_member',
+      entityId: id,
+      action: created ? 'added' : 'updated',
+      data: { spaceId: id, userId: data.userId, role: data.role },
+    });
+    return success(c, { spaceId: id, userId: data.userId, role: data.role }, created ? 201 : 200);
+  } catch (err) {
+    return accessError(c, err, 'Failed to add member');
+  }
+});
+
+app.patch('/spaces/:id/members/:userId', requirePermission('knowledge:read'), zValidator('json', updateKnowledgeSpaceMemberSchema), async (c) => {
+  const id = c.req.param('id');
+  const memberId = c.req.param('userId');
+  const { role } = c.req.valid('json');
+  try {
+    const access = await spaceFor(c, id);
+    assertCanManage(access);
+    await setSpaceMemberRole(c.get('tenantDb'), id, memberId, role);
+    publishEntityEvent({ c, entityType: 'knowledge_space_member', entityId: id, action: 'updated', data: { spaceId: id, userId: memberId, role } });
+    return success(c, { spaceId: id, userId: memberId, role });
+  } catch (err) {
+    return accessError(c, err, 'Failed to change member role');
+  }
+});
+
+/** Remove a member. Owners (and admins) remove anyone; anyone may remove themselves. */
+app.delete('/spaces/:id/members/:userId', requirePermission('knowledge:read'), async (c) => {
+  const id = c.req.param('id');
+  const memberId = c.req.param('userId');
+  try {
+    const access = await spaceFor(c, id);
+    if (memberId !== c.get('userId')) assertCanManage(access);
+    await removeSpaceMember(c.get('tenantDb'), id, memberId);
+    publishEntityEvent({ c, entityType: 'knowledge_space_member', entityId: id, action: 'removed', data: { spaceId: id, userId: memberId } });
+    return noContent(c);
+  } catch (err) {
+    return accessError(c, err, 'Failed to remove member');
+  }
+});
+
+/** Join an open teamspace as an editor. Admins holding knowledge:manage may join any teamspace. */
+app.post('/spaces/:id/join', requirePermission('knowledge:read'), async (c) => {
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+  try {
+    const access = await spaceFor(c, id);
+    if (access.role) return success(c, { spaceId: id, userId, role: access.role });
+    await joinSpace(c.get('tenantDb'), access, userId);
+    publishEntityEvent({ c, entityType: 'knowledge_space_member', entityId: id, action: 'added', data: { spaceId: id, userId, role: 'editor' } });
+    return success(c, { spaceId: id, userId, role: 'editor' });
+  } catch (err) {
+    return accessError(c, err, 'Failed to join teamspace');
+  }
+});
+
+/** Leave a teamspace. The last owner has to hand over first. */
+app.post('/spaces/:id/leave', requirePermission('knowledge:read'), async (c) => {
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+  try {
+    await spaceFor(c, id);
+    await removeSpaceMember(c.get('tenantDb'), id, userId);
+    publishEntityEvent({ c, entityType: 'knowledge_space_member', entityId: id, action: 'removed', data: { spaceId: id, userId } });
+    return noContent(c);
+  } catch (err) {
+    return accessError(c, err, 'Failed to leave teamspace');
   }
 });
 
@@ -230,7 +408,7 @@ app.get('/pages/tree', requirePermission('knowledge:read'), async (c) => {
   const userId = c.get('userId');
   const spaceIdFilter = c.req.query('spaceId');
   try {
-    const spaceIds = await accessibleSpaceIds(db, userId);
+    const spaceIds = await readableSpaceIds(db, userId);
     const scope = spaceIdFilter ? spaceIds.filter((s) => s === spaceIdFilter) : spaceIds;
     if (scope.length === 0) return list(c, [], { totalCount: 0, hasMore: false, cursor: null });
 
@@ -254,12 +432,12 @@ app.get('/pages/tree', requirePermission('knowledge:read'), async (c) => {
   }
 });
 
-/** Soft-deleted pages, newest first. */
+/** Soft-deleted pages in spaces the caller can write to (and so restore in), newest first. */
 app.get('/trash', requirePermission('knowledge:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   try {
-    const spaceIds = await accessibleSpaceIds(db, userId);
+    const spaceIds = await writableSpaceIds(db, userId);
     if (spaceIds.length === 0) return list(c, [], { totalCount: 0, hasMore: false, cursor: null });
     const rows = await db
       .select({
@@ -286,12 +464,10 @@ app.get('/pages/:id', requirePermission('knowledge:read'), async (c) => {
   const userId = c.get('userId');
   const id = c.req.param('id');
   try {
-    const page = await loadAccessiblePage(db, id, userId);
-    if (!page) return error.notFound(c, 'Page', id);
+    const { page } = await loadPage(db, id, userId);
     return success(c, page);
   } catch (err) {
-    console.error('[app-api/knowledge] get page failed:', err);
-    return error.internal(c, 'Failed to fetch page');
+    return accessError(c, err, 'Failed to fetch page');
   }
 });
 
@@ -302,16 +478,10 @@ app.post('/pages', requirePermission('knowledge:create'), zValidator('json', cre
   const id = generateId('kpag');
   const now = new Date();
   try {
-    const [space] = await db
-      .select()
-      .from(spaces)
-      .where(and(eq(spaces.id, data.spaceId), isNull(spaces.deletedAt)))
-      .limit(1);
-    if (!space || !canAccessSpace(space, userId)) return error.notFound(c, 'Space', data.spaceId);
+    await writableSpace(db, data.spaceId, userId);
 
     if (data.parentId) {
-      const parent = await loadAccessiblePage(db, data.parentId, userId);
-      if (!parent) return error.notFound(c, 'Parent page', data.parentId);
+      const { page: parent } = await loadPage(db, data.parentId, userId);
       if (parent.spaceId !== data.spaceId) {
         return error.badRequest(c, 'Parent page belongs to a different space');
       }
@@ -337,8 +507,7 @@ app.post('/pages', requirePermission('knowledge:create'), zValidator('json', cre
     const [row] = await db.select().from(pages).where(eq(pages.id, id)).limit(1);
     return success(c, row, 201);
   } catch (err) {
-    console.error('[app-api/knowledge] create page failed:', err);
-    return error.internal(c, 'Failed to create page');
+    return accessError(c, err, 'Failed to create page');
   }
 });
 
@@ -348,8 +517,7 @@ app.patch('/pages/:id', requirePermission('knowledge:update'), zValidator('json'
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
-    const page = await loadAccessiblePage(db, id, userId);
-    if (!page) return error.notFound(c, 'Page', id);
+    const { page } = await loadWritablePage(db, id, userId);
 
     const update: Record<string, unknown> = { updatedAt: new Date(), lastEditedBy: userId };
     for (const key of ['title', 'icon', 'coverImage', 'isLocked'] as const) {
@@ -360,8 +528,7 @@ app.patch('/pages/:id', requirePermission('knowledge:update'), zValidator('json'
     const [row] = await db.select().from(pages).where(eq(pages.id, id)).limit(1);
     return success(c, row);
   } catch (err) {
-    console.error('[app-api/knowledge] update page failed:', err);
-    return error.internal(c, 'Failed to update page');
+    return accessError(c, err, 'Failed to update page');
   }
 });
 
@@ -372,8 +539,7 @@ app.put('/pages/:id/content', requirePermission('knowledge:update'), zValidator(
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
-    const page = await loadAccessiblePage(db, id, userId);
-    if (!page) return error.notFound(c, 'Page', id);
+    const { page } = await loadWritablePage(db, id, userId);
     if (page.isLocked) return error.conflict(c, 'Page is locked');
 
     await db
@@ -389,8 +555,7 @@ app.put('/pages/:id/content', requirePermission('knowledge:update'), zValidator(
     publishEntityEvent({ c, entityType: 'knowledge_page', entityId: id, action: 'updated', data: { id, spaceId: page.spaceId, title: page.title } });
     return success(c, { id });
   } catch (err) {
-    console.error('[app-api/knowledge] save content failed:', err);
-    return error.internal(c, 'Failed to save page content');
+    return accessError(c, err, 'Failed to save page content');
   }
 });
 
@@ -401,22 +566,13 @@ app.post('/pages/:id/move', requirePermission('knowledge:update'), zValidator('j
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
-    const page = await loadAccessiblePage(db, id, userId);
-    if (!page) return error.notFound(c, 'Page', id);
+    const { page } = await loadWritablePage(db, id, userId);
 
     const targetSpaceId = data.spaceId ?? page.spaceId;
-    if (targetSpaceId !== page.spaceId) {
-      const [space] = await db
-        .select()
-        .from(spaces)
-        .where(and(eq(spaces.id, targetSpaceId), isNull(spaces.deletedAt)))
-        .limit(1);
-      if (!space || !canAccessSpace(space, userId)) return error.notFound(c, 'Space', targetSpaceId);
-    }
+    if (targetSpaceId !== page.spaceId) await writableSpace(db, targetSpaceId, userId);
 
     if (data.parentId) {
-      const parent = await loadAccessiblePage(db, data.parentId, userId);
-      if (!parent) return error.notFound(c, 'Parent page', data.parentId);
+      const { page: parent } = await loadPage(db, data.parentId, userId);
       if (parent.spaceId !== targetSpaceId) {
         return error.badRequest(c, 'Parent page belongs to a different space');
       }
@@ -445,8 +601,7 @@ app.post('/pages/:id/move', requirePermission('knowledge:update'), zValidator('j
     const [row] = await db.select().from(pages).where(eq(pages.id, id)).limit(1);
     return success(c, row);
   } catch (err) {
-    console.error('[app-api/knowledge] move page failed:', err);
-    return error.internal(c, 'Failed to move page');
+    return accessError(c, err, 'Failed to move page');
   }
 });
 
@@ -456,8 +611,7 @@ app.delete('/pages/:id', requirePermission('knowledge:delete'), async (c) => {
   const userId = c.get('userId');
   const id = c.req.param('id');
   try {
-    const page = await loadAccessiblePage(db, id, userId);
-    if (!page) return error.notFound(c, 'Page', id);
+    const { page } = await loadWritablePage(db, id, userId);
 
     const subtree = await collectSubtreeIds(db, id);
     const now = new Date();
@@ -465,8 +619,7 @@ app.delete('/pages/:id', requirePermission('knowledge:delete'), async (c) => {
     publishEntityEvent({ c, entityType: 'knowledge_page', entityId: id, action: 'deleted', data: { id, spaceId: page.spaceId } });
     return noContent(c);
   } catch (err) {
-    console.error('[app-api/knowledge] delete page failed:', err);
-    return error.internal(c, 'Failed to delete page');
+    return accessError(c, err, 'Failed to delete page');
   }
 });
 
@@ -483,12 +636,16 @@ app.post('/pages/:id/restore', requirePermission('knowledge:update'), async (c) 
       .limit(1);
     if (!page) return error.notFound(c, 'Page', id);
     const [space] = await db
-      .select()
+      .select({ id: spaces.id })
       .from(spaces)
       .where(and(eq(spaces.id, page.spaceId), isNull(spaces.deletedAt)))
       .limit(1);
-    if (!space || !canAccessSpace(space, userId)) {
-      return error.conflict(c, 'The space this page belonged to no longer exists');
+    if (!space) return error.conflict(c, 'The space this page belonged to no longer exists');
+    try {
+      await writableSpace(db, page.spaceId, userId);
+    } catch (err) {
+      if (err instanceof SpaceNotFoundError) return error.notFound(c, 'Page', id);
+      throw err;
     }
 
     // Restore the page plus its deleted descendants (BFS over deleted rows).
@@ -525,8 +682,7 @@ app.post('/pages/:id/restore', requirePermission('knowledge:update'), async (c) 
     const [row] = await db.select().from(pages).where(eq(pages.id, id)).limit(1);
     return success(c, row);
   } catch (err) {
-    console.error('[app-api/knowledge] restore page failed:', err);
-    return error.internal(c, 'Failed to restore page');
+    return accessError(c, err, 'Failed to restore page');
   }
 });
 
@@ -539,13 +695,11 @@ app.get('/pages/:id/versions', requirePermission('knowledge:read'), async (c) =>
   const userId = c.get('userId');
   const id = c.req.param('id');
   try {
-    const page = await loadAccessiblePage(db, id, userId);
-    if (!page) return error.notFound(c, 'Page', id);
+    await loadPage(db, id, userId);
     const rows = await listPageVersions(db, id);
     return list(c, rows, { totalCount: rows.length, hasMore: false, cursor: null });
   } catch (err) {
-    console.error('[app-api/knowledge] list versions failed:', err);
-    return error.internal(c, 'Failed to list versions');
+    return accessError(c, err, 'Failed to list versions');
   }
 });
 
@@ -555,13 +709,11 @@ app.post('/pages/:id/versions', requirePermission('knowledge:update'), zValidato
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
-    const page = await loadAccessiblePage(db, id, userId);
-    if (!page) return error.notFound(c, 'Page', id);
+    const { page } = await loadWritablePage(db, id, userId);
     const row = await createPageVersion(db, id, page.contentJson ?? [], userId, data.label ?? null);
     return success(c, row, 201);
   } catch (err) {
-    console.error('[app-api/knowledge] create version failed:', err);
-    return error.internal(c, 'Failed to create version');
+    return accessError(c, err, 'Failed to create version');
   }
 });
 
@@ -571,14 +723,12 @@ app.get('/pages/:id/versions/:versionId', requirePermission('knowledge:read'), a
   const id = c.req.param('id');
   const versionId = c.req.param('versionId');
   try {
-    const page = await loadAccessiblePage(db, id, userId);
-    if (!page) return error.notFound(c, 'Page', id);
+    await loadPage(db, id, userId);
     const row = await getPageVersion(db, id, versionId);
     if (!row) return error.notFound(c, 'Version', versionId);
     return success(c, row);
   } catch (err) {
-    console.error('[app-api/knowledge] get version failed:', err);
-    return error.internal(c, 'Failed to fetch version');
+    return accessError(c, err, 'Failed to fetch version');
   }
 });
 
@@ -589,8 +739,7 @@ app.post('/pages/:id/versions/:versionId/restore', requirePermission('knowledge:
   const id = c.req.param('id');
   const versionId = c.req.param('versionId');
   try {
-    const page = await loadAccessiblePage(db, id, userId);
-    if (!page) return error.notFound(c, 'Page', id);
+    const { page } = await loadWritablePage(db, id, userId);
     if (page.isLocked) return error.conflict(c, 'Page is locked');
     const version = await getPageVersion(db, id, versionId);
     if (!version) return error.notFound(c, 'Version', versionId);
@@ -604,8 +753,7 @@ app.post('/pages/:id/versions/:versionId/restore', requirePermission('knowledge:
     const [row] = await db.select().from(pages).where(eq(pages.id, id)).limit(1);
     return success(c, row);
   } catch (err) {
-    console.error('[app-api/knowledge] restore version failed:', err);
-    return error.internal(c, 'Failed to restore version');
+    return accessError(c, err, 'Failed to restore version');
   }
 });
 
@@ -613,10 +761,13 @@ app.post('/pages/:id/versions/:versionId/restore', requirePermission('knowledge:
 // Favorites (always scoped to the authenticated user)
 // ---------------------------------------------------------------------------
 
+/** Favorites in spaces the caller can still read — leaving a teamspace hides its pages here too. */
 app.get('/favorites', requirePermission('knowledge:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   try {
+    const spaceIds = await readableSpaceIds(db, userId);
+    if (spaceIds.length === 0) return list(c, [], { totalCount: 0, hasMore: false, cursor: null });
     const rows = await db
       .select({
         id: favorites.id,
@@ -628,12 +779,11 @@ app.get('/favorites', requirePermission('knowledge:read'), async (c) => {
       })
       .from(favorites)
       .innerJoin(pages, eq(favorites.pageId, pages.id))
-      .where(and(eq(favorites.userId, userId), isNull(pages.deletedAt)))
+      .where(and(eq(favorites.userId, userId), isNull(pages.deletedAt), inArray(pages.spaceId, spaceIds)))
       .orderBy(asc(favorites.position), asc(favorites.createdAt));
     return list(c, rows, { totalCount: rows.length, hasMore: false, cursor: null });
   } catch (err) {
-    console.error('[app-api/knowledge] list favorites failed:', err);
-    return error.internal(c, 'Failed to list favorites');
+    return accessError(c, err, 'Failed to list favorites');
   }
 });
 
@@ -642,8 +792,7 @@ app.post('/favorites', requirePermission('knowledge:read'), zValidator('json', a
   const userId = c.get('userId');
   const { pageId } = c.req.valid('json');
   try {
-    const page = await loadAccessiblePage(db, pageId, userId);
-    if (!page) return error.notFound(c, 'Page', pageId);
+    await loadPage(db, pageId, userId);
     const [existing] = await db
       .select({ id: favorites.id })
       .from(favorites)
@@ -665,8 +814,7 @@ app.post('/favorites', requirePermission('knowledge:read'), zValidator('json', a
     });
     return success(c, { id, pageId }, 201);
   } catch (err) {
-    console.error('[app-api/knowledge] add favorite failed:', err);
-    return error.internal(c, 'Failed to add favorite');
+    return accessError(c, err, 'Failed to add favorite');
   }
 });
 

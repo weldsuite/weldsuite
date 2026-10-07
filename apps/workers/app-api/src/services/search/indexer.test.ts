@@ -233,8 +233,8 @@ describe('indexEntity against real rows', () => {
     await db.insert(schema.knowledgeSpaces).values({
       id: spaceId,
       name: 'Engineering',
-      visibility: 'workspace',
-    } as typeof schema.knowledgeSpaces.$inferInsert);
+      visibility: 'open',
+    });
     await db.insert(schema.knowledgePages).values({
       id: pageId,
       spaceId,
