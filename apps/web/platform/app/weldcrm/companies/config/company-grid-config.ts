@@ -53,7 +53,8 @@ function extractDomain(url: string | null | undefined): string | undefined {
   }
 }
 
-function getCompanyAvatar(company: Company): string | undefined {
+/** The company's logo: its own image, else the favicon of its website / email domain. */
+export function getCompanyAvatar(company: Pick<Company, 'avatarUrl' | 'website' | 'email'>): string | undefined {
   if (company.avatarUrl) return company.avatarUrl;
   const domain = extractDomain(company.website) || extractDomain(company.email?.split('@')[1] ?? undefined);
   if (domain) return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;

@@ -103,7 +103,7 @@ function defineLoader<T extends { id: string }>(config: {
       return {
         documents: rows.map(build).filter((d): d is IndexableDocument => d !== null),
         rowsRead: rows.length,
-        lastScannedId: rows.length > 0 ? rows[rows.length - 1]!.id : null,
+        lastScannedId: rows.length > 0 ? rows.at(-1)!.id : null,
       };
     },
   };
@@ -275,7 +275,7 @@ const taskLoader = defineLoader({
   },
   toDocument: (r) => ({
     title: r.title || 'Task',
-    subtitle: r.number != null ? `TASK-${r.number}` : null,
+    subtitle: r.number != null ? String(r.number) : null,
     content: compose([r.title, r.description]),
   }),
 });

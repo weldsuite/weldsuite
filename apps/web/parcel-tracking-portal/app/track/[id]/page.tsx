@@ -15,7 +15,6 @@ import {
   Truck,
   Home,
   AlertCircle,
-  MapPin,
   Calendar,
   User,
   Mail,

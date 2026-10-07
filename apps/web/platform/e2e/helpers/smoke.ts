@@ -35,6 +35,6 @@ export async function smokeRoute(page: Page, route: SmokeRoute): Promise<void> {
 
   const expected =
     route.expectedUrl ??
-    new RegExp(route.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\?/, '\\?'));
+    new RegExp(route.path.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`).replace(/\\\?/, String.raw`\?`));
   await expect(page).toHaveURL(expected, { timeout: 10_000 });
 }

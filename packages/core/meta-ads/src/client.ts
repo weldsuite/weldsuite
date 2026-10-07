@@ -6,6 +6,7 @@ import type {
   UpdateMetaCampaignInput,
   FetchImpl,
 } from './types';
+import { asText } from '@weldsuite/text';
 
 const GRAPH_VERSION = 'v21.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -46,11 +47,11 @@ export class MetaMarketingClient {
       limit: '200',
     });
     return (json.data ?? []).map((row) => ({
-      platformAccountId: String(row.id),
-      name: String(row.name ?? row.id),
-      currency: row.currency ? String(row.currency) : undefined,
-      timezone: row.timezone_name ? String(row.timezone_name) : undefined,
-      status: row.account_status != null ? String(row.account_status) : undefined,
+      platformAccountId: asText(row.id),
+      name: asText(row.name ?? row.id),
+      currency: row.currency ? asText(row.currency) : undefined,
+      timezone: row.timezone_name ? asText(row.timezone_name) : undefined,
+      status: row.account_status != null ? asText(row.account_status) : undefined,
     }));
   }
 
@@ -87,13 +88,13 @@ export class MetaMarketingClient {
     );
     const insightsByCampaign = new Map<string, MetaCampaignMetrics>();
     for (const row of insightsJson.data ?? []) {
-      const campaignId = row.campaign_id ? String(row.campaign_id) : undefined;
+      const campaignId = row.campaign_id ? asText(row.campaign_id) : undefined;
       if (!campaignId) continue;
       insightsByCampaign.set(campaignId, mapMetricsRow(row));
     }
 
     return campaigns.map((row) => {
-      const campaignId = String(row.id);
+      const campaignId = asText(row.id);
       return mapCampaignRow(row, insightsByCampaign.get(campaignId));
     });
   }
@@ -188,10 +189,10 @@ function normalizeAccountId(platformAccountId: string): string {
 
 function mapCampaignRow(row: Record<string, unknown>, metrics?: MetaCampaignMetrics): MetaCampaign {
   return {
-    platformCampaignId: String(row.id),
-    name: String(row.name ?? row.id),
-    status: row.status ? String(row.status) : undefined,
-    objective: row.objective ? String(row.objective) : undefined,
+    platformCampaignId: asText(row.id),
+    name: asText(row.name ?? row.id),
+    status: row.status ? asText(row.status) : undefined,
+    objective: row.objective ? asText(row.objective) : undefined,
     dailyBudget: row.daily_budget != null ? Number(row.daily_budget) : undefined,
     lifetimeBudget: row.lifetime_budget != null ? Number(row.lifetime_budget) : undefined,
     metrics,
@@ -200,13 +201,13 @@ function mapCampaignRow(row: Record<string, unknown>, metrics?: MetaCampaignMetr
 
 function mapMetricsRow(row: Record<string, unknown>): MetaCampaignMetrics {
   return {
-    spend: row.spend != null ? String(row.spend) : undefined,
-    impressions: row.impressions != null ? String(row.impressions) : undefined,
-    clicks: row.clicks != null ? String(row.clicks) : undefined,
-    ctr: row.ctr != null ? String(row.ctr) : undefined,
-    cpc: row.cpc != null ? String(row.cpc) : undefined,
-    reach: row.reach != null ? String(row.reach) : undefined,
-    dateStart: row.date_start ? String(row.date_start) : undefined,
-    dateEnd: row.date_stop ? String(row.date_stop) : undefined,
+    spend: row.spend != null ? asText(row.spend) : undefined,
+    impressions: row.impressions != null ? asText(row.impressions) : undefined,
+    clicks: row.clicks != null ? asText(row.clicks) : undefined,
+    ctr: row.ctr != null ? asText(row.ctr) : undefined,
+    cpc: row.cpc != null ? asText(row.cpc) : undefined,
+    reach: row.reach != null ? asText(row.reach) : undefined,
+    dateStart: row.date_start ? asText(row.date_start) : undefined,
+    dateEnd: row.date_stop ? asText(row.date_stop) : undefined,
   };
 }

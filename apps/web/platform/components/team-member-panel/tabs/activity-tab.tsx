@@ -43,6 +43,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { useMemberActivity } from '@/hooks/queries/use-team-queries';
 import type { MemberActivityItem } from '@weldsuite/core-api-client/schemas/member-profile';
+import { asText } from '@weldsuite/text';
 
 interface ActivityTabProps {
   userId: string;
@@ -251,7 +252,7 @@ const NOUN_WORDS = [
   'member',
   'members',
 ];
-const NOUN_REGEX_SRC = `\\b(${NOUN_WORDS.join('|')})\\b`;
+const NOUN_REGEX_SRC = String.raw`\b(${NOUN_WORDS.join('|')})\b`;
 
 /**
  * Renders the description, turning quoted names into EntityChips and
@@ -527,7 +528,7 @@ function ActivityRow({ entry }: Readonly<{ entry: MemberActivityItem }>) {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  return asText(value);
 }
 
 // ────────────────────────────────────────────────────────────────────

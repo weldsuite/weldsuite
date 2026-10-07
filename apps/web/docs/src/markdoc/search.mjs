@@ -1,10 +1,10 @@
 import Markdoc from '@markdoc/markdoc'
 import { slugifyWithCounter } from '@sindresorhus/slugify'
 import glob from 'fast-glob'
-import * as fs from 'fs'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { createLoader } from 'simple-functional-loader'
-import * as url from 'url'
+import * as url from 'node:url'
 
 const __filename = url.fileURLToPath(import.meta.url)
 const slugify = slugifyWithCounter()
@@ -79,7 +79,7 @@ export default function withSearch(nextConfig = {}) {
 
             // When this file is imported within the application
             // the following module is loaded:
-            return `
+            return String.raw`
               import FlexSearch from 'flexsearch'
 
               let sectionIndex = new FlexSearch.Document({
@@ -103,7 +103,7 @@ export default function withSearch(nextConfig = {}) {
                   sectionIndex.add({
                     url: url + (hash ? ('#' + hash) : ''),
                     title,
-                    content: [title, ...content].join('\\n'),
+                    content: [title, ...content].join('\n'),
                     pageTitle: hash ? sections[0][0] : undefined,
                   })
                 }

@@ -112,7 +112,7 @@ async function lemlistRequest<T>(
         Authorization: authHeader(apiKey),
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        ...(init.headers ?? {}),
+        ...init.headers,
       },
     });
 

@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { GridColumnDef } from '../types';
+import { asText } from '@weldsuite/text';
 
 /** Extra context export formatting needs that isn't on the column/entity itself. */
 export interface ExportContext {
@@ -29,7 +30,7 @@ function formatExportValue<TEntity>(
     return value.map((v) => String(v)).join('; ');
   }
   if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  return asText(value);
 }
 
 // Export entities to CSV
@@ -83,7 +84,7 @@ export async function exportToExcel<TEntity>(
       maxWidth,
       Math.max(
         header.length,
-        ...rows.map((row) => String(row[i] || '').length)
+        ...rows.map((row) => asText(row[i] || '').length)
       )
     ),
   }));

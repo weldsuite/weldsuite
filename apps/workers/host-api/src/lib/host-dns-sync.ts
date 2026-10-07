@@ -324,7 +324,7 @@ function setLocksOnMetadata(
   metadata: Record<string, unknown> | null | undefined,
   locks: DnsRecordLock[],
 ): Record<string, unknown> {
-  const next = { ...((metadata as Record<string, unknown> | null) ?? {}) };
+  const next = { ...(metadata as Record<string, unknown> | null) };
   if (locks.length === 0) delete next.locks;
   else next.locks = locks;
   return next;

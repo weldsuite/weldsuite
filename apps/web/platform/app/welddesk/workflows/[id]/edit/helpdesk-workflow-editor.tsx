@@ -589,7 +589,7 @@ export function HelpdeskWorkflowEditorClient({
       const trigger = prev.triggers?.[0];
       if (!trigger) return prev;
       const updatedConfig = {
-        ...(trigger.config || {}),
+        ...trigger.config,
         ...configUpdate,
       };
       // Also keep filters at trigger root for backwards compat

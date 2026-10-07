@@ -43,7 +43,7 @@ export const tasks = pgTable('tasks', {
   description: text('description'),
   key: varchar('key', { length: 50 }),
 
-  // Human-friendly per-workspace sequential number (displayed as TASK-<number>).
+  // Human-friendly per-workspace sequential number (displayed as the bare number).
   // Server-assigned on create; unique within the tenant DB. Nullable so pre-backfill
   // rows stay valid until the one-time backfill runs.
   number: integer('number'),

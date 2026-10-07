@@ -774,7 +774,7 @@ function EventOptionSheets({
   );
 }
 
-const DATE_TIME_PICKERS: readonly PickerType[] = ['startDate', 'startTime', 'endDate', 'endTime'];
+const DATE_TIME_PICKERS: ReadonlySet<PickerType> = new Set(['startDate', 'startTime', 'endDate', 'endTime']);
 
 /**
  * Date / time picker — iOS gets a sheet-wrapped spinner, Android the platform
@@ -797,7 +797,7 @@ function DateTimePickerHost({
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
 
-  if (!DATE_TIME_PICKERS.includes(picker)) return null;
+  if (!DATE_TIME_PICKERS.has(picker)) return null;
 
   const value = picker === 'startDate' || picker === 'startTime' ? start : end;
   const pickerMode: 'date' | 'time' =

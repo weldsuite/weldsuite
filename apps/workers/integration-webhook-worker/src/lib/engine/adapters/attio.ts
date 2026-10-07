@@ -18,6 +18,7 @@ import type {
   WebhookRegistration,
 } from '../sync/types';
 import type { OAuthTokens } from '../types';
+import { asText } from '@weldsuite/text';
 
 const ATTIO_API_BASE = 'https://api.attio.com/v2';
 const ATTIO_AUTHORIZE_URL = 'https://app.attio.com/authorize';
@@ -32,8 +33,8 @@ function getAttrValue(values: Record<string, unknown>, key: string): string | un
   const arr = values[key] as Array<Record<string, unknown>> | undefined;
   if (!arr || arr.length === 0) return undefined;
   const item = arr[0];
-  if (item.value !== undefined && item.value !== null) return String(item.value);
-  if (item.original) return String(item.original);
+  if (item.value !== undefined && item.value !== null) return asText(item.value);
+  if (item.original) return asText(item.original);
   return undefined;
 }
 

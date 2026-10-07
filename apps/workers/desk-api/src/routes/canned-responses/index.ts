@@ -17,6 +17,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { asText } from '@weldsuite/text';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.helpdeskCannedResponses;
@@ -49,7 +50,7 @@ function interpolateVariables(text: string, context: Record<string, unknown>): s
         return `{{${path}}}`;
       }
     }
-    return value != null ? String(value) : `{{${path}}}`;
+    return value != null ? asText(value) : `{{${path}}}`;
   });
 }
 

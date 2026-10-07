@@ -5,9 +5,8 @@ import dynamic from 'next/dynamic';
 import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
-import { Package, MapPin, Clock, Phone, MessageSquare, Search, Plus, X, Navigation, ChevronDown } from 'lucide-react';
+import { Search, ChevronDown } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 
 // Dynamic import for Mapbox to avoid SSR issues
 const TrackingMap = dynamic(() => import('../components/tracking-map'), {

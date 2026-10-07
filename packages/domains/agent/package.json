@@ -39,6 +39,7 @@
     "@weldsuite/flow-domain": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",
     "drizzle-orm": "^0.45.2",

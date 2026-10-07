@@ -23,6 +23,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type { Env } from '../../types';
 import { createProductWriteClient } from '@weldsuite/connect-domain/connectors/clients';
 import { decryptCredentials, getConnectionById, keyringFromEnv, type ConnectorConnectionRow } from '@weldsuite/connect-domain/connectors/connections';
+import { asText } from '@weldsuite/text';
 
 export type ProductSalesChannelErrorCode =
   | 'not_found'
@@ -62,12 +63,12 @@ export interface SalesChannelListingInput {
 
 function numericString(value: unknown): string {
   if (value === null || value === undefined || value === '') return '0';
-  return String(value);
+  return asText(value);
 }
 
 function resolvePrice(value: unknown, fallback: string): string {
   if (value === null || value === undefined || value === '') return fallback;
-  const n = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
+  const n = typeof value === 'number' ? value : Number(asText(value).replace(',', '.'));
   if (!Number.isFinite(n) || n < 0) {
     throw new ProductSalesChannelError('invalid', 'Price must be a non-negative number');
   }

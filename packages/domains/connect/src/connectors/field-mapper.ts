@@ -2,6 +2,7 @@
  * Lightweight field mapper for connector custom mappings.
  * Mirrors the CRM FieldMapper: inbound overlays onto mapped.values.
  */
+import { asText } from '@weldsuite/text';
 
 export interface ConnectorFieldMappingRow {
   externalFieldPath: string;
@@ -32,7 +33,7 @@ function setNestedValue(obj: Record<string, unknown>, path: string, value: unkno
     }
     current = current[part] as Record<string, unknown>;
   }
-  current[parts[parts.length - 1]!] = value;
+  current[parts.at(-1)!] = value;
 }
 
 function applyTransform(
@@ -44,12 +45,12 @@ function applyTransform(
     case 'lookup': {
       if (!config?.lookupTable || typeof config.lookupTable !== 'object') return value;
       const table = config.lookupTable as Record<string, unknown>;
-      const strValue = String(value);
+      const strValue = asText(value);
       return strValue in table ? table[strValue] : value;
     }
     case 'format_date': {
       if (!value) return value;
-      const date = new Date(String(value));
+      const date = new Date(asText(value));
       if (Number.isNaN(date.getTime())) return value;
       return date.toISOString();
     }

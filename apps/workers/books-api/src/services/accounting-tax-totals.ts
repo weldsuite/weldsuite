@@ -60,7 +60,7 @@ function allocateRoundedTax(
   const sum = rounded.reduce((s, r) => s + r.taxAmount, 0);
   const remainder = roundMoney(targetTax - sum);
   if (Math.abs(remainder) >= 0.01) {
-    const last = rounded[rounded.length - 1];
+    const last = rounded.at(-1)!;
     last.taxAmount = roundMoney(last.taxAmount + remainder);
   }
   return rounded;

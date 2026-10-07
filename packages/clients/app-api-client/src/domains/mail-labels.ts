@@ -2,7 +2,7 @@
  * App-API mail-labels domain client — flat `/api/mail-labels/*`.
  */
 
-import type { ClientApi, DataResponse, ListResponse } from '../types';
+import type { ClientApi, DataResponse } from '../types';
 import { buildQueryString } from '../types';
 import type { MailMessageRow } from './mail-messages';
 import type {

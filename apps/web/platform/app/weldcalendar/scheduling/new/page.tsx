@@ -257,7 +257,7 @@ function patchSpecificRange(dates: SpecificDate[], sdIdx: number, rIdx: number, 
 function appendSpecificRange(dates: SpecificDate[], sdIdx: number): SpecificDate[] {
   return dates.map((sd, i) => {
     if (i !== sdIdx) return sd;
-    const lastRange = sd.ranges[sd.ranges.length - 1];
+    const lastRange = sd.ranges.at(-1);
     if (!lastRange) return { ...sd, ranges: [defaultRange()] };
     return { ...sd, ranges: [...sd.ranges, { start: lastRange.end, end: nextRangeEnd(lastRange.end) }] };
   });
@@ -1324,7 +1324,7 @@ function WeeklyAvailabilityEditor({
 
   const addRange = (day: keyof WeeklyAvailability) => {
     const ranges = [...availability[day]];
-    const lastRange = ranges[ranges.length - 1];
+    const lastRange = ranges.at(-1);
     const newStart = lastRange ? lastRange.end : '09:00';
     ranges.push({ start: newStart, end: nextRangeEnd(newStart) });
     updateDay(day, ranges);

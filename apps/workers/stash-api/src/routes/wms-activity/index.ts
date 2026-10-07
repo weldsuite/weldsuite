@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { and, desc, eq, gte, like, lte, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
-import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
+import { cursorPagination, error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -82,7 +82,7 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
 
     const hasMore = rows.length > limit;
     const data = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
     const counts = countsRes[0] ?? {
       total: 0, create: 0, update: 0, delete: 0,

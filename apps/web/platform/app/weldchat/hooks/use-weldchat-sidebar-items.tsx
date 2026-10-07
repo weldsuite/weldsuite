@@ -458,7 +458,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       ?.weldchatGroupFilters ?? {};
   const getFilter = (key: string): GroupFilterSettings => ({
     ...DEFAULT_GROUP_FILTER,
-    ...(groupFilters[key] ?? {}),
+    ...groupFilters[key],
   });
   const isCollapsed = (groupKey: string): boolean => {
     if (collapseToggles.has(groupKey)) return !!collapseToggles.get(groupKey);

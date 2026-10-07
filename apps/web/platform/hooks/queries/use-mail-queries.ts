@@ -149,7 +149,7 @@ function toMessageQuery(
   accountId: string | undefined,
   params: Record<string, unknown> | undefined,
 ): Partial<ListMailMessagesQuery> {
-  const out: Record<string, unknown> = { ...(params ?? {}) };
+  const out: Record<string, unknown> = { ...params };
   if (accountId) out.accountId = accountId;
   if (out.pageSize !== undefined) {
     out.limit = out.pageSize;

@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useGridContext } from './context';
+import { asText } from '@weldsuite/text';
 
 export interface CellPos {
   row: number;
@@ -324,5 +325,5 @@ function formatCopyValue(value: unknown): string {
   if (Array.isArray(value)) return value.map((v) => formatCopyValue(v)).join(', ');
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (typeof value === 'object') return formatObjectCopyValue(value as Record<string, unknown>);
-  return String(value);
+  return asText(value);
 }

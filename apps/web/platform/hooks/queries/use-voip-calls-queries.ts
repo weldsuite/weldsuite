@@ -18,6 +18,7 @@ import type {
   SingleResponse,
 } from '@/lib/api/domains/call-intelligence';
 import type { Transcription } from '@/app/weldcall/[callId]/call-detail-client';
+import { asText } from '@weldsuite/text';
 
 export type { VoipCall, CallFilters, CallStats, VoipPhoneNumber } from '@/lib/api/domains/call-intelligence';
 
@@ -30,7 +31,7 @@ function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      queryParams.set(key, String(value));
+      queryParams.set(key, asText(value));
     }
   }
   const query = queryParams.toString();

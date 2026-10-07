@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Env } from '../env';
 import { computerEnabled } from '../lib/auth';
 import { getWorkspaceSandbox, resolveWorkspacePath, workspaceSandboxId } from '../lib/sandbox';
+import { asText } from '@weldsuite/text';
 
 type AppEnv = { Bindings: Env };
 
@@ -116,7 +117,7 @@ computerRoutes.post('/code', async (c) => {
     return c.json({
       ok: true,
       language: body.language,
-      stdout: truncate(String((result as { stdout?: string }).stdout ?? (result as { results?: unknown }).results ?? ''), 50_000),
+      stdout: truncate(asText((result as { stdout?: string }).stdout ?? (result as { results?: unknown }).results ?? ''), 50_000),
       stderr: truncate(String((result as { error?: string }).error ?? ''), 20_000),
       raw: summarize(result),
     });

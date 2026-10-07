@@ -65,8 +65,7 @@ function ConversationHeader({ data, title, visitorOnline, managing, onBack, onTo
       onBack={onBack}
       actions={
         data ? (
-          <>
-            <IconButton
+          <IconButton
               icon={
                 isOpen ? (
                   <CheckCircle2 size={20} color={colors.text} />
@@ -78,7 +77,6 @@ function ConversationHeader({ data, title, visitorOnline, managing, onBack, onTo
               onPress={onToggleState}
               disabled={managing}
             />
-          </>
         ) : null
       }
       below={

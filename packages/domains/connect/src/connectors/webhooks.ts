@@ -340,7 +340,7 @@ export async function processConnectorWebhook(args: {
     await touchConnectorIndexWebhook(args.env, {
       connectionId: args.connection.id,
       watermarks: watermark
-        ? { ...(args.connection.syncWatermarks ?? {}), [sync.model]: watermark }
+        ? { ...args.connection.syncWatermarks, [sync.model]: watermark }
         : args.connection.syncWatermarks,
     });
     return { ok: true, status: 200, message: 'ingested' };

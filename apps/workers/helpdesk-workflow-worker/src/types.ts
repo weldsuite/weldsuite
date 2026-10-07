@@ -5,7 +5,7 @@
  * adapters render into widget SSE events, Discord embeds, Slack Block Kit, etc.
  */
 
-import type { HelpdeskWorkflowStep as WorkflowStepDef, HelpdeskTriggerConfig as TriggerConfig } from '@weldsuite/db/schema/helpdesk-workflow-types';
+import type { HelpdeskWorkflowStep as WorkflowStepDef } from '@weldsuite/db/schema/helpdesk-workflow-types';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { Database } from './db';
 

@@ -16,6 +16,7 @@
  */
 
 import { normalizeStoreUrl } from './client';
+import { asText } from '@weldsuite/text';
 
 export const WOOCOMMERCE_APP_NAME = 'WeldSuite';
 export const WOOCOMMERCE_AUTH_SCOPE = 'read_write' as const;
@@ -97,7 +98,7 @@ export function parseWooCommerceAuthCallback(body: string): WooCommerceAuthCallb
   }
   if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
-  const userId = typeof record.user_id === 'string' ? record.user_id.trim() : String(record.user_id ?? '').trim();
+  const userId = typeof record.user_id === 'string' ? record.user_id.trim() : asText(record.user_id ?? '').trim();
   const consumerKey = typeof record.consumer_key === 'string' ? record.consumer_key.trim() : '';
   const consumerSecret = typeof record.consumer_secret === 'string' ? record.consumer_secret.trim() : '';
   if (!userId || !consumerKey || !consumerSecret) return null;

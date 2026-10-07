@@ -18,7 +18,7 @@ import { getMasterDb, getTenantDbForWorkspace } from './db';
 import { checkSlaBreaches } from './lib/sla-breach-checker';
 import { isPublicHost } from './lib/public-host';
 import { workspaces } from '@weldsuite/db/schema/master';
-import { and, eq, isNotNull, isNull, inArray } from 'drizzle-orm';
+import { and, eq, isNotNull, inArray } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
 import type { Env, AssignRequest, AgentCapacity } from './types';
 import type { ConversationWorkflowParams } from './workflows/conversation-workflow';

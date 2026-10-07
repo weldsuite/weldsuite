@@ -24,7 +24,6 @@ import type { Env, Variables } from '../../types';
 import { error, success, noContent } from '@weldsuite/worker-kit/response';
 import {
   listSkills,
-  getSkill,
   createSkill,
   updateSkill,
   deleteSkill,

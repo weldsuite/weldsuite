@@ -7,7 +7,7 @@ import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
-import { allocateTaskNumber, presentTaskNumber } from '../../../lib/task-numbering';
+import { allocateTaskNumber } from '../../../lib/task-numbering';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
@@ -89,7 +89,7 @@ app.get('/', requireScope('tasks:read'), zValidator('query', listTasksQuery), as
   if (q.dueDateFrom) where.push(gte(table.dueDate, new Date(q.dueDateFrom)));
   if (q.dueDateTo) where.push(lte(table.dueDate, new Date(q.dueDateTo)));
   const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });
-  return list(c, (result.data as Record<string, unknown>[]).map(presentTaskNumber), cursorPagination(result.totalCount, result.hasMore, result.cursor));
+  return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
 
 app.get('/:id', requireScope('tasks:read'), async (c) => {
@@ -101,7 +101,7 @@ app.get('/:id', requireScope('tasks:read'), async (c) => {
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .limit(1);
   if (!row) return error.notFound(c, 'Task', id);
-  return success(c, presentTaskNumber(row));
+  return success(c, row);
 });
 
 app.post('/', requireScope('tasks:write'), zValidator('json', createTaskSchema), async (c) => {
@@ -121,7 +121,7 @@ app.post('/', requireScope('tasks:write'), zValidator('json', createTaskSchema),
     action: 'created',
     data: { id, projectId: row.projectId, title: row.title },
   });
-  return success(c, presentTaskNumber(row), 201);
+  return success(c, row, 201);
 });
 
 app.patch('/:id', requireScope('tasks:write'), zValidator('json', updateTaskSchema), async (c) => {
@@ -141,7 +141,7 @@ app.patch('/:id', requireScope('tasks:write'), zValidator('json', updateTaskSche
     action: 'updated',
     data: { id, projectId: row.projectId, title: row.title },
   });
-  return success(c, presentTaskNumber(row));
+  return success(c, row);
 });
 
 app.delete('/:id', requireScope('tasks:write'), async (c) => {

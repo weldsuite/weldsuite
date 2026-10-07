@@ -137,7 +137,7 @@ export const useNotificationStore = create<NotificationState>()(
         set((state) => ({
           notifications: state.notifications.map((n) =>
             n.entityType === entityType && n.entityId === entityId
-              ? { ...n, data: { ...(n.data ?? {}), ...dataPatch } }
+              ? { ...n, data: { ...n.data, ...dataPatch } }
               : n,
           ),
         })),

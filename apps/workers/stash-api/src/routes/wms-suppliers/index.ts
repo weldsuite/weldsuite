@@ -136,14 +136,14 @@ app.patch('/:id', requirePermission('suppliers:update'), zValidator('json', upda
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Supplier', id);
     const update: Record<string, any> = { updatedAt: new Date() };
-    const simpleFields = [
+    const simpleFields = new Set([
       'name', 'code', 'description', 'contactName', 'email', 'phone', 'website',
       'addressLine1', 'addressLine2', 'city', 'state', 'postalCode', 'country',
       'paymentTerms', 'currency', 'taxId', 'defaultLeadTimeDays',
       'isActive', 'rating', 'notes', 'metadata', 'tags',
-    ];
+    ]);
     for (const [k, v] of Object.entries(data)) {
-      if (v !== undefined && simpleFields.includes(k)) update[k] = v;
+      if (v !== undefined && simpleFields.has(k)) update[k] = v;
     }
     if (data.isActive !== undefined) {
       update.status = data.isActive ? 'active' : 'inactive';

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   StyleSheet,
   ScrollView,
-  View,
   Text,
   Pressable,
   ActivityIndicator,

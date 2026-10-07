@@ -148,7 +148,7 @@ function withAddPlaceholder(
 ): { nodes: Node[]; edges: Edge[] } {
   const sourceNode =
     (addStepSourceNodeId ? nodes.find((n) => n.id === addStepSourceNodeId) : undefined) ??
-    nodes[nodes.length - 1];
+    nodes.at(-1);
   if (!sourceNode) return { nodes, edges };
 
   const flaggedNodes = nodes.map((node) =>
@@ -369,9 +369,9 @@ function WorkflowCanvasInner({
   const labels: Required<WorkflowCanvasLabels> = useMemo(() => ({
     ...DEFAULT_CANVAS_LABELS,
     ...labelsProp,
-    triggerLabels: { ...DEFAULT_CANVAS_LABELS.triggerLabels, ...(labelsProp?.triggerLabels || {}) },
-    actionLabels: { ...DEFAULT_CANVAS_LABELS.actionLabels, ...(labelsProp?.actionLabels || {}) },
-    branchLabels: { ...DEFAULT_CANVAS_LABELS.branchLabels, ...(labelsProp?.branchLabels || {}) },
+    triggerLabels: { ...DEFAULT_CANVAS_LABELS.triggerLabels, ...labelsProp?.triggerLabels },
+    actionLabels: { ...DEFAULT_CANVAS_LABELS.actionLabels, ...labelsProp?.actionLabels },
+    branchLabels: { ...DEFAULT_CANVAS_LABELS.branchLabels, ...labelsProp?.branchLabels },
   }), [labelsProp]);
 
   const flowLabels = useMemo(() => ({

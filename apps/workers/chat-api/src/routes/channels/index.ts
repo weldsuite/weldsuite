@@ -200,7 +200,7 @@ app.get('/', requirePermission('channels:read'), async (c) => {
     ]);
     const hasMore = rows.length > limit;
     const data = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
     const muted = await callerMuteFlags(db, userId, data.map((r) => r.id));
     const items = data.map((r) => ({ ...r, isMuted: muted.get(r.id) ?? false }));
@@ -474,7 +474,7 @@ function toMessagePage<T extends { id: string }>(rows: T[], limit: number) {
   return {
     messages: data,
     hasMore,
-    nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
+    nextCursor: hasMore && data.length > 0 ? data.at(-1)!.id : null,
   };
 }
 

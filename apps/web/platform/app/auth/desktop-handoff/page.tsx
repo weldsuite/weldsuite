@@ -144,14 +144,14 @@ export default function DesktopHandoffPage() {
   );
 }
 
-const ALLOWED_SCHEMES = ['weldsuite:'];
+const ALLOWED_SCHEMES = new Set(['weldsuite:']);
 
 function validateReturnTo(raw: string | null): string {
   const fallback = 'weldsuite://auth';
   if (!raw) return fallback;
   try {
     const u = new URL(raw);
-    if (!ALLOWED_SCHEMES.includes(u.protocol)) return fallback;
+    if (!ALLOWED_SCHEMES.has(u.protocol)) return fallback;
     return u.toString();
   } catch {
     return fallback;

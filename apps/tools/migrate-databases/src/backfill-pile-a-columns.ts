@@ -55,6 +55,7 @@ import postgres from 'postgres';
 import { eq, isNotNull, and } from 'drizzle-orm';
 import { workspaces } from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import { asText } from '@weldsuite/text';
 
 type ColType = 'text' | 'bool' | 'ts';
 interface KeyMap {
@@ -156,10 +157,10 @@ function coerce(type: ColType, val: unknown): string | boolean | null | typeof I
     return INVALID;
   }
   if (type === 'ts') {
-    const d = new Date(String(val));
+    const d = new Date(asText(val));
     return Number.isNaN(d.getTime()) ? INVALID : d.toISOString();
   }
-  return String(val);
+  return asText(val);
 }
 
 /** Compare a live DB column value against a coerced blob value. A null/undefined
@@ -168,11 +169,11 @@ function colEquals(type: ColType, dbVal: unknown, coerced: string | boolean): bo
   if (dbVal === null || dbVal === undefined) return false;
   if (type === 'bool') return dbVal === coerced;
   if (type === 'ts') {
-    const a = dbVal instanceof Date ? dbVal.getTime() : new Date(String(dbVal)).getTime();
+    const a = dbVal instanceof Date ? dbVal.getTime() : new Date(asText(dbVal)).getTime();
     const b = new Date(String(coerced)).getTime();
     return a === b;
   }
-  return String(dbVal) === String(coerced);
+  return asText(dbVal) === String(coerced);
 }
 
 /** Which of a table's mapped columns actually exist in this tenant. */

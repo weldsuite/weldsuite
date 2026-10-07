@@ -17,6 +17,7 @@ import {
   type ExternalProductRef,
   type OutboundCatalogProduct,
 } from '../types';
+import { asText } from '@weldsuite/text';
 
 export const SHOPIFY_API_VERSION = '2024-10';
 
@@ -349,11 +350,11 @@ function toShopifyProductBody(product: OutboundCatalogProduct): Record<string, u
 
 function shopifyGidToId(gid: string): string {
   const parts = gid.split('/');
-  return parts[parts.length - 1] || gid;
+  return parts.at(-1) || gid;
 }
 
 function shopifyProductRef(product: Record<string, unknown> | undefined, storeUrl: string): ExternalProductRef {
-  const id = product?.id !== undefined && product?.id !== null ? String(product.id) : '';
+  const id = product?.id !== undefined && product?.id !== null ? asText(product.id) : '';
   const handle = typeof product?.handle === 'string' ? product.handle : null;
   return {
     id,

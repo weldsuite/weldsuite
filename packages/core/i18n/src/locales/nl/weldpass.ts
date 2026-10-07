@@ -323,6 +323,7 @@ export const weldpass = {
       edit: 'Bewerken',
       move: 'Verplaatsen',
       history: 'Geschiedenis',
+      tabDetails: 'Details',
       delete: 'Verwijderen',
       deleteTitle: '"{title}" verwijderen?',
       deleteDescription:
@@ -512,6 +513,7 @@ export const weldpass = {
         old: 'Oud',
       },
       attentionTitle: 'Aandacht nodig',
+      issuesColumn: 'Problemen',
       attentionHint: 'Zwakste eerst. Open een login om het wachtwoord te wijzigen.',
     },
 

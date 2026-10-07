@@ -18,11 +18,7 @@ import {
   Clock,
   AlertCircle,
   CreditCard,
-  Calendar,
-  FileText,
-  MapPin,
   RotateCcw,
-  Filter,
   Download
 } from "lucide-react";
 import { toast } from "sonner";

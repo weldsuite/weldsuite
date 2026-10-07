@@ -34,6 +34,7 @@ import {
   formatDisplayValue,
   sortEntities,
 } from './utils';
+import { asText } from '../../as-text';
 
 const DEFAULT_LABELS = {
   newEntity: 'New',
@@ -126,7 +127,7 @@ export function EntityGrid<TEntity>({
     setEditingCell(null);
     if (!column.setValue) return;
     const updates = column.setValue(entity, value);
-    setOptimistic((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), ...updates } }));
+    setOptimistic((prev) => ({ ...prev, [id]: { ...prev[id], ...updates } }));
     const result = await actions.onUpdateEntity(id, updates);
     if (!result.success) {
       setOptimistic((prev) => {
@@ -652,7 +653,7 @@ function CellEditor<TEntity>({
   }
   return (
     <TextEditor
-      value={value == null ? '' : String(value)}
+      value={value == null ? '' : asText(value)}
       type={textInputTypeFor(column.type)}
       onCommit={onCommit}
       onCancel={onCancel}

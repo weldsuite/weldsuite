@@ -83,7 +83,7 @@ function deriveMeta(path: string): { app: string; framework: Framework } {
   if (trIdx > 0) return { app: parts[trIdx - 1], framework };
 
   // CI layout: _reports/<app>/<fw>-junit.xml
-  return { app: parts[parts.length - 2] ?? 'unknown', framework };
+  return { app: parts.at(-2) ?? 'unknown', framework };
 }
 
 function gitInfo(): { commit: string | null; branch: string | null } {

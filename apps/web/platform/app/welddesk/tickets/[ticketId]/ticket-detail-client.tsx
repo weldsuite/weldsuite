@@ -48,6 +48,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { CreateTicketDialog } from '../create-ticket-dialog';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
+import { asText } from '@weldsuite/text';
 
 // ============================================================================
 // Types
@@ -140,7 +141,7 @@ function ChatMessageRow({
   nextMessage: ChatMessage | undefined;
 }>) {
   const lines = message.text.split('\n');
-  const lastLine = lines[lines.length - 1];
+  const lastLine = lines.at(-1)!;
   const shouldPutTimestampBelow = lastLine.length > 60;
 
   const shouldGroupWithNext = isGroupedPair(nextMessage, message);
@@ -383,7 +384,7 @@ function groupNotesByMonth(notes: InternalNote[]) {
     const year = d.getFullYear();
     const monthLabel = format(d, 'MMMM');
     const key = `${year}-${monthLabel}`;
-    const last = groups[groups.length - 1];
+    const last = groups.at(-1);
     if (last && `${last.year}-${last.label}` === key) {
       last.notes.push(note);
     } else {
@@ -399,7 +400,7 @@ function ActivityTimeline({ notes }: Readonly<{ notes: InternalNote[] }>) {
   // Group month-groups by year
   const yearGroups: { year: number; months: typeof groups }[] = [];
   for (const g of groups) {
-    const last = yearGroups[yearGroups.length - 1];
+    const last = yearGroups.at(-1);
     if (last && last.year === g.year) {
       last.months.push(g);
     } else {
@@ -1080,7 +1081,7 @@ function TicketSidebar({
                   } else if (typeof value === 'boolean') {
                     displayValue = value ? tp.valueYes : tp.valueNo;
                   } else {
-                    displayValue = String(value || '');
+                    displayValue = asText(value || '');
                   }
 
                   // For select fields, show a select; for text/number, show an input

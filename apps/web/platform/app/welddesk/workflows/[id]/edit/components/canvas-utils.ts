@@ -120,7 +120,7 @@ export function estimatePathHeight(path: DerivedPath): number {
   // When path ends with a terminal action, the "Add step" button is rendered
   // above the terminal step and the footer is a small "End of path" label.
   const TERMINAL_ACTIONS = new Set(['send_choices', 'ai_auto_reply']);
-  const lastStep = path.steps.length > 0 ? path.steps[path.steps.length - 1].step : null;
+  const lastStep = path.steps.length > 0 ? path.steps.at(-1)!.step : null;
   const endsWithTerminal = lastStep ? TERMINAL_ACTIONS.has(lastStep.type) : false;
   if (endsWithTerminal) {
     h += ADD_BTN_ROW_H; // "Add step" button above terminal

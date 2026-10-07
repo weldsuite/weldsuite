@@ -1,9 +1,9 @@
 /**
- * Task numbering — workspace-wide sequential numbers displayed as TASK-<number>.
+ * Task numbering — workspace-wide sequential numbers shown as plain numbers (e.g. 1042).
  *
  * Mirrors `packages/domains/flow/src/task-numbering.ts`. Tasks created
  * through the public API must get a number too, otherwise a row created here is
- * the only one in the workspace a user cannot refer to as TASK-<n>.
+ * the only one in the workspace a user cannot refer to by number.
  *
  * Allocation is race-free: a single upsert increments `next_value` atomically
  * and RETURNING hands back the post-increment row, so concurrent creates each

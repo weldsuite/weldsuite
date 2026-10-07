@@ -827,8 +827,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
   );
 
   return (
-    <>
-      <EntityList<Note>
+    <EntityList<Note>
         items={sortedNotes}
         isLoading={false}
         headerColumns={headerColumns}
@@ -920,6 +919,5 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
           </>
         }
       />
-    </>
   );
 }

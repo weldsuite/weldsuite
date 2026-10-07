@@ -2,6 +2,7 @@ import { createCrudRoute } from '../../../lib/crud-route';
 import { schema } from '../../../db';
 import { z } from 'zod';
 import { eq, like, or, type SQL } from 'drizzle-orm';
+import { asText } from '@weldsuite/text';
 
 function slugify(input: string): string {
   return input
@@ -59,7 +60,7 @@ export default createCrudRoute({
     return where;
   },
   prepareCreate: (body) => {
-    const name = String(body.name ?? '');
+    const name = asText(body.name ?? '');
     const slug = typeof body.slug === 'string' && body.slug ? body.slug : slugify(name) || `cat-${Date.now()}`;
     const isActive =
       typeof body.isActive === 'boolean' ? (body.isActive ? 1 : 0) : (body.isActive as number | undefined);

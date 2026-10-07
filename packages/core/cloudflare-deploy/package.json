@@ -19,6 +19,7 @@
     "vitest": "^3.2.6"
   },
   "dependencies": {
+    "@weldsuite/text": "workspace:*",
     "cloudflare": "^7.0.0"
   }
 }

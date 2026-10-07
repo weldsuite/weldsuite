@@ -13,6 +13,7 @@ import type { AnalyticsReport as AnalyticsReportSummary } from '@/app/weldflow/a
 import type { AnalyticsReport, AnalyticsChart } from '@/app/weldflow/analytics/[id]/_components/report-view-client';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import type { ProjectGoals } from '@/lib/api/domains/weldflow';
+import { asText } from '@weldsuite/text';
 
 // =============================================================================
 // Query Keys
@@ -78,7 +79,7 @@ export function useProjects(params?: {
     queryKey: projectKeys.list(params),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { ...(params ?? {}) };
+      const qs: Record<string, unknown> = { ...params };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;
@@ -146,7 +147,7 @@ export function useProjectTasks(projectId: string, params?: { page?: number; pag
     queryKey: projectKeys.tasks(projectId, params),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { projectId, ...(params ?? {}) };
+      const qs: Record<string, unknown> = { projectId, ...params };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;

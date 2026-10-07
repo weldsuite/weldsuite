@@ -29,6 +29,7 @@ import type {
   ActiveFilter,
   RowHandlers,
 } from './types';
+import { asText } from '@weldsuite/text';
 
 export function EntityList<T extends { id: string }>({
   // Data
@@ -169,7 +170,7 @@ export function EntityList<T extends { id: string }>({
       result = result.filter(item =>
         searchFields.some(field => {
           const value = item[field];
-          return value && String(value).toLowerCase().includes(query);
+          return value && asText(value).toLowerCase().includes(query);
         })
       );
     }

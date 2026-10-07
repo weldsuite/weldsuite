@@ -1,9 +1,8 @@
-import type { TranslationNamespaces, TranslationPath } from './types';
+import type { TranslationNamespaces } from './types';
 import {
   defaultLanguage,
   getLoadedTranslations,
   isLocaleLoaded,
-  languages,
   loadLocale,
   localeConfig,
   type Language,
@@ -83,7 +82,7 @@ export function createTranslator<T extends Record<string, any>>(translations: T)
     if (typeof value === 'string') {
       if (params) {
         return Object.entries(params).reduce((str, [k, v]) =>
-          str.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v)),
+          str.replace(new RegExp(String.raw`\{${k}\}`, 'g'), String(v)),
           value
         );
       }

@@ -8,6 +8,7 @@ const nextConfig = {
     "@weldsuite/emails",
     "@weldsuite/email",
     "@weldsuite/i18n",
+    "@weldsuite/text",
   ],
   typescript: {
     // NOTE: kept on because `@weldsuite/db` and `@weldsuite/permissions` have

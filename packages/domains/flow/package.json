@@ -25,6 +25,7 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/emails": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "@weldsuite/worker-email": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"

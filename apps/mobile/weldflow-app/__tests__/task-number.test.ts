@@ -1,8 +1,8 @@
 import { formatTaskNumber, joinSubtitle } from '@/lib/task-number';
 
 describe('formatTaskNumber', () => {
-  it('prefixes the raw number', () => {
-    expect(formatTaskNumber(1042)).toBe('TASK-1042');
+  it('renders the bare number', () => {
+    expect(formatTaskNumber(1042)).toBe('1042');
   });
 
   it('returns undefined for tasks without a number', () => {
@@ -13,9 +13,9 @@ describe('formatTaskNumber', () => {
 
 describe('joinSubtitle', () => {
   it('joins the parts that are present', () => {
-    expect(joinSubtitle('TASK-12', 'Website')).toBe('TASK-12 · Website');
+    expect(joinSubtitle('12', 'Website')).toBe('12 · Website');
     expect(joinSubtitle(undefined, 'Website')).toBe('Website');
-    expect(joinSubtitle('TASK-12', null)).toBe('TASK-12');
+    expect(joinSubtitle('12', null)).toBe('12');
   });
 
   it('returns undefined when nothing is present', () => {

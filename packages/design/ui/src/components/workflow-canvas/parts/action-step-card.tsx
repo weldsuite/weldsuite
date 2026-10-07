@@ -38,6 +38,7 @@ import {
 } from '../../dialog';
 import { cn } from '../../../lib/utils';
 import type { WorkflowStep } from '../types';
+import { asText } from '@weldsuite/text';
 
 /** An action kind the picker offers for a step. */
 interface ActionTypeOption {
@@ -103,31 +104,31 @@ type ActionConfig = Record<string, unknown>;
 
 function summarizeSendEmail(config: ActionConfig): string[] {
   const summary: string[] = [];
-  if (config.to) summary.push(`To: ${config.to}`);
-  if (config.subject) summary.push(`Subject: ${config.subject}`);
+  if (config.to) summary.push(`To: ${asText(config.to)}`);
+  if (config.subject) summary.push(`Subject: ${asText(config.subject)}`);
   return summary;
 }
 
 function summarizeHttpRequest(config: ActionConfig): string[] {
-  return config.method && config.url ? [`${config.method} ${config.url}`] : [];
+  return config.method && config.url ? [`${asText(config.method)} ${asText(config.url)}`] : [];
 }
 
 function summarizeCondition(config: ActionConfig): string[] {
   if (!config.field || !config.operator) return [];
   const op = config.operator === 'eq' ? '==' : config.operator === 'ne' ? '!=' : config.operator;
-  return [`${config.field} ${op} ${config.value || ''}`];
+  return [`${asText(config.field)} ${asText(op)} ${asText(config.value || '')}`];
 }
 
 function summarizeDelay(config: ActionConfig): string[] {
-  if (config.seconds) return [`Wait ${config.seconds} seconds`];
-  if (config.minutes) return [`Wait ${config.minutes} minutes`];
-  if (config.hours) return [`Wait ${config.hours} hours`];
+  if (config.seconds) return [`Wait ${asText(config.seconds)} seconds`];
+  if (config.minutes) return [`Wait ${asText(config.minutes)} minutes`];
+  if (config.hours) return [`Wait ${asText(config.hours)} hours`];
   return [];
 }
 
 function summarizeLogMessage(config: ActionConfig): string[] {
   const summary: string[] = [];
-  if (config.level) summary.push(`Level: ${config.level}`);
+  if (config.level) summary.push(`Level: ${asText(config.level)}`);
   if (typeof config.message === 'string') {
     summary.push(config.message.substring(0, 50) + (config.message.length > 50 ? '...' : ''));
   }
@@ -135,7 +136,7 @@ function summarizeLogMessage(config: ActionConfig): string[] {
 }
 
 function summarizeRecord(config: ActionConfig): string[] {
-  return config.entityType || config.entity ? [`Entity: ${config.entityType || config.entity}`] : [];
+  return config.entityType || config.entity ? [`Entity: ${asText(config.entityType || config.entity)}`] : [];
 }
 
 function summarizeTransformData(config: ActionConfig): string[] {
@@ -143,11 +144,11 @@ function summarizeTransformData(config: ActionConfig): string[] {
 }
 
 function summarizeLoop(config: ActionConfig): string[] {
-  return config.items ? [`Items: ${config.items}`] : [];
+  return config.items ? [`Items: ${asText(config.items)}`] : [];
 }
 
 function summarizeSetVariable(config: ActionConfig): string[] {
-  return config.name ? [`${config.name} = ${JSON.stringify(config.value).substring(0, 30)}`] : [];
+  return config.name ? [`${asText(config.name)} = ${JSON.stringify(config.value).substring(0, 30)}`] : [];
 }
 
 const CONFIG_SUMMARIZERS: Record<string, (config: ActionConfig) => string[]> = {

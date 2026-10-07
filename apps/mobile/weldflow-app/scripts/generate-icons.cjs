@@ -1,6 +1,6 @@
 const sharp = require('sharp');
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 
 const SRC = 'C:/Users/gertv/Downloads/logos/flow/PNG';
 const OUT = path.resolve(__dirname, '..', 'assets', 'images');

@@ -1047,7 +1047,7 @@ function layoutTsx(title, description) {
 
 export const metadata: Metadata = {
   title: '${title}',
-  description: '${description.replaceAll('\'', "\\'")}',
+  description: '${description.replaceAll('\'', String.raw`\'`)}',
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {

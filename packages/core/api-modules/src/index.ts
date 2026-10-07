@@ -383,7 +383,7 @@ export const MODULE_WORKERS: readonly ApiModule[] = API_MODULES.filter((m) => m.
 const CORE_DEV_PORT = getApiModule('core').devPort;
 
 /** `<worker>[-env].<domain>` for any API worker, app-api included. */
-const WORKER_HOST = new RegExp(`^(${API_MODULES.map((m) => m.worker).join('|')})(-[a-z0-9]+)?\\.(.+)$`);
+const WORKER_HOST = new RegExp(String.raw`^(${API_MODULES.map((m) => m.worker).join('|')})(-[a-z0-9]+)?\.(.+)$`);
 
 function ownsPath(prefix: string, path: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`);

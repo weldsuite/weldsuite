@@ -29,7 +29,7 @@ import {
 } from '@weldsuite/core-api-client/schemas/domains';
 import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
-import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
+import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import * as domainsService from '@weldsuite/host-domain/domains';
 import { chargeAndRenewDomain, voidPendingRenewalInvoice } from '../../services/domain-renewal-billing';
 import { getMasterDb } from '@weldsuite/worker-kit/db';

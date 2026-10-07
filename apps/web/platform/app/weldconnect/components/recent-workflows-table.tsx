@@ -221,10 +221,13 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
   )
 
   // Every row passed in is shown: the dashboard fetches exactly one page of recent runs.
+  // No pagination, so no page-index auto-reset: the rows change every second while a
+  // run is active, and each reset is a state update that renders the table again.
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
+    autoResetPageIndex: false,
   })
 
   return (

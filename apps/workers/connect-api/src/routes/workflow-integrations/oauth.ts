@@ -84,7 +84,7 @@ app.post(
       redirect_uri: redirectUri(c.env),
       response_type: 'code',
       state,
-      ...(auth.authorizeParams ?? {}),
+      ...auth.authorizeParams,
     });
     // Slack v2 uses `scope` for bot scopes; Google/others use space-delimited `scope`.
     params.set('scope', auth.scopes.join(' '));

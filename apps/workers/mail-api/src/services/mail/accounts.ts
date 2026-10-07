@@ -24,7 +24,7 @@ import { clearCatchAllForAccount } from './domains';
 
 const { mailAccounts, mailDomains, mailLabels, hostDomains, workspaceMembers } = schema;
 
-const BARE_WELDMAIL_DOMAINS = ['weldmail.com', 'test.weldmail.com', 'preview.weldmail.com'];
+const BARE_WELDMAIL_DOMAINS = new Set(['weldmail.com', 'test.weldmail.com', 'preview.weldmail.com']);
 
 const SYSTEM_LABEL_SEEDS = [
   { name: 'Inbox', slug: 'INBOX' },
@@ -165,7 +165,7 @@ export async function listMailAccounts(
 
   const hasMore = rows.length > limit;
   const data = hasMore ? rows.slice(0, limit) : rows;
-  const cursor = hasMore && data.length > 0 ? data[data.length - 1]!.id : null;
+  const cursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
   const totalCount = Number(countRes[0]?.count ?? 0);
 
   return { data, hasMore, cursor, totalCount };
@@ -242,7 +242,7 @@ export interface CreateMailAccountInput {
 
 /** Reject bare WeldMail domains and WeldMail subdomains that aren't the caller's workspace. */
 async function assertWeldmailDomainAllowed(env: Env, orgId: string, emailDomain: string): Promise<void> {
-  if (BARE_WELDMAIL_DOMAINS.includes(emailDomain)) {
+  if (BARE_WELDMAIL_DOMAINS.has(emailDomain)) {
     throw new MailAccountError(
       'BARE_WELDMAIL_DOMAIN_BLOCKED',
       'Cannot create accounts directly on WeldMail domains. Use the WeldMail address flow instead.',

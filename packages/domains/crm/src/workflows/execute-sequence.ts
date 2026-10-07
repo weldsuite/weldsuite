@@ -25,6 +25,7 @@ import { evaluateCondition } from './execute-workflow/evaluate-condition';
 // kept here because CRM sequence execution still imports this legacy executor copy.
 import { executeAction, isWaitingForInput, type ActionContext, type ActionEnv } from './execute-workflow/action-handlers';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
+import { asText } from '@weldsuite/text';
 
 /**
  * The bindings the workflow reads: tenant/master DB resolution plus what the
@@ -484,7 +485,7 @@ async function recordStepFailure(
   stepError: unknown,
 ): Promise<StepOutcome> {
   const { params, rt, executionId, steps } = ctx;
-  const errorMessage = stepError instanceof Error ? stepError.message : String(stepError);
+  const errorMessage = stepError instanceof Error ? stepError.message : asText(stepError);
 
   await db.update(schema.workflowExecutionSteps).set({
     status: 'failed', completedAt: new Date(), error: { message: errorMessage },

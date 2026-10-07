@@ -12,6 +12,7 @@ import {
   type TeamTimesheetEntry,
   type TeamTimesheetMember,
 } from '@/hooks/queries/use-team-timesheet-queries';
+import { asText } from '@weldsuite/text';
 
 interface TeamTimesheetViewProps {
   projectId: string;
@@ -38,7 +39,7 @@ function formatDuration(minutes: number): string {
  * an exported timesheet can't run anything (CSV injection, CWE-1236).
  */
 function csvCell(value: unknown): string {
-  const s = value === null || value === undefined ? '' : String(value);
+  const s = value === null || value === undefined ? '' : asText(value);
   const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }

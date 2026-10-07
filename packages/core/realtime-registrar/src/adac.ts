@@ -14,6 +14,7 @@
  */
 
 import { RealtimeRegistrarError } from './errors';
+import { asText } from '@weldsuite/text';
 
 export const ADAC_ACTION_URL = 'https://adac.api.yoursrs.com/action';
 export const ADAC_REQUEST_TIMEOUT_MS = 30_000;
@@ -154,7 +155,7 @@ function adacTransportError(err: unknown): RealtimeRegistrarError {
   return new RealtimeRegistrarError(
     0,
     aborted ? 'TIMEOUT' : 'NETWORK_ERROR',
-    `ADAC ${aborted ? 'timeout' : 'network error'}: ${err instanceof Error ? err.message : String(err)}`,
+    `ADAC ${aborted ? 'timeout' : 'network error'}: ${err instanceof Error ? err.message : asText(err)}`,
     'adac',
   );
 }

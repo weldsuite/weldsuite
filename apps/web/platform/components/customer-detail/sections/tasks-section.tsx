@@ -680,7 +680,6 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
   ], [t]);
 
   return (
-    <>
     <EntityList<Task>
       items={tasks}
       isLoading={isLoading}
@@ -755,6 +754,5 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
         />
       }
     />
-  </>
   );
 }

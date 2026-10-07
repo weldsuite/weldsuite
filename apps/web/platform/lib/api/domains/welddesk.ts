@@ -44,6 +44,7 @@
 
 import { appApi } from '../app-api-browser-client';
 import type { Helpdesk } from '../types/apps/helpdesk.types';
+import { asText } from '@weldsuite/text';
 
 // ============================================================================
 // Re-export core types from the central type definitions
@@ -201,7 +202,7 @@ function buildQueryString(params: Record<string, unknown>): string {
 
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      queryParams.set(key, String(value));
+      queryParams.set(key, asText(value));
     }
   }
 
@@ -406,7 +407,7 @@ function listQuery<F extends { page?: number; pageSize?: number }>(
         `Page through with the cursor returned by the previous response instead.`,
     );
   }
-  return buildQueryString({ ...rest, ...(extra ?? {}), limit: pageSize });
+  return buildQueryString({ ...rest, ...extra, limit: pageSize });
 }
 
 // ============================================================================

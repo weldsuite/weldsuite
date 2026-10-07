@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { ActionNodeData } from './flow-utils';
+import { asText } from '@weldsuite/text';
 
 // Amber "Setup required" badge shown on nodes missing required configuration.
 export function SetupRequiredBadge({ label }: Readonly<{ label?: string }>) {
@@ -147,22 +148,22 @@ function describeDelay(config: ActionConfig, labels: ActionNodeLabels): string |
   const unit = DELAY_UNITS.find((u) => config[u]);
   if (!unit) return null;
   return (labels.descDelay || 'Wait {duration} {unit}')
-    .replace('{duration}', String(config[unit]))
+    .replace('{duration}', asText(config[unit]))
     .replace('{unit}', unit);
 }
 
 function describeEntityAction(config: ActionConfig, labels: ActionNodeLabels): string | null {
   const entity = config.entityType || config.entity;
   if (!entity) return null;
-  return (labels.descEntity || '{entityType}').replace('{entityType}', String(entity));
+  return (labels.descEntity || '{entityType}').replace('{entityType}', asText(entity));
 }
 
 // Type-specific one-line summaries; each returns null when its config lacks the needed field.
 const ACTION_DESCRIBERS: Record<string, (config: ActionConfig, labels: ActionNodeLabels) => string | null> = {
   send_email: (config, labels) =>
-    config.to ? (labels.descTo || 'To: {to}').replace('{to}', String(config.to)) : null,
+    config.to ? (labels.descTo || 'To: {to}').replace('{to}', asText(config.to)) : null,
   http_request: (config) =>
-    config.url ? `${String(config.method ?? 'GET')} ${String(config.url)}` : null,
+    config.url ? `${asText(config.method ?? 'GET')} ${asText(config.url)}` : null,
   delay: describeDelay,
   create_customer: (config) =>
     typeof config.name === 'string' && config.name ? config.name : null,

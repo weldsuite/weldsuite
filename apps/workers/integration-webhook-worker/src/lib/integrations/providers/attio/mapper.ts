@@ -1,4 +1,5 @@
 import type { MappedCompany, MappedPerson, ExternalRecord } from '../../types';
+import { asText } from '@weldsuite/text';
 
 /**
  * Extract a simple attribute value from Attio record values.
@@ -10,7 +11,7 @@ function getAttrValue(values: Record<string, unknown>, key: string): string | un
 
   const item = arr[0]!;
   if (typeof item === 'string') return item;
-  if (item.value !== undefined && item.value !== null) return String(item.value);
+  if (item.value !== undefined && item.value !== null) return asText(item.value);
   if (item.original) return item.original;
   return undefined;
 }

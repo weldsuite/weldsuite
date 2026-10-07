@@ -198,7 +198,7 @@ function buildThreadSummary(
   );
 
   const first = threadMessages[0]!;
-  const latest = threadMessages[threadMessages.length - 1]!;
+  const latest = threadMessages.at(-1)!;
   const { participants, labels, hasAttachments, isStarred, unreadCount } =
     summarizeThreadMessages(threadMessages);
 

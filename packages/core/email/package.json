@@ -23,6 +23,7 @@
     "./list-unsubscribe": "./src/list-unsubscribe.ts"
   },
   "dependencies": {
+    "@weldsuite/text": "workspace:*",
     "cloudflare": "^7.0.0",
     "dom-serializer": "^2.0.0",
     "domhandler": "^5.0.3",

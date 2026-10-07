@@ -5,6 +5,7 @@
  * value coming from a request, webhook or third-party payload cannot forge
  * extra log entries.
  */
+import { asText } from '@weldsuite/text';
 export function logSafe(value: unknown): string {
-  return String(value).replace(/[\r\n\u2028\u2029]+/g, ' ');
+  return asText(value).replace(/[\r\n\u2028\u2029]+/g, ' ');
 }

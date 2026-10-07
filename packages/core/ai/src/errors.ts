@@ -36,6 +36,7 @@
 import { APICallError, RetryError } from 'ai';
 
 import { GatewayConfigError, UnsupportedModelError } from './adapters/types.js';
+import { asText } from '@weldsuite/text';
 
 export type FailureKind =
   /** Transient or gateway-local — a different gateway may well succeed. */
@@ -140,7 +141,7 @@ export class AllGatewaysFailedError extends Error {
     override readonly cause: unknown,
   ) {
     const tried = attempts.map((a) => a.gateway).join(', ') || 'none';
-    const last = cause instanceof Error ? cause.message : String(cause);
+    const last = cause instanceof Error ? cause.message : asText(cause);
     super(`[@weldsuite/ai] All AI gateways failed (tried: ${tried}). Last error: ${last}`);
     this.name = 'AllGatewaysFailedError';
   }

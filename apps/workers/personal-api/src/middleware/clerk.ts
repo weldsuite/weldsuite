@@ -30,7 +30,7 @@ function formatClerkError(err: unknown): string {
 }
 
 function normalizePem(key: string): string {
-  return key.replaceAll('\\n', '\n').replaceAll('\\r', '').trim();
+  return key.replaceAll(String.raw`\n`, '\n').replaceAll(String.raw`\r`, '').trim();
 }
 
 function decodeJwtPayload(token: string): ClerkJwtPayload {

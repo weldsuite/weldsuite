@@ -22,6 +22,7 @@ import type {
   WelddataLead,
   WelddataList,
 } from '@weldsuite/app-api-client/schemas/welddata';
+import { asText } from '@weldsuite/text';
 
 export interface AiModel {
   modelId: string;
@@ -186,7 +187,7 @@ export function useWelddataLeads(listId: string, filters?: Record<string, unknow
       const params = new URLSearchParams();
       for (const [k, v] of Object.entries(filters ?? {})) {
         if (v === undefined || v === null || v === '') continue;
-        params.set(k, String(v));
+        params.set(k, asText(v));
       }
       const q = params.toString();
       return client.get<ListResponse<WelddataLead>>(`/welddata/lists/${listId}/leads${q ? `?${q}` : ''}`);
@@ -511,7 +512,7 @@ export function useRunCell() {
       const prev = qc.getQueryData<CellMap>(key);
       qc.setQueryData<CellMap>(key, (old) => {
         const cellKey = `${columnId}:${leadId}`;
-        return { ...(old ?? {}), [cellKey]: optimisticPending(columnId, leadId, old?.[cellKey]) };
+        return { ...old, [cellKey]: optimisticPending(columnId, leadId, old?.[cellKey]) };
       });
       return { prev, key };
     },

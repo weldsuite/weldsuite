@@ -16,6 +16,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CustomFieldDefinition } from '@/hooks/use-custom-fields';
+import { asText } from '@weldsuite/text';
 
 /**
  * One form control per custom-field type.
@@ -50,7 +51,7 @@ export function FieldInput({ field, value, onChange, disabled }: Readonly<FieldI
       return (
         <Input
           type="number"
-          value={value === null || value === undefined ? '' : String(value)}
+          value={value === null || value === undefined ? '' : asText(value)}
           // Empty string clears the value rather than becoming NaN — the API
           // treats null as "clear this field".
           onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}

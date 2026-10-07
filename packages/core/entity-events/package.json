@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "peerDependencies": {

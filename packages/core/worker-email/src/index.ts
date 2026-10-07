@@ -26,6 +26,7 @@ import {
 import { PendingVerificationError } from '@weldsuite/email';
 import type { EmailAttachment } from '@weldsuite/email/core/types';
 import { findZoneIdByName } from '@weldsuite/cloudflare-zones';
+import { asText } from '@weldsuite/text';
 
 /** The bindings and secrets this package reads. Any worker Env with them fits. */
 export interface WorkerEmailEnv {
@@ -39,7 +40,7 @@ export interface WorkerEmailEnv {
 
 /** Neutralise line breaks so provider-supplied values cannot forge log lines. */
 function logSafe(value: unknown): string {
-  return String(value).replace(/[\r\n\u2028\u2029]+/g, ' ');
+  return asText(value).replace(/[\r\n\u2028\u2029]+/g, ' ');
 }
 
 export interface SendEmailParams {

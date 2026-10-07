@@ -238,7 +238,7 @@ app.delete('/addresses/:id', requirePermission('settings:delete'), async (c) => 
       .where(and(eq(mailAccounts.id, addressId), isNull(mailAccounts.deletedAt)))
       .limit(1);
     if (mailAccount) {
-      const meta = { ...((mailAccount.metadata as Record<string, unknown>) ?? {}) };
+      const meta = { ...(mailAccount.metadata as Record<string, unknown>) };
       delete meta.helpdeskEnabled;
       await db.update(mailAccounts).set({ metadata: meta, updatedAt: new Date() }).where(eq(mailAccounts.id, addressId));
       publishEntityEvent({ c, entityType: 'helpdesk_email', entityId: addressId, action: 'deleted', data: { id: addressId } });

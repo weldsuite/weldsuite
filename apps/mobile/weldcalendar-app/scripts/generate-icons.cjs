@@ -11,8 +11,8 @@
  *   node apps/mobile/weldcalendar-app/scripts/generate-icons.cjs
  */
 
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 const sharp = require('sharp');
 
 const APP_ROOT = path.resolve(__dirname, '..');

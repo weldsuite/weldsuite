@@ -55,7 +55,7 @@ interface TeamMember {
 
 interface Task {
   id: string;
-  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  /** Workspace-wide sequential number, rendered as the bare number. */
   number?: number | null;
   name: string;
   assigneeId: string;
