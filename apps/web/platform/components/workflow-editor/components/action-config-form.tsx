@@ -42,6 +42,7 @@ import {
   Check,
   Hash,
   Lock,
+  Github,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -62,6 +63,7 @@ import { useChannels } from '@/hooks/queries/use-weldchat-queries';
 import {
   useWorkflowIntegrations,
   useSlackChannels,
+  useGithubRepos,
 } from '@/hooks/queries/use-workflow-integration-queries';
 
 // Types for context data
@@ -1532,6 +1534,244 @@ function SlackPostMessageForm({
           value={(config.threadTs as string | undefined) || ''}
           onChange={(v) => onChange({ ...config, threadTs: v })}
           placeholder={cf.threadTsPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+/**
+ * Shared repo picker + connection picker for the two `github.*` steps
+ * (`app_installation` auth — reuses WeldFlow's existing GitHub App
+ * installation, no OAuth connection picker in the usual sense, but the
+ * workspace can still have more than one `workflow_integrations` row of type
+ * `github` in principle, so the same "only shown when > 1" rule applies).
+ */
+function useGithubConnectionAndRepos(config: Record<string, unknown>) {
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'github',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  const effectiveIntegrationId = configuredIntegrationId || connections[0]?.id || '';
+
+  const { data: reposData, isLoading: reposLoading } = useGithubRepos(effectiveIntegrationId || undefined);
+  const repos = reposData?.data ?? [];
+
+  return { connections, connectionsLoading, configuredIntegrationId, effectiveIntegrationId, repos, reposLoading };
+}
+
+function GithubRepoField({
+  cf,
+  config,
+  onChange,
+  connections,
+  connectionsLoading,
+  configuredIntegrationId,
+  effectiveIntegrationId,
+  repos,
+  reposLoading,
+}: {
+  cf: {
+    noConnection: string;
+    connection: string;
+    connectionDesc: string;
+    selectConnection: string;
+    repo: string;
+    repoDesc: string;
+    selectRepo: string;
+    loadingRepos: string;
+    noRepos: string;
+  };
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  connections: Array<{ id: string; name: string }>;
+  connectionsLoading: boolean;
+  configuredIntegrationId: string;
+  effectiveIntegrationId: string;
+  repos: Array<{ id: number; fullName: string; private: boolean }>;
+  reposLoading: boolean;
+}) {
+  const repoValue = (config.repo as string | undefined) || '';
+
+  return (
+    <>
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value, repo: '' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.repo} required description={cf.repoDesc}>
+        <Select
+          value={repoValue}
+          onValueChange={(value) => onChange({ ...config, repo: value })}
+          disabled={reposLoading || !effectiveIntegrationId}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={reposLoading ? cf.loadingRepos : cf.selectRepo} />
+          </SelectTrigger>
+          <SelectContent>
+            {repos.map((repo) => (
+              <SelectItem key={repo.id} value={repo.fullName}>
+                <span className="inline-flex items-center gap-1.5">
+                  {repo.private ? (
+                    <Lock className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <Github className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  {repo.fullName}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!reposLoading && effectiveIntegrationId && repos.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{cf.noRepos}</p>
+        )}
+      </FormField>
+    </>
+  );
+}
+
+/** `github.create_issue` — repo picker + title/body/labels/assignees. */
+function GithubCreateIssueForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.githubCreateIssue;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const gh = useGithubConnectionAndRepos(config);
+
+  return (
+    <div className="space-y-4">
+      <GithubRepoField cf={cf} config={config} onChange={onChange} {...gh} />
+
+      <FormField label={cf.title} required description={cf.titleDesc}>
+        <VariableInput
+          value={(config.title as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, title: v })}
+          placeholder={cf.titlePlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.body} description={cf.bodyDesc}>
+        <VariableInput
+          value={(config.body as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, body: v })}
+          placeholder={cf.bodyPlaceholder}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.labels} description={cf.labelsDesc}>
+        <VariableInput
+          value={(config.labels as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, labels: v })}
+          placeholder={cf.labelsPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.assignees} description={cf.assigneesDesc}>
+        <VariableInput
+          value={(config.assignees as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, assignees: v })}
+          placeholder={cf.assigneesPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+/** `github.create_comment` — repo picker + issue/PR number + body. */
+function GithubCreateCommentForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.githubCreateComment;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const gh = useGithubConnectionAndRepos(config);
+
+  return (
+    <div className="space-y-4">
+      <GithubRepoField cf={cf} config={config} onChange={onChange} {...gh} />
+
+      <FormField label={cf.issueNumber} required description={cf.issueNumberDesc}>
+        <VariableInput
+          value={(config.issueNumber as string | undefined) ?? (config.issueNumber != null ? String(config.issueNumber) : '')}
+          onChange={(v) => onChange({ ...config, issueNumber: v })}
+          placeholder={cf.issueNumberPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.body} required description={cf.bodyDesc}>
+        <VariableInput
+          value={(config.body as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, body: v })}
+          placeholder={cf.bodyPlaceholder}
+          multiline
+          rows={4}
           {...variableProps}
         />
       </FormField>
@@ -3829,6 +4069,32 @@ export function ActionConfigForm({
       case 'slack.post_message':
         return (
           <SlackPostMessageForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'github.create_issue':
+        return (
+          <GithubCreateIssueForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'github.create_comment':
+        return (
+          <GithubCreateCommentForm
             config={config}
             onChange={onChange}
             triggerType={triggerType}

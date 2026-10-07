@@ -211,6 +211,13 @@ export const manifest: Record<string, SecretEntry[]> = {
   // and on its own /internal/schedule-index/rebuild. Same value as app-api.
   "workflow-worker": [
     "INTERNAL_API_SECRET",
+    // github.create_issue / github.create_comment (app_installation auth,
+    // providers/token.ts + @weldsuite/connect-domain/github/app-auth): mints
+    // its own installation token per call, so it needs the SAME GitHub App
+    // identity as connect-api's GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY — reusing
+    // WeldFlow's existing per-workspace installation rather than a second app.
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY",
   ],
 
   // pass-api: the pass module's API worker (split from app-api). Base

@@ -13,6 +13,8 @@ const workflowIntegrationKeys = {
   detail: (id: string) => [...workflowIntegrationKeys.all, 'detail', id] as const,
   slackChannels: (id: string | undefined) =>
     [...workflowIntegrationKeys.all, 'slack-channels', id] as const,
+  githubRepos: (id: string | undefined) =>
+    [...workflowIntegrationKeys.all, 'github-repos', id] as const,
 };
 
 // =============================================================================
@@ -32,7 +34,7 @@ interface TriggerDef {
 }
 
 interface IntegrationAuth {
-  kind: 'oauth2' | 'api_key';
+  kind: 'oauth2' | 'api_key' | 'app_installation';
   [key: string]: unknown;
 }
 
@@ -138,6 +140,30 @@ export function useSlackChannels(integrationId: string | undefined) {
   });
 }
 
+export interface GithubRepoOption {
+  id: number;
+  fullName: string;
+  defaultBranch: string;
+  private: boolean;
+}
+
+/** Repositories the connected GitHub App installation can see — the
+ *  `github.create_issue` / `github.create_comment` step forms' repo picker
+ *  (`installation/repositories`, via connect-api). */
+export function useGithubRepos(integrationId: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: workflowIntegrationKeys.githubRepos(integrationId),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: GithubRepoOption[] }>(
+        `/workflow-integrations/${integrationId}/github/repos`,
+      );
+    },
+    enabled: !!integrationId,
+  });
+}
+
 // =============================================================================
 // Mutations
 // =============================================================================
@@ -163,6 +189,32 @@ export function useConnectWorkflowProvider() {
       // Redirect to OAuth authorisation URL
       window.location.href = result.data.authorizeUrl;
       return result;
+    },
+  });
+}
+
+/**
+ * Point WeldConnect's `github` integration at the workspace's existing
+ * GitHub App installation (WeldFlow's project sync, Settings → Integrations
+ * → GitHub) — no OAuth redirect, unlike `useConnectWorkflowProvider`. When no
+ * installation exists yet, the response comes back `status: 'needs_install'`
+ * instead of `'connected'`; the caller is responsible for sending the member
+ * to Settings → Integrations → GitHub to install the App first.
+ */
+export function useLinkGithubInstallation() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const client = await getClient();
+      return client.post<{
+        data: { status: 'connected' | 'needs_install'; id?: string; provider: 'github' };
+      }>('/workflow-integrations/github/link', {});
+    },
+    onSuccess: (result) => {
+      if (result.data.status === 'connected') {
+        qc.invalidateQueries({ queryKey: workflowIntegrationKeys.list() });
+      }
     },
   });
 }

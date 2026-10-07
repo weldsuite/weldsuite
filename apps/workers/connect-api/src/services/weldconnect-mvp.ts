@@ -46,6 +46,11 @@ export const WELDCONNECT_ACTION_TYPES = [
   // "Provider pattern" in docs/plans/weldconnect.md for what a future
   // provider (Google, GitHub, …) adds alongside this entry.
   'slack.post_message',
+  // GitHub (app_installation auth — reuses WeldFlow's existing GitHub App
+  // installation instead of a second OAuth app or a PAT). See "Provider
+  // pattern" in docs/plans/weldconnect.md.
+  'github.create_issue',
+  'github.create_comment',
 ] as const;
 
 /** Tag carried by CRM sequence workflows (see routes/sequences). */
@@ -182,6 +187,8 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   loop: (c) => (isBlank(c.items) ? ['items'] : []),
   delay: (c) => (['seconds', 'minutes', 'hours', 'days'].some((unit) => isPositive(c[unit])) ? [] : ['duration']),
   'slack.post_message': (c) => ['channel', 'text'].filter((field) => isBlank(c[field])),
+  'github.create_issue': (c) => ['repo', 'title'].filter((field) => isBlank(c[field])),
+  'github.create_comment': (c) => ['repo', 'issueNumber', 'body'].filter((field) => isBlank(c[field])),
 };
 
 /** The branch ids a branching step owns — mirrors step-tree.ts in workflow-worker. */

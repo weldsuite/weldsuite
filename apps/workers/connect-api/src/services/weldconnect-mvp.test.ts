@@ -283,6 +283,49 @@ describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
       { code: 'missing_field', stepId: 'a', type: 'slack.post_message', field: 'text' },
     ]);
   });
+
+  it('accepts a configured github.create_issue step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'github.create_issue', config: { repo: 'acme/widgets', title: 'Bug' } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a github.create_issue step missing its repo or title', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'github.create_issue', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'github.create_issue', field: 'repo' },
+      { code: 'missing_field', stepId: 'a', type: 'github.create_issue', field: 'title' },
+    ]);
+  });
+
+  it('accepts a configured github.create_comment step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'github.create_comment', config: { repo: 'acme/widgets', issueNumber: 5, body: 'Thanks' } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a github.create_comment step missing its repo, issue number or body', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'github.create_comment', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'github.create_comment', field: 'repo' },
+      { code: 'missing_field', stepId: 'a', type: 'github.create_comment', field: 'issueNumber' },
+      { code: 'missing_field', stepId: 'a', type: 'github.create_comment', field: 'body' },
+    ]);
+  });
 });
 
 describe('validateWeldConnectIntegrations', () => {
@@ -334,6 +377,25 @@ describe('validateWeldConnectIntegrations', () => {
       validateWeldConnectIntegrations(
         [{ id: 'a', type: 'slack.post_message', config: { integrationId: 'win_1' } }],
         [connectedSlack, disconnectedSlack],
+      ),
+    ).toEqual([]);
+  });
+
+  it('flags a github.create_issue step when no GitHub integration is connected', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'github.create_issue', config: { repo: 'acme/widgets', title: 'Bug' } }],
+        [connectedSlack],
+      ),
+    ).toEqual([{ code: 'integration_not_connected', stepId: 'a', type: 'github.create_issue' }]);
+  });
+
+  it('accepts a github.create_comment step once a GitHub integration is connected', () => {
+    const connectedGithub = { id: 'int_1', type: 'github', status: 'connected' };
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'github.create_comment', config: { repo: 'acme/widgets', issueNumber: 1, body: 'hi' } }],
+        [connectedSlack, connectedGithub],
       ),
     ).toEqual([]);
   });

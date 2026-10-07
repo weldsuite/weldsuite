@@ -24,6 +24,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { linkGithubAppInstallation } from '../../services/workflow-integrations/github';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const wi = schema.workflowIntegrations;
@@ -250,5 +251,43 @@ app.post(
     return success(c, { id, status: 'connected', provider }, 201);
   },
 );
+
+/**
+ * Connect an `app_installation`-based integration (currently only GitHub) by
+ * pointing it at a platform-level app installation that already exists
+ * independently of WeldConnect — no OAuth redirect here, unlike `/authorize`
+ * + `/callback` above. The route is written generically against the auth
+ * kind; only GitHub implements the per-provider link today (see
+ * "Provider pattern" in docs/plans/weldconnect.md for what a future
+ * `app_installation` provider adds).
+ */
+app.post('/:provider/link', requirePermission('integrations:update'), async (c) => {
+  const provider = c.req.param('provider');
+  const def = getIntegrationDef(provider);
+  if (!def) return error.notFound(c, 'Integration', provider);
+  if (def.auth.kind !== 'app_installation') {
+    return error.badRequest(c, `Integration "${provider}" does not use an app installation`);
+  }
+  if (provider !== 'github') {
+    // Scaffolding for a future app_installation provider — not implemented yet.
+    return error.notFound(c, 'Integration', provider);
+  }
+
+  const db = c.get('tenantDb');
+  const orgId = c.get('orgId');
+  const userId = c.get('userId');
+  if (!orgId) return error.badRequest(c, 'No active workspace');
+
+  const result = await linkGithubAppInstallation(db, orgId, userId);
+  if (!result.linked) {
+    return success(c, { status: 'needs_install' as const, provider });
+  }
+
+  await c.env.WORKSPACE_CACHE.put(
+    `intconn:${result.integrationId}`,
+    JSON.stringify({ workspaceId: orgId, provider }),
+  );
+  return success(c, { id: result.integrationId, status: 'connected' as const, provider });
+});
 
 export const workflowIntegrationOAuthRoutes = app;

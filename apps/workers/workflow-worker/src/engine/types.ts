@@ -116,6 +116,13 @@ export interface WorkflowEnv {
   AI_GATEWAY_API_TOKEN?: string;
   CF_AI_GATEWAY?: string;
   CF_AIG_TOKEN?: string;
+  // GitHub App (github.* provider actions, `app_installation` auth —
+  // providers/token.ts mints a fresh per-installation token from these; no
+  // long-lived GitHub secret is ever stored on the `workflow_integrations`
+  // row). Same App as connect-api's WeldFlow GitHub sync; GITHUB_APP_SLUG is
+  // not needed here since only connect-api builds "connect this app" links.
+  GITHUB_APP_ID?: string;
+  GITHUB_APP_PRIVATE_KEY?: string;
 }
 
 /**

@@ -33,6 +33,7 @@ import {
   MessageSquare,
   MessageCircle,
   Slack,
+  Github,
   Bell,
   Building2,
   Calendar,
@@ -301,6 +302,8 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   log_activity: { icon: Activity, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   post_chat_message: { icon: MessageCircle, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30' },
   'slack.post_message': { icon: Slack, color: 'text-fuchsia-600', bgColor: 'bg-fuchsia-100 dark:bg-fuchsia-900/30' },
+  'github.create_issue': { icon: Github, color: 'text-slate-700', bgColor: 'bg-slate-100 dark:bg-slate-800/40' },
+  'github.create_comment': { icon: Github, color: 'text-slate-700', bgColor: 'bg-slate-100 dark:bg-slate-800/40' },
   create_task: { icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
@@ -422,6 +425,8 @@ const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'manual_step', name: 'Manual Step', description: 'Wait for human approval or input', icon: UserCheck, category: 'logic' },
   { id: 'http_request', name: 'HTTP Request', description: 'Make an API request', icon: Globe, category: 'integration' },
   { id: 'slack.post_message', name: 'Slack: Post Message', description: 'Post a message to a Slack channel', icon: Slack, category: 'integration' },
+  { id: 'github.create_issue', name: 'GitHub: Create Issue', description: 'Open a new issue in a repository', icon: Github, category: 'integration' },
+  { id: 'github.create_comment', name: 'GitHub: Create Comment', description: 'Comment on an issue or pull request', icon: Github, category: 'integration' },
   { id: 'run_script', name: 'Run Script', description: 'Execute custom JavaScript', icon: Code, category: 'integration' },
   // ai_generate + ai_classify are the only AI action types re-enabled after
   // the platform-wide AI teardown (apps/workers/workflow-worker/src/engine/actions/ai.ts).
@@ -584,6 +589,18 @@ function summarizeSlackPostMessage(config: Record<string, unknown>): string {
   return text.substring(0, 60) + (text.length > 60 ? '...' : '');
 }
 
+function summarizeGithubCreateIssue(config: Record<string, unknown>): string {
+  const repo = typeof config.repo === 'string' ? config.repo : '';
+  const title = typeof config.title === 'string' ? config.title : '';
+  return [repo, title].filter(Boolean).join(': ');
+}
+
+function summarizeGithubCreateComment(config: Record<string, unknown>): string {
+  const repo = typeof config.repo === 'string' ? config.repo : '';
+  const issueNumber = config.issueNumber != null ? `#${config.issueNumber}` : '';
+  return [repo, issueNumber].filter(Boolean).join(' ');
+}
+
 const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['send_email', summarizeSendEmail],
   ['http_request', summarizeHttpRequest],
@@ -601,6 +618,8 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['log_activity', summarizeLogActivity],
   ['post_chat_message', summarizePostChatMessage],
   ['slack.post_message', summarizeSlackPostMessage],
+  ['github.create_issue', summarizeGithubCreateIssue],
+  ['github.create_comment', summarizeGithubCreateComment],
   ['create_task', summarizeTask],
 ]);
 

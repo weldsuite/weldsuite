@@ -34,6 +34,10 @@ export const WELDCONNECT_ACTION_TYPES = [
   // First third-party provider action — see "Provider pattern" in
   // docs/plans/weldconnect.md for what Google/GitHub add alongside this.
   'slack.post_message',
+  // GitHub (app_installation auth — reuses WeldFlow's existing GitHub App
+  // installation instead of a second OAuth app or a PAT).
+  'github.create_issue',
+  'github.create_comment',
 ] as const;
 
 /**

@@ -178,6 +178,41 @@ describe('/api/workflows · pglite integration', () => {
       expect((await setStatus(request, id, 'active')).status).toBe(200);
     });
 
+    it('refuses activating a github.create_issue step with no connected GitHub integration', async () => {
+      const request = app();
+      const { res, id } = await create(request, {
+        name: 'File a GitHub issue',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'github.create_issue', config: { repo: 'acme/widgets', title: 'Bug' } }],
+      });
+      expect(res.status).toBe(201);
+
+      const activate = await setStatus(request, id, 'active');
+      expect(activate.status).toBe(400);
+      const body = (await activate.json()) as {
+        error: { details: { reason: string; issues: Array<{ code: string }> } };
+      };
+      expect(body.error.details.issues.map((i) => i.code)).toEqual(['integration_not_connected']);
+    });
+
+    it('activates a github.create_comment step once a GitHub integration is connected', async () => {
+      await db.insert(schema.workflowIntegrations).values({
+        id: generateId('int'),
+        name: 'GitHub',
+        type: 'github',
+        status: 'connected',
+        settings: { installationId: 42 },
+      });
+
+      const request = app();
+      const { id } = await create(request, {
+        name: 'Comment on issue (connected)',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'github.create_comment', config: { repo: 'acme/widgets', issueNumber: 1, body: 'hi' } }],
+      });
+      expect((await setStatus(request, id, 'active')).status).toBe(200);
+    });
+
     it('leaves CRM sequences out of the gate', async () => {
       const request = app();
       const { id } = await create(request, {
