@@ -79,9 +79,10 @@ async function main() {
       continue;
     }
 
+    const runArgs = workerFilter.length ? ` ${workerDir}` : "";
     const lines: string[] = [
       "# Auto-generated from Doppler — do not edit manually",
-      `# Run: pnpm secrets:dev${workerFilter.length ? ` ${workerDir}` : ""}`,
+      `# Run: pnpm secrets:dev${runArgs}`,
       "",
     ];
 

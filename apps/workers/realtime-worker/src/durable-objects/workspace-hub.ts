@@ -92,7 +92,7 @@ export class WorkspaceHub extends DurableObject<Env> {
    * so an in-memory-only Map silently empties on every wake and publishes
    * stop reaching subscribers.
    */
-  private subscriptions = new Map<string, Set<string>>();
+  private readonly subscriptions = new Map<string, Set<string>>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);

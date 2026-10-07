@@ -67,8 +67,8 @@ export class DiscordGateway implements DurableObject {
   private pendingAction: 'resume' | 'identify' | null = null;
 
   constructor(
-    private state: DurableObjectState,
-    private env: Env,
+    private readonly state: DurableObjectState,
+    private readonly env: Env,
   ) {}
 
   async fetch(request: Request): Promise<Response> {
@@ -276,7 +276,7 @@ export class DiscordGateway implements DurableObject {
   // Alarm — heartbeat engine + pending actions
   // ============================================================================
 
-  async alarm(): Promise<void> {
+  alarm(): void {
     // Handle pending action from INVALID_SESSION
     if (this.pendingAction) {
       const action = this.pendingAction;
@@ -286,7 +286,7 @@ export class DiscordGateway implements DurableObject {
         this.sendResume();
       } else if (action === 'identify') {
         // Need to reconnect fresh if ws was closed
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        if (this.ws?.readyState !== WebSocket.OPEN) {
           this.connectToGateway();
         } else {
           this.sendIdentify();
@@ -296,7 +296,7 @@ export class DiscordGateway implements DurableObject {
     }
 
     // If no WebSocket, try to reconnect
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
       console.log('[Gateway] No connection in alarm, reconnecting...');
       this.connectToGateway();
       return;
@@ -356,7 +356,7 @@ export class DiscordGateway implements DurableObject {
   }
 
   private send(data: Record<string, unknown>): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
     }
   }

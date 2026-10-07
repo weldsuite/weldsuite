@@ -148,15 +148,9 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
             break;
 
           case 'updated':
-            if (!isOwnEvent && entityConfig.updateDetail && entityId) {
-              entityConfig.updateDetail(queryClient, entityId, event.data);
-            }
-            scheduleInvalidation(entityConfig.invalidate);
-            break;
-
+          // 'replaced' is treated as updated — emitted by some routes that
+          // fully replace an entity rather than patching it.
           case 'replaced':
-            // Treat as updated — emitted by some routes that fully replace
-            // an entity rather than patching it.
             if (!isOwnEvent && entityConfig.updateDetail && entityId) {
               entityConfig.updateDetail(queryClient, entityId, event.data);
             }

@@ -33,13 +33,13 @@ export class RoomClient {
   private ws: WebSocket | null = null;
   /** WebSocket that is still handshaking (not yet promoted to this.ws) */
   private pendingWs: WebSocket | null = null;
-  private eventHandlers = new Map<string, Set<AnyHandler>>();
-  private presenceHandlers = new Set<(members: PresenceMember[]) => void>();
-  private typingHandlers = new Set<(users: TypingUser[]) => void>();
-  private connectionHandlers = new Set<(state: ConnectionState) => void>();
+  private readonly eventHandlers = new Map<string, Set<AnyHandler>>();
+  private readonly presenceHandlers = new Set<(members: PresenceMember[]) => void>();
+  private readonly typingHandlers = new Set<(users: TypingUser[]) => void>();
+  private readonly connectionHandlers = new Set<(state: ConnectionState) => void>();
   private _presence: PresenceMember[] = [];
-  private _typing = new Map<string, TypingUser>();
-  private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly _typing = new Map<string, TypingUser>();
+  private readonly typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private state: ConnectionState = 'disconnected';
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -48,7 +48,7 @@ export class RoomClient {
   private enteredPresenceData: Record<string, unknown> | null = null;
   private _lastSeq = 0;
 
-  constructor(private config: RoomClientConfig) {}
+  constructor(private readonly config: RoomClientConfig) {}
 
   async connect(): Promise<void> {
     if (this.ws && this.state === 'connected') return;
@@ -429,7 +429,7 @@ export class RoomClient {
     this.reconnectAttempt++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.connect();
+      this.connect();
     }, delay);
   }
 

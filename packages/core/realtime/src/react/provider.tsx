@@ -20,7 +20,7 @@ interface RealtimeProviderProps extends WorkspaceClientConfig {
  * Handles React Strict Mode: each effect cycle creates a fresh client
  * so the cleanup fully tears down the previous connection.
  */
-export function RealtimeProvider({ url, getToken, cursorStore, children }: RealtimeProviderProps) {
+export function RealtimeProvider({ url, getToken, cursorStore, children }: Readonly<RealtimeProviderProps>) {
   const [client, setClient] = useState<WorkspaceClient | null>(null);
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;

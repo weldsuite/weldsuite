@@ -52,7 +52,7 @@ export function useSupportRoom(workspaceId: string, config: UseSupportRoomConfig
     client.onPresence(setPresence);
     client.onTyping(setTypingUsers);
 
-    void client.connect().then(() => {
+    client.connect().then(() => {
       if (config.presenceData) {
         client.enterPresence(config.presenceData);
       }
