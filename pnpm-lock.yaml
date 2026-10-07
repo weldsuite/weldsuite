@@ -4877,6 +4877,9 @@ importers:
       '@weldsuite/know-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/know
+      '@weldsuite/mail-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/mail
       '@weldsuite/social-publishing':
         specifier: workspace:*
         version: link:../../../packages/core/social-publishing
@@ -5485,6 +5488,9 @@ importers:
       '@weldsuite/know-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/know
+      '@weldsuite/mail-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/mail
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../../../packages/core/permissions
@@ -5513,6 +5519,9 @@ importers:
       typescript:
         specifier: ^5.9.2
         version: 5.9.2
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/debug@4.1.12)(@types/node@26.2.0)(jiti@2.7.0)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(lightningcss@1.32.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.0)
       wrangler:
         specifier: ^4.0.0
         version: 4.95.0(@cloudflare/workers-types@4.20260113.0)(bufferutil@4.1.0)(utf-8-validate@6.0.6)

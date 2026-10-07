@@ -29,6 +29,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Workers-only module; the mail send routes import @weldsuite/worker-email.
+      'cloudflare:email': path.resolve(
+        __dirname,
+        '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
+      ),
     },
   },
 });

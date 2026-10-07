@@ -23,6 +23,7 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/know-domain": "workspace:*",
+    "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/social-publishing": "workspace:*",
     "@neondatabase/serverless": "^1.0.1",
     "drizzle-orm": "^0.45.2",

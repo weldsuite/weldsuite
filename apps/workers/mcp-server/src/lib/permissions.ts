@@ -37,6 +37,10 @@ const ACTIONS_BY_METHOD: Record<string, readonly string[]> = {
  * (`welddrive` → `files`, `workflows` → `helpdesk-workflows`). The WeldFlow
  * artefacts (`goals`, `sprints`, `whiteboards`) have no catalog object of their
  * own and are governed by `projects`, and `members` is the catalog's `team`.
+ *
+ * The `mail_*` scopes map onto the permissions WeldMail itself checks
+ * (mail-api): mailbox setup — accounts, labels, folders — is `accounts`; the
+ * mail in it — messages, drafts, attachments — is `messages`.
  */
 const RESOURCE_ALIASES: Record<string, string> = {
   drive: 'files',
@@ -46,6 +50,12 @@ const RESOURCE_ALIASES: Record<string, string> = {
   goals: 'projects',
   sprints: 'projects',
   whiteboards: 'projects',
+  mail_accounts: 'accounts',
+  mail_labels: 'accounts',
+  mail_folders: 'accounts',
+  mail_messages: 'messages',
+  mail_drafts: 'messages',
+  mail_attachments: 'messages',
 };
 
 /** Resolve a route scope's object to its permission-catalog object. */

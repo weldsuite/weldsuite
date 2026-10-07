@@ -41,8 +41,13 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
   if (cachedError) throw cachedError;
 
   try {
-    const [{ PGlite }, drizzlePg, schemaModule, fs, path, url] = await Promise.all([
+    const [{ PGlite }, { vector }, drizzlePg, schemaModule, fs, path, url] = await Promise.all([
       import('@electric-sql/pglite'),
+      // pgvector is not compiled into the base pglite build — it ships as a
+      // separate extension bundle that has to be registered at construction.
+      // Without it, tenant migration 0175 fails with `extension "vector" is
+      // not available` and takes every pglite-backed test down with it.
+      import('@electric-sql/pglite/vector'),
       import('drizzle-orm/pglite'),
       import('@weldsuite/db/schema'),
       import('node:fs/promises'),
@@ -50,7 +55,7 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
       import('node:url'),
     ]);
 
-    const client = new PGlite();
+    const client = new PGlite({ extensions: { vector } });
     const db = drizzlePg.drizzle(client, { schema: schemaModule });
 
     // Apply tenant migrations in order. The SQL files live in the
@@ -61,9 +66,15 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
       here,
       '../../../../../packages/core/db/drizzle/tenant-migrations',
     );
-    const files = (await fs.readdir(migrationsDir))
-      .filter((f) => f.endsWith('.sql'))
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    // Apply exactly what the real runner (drizzle `migrate`) applies: the
+    // journal entries, in journal order. Reading every .sql file instead once
+    // masked migrations that were never journaled and never ran anywhere.
+    const journal = JSON.parse(
+      await fs.readFile(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const files = [...journal.entries]
+      .sort((a, b) => a.idx - b.idx)
+      .map((entry) => `${entry.tag}.sql`);
 
     for (const file of files) {
       const raw = await fs.readFile(path.join(migrationsDir, file), 'utf8');

@@ -37,10 +37,10 @@ import {
   listMailLabels,
   MailLabelError,
   updateMailLabel,
-} from '../../services/mail/labels';
-import { listThreadsByLabel } from '../../services/mail/threads';
+} from '@weldsuite/mail-domain/labels';
+import { listThreadsByLabel } from '@weldsuite/mail-domain/threads';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
-import { getMessageAccountId } from '../../services/mail/messages';
+import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

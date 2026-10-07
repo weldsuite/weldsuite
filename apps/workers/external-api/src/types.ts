@@ -38,8 +38,21 @@ export interface Env {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
-  /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */
+  /**
+   * R2 bucket shared with app-api's STORAGE binding: user-app bundles, and
+   * WeldMail attachments (downloads, API uploads, sent copies).
+   */
   STORAGE?: R2Bucket;
+  /** Public hostname that serves STORAGE objects (contact avatars made on send). */
+  R2_PUBLIC_URL?: string;
+
+  // --- WeldMail sending (`/v1/mail-*` send routes) -------------------------
+  // Read by `@weldsuite/mail-domain/send`. Unset SEND_EMAIL leaves the send
+  // routes answering 503 and changes nothing else.
+  /** Cloudflare `[[send_email]]` binding for outbound mail (same as mail-api's). */
+  SEND_EMAIL?: SendEmail;
+  /** KV cache for recipient MX lookups (mail-api's namespace, so the cache is shared). */
+  WORKSPACE_CACHE?: KVNamespace;
   /**
    * Comma-separated master workspace ids whose WeldApps are first-party.
    * Those apps skip public review and show an Official badge in the store.
@@ -78,6 +91,13 @@ export interface ApiKeySession {
   tier: TenantTier;
   /** Whether the workspace plan has API access. */
   hasApiAccess: boolean;
+  /**
+   * The workspace's Clerk org id, which R2 keys and the shared mail/social
+   * packages key on (unlike `workspaceId`, the master `workspaces.id`).
+   * Undefined when the workspace came from an older cache entry; resolve it with
+   * `resolveClerkOrgId` then.
+   */
+  clerkOrgId?: string | null;
   /** Workspace-specific database URL (resolved from master DB). */
   databaseUrl: string | null;
   /** User-app id — set only for `app` sessions. */

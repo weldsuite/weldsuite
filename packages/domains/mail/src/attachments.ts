@@ -15,10 +15,14 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
-import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 
-const { mailAttachments, mailMessages } = schema;
+const { mailAttachments } = schema;
+
+/** The binding `deleteAttachment` reads (any worker Env with it fits). */
+export interface MailAttachmentsEnv {
+  STORAGE?: R2Bucket;
+}
 
 export async function listAttachmentsForMessage(db: Database, messageId: string) {
   return db
@@ -96,7 +100,7 @@ export async function updateAttachment(
  * for what the inbox shows, and a leaked object can be GC'd by a separate
  * sweep without re-surfacing in the UI.
  */
-export async function deleteAttachment(env: Env, db: Database, id: string) {
+export async function deleteAttachment(env: MailAttachmentsEnv, db: Database, id: string) {
   const [existing] = await db
     .select()
     .from(mailAttachments)

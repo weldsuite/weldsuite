@@ -47,6 +47,17 @@ export interface MessageFilters {
   label?: string;
   /** Only return messages whose `from.email` is in this set. */
   fromEmails?: string[];
+  /** The sender's name or address contains this text. */
+  from?: string;
+  /** Leave out trashed messages (the platform lists show them in their own folder). */
+  excludeTrash?: boolean;
+  /** Leave out spam. */
+  excludeSpam?: boolean;
+}
+
+/** The message carries this system label. */
+function hasSystemLabel(label: string): SQL {
+  return sql`COALESCE(${mailMessages.labels}, '[]'::jsonb) @> ${JSON.stringify([label])}::jsonb`;
 }
 
 /** Escape LIKE wildcards so a search for `50%` or `a_b` matches literally. */
@@ -120,6 +131,9 @@ function buildMessageConditions(filters: MessageFilters, labelNames: string[] = 
   }
   if (filters.threadId) conditions.push(eq(mailMessages.threadId, filters.threadId));
   if (filters.label) conditions.push(labelCondition(filters.label, labelNames));
+  if (filters.from?.trim()) conditions.push(senderMatches(filters.from));
+  if (filters.excludeTrash) conditions.push(sql`NOT ${hasSystemLabel(SYSTEM_LABELS.TRASH)}`);
+  if (filters.excludeSpam) conditions.push(sql`NOT ${hasSystemLabel(SYSTEM_LABELS.SPAM)}`);
 
   return conditions;
 }

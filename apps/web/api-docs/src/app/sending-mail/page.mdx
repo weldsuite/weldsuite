@@ -1,0 +1,159 @@
+# Sending mail
+
+The WeldMail endpoints let an integration read mailboxes, organize mail, save drafts and send mail from a WeldMail account. Sending goes out under your workspace's name to people outside it, so it has its own scope and a few rules the other mail endpoints don't. This guide covers those rules. {{ className: 'lead' }}
+
+There are four ways to send, all with the same rules:
+
+| Method | Path | What it does |
+|--------|------|--------------|
+| POST | [`/v1/mail-accounts/:id/send`](/mail-accounts#send-a-message) | Compose and send a new message |
+| POST | [`/v1/mail-messages/:id/reply`](/mail-messages#reply-to-a-message) | Reply, or reply to all |
+| POST | [`/v1/mail-messages/:id/forward`](/mail-messages#forward-a-message) | Forward to new recipients |
+| POST | [`/v1/mail-drafts/:id/send`](/mail-drafts#send-a-draft) | Send a saved draft, then delete it |
+
+---
+
+## Scopes
+
+Sending requires the `mail_messages:send` scope, and only an exact grant of that scope counts. The global `*` scope and the resource wildcard `mail_messages:*` do **not** include it, so a key with broad access still cannot send mail unless someone chose to let it.
+
+| Scope | Covers |
+|-------|--------|
+| `mail_messages:send` | Send, reply, forward, send a draft |
+| `mail_attachments:write` | Upload files to attach |
+| `mail_drafts:write` | Save drafts. Sends nothing |
+| `mail_accounts:read` | See which accounts can send (`canSendViaApi`) |
+
+If your integration should prepare mail for a person to check and send, give it `mail_drafts:write` and leave out `mail_messages:send`. The draft appears in the mailbox's Drafts in WeldMail.
+
+---
+
+## Mailbox access
+
+Every mail endpoint works on the mailboxes the key can open, and which those are depends on the kind of key:
+
+- **Personal keys** act as their owner and follow that person's mailbox access in WeldMail: shared mailboxes, and private mailboxes the person is assigned to. Workspace admins and owners also reach private mailboxes nobody is assigned to.
+- **Workspace keys** and **app tokens** have no person behind them. They reach **shared mailboxes only**.
+
+A mailbox outside the key's reach answers `404 Not Found`, never `403`, and so do its messages, threads, labels, folders, drafts and attachments. A key cannot find out which private mailboxes exist. Lists without an `accountId` cover exactly the mailboxes the key can open.
+
+---
+
+## Verified sender domain
+
+The API only sends from an account whose address is on a **verified WeldMail domain** of your workspace: a domain whose DNS records (SPF and DKIM) passed verification in WeldMail. Mail is sent from the account's own address, and mail from an unverified domain, or from a `@gmail.com` address, would fail SPF and DMARC and end up in spam or be rejected.
+
+Check `canSendViaApi` on the [mail account](/mail-accounts) before you send. A send from an account where it is `false` returns:
+
+```json {{ title: '422 Unprocessable Entity' }}
+{
+  "error": {
+    "code": "SENDER_DOMAIN_NOT_VERIFIED",
+    "message": "This account's address (team@gmail.com) is not on a verified WeldMail domain, so it can't send through the API."
+  }
+}
+```
+
+For replies and forwards the check is on the mailbox that sends, not on the original sender.
+
+---
+
+## Daily send limit
+
+Each account has a `dailySendLimit` (500 when the account has none set). The count starts at 00:00 UTC and includes every message the account sent since then, including mail sent from the WeldMail app and messages deleted afterwards. Once the limit is reached, sends return `429` with a `Retry-After` header holding the seconds until the next UTC midnight:
+
+```json {{ title: '429 Too Many Requests' }}
+{
+  "error": {
+    "code": "DAILY_LIMIT_REACHED",
+    "message": "This account reached its daily send limit of 500.",
+    "details": {
+      "limit": 500,
+      "sent": 500,
+      "resetsAt": "2026-10-08T00:00:00.000Z"
+    }
+  }
+}
+```
+
+This is separate from the per-workspace request [rate limit](/authentication#rate-limits), which returns `RATE_LIMITED`.
+
+---
+
+## Idempotent sends
+
+Send an `Idempotency-Key` header (up to 64 characters) to make a send safe to retry. A repeat with the same key on the same account does not send again: it returns the first result with `replayed: true`. A replay never fails on the daily limit. A key longer than 64 characters returns `400`.
+
+```bash {{ title: 'Retry-safe send' }}
+curl https://api.weldsuite.org/v1/mail-accounts/mail_abc123/send \
+  -H "Authorization: Bearer wsk_your_api_key" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: order-1042-confirmation" \
+  -d '{ "to": ["jane@example.com"], "subject": "Your order #1042", "body": "Your order has shipped." }'
+```
+
+```json {{ title: 'Response to a repeat' }}
+{
+  "data": {
+    "messageId": "msg_n4p8r2t6v1",
+    "accountId": "mail_abc123",
+    "subject": "Your order #1042",
+    "smtpMessageId": "<0102019a2b3c-4d5e@acme.com>",
+    "pendingVerification": false,
+    "replayed": true
+  }
+}
+```
+
+Use a key that identifies the thing you are sending (an order, a ticket reply), not a random value per attempt.
+
+<Note>
+  Sending a draft deletes it. A repeat with the same key still replays; a repeat without a key returns `404`, because the draft is gone.
+</Note>
+
+---
+
+## Attachments
+
+Attaching a file takes two steps:
+
+1. Upload the file with [`POST /v1/mail-attachments`](/mail-attachments#upload-an-attachment) (scope `mail_attachments:write`). You get back an id like `mupl_k3j9x2m1q8w7`.
+2. Pass the ids in `attachmentIds` (up to 20) on the send, reply, forward or draft.
+
+The whole email, body and every attachment together, may be at most **5 MB**. A larger email returns `413` `EMAIL_TOO_LARGE`. On a forward, the original's attachments count toward the 5 MB too; leave some out with `excludeAttachmentIds`. An upload id that is not an upload of your workspace returns `422` `ATTACHMENT_NOT_IN_STORAGE`, with the id in `details`.
+
+---
+
+## Message content
+
+- A send or a reply needs a `body`, an `htmlBody`, or both. A request with neither returns `400`. A draft without either returns `422` `EMPTY_BODY` when you send it. A forward may go without a note.
+- HTML is sanitized before it is sent and stored.
+- Recipients are checked before sending: an address with an invalid format, or on a domain that has no mail server, returns `422` `INVALID_RECIPIENTS` with `details.invalidFormat` and `details.unreachableDomains`.
+- The stored sent copy is a normal message: read it with [`GET /v1/mail-messages/:messageId`](/mail-messages#retrieve-a-message) using the `messageId` from the response.
+
+---
+
+## Organizing stays in WeldSuite
+
+Marking mail read or starred, adding labels, moving to the archive, trash or spam, and deleting all change WeldSuite's copy of the mail only. Nothing is written back to Gmail, Outlook or the IMAP server, so the mailbox at the provider keeps its own state. Deleting through the API removes the message from WeldSuite; the provider's copy stays.
+
+---
+
+## Send errors
+
+| Status | `code` | Cause |
+|--------|--------|-------|
+| 400 | `BAD_REQUEST` | `Idempotency-Key` longer than 64 characters, or an empty upload |
+| 400 | | The request body failed validation, for example no `to`, or neither `body` nor `htmlBody` |
+| 403 | `FORBIDDEN` | The key does not hold `mail_messages:send` by name |
+| 404 | `NOT_FOUND` | The account, message or draft does not exist or the key cannot open its mailbox |
+| 413 | `EMAIL_TOO_LARGE` | Body and attachments exceed 5 MB |
+| 413 | `FILE_TOO_LARGE` | An upload exceeds 5 MB |
+| 422 | `SENDER_DOMAIN_NOT_VERIFIED` | The account's address is not on a verified WeldMail domain |
+| 422 | `INVALID_RECIPIENTS` | A recipient address is malformed or its domain has no mail server, or a draft has no recipients |
+| 422 | `ATTACHMENT_NOT_IN_STORAGE` | An `attachmentIds` entry is not an upload of this workspace |
+| 422 | `EMPTY_BODY` | The draft being sent has no body |
+| 429 | `DAILY_LIMIT_REACHED` | The account reached its daily send limit. See `Retry-After` |
+| 503 | `SEND_BINDING_MISSING`, `STORAGE_BINDING_MISSING`, `WORKSPACE_NOT_CONFIGURED` | Sending or file storage is not available. Retry later or contact support |
+
+See [Errors](/errors) for the error envelope.

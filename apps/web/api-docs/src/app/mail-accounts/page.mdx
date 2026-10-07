@@ -1,0 +1,221 @@
+# Mail accounts
+
+A mail account is one WeldMail mailbox. Every message, thread, label, folder and draft belongs to an account, so this is where an integration finds the `accountId` values it works with. Accounts are read-only through the API: connecting and configuring a mailbox stays in the WeldMail app. Reads require the `mail_accounts:read` scope; sending from an account requires `mail_messages:send`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  Which accounts a key sees depends on the key. A personal key sees the mailboxes its owner can open in WeldMail. A workspace key or an app token sees shared mailboxes only. An account outside the key's reach returns `404`, never `403`. See [Sending mail](/sending-mail#mailbox-access).
+</Note>
+
+---
+
+## The mail account model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `mail_abc123`).</Property>
+  <Property name="name" type="string">The account's name in WeldMail.</Property>
+  <Property name="email" type="string">The mailbox address. Mail sent from this account uses it as the sender.</Property>
+  <Property name="displayName" type="string">Sender display name, or `null`.</Property>
+  <Property name="provider" type="string">One of `gmail`, `outlook`, `office365`, `exchange`, `imap`, `yahoo`, `mailcow`, `resend`, `smtp`, `cloudflare`, `custom`.</Property>
+  <Property name="status" type="string">One of `active`, `inactive`, `error`, `suspended`, `quota_exceeded`.</Property>
+  <Property name="isDefault" type="boolean">Whether this is the workspace's default account.</Property>
+  <Property name="isShared" type="boolean">Whether the mailbox is shared with every workspace member. Workspace keys and app tokens only reach shared mailboxes.</Property>
+  <Property name="syncEnabled" type="boolean">Whether WeldMail syncs this mailbox with its provider.</Property>
+  <Property name="syncStatus" type="string">One of `idle`, `syncing`, `completed`, `error`, `paused`.</Property>
+  <Property name="lastSyncAt" type="timestamp">When the mailbox last synced, or `null`.</Property>
+  <Property name="dailySendLimit" type="integer">Messages the account may send per UTC day through the API. When `null`, the limit is 500.</Property>
+  <Property name="canSendViaApi" type="boolean">Whether the API will send from this account. `true` only when the account's address is on a verified WeldMail domain of the workspace.</Property>
+  <Property name="createdAt" type="timestamp">When the account was added.</Property>
+  <Property name="updatedAt" type="timestamp">When the account was last updated.</Property>
+</Properties>
+
+Credentials (OAuth tokens, passwords, provider API keys) are never returned.
+
+---
+
+## List mail accounts {{ tag: 'GET', label: '/v1/mail-accounts' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of the accounts the key can open, newest first.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 50, max 200.</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="search" type="string">Matches the account's name, address or display name (case-insensitive).</Property>
+      <Property name="status" type="string">Only accounts with this `status`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-accounts">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/mail-accounts \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d status=active
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "mail_abc123",
+          "name": "Support",
+          "email": "support@acme.com",
+          "displayName": "Acme Support",
+          "provider": "cloudflare",
+          "status": "active",
+          "isDefault": false,
+          "isShared": true,
+          "syncEnabled": true,
+          "syncStatus": "completed",
+          "lastSyncAt": "2026-10-07T08:55:00Z",
+          "dailySendLimit": 500,
+          "canSendViaApi": true,
+          "createdAt": "2026-03-02T10:00:00Z",
+          "updatedAt": "2026-10-07T08:55:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 3, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a mail account {{ tag: 'GET', label: '/v1/mail-accounts/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single account by ID. Returns `404` when the account does not exist or the key cannot open it.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-accounts/mail_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-accounts/mail_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "mail_abc123",
+        "name": "Support",
+        "email": "support@acme.com",
+        "isShared": true,
+        "dailySendLimit": 500,
+        "canSendViaApi": true
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Send a message {{ tag: 'POST', label: '/v1/mail-accounts/:id/send' }}
+
+<Row>
+  <Col>
+
+    Compose a new message and send it from this account. Requires the `mail_messages:send` scope, which `*` and `mail_messages:*` do not include. The account must have `canSendViaApi: true`, and the send counts toward its daily limit. Read [Sending mail](/sending-mail) before you build on this endpoint.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="to" type="string[]">Recipient addresses, 1 to 100.</Property>
+      <Property name="body" type="string">Plain-text body, up to 1,000,000 characters. Give `body`, `htmlBody` or both.</Property>
+      <Property name="htmlBody" type="string">HTML body, up to 2,000,000 characters. It is sanitized before sending.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="cc" type="string[]">Cc addresses, up to 100.</Property>
+      <Property name="bcc" type="string[]">Bcc addresses, up to 100.</Property>
+      <Property name="replyTo" type="string">One Reply-To address.</Property>
+      <Property name="subject" type="string">Subject, up to 998 characters. Defaults to `(No subject)`.</Property>
+      <Property name="importance" type="string">`low`, `normal` or `high`.</Property>
+      <Property name="attachmentIds" type="string[]">Up to 20 upload ids (`mupl_...`) from [Upload an attachment](/mail-attachments#upload-an-attachment).</Property>
+    </Properties>
+
+    ### Optional headers
+
+    <Properties>
+      <Property name="Idempotency-Key" type="string">Up to 64 characters. A repeat with the same key on the same account returns the first result with `replayed: true` and sends nothing.</Property>
+    </Properties>
+
+    ### Response
+
+    <Properties>
+      <Property name="messageId" type="string">ID of the stored sent copy (`msg_...`), readable through [Mail messages](/mail-messages).</Property>
+      <Property name="accountId" type="string">The account the message was sent from.</Property>
+      <Property name="subject" type="string">The subject as sent.</Property>
+      <Property name="smtpMessageId" type="string">The RFC 5322 `Message-ID` header of the sent mail.</Property>
+      <Property name="pendingVerification" type="boolean">`true` when at least one recipient has not yet confirmed Cloudflare's destination-address verification. The other recipients still get the mail.</Property>
+      <Property name="replayed" type="boolean">`true` when this response repeats an earlier send with the same `Idempotency-Key`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-accounts/mail_abc123/send">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-accounts/mail_abc123/send \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -H "Idempotency-Key: order-1042-confirmation" \
+      -d '{
+        "to": ["jane@example.com"],
+        "subject": "Your order #1042",
+        "body": "Hi Jane,\n\nYour order has shipped.",
+        "attachmentIds": ["mupl_k3j9x2m1q8w7"]
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "messageId": "msg_n4p8r2t6v1",
+        "accountId": "mail_abc123",
+        "subject": "Your order #1042",
+        "smtpMessageId": "<0102019a2b3c-4d5e@acme.com>",
+        "pendingVerification": false,
+        "replayed": false
+      }
+    }
+    ```
+
+    ```json {{ title: '422 Sender domain not verified' }}
+    {
+      "error": {
+        "code": "SENDER_DOMAIN_NOT_VERIFIED",
+        "message": "This account's address (team@gmail.com) is not on a verified WeldMail domain, so it can't send through the API."
+      }
+    }
+    ```
+
+  </Col>
+</Row>

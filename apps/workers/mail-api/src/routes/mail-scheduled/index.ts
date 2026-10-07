@@ -20,7 +20,7 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import * as scheduled from '../../services/mail/scheduled';
 import { MailScheduledError } from '../../services/mail/scheduled';
 import { checkAccountAccess, emailEventData } from '@weldsuite/mail-domain/access';
-import { getMessageAccountId } from '../../services/mail/messages';
+import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
