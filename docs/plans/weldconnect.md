@@ -75,14 +75,15 @@ Roughly in the recommended order.
    filter, i18n) and unlock `manual_step`. Waiting is only allowed in the main
    flow, not inside branches or loops (engine refuses it there).
 7. **Third-party providers, one PR each** (or a few grouped once the pattern is
-   set): **Slack done** (`feat/weldconnect-slack` — connect/OAuth, test
-   connection, channel picker, `slack.post_message` with thread replies and
-   mapped errors, gate; see "Provider pattern" above), then Google Sheets,
-   Gmail, Google Calendar, Teams, Notion, Airtable, GitHub, Asana, Twilio.
-   Adapters exist in `workflow-worker/src/engine/actions/providers/`; each
-   needs a working connect/OAuth flow, a connection test, a resource picker
-   where the action needs one, an editor form, gate entries and a test
-   against the real service.
+   set): **Slack done** (`feat/weldconnect-slack`), **Google done**
+   (`feat/weldconnect-google` — `google_sheets.append_row`/`update_row`,
+   `gmail.send_email`, `google_calendar.create_event`; see "Provider pattern"
+   below for what it adds to the pattern), then Teams, Notion, Airtable,
+   GitHub, Asana, Twilio. Adapters exist in
+   `workflow-worker/src/engine/actions/providers/`; each needs a working
+   connect/OAuth flow, a connection test, a resource picker where the action
+   needs one, an editor form, gate entries and a test against the real
+   service.
 8. **Help docs**: guides and screenshots on help.weldsuite.org for the new
    triggers and steps (`.agents/skills/help-docs`).
 9. **Extras**: one-time scheduled runs (needs a tenant migration; the sweep only
@@ -96,14 +97,52 @@ Known limits that phase 1 sets on purpose: 100 items per loop and 250 loop
 iterations per run (`workflow-worker/src/engine/execute-steps.ts`,
 `actions/control.ts`); delays up to 365 days.
 
-## Provider pattern (established by Slack, PR `feat/weldconnect-slack`)
+## Provider pattern (established by Slack, PR `feat/weldconnect-slack`; extended by Google, PR `feat/weldconnect-google`)
 
 Slack is the first third-party provider unlocked end to end. Google (Sheets,
-Gmail, Calendar) and GitHub should follow the exact same shape — most of the
-scaffolding (catalog entry, engine handler stub, OAuth routes) already existed
-for all ten providers in `@weldsuite/workflow-integrations` before this PR;
-what Slack adds is everything that makes a provider actually usable from the
-editor, not just callable from the engine.
+Gmail, Calendar) followed the exact same shape, and GitHub should too — most
+of the scaffolding (catalog entry, engine handler stub, OAuth routes) already
+existed for all ten providers in `@weldsuite/workflow-integrations` before
+Slack's PR; what a provider's PR adds is everything that makes it actually
+usable from the editor, not just callable from the engine.
+
+**Multiple products behind one OAuth app (Google's shape)**: Sheets, Gmail and
+Calendar are three separate `IntegrationDef`s (`google_sheets`, `gmail`,
+`google_calendar`, each its own `workflow_integrations` row, connected
+separately) but share one Google Cloud OAuth client
+(`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, already on connect-api from before
+either Slack or Google shipped) — `oauth.ts`'s generic flow needs nothing
+provider-specific for this, since the client id/secret is looked up once per
+`IntegrationDef.auth`, not once per vendor. Each product's `googleAuth(...)`
+(`providers/google.ts`) requests only the scopes its own actions need —
+**least privilege, deliberately**: Gmail asks for `gmail.send` only, not
+`gmail.readonly` (that one is a Google *restricted* scope — CASA security
+assessment, not just standard verification — and nothing this phase reads
+mail; add it back only when the `gmail.new_email` poll trigger ships, and
+re-verify then). Prefer narrow, per-product scope sets over one broad
+connection even when it means a few more OAuth prompts.
+
+**A picker doesn't always mean a new scope.** Browsing "all my Drive files" to
+pick a spreadsheet would need Drive's own scopes (their least-sensitive tier
+is still a step up from Sheets' own). Google Sheets' picker instead resolves a
+**pasted** spreadsheet link/id through the Sheets API itself
+(`spreadsheets.get`, already covered by the `spreadsheets` scope) and returns
+its title + tabs in one call — validation and the sheet-tab dropdown from a
+single request, no Drive scope at all. Worth checking for every future
+provider with a "browse resources" picker: does the action's own API let you
+resolve-by-id instead of list-everything?
+
+**A provider whose tokens expire needs its OAuth client secret on the ENGINE
+worker too, not just on connect-api.** Slack bot tokens never expire, so
+`providers/token.ts`'s refresh path was never exercised end to end before
+Google. Google access tokens last about an hour; every `google_sheets`/
+`gmail`/`google_calendar` action refreshes in-process
+(`getValidIntegrationToken` → `refreshOAuthToken`) before calling its API —
+which means `workflow-worker`'s own `wrangler.toml`/manifest needs
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` too (it previously carried none of
+the OAuth provider secrets, only connect-api did). A future provider with
+expiring tokens needs the same check: does the ENGINE worker, not just
+connect-api, have the client secret to refresh with?
 
 **Files to touch per provider:**
 
@@ -189,6 +228,29 @@ refuse once the owner is gone: `getValidIntegrationToken` /
 `ctx.tenant.ownerUserId` is still an active workspace member before resolving
 any token, consistently for every provider, present and future. Runs from
 before owners were carried (`ownerUserId` absent) are let through unchanged.
+
+**Checking "is this a Google/provider-family type" by string prefix is
+fragile**: `gmail` doesn't start with `"google"`, so the pre-existing
+`/:id/test` dispatcher's `type.startsWith('google')` branch silently never
+ran for Gmail (falling through to the generic "token present" success,
+meaning a broken Gmail connection always reported as healthy) until it was
+replaced with an explicit `Set(['google_sheets', 'gmail', 'google_calendar'])`
+membership check. Prefer an explicit list over a prefix/substring check for
+"which provider family is this" tests, even when most of the family happens
+to share a name prefix.
+
+**Google API error shape**: every Discovery-based Google API (Sheets v4,
+Calendar v3, Gmail v1) returns the same JSON error envelope
+(`{ error: { code, message, status, errors: [{ reason }] } }`), so one
+classifier (`workflow-worker/src/engine/actions/providers/google-errors.ts`)
+covers all three. Two things don't match the plain-HTTP-status intuition:
+`invalid_grant` on a *token refresh* call (not the API call itself) means the
+refresh token was revoked — map it to a reconnect message in
+`providers/token.ts`, not in the per-API classifier; and Google reports
+several per-minute quota/rate-limit errors as **403** (reason
+`rateLimitExceeded` / `userRateLimitExceeded` / `quotaExceeded`), not 429 — a
+403 classifier needs to check the reason before deciding "non-retryable
+permission problem" vs. "retry me".
 
 **Legacy actions**: if a provider already had a pre-catalog action (Slack had
 `slack_message` in `actions/communication.ts`, predating
