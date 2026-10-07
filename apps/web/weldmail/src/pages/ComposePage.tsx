@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, KeyboardEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { MailAccount } from '@weldsuite/personal-api-client';
 import { personalApi } from '@/lib/api';
@@ -29,6 +29,14 @@ export function ComposePage() {
         setError(err instanceof Error ? err.message : 'Failed to load accounts');
       });
   }, []);
+
+  // Ctrl/Cmd+Enter in any field sends the message.
+  function submitOnModEnter(e: KeyboardEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
+    if (sending || !accountId) return;
+    if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    e.currentTarget.form?.requestSubmit();
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -71,12 +79,6 @@ export function ComposePage() {
         <form
           onSubmit={onSubmit}
           className="max-w-xl space-y-4"
-          onKeyDown={(e) => {
-            if (sending || !accountId) return;
-            if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
-            e.preventDefault();
-            e.currentTarget.requestSubmit();
-          }}
         >
           {accounts.length > 1 && (
             <div>
@@ -87,6 +89,7 @@ export function ComposePage() {
                 id="from"
                 value={accountId}
                 onChange={(e) => setAccountId(e.target.value)}
+                onKeyDown={submitOnModEnter}
                 className={fieldClass}
               >
                 {accounts.map((a) => (
@@ -111,6 +114,7 @@ export function ComposePage() {
               required
               value={to}
               onChange={(e) => setTo(e.target.value)}
+              onKeyDown={submitOnModEnter}
               placeholder="recipient@example.com"
               className={fieldClass}
             />
@@ -124,6 +128,7 @@ export function ComposePage() {
               id="subject"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
+              onKeyDown={submitOnModEnter}
               placeholder="Subject"
               className={fieldClass}
             />
@@ -137,6 +142,7 @@ export function ComposePage() {
               id="body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
+              onKeyDown={submitOnModEnter}
               placeholder="Write your message…"
               rows={10}
               className={`${fieldClass} min-h-[160px] resize-y`}

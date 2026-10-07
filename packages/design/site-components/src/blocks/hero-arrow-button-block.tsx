@@ -18,7 +18,7 @@ export function HeroArrowButtonBlock({
 
   return (
     <a
-      href={isEditing ? undefined : link}
+      href={link}
       onClick={(e) => isEditing && e.preventDefault()}
       className={`group mx-auto flex w-fit items-center justify-center gap-2 rounded-full px-4 py-2 text-md tracking-tight bg-secondary hover:bg-secondary/80 transition-colors ${
         isEditing ? 'pointer-events-none' : ''

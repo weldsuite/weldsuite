@@ -144,7 +144,7 @@ export function HeroGalleryBlock({
             transition={mode === 'edit' ? { duration: 0 } : { duration: 0.6, delay: 1 }}
           >
             <a
-              href={mode === 'live' ? buttonLink : '#'}
+              href={buttonLink}
               onClick={(e) => mode !== 'live' && e.preventDefault()}
               className="inline-flex items-center justify-center px-6 py-3 text-sm font-medium rounded-md transition-colors bg-white text-black hover:bg-gray-100"
             >

@@ -128,7 +128,7 @@ export function HeroBlock({
             {buttonText && (
               <div className={getButtonJustifyClass(textAlign)}>
                 <a
-                  href={isEditing ? undefined : buttonLink}
+                  href={buttonLink}
                   onClick={(e) => isEditing && e.preventDefault()}
                   className={`inline-flex items-center justify-center px-8 py-4 text-base font-medium rounded-lg transition-all duration-200 ${buttonVariantClasses[buttonVariant]} ${
                     isEditing ? 'pointer-events-none' : ''

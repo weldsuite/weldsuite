@@ -129,7 +129,6 @@ export function ClaimPage() {
                 onChange={(e) => setAddress(e.target.value.replace(/[^a-zA-Z0-9._-]/g, ''))}
                 placeholder="you"
                 autoComplete="off"
-                autoFocus
                 required
                 minLength={3}
                 className={fieldClass}

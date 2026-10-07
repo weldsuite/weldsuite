@@ -1084,6 +1084,7 @@ function MessageInput({
           className="w-full bg-transparent text-[15px] text-gray-900 dark:text-foreground outline-none resize-none min-h-[40px] flex-1 pl-[10px] pt-[7px] pb-3 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words"
           style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(200,200,200,0.3) transparent' }}
           role="textbox"
+          tabIndex={0}
           aria-label={`Message as ${currentUserName}`}
           aria-multiline="true"
         />

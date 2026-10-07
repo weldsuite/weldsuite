@@ -1055,6 +1055,7 @@ export function FloatingComposePanel() {
               ref={textareaRef}
               contentEditable={!isAiGenerating}
               role="textbox"
+              tabIndex={isAiGenerating ? -1 : 0}
               aria-multiline="true"
               suppressContentEditableWarning
               data-placeholder={t.mail.floatingCompose.writePlaceholder}

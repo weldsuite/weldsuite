@@ -749,6 +749,18 @@ function FullscreenBody({
     document.body.style.userSelect = "none";
   }, []);
 
+  // Keyboard resizing: the handle sits on the sidebar's left edge, so
+  // ArrowLeft widens the sidebar and ArrowRight narrows it.
+  const handleResizeKeyDown = React.useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      const delta = e.key === "ArrowLeft" ? 16 : -16;
+      setSidebarWidth((w) => Math.max(sidebarMinSize, Math.min(sidebarMaxSize, w + delta)));
+    },
+    [sidebarMinSize, sidebarMaxSize],
+  );
+
   React.useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragRef.current) return;
@@ -825,8 +837,13 @@ function FullscreenBody({
             <div
               className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group"
               onMouseDown={handleResizeMouseDown}
+              onKeyDown={handleResizeKeyDown}
               role="separator"
+              tabIndex={0}
               aria-orientation="vertical"
+              aria-valuenow={sidebarWidth}
+              aria-valuemin={sidebarMinSize}
+              aria-valuemax={sidebarMaxSize}
               title="Drag to resize"
             >
               <div className="absolute inset-y-0 -left-1 -right-1 flex items-center justify-center">

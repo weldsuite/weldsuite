@@ -1615,6 +1615,7 @@ export default function NewHelpArticlePage() {
         <div
           ref={titleRef}
           role="textbox"
+          tabIndex={0}
           aria-label={th.untitled}
           contentEditable
           suppressContentEditableWarning
@@ -1640,6 +1641,7 @@ export default function NewHelpArticlePage() {
           <div
             ref={contentRef}
             role="textbox"
+            tabIndex={0}
             aria-multiline="true"
             aria-label={th.pressForCommands}
             contentEditable

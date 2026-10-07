@@ -92,7 +92,7 @@ export function FeatureDottedBlock({
               </p>
               <div className="flex w-full gap-2">
                 <a
-                  href={isEditing ? undefined : buttonLink}
+                  href={buttonLink}
                   onClick={(e) => isEditing && e.preventDefault()}
                   className={cn(
                     "text-md h-12 flex items-center justify-center w-fit rounded-full bg-primary px-10 text-primary-foreground hover:bg-primary/90 transition-colors",
@@ -102,7 +102,7 @@ export function FeatureDottedBlock({
                   {buttonText}
                 </a>
                 <a
-                  href={isEditing ? undefined : buttonLink}
+                  href={buttonLink}
                   onClick={(e) => isEditing && e.preventDefault()}
                   className={cn(
                     "text-md h-12 w-12 flex items-center justify-center rounded-full border transition-all ease-in-out hover:rotate-45",
@@ -147,7 +147,7 @@ export function FeatureDottedBlock({
                     </p>
                   </div>
                   <a
-                    href={isEditing ? undefined : cardLinkUrl}
+                    href={cardLinkUrl}
                     onClick={(e) => isEditing && e.preventDefault()}
                     className={cn(
                       "group mb-6 flex cursor-pointer flex-col items-center justify-center text-white",

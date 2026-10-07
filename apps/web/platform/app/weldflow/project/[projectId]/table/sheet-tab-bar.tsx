@@ -131,7 +131,7 @@ export function SheetTabBar({
   const menuSheet = menuSheetId ? sheets.find(s => s.id === menuSheetId) : null;
 
   return (
-    <div role="tablist" className="flex items-center px-1 py-1 gap-0.5 overflow-x-auto flex-1 min-w-0 relative" onContextMenu={(e) => e.stopPropagation()}>
+    <div role="tablist" tabIndex={-1} className="flex items-center px-1 py-1 gap-0.5 overflow-x-auto flex-1 min-w-0 relative" onContextMenu={(e) => e.stopPropagation()}>
       {sheets.map((sheet) => {
         const isActive = sheet.id === activeSheetId;
         const isEditing = editingId === sheet.id;

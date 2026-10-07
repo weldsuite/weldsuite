@@ -1135,6 +1135,7 @@ export function WysiwygEditor({
                             : "hover:bg-accent hover:text-accent-foreground"
                         )}
                         role="option"
+                        tabIndex={-1}
                         aria-selected={index === selectedCommandIndex}
                       >
                         <div className="mr-2 h-4 w-4 shrink-0 opacity-70">

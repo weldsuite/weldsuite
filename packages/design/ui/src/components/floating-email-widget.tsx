@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useId, useRef, useState, useEffect } from 'react';
 import { 
   X, 
   Maximize2, 
@@ -29,6 +29,7 @@ import {
 
 export function FloatingEmailWidget() {
   const { isPinned, emailData, unpinEmail, updateEmailData } = usePinnedEmail();
+  const fieldId = useId();
   const [isMaximized, setIsMaximized] = useState(false);
   const emailBodyRef = useRef<HTMLDivElement>(null);
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
@@ -138,7 +139,7 @@ export function FloatingEmailWidget() {
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* From Field */}
               <div className="flex items-center px-5 py-2">
-                <label className="text-sm text-gray-500 w-12">From</label>
+                <span className="text-sm text-gray-500 w-12">From</span>
                 <div className="inline-flex items-center gap-1 border border-gray-300 rounded-md px-1 py-0.5 bg-gray-50 ml-3">
                   <div className="h-4 w-4 rounded bg-purple-500 flex items-center justify-center text-white text-[9px] font-medium">
                     A
@@ -149,9 +150,10 @@ export function FloatingEmailWidget() {
               
               {/* To Field */}
               <div className="flex items-center px-5 py-3">
-                <label className="text-sm text-gray-500 w-12">To</label>
+                <label htmlFor={`${fieldId}-to`} className="text-sm text-gray-500 w-12">To</label>
                 <div className="flex-1 flex items-center justify-between ml-3">
                   <Input
+                    id={`${fieldId}-to`}
                     value={emailData.to}
                     onChange={(e) => updateEmailData({ to: e.target.value })}
                     placeholder="Recipients"
@@ -171,8 +173,9 @@ export function FloatingEmailWidget() {
               {/* CC Field */}
               {emailData.showCc && (
                 <div className="flex items-center px-5 py-3 border-b">
-                  <label className="text-sm text-gray-500 w-12">Cc</label>
+                  <label htmlFor={`${fieldId}-cc`} className="text-sm text-gray-500 w-12">Cc</label>
                   <Input
+                    id={`${fieldId}-cc`}
                     value={emailData.cc}
                     onChange={(e) => updateEmailData({ cc: e.target.value })}
                     placeholder=""
@@ -184,8 +187,9 @@ export function FloatingEmailWidget() {
               {/* BCC Field */}
               {emailData.showBcc && (
                 <div className="flex items-center px-5 py-3 border-b">
-                  <label className="text-sm text-gray-500 w-12">Bcc</label>
+                  <label htmlFor={`${fieldId}-bcc`} className="text-sm text-gray-500 w-12">Bcc</label>
                   <Input
+                    id={`${fieldId}-bcc`}
                     value={emailData.bcc}
                     onChange={(e) => updateEmailData({ bcc: e.target.value })}
                     placeholder=""
@@ -196,8 +200,9 @@ export function FloatingEmailWidget() {
               
               {/* Subject Field */}
               <div className="flex items-center px-5 py-3 border-b">
-                <label className="text-sm text-gray-500 w-12">Subject</label>
+                <label htmlFor={`${fieldId}-subject`} className="text-sm text-gray-500 w-12">Subject</label>
                 <Input
+                  id={`${fieldId}-subject`}
                   value={emailData.subject}
                   onChange={(e) => updateEmailData({ subject: e.target.value })}
                   placeholder="Enter subject..."

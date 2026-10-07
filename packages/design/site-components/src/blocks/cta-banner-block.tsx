@@ -57,7 +57,7 @@ export function CtaBannerBlock({
             <div className="flex flex-col justify-center gap-2 sm:flex-row">
               {primaryButtonText && (
                 <a
-                  href={isEditing ? undefined : primaryButtonLink}
+                  href={primaryButtonLink}
                   onClick={(e) => isEditing && e.preventDefault()}
                   className={cn(
                     "inline-flex items-center justify-center h-11 px-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium",
@@ -69,7 +69,7 @@ export function CtaBannerBlock({
               )}
               {secondaryButtonText && (
                 <a
-                  href={isEditing ? undefined : secondaryButtonLink}
+                  href={secondaryButtonLink}
                   onClick={(e) => isEditing && e.preventDefault()}
                   className={cn(
                     "inline-flex items-center justify-center h-11 px-8 rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors font-medium",
