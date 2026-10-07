@@ -103,7 +103,7 @@ export interface BackgroundEffectsPanelProps {
   onClose: () => void;
 }
 
-function VideoPreview({ participant }: { participant?: MeetingPeer }) {
+function VideoPreview({ participant }: Readonly<{ participant?: MeetingPeer }>) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -133,13 +133,13 @@ function VideoPreview({ participant }: { participant?: MeetingPeer }) {
   );
 }
 
-function BackgroundGrid({ images, backgroundType, backgroundValue, isLoading, onApplyImage }: {
+function BackgroundGrid({ images, backgroundType, backgroundValue, isLoading, onApplyImage }: Readonly<{
   images: { label: string; url: string }[];
   backgroundType: VirtualBackgroundType;
   backgroundValue: string | null;
   isLoading: boolean;
   onApplyImage: (url: string) => void | Promise<void>;
-}) {
+}>) {
   return (
     <div className="grid grid-cols-4 gap-1.5">
       {images.map((bg) => (
@@ -176,7 +176,7 @@ export function BackgroundEffectsPanel({
   onApplyImage,
   onRemove,
   onClose,
-}: BackgroundEffectsPanelProps) {
+}: Readonly<BackgroundEffectsPanelProps>) {
   return (
     <div
       className="flex-shrink-0 border-l flex flex-col min-h-0 overflow-hidden"

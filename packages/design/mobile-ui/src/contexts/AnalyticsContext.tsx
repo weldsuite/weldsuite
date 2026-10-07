@@ -10,13 +10,16 @@ interface AnalyticsContextType {
   reset: typeof reset;
 }
 
+// The tracking helpers are module-level, so one stable value serves every render.
+const ANALYTICS_VALUE: AnalyticsContextType = { track, identify, reset };
+
 const AnalyticsContext = createContext<AnalyticsContextType>({
   track,
   identify,
   reset,
 });
 
-export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
+export function AnalyticsProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user } = useClerkAuth();
 
   useEffect(() => {
@@ -37,7 +40,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   return (
-    <AnalyticsContext.Provider value={{ track, identify, reset }}>
+    <AnalyticsContext.Provider value={ANALYTICS_VALUE}>
       {children}
     </AnalyticsContext.Provider>
   );

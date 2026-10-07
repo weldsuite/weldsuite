@@ -53,16 +53,16 @@ export interface UserIdentity {
  */
 export class WeldSDK {
   private config: ResolvedConfig;
-  private logger: Logger;
-  private iframeManager: IframeManager;
-  private messageBroker: MessageBroker;
-  private stateCoordinator: StateCoordinator;
+  private readonly logger: Logger;
+  private readonly iframeManager: IframeManager;
+  private readonly messageBroker: MessageBroker;
+  private readonly stateCoordinator: StateCoordinator;
   private status: SDKStatus = SDKStatus.UNINITIALIZED;
-  private readyPromise: Promise<void> | null = null;
+  private readonly readyPromise: Promise<void> | null = null;
   private readyResolve: (() => void) | null = null;
 
   // Bound event handlers for proper cleanup
-  private boundHandleLauncherClick: (event: MessageEvent) => void;
+  private readonly boundHandleLauncherClick: (event: MessageEvent) => void;
 
   // Subscription IDs for cleanup
   private subscriptionIds: string[] = [];

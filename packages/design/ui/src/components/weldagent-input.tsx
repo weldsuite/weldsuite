@@ -85,7 +85,7 @@ export function WeldAgentInput({
   extraLeftActions,
   onPlusClick,
   onMicClick,
-}: WeldAgentInputProps) {
+}: Readonly<WeldAgentInputProps>) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);

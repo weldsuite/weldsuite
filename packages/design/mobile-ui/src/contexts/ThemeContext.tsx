@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState, useEffect, ReactNode } from 'react';
 import storage from '../utils/storage';
 import { Colors } from '../constants/theme';
 
@@ -13,8 +13,8 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeType>('light');
+export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
+  const [theme, setTheme] = useState<ThemeType>('light');
 
   useEffect(() => {
     void loadTheme();
@@ -24,33 +24,36 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     try {
       const savedTheme = await storage.getItem('theme');
       if (savedTheme === 'dark' || savedTheme === 'light') {
-        setThemeState(savedTheme);
+        setTheme(savedTheme);
       }
     } catch (error) {
       console.error('Error loading theme:', error);
     }
   };
 
-  const setTheme = async (newTheme: ThemeType) => {
+  const persistTheme = useCallback(async (newTheme: ThemeType) => {
     try {
-      setThemeState(newTheme);
+      setTheme(newTheme);
       await storage.setItem('theme', newTheme);
     } catch (error) {
       console.error('Error saving theme:', error);
     }
-  };
+  }, []);
 
-  const toggleTheme = async () => {
+  const toggleTheme = useCallback(async () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
-    await setTheme(newTheme);
-  };
+    await persistTheme(newTheme);
+  }, [theme, persistTheme]);
 
-  const value = {
-    theme,
-    colors: Colors[theme],
-    setTheme,
-    toggleTheme,
-  };
+  const value = useMemo(
+    () => ({
+      theme,
+      colors: Colors[theme],
+      setTheme: persistTheme,
+      toggleTheme,
+    }),
+    [theme, persistTheme, toggleTheme],
+  );
 
   return (
     <ThemeContext.Provider value={value}>

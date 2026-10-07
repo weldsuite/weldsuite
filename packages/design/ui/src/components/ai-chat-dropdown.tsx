@@ -95,13 +95,13 @@ type SetMessages = React.Dispatch<React.SetStateAction<Message[]>>
 /** Strip action markers and the assistant's generic filler sentences. */
 function stripAssistantBoilerplate(text: string): string {
   return text
-    .replace(/\[ACTION:[^\]]+\]/g, "") // Remove action markers
-    .replace(/I'll get that information for you\./g, "") // Remove generic text
-    .replace(/Let me retrieve those details\./g, "")
+    .replaceAll(/\[ACTION:[^\]]+\]/g, "") // Remove action markers
+    .replaceAll("I'll get that information for you.", "") // Remove generic text
+    .replaceAll("Let me retrieve those details.", "")
 }
 
 function cleanMessageContent(text: string): string {
-  return stripAssistantBoilerplate(text).replace(/\s+/g, " ").trim()
+  return stripAssistantBoilerplate(text).replaceAll(/\s+/g, " ").trim()
 }
 
 /** Apply `patch` to the message with `id`, leaving every other message untouched. */
@@ -152,15 +152,18 @@ function buildActionResultUpdate(
 ): ((content: string) => string) | null {
   if (!result.success) {
     // Show error inline
-    return (content) =>
-      content + ` I encountered an issue: ${result.error || "Unable to fetch data."}`
+    const reason =
+      typeof result.error === "string" && result.error ? result.error : "Unable to fetch data."
+    return (content) => content + ` I encountered an issue: ${reason}`
   }
 
   const label = action.params?.model?.toLowerCase() || "item"
   const type = result.type
 
   if (type?.includes("count")) {
-    return appendCleaned(`You have ${result.data} ${label}s in your workspace.`)
+    // A non-numeric payload reads as 0 rather than "[object Object]".
+    const count = Number(result.data ?? 0) || 0
+    return appendCleaned(`You have ${count} ${label}s in your workspace.`)
   }
   if (type?.includes("list") && Array.isArray(result.data)) {
     return appendCleaned(describeListResult(result.data, label))
@@ -225,7 +228,7 @@ export function AiChatDropdown({
   onGetChunks,
   onAction,
   className,
-}: AiChatDropdownProps) {
+}: Readonly<AiChatDropdownProps>) {
   const [open, setOpen] = React.useState(false)
   const [messages, setMessages] = React.useState<Message[]>([])
   const [input, setInput] = React.useState("")

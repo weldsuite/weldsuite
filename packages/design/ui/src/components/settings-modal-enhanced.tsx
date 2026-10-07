@@ -81,11 +81,13 @@ import { cn } from "../lib/utils"
 import { toast } from "sonner"
 
 // Type definitions for server actions
+type UserRole = "USER" | "ADMIN" | "MERCHANT"
+
 interface User {
   id: string
   email: string
   name?: string | null
-  role: "USER" | "ADMIN" | "MERCHANT"
+  role: UserRole
   createdAt: Date
   workspaces?: Array<{
     id: string
@@ -181,7 +183,7 @@ export function SettingsModalEnhanced({
   onOpenChange, 
   trigger,
   serverActions 
-}: SettingsModalProps) {
+}: Readonly<SettingsModalProps>) {
   const [activeSection, setActiveSection] = React.useState("appearance")
   const [loading, setLoading] = React.useState(false)
   
@@ -214,7 +216,7 @@ export function SettingsModalEnhanced({
     name: "",
     email: "",
     password: "",
-    role: "USER" as "USER" | "ADMIN" | "MERCHANT"
+    role: "USER" as UserRole
   })
   
   const [newWorkspaceData, setNewWorkspaceData] = React.useState({
@@ -716,7 +718,7 @@ export function SettingsModalEnhanced({
                     <Label htmlFor="role">Role</Label>
                     <Select 
                       value={newUserData.role} 
-                      onValueChange={(value: "USER" | "ADMIN" | "MERCHANT") => 
+                      onValueChange={(value: UserRole) => 
                         setNewUserData({ ...newUserData, role: value })
                       }
                     >

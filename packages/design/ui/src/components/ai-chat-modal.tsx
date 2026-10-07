@@ -92,7 +92,7 @@ export function AiChatModal({
   suggestions = defaultSuggestions,
   title = "AI Assistant",
   description = "How can I help you today?",
-}: AiChatModalProps) {
+}: Readonly<AiChatModalProps>) {
   const [messages, setMessages] = React.useState<Message[]>([])
   const [input, setInput] = React.useState("")
   const [isLoading, setIsLoading] = React.useState(false)

@@ -94,6 +94,13 @@ interface ApiKey {
   isActive?: boolean;
 }
 
+/** Form values are untyped; only strings and numbers are shown in the inputs. */
+function fieldText(value: unknown, fallback: string): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  return fallback;
+}
+
 interface ApiKeysContentProps {
   apiKeys: ApiKey[];
   loading: boolean;
@@ -119,7 +126,7 @@ export function ApiKeysContent({
   setShowForm,
   newApiToken,
   setNewApiToken,
-}: ApiKeysContentProps) {
+}: Readonly<ApiKeysContentProps>) {
   const [showCreateDialog, setShowCreateDialog] = React.useState(false);
   const [copiedToken, setCopiedToken] = React.useState(false);
   const [creatingToken, setCreatingToken] = React.useState(false);
@@ -198,7 +205,7 @@ export function ApiKeysContent({
               <Label htmlFor="token-name">Token Name</Label>
               <Input
                 id="token-name"
-                value={String(formData.name ?? '')}
+                value={fieldText(formData.name, '')}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="e.g., Production API"
                 required
@@ -212,7 +219,7 @@ export function ApiKeysContent({
               <Label htmlFor="token-description">Description (Optional)</Label>
               <Textarea
                 id="token-description"
-                value={String(formData.description ?? '')}
+                value={fieldText(formData.description, '')}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 placeholder="Describe what this token will be used for..."
                 rows={3}
@@ -222,7 +229,7 @@ export function ApiKeysContent({
             <div>
               <Label htmlFor="token-environment">Environment</Label>
               <Select
-                value={String(formData.environment ?? 'production')}
+                value={fieldText(formData.environment, 'production')}
                 onValueChange={(value) => setFormData({ ...formData, environment: value })}
               >
                 <SelectTrigger id="token-environment">
@@ -274,7 +281,7 @@ export function ApiKeysContent({
             <div>
               <Label htmlFor="token-expires">Expiration</Label>
               <Select
-                value={String(formData.expiresIn ?? '90')}
+                value={fieldText(formData.expiresIn, '90')}
                 onValueChange={(value) => setFormData({ ...formData, expiresIn: value })}
               >
                 <SelectTrigger id="token-expires">
@@ -494,7 +501,7 @@ export function ApiKeysContent({
             Example request:
           </p>
           <pre className="bg-muted p-2 rounded text-xs">
-{`curl -X GET https://api.weldsuite.com/v1/products \\
+{String.raw`curl -X GET https://api.weldsuite.com/v1/products \
   -H "Authorization: Bearer wld_live_xxxxx"`}
           </pre>
         </div>

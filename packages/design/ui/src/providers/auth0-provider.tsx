@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface Auth0User {
@@ -22,12 +22,12 @@ interface Auth0ContextType {
 
 const Auth0Context = createContext<Auth0ContextType | undefined>(undefined);
 
-export function Auth0Provider({ children }: { children: React.ReactNode }) {
+export function Auth0Provider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [user, setUser] = useState<Auth0User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchUser = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch('/api/auth/me');
@@ -46,43 +46,35 @@ export function Auth0Provider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void fetchUser();
-  }, []);
+  }, [fetchUser]);
 
-  const login = (returnTo?: string) => {
+  const login = useCallback((returnTo?: string) => {
     const loginUrl = new URL('/api/auth/login', window.location.origin);
     if (returnTo) {
       loginUrl.searchParams.set('returnTo', returnTo);
     }
     window.location.href = loginUrl.toString();
-  };
+  }, []);
 
-  const logout = (returnTo?: string) => {
+  const logout = useCallback((returnTo?: string) => {
     const logoutUrl = new URL('/api/auth/logout', window.location.origin);
     if (returnTo) {
       logoutUrl.searchParams.set('returnTo', returnTo);
     }
     window.location.href = logoutUrl.toString();
-  };
+  }, []);
 
-  const refreshUser = async () => {
-    await fetchUser();
-  };
+  const value = useMemo<Auth0ContextType>(
+    () => ({ user, loading, error, login, logout, refreshUser: fetchUser }),
+    [user, loading, error, login, logout, fetchUser],
+  );
 
   return (
-    <Auth0Context.Provider
-      value={{
-        user,
-        loading,
-        error,
-        login,
-        logout,
-        refreshUser,
-      }}
-    >
+    <Auth0Context.Provider value={value}>
       {children}
     </Auth0Context.Provider>
   );
