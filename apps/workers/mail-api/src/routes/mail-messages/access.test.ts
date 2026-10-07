@@ -4,7 +4,8 @@
  * Verifies the privilege-escalation fix: a user NOT assigned to a private
  * (non-shared) mail account must receive 403 on every endpoint that touches
  * that account's messages.  A user who IS assigned (or whose account is
- * shared) must succeed.  Admin/owner users bypass the per-account gate.
+ * shared) must succeed.  Admin/owner users get no bypass: the unified list is
+ * scoped to the accounts they can open, like everyone else's.
  *
  * The test uses the createMockDb harness — it does not hit a real DB, so
  * only the route layer logic (import + access helper call) is exercised
@@ -25,6 +26,7 @@ vi.mock('@weldsuite/mail-domain/access', () => ({
   isAdminOrOwner: vi.fn(),
   userAccessCondition: vi.fn(() => ({ _tag: 'sql' })),
   hasAccessToAccount: vi.fn(),
+  emailEventData: vi.fn(async (_db: unknown, data: unknown) => data),
 }));
 
 vi.mock('../../services/mail/messages', () => ({
@@ -264,7 +266,7 @@ describe('POST /api/mail-messages/:id/labels/add · access control', () => {
 });
 
 // ---------------------------------------------------------------------------
-// GET / — list constrained to accessible accounts when not admin
+// GET / — list constrained to accessible accounts, admins included
 // ---------------------------------------------------------------------------
 
 describe('GET /api/mail-messages · list access control', () => {
@@ -298,6 +300,25 @@ describe('GET /api/mail-messages · list access control', () => {
     // The route short-circuits with an empty list when there are no accessible
     // accounts — status 200, data = [].
     expect(res.status).toBe(200);
+  });
+
+  it('scopes the unified list for an admin too', async () => {
+    isAdminOrOwner.mockResolvedValueOnce(true);
+    listMessages.mockResolvedValueOnce({ data: [], hasMore: false, cursor: null, totalCount: 0 });
+    const userAccessCondition = access.userAccessCondition as MockedFunction<typeof access.userAccessCondition>;
+    userAccessCondition.mockClear();
+    listMessages.mockClear();
+
+    const { request } = makeApp('user_admin', ['messages:read']);
+    const res = await request('/api/mail-messages');
+    expect(res.status).toBe(200);
+    // The role is passed along (it opens unassigned private mailboxes) but the
+    // query is never left unscoped.
+    expect(userAccessCondition).toHaveBeenCalledWith('user_admin', true);
+    expect(listMessages).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ accessibleAccountIds: expect.anything() }),
+    );
   });
 });
 

@@ -57,7 +57,7 @@ app.get('/', requireScope('accounts:read'), zValidator('query', listQuery), asyn
 
   const where: (SQL | undefined)[] = [];
   const scope = accountScopeCondition(table.id, await accessibleAccountIds(db, c.get('userId')));
-  if (scope) where.push(scope);
+  where.push(scope);
   if (q.search) {
     const term = `%${q.search}%`;
     where.push(or(ilike(table.name, term), ilike(table.email, term), ilike(table.displayName, term)));

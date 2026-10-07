@@ -99,6 +99,11 @@ function computeThreadId(message: {
 export interface RecipientAccount {
   accountId: string;
   accountEmail: string;
+  /**
+   * Whether every workspace member may open the mailbox. Only then may the
+   * workspace-wide `email:created` event carry message content.
+   */
+  isShared: boolean;
   tenantKind: 'workspace' | 'personal';
   /** Internal workspace id — required when tenantKind = workspace. */
   workspaceId: string | null;
@@ -232,6 +237,7 @@ async function resolvePersonalRecipient(
   return {
     accountId: reg.accountId,
     accountEmail: reg.email,
+    isShared: false,
     tenantKind: 'personal',
     workspaceId: null,
     clerkOrgId: null,
@@ -326,6 +332,7 @@ async function resolveWorkspaceRecipient(
     accountId: reg.accountId,
     accountEmail,
     tenantKind: 'workspace',
+    isShared: accountAccess.isShared === true,
     workspaceId: reg.workspaceId,
     clerkOrgId: workspace.clerkOrgId,
     personalAccountId: null,
@@ -989,10 +996,13 @@ async function finishWorkspaceDelivery(
 
   // Hub entity event once per stored message (not per member) so shared
   // mailboxes + platformSyncMap.email refresh. Personal mail:new loop below
-  // stays for toast / useMailRealtime — intentional dual-path.
+  // stays for toast / useMailRealtime — intentional dual-path. The hub event
+  // reaches the whole workspace, so it carries content for a shared mailbox
+  // only; for a private one, subject + preview travel on the per-member
+  // mail:new below and nowhere else.
   const inboundPayload = buildInboundPayload(account, email, result, preview);
   try {
-    await publishInboundEmailCreated(env, clerkOrgId, inboundPayload);
+    await publishInboundEmailCreated(env, clerkOrgId, inboundPayload, account.isShared);
   } catch (hubErr) {
     console.error(`[Mail] Failed to publish hub email:created for ${result.messageId}:`, hubErr);
   }

@@ -14,7 +14,11 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import {
+  checkAccountAccess,
+  checkAccountManageAccess,
+  emailEventData,
+} from '@weldsuite/mail-domain/access';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -34,6 +38,7 @@ const listQuery = z.object({
   search: z.string().optional(),
   status: z.string().optional(),
   provider: z.string().optional(),
+  scope: z.enum(['manage']).optional(),
 });
 
 const providerEnum = z.enum([
@@ -261,7 +266,9 @@ const updateRoute = async (
   // Row-level guard: only admins/owners, or users the account is shared with /
   // assigned to, may edit it. Without this any `accounts:update` holder could
   // edit a private account's config (incl. isShared/assignedUserIds → self-grant).
-  if (!(await checkAccountAccess(c.get('tenantDb'), id, c.get('userId')))) {
+  // Managing is not reading: an admin can edit a private mailbox's settings
+  // without being able to open it.
+  if (!(await checkAccountManageAccess(c.get('tenantDb'), id, c.get('userId')))) {
     return error.notFound(c, 'Mail account', id);
   }
   try {
@@ -372,13 +379,13 @@ app.post(
         entityType: 'email',
         entityId: result.messageId,
         action: 'email_sent',
-        data: {
+        data: await emailEventData(c.get('tenantDb'), {
           id: result.messageId,
           accountId: result.accountId,
           subject: result.subject,
           from: null,
           to: data.to,
-        },
+        }),
       });
       return success(c, {
         messageId: result.messageId,

@@ -104,12 +104,10 @@ async function resolveAccountScope(
 
   // Unified variant — every account the caller can read.
   const admin = await isAdminOrOwner(db, userId);
-  const accountConditions: SQL[] = [isNull(mailAccounts.deletedAt)!];
-  if (!admin) accountConditions.push(userAccessCondition(userId));
   const accessibleAccounts = await db
     .select({ id: mailAccounts.id })
     .from(mailAccounts)
-    .where(and(...accountConditions));
+    .where(and(isNull(mailAccounts.deletedAt), userAccessCondition(userId, admin)));
   if (accessibleAccounts.length === 0) return null;
   return inArray(
     mailMessages.accountId,

@@ -5,8 +5,9 @@
  * surface can never be broader than the UI's. Mail is the one object group
  * where a workspace-level permission is not the whole story: `messages:read`
  * says the caller may read mail, but *which* mailboxes is decided per account.
- * Shared accounts (`isShared`) are visible to every member; the rest only to
- * assigned users and to workspace admins/owners.
+ * Shared accounts (`isShared`) are open to every member; a private account
+ * only to its assigned users, admins/owners included. A private account with
+ * nobody assigned falls back to admins/owners so it is never left unreadable.
  *
  * Every mail route resolves the caller's reachable accounts through here
  * before touching messages, labels or drafts — a tool call must not be able to
@@ -19,8 +20,8 @@ import type { Database } from '../db';
 
 const { mailAccounts, workspaceMembers } = schema;
 
-/** Admins and owners reach every mailbox in the workspace. */
-export async function isAdminOrOwner(db: Database, userId: string): Promise<boolean> {
+/** The role opens unassigned private mailboxes, nothing more. */
+async function isAdminOrOwner(db: Database, userId: string): Promise<boolean> {
   const [member] = await db
     .select({ role: workspaceMembers.role })
     .from(workspaceMembers)
@@ -31,31 +32,24 @@ export async function isAdminOrOwner(db: Database, userId: string): Promise<bool
   return role === 'OWNER' || role === 'ADMIN';
 }
 
-/** WHERE fragment selecting the accounts a non-admin caller may see. */
-export function userAccessCondition(userId: string): SQL {
+/** WHERE fragment selecting the accounts the caller may open. */
+function userAccessCondition(userId: string, isAdmin: boolean): SQL {
   return or(
     eq(mailAccounts.isShared, true),
     sql`${mailAccounts.assignedUserIds} @> ${JSON.stringify([userId])}::jsonb`,
+    isAdmin
+      ? sql`coalesce(${mailAccounts.assignedUserIds}, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb)`
+      : undefined,
   )!;
 }
 
-/**
- * Ids of every mail account the caller can reach, or `'all'` for an
- * admin/owner — the marker lets callers skip an `inArray` over the whole
- * account list when it would filter nothing.
- */
-export type AccessibleAccounts = 'all' | string[];
-
-export async function accessibleAccountIds(
-  db: Database,
-  userId: string,
-): Promise<AccessibleAccounts> {
-  if (await isAdminOrOwner(db, userId)) return 'all';
-
+/** Ids of every mail account the caller can reach. */
+export async function accessibleAccountIds(db: Database, userId: string): Promise<string[]> {
+  const admin = await isAdminOrOwner(db, userId);
   const rows = await db
     .select({ id: mailAccounts.id })
     .from(mailAccounts)
-    .where(and(isNull(mailAccounts.deletedAt), userAccessCondition(userId)));
+    .where(and(isNull(mailAccounts.deletedAt), userAccessCondition(userId, admin)));
 
   return rows.map((row) => row.id);
 }
@@ -63,17 +57,14 @@ export async function accessibleAccountIds(
 /**
  * Restrict a query to the caller's mailboxes.
  *
- * Returns the condition to push onto a WHERE list, or `null` when no filtering
- * is needed (admin). With no reachable accounts the condition is deliberately
- * unsatisfiable rather than absent, so an empty list can never widen into
- * "everything".
+ * With no reachable accounts the condition is deliberately unsatisfiable
+ * rather than absent, so an empty list can never widen into "everything".
  */
 export function accountScopeCondition(
   /** The `accountId` column of the table being filtered (or `mailAccounts.id`). */
   column: Column,
-  accounts: AccessibleAccounts,
-): SQL | null {
-  if (accounts === 'all') return null;
+  accounts: string[],
+): SQL {
   if (accounts.length === 0) return sql`false`;
   return inArray(column, accounts);
 }
@@ -97,7 +88,8 @@ export async function checkAccountAccess(
     .limit(1);
   if (!row) return false;
   if (row.isShared) return true;
-  if (row.assignedUserIds?.includes(userId)) return true;
 
+  const assigned = row.assignedUserIds ?? [];
+  if (assigned.length > 0) return assigned.includes(userId);
   return isAdminOrOwner(db, userId);
 }

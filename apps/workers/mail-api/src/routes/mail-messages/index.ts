@@ -21,12 +21,13 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import * as messages from '../../services/mail/messages';
 import { forwardAndPersist, MailSendError, replyAndPersist } from '@weldsuite/mail-domain/send';
 import {
+  emailEventData,
   checkAccountAccess,
   hasAccessToAccount,
   isAdminOrOwner,
   userAccessCondition,
 } from '@weldsuite/mail-domain/access';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 
 // Inline rather than importing from `@weldsuite/app-api-client`, which would
@@ -124,17 +125,16 @@ app.get('/', requirePermission('messages:read'), zValidator('query', listQuery),
       return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
     }
 
+    // Admins get no blanket pass: a private mailbox is only in scope for the
+    // users assigned to it.
     const admin = await isAdminOrOwner(db, userId);
-    let accessibleAccountIds: string[] | undefined;
-    if (!admin) {
-      const accountRows = await db
-        .select({ id: schema.mailAccounts.id })
-        .from(schema.mailAccounts)
-        .where(and(isNull(schema.mailAccounts.deletedAt), userAccessCondition(userId)));
-      accessibleAccountIds = accountRows.map((r) => r.id);
-      if (accessibleAccountIds.length === 0) {
-        return list(c, [], cursorPagination(0, false, null));
-      }
+    const accountRows = await db
+      .select({ id: schema.mailAccounts.id })
+      .from(schema.mailAccounts)
+      .where(and(isNull(schema.mailAccounts.deletedAt), userAccessCondition(userId, admin)));
+    const accessibleAccountIds = accountRows.map((r) => r.id);
+    if (accessibleAccountIds.length === 0) {
+      return list(c, [], cursorPagination(0, false, null));
     }
 
     const result = await messages.listMessages(db, { ...filters, accessibleAccountIds });
@@ -216,13 +216,13 @@ const patchHandler = async (
     entityType: 'email',
     entityId: id,
     action: 'updated',
-    data: {
+    data: await emailEventData(db, {
       id,
       accountId: after.accountId,
       subject: after.subject ?? null,
       from: (after.from as { email?: string } | null)?.email ?? null,
       to: (after.to as { email?: string }[] | null)?.map((t) => t.email ?? '').filter(Boolean) ?? null,
-    },
+    }),
   });
   return success(c, { id, ...data });
 };
@@ -255,27 +255,26 @@ app.post(
       // Resolve the account for each message and verify access. Fetching
       // all account IDs in a single query keeps the N+1 at O(1) queries.
       const admin = await isAdminOrOwner(db, userId);
-      if (!admin) {
-        const rows = await db
-          .select({ id: schema.mailMessages.id, accountId: schema.mailMessages.accountId })
-          .from(schema.mailMessages)
-          .where(and(
-            isNull(schema.mailMessages.deletedAt),
-          ));
-        // Build a map of messageId -> accountId for the requested IDs.
-        const msgMap = new Map(rows.map((r) => [r.id, r.accountId]));
-        const accountRows = await db
-          .select({ id: schema.mailAccounts.id, isShared: schema.mailAccounts.isShared, assignedUserIds: schema.mailAccounts.assignedUserIds })
-          .from(schema.mailAccounts)
-          .where(isNull(schema.mailAccounts.deletedAt));
-        const accountMap = new Map(accountRows.map((a) => [a.id, a]));
-        for (const msgId of data.messageIds) {
-          const accId = msgMap.get(msgId);
-          if (!accId) continue; // message doesn't exist — service will ignore it
-          const account = accountMap.get(accId);
-          if (!account || !hasAccessToAccount(account, userId, false)) {
-            return error.forbidden(c, 'Access to one or more mail accounts is not allowed');
-          }
+      const rows = await db
+        .select({ id: schema.mailMessages.id, accountId: schema.mailMessages.accountId })
+        .from(schema.mailMessages)
+        .where(and(
+          inArray(schema.mailMessages.id, data.messageIds),
+          isNull(schema.mailMessages.deletedAt),
+        ));
+      // Build a map of messageId -> accountId for the requested IDs.
+      const msgMap = new Map(rows.map((r) => [r.id, r.accountId]));
+      const accountRows = await db
+        .select({ id: schema.mailAccounts.id, isShared: schema.mailAccounts.isShared, assignedUserIds: schema.mailAccounts.assignedUserIds })
+        .from(schema.mailAccounts)
+        .where(isNull(schema.mailAccounts.deletedAt));
+      const accountMap = new Map(accountRows.map((a) => [a.id, a]));
+      for (const msgId of data.messageIds) {
+        const accId = msgMap.get(msgId);
+        if (!accId) continue; // message doesn't exist — service will ignore it
+        const account = accountMap.get(accId);
+        if (!account || !hasAccessToAccount(account, userId, admin)) {
+          return error.forbidden(c, 'Access to one or more mail accounts is not allowed');
         }
       }
       const result = await messages.bulkUpdateMessages(db, data.messageIds, data.action);
@@ -320,13 +319,13 @@ app.delete('/:id', requirePermission('messages:delete'), async (c) => {
       entityType: 'email',
       entityId: id,
       action: 'deleted',
-      data: {
+      data: await emailEventData(db, {
         id,
         accountId: deleted.accountId,
         subject: deleted.subject,
         from: null,
         to: null,
-      },
+      }),
     });
     return noContent(c);
   } catch (err) {
@@ -429,14 +428,14 @@ app.post(
         entityType: 'email',
         entityId: result.messageId,
         action: 'reply_sent',
-        data: {
+        data: await emailEventData(db, {
           id: result.messageId,
           accountId: result.accountId,
           subject: result.subject,
           from: null,
           to: null,
           conversationId: result.repliedTo,
-        },
+        }),
       });
       return success(c, {
         messageId: result.messageId,
@@ -500,14 +499,14 @@ app.post(
         entityType: 'email',
         entityId: result.messageId,
         action: 'email_sent',
-        data: {
+        data: await emailEventData(db, {
           id: result.messageId,
           accountId: result.accountId,
           subject: result.subject,
           from: null,
           to: data.to,
           conversationId: result.forwardedFrom,
-        },
+        }),
       });
       return success(c, {
         messageId: result.messageId,

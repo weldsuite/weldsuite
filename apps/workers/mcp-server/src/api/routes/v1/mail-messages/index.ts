@@ -230,7 +230,7 @@ app.get('/', requireScope('messages:read'), zValidator('query', listQuery), asyn
   const conditions: SQL[] = [isNull(table.deletedAt)];
 
   const scope = accountScopeCondition(table.accountId, await accessibleAccountIds(db, userId));
-  if (scope) conditions.push(scope);
+  conditions.push(scope);
   conditions.push(...filterConditions(q));
 
   const limit = clampLimit(q.limit);
