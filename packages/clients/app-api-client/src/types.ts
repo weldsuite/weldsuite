@@ -4,6 +4,7 @@
  * Kept aligned 1-to-1 with `packages/core/worker-kit/src/response.ts`. Changes to
  * the wire format must be made in both places.
  */
+import { asText } from '@weldsuite/text';
 
 export interface PaginationMeta {
   totalCount: number;
@@ -42,7 +43,7 @@ export function buildQueryString(params: Record<string, unknown>): string {
   const searchParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      searchParams.set(key, String(value));
+      searchParams.set(key, asText(value));
     }
   }
   const query = searchParams.toString();

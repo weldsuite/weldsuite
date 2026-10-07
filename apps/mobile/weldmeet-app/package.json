@@ -28,6 +28,7 @@
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/mobile-ui": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "base-64": "^1.0.0",
     "date-fns": "^4.1.0",
     "expo": "~57.0.20",

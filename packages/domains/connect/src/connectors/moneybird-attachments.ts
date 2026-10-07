@@ -11,6 +11,7 @@ import type {
   MoneybirdClient,
   MoneybirdDocumentAttachmentKind,
 } from '@weldsuite/connectors';
+import { asText } from '@weldsuite/text';
 
 export const MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET = 30;
 
@@ -44,7 +45,7 @@ function listAttachmentMeta(record: Record<string, unknown>): Array<{ id: string
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
     const row = item as Record<string, unknown>;
-    const id = row.id !== undefined && row.id !== null ? String(row.id) : '';
+    const id = row.id !== undefined && row.id !== null ? asText(row.id) : '';
     if (!id) continue;
     const filename =
       typeof row.filename === 'string'

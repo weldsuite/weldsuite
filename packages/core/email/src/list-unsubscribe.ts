@@ -4,6 +4,7 @@
  * Pure functions, shared by mail-inbound-worker (live ingest) and app-api
  * (backfill from stored raw messages + performing the unsubscribe).
  */
+import { asText } from '@weldsuite/text';
 
 export interface ListUnsubscribeInfo {
   /** First https URL in the header, if any. Plain http is ignored. */
@@ -205,7 +206,7 @@ export async function performUnsubscribe(
   if (url) return { method: 'link', url };
 
   if (lastError) {
-    const detail = lastError instanceof Error ? lastError.message : String(lastError);
+    const detail = lastError instanceof Error ? lastError.message : asText(lastError);
     throw new UnsubscribeError('UNSUBSCRIBE_FAILED', `Unsubscribe failed: ${detail}`);
   }
   throw new UnsubscribeError('NO_UNSUBSCRIBE_METHOD', 'This sender offers no way to unsubscribe');

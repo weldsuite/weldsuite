@@ -14,6 +14,8 @@
  * itself stays i18n-free.
  */
 
+import { asText } from '@weldsuite/text';
+
 export interface MissingField {
   /** Stable i18n key under `actionConfigForm` (e.g. 'to', 'waitDuration'). */
   labelKey: string;
@@ -124,7 +126,7 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     { labelKey: 'fieldToCheck', isMissing: (c) => isBlank(c.field) },
     {
       labelKey: 'value',
-      isMissing: (c) => !NO_VALUE_OPERATORS.has(String(c.operator ?? 'eq')) && isBlank(c.value),
+      isMissing: (c) => !NO_VALUE_OPERATORS.has(asText(c.operator ?? 'eq')) && isBlank(c.value),
     },
   ],
   loop: [{ labelKey: 'itemsToIterate', isMissing: (c) => isBlank(c.items) }],

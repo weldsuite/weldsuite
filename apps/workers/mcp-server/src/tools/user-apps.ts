@@ -4,6 +4,7 @@ import type { McpSession } from '../lib/api-types';
 import type { Env } from '../types/env';
 import { INTERNAL_ORIGIN, apiApp, internalEnv } from '../api/app';
 import { toolResult, toolError } from './registry';
+import { asText } from '@weldsuite/text';
 
 /**
  * Dynamic agent tools declared by user-created WeldApps.
@@ -334,7 +335,7 @@ function buildRequestUrl(shaped: ShapedRequest): URL {
     if (Array.isArray(value)) {
       for (const v of value) url.searchParams.append(key, String(v));
     } else {
-      url.searchParams.set(key, String(value));
+      url.searchParams.set(key, asText(value));
     }
   }
   return url;

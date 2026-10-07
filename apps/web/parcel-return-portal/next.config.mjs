@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ["@weldsuite/ui"],
+  transpilePackages: ["@weldsuite/ui", "@weldsuite/text"],
   eslint: {
     ignoreDuringBuilds: true,
   },

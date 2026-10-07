@@ -14,6 +14,7 @@
     "@hono/node-server": "^2.1.0",
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "discord.js": "^14.16.0",
     "dotenv": "^16.4.0",
     "drizzle-orm": "^0.45.2",

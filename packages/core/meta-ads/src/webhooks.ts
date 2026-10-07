@@ -1,4 +1,5 @@
 import type { MetaWebhookChangeEvent } from './types';
+import { asText } from '@weldsuite/text';
 
 export async function verifyMetaWebhookSignature(
   body: string,
@@ -79,6 +80,6 @@ function extractObjectId(field: string, value: Record<string, unknown>): string 
   if (typeof value.id === 'string' || typeof value.id === 'number') {
     return String(value.id);
   }
-  if (field === 'campaigns' && value.id != null) return String(value.id);
+  if (field === 'campaigns' && value.id != null) return asText(value.id);
   return undefined;
 }

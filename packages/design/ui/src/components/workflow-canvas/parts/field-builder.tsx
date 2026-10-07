@@ -14,6 +14,7 @@ import {
 import { Plus, X, GripVertical } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { VariableInput } from './variable-input';
+import { asText } from '@weldsuite/text';
 
 export interface FieldDefinition {
   name: string;
@@ -141,7 +142,7 @@ export function FieldBuilder({
     return Object.entries(fields).map(([key, value], index) => ({
       id: `field_${index}`,
       key,
-      value: typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''),
+      value: typeof value === 'object' ? JSON.stringify(value) : asText(value ?? ''),
     }));
   });
 

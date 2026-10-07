@@ -31,6 +31,7 @@
 
 import { ENTITY_EVENTS as ENTITY_EVENT_CATALOG } from '@weldsuite/entity-events';
 import { zonedTimeToUtc } from '@weldsuite/workflow-integrations/cron';
+import { asText } from '@weldsuite/text';
 
 export const WELDCONNECT_TRIGGER_TYPES = [
   'entity_event',
@@ -379,7 +380,7 @@ export function workflowCompleteSourceIds(triggers: unknown): Array<{ triggerId?
 
 function validateTrigger(trigger: Bag, workflowId?: string): WorkflowIssue[] {
   const triggerId = typeof trigger.id === 'string' ? trigger.id : undefined;
-  const type = String(trigger.type ?? '');
+  const type = asText(trigger.type ?? '');
 
   if (!(WELDCONNECT_TRIGGER_TYPES as readonly string[]).includes(type)) {
     return [{ code: 'unsupported_trigger', triggerId, type }];
@@ -393,7 +394,7 @@ function validateTrigger(trigger: Bag, workflowId?: string): WorkflowIssue[] {
 
 function validateStep(step: Bag): WorkflowIssue[] {
   const stepId = typeof step.id === 'string' ? step.id : undefined;
-  const type = String(step.type ?? '');
+  const type = asText(step.type ?? '');
   if (!(WELDCONNECT_ACTION_TYPES as readonly string[]).includes(type)) {
     return [{ code: 'unsupported_action', stepId, type }];
   }

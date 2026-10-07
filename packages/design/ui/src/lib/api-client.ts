@@ -4,6 +4,8 @@
 // is not a dependency of this package and doesn't resolve. Left in place
 // as documented dead code rather than deleted outright.
 
+import { asText } from '@weldsuite/text';
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
@@ -57,7 +59,7 @@ class ApiClient {
       if (params) {
         Object.keys(params).forEach(key => {
           if (params[key] !== undefined && params[key] !== null) {
-            url.searchParams.append(key, params[key].toString());
+            url.searchParams.append(key, asText(params[key]));
           }
         });
       }

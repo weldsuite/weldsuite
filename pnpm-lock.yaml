@@ -229,6 +229,9 @@ importers:
       '@weldsuite/mobile-ui':
         specifier: workspace:*
         version: link:../../../packages/design/mobile-ui
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       expo:
         specifier: ~57.0.20
         version: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(bufferutil@4.1.0)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)(typescript@6.0.3)(utf-8-validate@6.0.6)
@@ -410,6 +413,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       expo:
         specifier: ~57.0.20
         version: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(bufferutil@4.1.0)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3)(typescript@6.0.3)(utf-8-validate@5.0.10)
@@ -600,6 +606,9 @@ importers:
       '@weldsuite/personal-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/personal-api-client
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       event-target-shim:
         specifier: 6.0.2
         version: 6.0.2
@@ -778,6 +787,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
@@ -962,6 +974,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       expo:
         specifier: ~57.0.20
         version: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(bufferutil@4.1.0)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3)(typescript@5.9.3)(utf-8-validate@5.0.10)
@@ -1119,6 +1134,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       expo:
         specifier: ~57.0.20
         version: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(bufferutil@4.1.0)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3)(typescript@5.9.3)(utf-8-validate@5.0.10)
@@ -1285,6 +1303,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       event-target-shim:
         specifier: 6.0.2
         version: 6.0.2
@@ -1457,6 +1478,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       expo:
         specifier: ~57.0.20
         version: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(bufferutil@4.1.0)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3)(typescript@6.0.3)(utf-8-validate@5.0.10)
@@ -1653,6 +1677,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       base-64:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1825,6 +1852,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       expo:
         specifier: ~57.0.20
         version: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(bufferutil@4.1.0)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3)(typescript@5.9.2)(utf-8-validate@5.0.10)
@@ -1988,6 +2018,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       expo:
         specifier: ~57.0.20
         version: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(bufferutil@4.1.0)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3)(typescript@5.9.2)(utf-8-validate@5.0.10)
@@ -2124,6 +2157,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       discord.js:
         specifier: ^14.16.0
         version: 14.26.2(bufferutil@4.1.0)(utf-8-validate@6.0.6)
@@ -2173,6 +2209,9 @@ importers:
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../../../packages/core/permissions
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       docx:
         specifier: ^9.6.1
         version: 9.6.1
@@ -4355,6 +4394,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../../packages/core/worker-kit
@@ -4592,6 +4634,9 @@ importers:
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../../../packages/core/permissions
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../../packages/core/worker-kit
@@ -4883,6 +4928,9 @@ importers:
       '@weldsuite/social-publishing':
         specifier: workspace:*
         version: link:../../../packages/core/social-publishing
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
@@ -5256,6 +5304,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       '@weldsuite/workflow-integrations':
         specifier: workspace:*
         version: link:../../../packages/core/workflow-integrations
@@ -5494,6 +5545,9 @@ importers:
       '@weldsuite/social-publishing':
         specifier: workspace:*
         version: link:../../../packages/core/social-publishing
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
@@ -6014,6 +6068,9 @@ importers:
       '@weldsuite/api-client':
         specifier: workspace:*
         version: link:../api-client
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       zod:
         specifier: ^3.25.76
         version: 3.25.76
@@ -6200,6 +6257,10 @@ importers:
         version: 5.9.2
 
   packages/core/connectors:
+    dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
     devDependencies:
       '@weldsuite/typescript-config':
         specifier: workspace:*
@@ -6244,6 +6305,9 @@ importers:
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../permissions
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
@@ -6309,6 +6373,9 @@ importers:
 
   packages/core/email:
     dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
       cloudflare:
         specifier: ^7.0.0
         version: 7.0.0
@@ -6452,6 +6519,10 @@ importers:
         version: 5.9.2
 
   packages/core/meta-ads:
+    dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
     devDependencies:
       '@weldsuite/typescript-config':
         specifier: workspace:*
@@ -6932,6 +7003,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.7
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       '@xyflow/react':
         specifier: ^12
         version: 12.10.0(@types/react@19.2.7)(immer@11.1.3)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -7302,6 +7376,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../core/entity-events
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../core/worker-kit
@@ -7391,6 +7468,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       '@weldsuite/worker-email':
         specifier: workspace:*
         version: link:../../core/worker-email
@@ -39718,7 +39798,7 @@ snapshots:
       eslint: 8.57.1
       eslint-import-resolver-node: 0.3.9
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint@8.57.1))(eslint@8.57.1)
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1)
       eslint-plugin-jsx-a11y: 6.10.2(eslint@8.57.1)
       eslint-plugin-react: 7.37.5(eslint@8.57.1)
       eslint-plugin-react-hooks: 5.2.0(eslint@8.57.1)
@@ -39752,7 +39832,7 @@ snapshots:
       tinyglobby: 0.2.15
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -39862,7 +39942,7 @@ snapshots:
       - supports-color
       - typescript
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint@8.57.1))(eslint@8.57.1))(eslint@8.57.1):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.51.0(eslint@8.57.1)(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1)(eslint@8.57.1):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9

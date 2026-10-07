@@ -24,6 +24,7 @@
     "@weldsuite/know-domain": "workspace:*",
     "@weldsuite/social-publishing": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.34",
     "postgres": "^3.4.7",

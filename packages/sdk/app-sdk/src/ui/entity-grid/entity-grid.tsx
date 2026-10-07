@@ -34,6 +34,7 @@ import {
   formatDisplayValue,
   sortEntities,
 } from './utils';
+import { asText } from '../../as-text';
 
 const DEFAULT_LABELS = {
   newEntity: 'New',
@@ -652,7 +653,7 @@ function CellEditor<TEntity>({
   }
   return (
     <TextEditor
-      value={value == null ? '' : String(value)}
+      value={value == null ? '' : asText(value)}
       type={textInputTypeFor(column.type)}
       onCommit={onCommit}
       onCancel={onCancel}

@@ -1,4 +1,5 @@
 import type { GridColumnDef, GridSortConfig } from './types';
+import { asText } from '../../as-text';
 
 export function stringifyCellValue(value: unknown): string {
   if (value == null) return '';
@@ -9,7 +10,7 @@ export function stringifyCellValue(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
-    return String(value);
+    return asText(value);
   }
 }
 
@@ -83,7 +84,7 @@ export function formatDisplayValue(type: string, value: unknown): string {
   if (type === 'currency' && typeof value === 'number') return value.toFixed(2);
   if (type === 'percent' && typeof value === 'number') return `${value}%`;
   if (type === 'date') {
-    const d = value instanceof Date ? value : new Date(String(value));
+    const d = value instanceof Date ? value : new Date(asText(value));
     if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
   }
   if (type === 'multi-select' && Array.isArray(value)) return value.join(', ');

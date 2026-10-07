@@ -6,6 +6,7 @@
  */
 
 import type { FieldMappingDefinition } from './types';
+import { asText } from '@weldsuite/text';
 
 /**
  * Get a nested value from an object using dot-notation path.
@@ -60,7 +61,7 @@ function applyTransform(
     case 'format_date': {
       if (!value) return value;
       // Normalize date strings to ISO format
-      const date = new Date(String(value));
+      const date = new Date(asText(value));
       if (Number.isNaN(date.getTime())) return value;
       return date.toISOString();
     }
