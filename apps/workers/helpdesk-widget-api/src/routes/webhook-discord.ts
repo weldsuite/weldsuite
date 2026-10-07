@@ -13,6 +13,7 @@ import type { Env } from '../index';
 import { getTenantDbForWorkspace, schema } from '../db';
 import { generateId } from '../lib/id';
 import { error, success } from '../lib/response';
+import { logSafe } from '@weldsuite/text';
 
 export const discordWebhookRoutes = new Hono<{ Bindings: Env }>();
 
@@ -77,9 +78,9 @@ discordWebhookRoutes.post('/ticket', async (c) => {
 
   const mapping = await resolveGuild(c.env, body.guild_id);
   if (!mapping) {
-    console.warn('[discord-webhook] ticket create guild miss:', body.guild_id, {
-      threadId: body.thread_id,
-      parentChannelId: body.parent_channel_id ?? null,
+    console.warn('[discord-webhook] ticket create guild miss:', logSafe(body.guild_id), {
+      threadId: logSafe(body.thread_id),
+      parentChannelId: logSafe(body.parent_channel_id ?? null),
     });
     return error.notFound(c, 'Discord guild mapping');
   }
@@ -618,7 +619,7 @@ async function publishCustomerMessageRealtime(
 async function resolveGuild(env: Env, guildId: string): Promise<GuildMapping | null> {
   const cached = (await env.WORKSPACE_CACHE.get(`discord_guild:${guildId}`, 'json')) as GuildMapping | null;
   if (cached?.clerkOrgId) return cached;
-  console.warn('[discord-webhook] missing discord_guild KV mapping for guild', guildId);
+  console.warn('[discord-webhook] missing discord_guild KV mapping for guild', logSafe(guildId));
   return null;
 }
 

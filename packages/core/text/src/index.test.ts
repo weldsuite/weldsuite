@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asText } from './index';
+import { asText, logSafe } from './index';
 
 describe('asText', () => {
   it('matches String() for primitives, dates and nullish values', () => {
@@ -31,5 +31,16 @@ describe('asText', () => {
   it('stringifies symbols and functions without throwing', () => {
     expect(asText(Symbol('s'))).toBe('Symbol(s)');
     expect(asText(function named() {})).toContain('named');
+  });
+});
+
+describe('logSafe', () => {
+  it('replaces line breaks and Unicode line separators with a space', () => {
+    expect(logSafe('a\r\nb\nc\u2028d\u2029e')).toBe('a b c d e');
+  });
+
+  it('stringifies non-string values first', () => {
+    expect(logSafe({ id: 'x\ny' })).toBe('{"id":"x\\ny"}');
+    expect(logSafe(42)).toBe('42');
   });
 });

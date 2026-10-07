@@ -21,3 +21,15 @@ export function asText(value: unknown): string {
     return String(value);
   }
 }
+
+/**
+ * Neutralises a value before it is interpolated into a log line.
+ *
+ * Line breaks (and the Unicode line/paragraph separators) are replaced so a
+ * value coming from a request, webhook or third-party payload cannot forge
+ * extra log entries.
+ */
+export function logSafe(value: unknown): string {
+  // split/join rather than replaceAll: some consumers still compile against ES2020 libs.
+  return asText(value).split(/[\r\n\u2028\u2029]+/).join(' ');
+}

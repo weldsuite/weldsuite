@@ -12,6 +12,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { AvailableRepo, CreateRepoLinkInput, UpdateRepoLinkInput } from '@weldsuite/core-api-client/schemas/github';
+import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
 const { githubRepoLinks } = schema;
 
@@ -188,7 +189,7 @@ export async function linkRepo(
     })
     .returning();
 
-  console.log(`[GitHub] User ${userId} linked repo ${input.repoFullName} in workspace ${workspaceId}`);
+  console.log(`[GitHub] User ${logSafe(userId)} linked repo ${logSafe(input.repoFullName)} in workspace ${logSafe(workspaceId)}`);
 
   return row;
 }

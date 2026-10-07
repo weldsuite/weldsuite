@@ -18,6 +18,7 @@ import {
   archiveStripePrice,
 } from '../lib/stripe';
 import { m2mAuth } from '../middleware/m2m-auth';
+import { logSafe } from '@weldsuite/text';
 
 export const pricingSyncRoutes = new Hono<{ Bindings: Env }>();
 
@@ -89,7 +90,7 @@ async function syncSinglePrice(
       await archiveStripePrice(stripeKey, params.existingPriceId);
     } catch (err) {
       // Non-fatal: old price may already be archived
-      console.warn(`[PricingSync] Failed to archive old price ${params.existingPriceId}:`, err);
+      console.warn(`[PricingSync] Failed to archive old price ${logSafe(params.existingPriceId)}:`, err);
     }
   }
 
