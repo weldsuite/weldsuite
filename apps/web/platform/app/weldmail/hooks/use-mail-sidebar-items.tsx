@@ -332,8 +332,14 @@ export function useMailSidebarItems(isActive: boolean): {
   // Fetch labels via core-api
   // Unified mode: no accountId → server aggregates across all accounts
   // Per-account: pass accountId → scoped to that account
+  //
+  // A response is applied only while its request is still the current one.
+  // Opening /weldmail fires a request for the default account, then redirects
+  // to the unified inbox and fires the unified one; if the first answered
+  // last, it replaced the unified list with one account's labels (often none).
   React.useEffect(() => {
     if (!isActive) return;
+    let stale = false;
 
     const mapLabels = (rows: MailLabel[]): MailTypes.Label[] =>
       rows
@@ -347,15 +353,20 @@ export function useMailSidebarItems(isActive: boolean): {
           aiKeywords: l.aiKeywords ?? undefined,
           aiDescription: l.aiDescription,
         }));
+    const apply = (rows: MailLabel[]) => {
+      if (!stale) setLocalLabels(mapLabels(rows));
+    };
 
     if (isUnified) {
       // Unified inbox: fetch all labels across accounts (server-side aggregation)
       mailLabels.list({})
-        .then((result) => setLocalLabels(mapLabels(result.data)))
+        .then((result) => apply(result.data))
         .catch((error) => {
           console.error('Failed to fetch unified labels:', error);
         });
-      return;
+      return () => {
+        stale = true;
+      };
     }
 
     if (!resolvedAccountId) {
@@ -364,10 +375,13 @@ export function useMailSidebarItems(isActive: boolean): {
     }
 
     mailLabels.list({ accountId: resolvedAccountId })
-      .then((result) => setLocalLabels(mapLabels(result.data)))
+      .then((result) => apply(result.data))
       .catch((error) => {
         console.error('Failed to fetch labels:', error);
       });
+    return () => {
+      stale = true;
+    };
   }, [isActive, resolvedAccountId, isUnified, mailLabels]);
 
   // Folder badge counts: one stats query per mailbox in view. They live under
