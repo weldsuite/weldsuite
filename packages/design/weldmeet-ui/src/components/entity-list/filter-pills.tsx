@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -374,6 +374,24 @@ export function FilterPills({
     }
   };
 
+  let filterTrigger: ReactNode = null;
+  if (filters.length > 0 && filters.length < maxFilters) {
+    filterTrigger = (
+      <button className="flex items-center justify-center h-[32px] w-[30px] border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border">
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    );
+  } else if (filters.length === 0) {
+    filterTrigger = (
+      <Button
+        variant="outline"
+        className="h-8 text-sm px-3 shadow-none text-muted-foreground"
+      >
+        {labels?.filter ?? 'Filter'}
+      </Button>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2">
       {/* Active filter pills */}
@@ -489,18 +507,7 @@ export function FilterPills({
       {/* Wizard: field picker (Filter / + button) */}
       <Popover open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
         <PopoverTrigger asChild>
-          {filters.length > 0 && filters.length < maxFilters ? (
-            <button className="flex items-center justify-center h-[32px] w-[30px] border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border">
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          ) : filters.length === 0 ? (
-            <Button
-              variant="outline"
-              className="h-8 text-sm px-3 shadow-none text-muted-foreground"
-            >
-              {labels?.filter ?? 'Filter'}
-            </Button>
-          ) : null}
+          {filterTrigger}
         </PopoverTrigger>
         <PopoverContent
           align="start"

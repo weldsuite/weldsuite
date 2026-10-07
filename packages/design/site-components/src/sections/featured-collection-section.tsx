@@ -171,8 +171,12 @@ export function FeaturedCollectionSection({
   products,
 }: Readonly<FeaturedCollectionSectionProps>) {
   // Use real products if available, otherwise fall back to mock data
-  const sourceProducts = products && products.length > 0 ? products :
-                         (store?.products && store.products.length > 0 ? store.products : mockProducts);
+  let sourceProducts = mockProducts;
+  if (products && products.length > 0) {
+    sourceProducts = products;
+  } else if (store?.products && store.products.length > 0) {
+    sourceProducts = store.products;
+  }
 
   const displayProducts = sourceProducts.slice(0, productsToShow);
 

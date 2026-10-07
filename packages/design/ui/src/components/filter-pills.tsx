@@ -337,6 +337,27 @@ export function FilterPills({
     }
   };
 
+  let filterTrigger: React.ReactNode = null;
+  if (filters.length > 0 && filters.length < maxFilters) {
+    filterTrigger = (
+      <button
+        className="flex items-center justify-center h-[32px] w-[30px] border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border"
+        aria-label="Add filter"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    );
+  } else if (filters.length === 0) {
+    filterTrigger = (
+      <Button
+        variant="outline"
+        className="h-8 text-sm px-3 shadow-none text-muted-foreground"
+      >
+        Filter
+      </Button>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2">
       {filters.map((filter, index) => {
@@ -434,21 +455,7 @@ export function FilterPills({
 
       <Popover open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
         <PopoverTrigger asChild>
-          {filters.length > 0 && filters.length < maxFilters ? (
-            <button
-              className="flex items-center justify-center h-[32px] w-[30px] border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border"
-              aria-label="Add filter"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          ) : filters.length === 0 ? (
-            <Button
-              variant="outline"
-              className="h-8 text-sm px-3 shadow-none text-muted-foreground"
-            >
-              Filter
-            </Button>
-          ) : null}
+          {filterTrigger}
         </PopoverTrigger>
         <PopoverContent align="start" className="w-40 p-1">
           {filterConfigs.map((config) => (

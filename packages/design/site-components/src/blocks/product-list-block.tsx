@@ -341,14 +341,14 @@ export function ProductListBlock({
     );
   };
 
+  let sectionClass = "px-5 py-16";
+  if (isFullWidth) {
+    sectionClass = isEditMode ? "w-full py-16 px-5" : "w-screen py-16 px-5";
+  }
+
   return (
     <section
-      className={isFullWidth
-        ? isEditMode
-          ? "w-full py-16 px-5"
-          : "w-screen py-16 px-5"
-        : "px-5 py-16"
-      }
+      className={sectionClass}
       style={{ backgroundColor }}
     >
       <div className={isFullWidth ? "w-full" : "max-w-7xl mx-auto"}>

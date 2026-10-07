@@ -334,11 +334,12 @@ export function ListTable<T>({
       )}
     >
       {visibleColumns.map((col) => {
-        const content = col.cell
-          ? col.cell(row, idx)
-          : col.accessor
-            ? col.accessor(row)
-            : null;
+        let content: React.ReactNode = null;
+        if (col.cell) {
+          content = col.cell(row, idx);
+        } else if (col.accessor) {
+          content = col.accessor(row);
+        }
         return (
           <div
             key={col.id}
@@ -405,24 +406,29 @@ export function ListTable<T>({
   const showNoResultsBanner =
     !isEmpty && nothingToShow && !!noResultsState;
 
+  let body: React.ReactNode;
+  if (isEmpty) {
+    body = <ListTableEmptyBlock emptyState={emptyState} emptyMessage={emptyMessage} />;
+  } else if (showNoResultsBanner) {
+    body = <ListTableNoResultsBlock state={noResultsState!} />;
+  } else if (buckets) {
+    body = (
+      <ListTableGroupedRows
+        buckets={buckets}
+        ungroupedLabel={ungroupedLabel}
+        stickyOffset={stickyOffset}
+        renderRow={renderRow}
+      />
+    );
+  } else {
+    body = data.map((row, idx) => renderRow(row, idx));
+  }
+
   return (
     <div className={cn('bg-background', className)}>
       {!isEmpty ? columnHeader : null}
 
-      {isEmpty ? (
-        <ListTableEmptyBlock emptyState={emptyState} emptyMessage={emptyMessage} />
-      ) : showNoResultsBanner ? (
-        <ListTableNoResultsBlock state={noResultsState!} />
-      ) : buckets ? (
-        <ListTableGroupedRows
-          buckets={buckets}
-          ungroupedLabel={ungroupedLabel}
-          stickyOffset={stickyOffset}
-          renderRow={renderRow}
-        />
-      ) : (
-        data.map((row, idx) => renderRow(row, idx))
-      )}
+      {body}
     </div>
   );
 }

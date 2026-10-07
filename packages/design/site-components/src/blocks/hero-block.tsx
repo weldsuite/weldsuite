@@ -19,6 +19,24 @@ export interface HeroBlockProps {
   mode?: 'live' | 'edit' | 'preview';
 }
 
+function getImageSidePaddingClass(imagePosition: HeroBlockProps['imagePosition']): string {
+  if (imagePosition === 'left') return 'lg:pl-[50%]';
+  if (imagePosition === 'right') return 'lg:pr-[50%]';
+  return '';
+}
+
+function getContentMarginClass(textAlign: HeroBlockProps['textAlign']): string {
+  if (textAlign === 'center') return 'mx-auto';
+  if (textAlign === 'right') return 'ml-auto';
+  return '';
+}
+
+function getButtonJustifyClass(textAlign: HeroBlockProps['textAlign']): string {
+  if (textAlign === 'center') return 'flex justify-center';
+  if (textAlign === 'right') return 'flex justify-end';
+  return 'flex justify-start';
+}
+
 export function HeroBlock({
   heading = 'Welcome to our store',
   subheading = 'Discover amazing products',
@@ -86,8 +104,8 @@ export function HeroBlock({
 
       {/* Content Container */}
       <div className="relative w-full">
-        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 ${imagePosition === 'left' ? 'lg:pl-[50%]' : imagePosition === 'right' ? 'lg:pr-[50%]' : ''}`}>
-          <div className={`flex flex-col ${alignmentClasses[textAlign]} gap-6 max-w-2xl ${textAlign === 'center' ? 'mx-auto' : textAlign === 'right' ? 'ml-auto' : ''}`}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 ${getImageSidePaddingClass(imagePosition)}`}>
+          <div className={`flex flex-col ${alignmentClasses[textAlign]} gap-6 max-w-2xl ${getContentMarginClass(textAlign)}`}>
             {/* Heading */}
             <h1
               className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight"
@@ -108,7 +126,7 @@ export function HeroBlock({
 
             {/* Button */}
             {buttonText && (
-              <div className={textAlign === 'center' ? 'flex justify-center' : textAlign === 'right' ? 'flex justify-end' : 'flex justify-start'}>
+              <div className={getButtonJustifyClass(textAlign)}>
                 <a
                   href={isEditing ? undefined : buttonLink}
                   onClick={(e) => isEditing && e.preventDefault()}

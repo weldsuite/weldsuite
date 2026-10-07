@@ -32,19 +32,17 @@ export function ImageBlock({
   borderRadius = 0
 }: Readonly<ImageBlockProps>) {
   // Calculate dimensions - custom values take priority
-  const calculatedWidth = customWidth
-    ? widthUnit === 'auto'
-      ? 'auto'
-      : `${customWidth}${widthUnit}`
-    : undefined;
+  let calculatedWidth: string | undefined;
+  if (customWidth) {
+    calculatedWidth = widthUnit === 'auto' ? 'auto' : `${customWidth}${widthUnit}`;
+  }
 
-  const calculatedHeight = customHeight
-    ? heightUnit === 'auto'
-      ? 'auto'
-      : `${customHeight}${heightUnit}`
-    : height
-    ? `${height}px`
-    : 'auto';
+  let calculatedHeight = 'auto';
+  if (customHeight) {
+    calculatedHeight = heightUnit === 'auto' ? 'auto' : `${customHeight}${heightUnit}`;
+  } else if (height) {
+    calculatedHeight = `${height}px`;
+  }
 
   // Shopify-style responsive image sizing (used when no custom width)
   const widthClass = !customWidth && typeof width === 'string' ? {

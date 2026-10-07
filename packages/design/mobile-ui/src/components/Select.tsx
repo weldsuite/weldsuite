@@ -29,6 +29,11 @@ export interface SelectProps {
   style?: StyleProp<ViewStyle>;
 }
 
+function pressedOpacity(disabled: boolean, pressed: boolean): number {
+  if (disabled) return 0.5;
+  return pressed ? 0.85 : 1;
+}
+
 export function Select({
   value,
   onValueChange,
@@ -63,7 +68,7 @@ export function Select({
           {
             backgroundColor: colors.inputBackground,
             borderColor: colors.border,
-            opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+            opacity: pressedOpacity(disabled, pressed),
           },
         ]}
       >

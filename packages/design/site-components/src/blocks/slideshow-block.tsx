@@ -120,18 +120,30 @@ export function SlideshowBlock({
     }
   };
 
+  const getDotsJustifyClass = () => {
+    switch (dotsPosition) {
+      case 'left':
+        return 'justify-start';
+      case 'right':
+        return 'justify-end';
+      default:
+        return 'justify-center';
+    }
+  };
+
   const getTransitionClasses = (index: number) => {
     const isActive = index === currentSlide;
 
     switch (transitionStyle) {
-      case 'slide':
-        return `transition-all duration-600 ease-out ${
-          isActive
-            ? 'translate-x-0 opacity-100 z-10'
-            : index < currentSlide
-              ? '-translate-x-full opacity-0 z-0'
-              : 'translate-x-full opacity-0 z-0'
-        }`;
+      case 'slide': {
+        let slideClasses = 'translate-x-full opacity-0 z-0';
+        if (isActive) {
+          slideClasses = 'translate-x-0 opacity-100 z-10';
+        } else if (index < currentSlide) {
+          slideClasses = '-translate-x-full opacity-0 z-0';
+        }
+        return `transition-all duration-600 ease-out ${slideClasses}`;
+      }
       case 'zoom':
         return `transition-all duration-600 ease-out ${
           isActive
@@ -275,11 +287,7 @@ export function SlideshowBlock({
       {(showDots || showPlayPause) && slides.length > 1 && (
         <div className="absolute bottom-0 left-0 right-0 z-20">
           {/* Controls Container */}
-          <div className={`relative flex items-center px-6 md:px-8 py-4 ${
-            dotsPosition === 'left' ? 'justify-start' :
-            dotsPosition === 'right' ? 'justify-end' :
-            'justify-center'
-          }`}>
+          <div className={`relative flex items-center px-6 md:px-8 py-4 ${getDotsJustifyClass()}`}>
             {/* Dots */}
             {showDots && (
               <div className="flex gap-2.5">

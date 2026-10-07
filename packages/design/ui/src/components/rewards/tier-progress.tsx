@@ -27,27 +27,25 @@ interface TierProgressProps {
   className?: string;
 }
 
+function parseBenefits(benefits: string[] | string | null | undefined): string[] {
+  if (!benefits) return [];
+  return typeof benefits === 'string' ? JSON.parse(benefits) : benefits;
+}
+
 export function TierProgress({
   currentTier,
   nextTier,
   totalPoints,
   className
 }: Readonly<TierProgressProps>) {
-  const progressToNext = nextTier 
-    ? ((totalPoints - (currentTier ? totalPoints : 0)) / nextTier.requiredPoints) * 100
+  const currentTierPoints = currentTier ? totalPoints : 0;
+  const progressToNext = nextTier
+    ? ((totalPoints - currentTierPoints) / nextTier.requiredPoints) * 100
     : 100;
 
-  const currentBenefits = currentTier?.benefits 
-    ? (typeof currentTier.benefits === 'string' 
-      ? JSON.parse(currentTier.benefits) 
-      : currentTier.benefits)
-    : [];
+  const currentBenefits = parseBenefits(currentTier?.benefits);
 
-  const nextBenefits = nextTier?.benefits 
-    ? (typeof nextTier.benefits === 'string' 
-      ? JSON.parse(nextTier.benefits) 
-      : nextTier.benefits)
-    : [];
+  const nextBenefits = parseBenefits(nextTier?.benefits);
 
   return (
     <Card className={cn('overflow-hidden', className)}>
