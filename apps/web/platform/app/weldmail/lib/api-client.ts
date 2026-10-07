@@ -20,6 +20,7 @@
 
 import type { Mail } from '@/lib/api/types/apps/mail.types';
 import { apiUrl } from '@/lib/api/public-env';
+import { asText } from '@weldsuite/text';
 
 const APP_BASE = '/api';
 
@@ -144,7 +145,7 @@ function buildQuery(params?: Record<string, unknown>): string {
   if (!params) return '';
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== '') sp.set(k, String(v));
+    if (v !== undefined && v !== null && v !== '') sp.set(k, asText(v));
   }
   const q = sp.toString();
   return q ? `?${q}` : '';

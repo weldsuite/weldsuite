@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { asText } from '@weldsuite/text';
 
 ;
 interface ListResponse<T> {
@@ -31,7 +32,7 @@ function buildQuery(filters: Record<string, unknown> | undefined): string {
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v === undefined || v === null || v === '') continue;
-    params.set(k, String(v));
+    params.set(k, asText(v));
   }
   const q = params.toString();
   return q ? `?${q}` : '';

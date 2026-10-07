@@ -27,6 +27,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrImportResult } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrKpis, useImportHrKpiValues } from '@/hooks/queries/use-weldhr-queries';
 import { ErrorBanner, errorMessage } from '../../components/shared';
+import { asText } from '@weldsuite/text';
 
 interface ParsedRow {
   employee: string;
@@ -96,7 +97,7 @@ export function ImportTab() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setCsvText(String(reader.result ?? ''));
+    reader.onload = () => setCsvText(asText(reader.result ?? ''));
     reader.readAsText(file);
     e.target.value = '';
   }

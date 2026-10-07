@@ -48,6 +48,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { CreateTicketDialog } from '../create-ticket-dialog';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
+import { asText } from '@weldsuite/text';
 
 // ============================================================================
 // Types
@@ -1080,7 +1081,7 @@ function TicketSidebar({
                   } else if (typeof value === 'boolean') {
                     displayValue = value ? tp.valueYes : tp.valueNo;
                   } else {
-                    displayValue = String(value || '');
+                    displayValue = asText(value || '');
                   }
 
                   // For select fields, show a select; for text/number, show an input

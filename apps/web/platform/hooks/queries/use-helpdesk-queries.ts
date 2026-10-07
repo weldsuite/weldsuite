@@ -4,6 +4,7 @@ import { useUser } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import type { AuditLogEntry } from '@/components/audit-timeline';
+import { asText } from '@weldsuite/text';
 
 interface HelpcenterSettingsData {
   id?: string;
@@ -213,7 +214,7 @@ function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      queryParams.set(key, String(value));
+      queryParams.set(key, asText(value));
     }
   }
   const query = queryParams.toString();

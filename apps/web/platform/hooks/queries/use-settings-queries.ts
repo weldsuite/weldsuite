@@ -37,6 +37,7 @@ import type { WorkspaceApiKey } from '@/components/settings/api-keys-section';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
 import { teamKeys } from '@/hooks/queries/use-team-queries';
+import { asText } from '@weldsuite/text';
 
 // =============================================================================
 // Query Keys
@@ -73,7 +74,7 @@ function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      queryParams.set(key, String(value));
+      queryParams.set(key, asText(value));
     }
   }
   const query = queryParams.toString();

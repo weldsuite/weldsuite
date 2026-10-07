@@ -32,6 +32,7 @@ import {
   type ActiveFilter,
 } from '@/components/entity-list';
 import { VariableDialog } from './variable-dialog';
+import { asText } from '@weldsuite/text';
 
 export interface Variable {
   id: string;
@@ -86,7 +87,7 @@ function formatValue(variable: Variable): string {
     return `${JSON.stringify(value).substring(0, 50)}...`;
   }
 
-  return String(value);
+  return asText(value);
 }
 
 export function VariablesClient({ initialVariables, isLoading = false, workflowNames }: Readonly<VariablesClientProps>) {

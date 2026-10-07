@@ -43,6 +43,7 @@
     "@weldsuite/i18n": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "@weldsuite/weldmeet-ui": "workspace:*",
     "@xyflow/react": "^12.10.0",

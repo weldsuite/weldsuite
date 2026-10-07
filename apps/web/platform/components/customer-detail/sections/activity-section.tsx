@@ -41,6 +41,7 @@ import type { ActivitySectionProps, Activity as ActivityType } from '../types';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { asText } from '@weldsuite/text';
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, '').trim();
@@ -155,8 +156,8 @@ function extractChanges(activity: ActivityItem): ChangeEntry[] {
   if (prev && next) {
     return Object.keys(next).map(field => ({
       field: FIELD_LABELS[field] || field.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()),
-      from: prev[field] != null ? String(prev[field]) : undefined,
-      to: next[field] != null ? String(next[field]) : undefined,
+      from: prev[field] != null ? asText(prev[field]) : undefined,
+      to: next[field] != null ? asText(next[field]) : undefined,
     }));
   }
   return [];
@@ -188,7 +189,7 @@ function bucketLabel(date: Date): string {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  return asText(value);
 }
 
 // ────────────────────────────────────────────────────────────────────

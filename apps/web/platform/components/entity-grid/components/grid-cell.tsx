@@ -30,6 +30,7 @@ import {
   UrlEditor,
 } from '../editors';
 import { formatCurrency, formatPercent } from '../utils/calculations';
+import { asText } from '@weldsuite/text';
 
 interface GridCellProps<TEntity> {
   entity: TEntity;
@@ -646,7 +647,7 @@ export function GridCell<TEntity>({
   };
 
   const commitNumber = (finalValue: unknown) => {
-    const newValue = Number.parseFloat(String(finalValue ?? '')) || 0;
+    const newValue = Number.parseFloat(asText(finalValue ?? '')) || 0;
     if (newValue !== value) persistValue(newValue);
     setEditingCellValue(null);
   };

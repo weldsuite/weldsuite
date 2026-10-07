@@ -4,6 +4,8 @@
  * Variables use the format: {{variableName}} or {{variableName|modifier}}
  */
 
+import { asText } from '@weldsuite/text';
+
 export interface ParsedVariable {
   /** The full variable text including delimiters (e.g., "{{price|currency}}") */
   fullMatch: string;
@@ -235,7 +237,7 @@ export function replaceVariables(
     if (hasValue) {
       replacement = variable.modifier && formatters
         ? applyModifierFormatter(value, variable.modifier, formatters)
-        : String(value);
+        : asText(value);
     }
 
     // Escape special regex characters in the variable string

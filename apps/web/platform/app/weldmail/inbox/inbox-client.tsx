@@ -93,6 +93,7 @@ import {
 } from '@/hooks/queries/use-mail-queries';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { copyText } from '@/lib/clipboard';
+import { asText } from '@weldsuite/text';
 
 type EmailMessage = MailTypes.Email;
 
@@ -735,7 +736,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
                     <Button variant="ghost" 
                       onClick={(e) => {
                         e.stopPropagation();
-                        toast.success(t.mail.inboxPage.clickedOn.replace('{name}', String(selectedEmail.from)));
+                        toast.success(t.mail.inboxPage.clickedOn.replace('{name}', asText(selectedEmail.from)));
                       }}
                       onMouseEnter={() => {
                         if (hoverTimeoutRef.current) {
@@ -879,7 +880,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
                 <Button variant="ghost" 
                   onClick={(e) => {
                     e.stopPropagation();
-                    toast.success(t.mail.inboxPage.clickedOn.replace('{name}', String(selectedEmail.from)));
+                    toast.success(t.mail.inboxPage.clickedOn.replace('{name}', asText(selectedEmail.from)));
                   }}
                   className="font-semibold text-gray-900 dark:text-foreground text-sm hover:bg-gray-100 dark:hover:bg-accent px-2 py-1 rounded-md transition-colors"
                 >
@@ -896,7 +897,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
                     <Button variant="ghost"
                       onClick={(e) => {
                         e.stopPropagation();
-                        toast.success(t.mail.inboxPage.clickedOn.replace('{name}', String(recipient)));
+                        toast.success(t.mail.inboxPage.clickedOn.replace('{name}', asText(recipient)));
                       }}
                       className="hover:bg-gray-100 dark:hover:bg-accent px-1 py-0.5 rounded-md transition-colors"
                     >
@@ -964,7 +965,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
                   <Button variant="ghost" 
                     onClick={(e) => {
                       e.stopPropagation();
-                      toast.success(t.mail.inboxPage.clickedOn.replace('{name}', String(selectedEmail.from)));
+                      toast.success(t.mail.inboxPage.clickedOn.replace('{name}', asText(selectedEmail.from)));
                     }}
                     onMouseEnter={() => {
                       if (hoverTimeoutRefCollapsed.current) {
@@ -1105,7 +1106,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
               <Button variant="ghost" 
                 onClick={(e) => {
                   e.stopPropagation();
-                  toast.success(t.mail.inboxPage.clickedOn.replace('{name}', String(selectedEmail.from)));
+                  toast.success(t.mail.inboxPage.clickedOn.replace('{name}', asText(selectedEmail.from)));
                 }}
                 className="font-semibold text-gray-900 dark:text-foreground text-sm hover:bg-gray-100 dark:hover:bg-accent px-2 py-1 rounded-md transition-colors"
               >
