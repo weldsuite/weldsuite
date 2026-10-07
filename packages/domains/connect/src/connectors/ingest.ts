@@ -750,7 +750,7 @@ async function ingestNestedContact(args: {
   contact: Record<string, unknown>;
 }): Promise<string | null> {
   const mapped = mapConnectorRecord('party', args.contact, args.provider);
-  if (!mapped || mapped.entity !== 'party') return null;
+  if (mapped?.entity !== 'party') return null;
   const checksum = await recordChecksum(args.contact);
   const outcome = await upsertParty({
     db: args.db,

@@ -17,7 +17,7 @@ export default async function sitemap(
   // Fetch website data
   const website = await getWebsiteByDomain(domain);
 
-  if (!website || !website.isPublished) {
+  if (!website?.isPublished) {
     return [];
   }
 

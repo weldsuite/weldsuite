@@ -158,7 +158,7 @@ async function buildPeopleConditions(
       .from(lists)
       .where(and(eq(lists.id, params.listId), isNull(lists.deletedAt)))
       .limit(1);
-    if (!listRow || listRow.kind !== 'person') return null;
+    if (listRow?.kind !== 'person') return null;
     const memberRows = await db
       .select({ entityId: listMembers.entityId })
       .from(listMembers)

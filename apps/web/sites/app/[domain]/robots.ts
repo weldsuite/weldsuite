@@ -17,7 +17,7 @@ export default async function robots(
   // Fetch website data
   const website = await getWebsiteByDomain(domain);
 
-  if (!website || !website.isPublished) {
+  if (!website?.isPublished) {
     // Block all crawlers if website is not published
     return {
       rules: {

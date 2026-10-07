@@ -80,7 +80,7 @@ export async function getTenantDbBySlug(slug: string) {
       .limit(1);
   }
 
-  if (!workspace || !workspace.isActive) return null;
+  if (!workspace?.isActive) return null;
 
   try {
     const { db } = await getTenantDbByWorkspaceId(workspace.id);

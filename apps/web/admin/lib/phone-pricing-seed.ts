@@ -46,7 +46,7 @@ export function seedCombosFromCoverage(
     let types: PhoneNumberType[];
     if (allowed.size > 0) {
       types = PHONE_NUMBER_TYPES.filter((t) => allowed.has(t));
-    } else if (entry && entry.numbers === false) {
+    } else if (entry?.numbers === false) {
       continue;
     } else {
       types = [...PHONE_NUMBER_TYPES];

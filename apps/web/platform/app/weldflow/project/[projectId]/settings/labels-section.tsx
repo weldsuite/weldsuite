@@ -74,7 +74,7 @@ function resolveLabelColor(color: string | null | undefined): { className?: stri
   if (color && VALID_COLOR_VALUES.has(color)) {
     return { className: color };
   }
-  if (color && color.startsWith('#')) {
+  if (color?.startsWith('#')) {
     return { style: { backgroundColor: color } };
   }
   return { className: DEFAULT_COLOR };

@@ -63,7 +63,7 @@ export async function syncTicketTypeDefinitions(
   ticketTypeId: string,
   fields: TicketTypeField[] | null | undefined,
 ): Promise<void> {
-  const custom = (fields ?? []).filter((f) => f && f.key && !f.isDefault);
+  const custom = (fields ?? []).filter((f) => f?.key && !f.isDefault);
   const desiredBySlug = new Map(custom.map((f) => [f.key, f]));
 
   // Current active definitions scoped to this ticket type.

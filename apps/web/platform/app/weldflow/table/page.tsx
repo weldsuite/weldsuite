@@ -583,7 +583,7 @@ const renderTagsCell: CellRenderer = (_field, value) => {
 };
 
 const renderPersonCell: CellRenderer = (_field, value) => {
-  if (!value || !value.name) return "";
+  if (!value?.name) return "";
   return (
     <>
       <div style={{

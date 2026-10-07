@@ -197,7 +197,7 @@ app.post('/:id/sync', requirePermission('integrations:github:manage'), async (c)
     const db = c.get('tenantDb');
 
     const conn = await getConnectionByWorkspace(db, workspaceId);
-    if (!conn || conn.status !== 'active') {
+    if (conn?.status !== 'active') {
       return error.badRequest(c, 'No active GitHub connection.');
     }
 

@@ -71,7 +71,7 @@ function resolveLabel(
   fallbackRegistry: Map<string, string>,
 ): { label: string; source: BreadcrumbSegment['source'] } | null {
   const loaderLabel = match.loaderData?.breadcrumbLabel;
-  if (loaderLabel && loaderLabel.trim()) {
+  if (loaderLabel?.trim()) {
     return { label: loaderLabel.trim(), source: 'loader' };
   }
   if (descriptor?.label) {
@@ -91,7 +91,7 @@ function collapseDuplicateLabels(segments: BreadcrumbSegment[]): BreadcrumbSegme
   const collapsed: BreadcrumbSegment[] = [];
   for (const seg of segments) {
     const prev = collapsed.at(-1);
-    if (prev && prev.label === seg.label) continue;
+    if (prev?.label === seg.label) continue;
     collapsed.push(seg);
   }
   return collapsed;

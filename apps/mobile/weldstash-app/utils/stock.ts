@@ -120,7 +120,7 @@ export function createPendingAdjustQueue(flush: AdjustFlushFn, delayMs = 180) {
     enqueue(delta: number, warehouseId: string) {
       if (disposed || delta === 0) return;
       const last = buckets.at(-1);
-      if (last && last.warehouseId === warehouseId) {
+      if (last?.warehouseId === warehouseId) {
         last.delta += delta;
       } else {
         buckets.push({ warehouseId, delta });

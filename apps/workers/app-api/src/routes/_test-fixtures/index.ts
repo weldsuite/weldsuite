@@ -2025,7 +2025,7 @@ testFixturesRoutes.post(
   async (c) => {
     const db = c.get('tenantDb');
     const body = c.req.valid('json');
-    const apps = body.apps && body.apps.length ? body.apps : DEFAULT_INSTALL_APPS;
+    const apps = body.apps?.length ? body.apps : DEFAULT_INSTALL_APPS;
     const now = new Date();
 
     for (const appCode of apps) {
@@ -2057,7 +2057,7 @@ testFixturesRoutes.post(
     // row (only assignments), so the OWNER bypass above doesn't apply to them.
     // Grant explicit assignments for every installed app so they see all of it.
     if (body.userId) {
-      const installedCodes = body.apps && body.apps.length ? body.apps : DEFAULT_INSTALL_APPS;
+      const installedCodes = body.apps?.length ? body.apps : DEFAULT_INSTALL_APPS;
       for (const appCode of installedCodes) {
         await db
           .insert(schema.userAppAssignments)

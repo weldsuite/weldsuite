@@ -78,7 +78,7 @@ export function matchedLabelsFromJevAnswers(
   const matched: string[] = [];
   for (const label of candidates) {
     const answer = answers[label.id];
-    if (!answer || answer.type !== 'noul') continue;
+    if (answer?.type !== 'noul') continue;
     const threshold = (label.aiConfidence ?? 70) / 100;
     if (answer.noul >= threshold) {
       matched.push(label.name);

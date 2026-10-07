@@ -181,7 +181,7 @@ function groupPermissionEntities(): { group: string; entities: PermissionEntity[
   const groups: { group: string; entities: PermissionEntity[] }[] = [];
   for (const entity of PERMISSION_ENTITIES) {
     const last = groups.at(-1);
-    if (last && last.group === entity.group) {
+    if (last?.group === entity.group) {
       last.entities.push(entity);
     } else {
       groups.push({ group: entity.group, entities: [entity] });

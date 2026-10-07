@@ -82,7 +82,7 @@ export async function resolveCloudflareReady(
 ): Promise<CloudflareReady> {
   const { domain, zone } = await loadCloudflareZoneForDomain(db, domainId);
   if (!domain) return { ok: false, reason: 'not_found' };
-  if (!zone || zone.provider !== 'cloudflare' || !zone.externalZoneId) {
+  if (zone?.provider !== 'cloudflare' || !zone.externalZoneId) {
     return { ok: false, reason: 'no_cf_zone' };
   }
   if (!apiToken) return { ok: false, reason: 'cf_misconfigured' };
@@ -334,7 +334,7 @@ export async function scanDnsRecordsForDomain(
 > {
   const { domain, zone } = await loadCloudflareZoneForDomain(db, domainId);
   if (!domain) return { ok: false, reason: 'not_found' };
-  if (!zone || zone.provider !== 'cloudflare') return { ok: false, reason: 'no_cf_zone' };
+  if (zone?.provider !== 'cloudflare') return { ok: false, reason: 'no_cf_zone' };
 
   let records: PublicDnsRecord[];
   try {

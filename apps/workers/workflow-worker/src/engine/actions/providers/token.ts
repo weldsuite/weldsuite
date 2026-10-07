@@ -158,7 +158,7 @@ async function refreshAndPersistToken(
   key: EncryptionKeyring,
 ): Promise<string | null> {
   const def = getIntegrationDef(integ.type);
-  if (!def || def.auth.kind !== 'oauth2') return null;
+  if (def?.auth.kind !== 'oauth2') return null;
   const refreshToken = await maybeDecrypt(refreshTokenEncrypted, key);
   const refreshed = await refreshOAuthToken(def.auth, refreshToken, ctx.env);
   await ctx.db

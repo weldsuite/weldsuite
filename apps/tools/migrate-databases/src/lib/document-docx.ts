@@ -138,7 +138,7 @@ export async function buildDocxBuffer(sections: DocSection[]): Promise<Buffer> {
     }
     // Multi-page docs lose their per-page identity in the one-file model, so
     // keep each page's title as a heading to preserve navigation.
-    if (sections.length > 1 && sec.title && sec.title.trim()) {
+    if (sections.length > 1 && sec.title?.trim()) {
       children.push(
         new Paragraph({
           heading: HeadingLevel.HEADING_1,
@@ -242,13 +242,13 @@ function listItemHtml(b: BlockLike): string {
   let prefix = '';
   if (b.type === 'checkListItem') prefix = b.props?.checked ? '☑ ' : '☐ ';
   const inline = inlineToHtml(asInline(b.content));
-  const childHtml = b.children && b.children.length ? blocksToHtml(b.children) : '';
+  const childHtml = b.children?.length ? blocksToHtml(b.children) : '';
   return `${prefix}${inline}${childHtml}`;
 }
 
 function blockToHtml(b: BlockLike): string {
   const inline = inlineToHtml(asInline(b.content));
-  const childHtml = b.children && b.children.length ? blocksToHtml(b.children) : '';
+  const childHtml = b.children?.length ? blocksToHtml(b.children) : '';
   switch (b.type) {
     case 'heading': {
       const level = clamp(Number(b.props?.level) || 1, 1, 6);
@@ -346,7 +346,7 @@ function normalizeCell(cell: unknown): InlineItem[] {
 // ===========================================================================
 
 function parseHtml(html: string): DomNode[] {
-  if (!html || !html.trim()) return [];
+  if (!html?.trim()) return [];
   const root = parseDocument(html, { decodeEntities: true });
   return (root.children as unknown as DomNode[]) ?? [];
 }

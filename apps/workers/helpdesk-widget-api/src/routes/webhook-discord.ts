@@ -245,7 +245,7 @@ discordWebhookRoutes.post('/message', async (c) => {
 
     const integration = await findDiscordIntegration(db, body.guild_id);
 
-    if (!integration || integration.status !== 'connected') {
+    if (integration?.status !== 'connected') {
       return success(c, { ignored: true, reason: 'not_connected' });
     }
 

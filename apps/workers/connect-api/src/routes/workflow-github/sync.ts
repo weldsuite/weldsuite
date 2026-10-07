@@ -33,7 +33,7 @@ app.post(
 
       // Verify connection is active
       const conn = await getConnectionByWorkspace(db, workspaceId);
-      if (!conn || conn.status !== 'active') {
+      if (conn?.status !== 'active') {
         return error.badRequest(c, 'No active GitHub connection.');
       }
 

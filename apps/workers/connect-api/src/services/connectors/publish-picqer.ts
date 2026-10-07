@@ -111,7 +111,7 @@ async function loadPicqerClient(args: {
   connectionId: string;
 }): Promise<{ connection: ConnectorConnectionRow; client: PicqerClient }> {
   const connection = await getConnectionById(args.db, args.connectionId);
-  if (!connection || connection.provider !== 'picqer') {
+  if (connection?.provider !== 'picqer') {
     throw new ConnectorApiError({
       message: 'Picqer connection not found',
       status: 404,

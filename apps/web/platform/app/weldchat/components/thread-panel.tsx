@@ -29,7 +29,7 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
 
   useEffect(() => {
     const stored = typeof window !== 'undefined' ? localStorage.getItem(THREAD_NAME_KEY(messageId)) : null;
-    const initial = stored && stored.trim() ? stored : t.weldchat.threadPanel.defaultName;
+    const initial = stored?.trim() ? stored : t.weldchat.threadPanel.defaultName;
     setThreadName(initial);
     setEditingTitle(false);
     if (titleRef.current) titleRef.current.innerText = initial;

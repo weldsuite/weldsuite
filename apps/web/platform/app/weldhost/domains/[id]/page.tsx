@@ -24,7 +24,7 @@ export default function DomainDetailPage() {
   const { data: dnsData, isLoading: dnsLoading } = useDnsZones(id);
 
   const zone = dnsData?.data ?? null;
-  const isCloudflareZone = Boolean(zone && zone.provider === 'cloudflare');
+  const isCloudflareZone = Boolean(zone?.provider === 'cloudflare');
   // Only poll Cloudflare for domains that actually have a CF zone.
   useRefreshZoneStatus(id, isCloudflareZone);
   // Fetch the actual DNS records for any zone the platform has.

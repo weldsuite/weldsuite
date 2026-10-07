@@ -83,7 +83,7 @@ function defineLoader<T extends { id: string }>(config: {
 }): DocumentLoader {
   const build = (row: T): IndexableDocument | null => {
     const mapped = config.toDocument(row);
-    if (!mapped || !mapped.content) return null;
+    if (!mapped?.content) return null;
     return {
       entityType: config.type,
       entityId: row.id,
@@ -308,7 +308,7 @@ const contactLoader = defineLoader({
   },
   toDocument: (r) => {
     const display =
-      (r.fullName && r.fullName.trim()) ||
+      (r.fullName?.trim()) ||
       [r.firstName, r.lastName].filter(Boolean).join(' ').trim() ||
       r.email ||
       '';
@@ -346,7 +346,7 @@ const customerLoader = defineLoader({
     };
   },
   toDocument: (r) => {
-    const display = (r.name && r.name.trim()) || (r.tradingName && r.tradingName.trim()) || '';
+    const display = (r.name?.trim()) || (r.tradingName?.trim()) || '';
     if (!display) return null;
     return {
       title: display,
@@ -384,7 +384,7 @@ const leadLoader = defineLoader({
   },
   toDocument: (r) => {
     const display =
-      (r.fullName && r.fullName.trim()) ||
+      (r.fullName?.trim()) ||
       [r.firstName, r.lastName].filter(Boolean).join(' ').trim() ||
       r.email ||
       '';

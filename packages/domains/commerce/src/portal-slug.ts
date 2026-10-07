@@ -87,7 +87,7 @@ export function commercePortalSlugMiddleware() {
             .limit(1);
         }
 
-        if (!workspace || !workspace.isActive || !workspace.clerkOrgId) {
+        if (!workspace?.isActive || !workspace.clerkOrgId) {
           return c.json({ error: { code: 'NOT_FOUND', message: 'Workspace not found' } }, 404);
         }
 

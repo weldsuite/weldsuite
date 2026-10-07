@@ -109,7 +109,7 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     useEffect(() => {
       const el = editorRef.current;
       if (!el || seededRef.current) return;
-      el.innerHTML = initialHtml && initialHtml.trim() ? initialHtml : EMPTY_DOC;
+      el.innerHTML = initialHtml?.trim() ? initialHtml : EMPTY_DOC;
       seededRef.current = true;
       // initial pagination pass
       requestAnimationFrame(() => repaginateRef.current?.());
@@ -119,7 +119,7 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
       setHtml: (html: string) => {
         const el = editorRef.current;
         if (!el) return;
-        el.innerHTML = html && html.trim() ? html : EMPTY_DOC;
+        el.innerHTML = html?.trim() ? html : EMPTY_DOC;
         repaginateRef.current?.();
       },
       getHtml: () => editorRef.current?.innerHTML ?? '',
@@ -424,7 +424,7 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
       if (!editable) return;
       const target = e.target as HTMLElement;
       const li = target.closest('li');
-      if (li && li.parentElement?.classList.contains('pgn-checklist')) {
+      if (li?.parentElement?.classList.contains('pgn-checklist')) {
         const rect = li.getBoundingClientRect();
         if (e.clientX - rect.left <= 22) {
           if ('checked' in li.dataset) delete li.dataset.checked;
@@ -735,7 +735,7 @@ function readFontAtSelection(
   let fontName = 'Arial';
   let fontSize = 11;
   let probe: Node | null = range.startContainer;
-  if (probe && probe.nodeType === Node.ELEMENT_NODE) {
+  if (probe?.nodeType === Node.ELEMENT_NODE) {
     const kids = probe.childNodes;
     probe = kids[Math.min(range.startOffset, Math.max(0, kids.length - 1))] ?? probe;
   }

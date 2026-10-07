@@ -362,7 +362,7 @@ export async function publishProductToSalesChannel(args: {
   assertWritableConnection(connection);
 
   const already = await existingChannel(args.db, product.id, connection.id);
-  if (already && already.status === 'active') {
+  if (already?.status === 'active') {
     throw new ProductSalesChannelError('conflict', 'This product is already listed on that sales channel');
   }
 

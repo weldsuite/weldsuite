@@ -276,7 +276,7 @@ export function htmlToRuns(html: string): RichTextRun[] {
 
 export function saveSelection(el: HTMLElement): { start: number; end: number } | null {
   const sel = window.getSelection();
-  if (!sel || !sel.rangeCount) return null;
+  if (!sel?.rangeCount) return null;
   const range = sel.getRangeAt(0);
   if (!el.contains(range.startContainer)) return null;
 

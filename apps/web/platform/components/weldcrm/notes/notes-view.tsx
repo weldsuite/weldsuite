@@ -68,7 +68,7 @@ function getNoteTitle(content: string): string {
 
   // Try to find first h1, h2, or h3 using regex
   const headingMatch = content.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
-  if (headingMatch && headingMatch[1]) {
+  if (headingMatch?.[1]) {
     const title = stripHtml(headingMatch[1]).trim();
     if (title) return title;
   }

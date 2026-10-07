@@ -91,7 +91,7 @@ interface CenterTotalLabelProps {
 
 // Rendered in the middle of the donut / radial charts. Module-level so its identity is stable across renders.
 function CenterTotalLabel({ viewBox, total, valueClassName }: Readonly<CenterTotalLabelProps>) {
-  if (!viewBox || viewBox.cx === undefined || viewBox.cy === undefined) return null;
+  if (viewBox?.cx === undefined || viewBox.cy === undefined) return null;
   return (
     <text
       x={viewBox.cx}

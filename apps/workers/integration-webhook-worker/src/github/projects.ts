@@ -159,7 +159,7 @@ export async function fetchProjectItemsPage(
   const items: ProjectItemIssue[] = [];
   for (const node of connection.nodes) {
     const content = node.content;
-    if (!content || content.__typename !== 'Issue' || content.id == null || content.number == null) {
+    if (content?.__typename !== 'Issue' || content.id == null || content.number == null) {
       continue;
     }
     items.push({

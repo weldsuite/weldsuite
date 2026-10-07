@@ -293,7 +293,7 @@ export function getAvailableActions(
 // ============================================================================
 
 export function getTriggerWarningMessage(trigger: WorkflowTrigger | null | undefined): string | null {
-  if (!trigger || !trigger.type) return 'No trigger configured';
+  if (!trigger?.type) return 'No trigger configured';
   if (trigger.type === 'entity_event') {
     const missing = [];
     if (!trigger.entityType) missing.push('entity type');

@@ -43,7 +43,7 @@ export function extractName(message: string): string | undefined {
   // Try each name pattern
   for (const pattern of NAME_PATTERNS) {
     const match = cleanMessage.match(pattern);
-    if (match && match[1]) {
+    if (match?.[1]) {
       // Validate it doesn't look like a common word
       const potentialName = match[1].trim();
       if (!isCommonWord(potentialName)) {

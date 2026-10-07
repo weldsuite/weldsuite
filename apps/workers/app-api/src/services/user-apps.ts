@@ -343,7 +343,7 @@ export async function resolveBundleForCode(
     .from(userApps)
     .where(eq(userApps.code, code))
     .limit(1);
-  if (!app || !app.isActive || app.deletedAt || !app.currentVersionId) return null;
+  if (!app?.isActive || app.deletedAt || !app.currentVersionId) return null;
 
   const publiclyApproved = app.visibility === 'public' && app.reviewStatus === 'approved';
   if (!publiclyApproved) {
@@ -557,7 +557,7 @@ export async function adoptSystemInstallInTenant(params: {
     .where(and(eq(workspaceInstalledApps.appCode, app.code), isNull(workspaceInstalledApps.deletedAt)))
     .limit(1);
 
-  if (!tenantRow || !tenantRow.isActive) return 'none';
+  if (!tenantRow?.isActive) return 'none';
 
   const tenantVerdict = await checkTenantRowForAdoption(master, tenantRow, app, workspaceId);
   if (tenantVerdict) return tenantVerdict;

@@ -34,7 +34,7 @@ function activityToNote(
   let member = activity.assignedToId ? memberById?.get(activity.assignedToId) : undefined;
   // Fallback: if the assignee is the logged-in user but we couldn't resolve them in
   // the members list (e.g. not yet loaded), use the Clerk identity directly.
-  if ((!member || !member.name) && currentUser?.id && activity.assignedToId === currentUser.id) {
+  if ((!member?.name) && currentUser?.id && activity.assignedToId === currentUser.id) {
     member = { name: currentUser.name, picture: currentUser.picture };
   }
   return {

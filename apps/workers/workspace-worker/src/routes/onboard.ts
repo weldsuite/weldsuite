@@ -454,7 +454,7 @@ export async function runOnboard(
           { headers: { 'Authorization': `Bearer ${env.CLERK_SECRET_KEY}` } },
         );
 
-    if (existingMembershipsRes && existingMembershipsRes.ok) {
+    if (existingMembershipsRes?.ok) {
       const memberships = await existingMembershipsRes.json() as {
         data: Array<{ organization: { id: string; slug: string } }>;
       };

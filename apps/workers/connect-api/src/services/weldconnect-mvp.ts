@@ -287,7 +287,7 @@ function validateEntityEventTrigger(trigger: Bag, triggerId: string | undefined)
   const eventType = triggerField(trigger, 'eventType');
   if (isBlank(entityType) || isBlank(eventType)) return [{ code: 'incomplete_entity_event', triggerId }];
   const events = (ENTITY_EVENT_CATALOG as Record<string, readonly string[]>)[String(entityType)];
-  if (!events || !events.includes(String(eventType))) {
+  if (!events?.includes(String(eventType))) {
     return [{ code: 'unknown_entity_event', triggerId }];
   }
   return [];

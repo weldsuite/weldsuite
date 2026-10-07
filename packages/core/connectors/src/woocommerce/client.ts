@@ -474,7 +474,7 @@ export class WooCommerceClient implements ConnectorProviderClient {
       search: { sku: trimmed, per_page: '1' },
     });
     const match = Array.isArray(data) ? data[0] : undefined;
-    if (!match || match.id === undefined || match.id === null) return null;
+    if (match?.id === undefined || match.id === null) return null;
     return {
       id: asText(match.id),
       url: typeof match.permalink === 'string' ? match.permalink : null,

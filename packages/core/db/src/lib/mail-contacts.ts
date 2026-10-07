@@ -51,7 +51,7 @@ function splitDisplayName(displayName: string): { firstName: string; lastName: s
 }
 
 function deriveNames(email: string, displayName?: string | null): { firstName: string; lastName: string } {
-  if (displayName && displayName.trim()) {
+  if (displayName?.trim()) {
     const split = splitDisplayName(displayName);
     if (split.firstName) return split;
   }

@@ -983,7 +983,7 @@ async function handleAttioListEntryEvent(ctx: AttioEventContext, event: ParsedWe
   const resolvedParent = await resolveEntityByExternalId(
     tenantDb, connectionId, listEntry.parentRecordId
   );
-  if (!resolvedParent || resolvedParent.internalEntityType !== 'company') {
+  if (resolvedParent?.internalEntityType !== 'company') {
     console.warn(`[Webhook] List entry parent record not found or not a company: ${listEntry.parentRecordId}`);
     return false;
   }

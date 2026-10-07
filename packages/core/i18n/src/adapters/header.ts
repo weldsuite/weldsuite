@@ -11,7 +11,7 @@ export interface HeaderAdapterInput {
 function parseCookie(cookieHeader: string | null | undefined): Language | undefined {
   if (!cookieHeader) return undefined;
   const match = cookieHeader.match(new RegExp(`(?:^|; )${COOKIE_NAME}=([^;]*)`));
-  if (!match || match[1] === undefined) return undefined;
+  if (match?.[1] === undefined) return undefined;
   const decoded = decodeURIComponent(match[1]);
   return (languages as readonly string[]).includes(decoded) ? (decoded as Language) : undefined;
 }

@@ -578,7 +578,7 @@ export async function verifyOwnershipAndCreateZone(
     .from(hostDnsZones)
     .where(and(eq(hostDnsZones.domainId, domainId), isNull(hostDnsZones.deletedAt)))
     .limit(1);
-  if (existingZone && existingZone.provider === 'cloudflare') {
+  if (existingZone?.provider === 'cloudflare') {
     return {
       ok: true,
       idempotent: true,
@@ -686,9 +686,9 @@ export async function refreshZoneStatus(
   params: { domainId: string; apiToken: string | undefined },
 ): Promise<RefreshZoneStatusResult> {
   const got = await getDomainWithZone(db, params.domainId);
-  if (!got || !got.domain) return { ok: false, reason: 'not_found' };
+  if (!got?.domain) return { ok: false, reason: 'not_found' };
   const { domain, zone } = got;
-  if (!zone || zone.provider !== 'cloudflare' || !zone.externalZoneId) {
+  if (zone?.provider !== 'cloudflare' || !zone.externalZoneId) {
     return { ok: false, reason: 'no_cf_zone' };
   }
   if (!params.apiToken) return { ok: false, reason: 'cf_misconfigured' };

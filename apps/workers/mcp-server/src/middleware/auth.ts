@@ -188,7 +188,7 @@ async function verifyClerkToken(
     });
 
     const auth = requestState.toAuth();
-    if (!auth || !auth.isAuthenticated) {
+    if (!auth?.isAuthenticated) {
       return {
         ok: false,
         message: 'Invalid or expired access token.',
