@@ -5,6 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { log } from '@/lib/logger';
 import { isStaleChunkError, reloadForStaleChunk } from '@/lib/chunk-reload';
 import { getDesktop } from '@/lib/desktop';
+import { copyText } from '@/lib/clipboard';
 
 function DevErrorDetails({ error, componentStack }: { error: Error; componentStack?: string }) {
   const [copied, setCopied] = useState(false);
@@ -14,7 +15,7 @@ function DevErrorDetails({ error, componentStack }: { error: Error; componentSta
     .join('');
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(fullText).then(() => {
+    copyText(fullText, () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
