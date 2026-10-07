@@ -126,7 +126,7 @@ export interface TaskEventData {
   id: string;
   title: string;
   /**
-   * Workspace-wide sequential task number, displayed as TASK-<number>.
+   * Workspace-wide sequential task number, displayed as the bare number.
    * Carried on the event so realtime consumers can render the reference
    * without refetching. Null on pre-backfill rows.
    */

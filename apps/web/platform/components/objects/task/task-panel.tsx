@@ -237,7 +237,7 @@ function TaskActions({
   const t = useTranslations();
   return (
     <div className="flex items-center gap-0.5">
-      {/* Human-friendly task id (TASK-<n>), click to copy. */}
+      {/* Human-friendly task number, click to copy. */}
       <TaskNumberBadge number={taskNumber} className="mr-1 flex-shrink-0" />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

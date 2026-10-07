@@ -275,7 +275,7 @@ const taskLoader = defineLoader({
   },
   toDocument: (r) => ({
     title: r.title || 'Task',
-    subtitle: r.number != null ? `TASK-${r.number}` : null,
+    subtitle: r.number != null ? String(r.number) : null,
     content: compose([r.title, r.description]),
   }),
 });
