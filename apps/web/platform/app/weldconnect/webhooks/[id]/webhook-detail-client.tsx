@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 import { useDeleteWebhook } from '@/hooks/queries/use-automation-queries';
 import type { WebhookView } from '../webhooks-client';
 import { buildWebhookCurl, eventStatusTone, type EventTone } from '../webhook-utils';
+import { copyText } from '@/lib/clipboard';
 
 export type WebhookDetail = WebhookView;
 
@@ -97,13 +98,11 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
   };
 
   const handleCopyUrl = () => {
-    navigator.clipboard.writeText(webhook.externalUrl);
-    toast.success(wd.toasts.urlCopied);
+    copyText(webhook.externalUrl, () => toast.success(wd.toasts.urlCopied));
   };
 
   const handleCopyCurl = () => {
-    navigator.clipboard.writeText(curl);
-    toast.success(wd.toasts.curlCopied);
+    copyText(curl, () => toast.success(wd.toasts.curlCopied));
   };
 
   const totalCalls = webhook.totalCalls ?? 0;
