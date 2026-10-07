@@ -5,14 +5,20 @@
  * triggers and actions, shared with WeldDesk workflows and CRM sequences. For
  * the production MVP, WeldConnect is narrowed to:
  *   - triggers: `entity_event` (a record is created/updated/…), recurring
- *     `schedule` (cron + timezone), and `webhook` (an external system POSTs to
- *     a generated URL — see services/workflow-webhook-sync.ts)
+ *     `schedule` (cron + timezone), `webhook` (an external system POSTs to
+ *     a generated URL — see services/workflow-webhook-sync.ts), and
+ *     `workflow_complete` (after another workflow finishes)
  *   - actions:  `send_email`, `create_customer`, `http_request` (call any
  *     external API — apps/workers/workflow-worker/src/engine/actions/http.ts),
- *     `post_chat_message` (WeldChat), and the other WeldSuite record actions,
- *     which run as the workflow's owner
- *   - logic:    `condition` (if/else branches), `loop` (for each item) and
- *     `delay`; branch steps sit under their parent via `parentBranchId`
+ *     `post_chat_message` (WeldChat), `ai_generate` / `ai_classify` (metered
+ *     against the workspace credit wallet via @weldsuite/credits — see
+ *     apps/workers/workflow-worker/src/engine/actions/ai.ts; unlike the record
+ *     actions below they run unconditionally, same as `http_request`/`delay`:
+ *     no permission key gates AI usage anywhere in the catalog today), and the
+ *     other WeldSuite record actions, which run as the workflow's owner
+ *   - logic:    `condition` (if/else branches), `loop` (for each item),
+ *     `delay` and `manual_step` (an approval; main flow only); branch steps
+ *     sit under their parent via `parentBranchId`
  *
  * Drafts may hold anything (the editor only offers the MVP set); activation is
  * what's gated, so an unsupported workflow can never start running. CRM
@@ -26,7 +32,12 @@
 import { ENTITY_EVENTS as ENTITY_EVENT_CATALOG } from '@weldsuite/entity-events';
 import { zonedTimeToUtc } from '@weldsuite/workflow-integrations/cron';
 
-export const WELDCONNECT_TRIGGER_TYPES = ['entity_event', 'schedule', 'webhook'] as const;
+export const WELDCONNECT_TRIGGER_TYPES = [
+  'entity_event',
+  'schedule',
+  'webhook',
+  'workflow_complete',
+] as const;
 
 /** Schedule trigger kinds WeldConnect supports: `one_time` fires exactly once, then disables itself. */
 export const WELDCONNECT_SCHEDULE_TYPES = ['recurring', 'one_time'] as const;
@@ -43,9 +54,16 @@ export const WELDCONNECT_ACTION_TYPES = [
   'send_notification',
   'post_chat_message',
   'http_request',
+  'ai_generate',
+  'ai_classify',
   'condition',
   'loop',
   'delay',
+  // First third-party provider action (@weldsuite/workflow-integrations). See
+  // "Provider pattern" in docs/plans/weldconnect.md for what a future
+  // provider (Google, GitHub, …) adds alongside this entry.
+  'slack.post_message',
+  'manual_step',
 ] as const;
 
 /** Tag carried by CRM sequence workflows (see routes/sequences). */
@@ -65,7 +83,13 @@ export type WorkflowIssueCode =
   | 'unsupported_action'
   | 'missing_field'
   | 'orphan_step'
-  | 'empty_loop';
+  | 'empty_loop'
+  | 'integration_not_connected'
+  | 'missing_source_workflow'
+  | 'self_chained_workflow'
+  | 'unknown_source_workflow'
+  | 'invalid_trigger_on'
+  | 'nested_waiting_step';
 
 export interface WorkflowIssue {
   code: WorkflowIssueCode;
@@ -172,6 +196,17 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
     if (isBlank(c.message) && isBlank(c.content)) missing.push('message');
     return missing;
   },
+  // Field names mirror apps/workers/workflow-worker/src/engine/actions/ai.ts
+  // (the engine also accepts `input`/`labels` as back-compat aliases for
+  // `text`/`categories` — accepted here too, same as the editor's validation.ts).
+  ai_generate: (c) => (isBlank(c.prompt) ? ['prompt'] : []),
+  ai_classify: (c) => {
+    const missing: string[] = [];
+    if (isBlank(c.text) && isBlank(c.input)) missing.push('text');
+    const categories = c.categories ?? c.labels;
+    if (!Array.isArray(categories) || categories.length === 0) missing.push('categories');
+    return missing;
+  },
   condition: (c) => {
     const missing: string[] = [];
     if (isBlank(c.field)) missing.push('field');
@@ -182,7 +217,12 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   },
   loop: (c) => (isBlank(c.items) ? ['items'] : []),
   delay: (c) => (['seconds', 'minutes', 'hours', 'days'].some((unit) => isPositive(c[unit])) ? [] : ['duration']),
+  'slack.post_message': (c) => ['channel', 'text'].filter((field) => isBlank(c[field])),
+  manual_step: (c) => (isBlank(c.title) ? ['title'] : []),
 };
+
+/** Steps that pause the run for input; the engine only resumes them in the main flow. */
+const WAITING_STEP_TYPES = new Set(['manual_step']);
 
 /** The branch ids a branching step owns — mirrors step-tree.ts in workflow-worker. */
 function branchIdsOf(step: Bag): string[] {
@@ -210,6 +250,11 @@ function validateBranches(steps: Bag[]): WorkflowIssue[] {
     }
     if (step.type === 'loop' && !parents.has(`${String(step.id ?? '')}_each`)) {
       issues.push({ code: 'empty_loop', stepId, type: 'loop' });
+    }
+    // An approval inside a branch or loop would fail the run when reached
+    // (workflow-worker execute-steps.ts: waiting is main-flow only).
+    if (WAITING_STEP_TYPES.has(String(step.type ?? '')) && typeof parent === 'string' && parent !== '') {
+      issues.push({ code: 'nested_waiting_step', stepId, type: String(step.type) });
     }
   }
   return issues;
@@ -279,7 +324,39 @@ function validateWebhookTrigger(): WorkflowIssue[] {
   return [];
 }
 
-function validateTrigger(trigger: Bag): WorkflowIssue[] {
+/** `triggerOn` of a workflow_complete trigger; absent means `success` (the editor's default). */
+export const WORKFLOW_COMPLETE_OUTCOMES = ['success', 'failure', 'both'] as const;
+
+/**
+ * "After another workflow finishes": a source workflow is chosen and is not
+ * this workflow, and the outcome is one the engine knows
+ * (workflow-worker engine/workflow-complete.ts). Whether the source still
+ * exists needs the database: see `findMissingSourceWorkflows`.
+ */
+function validateWorkflowCompleteTrigger(trigger: Bag, triggerId: string | undefined, workflowId?: string): WorkflowIssue[] {
+  const issues: WorkflowIssue[] = [];
+  const source = triggerField(trigger, 'sourceWorkflowId');
+  if (isBlank(source)) issues.push({ code: 'missing_source_workflow', triggerId });
+  else if (workflowId && source === workflowId) issues.push({ code: 'self_chained_workflow', triggerId });
+  const outcome = triggerField(trigger, 'triggerOn');
+  if (!isBlank(outcome) && !(WORKFLOW_COMPLETE_OUTCOMES as readonly unknown[]).includes(outcome)) {
+    issues.push({ code: 'invalid_trigger_on', triggerId });
+  }
+  return issues;
+}
+
+/** The source workflow ids the enabled workflow_complete triggers point at. */
+export function workflowCompleteSourceIds(triggers: unknown): Array<{ triggerId?: string; sourceWorkflowId: string }> {
+  if (!Array.isArray(triggers)) return [];
+  return triggers
+    .map(asBag)
+    .filter((t) => t.type === 'workflow_complete' && t.isEnabled !== false)
+    .map((t) => ({ triggerId: typeof t.id === 'string' ? t.id : undefined, source: triggerField(t, 'sourceWorkflowId') }))
+    .filter((t): t is { triggerId: string | undefined; source: string } => typeof t.source === 'string' && t.source.trim() !== '')
+    .map((t) => ({ triggerId: t.triggerId, sourceWorkflowId: t.source }));
+}
+
+function validateTrigger(trigger: Bag, workflowId?: string): WorkflowIssue[] {
   const triggerId = typeof trigger.id === 'string' ? trigger.id : undefined;
   const type = String(trigger.type ?? '');
 
@@ -289,6 +366,7 @@ function validateTrigger(trigger: Bag): WorkflowIssue[] {
 
   if (type === 'entity_event') return validateEntityEventTrigger(trigger, triggerId);
   if (type === 'webhook') return validateWebhookTrigger();
+  if (type === 'workflow_complete') return validateWorkflowCompleteTrigger(trigger, triggerId, workflowId);
   return validateScheduleTrigger(trigger, triggerId);
 }
 
@@ -312,7 +390,11 @@ function validateStep(step: Bag): WorkflowIssue[] {
  * it may be activated. Disabled triggers are ignored (they never fire), but at
  * least one enabled trigger is required.
  */
-export function validateWeldConnectWorkflow(workflow: { triggers?: unknown; steps?: unknown }): WorkflowIssue[] {
+export function validateWeldConnectWorkflow(
+  workflow: { triggers?: unknown; steps?: unknown },
+  /** The workflow being validated, so a trigger chained to itself is refused. */
+  options: { workflowId?: string } = {},
+): WorkflowIssue[] {
   const triggers = (Array.isArray(workflow.triggers) ? workflow.triggers : [])
     .map(asBag)
     .filter((t) => t.isEnabled !== false);
@@ -320,10 +402,66 @@ export function validateWeldConnectWorkflow(workflow: { triggers?: unknown; step
 
   const issues: WorkflowIssue[] = [];
   if (triggers.length === 0) issues.push({ code: 'no_trigger' });
-  for (const trigger of triggers) issues.push(...validateTrigger(trigger));
+  for (const trigger of triggers) issues.push(...validateTrigger(trigger, options.workflowId));
   if (steps.length === 0) issues.push({ code: 'no_steps' });
   for (const step of steps) issues.push(...validateStep(step));
   issues.push(...validateBranches(steps));
+  return issues;
+}
+
+/**
+ * A `<provider>.<action>` step id, split into the owning provider — e.g.
+ * `slack.post_message` → `slack`. `undefined` for a plain (non-namespaced)
+ * action id.
+ */
+function providerIdOf(type: string): string | undefined {
+  const dot = type.indexOf('.');
+  return dot > 0 ? type.slice(0, dot) : undefined;
+}
+
+export interface IntegrationConnectionLookup {
+  id: string;
+  type: string;
+  status: string;
+}
+
+/**
+ * Third-party provider steps (`slack.post_message`, and whatever Google/
+ * GitHub add after it) point at a `workflow_integrations` row — directly via
+ * `config.integrationId`, or implicitly at "the first connected integration of
+ * this provider" when left blank (same default `resolveIntegration` uses at
+ * run time, services/integrations.ts in workflow-worker). Activating a
+ * workflow that points at nothing connected would only fail once it actually
+ * runs, so this is checked up front too, same as a missing required field.
+ * Needs a DB read (the gate's other checks are pure), so it is run separately
+ * from `validateWeldConnectWorkflow` — see `rejectUnsupportedActivation` in
+ * routes/workflows/index.ts.
+ */
+export function validateWeldConnectIntegrations(
+  steps: unknown,
+  integrations: IntegrationConnectionLookup[],
+): WorkflowIssue[] {
+  if (!Array.isArray(steps)) return [];
+  const issues: WorkflowIssue[] = [];
+  for (const raw of steps) {
+    const step = asBag(raw);
+    const type = String(step.type ?? '');
+    const providerId = providerIdOf(type);
+    if (!providerId) continue;
+
+    const config = asBag(step.config ?? step.inputs);
+    const integrationId = typeof config.integrationId === 'string' ? config.integrationId : undefined;
+    const candidates = integrations.filter((i) => i.type === providerId);
+    const match = integrationId ? candidates.find((i) => i.id === integrationId) : candidates[0];
+
+    if (!match || match.status !== 'connected') {
+      issues.push({
+        code: 'integration_not_connected',
+        stepId: typeof step.id === 'string' ? step.id : undefined,
+        type,
+      });
+    }
+  }
   return issues;
 }
 

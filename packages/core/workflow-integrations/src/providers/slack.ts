@@ -30,8 +30,10 @@ export const slack: IntegrationDef = {
       name: 'Post Message',
       description: 'Post a message to a Slack channel.',
       inputs: [
+        { key: 'integrationId', label: 'Connection', type: 'string', description: 'Which connected Slack workspace to post as, when more than one is connected.' },
         { key: 'channel', label: 'Channel', type: 'string', required: true, placeholder: '#general or C0123ABC' },
         { key: 'text', label: 'Message', type: 'text', required: true, placeholder: 'Hello from WeldConnect' },
+        { key: 'threadTs', label: 'Reply to thread (optional)', type: 'string', description: "A previous message's ts to reply in its thread." },
       ],
     },
   ],

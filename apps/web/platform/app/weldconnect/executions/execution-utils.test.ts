@@ -35,6 +35,12 @@ describe('getExecutionDuration', () => {
     ).toBe(10_000);
   });
 
+  it('keeps counting while a run waits for an approval', () => {
+    expect(
+      getExecutionDuration({ status: 'waiting_for_input', startedAt: '2026-10-06T12:00:00.000Z' }, NOW),
+    ).toBe(10_000);
+  });
+
   it('returns null for a queued run and for runs without timestamps', () => {
     expect(getExecutionDuration({ status: 'queued', startedAt: null }, NOW)).toBeNull();
     expect(getExecutionDuration({ status: 'completed' }, NOW)).toBeNull();

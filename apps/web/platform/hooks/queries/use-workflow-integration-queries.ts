@@ -11,6 +11,8 @@ const workflowIntegrationKeys = {
   list: (filters?: WorkflowIntegrationFilters) =>
     [...workflowIntegrationKeys.all, 'list', filters] as const,
   detail: (id: string) => [...workflowIntegrationKeys.all, 'detail', id] as const,
+  slackChannels: (id: string | undefined) =>
+    [...workflowIntegrationKeys.all, 'slack-channels', id] as const,
 };
 
 // =============================================================================
@@ -110,6 +112,29 @@ export function useWorkflowIntegrations(filters?: WorkflowIntegrationFilters) {
         `/workflow-integrations${qs ? `?${qs}` : ''}`,
       );
     },
+  });
+}
+
+export interface SlackChannelOption {
+  id: string;
+  name: string;
+  isPrivate: boolean;
+  isMember: boolean;
+}
+
+/** Channels the connected Slack app can see — the `slack.post_message` step
+ *  form's channel picker (`conversations.list`, via connect-api). */
+export function useSlackChannels(integrationId: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: workflowIntegrationKeys.slackChannels(integrationId),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: SlackChannelOption[] }>(
+        `/workflow-integrations/${integrationId}/slack/channels`,
+      );
+    },
+    enabled: !!integrationId,
   });
 }
 

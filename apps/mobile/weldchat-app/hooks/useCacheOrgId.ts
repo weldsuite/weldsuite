@@ -53,7 +53,7 @@ export function useCacheOrgId(): string | null {
       const prev = latch;
       setLatch(organizationId);
       AsyncStorage.setItem(LATCH_KEY, organizationId).catch(() => {});
-      if (prev && prev !== organizationId) clearOrgCache(prev);
+      if (prev && prev !== organizationId) void clearOrgCache(prev);
     }
   }, [organizationId]);
 
@@ -62,7 +62,7 @@ export function useCacheOrgId(): string | null {
       const prev = latch;
       setLatch(null);
       AsyncStorage.removeItem(LATCH_KEY).catch(() => {});
-      if (prev) clearOrgCache(prev);
+      if (prev) void clearOrgCache(prev);
     }
   }, [isSignedIn]);
 

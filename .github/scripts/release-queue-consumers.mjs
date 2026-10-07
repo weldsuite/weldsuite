@@ -64,7 +64,7 @@ function wrangler(args) {
 for (const queue of queues) {
   const info = wrangler(['queues', 'info', queue]);
   // `wrangler queues info` prints "Number of Consumers: N" and "Consumers: worker:<script>, …".
-  const consumers = /^Consumers:\s*(.*)$/m.exec(info)?.[1] ?? '';
+  const consumers = /^Consumers:(.*)$/m.exec(info)?.[1]?.trim() ?? '';
   if (!consumers.split(/[,\s]+/).includes(`worker:${appApiScript}`)) {
     console.log(`${queue}: not consumed by ${appApiScript} (${consumers.trim() || 'no consumer'}), nothing to release`);
     continue;

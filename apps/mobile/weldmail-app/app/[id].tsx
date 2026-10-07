@@ -277,7 +277,7 @@ function applyFetchResult(
     ctx.setEmail(fetched);
     ctx.setLoadOutcome(null);
     ctx.setBodyLoading(false);
-    ctx.cache.setMessage(ctx.id, fetched as Record<string, unknown>);
+    void ctx.cache.setMessage(ctx.id, fetched as Record<string, unknown>);
     markMessageRead(ctx.id).catch(() => {});
     return;
   }
@@ -300,7 +300,7 @@ async function loadThreadBestEffort(ctx: LoadEmailContext) {
   try {
     const t = await getThread(ctx.id);
     if (!ctx.isCancelled()) {
-      ctx.cache.setThread(ctx.id, t);
+      void ctx.cache.setThread(ctx.id, t);
       ctx.setThreadMessages(t.filter((m: { id: string }) => m.id !== ctx.id));
     }
   } catch {
@@ -855,16 +855,16 @@ function EmailDetailContent({ email, setEmail, threadMessages, bodyLoading, curr
   const handleMoreMenuAction = useCallback((buttonIndex: number) => {
     switch (buttonIndex) {
       case 0: // Mark as unread
-        handleMarkAsUnread();
+        void handleMarkAsUnread();
         break;
       case 1: // Delete
-        handleDelete();
+        void handleDelete();
         break;
       case 2: // Mark as spam
-        outbox.update(email.id, { isSpam: true }).then(() => { refreshMail(); goBack(); });
+        void outbox.update(email.id, { isSpam: true }).then(() => { refreshMail(); goBack(); });
         break;
       case 3: // Report phishing
-        outbox.update(email.id, { isSpam: true }).then(() => {
+        void outbox.update(email.id, { isSpam: true }).then(() => {
           refreshMail();
           Alert.alert('Reported', 'This message has been reported as phishing.');
           goBack();
@@ -1068,7 +1068,7 @@ export default function EmailDetailScreen() {
     if (!id) return;
     let cancelled = false;
     setLoadOutcome(null);
-    loadEmail({
+    void loadEmail({
       id,
       cache,
       stub,

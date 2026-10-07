@@ -9,6 +9,7 @@ import type {
   WorkflowVariable,
   ExecutionStep as ApiExecutionStep,
 } from '@weldsuite/core-api-client/schemas/weldconnect';
+import type { ApprovalDecisionInput, PendingApprovalResponse } from '@weldsuite/app-api-client/schemas/weldconnect';
 import type { ExecutionLogEntry } from '@/app/weldconnect/executions/[id]/execution-detail-client';
 
 /**
@@ -100,6 +101,7 @@ export const automationKeys = {
   executionSteps: (id: string) => [...automationKeys.all, 'execution-steps', id] as const,
   executionLogs: (id: string) => [...automationKeys.all, 'execution-logs', id] as const,
   versions: (workflowId: string) => [...automationKeys.all, 'versions', workflowId] as const,
+  executionApproval: (id: string) => [...automationKeys.all, 'execution-approval', id] as const,
   executionTrends: (period?: string) => [...automationKeys.all, 'execution-trends', period] as const,
   recentExecutions: (limit?: number) => [...automationKeys.all, 'recent-executions', limit] as const,
   slowExecutions: (limit?: number) => [...automationKeys.all, 'slow-executions', limit] as const,
@@ -237,6 +239,20 @@ export function isActiveExecutionStatus(status: string | null | undefined): bool
   return status === 'queued' || status === 'running' || status === 'pending';
 }
 
+/** A run paused on an approval step (`manual_step`) until someone decides. */
+export function isWaitingExecutionStatus(status: string | null | undefined): boolean {
+  return status === 'waiting_for_input';
+}
+
+/** How often a run that waits for an approval is re-read (someone else may decide). */
+const WAITING_POLL_INTERVAL_MS = 15000;
+
+/** Refetch interval for a run: fast while it moves, slower while it waits for an approval. */
+export function executionPollInterval(status: string | null | undefined): number | false {
+  if (isActiveExecutionStatus(status)) return EXECUTION_POLL_INTERVAL_MS;
+  return isWaitingExecutionStatus(status) ? WAITING_POLL_INTERVAL_MS : false;
+}
+
 /** A run that can still be cancelled: an active one, or one waiting for input. */
 export function isCancellableExecutionStatus(status: string | null | undefined): boolean {
   return isActiveExecutionStatus(status) || status === 'waiting_for_input';
@@ -284,8 +300,7 @@ export function useExecution(id: string, enabled = true) {
     },
     enabled: !!id && enabled,
     refetchOnMount: 'always',
-    refetchInterval: (query) =>
-      isActiveExecutionStatus(query.state.data?.data?.status) ? EXECUTION_POLL_INTERVAL_MS : false,
+    refetchInterval: (query) => executionPollInterval(query.state.data?.data?.status),
     // A run that was just started can lag a moment before it is readable, so a
     // 404 is retried a few times before the page calls it not found.
     retry: (failureCount, error) =>
@@ -498,8 +513,11 @@ export function useWebhookEvents(webhookId: string, enabled = true) {
       const client = await getClient();
       return client.get<{ success: boolean; data: Array<{
         id: string;
+        /** The workflow run this call started (same as `id`). */
+        executionId?: string;
         timestamp: string;
         status: string;
+        error?: string | null;
         sourceIp?: string;
       }> }>(`${WELDCONNECT_API.webhooks}/${webhookId}/events`);
     },
@@ -797,6 +815,41 @@ export function useRetryExecution() {
   });
 }
 
+/** The approval a run waits on, and whether the signed-in member may decide it. */
+export function usePendingApproval(executionId: string, enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: automationKeys.executionApproval(executionId),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: PendingApprovalResponse }>(`${WELDCONNECT_API.executions}/${executionId}/approval`);
+    },
+    enabled: !!executionId && enabled,
+    refetchOnMount: 'always',
+  });
+}
+
+/** Approve or reject the approval a run waits on; the run then carries on. */
+export function useDecideApproval() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...body }: { id: string } & ApprovalDecisionInput) => {
+      const client = await getClient();
+      return client.post<{ data: { decision: string } }>(`${WELDCONNECT_API.executions}/${id}/decision`, body);
+    },
+    onSettled: (_result, _error, { id }) => {
+      invalidateExecutionQueries(qc, id);
+      qc.invalidateQueries({ queryKey: automationKeys.executionApproval(id) });
+    },
+  });
+}
+
+/** True when the decision was refused because someone else decided first (409). */
+export function isAlreadyDecidedError(err: unknown): boolean {
+  return isApiError(err) && err.status === 409;
+}
+
 /** True when a retry was refused because the workflow is not active (400 `workflow_inactive`). */
 export function isWorkflowInactiveError(err: unknown): boolean {
   if (!isApiError(err) || err.status !== 400) return false;
@@ -855,7 +908,7 @@ export function useCreateVariable() {
       return client.post<{ data: WorkflowVariable }>(WELDCONNECT_API.variables, data);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.variables() });
+      qc.invalidateQueries({ queryKey: [...automationKeys.all, 'variables'] });
     },
   });
 }
@@ -875,7 +928,7 @@ export function useUpdateVariable() {
       return client.put<{ data: WorkflowVariable }>(`${WELDCONNECT_API.variables}/${id}`, data);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.variables() });
+      qc.invalidateQueries({ queryKey: [...automationKeys.all, 'variables'] });
     },
   });
 }
@@ -890,7 +943,7 @@ export function useDeleteVariable() {
       return client.delete<{ success: boolean }>(`${WELDCONNECT_API.variables}/${id}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.variables() });
+      qc.invalidateQueries({ queryKey: [...automationKeys.all, 'variables'] });
     },
   });
 }// ---- Webhooks ----
@@ -914,7 +967,7 @@ export function useCreateWebhook() {
       return client.post<{ success: boolean; data: WorkflowWebhook & { webhookUrl: string } }>(WELDCONNECT_API.webhooks, data);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.webhooks() });
+      qc.invalidateQueries({ queryKey: [...automationKeys.all, 'webhooks'] });
     },
   });
 }
@@ -928,7 +981,7 @@ export function useDeleteWebhook() {
       return client.delete<{ success: boolean }>(`${WELDCONNECT_API.webhooks}/${id}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.webhooks() });
+      qc.invalidateQueries({ queryKey: [...automationKeys.all, 'webhooks'] });
     },
   });
 }
@@ -943,7 +996,7 @@ export function useRotateWebhookSecret() {
       return client.patch<{ success: boolean; data: WorkflowWebhook }>(`${WELDCONNECT_API.webhooks}/${id}/rotate-secret`, {});
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.webhooks() });
+      qc.invalidateQueries({ queryKey: [...automationKeys.all, 'webhooks'] });
     },
   });
 }

@@ -79,11 +79,27 @@ const progressBarColorByStatus: Record<string, string> = {
   timeout: 'bg-orange-500',
   completed: 'bg-green-500',
   running: 'bg-blue-500',
+  waiting_for_input: 'bg-amber-500',
 };
 
-const STATUS_FILTER_VALUES = ['running', 'queued', 'completed', 'failed', 'timeout', 'cancelled', 'skipped'] as const;
+const STATUS_FILTER_VALUES = [
+  'running',
+  'queued',
+  'waiting_for_input',
+  'completed',
+  'failed',
+  'timeout',
+  'cancelled',
+  'skipped',
+] as const;
 // MVP triggers plus `manual`, which Test and retry runs use.
-const TRIGGER_FILTER_VALUES = ['entity_event', 'schedule', 'manual'] as const;
+const TRIGGER_FILTER_VALUES = [
+  'entity_event',
+  'schedule',
+  'webhook',
+  'workflow_complete',
+  'manual',
+] as const;
 
 // Format date to relative time
 function formatRelativeTime(
@@ -288,7 +304,7 @@ export function ExecutionsClient() {
 
   // Group configs by status
   const groupConfigs: GroupConfig<ExecutionRow>[] = useMemo(() =>
-    (['running', 'queued', 'failed', 'timeout', 'completed', 'cancelled', 'skipped'] as const).map((status, index) => ({
+    (['running', 'queued', 'waiting_for_input', 'failed', 'timeout', 'completed', 'cancelled', 'skipped'] as const).map((status, index) => ({
       id: status,
       label: t.weldconnect.executions.statuses[status],
       sortOrder: index + 1,

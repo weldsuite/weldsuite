@@ -66,11 +66,15 @@ app.post('/:id/restore', requirePermission('workflows:update'), async (c) => {
     // Restoring never changes the workflow's current status — only its
     // content. If it's active, that content still has to pass the gate.
     if (existing.status === 'active') {
-      const rejection = rejectUnsupportedActivation(c, {
-        triggers: snapshot.triggers,
-        steps: snapshot.steps,
-        tags: existing.tags,
-      });
+      const rejection = await rejectUnsupportedActivation(
+        c,
+        {
+          triggers: snapshot.triggers,
+          steps: snapshot.steps,
+          tags: existing.tags,
+        },
+        snapshot.workflowId,
+      );
       if (rejection) return rejection;
     }
 

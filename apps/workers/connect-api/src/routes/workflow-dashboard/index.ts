@@ -17,6 +17,8 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 import { ACTION_TYPES, TRIGGER_TYPES, ENTITY_EVENTS } from './static-catalogs';
 import { notSequenceRun, notTestRun } from '../../services/workflow-executions';
+import * as errorLogs from '../../services/workflow-error-logs';
+import type { ErrorAckStatus } from '../../services/workflow-error-logs';
 import { notSequenceWorkflow } from '../../services/workflows';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -183,23 +185,30 @@ app.get(
       const { workflowExecutions } = schema;
       // An explicit workflowId can name a sequence; the overall figure leaves
       // sequences out. Test runs never count.
-      const rows = workflowId
-        ? await db
-            .select()
-            .from(workflowExecutions)
-            .where(and(eq(workflowExecutions.workflowId, workflowId), notTestRun))
-        : await db.select().from(workflowExecutions).where(and(notSequenceRun, notTestRun));
-
-      const completed = rows.filter((e) => e.status === 'completed' && e.duration);
-      const durations = completed.map((e) => e.duration ?? 0);
-      const avg = completed.length ? durations.reduce((s, n) => s + n, 0) / completed.length : 0;
+      // Aggregated in SQL: loading every run row (with its JSON context) to
+      // average a column does not scale with the history.
+      const timed = sql`${workflowExecutions.status} = 'completed' and coalesce(${workflowExecutions.duration}, 0) > 0`;
+      const [row] = await db
+        .select({
+          total: sql<number>`count(*)::int`,
+          completed: sql<number>`count(*) filter (where ${timed})::int`,
+          avg: sql<number | null>`avg(${workflowExecutions.duration}) filter (where ${timed})`,
+          min: sql<number | null>`min(${workflowExecutions.duration}) filter (where ${timed})`,
+          max: sql<number | null>`max(${workflowExecutions.duration}) filter (where ${timed})`,
+        })
+        .from(workflowExecutions)
+        .where(
+          workflowId
+            ? and(eq(workflowExecutions.workflowId, workflowId), notTestRun)
+            : and(notSequenceRun, notTestRun),
+        );
 
       return success(c, {
-        totalExecutions: rows.length,
-        completedExecutions: completed.length,
-        averageDuration: avg,
-        minDuration: durations.length ? Math.min(...durations) : 0,
-        maxDuration: durations.length ? Math.max(...durations) : 0,
+        totalExecutions: Number(row?.total ?? 0),
+        completedExecutions: Number(row?.completed ?? 0),
+        averageDuration: Number(row?.avg ?? 0),
+        minDuration: Number(row?.min ?? 0),
+        maxDuration: Number(row?.max ?? 0),
       });
     } catch (err) {
       console.error('[app-api/workflow-dashboard] performance failed:', err);
@@ -208,6 +217,10 @@ app.get(
   },
 );
 
+// Query flags arrive as the strings 'true' / 'false'; `z.coerce.boolean()`
+// would read 'false' as true (any non-empty string is truthy).
+const booleanQuery = z.enum(['true', 'false']).transform((v) => v === 'true');
+
 app.get(
   '/errors',
   requirePermission('workflows:read'),
@@ -215,39 +228,21 @@ app.get(
     'query',
     z.object({
       workflowId: z.string().optional(),
-      page: z.coerce.number().min(1).default(1),
-      limit: z.coerce.number().min(1).max(100).default(20),
-      isAcknowledged: z.coerce.boolean().optional(),
+      page: z.coerce.number().int().min(1).default(1),
+      limit: z.coerce.number().int().min(1).max(100).default(20),
+      status: z.enum(['all', 'acknowledged', 'unacknowledged']).optional(),
+      /** Older spelling of `status`; `status` wins when both are sent. */
+      isAcknowledged: booleanQuery.optional(),
     }),
   ),
   async (c) => {
     const db = c.get('tenantDb');
-    const { workflowId, page, limit, isAcknowledged } = c.req.valid('query');
+    const { workflowId, page, limit, status, isAcknowledged } = c.req.valid('query');
+    let ackStatus: ErrorAckStatus = 'all';
+    if (status) ackStatus = status;
+    else if (isAcknowledged !== undefined) ackStatus = isAcknowledged ? 'acknowledged' : 'unacknowledged';
     try {
-      const { workflowErrorLogs } = schema;
-      const conditions: any[] = [];
-      if (workflowId) conditions.push(eq(workflowErrorLogs.workflowId, workflowId));
-      if (isAcknowledged === false) conditions.push(isNull(workflowErrorLogs.acknowledgedAt));
-
-      const errors = conditions.length
-        ? await db.select().from(workflowErrorLogs).where(and(...conditions)).orderBy(desc(workflowErrorLogs.createdAt))
-        : await db.select().from(workflowErrorLogs).orderBy(desc(workflowErrorLogs.createdAt));
-
-      const byType: Record<string, number> = {};
-      for (const e of errors) {
-        const t = e.errorType || 'unknown';
-        byType[t] = (byType[t] || 0) + 1;
-      }
-
-      const start = (page - 1) * limit;
-      return success(c, {
-        total: errors.length,
-        unacknowledged: errors.filter((e) => !e.acknowledgedAt).length,
-        byType,
-        items: errors.slice(start, start + limit),
-        page,
-        limit,
-      });
+      return success(c, await errorLogs.listErrorLogs(db, { workflowId, status: ackStatus, page, limit }));
     } catch (err) {
       console.error('[app-api/workflow-dashboard] errors failed:', err);
       return error.internal(c, 'Failed to fetch error stats');
@@ -255,17 +250,14 @@ app.get(
   },
 );
 
+// Acknowledging is triage bookkeeping on an engine log row, not a change to a
+// business record: like the run logs themselves it stays off the entity-event
+// bus (which feeds workflows, agents and analytics).
 app.patch('/errors/:id/acknowledge', requirePermission('workflows:update'), async (c) => {
   const db = c.get('tenantDb');
-  const userId = c.get('userId');
   const id = c.req.param('id');
   try {
-    const { workflowErrorLogs } = schema;
-    await db
-      .update(workflowErrorLogs)
-      .set({ acknowledgedAt: new Date(), acknowledgedBy: userId, isAcknowledged: true })
-      .where(eq(workflowErrorLogs.id, id));
-    const [row] = await db.select().from(workflowErrorLogs).where(eq(workflowErrorLogs.id, id)).limit(1);
+    const row = await errorLogs.acknowledgeErrorLog(db, id, c.get('userId'));
     if (!row) return error.notFound(c, 'Error log', id);
     return success(c, row);
   } catch (err) {
@@ -273,6 +265,28 @@ app.patch('/errors/:id/acknowledge', requirePermission('workflows:update'), asyn
     return error.internal(c, 'Failed to acknowledge error');
   }
 });
+
+const bulkAcknowledgeSchema = z.union([
+  z.object({ ids: z.array(z.string().min(1)).min(1).max(500) }),
+  z.object({ all: z.literal(true), workflowId: z.string().optional() }),
+]);
+
+/** Acknowledge the given error rows, or (`all: true`) everything the Errors view lists. */
+app.post(
+  '/errors/acknowledge',
+  requirePermission('workflows:update'),
+  zValidator('json', bulkAcknowledgeSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    try {
+      const acknowledged = await errorLogs.acknowledgeErrorLogs(db, c.req.valid('json'), c.get('userId'));
+      return success(c, { acknowledged });
+    } catch (err) {
+      console.error('[app-api/workflow-dashboard] bulk acknowledge failed:', err);
+      return error.internal(c, 'Failed to acknowledge errors');
+    }
+  },
+);
 
 app.get('/resource-usage', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');

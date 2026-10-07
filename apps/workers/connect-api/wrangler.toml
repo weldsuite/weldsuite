@@ -43,7 +43,10 @@
 #     /api/workflows/generate (@weldsuite/ai). When unset, @weldsuite/ai uses
 #     CLOUDFLARE_API_TOKEN.
 #
-# CF_ACCOUNT_ID is a [vars] value (copied from app-api). PUBLIC_APP_URL,
+# CF_ACCOUNT_ID is a [vars] value (copied from app-api). PUBLIC_APP_URL is set
+# per env below (routes/workflow-integrations/oauth.ts builds the Slack/Google
+# OAuth redirect from it; defaults to the production app URL in code, which
+# would silently misroute the test env's OAuth flow if left unset there).
 # CONNECTOR_WEBHOOK_BASE_URL and AI_DEFAULT_MODEL are optional [vars] that
 # default in code (app-api sets none of them). CONNECT_API_URL is this
 # worker's own public origin (not the platform SPA, not
@@ -131,6 +134,11 @@ routes = [
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 CONNECT_API_URL = "https://connect-api-test.weldsuite.org"
+# Platform SPA base for the workflow-integrations OAuth redirect
+# (routes/workflow-integrations/oauth.ts defaults to the PRODUCTION app URL
+# when unset — must be set per env or test-environment OAuth bounces back to
+# production instead of app-test.weldsuite.org).
+PUBLIC_APP_URL = "https://app-test.weldsuite.org"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -199,6 +207,10 @@ routes = [
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 CONNECT_API_URL = "https://connect-api.weldsuite.org"
+# Platform SPA base for the workflow-integrations OAuth redirect (see
+# env.test.vars above; this matches the code default, set explicitly so the
+# two envs are never a one-line env.test edit away from matching again).
+PUBLIC_APP_URL = "https://app.weldsuite.org"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

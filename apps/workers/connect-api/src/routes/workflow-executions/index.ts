@@ -2,23 +2,27 @@
  * Workflow execution routes — flat /api/workflow-executions/* surface.
  *
  * Permissions: workflow-executions:read | workflow-executions:update;
- * workflows:create | workflows:delete for trigger/delete operations.
+ * workflows:create | workflows:delete for trigger/delete operations. Deciding
+ * an approval takes being one of its approvers, or `workflow-executions:update`
+ * when it lists none.
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createWorkflowExecutionSchema,
   updateWorkflowExecutionSchema,
 } from '@weldsuite/core-api-client/schemas/workflow-executions';
+import { approvalDecisionSchema } from '@weldsuite/app-api-client/schemas/weldconnect';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { eq } from 'drizzle-orm';
 import * as executions from '../../services/workflow-executions';
+import * as approvals from '../../services/workflow-approvals';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.workflowExecutions;
@@ -137,6 +141,84 @@ app.patch('/:id/cancel', requirePermission('workflow-executions:update'), async 
     return error.internal(c, 'Failed to cancel execution');
   }
 });
+
+// GET /:id/approval — the approval step the run is waiting on (null when none)
+// and whether the caller may decide it. See services/workflow-approvals.ts.
+app.get('/:id/approval', requirePermission('workflow-executions:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const execution = await executions.getExecution(db, id);
+    if (!execution) return error.notFound(c, 'Workflow execution', id);
+    const approval = execution.status === 'waiting_for_input' ? await approvals.getPendingApproval(db, id) : null;
+    const mayUpdateRuns = approval ? await hasContextPermission(c, 'workflow-executions:update') : false;
+    return success(c, {
+      approval: approval
+        ? {
+            stepId: approval.stepId,
+            title: approval.title,
+            description: approval.description,
+            approverIds: approval.approverIds,
+          }
+        : null,
+      canDecide: approval ? approvals.canDecide(approval, c.get('userId'), mayUpdateRuns) : false,
+    });
+  } catch (err) {
+    console.error('[app-api/workflow-executions] approval failed:', err);
+    return error.internal(c, 'Failed to fetch the approval');
+  }
+});
+
+// POST /:id/decision — approve or reject the approval step the run waits on,
+// and resume the run (sends the CF Workflow `resume-step` event).
+app.post(
+  '/:id/decision',
+  requirePermission('workflow-executions:read'),
+  zValidator('json', approvalDecisionSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+    try {
+      const result = await approvals.decideApproval(db, c.env.EXECUTE_WORKFLOW, {
+        executionId: id,
+        userId: c.get('userId'),
+        decision: body.decision,
+        comment: body.comment,
+        mayUpdateRuns: await hasContextPermission(c, 'workflow-executions:update'),
+      });
+      switch (result.kind) {
+        case 'not_found':
+          return error.notFound(c, 'Workflow execution', id);
+        case 'not_waiting':
+          return error.badRequest(c, 'This run is not waiting for an approval', {
+            reason: 'not_waiting',
+            status: result.status,
+          });
+        case 'forbidden':
+          return error.forbidden(c, 'You are not an approver of this step');
+        case 'already_decided':
+          return error.conflict(c, 'Someone already decided on this approval');
+        case 'runtime_unavailable':
+          return error.internal(c, 'Workflow runtime not available');
+        default:
+          break;
+      }
+      // The decision moves the run on: waiting → running.
+      publishEntityEvent({
+        c,
+        entityType: 'workflow_execution',
+        entityId: id,
+        action: 'updated',
+        data: { id, workflowId: result.workflowId, status: 'running' },
+      });
+      return success(c, result.payload);
+    } catch (err) {
+      console.error('[app-api/workflow-executions] decision failed:', err);
+      return error.internal(c, 'Failed to record the decision');
+    }
+  },
+);
 
 app.post('/:id/retry', requirePermission('workflows:create'), async (c) => {
   const orgId = c.get('orgId');

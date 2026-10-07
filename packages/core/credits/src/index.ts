@@ -277,6 +277,39 @@ export async function checkCredits(
   };
 }
 
+export interface ReferenceCreditsParams {
+  workspaceId: string;
+  referenceId: string;
+  referenceType: string;
+  serviceType?: CreditServiceType;
+}
+
+/**
+ * Sum of credits already charged against one reference (e.g. a workflow run's
+ * `executionId`) — reads the ledger directly, so it's exact and replay-safe:
+ * a step retry dedupes on `idempotencyKey` before ever inserting a second row,
+ * so re-querying this never double-counts. Covers both a normal `consumption`
+ * row and the forced-debt `adjustment` row `consumeCredits`' caller writes
+ * when the wallet couldn't cover a charge (see workflow-worker's
+ * `engine/actions/ai.ts` `chargeUsage`) — both record the same negative
+ * `amount`, so summing `abs(amount)` across all matching rows is correct
+ * either way. Used to enforce a per-run credit cap before each metered call.
+ */
+export async function sumChargedCredits(db: CreditsDb, params: ReferenceCreditsParams): Promise<number> {
+  const conditions = [
+    eq(creditTransactions.workspaceId, params.workspaceId),
+    eq(creditTransactions.referenceId, params.referenceId),
+    eq(creditTransactions.referenceType, params.referenceType),
+  ];
+  if (params.serviceType) conditions.push(eq(creditTransactions.serviceType, params.serviceType));
+
+  const rows = await db
+    .select({ amount: creditTransactions.amount })
+    .from(creditTransactions)
+    .where(and(...conditions));
+  return rows.reduce((sum: number, row: { amount: number }) => sum + Math.abs(row.amount), 0);
+}
+
 // ============================================================================
 // Consume
 // ============================================================================
