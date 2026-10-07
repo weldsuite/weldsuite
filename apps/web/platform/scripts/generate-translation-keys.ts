@@ -15,7 +15,7 @@
  *   --merge           Merge with existing translation files
  */
 
-import fs from 'fs';
+import fs from 'node:fs';
 
 interface HardcodedString {
   file: string;
@@ -37,6 +37,9 @@ interface AnalysisResult {
 }
 
 type TranslationValue = string | { [key: string]: TranslationValue };
+
+const formatValue = (value: TranslationValue): string =>
+  typeof value === 'string' ? value : JSON.stringify(value);
 
 interface TranslationStructure {
   [namespace: string]: {
@@ -161,7 +164,7 @@ function simpleTranslate(english: string): string {
   // Check for direct translation
   if (COMMON_TRANSLATIONS[lower]) {
     // Match original case
-    if (english[0] === english[0].toUpperCase()) {
+    if (english.startsWith(english.charAt(0).toUpperCase())) {
       return COMMON_TRANSLATIONS[lower].charAt(0).toUpperCase() + COMMON_TRANSLATIONS[lower].slice(1);
     }
     return COMMON_TRANSLATIONS[lower];
@@ -273,12 +276,12 @@ function displayKeys(en: TranslationStructure, nl: TranslationStructure) {
         .slice(0, 3)
         .forEach(([key, value]) => {
           const nlValue = nl[namespace][category][key];
-          const isTranslated = !nlValue.toString().startsWith('[TRANSLATE]');
+          const isTranslated = !formatValue(nlValue).startsWith('[TRANSLATE]');
           if (isTranslated) translatedKeys++;
 
           console.log(`    - ${key}:`);
-          console.log(`      EN: "${value}"`);
-          console.log(`      NL: "${nlValue}" ${isTranslated ? '✅' : '⚠️ '}`);
+          console.log(`      EN: "${formatValue(value)}"`);
+          console.log(`      NL: "${formatValue(nlValue)}" ${isTranslated ? '✅' : '⚠️ '}`);
         });
 
       if (keyCount > 3) {
@@ -321,7 +324,7 @@ function saveKeys(en: TranslationStructure, nl: TranslationStructure, outputFile
 }
 
 // Main execution
-async function main() {
+function main() {
   const args = process.argv.slice(2);
 
   if (args.length === 0 || args[0].startsWith('--')) {
@@ -376,4 +379,4 @@ async function main() {
   }
 }
 
-void main();
+main();

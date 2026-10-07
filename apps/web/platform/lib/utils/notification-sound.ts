@@ -125,7 +125,7 @@ export async function showBrowserNotification(
     onlyWhenHidden?: boolean;
   }
 ): Promise<Notification | null> {
-  const { playSound = true, actionUrl, onlyWhenHidden, ...notificationOptions } = options || {};
+  const { playSound = true, actionUrl, onlyWhenHidden, ...notificationOptions } = options ?? {};
 
   const { showOsNotification } = await import('@/lib/desktop-notifications');
   await showOsNotification({

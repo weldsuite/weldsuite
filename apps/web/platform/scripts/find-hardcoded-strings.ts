@@ -15,8 +15,8 @@
  *   --verbose        Show detailed analysis
  */
 
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 interface HardcodedString {
   file: string;
@@ -42,7 +42,7 @@ const PATTERNS = {
   label: /(?:label|title|header|name|text):\s*["'`]([^"'`]+)["'`]/g,
   placeholder: /placeholder=["'`]([^"'`]+)["'`]/g,
   ariaLabel: /aria-label=["'`]([^"'`]+)["'`]/g,
-  text: />[^<{]*["']([A-Z][^"']*?)["'][^<{]*</g,
+  text: />[^<>{"']*["']([A-Z][^"']*)["'][^<{]*</g,
   toast: /toast\.[a-z]+\(\s*["'`]([^"'`]+)["'`]/g,
   validation: /(?:error|message|description):\s*["'`]([^"'`]+)["'`]/g,
 };
@@ -53,7 +53,7 @@ const IGNORE_PATTERNS = [
   /^#[0-9A-Fa-f]+$/, // Hex colors
   /^https?:\/\//, // URLs
   /^\/[a-z-/]*$/, // Routes
-  /^[0-9]+$/, // Pure numbers
+  /^\d+$/, // Pure numbers
   /^[A-Z_]+$/, // Constants (e.g., 'API_KEY')
   /^\$\{.*\}$/, // Template variables
   /^t\.[a-z.]+/i, // Already using translations
@@ -63,10 +63,10 @@ const IGNORE_PATTERNS = [
 
 // Module detection from file path
 function getModuleFromPath(filePath: string): string {
-  const match = filePath.match(/app\/([\w-]+)\//);
+  const match = /app\/([\w-]+)\//.exec(filePath);
   if (match) return match[1];
 
-  const componentMatch = filePath.match(/components\/([\w-]+)\//);
+  const componentMatch = /components\/([\w-]+)\//.exec(filePath);
   if (componentMatch) return componentMatch[1];
 
   return 'common';
@@ -81,7 +81,7 @@ function detectStringType(context: string, stringValue: string): HardcodedString
   if (context.includes('aria-label')) return 'aria-label';
   if (context.includes('toast.')) return 'toast';
   if (context.includes('error') || context.includes('message')) return 'validation';
-  if (stringValue.match(/^[A-Z]/)) return 'text';
+  if (/^[A-Z]/.test(stringValue)) return 'text';
   return 'other';
 }
 
@@ -89,8 +89,8 @@ function detectStringType(context: string, stringValue: string): HardcodedString
 function generateSuggestedKey(module: string, type: string, stringValue: string): string {
   const cleanValue = stringValue
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
-    .replace(/\s+/g, '_')
+    .replaceAll(/[^a-z0-9\s]/g, '')
+    .replaceAll(/\s+/g, '_')
     .substring(0, 40);
 
   return `${module}.${type}.${cleanValue}`;
@@ -181,7 +181,7 @@ function findFiles(dir: string, pattern: RegExp = /\.(tsx|jsx)$/): string[] {
 }
 
 // Scan all files
-async function scanFiles(moduleFilter?: string): Promise<AnalysisResult> {
+function scanFiles(moduleFilter?: string): AnalysisResult {
   const result: AnalysisResult = {
     totalFiles: 0,
     filesWithHardcodedStrings: 0,
@@ -213,7 +213,8 @@ async function scanFiles(moduleFilter?: string): Promise<AnalysisResult> {
     }
   }
 
-  console.log(`📁 Scanning ${files.length} files${moduleFilter ? ` in ${moduleFilter} module` : ''}...`);
+  const moduleSuffix = moduleFilter ? ` in ${moduleFilter} module` : '';
+  console.log(`📁 Scanning ${files.length} files${moduleSuffix}...`);
 
   for (const file of files) {
     result.totalFiles++;
@@ -313,7 +314,7 @@ function saveResults(result: AnalysisResult, outputFile: string) {
 }
 
 // Main execution
-async function main() {
+function main() {
   const args = process.argv.slice(2);
   const moduleFilter = args.includes('--module')
     ? args[args.indexOf('--module') + 1]
@@ -326,7 +327,7 @@ async function main() {
   console.log('🔍 Finding hardcoded strings in WeldSuite platform...\n');
 
   try {
-    const result = await scanFiles(moduleFilter);
+    const result = scanFiles(moduleFilter);
     displayResults(result, verbose);
 
     if (outputFile) {
@@ -338,4 +339,4 @@ async function main() {
   }
 }
 
-void main();
+main();

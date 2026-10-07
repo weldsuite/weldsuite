@@ -57,7 +57,7 @@ function getPreferredMimeType(mode: ClipMode): string {
 
 export function useClipRecorder(): UseClipRecorderReturn {
   const [state, setState] = useState<RecorderState>('idle');
-  const [mode, setModeState] = useState<ClipMode>('audio');
+  const [mode, setMode] = useState<ClipMode>('audio');
   const modeRef = useRef<ClipMode>(mode);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [blob, setBlob] = useState<Blob | null>(null);
@@ -147,7 +147,7 @@ export function useClipRecorder(): UseClipRecorderReturn {
     }
   }, []);
 
-  const setMode = useCallback((newMode: ClipMode) => {
+  const switchMode = useCallback((newMode: ClipMode) => {
     if (state !== 'idle' && state !== 'previewing') return;
     // Stop existing stream when switching modes
     if (stream) {
@@ -156,7 +156,7 @@ export function useClipRecorder(): UseClipRecorderReturn {
     }
     cleanup();
     modeRef.current = newMode;
-    setModeState(newMode);
+    setMode(newMode);
     setState('idle');
     setError(null);
   }, [state, stream, cleanup]);
@@ -182,7 +182,7 @@ export function useClipRecorder(): UseClipRecorderReturn {
         });
         // Handle user stopping screen share via browser UI
         mediaStream.getVideoTracks()[0]?.addEventListener('ended', () => {
-          if (recorderRef.current && recorderRef.current.state === 'recording') {
+          if (recorderRef.current?.state === 'recording') {
             recorderRef.current.stop();
           }
         });
@@ -236,7 +236,7 @@ export function useClipRecorder(): UseClipRecorderReturn {
       setDuration(elapsed);
 
       if (elapsed >= MAX_DURATION) {
-        if (recorderRef.current && recorderRef.current.state === 'recording') {
+        if (recorderRef.current?.state === 'recording') {
           recorderRef.current.stop();
         }
       }
@@ -330,7 +330,7 @@ export function useClipRecorder(): UseClipRecorderReturn {
   }, [stream, state, beginRecording]);
 
   const stopRecording = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state === 'recording') {
+    if (recorderRef.current?.state === 'recording') {
       // Capture final duration before stopping
       const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
       setDuration(elapsed);
@@ -357,7 +357,7 @@ export function useClipRecorder(): UseClipRecorderReturn {
     duration,
     error,
     audioLevel,
-    setMode,
+    setMode: switchMode,
     startPreview,
     startRecording,
     stopRecording,

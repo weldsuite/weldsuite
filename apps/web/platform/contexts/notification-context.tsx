@@ -11,6 +11,7 @@ import React, {
   useState,
   useCallback,
   useRef,
+  useMemo,
 } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { AwsWebSocketClient } from '@/lib/notifications/aws-websocket-client';
@@ -25,8 +26,8 @@ interface NotificationContextValue {
   notifications: NotificationMessage[];
   subscribe: (handler: NotificationHandler) => () => void;
   subscribeToType: (type: string, handler: NotificationHandler) => () => void;
-  subscribeToEmailAccount: (accountId: string) => Promise<void>;
-  unsubscribeFromEmailAccount: (accountId: string) => Promise<void>;
+  subscribeToEmailAccount: (accountId: string) => void;
+  unsubscribeFromEmailAccount: (accountId: string) => void;
   clearNotifications: () => void;
 }
 
@@ -42,7 +43,7 @@ interface NotificationProviderProps {
   children: React.ReactNode;
 }
 
-export function NotificationProvider({ children }: NotificationProviderProps) {
+export function NotificationProvider({ children }: Readonly<NotificationProviderProps>) {
   const { user } = useUser();
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [notifications, setNotifications] = useState<NotificationMessage[]>([]);
@@ -100,7 +101,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     // Cleanup on unmount or user change
     return () => {
       if (clientRef.current) {
-        void clientRef.current.disconnect();
+        clientRef.current.disconnect();
       }
     };
   }, [user?.id]);
@@ -124,35 +125,46 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     []
   );
 
-  const subscribeToEmailAccount = useCallback(async (accountId: string) => {
+  const subscribeToEmailAccount = useCallback((accountId: string) => {
     if (!clientRef.current) {
       console.warn('[NotificationProvider] Client not initialized');
       return;
     }
-    await clientRef.current.subscribeToEmailAccount(accountId);
+    clientRef.current.subscribeToEmailAccount(accountId);
   }, []);
 
-  const unsubscribeFromEmailAccount = useCallback(async (accountId: string) => {
+  const unsubscribeFromEmailAccount = useCallback((accountId: string) => {
     if (!clientRef.current) {
       console.warn('[NotificationProvider] Client not initialized');
       return;
     }
-    await clientRef.current.unsubscribeFromEmailAccount(accountId);
+    clientRef.current.unsubscribeFromEmailAccount(accountId);
   }, []);
 
   const clearNotifications = useCallback(() => {
     setNotifications([]);
   }, []);
 
-  const value: NotificationContextValue = {
-    status,
-    notifications,
-    subscribe,
-    subscribeToType,
-    subscribeToEmailAccount,
-    unsubscribeFromEmailAccount,
-    clearNotifications,
-  };
+  const value = useMemo<NotificationContextValue>(
+    () => ({
+      status,
+      notifications,
+      subscribe,
+      subscribeToType,
+      subscribeToEmailAccount,
+      unsubscribeFromEmailAccount,
+      clearNotifications,
+    }),
+    [
+      status,
+      notifications,
+      subscribe,
+      subscribeToType,
+      subscribeToEmailAccount,
+      unsubscribeFromEmailAccount,
+      clearNotifications,
+    ],
+  );
 
   return (
     <NotificationContext.Provider value={value}>

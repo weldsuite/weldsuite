@@ -6,7 +6,7 @@
  * The backend only creates meetings and returns auth tokens.
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
 import {
   createRnnoiseSuppressor,
@@ -158,6 +158,8 @@ interface ChatCallDetailResponse {
   };
 }
 
+type CallViewMode = 'grid' | 'spotlight' | 'speaker' | 'sidebar';
+
 interface WeldChatCallState {
   callId: string | null;
   channelId: string | null;
@@ -179,7 +181,7 @@ interface WeldChatCallState {
   previewJoinCallId: string | null;
   isFullscreen: boolean;
   isPiP: boolean;
-  viewMode: 'grid' | 'spotlight' | 'speaker' | 'sidebar';
+  viewMode: CallViewMode;
   pendingCall: { channelId?: string; callId?: string; callType: 'voice' | 'video' } | null;
   backgroundType: VirtualBackgroundType;
   backgroundValue: string | null;
@@ -205,7 +207,7 @@ interface WeldChatCallActions {
   toggleFullscreen: () => void;
   minimizeToPiP: () => void;
   expandFromPiP: () => void;
-  setViewMode: (mode: 'grid' | 'spotlight' | 'speaker' | 'sidebar') => void;
+  setViewMode: (mode: CallViewMode) => void;
   confirmSwitchCall: () => Promise<void>;
   cancelSwitchCall: () => void;
   applyBlur: (intensity?: number) => Promise<void>;
@@ -235,7 +237,7 @@ export function useWeldChatCallOptional() {
 // Provider
 // ============================================================================
 
-export function WeldChatCallProvider({ children }: { children: React.ReactNode }) {
+export function WeldChatCallProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getClient } = useAppApiClient();
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
@@ -260,7 +262,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
   const [previewJoinCallId, setPreviewJoinCallId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'spotlight' | 'speaker' | 'sidebar'>('grid');
+  const [viewMode, setViewMode] = useState<CallViewMode>('grid');
   const [pendingCall, setPendingCall] = useState<{ channelId?: string; callId?: string; callType: 'voice' | 'video' } | null>(null);
 
   // Mirror call activity into the shared presence status so other users see
@@ -544,7 +546,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
           audio: audioOn,
           video: videoOn ?? (type === 'video'),
           mediaConfiguration: {
-            audio: { noiseSupression: useNoiseSuppression ? false : true },
+            audio: { noiseSupression: !useNoiseSuppression },
           },
         },
       });
@@ -910,56 +912,108 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     }
   }, [handRaised]);
 
-  const value: WeldChatCallContextValue = {
-    callId,
-    channelId,
-    callType,
-    status,
-    isCallInitiator,
-    isMuted,
-    isVideoOff,
-    isScreenSharing,
-    duration,
-    incomingCall,
-    meeting,
-    handRaised,
-    handRaisedParticipants,
-    previewStream,
-    previewAudioEnabled,
-    previewVideoEnabled,
-    previewJoinCallId,
-    isFullscreen,
-    isPiP,
-    viewMode,
-    pendingCall,
-    backgroundType: virtualBackground.backgroundType,
-    backgroundValue: virtualBackground.backgroundValue,
-    isBackgroundLoading: virtualBackground.isLoading,
-    startCall,
-    joinCall,
-    confirmJoinFromPreview,
-    cancelPreview,
-    togglePreviewAudio,
-    togglePreviewVideo,
-    leaveCall,
-    endCall,
-    declineCall,
-    acceptIncomingCall,
-    toggleMute,
-    toggleVideo,
-    startScreenShare,
-    stopScreenShare,
-    toggleHandRaise,
-    toggleFullscreen,
-    minimizeToPiP,
-    expandFromPiP,
-    setViewMode,
-    confirmSwitchCall,
-    cancelSwitchCall,
-    applyBlur: virtualBackground.applyBlur,
-    applyImage: virtualBackground.applyImage,
-    removeBackground: virtualBackground.removeBackground,
-  };
+  const value = useMemo<WeldChatCallContextValue>(
+    () => ({
+      callId,
+      channelId,
+      callType,
+      status,
+      isCallInitiator,
+      isMuted,
+      isVideoOff,
+      isScreenSharing,
+      duration,
+      incomingCall,
+      meeting,
+      handRaised,
+      handRaisedParticipants,
+      previewStream,
+      previewAudioEnabled,
+      previewVideoEnabled,
+      previewJoinCallId,
+      isFullscreen,
+      isPiP,
+      viewMode,
+      pendingCall,
+      backgroundType: virtualBackground.backgroundType,
+      backgroundValue: virtualBackground.backgroundValue,
+      isBackgroundLoading: virtualBackground.isLoading,
+      startCall,
+      joinCall,
+      confirmJoinFromPreview,
+      cancelPreview,
+      togglePreviewAudio,
+      togglePreviewVideo,
+      leaveCall,
+      endCall,
+      declineCall,
+      acceptIncomingCall,
+      toggleMute,
+      toggleVideo,
+      startScreenShare,
+      stopScreenShare,
+      toggleHandRaise,
+      toggleFullscreen,
+      minimizeToPiP,
+      expandFromPiP,
+      setViewMode,
+      confirmSwitchCall,
+      cancelSwitchCall,
+      applyBlur: virtualBackground.applyBlur,
+      applyImage: virtualBackground.applyImage,
+      removeBackground: virtualBackground.removeBackground,
+    }),
+    [
+      callId,
+      channelId,
+      callType,
+      status,
+      isCallInitiator,
+      isMuted,
+      isVideoOff,
+      isScreenSharing,
+      duration,
+      incomingCall,
+      meeting,
+      handRaised,
+      handRaisedParticipants,
+      previewStream,
+      previewAudioEnabled,
+      previewVideoEnabled,
+      previewJoinCallId,
+      isFullscreen,
+      isPiP,
+      viewMode,
+      pendingCall,
+      virtualBackground.backgroundType,
+      virtualBackground.backgroundValue,
+      virtualBackground.isLoading,
+      startCall,
+      joinCall,
+      confirmJoinFromPreview,
+      cancelPreview,
+      togglePreviewAudio,
+      togglePreviewVideo,
+      leaveCall,
+      endCall,
+      declineCall,
+      acceptIncomingCall,
+      toggleMute,
+      toggleVideo,
+      startScreenShare,
+      stopScreenShare,
+      toggleHandRaise,
+      toggleFullscreen,
+      minimizeToPiP,
+      expandFromPiP,
+      setViewMode,
+      confirmSwitchCall,
+      cancelSwitchCall,
+      virtualBackground.applyBlur,
+      virtualBackground.applyImage,
+      virtualBackground.removeBackground,
+    ],
+  );
 
   return (
     <WeldChatCallContext.Provider value={value}>
