@@ -34,6 +34,7 @@ import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 import { getTranslations } from '@/lib/i18n';
 import { apiUrl } from '@/lib/api/public-env';
+import { copyText } from '@/lib/clipboard';
 
 function triggerAnchorDownload(href: string, filename: string, openInNewTab: boolean) {
   const a = document.createElement('a');
@@ -250,7 +251,7 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
                 if (onCopyLink) {
                   onCopyLink(file);
                 } else if (file.url) {
-                  navigator.clipboard.writeText(file.url);
+                  copyText(file.url);
                 }
               }}>
                 <Link className="h-4 w-4 mr-0.5" />
