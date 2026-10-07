@@ -381,14 +381,14 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
     try {
       const goldenVersion = await step.do(`${prefix}-golden-check`, {
         retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
-      }, async () => svc.getGoldenSchemaVersion(shard));
+      }, () => Promise.resolve(svc.getGoldenSchemaVersion(shard)));
 
       let goldenReady = goldenVersion === LATEST_SCHEMA_VERSION;
       if (!goldenReady) {
         const goldenUrl = await step.do(`${prefix}-golden-open`, {
           retries: { limit: 1, delay: '10 seconds', backoff: 'exponential' },
           timeout: '10 minutes',
-        }, async () => svc.openGoldenForMigration(shard));
+        }, () => Promise.resolve(svc.openGoldenForMigration(shard)));
 
         if (goldenUrl) {
           const applied = await this.runMigrationBatches(step, `${prefix}-golden`, goldenUrl);
@@ -400,7 +400,7 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
 
           goldenReady = await step.do(`${prefix}-golden-seal`, {
             retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' },
-          }, async () => svc.sealGoldenTemplate(shard, LATEST_SCHEMA_VERSION!));
+          }, () => Promise.resolve(svc.sealGoldenTemplate(shard, LATEST_SCHEMA_VERSION!)));
         }
       }
 
@@ -408,7 +408,7 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
         resources = await step.do(`${prefix}-clone`, {
           retries: { limit: 1, delay: '10 seconds', backoff: 'exponential' },
           timeout: '10 minutes',
-        }, async () => svc.createWarmSharedSlotFromTemplate(shard));
+        }, () => Promise.resolve(svc.createWarmSharedSlotFromTemplate(shard)));
       }
 
       // Legacy fallback: API-created empty database + full journal replay.
@@ -417,7 +417,7 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
         resources = await step.do(`${prefix}-resources`, {
           retries: { limit: 1, delay: '10 seconds', backoff: 'exponential' },
           timeout: '10 minutes',
-        }, async () => svc.createWarmSharedSlotResourcesOnShard(shard));
+        }, () => Promise.resolve(svc.createWarmSharedSlotResourcesOnShard(shard)));
         if (resources) {
           const applied = await this.runMigrationBatches(step, prefix, resources.databaseUrl);
           console.log(`[RefillPool] Slot ${resources.poolId}: ${applied} migrations applied`);
@@ -427,7 +427,7 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
       if (!resources) {
         await step.do(`${prefix}-release-capacity`, {
           retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' },
-        }, async () => svc.releaseShardCapacity(getMasterDb(this.env), shard.id));
+        }, () => Promise.resolve(svc.releaseShardCapacity(getMasterDb(this.env), shard.id)));
         return false;
       }
 

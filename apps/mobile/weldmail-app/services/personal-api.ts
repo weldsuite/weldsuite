@@ -30,11 +30,11 @@ export function resolvePersonalApiUrl(
 /** personal-api base URL. Paired with app-api when that host is known. */
 export const PERSONAL_API_URL = resolvePersonalApiUrl();
 
-let tokenGetter: () => Promise<string | null> = async () => null;
+let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
 
 /** Wire the Clerk token getter. Called from `app/_layout.tsx`. */
 export function setPersonalApiTokenGetter(fn: (() => Promise<string | null>) | null) {
-  tokenGetter = fn ?? (async () => null);
+  tokenGetter = fn ?? (() => Promise.resolve(null));
 }
 
 export const personalApi = new PersonalApiClient(PERSONAL_API_URL, () => tokenGetter());

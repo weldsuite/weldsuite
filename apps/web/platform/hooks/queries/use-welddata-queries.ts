@@ -317,7 +317,7 @@ export function useAiModels() {
   // site still gets a well-typed, empty result instead of a network error.
   return useQuery({
     queryKey: welddataKeys.models(),
-    queryFn: async (): Promise<AiModel[]> => [],
+    queryFn: (): Promise<AiModel[]> => Promise.resolve([]),
     staleTime: Infinity,
   });
 }

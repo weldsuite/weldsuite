@@ -61,8 +61,8 @@ export default function MeetPeoplePage() {
 
   const actions: EntityGridActions<Person> = useMemo(
     () => ({
-      onUpdateEntity: async () => ({ success: true }),
-      onDeleteEntity: async () => ({ success: true }),
+      onUpdateEntity: () => Promise.resolve({ success: true }),
+      onDeleteEntity: () => Promise.resolve({ success: true }),
       onRowClick: (person) => {
         openObjectPanel({ type: 'person', id: person.id });
       },

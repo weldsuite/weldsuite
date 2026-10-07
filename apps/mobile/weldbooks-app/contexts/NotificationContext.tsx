@@ -16,7 +16,7 @@ interface NotificationContextType {
 const NotificationContext = createContext<NotificationContextType>({
   badgeCount: 0,
   setBadgeCount: () => {},
-  registerForPushNotifications: async () => null,
+  registerForPushNotifications: () => Promise.resolve(null),
 });
 
 export const useNotifications = () => useContext(NotificationContext);

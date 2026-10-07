@@ -57,7 +57,7 @@ const defaultSession = (scopes: string[]): ApiKeySession => ({
 
 /** Minimal env — only `publishEntityEvent` reads `c.env`, and only the queue
  *  bindings, which are intentionally absent so events no-op. */
-const passingRateLimit = { limit: async () => ({ success: true }) };
+const passingRateLimit = { limit: () => Promise.resolve({ success: true }) };
 
 const defaultEnv = (): Env =>
   ({

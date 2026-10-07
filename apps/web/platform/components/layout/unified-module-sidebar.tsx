@@ -155,7 +155,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
     );
 
   // Workspace switching (shared across all modules)
-  const handleWorkspaceSwitch = async (id: string) => switchWorkspace(id);
+  const handleWorkspaceSwitch = (id: string) => Promise.resolve(switchWorkspace(id));
   const handleWorkspaceCreate = () => setShowCreateDialog(true);
 
   return (
