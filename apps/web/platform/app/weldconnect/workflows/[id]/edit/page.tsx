@@ -32,7 +32,7 @@ type EditorData = Omit<
   | 'allowedScheduleTypes'
   | 'allowedActionIds'
   | 'blockUnsupported'
-  | 'hideTemplatesAndAi'
+  | 'hideAiAndResources'
   | 'showStatus'
   | 'resolveRecordFields'
   | 'flagUnknownVariables'
@@ -66,7 +66,7 @@ function createEditorRenderer(data: EditorData) {
         allowedScheduleTypes={WELDCONNECT_SCHEDULE_TYPES}
         allowedActionIds={WELDCONNECT_ACTION_TYPES}
         blockUnsupported
-        hideTemplatesAndAi
+        hideAiAndResources
         showStatus
         resolveRecordFields={getRecordFields}
         flagUnknownVariables

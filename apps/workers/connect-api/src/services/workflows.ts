@@ -110,6 +110,8 @@ export async function createWorkflow(
     settings?: Record<string, unknown>;
     tags?: string[];
     folderId?: string | null;
+    /** The template it was made from ("Use template"). */
+    templateId?: string | null;
   },
   userId: string,
   scheduleSync?: ScheduleIndexSync,
@@ -134,6 +136,7 @@ export async function createWorkflow(
         settings: (data.settings ?? {}) as any,
         tags: data.tags ?? [],
         folderId: data.folderId,
+        templateId: data.templateId ?? null,
         createdBy: userId,
         version: 1,
         executionCount: 0,

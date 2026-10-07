@@ -10,6 +10,12 @@ import type {
   ExecutionStep as ApiExecutionStep,
 } from '@weldsuite/core-api-client/schemas/weldconnect';
 import type { ApprovalDecisionInput, PendingApprovalResponse } from '@weldsuite/app-api-client/schemas/weldconnect';
+import type {
+  CreateFromTemplateInput,
+  SaveWorkflowAsTemplateInput,
+  WorkflowFromTemplate,
+  WorkflowTemplateItem,
+} from '@weldsuite/app-api-client/schemas/weldconnect-templates';
 import type { ExecutionLogEntry } from '@/app/weldconnect/executions/[id]/execution-detail-client';
 
 /**
@@ -105,6 +111,8 @@ export const automationKeys = {
   executionTrends: (period?: string) => [...automationKeys.all, 'execution-trends', period] as const,
   recentExecutions: (limit?: number) => [...automationKeys.all, 'recent-executions', limit] as const,
   slowExecutions: (limit?: number) => [...automationKeys.all, 'slow-executions', limit] as const,
+  /** Prefix of every template list query, for invalidation (see executionsPrefix). */
+  templatesPrefix: () => [...automationKeys.all, 'templates'] as const,
   templates: (filters?: unknown) => [...automationKeys.all, 'templates', filters] as const,
   template: (id: string) => [...automationKeys.all, 'template', id] as const,
   templateCategories: () => [...automationKeys.all, 'template-categories'] as const,
@@ -467,7 +475,76 @@ export function useTemplate(id: string, enabled = true) {
     },
     enabled: !!id && enabled,
   });
-}// 29. Variables (list)
+}
+
+/**
+ * The template gallery: built-in starter templates (translated into `locale`
+ * by the API) followed by the workspace's own templates. One page of up to 100
+ * workspace templates, which is plenty for a gallery.
+ */
+export function useWorkflowTemplates(locale: string) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: automationKeys.templates({ locale }),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: WorkflowTemplateItem[]; pagination: CursorPaginationMeta }>(
+        `${WELDCONNECT_API.templates}${buildQueryString({ locale, limit: 100 })}`,
+      );
+    },
+  });
+}
+
+/** "Use template": creates a draft workflow from a template (built-in or workspace). */
+export function useCreateWorkflowFromTemplate() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ templateId, ...data }: CreateFromTemplateInput & { templateId: string }) => {
+      const client = await getClient();
+      return client.post<{ data: WorkflowFromTemplate }>(`${WELDCONNECT_API.templates}/${templateId}/use`, data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [...automationKeys.all, 'workflows'] });
+      qc.invalidateQueries({ queryKey: automationKeys.templatesPrefix() });
+    },
+  });
+}
+
+/** "Save as template" from a workflow. */
+export function useSaveWorkflowAsTemplate() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ workflowId, ...data }: SaveWorkflowAsTemplateInput & { workflowId: string }) => {
+      const client = await getClient();
+      return client.post<{ data: { id: string; name: string } }>(
+        `${WELDCONNECT_API.templates}/from-workflow/${workflowId}`,
+        data,
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: automationKeys.templatesPrefix() });
+    },
+  });
+}
+
+/** Delete a workspace template (built-ins are read-only). */
+export function useDeleteTemplate() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.delete<void>(`${WELDCONNECT_API.templates}/${id}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: automationKeys.templatesPrefix() });
+    },
+  });
+}
+
+// 29. Variables (list)
 export function useVariables(filters?: Record<string, unknown>) {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -884,8 +961,9 @@ export function useUpdateTemplate() {
       const client = await getClient();
       return client.put<{ data: WorkflowTemplate }>(`${WELDCONNECT_API.templates}/${id}`, data);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.templates() });
+    onSuccess: (_result, { id }) => {
+      qc.invalidateQueries({ queryKey: automationKeys.templatesPrefix() });
+      qc.invalidateQueries({ queryKey: automationKeys.template(id) });
     },
   });
 }// ---- Variables ----

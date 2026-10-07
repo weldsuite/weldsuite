@@ -1,19 +1,19 @@
-
-import { useState, useMemo, useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { Plug } from 'lucide-react';
+import { Button } from '@weldsuite/ui/components/button';
+import { usePermissions } from '@weldsuite/permissions/react';
+import type { WorkflowTemplateItem } from '@weldsuite/app-api-client/schemas/weldconnect-templates';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter } from '@/lib/router';
-import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
-import { Button } from '@weldsuite/ui/components/button';
-import { Badge } from '@weldsuite/ui/components/badge';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
-  X,
-  Database,
-  Plug,
-  FileText,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useCreateWorkflow } from '@/hooks/queries/use-automation-queries';
+  useCreateWorkflowFromTemplate,
+  useDeleteTemplate,
+  useUpdateTemplate,
+  useWorkflowTemplates,
+} from '@/hooks/queries/use-automation-queries';
 import {
   EntityList,
   EmptyStateIllustration,
@@ -22,210 +22,212 @@ import {
   type ActiveFilter,
   type HeaderColumn,
 } from '@/components/entity-list';
-import {
-  useLocalizedTemplates,
-  useLocalizedCategories,
-  LargeWorkflowPreview,
-  stepActionIcons,
-  stepIconColors,
-  resolveTemplateForApply,
-  type WorkflowTemplate,
-} from '../../components/workflow-template-dialog';
+import { setupCount, templateIcon } from '../template-utils';
+import { TemplateDetailDialog, categoryLabel, integrationLabel } from './template-detail-dialog';
+import { TemplateFormDialog, toTemplateCategory, type TemplateFormValues } from './template-form-dialog';
 
 export function TemplatesClient() {
-  const { t } = useI18n();
-  const builtInTemplates = useLocalizedTemplates();
-  const CATEGORIES = useLocalizedCategories();
+  const { t, language } = useI18n();
+  const tt = t.weldconnect.templates;
+  const router = useRouter();
+  const { canAny } = usePermissions();
+  const canEdit = canAny('workflow-templates:update', 'weldconnect:workflow-templates:update');
+  const canDelete = canAny('workflow-templates:delete', 'weldconnect:workflow-templates:delete');
 
   useBreadcrumbs([
     { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.templates },
   ]);
 
-  const router = useRouter();
-  const [selectedTemplate, setSelectedTemplate] = useState<WorkflowTemplate | null>(null);
-  const createWorkflowMutation = useCreateWorkflow();
-  const isCreating = createWorkflowMutation.isPending;
+  const { data, isLoading, error, refetch } = useWorkflowTemplates(language);
+  const templates = useMemo(() => data?.data ?? [], [data]);
+  const createFromTemplate = useCreateWorkflowFromTemplate();
+  const updateTemplate = useUpdateTemplate();
+  const deleteTemplate = useDeleteTemplate();
 
-  const handleUseTemplate = (template: WorkflowTemplate) => {
-    const resolved = resolveTemplateForApply(template);
-    createWorkflowMutation.mutate({
-      name: template.name,
-      description: template.description,
-      triggers: [resolved.trigger],
-      steps: resolved.steps,
-    }, {
-      onSuccess: (data) => {
-        toast.success(t.weldconnect.templates.toasts.created.replace('{name}', template.name));
-        if (data?.data?.id) {
-          router.push(`/weldconnect/workflows/${data.data.id}/edit`);
-        }
+  const [selected, setSelected] = useState<WorkflowTemplateItem | null>(null);
+  const [editing, setEditing] = useState<WorkflowTemplateItem | null>(null);
+  const [deleting, setDeleting] = useState<WorkflowTemplateItem | null>(null);
+
+  const handleUse = (template: WorkflowTemplateItem) => {
+    createFromTemplate.mutate(
+      { templateId: template.id, locale: language },
+      {
+        onSuccess: (result) => {
+          toast.success(tt.toasts.created.replace('{name}', template.name));
+          setSelected(null);
+          router.push(`/weldconnect/workflows/${result.data.id}/edit`);
+        },
+        onError: () => toast.error(tt.toasts.createFailed),
       },
-      onError: () => {
-        toast.error(t.weldconnect.templates.toasts.createFailed);
-      },
-    });
+    );
   };
 
-  // Filter configurations
-  const filterConfigs: FilterConfig[] = useMemo(() => [
-    {
-      field: 'category',
-      label: t.weldconnect.templatesClient.columnCategory,
-      options: CATEGORIES.filter(c => c.id !== 'all').map(c => ({ value: c.id, label: c.label })),
-      getDisplayValue: (value) => CATEGORIES.find(c => c.id === value)?.label || value,
-    },
-  ], [t, CATEGORIES]);
+  const handleSaveDetails = (values: TemplateFormValues) => {
+    if (!editing) return;
+    updateTemplate.mutate(
+      { id: editing.id, data: values },
+      {
+        onSuccess: () => {
+          toast.success(tt.toasts.updated);
+          setEditing(null);
+          setSelected(null);
+        },
+        onError: () => toast.error(tt.toasts.updateFailed),
+      },
+    );
+  };
 
-  // Group configurations - group by category
-  const groupConfigs: GroupConfig<WorkflowTemplate>[] = useMemo(() =>
-    CATEGORIES.filter(c => c.id !== 'all').map((cat, index) => ({
-      id: cat.id,
-      label: cat.label,
-      filter: (t: WorkflowTemplate) => t.category === cat.id,
-      sortOrder: index + 1,
-    })),
-  [CATEGORIES]);
+  const handleDelete = async () => {
+    if (!deleting) return;
+    try {
+      await deleteTemplate.mutateAsync(deleting.id);
+      toast.success(tt.toasts.deleted);
+      setDeleting(null);
+      setSelected(null);
+    } catch {
+      toast.error(tt.toasts.deleteFailed);
+    }
+  };
 
-  // Apply filters
-  const applyFilters = useCallback((items: WorkflowTemplate[], filters: ActiveFilter[]) => {
+  // Only the categories that have templates, in a stable order.
+  const categories = useMemo(() => [...new Set(templates.map((template) => template.category))].sort(), [templates]);
+
+  const filterConfigs: FilterConfig[] = useMemo(
+    () => [
+      {
+        field: 'category',
+        label: t.weldconnect.templatesClient.columnCategory,
+        options: categories.map((category) => ({ value: category, label: categoryLabel(tt, category) })),
+        getDisplayValue: (value) => categoryLabel(tt, value),
+      },
+    ],
+    [t, tt, categories],
+  );
+
+  const groupConfigs: GroupConfig<WorkflowTemplateItem>[] = useMemo(
+    () => [
+      { id: 'workspace', label: tt.groups.workspace, filter: (item) => item.source === 'workspace', sortOrder: 1 },
+      { id: 'builtin', label: tt.groups.builtin, filter: (item) => item.source === 'builtin', sortOrder: 2 },
+    ],
+    [tt],
+  );
+
+  const applyFilters = useCallback((items: WorkflowTemplateItem[], filters: ActiveFilter[]) => {
     let result = items;
-    filters.forEach(filter => {
-      if (!filter.operator || !filter.value) return;
-      if (filter.field === 'category') {
-        result = filter.operator === 'is'
-          ? result.filter(t => t.category === filter.value)
-          : result.filter(t => t.category !== filter.value);
-      }
-    });
+    for (const filter of filters) {
+      if (!filter.operator || !filter.value || filter.field !== 'category') continue;
+      result =
+        filter.operator === 'is'
+          ? result.filter((item) => item.category === filter.value)
+          : result.filter((item) => item.category !== filter.value);
+    }
     return result;
   }, []);
 
-  const getCategoryLabel = useCallback((categoryId: string) => {
-    return CATEGORIES.find(c => c.id === categoryId)?.label || categoryId;
-  }, [CATEGORIES]);
+  const headerColumns: HeaderColumn[] = useMemo(
+    () => [
+      { id: 'name', header: t.weldconnect.templatesClient.columnTemplate, width: 'min-w-[280px] flex-1' },
+      { id: 'category', header: t.weldconnect.templatesClient.columnCategory, width: 'w-[140px]' },
+      { id: 'steps', header: tt.columnSteps, width: 'w-[90px]' },
+      { id: 'setup', header: tt.columnSetup, width: 'w-[200px]' },
+      { id: 'action', header: '', width: 'w-[130px] flex-shrink-0' },
+    ],
+    [t, tt],
+  );
 
-  // Header columns — mirrors the row layout in renderTemplateRow
-  const headerColumns: HeaderColumn[] = useMemo(() => [
-    { id: 'name', header: t.weldconnect.templatesClient.columnTemplate, width: 'min-w-[280px] flex-1' },
-    { id: 'category', header: t.weldconnect.templatesClient.columnCategory, width: 'w-[140px]' },
-    { id: 'steps', header: t.weldconnect.components.workflowTemplate.steps, width: 'w-[90px]' },
-    { id: 'objects', header: t.weldconnect.components.workflowTemplate.requiredObjects, width: 'w-[180px]' },
-    { id: 'integrations', header: t.weldconnect.components.workflowTemplate.requiredIntegrations, width: 'w-[180px]' },
-    { id: 'action', header: '', width: 'w-[110px] flex-shrink-0' },
-  ], [t]);
-
-  // Render a single template row (tasks-page style)
-  const renderTemplateRow = useCallback(
-    (template: WorkflowTemplate) => {
-      const Icon = template.icon || FileText;
-      const stepCount = template.workflowSteps?.length ?? template.steps ?? 0;
+  const renderRow = useCallback(
+    (template: WorkflowTemplateItem) => {
+      const Icon = templateIcon(template.icon);
+      const toSetUp = setupCount(template);
       return (
         <div
           key={template.id}
           className="relative flex items-center gap-4 py-3 px-4 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group border-b border-gray-200/70 dark:border-border"
         >
-          {/* Icon + Name + Description */}
           <button
             type="button"
-            onClick={() => setSelectedTemplate(template)}
+            onClick={() => setSelected(template)}
             className="min-w-[280px] flex-1 flex items-center gap-3 min-w-0 text-left after:absolute after:inset-0 after:content-['']"
           >
             <span className="w-8 h-8 rounded-md bg-muted/50 dark:bg-secondary border border-border flex items-center justify-center flex-shrink-0">
               <Icon className="h-4 w-4 text-muted-foreground" />
             </span>
             <span className="flex flex-col min-w-0">
-              <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
-                {template.name}
-              </span>
-              <span className="text-xs text-muted-foreground truncate">
-                {template.description}
-              </span>
+              <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{template.name}</span>
+              <span className="text-xs text-muted-foreground truncate">{template.description}</span>
             </span>
           </button>
 
-          {/* Category badge */}
           <div className="w-[140px]">
             <span className="-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-muted text-foreground">
-              {getCategoryLabel(template.category)}
+              {categoryLabel(tt, template.category)}
             </span>
           </div>
 
-          {/* Steps count */}
           <div className="w-[90px]">
             <span className="-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none font-mono tabular-nums bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground border border-gray-200 dark:border-border">
-              {stepCount}
+              {template.steps.length}
             </span>
           </div>
 
-          {/* Required Objects */}
-          <div className="w-[180px] flex items-center gap-1 flex-wrap">
-            {template.requiredObjects && template.requiredObjects.length > 0 ? (
-              template.requiredObjects.slice(0, 2).map((obj) => (
-                <span
-                  key={obj}
-                  className="inline-flex items-center gap-1 h-[22px] px-1.5 rounded text-[11px] font-medium leading-none bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
-                >
-                  <Database className="h-3 w-3" />
-                  <span className="truncate max-w-[80px]">{obj}</span>
-                </span>
-              ))
+          <div className="w-[200px] flex items-center gap-1 flex-wrap">
+            {toSetUp > 0 ? (
+              <span className="inline-flex items-center h-[22px] px-1.5 rounded text-[11px] font-medium leading-none bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                {tt.needsSetupCount.replace('{count}', String(toSetUp))}
+              </span>
             ) : (
-              <span className="text-gray-400">—</span>
+              <span className="text-xs text-muted-foreground">{tt.readyToUse}</span>
             )}
-            {template.requiredObjects && template.requiredObjects.length > 2 && (
-              <span className="text-[11px] text-muted-foreground">+{template.requiredObjects.length - 2}</span>
-            )}
+            {template.requiredIntegrations.map((provider) => (
+              <span
+                key={provider}
+                className="inline-flex items-center gap-1 h-[22px] px-1.5 rounded text-[11px] font-medium leading-none bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
+              >
+                <Plug className="h-3 w-3" />
+                {integrationLabel(tt, provider)}
+              </span>
+            ))}
           </div>
 
-          {/* Required Integrations */}
-          <div className="w-[180px] flex items-center gap-1 flex-wrap">
-            {template.requiredIntegrations && template.requiredIntegrations.length > 0 ? (
-              template.requiredIntegrations.slice(0, 2).map((integration) => (
-                <span
-                  key={integration}
-                  className="inline-flex items-center gap-1 h-[22px] px-1.5 rounded text-[11px] font-medium leading-none bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
-                >
-                  <Plug className="h-3 w-3" />
-                  <span className="truncate max-w-[80px]">{integration}</span>
-                </span>
-              ))
-            ) : (
-              <span className="text-gray-400">—</span>
-            )}
-            {template.requiredIntegrations && template.requiredIntegrations.length > 2 && (
-              <span className="text-[11px] text-muted-foreground">+{template.requiredIntegrations.length - 2}</span>
-            )}
-          </div>
-
-          {/* Use button */}
-          <div className="relative z-10 w-[110px] flex-shrink-0 flex justify-end">
+          <div className="relative z-10 w-[130px] flex-shrink-0 flex justify-end">
             <Button
               size="sm"
               variant="outline"
               className="h-7 text-xs md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-              onClick={() => setSelectedTemplate(template)}
+              onClick={() => setSelected(template)}
             >
-              {t.weldconnect.templates.useTemplate}
+              {tt.useTemplate}
             </Button>
           </div>
         </div>
       );
     },
-    [getCategoryLabel, t],
+    [tt],
   );
+
+  if (error && !data) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+        <p className="text-sm text-muted-foreground">{tt.loadFailed}</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          {tt.retry}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <>
-      <EntityList<WorkflowTemplate>
-        items={builtInTemplates}
-        isLoading={false}
+      <EntityList<WorkflowTemplateItem>
+        items={templates}
+        isLoading={isLoading}
         headerColumns={headerColumns}
         filters={filterConfigs}
         groups={groupConfigs}
         applyFilters={applyFilters}
-        renderRow={renderTemplateRow}
-        searchPlaceholder={t.weldconnect.templates.searchPlaceholder}
+        renderRow={renderRow}
+        searchPlaceholder={tt.searchPlaceholder}
         searchFields={['name', 'description']}
         noResultsState={{
           icon: (
@@ -238,138 +240,48 @@ export function TemplatesClient() {
               </svg>
             </EmptyStateIllustration>
           ),
-          title: t.weldconnect.templates.noTemplates,
-          description: t.weldconnect.templates.noTemplatesDescription,
+          title: tt.noTemplates,
+          description: tt.noTemplatesDescription,
         }}
       />
 
-      {/* Template Detail Dialog */}
-      {selectedTemplate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center animate-in fade-in duration-200">
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-hidden="true"
-            className="fixed inset-0 cursor-default bg-black/50 animate-in fade-in duration-200"
-            onClick={() => setSelectedTemplate(null)}
-          />
-          <div className="relative bg-background rounded-xl shadow-lg w-[1000px] max-w-[95vw] h-[700px] max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200">
-            {/* Header */}
-            <header className="flex h-12 shrink-0 items-center justify-end border-b px-4">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 -mr-2"
-                onClick={() => setSelectedTemplate(null)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </header>
+      <TemplateDetailDialog
+        template={selected}
+        onClose={() => setSelected(null)}
+        onUse={handleUse}
+        isUsing={createFromTemplate.isPending}
+        canEdit={canEdit}
+        canDelete={canDelete}
+        onEditDetails={setEditing}
+        onDelete={setDeleting}
+      />
 
-            {/* Content */}
-            <div className="flex flex-1 min-h-0">
-              {/* Left - Workflow Preview */}
-              <div className="flex-1 border-r overflow-hidden relative">
-                <LargeWorkflowPreview template={selectedTemplate} />
-              </div>
+      <TemplateFormDialog
+        open={!!editing}
+        onOpenChange={(open) => !open && setEditing(null)}
+        title={tt.editDialog.title}
+        initialValues={{
+          name: editing?.name ?? '',
+          description: editing?.description ?? '',
+          category: toTemplateCategory(editing?.category),
+        }}
+        submitLabel={tt.editDialog.save}
+        submittingLabel={tt.editDialog.saving}
+        isSubmitting={updateTemplate.isPending}
+        onSubmit={handleSaveDetails}
+      />
 
-              {/* Right - Details Panel */}
-              <div className="w-80 flex flex-col">
-                <div className="flex-1 overflow-y-auto p-4">
-                  {/* Category Badge */}
-                  <Badge variant="secondary" className="mb-3 rounded-sm">
-                    {getCategoryLabel(selectedTemplate.category)}
-                  </Badge>
-
-                  {/* Title */}
-                  <h2 className="text-lg font-semibold mb-2">{selectedTemplate.name}</h2>
-
-                  {/* Description */}
-                  <p className="text-sm text-muted-foreground mb-6">
-                    {selectedTemplate.longDescription || selectedTemplate.description}
-                  </p>
-
-                  {/* Required Objects */}
-                  {selectedTemplate.requiredObjects && selectedTemplate.requiredObjects.length > 0 && (
-                    <div className="mb-4">
-                      <h3 className="text-sm font-medium mb-2">{t.weldconnect.components.workflowTemplate.requiredObjects}</h3>
-                      <div className="flex flex-col gap-2">
-                        {selectedTemplate.requiredObjects.map((obj) => (
-                          <div
-                            key={obj}
-                            className="flex items-center gap-2 text-xs text-muted-foreground"
-                          >
-                            <div className="w-5 h-5 rounded-[4.5px] bg-amber-100 flex items-center justify-center">
-                              <Database className="w-3 h-3 text-amber-600" />
-                            </div>
-                            <span>{obj}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Required Integrations */}
-                  {selectedTemplate.requiredIntegrations && selectedTemplate.requiredIntegrations.length > 0 && (
-                    <div className="mb-4">
-                      <h3 className="text-sm font-medium mb-2">{t.weldconnect.components.workflowTemplate.requiredIntegrations}</h3>
-                      <div className="flex flex-col gap-2">
-                        {selectedTemplate.requiredIntegrations.map((integration) => (
-                          <div
-                            key={integration}
-                            className="flex items-center gap-2 text-xs text-muted-foreground"
-                          >
-                            <div className="w-5 h-5 rounded-[4.5px] bg-blue-100 flex items-center justify-center">
-                              <Plug className="w-3 h-3 text-blue-600" />
-                            </div>
-                            <span>{integration}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Steps Overview */}
-                  <div className="mb-4">
-                    <h3 className="text-sm font-medium mb-2">{t.weldconnect.components.workflowTemplate.steps}</h3>
-                    <div className="flex flex-col gap-1.5">
-                      {selectedTemplate.workflowSteps.map((step) => {
-                        const StepIcon = stepActionIcons[step.type] || FileText;
-                        const iconColor = stepIconColors[step.type] || { bg: 'bg-gray-100', text: 'text-gray-600' };
-                        return (
-                          <div
-                            key={step.id}
-                            className="flex items-center gap-2 text-xs text-muted-foreground"
-                          >
-                            <div className={cn('w-5 h-5 rounded-[4.5px] flex items-center justify-center shrink-0', iconColor.bg)}>
-                              <StepIcon className={cn('w-3 h-3', iconColor.text)} />
-                            </div>
-                            <span className="truncate">{step.name}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="p-4 border-t">
-                  <Button
-                    className="w-full rounded-[9px]"
-                    onClick={() => {
-                      handleUseTemplate(selectedTemplate);
-                      setSelectedTemplate(null);
-                    }}
-                    disabled={isCreating}
-                  >
-                    {isCreating ? t.weldconnect.templates.creating : t.weldconnect.templates.useTemplate}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={tt.deleteDialog.title}
+        description={tt.deleteDialog.description.replace('{name}', deleting?.name ?? '')}
+        confirmLabel={tt.deleteDialog.confirm}
+        cancelLabel={t.common.actions.cancel}
+        variant="destructive"
+        loading={deleteTemplate.isPending}
+        onConfirm={handleDelete}
+      />
     </>
   );
 }

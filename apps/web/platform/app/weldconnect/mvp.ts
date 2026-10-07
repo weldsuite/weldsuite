@@ -58,16 +58,16 @@ export const WELDCONNECT_ACTION_TYPES = [
  * the sidebar (hooks/use-weldconnect-sidebar-items.tsx) and, for anyone who
  * still lands on them through an old link, marked with a notice saying that
  * nothing set up there can be used in a workflow yet. Integrations and
- * connectors are not listed: Settings links to them and they work on their own.
+ * connectors are not listed: they work on their own (Integrations is in the
+ * sidebar's Library group, Connectors under Settings → Integrations).
  *
  * `actions` / `triggers` are static reference catalogs (connect-api
  * workflow-dashboard/static-catalogs.ts) with placeholder fields (premium,
  * usage counts, inputs/outputs) nothing backs; the editor already offers
- * exactly what can go live. `templates` is being rebuilt server-side.
+ * exactly what can go live.
  */
 export const WELDCONNECT_OUT_OF_SCOPE_SECTIONS = [
   'actions',
-  'templates',
   'triggers',
 ] as const;
 

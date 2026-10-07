@@ -59,11 +59,18 @@ Roughly in the recommended order.
 2. **In review (`feat/weldconnect-flow-p2`).** **"After another workflow" trigger** (`workflow_complete`). The engine
    implements it (`workflow-worker/src/engine/workflow-complete.ts`); unlock it
    in the gate and give the editor a workflow picker.
-3. **Server-backed templates.** The gallery
-   (`app/weldconnect/templates/components/templates-client.tsx`) shows
-   hardcoded client templates from `components/workflow-template-dialog.tsx`;
-   list `workflow_templates` from the API instead, ship a starter set built only
-   from steps that work, and unhide the section.
+3. **In review (`feat/weldconnect-templates`).** **Server-backed templates.** The
+   gallery lists `GET /api/workflow-templates`: the workspace's own templates
+   ("Save as template" on a workflow's Settings page) plus nine built-in starter
+   templates. Built-ins are code, not rows
+   (`@weldsuite/app-api-client/schemas/weldconnect-templates`, ids `builtin_*`,
+   read-only, texts in `@weldsuite/i18n/locales/<locale>/weldconnect-templates`),
+   so there is no per-workspace seeding or migration; every one passes the
+   activation gate except for the fields it marks as setup
+   (`connect-api/src/services/built-in-workflow-templates.test.ts`). "Use
+   template" (`POST /:id/use`) creates a draft through `createWorkflow` (webhook
+   triggers provisioned, branches intact) and opens the editor. The old
+   client-side catalog and the editor's template dialog are gone.
 4. **AI steps** (`ai_generate`, `ai_classify`): unlock, meter against the
    workspace credit wallet (`@weldsuite/core-domain/ai-billing`), and enforce
    the per-run credit cap. `settings.maxCreditsPerRun` is stored but nothing
