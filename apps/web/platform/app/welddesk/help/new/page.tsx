@@ -959,7 +959,7 @@ export default function NewHelpArticlePage() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!title.trim()) {
       toast.error(th.titleRequired, {
         description: th.titleRequiredDesc,
@@ -1001,7 +1001,7 @@ export default function NewHelpArticlePage() {
     );
   };
 
-  const handlePublish = async () => {
+  const handlePublish = () => {
     if (!title.trim()) {
       toast.error(th.titleRequired, {
         description: th.titleRequiredDesc,

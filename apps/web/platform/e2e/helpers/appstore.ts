@@ -222,7 +222,7 @@ export async function mockAppStore(
     return route.fulfill({ status: 204, body: '' });
   };
 
-  await page.route('**/settings/**', async (route) => {
+  await page.route('**/settings/**', (route) => {
     const req = route.request();
     // Only intercept API calls — never document navigations.
     const rt = req.resourceType();

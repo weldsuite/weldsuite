@@ -631,7 +631,7 @@ export function useCrmSidebarItems(isActive: boolean): {
     setRenameListDialogOpen(true);
   };
 
-  const handlePipelineImport = async () => {
+  const handlePipelineImport = () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';

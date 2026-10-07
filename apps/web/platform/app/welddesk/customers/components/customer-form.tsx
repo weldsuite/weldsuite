@@ -35,7 +35,7 @@ export function CustomerForm() {
     status: "active" as "active" | "inactive",
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.firstName || !formData.lastName || !formData.email) {

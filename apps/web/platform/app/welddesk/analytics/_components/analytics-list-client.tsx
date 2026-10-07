@@ -53,7 +53,7 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
     setCreateDialogOpen(true);
   };
 
-  const handleCreateReport = async () => {
+  const handleCreateReport = () => {
     if (!newReportTitle.trim()) return;
 
     const title = newReportTitle.trim();
@@ -80,7 +80,7 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
     );
   };
 
-  const handleDeleteReport = async (reportId: string) => {
+  const handleDeleteReport = (reportId: string) => {
     deleteReportMutation.mutate(reportId, {
       onSuccess: (result) => {
         if (result.success) {
@@ -93,7 +93,7 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
     });
   };
 
-  const handleDuplicateReport = async (item: AnalyticsReport) => {
+  const handleDuplicateReport = (item: AnalyticsReport) => {
     duplicateReportMutation.mutate(item.id, {
       onSuccess: (result) => {
         if (result.success && result.data) {

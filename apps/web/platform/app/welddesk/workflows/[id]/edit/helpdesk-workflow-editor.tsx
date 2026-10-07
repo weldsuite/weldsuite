@@ -410,9 +410,7 @@ export function HelpdeskWorkflowEditorClient({
     // AI has been removed platform-wide — sub-agent definitions can no
     // longer be saved. Short-circuit instead of hitting the removed
     // `/ai/agent-definitions` endpoint.
-    mutationFn: async () => {
-      throw new Error('AI is currently unavailable');
-    },
+    mutationFn: () => Promise.reject(new Error('AI is currently unavailable')),
     onError: () => toast.error(tw.failedToUpdateAgent),
   });
 

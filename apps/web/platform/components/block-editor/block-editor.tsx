@@ -398,8 +398,8 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
         {/* / trigger — only expose DOCX-safe block types, swap icons for Lucide */}
         <SuggestionMenuController
           triggerCharacter="/"
-          getItems={async (query) =>
-            filterSuggestionItems(
+          getItems={(query) =>
+            Promise.resolve(filterSuggestionItems(
               getDefaultReactSlashMenuItems(editor)
                 .filter((item) => DOCX_SAFE_SLASH_TITLES.has(item.title))
                 .map((item) => {
@@ -409,7 +409,7 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
                     : item;
                 }),
               query,
-            )
+            ))
           }
         />
         {/* Comment threads (collaborative): floating composer when adding a

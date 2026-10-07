@@ -1108,7 +1108,7 @@ export function TasksClient({
     }
   }, [pendingParentCompletionIds, inlineSubtasks, tasks, projectId, t.projects.tasks.failedToCompleteTask]);
 
-  const deleteTask = useCallback(async (taskId: string) => {
+  const deleteTask = useCallback((taskId: string) => {
     startTransition(async () => {
       const result = await tasksApi.delete(projectId, taskId);
 

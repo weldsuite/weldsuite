@@ -166,7 +166,7 @@ function MeetingChatDataProvider({
 
   // ── Callbacks ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(
-    async (text: string, attachments?: ChatMessageAttachment[], html?: string) => {
+    (text: string, attachments?: ChatMessageAttachment[], html?: string) => {
       const ready = (attachments ?? []).filter((a) => !a._uploading && a.url);
       if (!text.trim() && ready.length === 0) return;
       sendMessageMutate({

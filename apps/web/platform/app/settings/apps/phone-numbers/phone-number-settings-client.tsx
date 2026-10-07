@@ -315,7 +315,7 @@ export function PhoneNumberSettingsClient({
   const isSaving = updateMutation.isPending;
   const isDeleting = deleteMutation.isPending;
 
-  const handleSetDefault = async (numberId: string) => {
+  const handleSetDefault = (numberId: string) => {
     setDefaultMutation.mutate(numberId, {
       onSuccess: () => {
         toast.success(tp.messages.defaultUpdated);
@@ -335,7 +335,7 @@ export function PhoneNumberSettingsClient({
     setIsEditDialogOpen(true);
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = () => {
     if (!selectedNumber) return;
     updateMutation.mutate(
       { id: selectedNumber.id, data: { displayName: editDisplayName || null } },
@@ -356,7 +356,7 @@ export function PhoneNumberSettingsClient({
     );
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!selectedNumber) return;
     deleteMutation.mutate(selectedNumber.id, {
       onSuccess: () => {

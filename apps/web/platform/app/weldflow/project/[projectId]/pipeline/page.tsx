@@ -1027,7 +1027,7 @@ const PipelinePage = () => {
     await stagesApi.reorder(projectId, ordered.map(s => s.id));
   }, [canWrite, projectId]);
 
-  const handleMoveStageLeft = async (stageId: string) => {
+  const handleMoveStageLeft = (stageId: string) => {
     if (!canWrite) return;
     const idx = columns.findIndex(col => col.id === stageId);
     if (idx <= 0) return;
@@ -1037,7 +1037,7 @@ const PipelinePage = () => {
     void persistStageOrder(next);
   };
 
-  const handleMoveStageRight = async (stageId: string) => {
+  const handleMoveStageRight = (stageId: string) => {
     if (!canWrite) return;
     const idx = columns.findIndex(col => col.id === stageId);
     if (idx >= columns.length - 1) return;

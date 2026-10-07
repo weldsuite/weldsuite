@@ -41,7 +41,7 @@ export default function NewAnnouncementClient() {
   const [expiresAt, setExpiresAt] = useState('');
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     // Validate required fields
     if (!title || !content) {
       toast.error(ta.validationError, {

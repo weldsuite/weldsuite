@@ -1553,8 +1553,8 @@ export const tablesApi = {
   // (e.g. listPosition). Kept on the API (with its real signature) so future
   // call sites can adopt it without an API shape change.
    
-  reorderTables: async (_projectId: string, _fileIds: string[]) =>
-    ({ success: true, data: { reordered: true } }) as ApiResponse<{ reordered: boolean }>,
+  reorderTables: (_projectId: string, _fileIds: string[]) =>
+    Promise.resolve({ success: true, data: { reordered: true } } as ApiResponse<{ reordered: boolean }>),
 };
 
 // ============ ANALYTICS ============

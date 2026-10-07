@@ -2229,7 +2229,7 @@ export function InboxClient({
     return colors[index];
   };
 
-  const handleMarkAsRead = async (messageId: string) => {
+  const handleMarkAsRead = (messageId: string) => {
     markReadMutation.mutate({ id: messageId, isRead: true }, {
       onSuccess: () => {
         setMessages(prev => prev.map(msg =>
@@ -2239,7 +2239,7 @@ export function InboxClient({
     });
   };
 
-  const handleToggleStar = async (messageId: string) => {
+  const handleToggleStar = (messageId: string) => {
     const msg = messages.find(m => m.id === messageId);
     const newStarredState = !msg?.isStarred;
 
@@ -2286,7 +2286,7 @@ export function InboxClient({
     }
   };
 
-  const handleDelete = async (messageId: string) => {
+  const handleDelete = (messageId: string) => {
     moveToTrashMutation.mutate(messageId, {
       onSuccess: () => {
         setMessages(prev => prev.filter(msg => msg.id !== messageId));
@@ -2299,7 +2299,7 @@ export function InboxClient({
     });
   };
 
-  const handleArchive = async (messageId: string) => {
+  const handleArchive = (messageId: string) => {
     archiveMessageMutation.mutate(messageId, {
       onSuccess: () => {
         setMessages(prev => prev.filter(msg => msg.id !== messageId));
@@ -2413,7 +2413,7 @@ export function InboxClient({
     }
 
     if (!email.isRead) {
-      void handleMarkAsRead(email.id);
+      handleMarkAsRead(email.id);
     }
   };
 

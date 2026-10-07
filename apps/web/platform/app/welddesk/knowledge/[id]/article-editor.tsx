@@ -102,7 +102,7 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
     setArticle(prev => ({ ...prev, title: text }));
   }, []);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(() => {
     setIsSaving(true);
 
     try {
