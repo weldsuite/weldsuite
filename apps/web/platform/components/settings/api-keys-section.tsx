@@ -158,7 +158,7 @@ type PermissionEntity = typeof PERMISSION_ENTITIES[number]
 function groupPermissionEntities(): { group: string; entities: PermissionEntity[] }[] {
   const groups: { group: string; entities: PermissionEntity[] }[] = [];
   for (const entity of PERMISSION_ENTITIES) {
-    const last = groups[groups.length - 1];
+    const last = groups.at(-1);
     if (last && last.group === entity.group) {
       last.entities.push(entity);
     } else {

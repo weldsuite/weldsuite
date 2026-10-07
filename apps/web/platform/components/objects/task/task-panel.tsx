@@ -709,8 +709,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       }
     >
       {task && (
-        <>
-          <TaskDetailContent
+        <TaskDetailContent
             task={task}
             taskId={task.id}
             projectId={projectId ?? undefined}
@@ -739,7 +738,6 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onAddDependency={projectId ? handleAddDependency : undefined}
             onRemoveDependency={projectId ? handleRemoveDependency : undefined}
           />
-        </>
       )}
     </EntityDetailView>
   );

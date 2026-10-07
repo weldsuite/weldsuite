@@ -1,14 +1,14 @@
 import { slugifyWithCounter } from '@sindresorhus/slugify'
 import glob from 'fast-glob'
-import * as fs from 'fs'
+import * as fs from 'node:fs'
 import { toString } from 'mdast-util-to-string'
-import * as path from 'path'
+import * as path from 'node:path'
 import { remark } from 'remark'
 import remarkMdx from 'remark-mdx'
 import { createLoader } from 'simple-functional-loader'
 import { filter } from 'unist-util-filter'
 import { SKIP, visit } from 'unist-util-visit'
-import * as url from 'url'
+import * as url from 'node:url'
 
 const __filename = url.fileURLToPath(import.meta.url)
 const processor = remark().use(remarkMdx).use(extractSections)
@@ -77,7 +77,7 @@ export default function Search(nextConfig = {}) {
 
             // When this file is imported within the application
             // the following module is loaded:
-            return `
+            return String.raw`
               import FlexSearch from 'flexsearch'
 
               let sectionIndex = new FlexSearch.Document({
@@ -101,7 +101,7 @@ export default function Search(nextConfig = {}) {
                   sectionIndex.add({
                     url: url + (hash ? ('#' + hash) : ''),
                     title,
-                    content: [title, ...content].join('\\n'),
+                    content: [title, ...content].join('\n'),
                     pageTitle: hash ? sections[0][0] : undefined,
                   })
                 }

@@ -738,7 +738,7 @@ export async function stampDeskMessageEmailId(
   const [message] = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1);
   if (!message) return;
   const metadata: DeskMessageMetadata = {
-    ...(message.metadata ?? {}),
+    ...message.metadata,
     emailMessageId: rfcId,
   };
   await db.update(messages).set({ metadata }).where(eq(messages.id, messageId));

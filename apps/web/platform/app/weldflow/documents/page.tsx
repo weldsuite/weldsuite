@@ -1091,7 +1091,7 @@ export default function DocumentsPage() {
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style>{`
+      <style>{String.raw`
         [contenteditable]:focus {
           outline: none;
         }
@@ -1104,7 +1104,7 @@ export default function DocumentsPage() {
           text-align: left;
         }
         [contenteditable] p:empty:before {
-          content: '\\200B';
+          content: '\200B';
         }
         [contenteditable] h1 {
           font-size: 2em;

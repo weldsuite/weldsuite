@@ -89,7 +89,7 @@ export async function provisionWorkspaceDatabase(
       DATABASE_ENCRYPTION_KEY: env.DATABASE_ENCRYPTION_KEY,
     });
 
-    const latestSchemaVersion = MIGRATION_JOURNAL[MIGRATION_JOURNAL.length - 1]?.tag;
+    const latestSchemaVersion = MIGRATION_JOURNAL.at(-1)?.tag;
 
     const result = await provisioningService.provisionForWorkspace(
       masterDb,

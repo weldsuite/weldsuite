@@ -525,7 +525,7 @@ app.post(
         const context: ExecutionContext = {
           ...rawContext,
           variables: rawContext.variables ?? {},
-          stepOutputs: { ...(rawContext.stepOutputs ?? {}), [stepId]: response },
+          stepOutputs: { ...rawContext.stepOutputs, [stepId]: response },
         };
         delete context.waitingForInput;
 

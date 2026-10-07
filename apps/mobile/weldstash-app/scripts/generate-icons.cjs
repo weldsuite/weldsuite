@@ -15,8 +15,8 @@
  *   node scripts/generate-icons.cjs
  */
 const sharp = require('sharp');
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 
 const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(ROOT, 'assets', 'images');

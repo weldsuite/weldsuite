@@ -239,7 +239,7 @@ export function replaceVariables(
     }
 
     // Escape special regex characters in the variable string
-    const escapedVariable = variable.fullMatch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedVariable = variable.fullMatch.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
     result = result.replace(new RegExp(escapedVariable, 'g'), replacement);
   });
 

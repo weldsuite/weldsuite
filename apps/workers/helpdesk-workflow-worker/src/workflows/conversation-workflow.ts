@@ -456,7 +456,7 @@ export class ConversationWorkflow extends WorkflowEntrypoint<Env, ConversationWo
     // Process resume
     const resumePayload = resumeEvent.payload as Record<string, unknown>;
     stepResults[wfStep.id] = {
-      ...(stepResults[wfStep.id] as Record<string, unknown> || {}),
+      ...stepResults[wfStep.id] as Record<string, unknown>,
       ...resumePayload,
       responded: true,
     };

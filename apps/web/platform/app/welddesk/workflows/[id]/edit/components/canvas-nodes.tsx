@@ -596,8 +596,8 @@ export function PathNode({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const isSelected = selectedNodeId === path.id;
-  const lastStepId = path.steps.length > 0 ? path.steps[path.steps.length - 1].step.id : path.id;
-  const lastStepType = path.steps.length > 0 ? path.steps[path.steps.length - 1].step.type : undefined;
+  const lastStepId = path.steps.length > 0 ? path.steps.at(-1)!.step.id : path.id;
+  const lastStepType = path.steps.length > 0 ? path.steps.at(-1)!.step.type : undefined;
   const lastStepIsTerminal = lastStepType ? isTerminalAction(lastStepType) : false;
 
   const pathLabel = path.id === 'root' ? cn_.rootPath : path.sourceLabel;

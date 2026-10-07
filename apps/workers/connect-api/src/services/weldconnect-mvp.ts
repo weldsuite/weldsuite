@@ -175,7 +175,7 @@ export function isValidTimezone(timezone: string): boolean {
 }
 
 /** Condition operators that compare against nothing (see ConditionForm). */
-const NO_VALUE_OPERATORS = ['isEmpty', 'isNotEmpty'];
+const NO_VALUE_OPERATORS = new Set(['isEmpty', 'isNotEmpty']);
 
 function isPositive(value: unknown): boolean {
   return Number(value) > 0;
@@ -218,7 +218,7 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   condition: (c) => {
     const missing: string[] = [];
     if (isBlank(c.field)) missing.push('field');
-    if (!Array.isArray(c.branches) && !NO_VALUE_OPERATORS.includes(String(c.operator ?? 'eq')) && isBlank(c.value)) {
+    if (!Array.isArray(c.branches) && !NO_VALUE_OPERATORS.has(String(c.operator ?? 'eq')) && isBlank(c.value)) {
       missing.push('value');
     }
     return missing;

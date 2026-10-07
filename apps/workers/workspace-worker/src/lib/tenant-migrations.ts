@@ -11,7 +11,7 @@ import { MIGRATION_JOURNAL, MIGRATION_SQL, MIGRATION_HASHES } from '../generated
 
 /** Latest bundled migration tag — the pool's target schema version. */
 export const LATEST_SCHEMA_VERSION: string | undefined =
-  MIGRATION_JOURNAL[MIGRATION_JOURNAL.length - 1]?.tag;
+  MIGRATION_JOURNAL.at(-1)?.tag;
 
 export interface ApplyMigrationsOptions {
   /**

@@ -172,7 +172,7 @@ function generateKenmerk(): string {
 
 /** Pull a tag's text content out of a SOAP response without a full XML parser. */
 function extractTag(xml: string, localName: string): string | null {
-  const match = new RegExp(`<(?:[\\w-]+:)?${localName}[^>]*>([^<]*)</(?:[\\w-]+:)?${localName}>`).exec(xml);
+  const match = new RegExp(String.raw`<(?:[\w-]+:)?${localName}[^>]*>([^<]*)</(?:[\w-]+:)?${localName}>`).exec(xml);
   return match ? match[1].trim() : null;
 }
 

@@ -244,11 +244,11 @@ app.patch('/:id', requirePermission('activities:update'), zValidator('json', upd
     const [existing] = await db.select().from(t).where(eq(t.id, id)).limit(1);
     if (!existing) return error.notFound(c, 'Transcription', id);
     if (!(await canAccessActivity(c, existing.activityId))) return error.forbidden(c, ACTIVITY_DENIED);
-    const dateFields = ['processingStartedAt', 'processingCompletedAt'];
+    const dateFields = new Set(['processingStartedAt', 'processingCompletedAt']);
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) {
       if (v !== undefined) {
-        update[k] = dateFields.includes(k) ? (v ? new Date(v as string) : null) : v;
+        update[k] = dateFields.has(k) ? (v ? new Date(v as string) : null) : v;
       }
     }
     await db.update(t).set(update).where(eq(t.id, id));

@@ -62,11 +62,11 @@ function ChangeDetails({ changes, label }: Readonly<{ changes: Record<string, { 
   );
 }
 
-const HIDDEN_DATA_KEYS = ['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId'];
+const HIDDEN_DATA_KEYS = new Set(['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId']);
 
 function DataSnapshot({ data, label }: Readonly<{ data: Record<string, unknown>; label: string }>) {
   const entries = Object.entries(data).filter(
-    ([key, value]) => !HIDDEN_DATA_KEYS.includes(key) && value !== null && value !== undefined && value !== '',
+    ([key, value]) => !HIDDEN_DATA_KEYS.has(key) && value !== null && value !== undefined && value !== '',
   );
   if (entries.length === 0) return null;
 
@@ -249,7 +249,7 @@ export default function ActivitySettingsPage() {
                   !!log.data &&
                   Object.entries(log.data).some(
                     ([key, value]) =>
-                      !HIDDEN_DATA_KEYS.includes(key) &&
+                      !HIDDEN_DATA_KEYS.has(key) &&
                       value !== null &&
                       value !== undefined &&
                       value !== '',

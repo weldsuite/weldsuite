@@ -123,7 +123,7 @@ export function groupMessagesIntoThreads(messages: MailMessageRow[]): ThreadSumm
     );
 
     const firstMessage = threadMessages[0];
-    const latestMessage = threadMessages[threadMessages.length - 1];
+    const latestMessage = threadMessages.at(-1)!;
 
     // Collect unique participants (senders)
     const participantSet = new Set<string>();

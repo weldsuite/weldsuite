@@ -140,7 +140,7 @@ function ChatMessageRow({
   nextMessage: ChatMessage | undefined;
 }>) {
   const lines = message.text.split('\n');
-  const lastLine = lines[lines.length - 1];
+  const lastLine = lines.at(-1)!;
   const shouldPutTimestampBelow = lastLine.length > 60;
 
   const shouldGroupWithNext = isGroupedPair(nextMessage, message);
@@ -383,7 +383,7 @@ function groupNotesByMonth(notes: InternalNote[]) {
     const year = d.getFullYear();
     const monthLabel = format(d, 'MMMM');
     const key = `${year}-${monthLabel}`;
-    const last = groups[groups.length - 1];
+    const last = groups.at(-1);
     if (last && `${last.year}-${last.label}` === key) {
       last.notes.push(note);
     } else {
@@ -399,7 +399,7 @@ function ActivityTimeline({ notes }: Readonly<{ notes: InternalNote[] }>) {
   // Group month-groups by year
   const yearGroups: { year: number; months: typeof groups }[] = [];
   for (const g of groups) {
-    const last = yearGroups[yearGroups.length - 1];
+    const last = yearGroups.at(-1);
     if (last && last.year === g.year) {
       last.months.push(g);
     } else {

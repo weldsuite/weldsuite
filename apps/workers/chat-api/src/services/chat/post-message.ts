@@ -230,7 +230,7 @@ async function resolveInlineReply(
     content: replySnippet(target.content),
     hasAttachments: target.hasAttachments,
   };
-  metadata = { ...(metadata ?? {}), replyTo };
+  metadata = { ...metadata, replyTo };
   if (input.replyMention !== false && target.authorId !== authorUserId) {
     replyMentions.push(target.authorId);
   }

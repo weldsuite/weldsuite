@@ -111,7 +111,7 @@ async function listMeetingChat(c: AppContext, meetingId: string, before: string 
     return success(c, {
       messages: withHtml,
       hasMore,
-      nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
+      nextCursor: hasMore && data.length > 0 ? data.at(-1)!.id : null,
     });
   } catch (err) {
     console.error('[app-api/meeting-messages] chat list failed:', err);

@@ -77,7 +77,7 @@ async function attemptDelivery(
         'Content-Type': 'application/json',
         'X-WeldSuite-Signature': signature,
         'X-WeldSuite-Event': eventType,
-        ...(webhook.headers ?? {}),
+        ...webhook.headers,
       },
       body,
       signal: controller.signal,

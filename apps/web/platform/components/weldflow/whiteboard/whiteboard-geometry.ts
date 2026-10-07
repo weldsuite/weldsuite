@@ -1315,7 +1315,7 @@ export function simplifyPath(points: Point[]): Point[] {
     }
   }
 
-  simplified.push(points[points.length - 1]);
+  simplified.push(points.at(-1)!);
   return simplified;
 }
 

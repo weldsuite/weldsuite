@@ -442,7 +442,7 @@ const WeeklyHeader: FC = () => {
     for (let i = 0; i < totalWeeks; i++) {
       const weekStart = addWeeks(startDate, i);
       const year = weekStart.getFullYear();
-      const last = out[out.length - 1];
+      const last = out.at(-1);
       if (last && last.year === year) {
         last.weeks += 1;
       } else {

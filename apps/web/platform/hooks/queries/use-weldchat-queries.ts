@@ -812,7 +812,7 @@ function withReactionToggled(
   hasReacted: boolean,
   userId: string | null | undefined,
 ): ChatMessage {
-  const reactions: Record<string, string[]> = { ...(msg.reactions || {}) };
+  const reactions: Record<string, string[]> = { ...msg.reactions };
   const users = reactions[emoji] ? [...reactions[emoji]] : [];
   if (hasReacted) {
     reactions[emoji] = users.filter((id) => id !== userId);

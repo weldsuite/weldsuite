@@ -242,7 +242,7 @@ export function GridToolbar({
                   {column.visible !== false ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4 text-muted-foreground" />}
                 </DropdownMenuItem>
               ))}
-              {columns.filter(c => c.visible === false).length > 0 && (
+              {columns.some(c => c.visible === false) && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

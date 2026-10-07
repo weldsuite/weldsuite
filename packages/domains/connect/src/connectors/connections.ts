@@ -489,7 +489,7 @@ export async function finishSyncRun(args: {
     .where(eq(schema.connectorConnections.id, args.connectionId))
     .limit(1);
 
-  const patch: Record<string, string | null> = { ...(args.syncWatermarksPatch ?? {}) };
+  const patch: Record<string, string | null> = { ...args.syncWatermarksPatch };
   if (
     args.watermark
     && args.status === 'success'

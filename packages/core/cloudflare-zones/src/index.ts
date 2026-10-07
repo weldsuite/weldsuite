@@ -97,10 +97,10 @@ function toZoneError(err: unknown): CloudflareZoneError {
     code: Number(e.code ?? 0),
     message: String(e.message ?? ''),
   }));
-  const codes = cfErrors.map((e) => e.code);
+  const codes = new Set(cfErrors.map((e) => e.code));
   const first = cfErrors[0]?.message;
 
-  if (codes.includes(1061) || codes.includes(1100)) {
+  if (codes.has(1061) || codes.has(1100)) {
     return new CloudflareZoneError(
       'DOMAIN_IN_ANOTHER_CF_ACCOUNT',
       first ?? 'Domain is already in use on Cloudflare',
@@ -116,7 +116,7 @@ function toZoneError(err: unknown): CloudflareZoneError {
       err.status,
     );
   }
-  if (codes.includes(1049) || codes.includes(1097)) {
+  if (codes.has(1049) || codes.has(1097)) {
     return new CloudflareZoneError(
       'INVALID_DOMAIN',
       first ?? 'Invalid domain',
@@ -294,7 +294,7 @@ function quoteTxtContent(content: string): string {
   // strip spaces that are themselves the record value.
   const trimmed = content.trim();
   if (isQuotedTxtContent(trimmed)) return trimmed;
-  return `"${content.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+  return `"${content.replaceAll('\\', '\\\\').replaceAll('"', String.raw`\"`)}"`;
 }
 
 /**
@@ -307,7 +307,7 @@ function unwrapTxtContent(content: string): string {
   const trimmed = content.trim();
   if (!isQuotedTxtContent(trimmed)) return content;
   return [...trimmed.matchAll(/"((?:[^"\\]|\\.)*)"/g)]
-    .map((m) => m[1]!.replaceAll('\\"', '"').replaceAll('\\\\', '\\'))
+    .map((m) => m[1]!.replaceAll(String.raw`\"`, '"').replaceAll('\\\\', '\\'))
     .join('');
 }
 

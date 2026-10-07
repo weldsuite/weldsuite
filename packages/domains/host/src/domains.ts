@@ -1452,7 +1452,7 @@ export async function renewDomain(
   if (result.status === 'pending') {
     // Keep registration rtrProcessId intact; store renewal process under metadata.
     const metadata = {
-      ...(domain.metadata ?? {}),
+      ...domain.metadata,
       rtrRenewalProcessId: String(result.processId),
     };
     patch.metadata = metadata;
@@ -1461,7 +1461,7 @@ export async function renewDomain(
     patch.expiresAt = result.domain.expiresAt ? new Date(result.domain.expiresAt) : domain.expiresAt;
     patch.registrarStatus = result.domain.status.join(',');
     patch.registrarSyncedAt = new Date();
-    const metadata = { ...(domain.metadata ?? {}) };
+    const metadata = { ...domain.metadata };
     delete metadata.rtrRenewalProcessId;
     patch.metadata = metadata;
   }
@@ -1508,7 +1508,7 @@ export async function pollRenewalProcess(
 
   if (outcome === 'failed') {
     const metadata = {
-      ...(domain.metadata ?? {}),
+      ...domain.metadata,
       error: 'Registrar renewal process failed',
     };
     const [updated] = await db
@@ -1525,7 +1525,7 @@ export async function pollRenewalProcess(
 
   try {
     const remote = await rtr.getDomain(domain.fullDomain);
-    const metadata = { ...(domain.metadata ?? {}) };
+    const metadata = { ...domain.metadata };
     delete metadata.rtrRenewalProcessId;
     const [updated] = await db
       .update(hostDomains)

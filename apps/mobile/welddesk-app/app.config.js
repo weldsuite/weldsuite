@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugins');
 
 // Match weldflow/weldchat. Fresh prebuild defaults to 2 GiB heap / 512 MiB

@@ -406,7 +406,7 @@ function listQuery<F extends { page?: number; pageSize?: number }>(
         `Page through with the cursor returned by the previous response instead.`,
     );
   }
-  return buildQueryString({ ...rest, ...(extra ?? {}), limit: pageSize });
+  return buildQueryString({ ...rest, ...extra, limit: pageSize });
 }
 
 // ============================================================================

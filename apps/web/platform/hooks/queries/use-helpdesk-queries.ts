@@ -78,7 +78,7 @@ const DEFAULT_PAGE_SIZE = 25;
  * page 2+ must switch to cursor traversal (`pagination.cursor`).
  */
 function toAppApiQuery(filters?: Record<string, unknown>): Record<string, unknown> {
-  const qs: Record<string, unknown> = { ...(filters ?? {}) };
+  const qs: Record<string, unknown> = { ...filters };
   const pageSize = qs.pageSize ?? qs.limit;
   delete qs.pageSize;
   delete qs.page;
@@ -242,7 +242,7 @@ export function useTickets(filters?: {
       const client = await getClient();
       // Map legacy `pageSize` → app-api `limit`. `page` is ignored; callers
       // that need to paginate further should switch to cursor-based traversal.
-      const qs: Record<string, unknown> = { ...(filters ?? {}) };
+      const qs: Record<string, unknown> = { ...filters };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;
@@ -562,7 +562,7 @@ export function useHelpdeskReviews(filters?: {
     queryKey: helpdeskKeys.reviewList(filters),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { ...(filters ?? {}) };
+      const qs: Record<string, unknown> = { ...filters };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;

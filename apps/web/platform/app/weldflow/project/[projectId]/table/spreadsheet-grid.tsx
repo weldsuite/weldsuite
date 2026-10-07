@@ -391,7 +391,7 @@ function detectFillSequence(seedValues: string[]): { last: number; diff: number 
   const diff = nums[1] - nums[0];
   if (diff === 0) return null;
   if (!nums.every((n, i) => i === 0 || n - nums[i - 1] === diff)) return null;
-  return { last: nums[nums.length - 1], diff };
+  return { last: nums.at(-1)!, diff };
 }
 
 function collectFillSeedValues(

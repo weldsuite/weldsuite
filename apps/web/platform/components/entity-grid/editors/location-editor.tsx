@@ -17,7 +17,7 @@ function normalizeToString(value: unknown): string {
 
 function parseStringToParts(input: string): LocationParts {
   const parts = input.split(',').map((p) => p.trim()).filter(Boolean);
-  if (parts.length >= 3) return { city: parts[0], state: parts[1], country: parts[parts.length - 1] };
+  if (parts.length >= 3) return { city: parts[0], state: parts[1], country: parts.at(-1)! };
   if (parts.length === 2) return { city: parts[0], state: '', country: parts[1] };
   if (parts.length === 1) return { city: parts[0], state: '', country: '' };
   return { city: '', state: '', country: '' };
@@ -33,14 +33,14 @@ function suggestionToParts(s: {
     case 'country':
       return { city: '', state: '', country: s.name };
     case 'region':
-      return { city: '', state: s.name, country: place[place.length - 1] || '' };
+      return { city: '', state: s.name, country: place.at(-1) || '' };
     case 'place':
-      if (place.length >= 2) return { city: s.name, state: place[0], country: place[place.length - 1] };
+      if (place.length >= 2) return { city: s.name, state: place[0], country: place.at(-1)! };
       if (place.length === 1) return { city: s.name, state: '', country: place[0] };
       return { city: s.name, state: '', country: '' };
     case 'address':
     case 'poi':
-      if (place.length >= 3) return { city: place[0], state: place[1], country: place[place.length - 1] };
+      if (place.length >= 3) return { city: place[0], state: place[1], country: place.at(-1)! };
       if (place.length === 2) return { city: place[0], state: '', country: place[1] };
       if (place.length === 1) return { city: place[0], state: '', country: '' };
       return { city: s.name, state: '', country: '' };

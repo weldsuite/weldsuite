@@ -332,7 +332,7 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
       if (wrappers.length && sel) {
         const range = document.createRange();
         range.setStartBefore(wrappers[0]);
-        range.setEndAfter(wrappers[wrappers.length - 1]);
+        range.setEndAfter(wrappers.at(-1)!);
         sel.removeAllRanges();
         sel.addRange(range);
         savedRange.current = range.cloneRange();

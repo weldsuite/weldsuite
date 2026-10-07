@@ -394,8 +394,7 @@ export default function NotificationsSettingsPage() {
 
       {/* Admin: Daily Task Digest Configuration */}
       {isAdmin && (
-        <>
-          <div className="!mt-16">
+        <div className="!mt-16">
             <h2 className="text-lg font-semibold">{ts.digest.title}</h2>
             <p className="text-sm text-muted-foreground mt-0.5 mb-4">
               {ts.digest.description}
@@ -592,7 +591,6 @@ export default function NotificationsSettingsPage() {
               )}
             </div>
           </div>
-        </>
       )}
     </div>
   );

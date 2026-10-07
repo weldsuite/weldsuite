@@ -296,7 +296,7 @@ export function GuestMeetingRoom({
       if (!t?.transcript || !t.peerId) return;
       setCaptions((prev) => {
         const next = [...prev];
-        const last = next[next.length - 1];
+        const last = next.at(-1);
         if (last && last.peerId === t.peerId && last.isPartial) {
           next[next.length - 1] = {
             ...last,

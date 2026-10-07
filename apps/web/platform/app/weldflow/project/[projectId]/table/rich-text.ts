@@ -53,7 +53,7 @@ export function normalizeRuns(runs: RichTextRun[]): RichTextRun[] {
   const result: RichTextRun[] = [];
   for (const run of runs) {
     if (!run.text) continue;
-    const last = result[result.length - 1];
+    const last = result.at(-1);
     if (last && runFormatsEqual(getRunFormat(last), getRunFormat(run))) {
       last.text += run.text;
     } else {
@@ -128,7 +128,7 @@ export function getFormatAtOffset(runs: RichTextRun[], offset: number): Partial<
     pos += run.text.length;
     if (pos > offset) return getRunFormat(run);
   }
-  if (runs.length > 0) return getRunFormat(runs[runs.length - 1]);
+  if (runs.length > 0) return getRunFormat(runs.at(-1)!);
   return {};
 }
 
@@ -251,7 +251,7 @@ export function htmlToRuns(html: string): RichTextRun[] {
 
     // Block-level elements add newline (except the root body)
     if (tag === 'div' || tag === 'p') {
-      const lastRun = runs[runs.length - 1];
+      const lastRun = runs.at(-1);
       if (lastRun && !lastRun.text.endsWith('\n')) {
         runs.push({ text: '\n' });
       }
@@ -264,7 +264,7 @@ export function htmlToRuns(html: string): RichTextRun[] {
 
   // Remove trailing newline
   if (runs.length > 0) {
-    const last = runs[runs.length - 1];
+    const last = runs.at(-1)!;
     if (last.text === '\n' && runs.length > 1) runs.pop();
     else if (last.text.endsWith('\n')) last.text = last.text.slice(0, -1);
   }

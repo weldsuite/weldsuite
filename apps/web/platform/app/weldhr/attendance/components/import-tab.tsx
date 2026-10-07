@@ -13,7 +13,7 @@ import type { ImportHrAttendanceInput } from '@weldsuite/app-api-client/schemas/
 import { useImportHrAttendance } from '@/hooks/queries/use-weldhr-queries';
 import { ErrorBanner, errorMessage } from '../../components/shared';
 
-const STATUSES: HrAttendanceStatus[] = ['present', 'late', 'absent', 'excused', 'remote', 'half_day'];
+const STATUSES: Set<HrAttendanceStatus> = new Set(['present', 'late', 'absent', 'excused', 'remote', 'half_day']);
 const TEMPLATE = 'employee,date,clock_in,clock_out,break_minutes,status,notes\njane@example.com,2025-01-06,09:00,17:30,30,,\n';
 
 type ParsedRow = {
@@ -78,7 +78,7 @@ function parseBreakMinutes(breakRaw: string, errors: string[]): number | undefin
 
 function parseStatus(statusRaw: string, errors: string[]): HrAttendanceStatus | undefined {
   if (!statusRaw) return undefined;
-  if (!STATUSES.includes(statusRaw as HrAttendanceStatus)) {
+  if (!STATUSES.has(statusRaw as HrAttendanceStatus)) {
     errors.push('invalidStatus');
     return undefined;
   }

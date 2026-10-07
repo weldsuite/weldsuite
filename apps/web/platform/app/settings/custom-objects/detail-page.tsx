@@ -38,7 +38,7 @@ import {
 import { LinksSection } from './links-section';
 
 /** Field types eligible to serve as a record's display name. */
-const TITLE_ELIGIBLE = ['text', 'email', 'url', 'phone'];
+const TITLE_ELIGIBLE = new Set(['text', 'email', 'url', 'phone']);
 
 /**
  * WeldObjects object builder.
@@ -115,7 +115,7 @@ export default function CustomObjectDetailPage() {
     }
   }
 
-  const titleCandidates = (fields ?? []).filter((f) => TITLE_ELIGIBLE.includes(f.fieldType));
+  const titleCandidates = (fields ?? []).filter((f) => TITLE_ELIGIBLE.has(f.fieldType));
   const canActivate = (fields?.length ?? 0) > 0;
 
   return (

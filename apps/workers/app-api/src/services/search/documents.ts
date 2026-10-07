@@ -103,7 +103,7 @@ function defineLoader<T extends { id: string }>(config: {
       return {
         documents: rows.map(build).filter((d): d is IndexableDocument => d !== null),
         rowsRead: rows.length,
-        lastScannedId: rows.length > 0 ? rows[rows.length - 1]!.id : null,
+        lastScannedId: rows.length > 0 ? rows.at(-1)!.id : null,
       };
     },
   };

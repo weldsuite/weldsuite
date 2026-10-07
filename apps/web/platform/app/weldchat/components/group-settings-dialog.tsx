@@ -213,7 +213,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
     (prefs?.uiPreferences as UiPreferencesWithGroupFilters | undefined)?.weldchatGroupFilters ?? {};
   const saved = target ? allFilters[target.groupKey] : undefined;
 
-  const [draft, setDraft] = useState<GroupFilterSettings>({ ...DEFAULT_GROUP_FILTER, ...(saved ?? {}) });
+  const [draft, setDraft] = useState<GroupFilterSettings>({ ...DEFAULT_GROUP_FILTER, ...saved });
   const [search, setSearch] = useState('');
   const [section, setSection] = useState<SectionKey>(isSingleChannel ? 'general' : 'visibility');
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
@@ -268,7 +268,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
   );
 
   const baseline = useMemo<GroupFilterSettings>(
-    () => ({ ...DEFAULT_GROUP_FILTER, ...(saved ?? {}) }),
+    () => ({ ...DEFAULT_GROUP_FILTER, ...saved }),
     [saved],
   );
   const prefsDirty = useMemo(() => {
@@ -278,7 +278,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
 
   useEffect(() => {
     if (open) {
-      setDraft({ ...DEFAULT_GROUP_FILTER, ...(saved ?? {}) });
+      setDraft({ ...DEFAULT_GROUP_FILTER, ...saved });
       setSearch('');
       setSection(isSingleChannel ? 'general' : 'visibility');
       setChannelDraft(channelBaseline);
@@ -353,7 +353,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
         updatePrefs(
           {
             uiPreferences: {
-              ...(prefs?.uiPreferences ?? {}),
+              ...prefs?.uiPreferences,
               weldchatGroupFilters: next,
             } as UiPreferencesWithGroupFilters,
           },
@@ -391,7 +391,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
     updatePrefs(
       {
         uiPreferences: {
-          ...(prefs?.uiPreferences ?? {}),
+          ...prefs?.uiPreferences,
           weldchatGroupFilters: next,
         } as UiPreferencesWithGroupFilters,
       },
@@ -1323,8 +1323,8 @@ function QuietHoursSection({
     setDraft((d) => ({
       ...d,
       quietHoursSchedule: {
-        ...(d.quietHoursSchedule ?? {}),
-        [day]: { ...DEFAULT_DAY_SCHEDULE, ...(d.quietHoursSchedule?.[day] ?? {}), ...patch },
+        ...d.quietHoursSchedule,
+        [day]: { ...DEFAULT_DAY_SCHEDULE, ...d.quietHoursSchedule?.[day], ...patch },
       },
     }));
   };

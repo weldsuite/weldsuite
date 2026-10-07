@@ -190,7 +190,7 @@ app.put('/tickets', requirePermission('settings:update'), zValidator('json', tic
   try {
     const [existing] = await db.select().from(helpdeskSettings).where(isNull(helpdeskSettings.deletedAt)).limit(1);
     if (existing) {
-      const merged = { ...((existing.tickets as unknown as Record<string, unknown>) ?? {}), ...data } as TicketSettings;
+      const merged = { ...(existing.tickets as unknown as Record<string, unknown>), ...data } as TicketSettings;
       await db.update(helpdeskSettings).set({ tickets: merged, updatedAt: new Date() }).where(eq(helpdeskSettings.id, existing.id));
       publishEntityEvent({ c, entityType: 'helpdesk_settings', entityId: existing.id, action: 'updated', data: { tickets: data } });
     } else {
@@ -216,7 +216,7 @@ app.put('/satisfaction', requirePermission('settings:update'), zValidator('json'
   try {
     const [existing] = await db.select().from(helpdeskSettings).where(isNull(helpdeskSettings.deletedAt)).limit(1);
     if (existing) {
-      const merged = { ...((existing.satisfaction as unknown as Record<string, unknown>) ?? {}), ...data } as SatisfactionSettings;
+      const merged = { ...(existing.satisfaction as unknown as Record<string, unknown>), ...data } as SatisfactionSettings;
       await db.update(helpdeskSettings).set({ satisfaction: merged, updatedAt: new Date() }).where(eq(helpdeskSettings.id, existing.id));
       publishEntityEvent({ c, entityType: 'helpdesk_settings', entityId: existing.id, action: 'updated', data: { satisfaction: data } });
     } else {

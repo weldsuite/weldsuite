@@ -365,7 +365,7 @@ export function BookingClient({
               ? await getPersonalAvailableSlots(bookingPage.id, dateStr)
               : await getAvailableSlots(workspaceSlug, bookingPage.id, dateStr);
           if (cancelled) return;
-          if (result.filter((s) => s.available).length > 0) {
+          if (result.some((s) => s.available)) {
             dispatch({ type: 'select-date', date });
             dispatch({ type: 'set-slots', date, slots: result });
             dispatch({ type: 'finish-initial' });

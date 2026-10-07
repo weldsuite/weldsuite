@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fs = require('node:fs');
 const html = fs.readFileSync('apps/web/platform/dist/stats.html', 'utf8');
 const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
 const dataScript = scripts[1][1];

@@ -42,7 +42,7 @@ function isEmptyObject(value: unknown): boolean {
 }
 
 /** Operators that compare a single value vs. operators that don't need one. */
-const NO_VALUE_OPERATORS = ['isEmpty', 'isNotEmpty'];
+const NO_VALUE_OPERATORS = new Set(['isEmpty', 'isNotEmpty']);
 
 /**
  * Required-field rules per action type. Action types that accept any config
@@ -124,7 +124,7 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     { labelKey: 'fieldToCheck', isMissing: (c) => isBlank(c.field) },
     {
       labelKey: 'value',
-      isMissing: (c) => !NO_VALUE_OPERATORS.includes(String(c.operator ?? 'eq')) && isBlank(c.value),
+      isMissing: (c) => !NO_VALUE_OPERATORS.has(String(c.operator ?? 'eq')) && isBlank(c.value),
     },
   ],
   loop: [{ labelKey: 'itemsToIterate', isMissing: (c) => isBlank(c.items) }],

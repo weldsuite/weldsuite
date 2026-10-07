@@ -205,12 +205,10 @@ export default function ConversationListClient({ initialConversations, accessTok
     const conv = conversations.find(c => c.id === item.id);
     if (!conv) return null;
     return (
-      <>
-        <ContextMenuItem onClick={() => handleToggleStar(item.id)}>
+      <ContextMenuItem onClick={() => handleToggleStar(item.id)}>
           <Star className={cn('h-4 w-4 mr-0.5', conv.isStarred && 'text-yellow-500 fill-yellow-500')} />
           {conv.isStarred ? ti.unstar : ti.star}
         </ContextMenuItem>
-      </>
     );
   };
 

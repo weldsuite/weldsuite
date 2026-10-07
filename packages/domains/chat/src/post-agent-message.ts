@@ -131,7 +131,7 @@ export async function postAgentChatMessage(
     mentions: allMentions.length > 0 ? allMentions : null,
     mentionsEveryone: false,
     metadata: {
-      ...(input.metadata ?? {}),
+      ...input.metadata,
       agentHop: hop,
       invokerUserId,
     },

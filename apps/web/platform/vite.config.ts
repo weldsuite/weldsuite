@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
-import path from 'path';
+import path from 'node:path';
 
 function i18nChunkName(normalizedId: string): string | undefined {
   const i18nMatch = normalizedId.match(/\/packages\/i18n\/src\/locales\/(en|nl|fr)\/([^/]+)\.ts/);

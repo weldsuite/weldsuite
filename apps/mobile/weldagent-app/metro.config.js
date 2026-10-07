@@ -1,5 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config');
-const path = require('path');
+const path = require('node:path');
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, '../../..');
@@ -19,7 +19,7 @@ config.resolver.nodeModulesPaths = [
 config.resolver.disableHierarchicalLookup = true;
 config.resolver.unstable_enablePackageExports = true;
 
-const fs = require('fs');
+const fs = require('node:fs');
 
 function resolvePackageDir(pkg) {
   const local = path.join(projectRoot, 'node_modules', pkg);

@@ -7,8 +7,8 @@ import postgres from 'postgres';
 import { eq, isNotNull, and } from 'drizzle-orm';
 import { workspaces } from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Get current directory for resolving migration path
 const __filename = fileURLToPath(import.meta.url);

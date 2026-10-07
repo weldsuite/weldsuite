@@ -35,7 +35,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', clerkMiddleware());
 
 // Only these schemes are allowed as return targets to prevent ticket exfil.
-const ALLOWED_RETURN_SCHEMES = ['weldsuite:'];
+const ALLOWED_RETURN_SCHEMES = new Set(['weldsuite:']);
 
 const TICKET_TTL_SECONDS = 120;
 
@@ -48,7 +48,7 @@ app.post('/ticket', zValidator('json', createDesktopTicketInput), async (c) => {
 
   try {
     const parsed = new URL(returnTo);
-    if (!ALLOWED_RETURN_SCHEMES.includes(parsed.protocol)) {
+    if (!ALLOWED_RETURN_SCHEMES.has(parsed.protocol)) {
       return error.badRequest(c, 'return_to scheme not allowed');
     }
   } catch {

@@ -72,7 +72,7 @@ function rehypeAddMDXExports(getExports) {
       for (let node of tree.children) {
         if (
           node.type === 'mdxjsEsm' &&
-          new RegExp(`export\\s+const\\s+${name}\\s*=`).test(node.value)
+          new RegExp(String.raw`export\s+const\s+${name}\s*=`).test(node.value)
         ) {
           return
         }

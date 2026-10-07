@@ -137,7 +137,7 @@ export function FilterLocationInput({
               }
               // Backspace on an empty query removes the last chip.
               if (e.key === 'Backspace' && query === '' && value.length > 0) {
-                remove(value[value.length - 1]!);
+                remove(value.at(-1)!);
               }
             }}
             onFocus={() => {

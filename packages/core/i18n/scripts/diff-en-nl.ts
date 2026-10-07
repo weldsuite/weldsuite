@@ -57,7 +57,7 @@ console.log(`TOTAL marker keys:  ${totalMarker}`);
 console.log(`Namespaces with gaps: ${summary.length} / ${namespaces.length}`);
 
 // Emit machine-readable JSON for the workflow to consume
-import { writeFileSync } from 'fs';
+import { writeFileSync } from 'node:fs';
 writeFileSync(
   new URL('./en-nl-gap.json', import.meta.url),
   JSON.stringify({ totalMissing, totalMarker, summary, detail }, null, 2)
