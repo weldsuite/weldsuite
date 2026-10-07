@@ -72,13 +72,11 @@ export function SlideshowBlock({
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [, setProgress] = useState(0);
 
   const goToNext = useCallback(() => {
     if (isTransitioning) return;
     setIsTransitioning(true);
     setCurrentSlide((prev) => (prev + 1) % slides.length);
-    setProgress(0);
     setTimeout(() => setIsTransitioning(false), 600);
   }, [isTransitioning, slides.length]);
 
@@ -86,7 +84,6 @@ export function SlideshowBlock({
     if (isTransitioning) return;
     setIsTransitioning(true);
     setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
-    setProgress(0);
     setTimeout(() => setIsTransitioning(false), 600);
   }, [isTransitioning, slides.length]);
 
@@ -94,32 +91,20 @@ export function SlideshowBlock({
     if (isTransitioning || index === currentSlide) return;
     setIsTransitioning(true);
     setCurrentSlide(index);
-    setProgress(0);
     setTimeout(() => setIsTransitioning(false), 600);
   }, [isTransitioning, currentSlide]);
 
-  // Autoplay effect with progress
+  // Autoplay effect
   useEffect(() => {
     if (!autoplay || isPaused || slides.length <= 1 || isEditing) {
-      setProgress(0);
       return;
     }
-
-    const progressInterval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          return 0;
-        }
-        return prev + (100 / (autoplaySpeed / 50));
-      });
-    }, 50);
 
     const slideInterval = setInterval(() => {
       goToNext();
     }, autoplaySpeed);
 
     return () => {
-      clearInterval(progressInterval);
       clearInterval(slideInterval);
     };
   }, [autoplay, autoplaySpeed, isPaused, slides.length, goToNext, isEditing]);

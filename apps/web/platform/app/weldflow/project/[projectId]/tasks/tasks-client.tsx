@@ -23,7 +23,6 @@ import {
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { type SubtaskItem } from '@/components/task-detail';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import {
@@ -696,10 +695,6 @@ export function TasksClient({
   // Drag reorder is disabled in entity mode (tasks span multiple projects — there
   // is no single position sequence to persist) and whenever a sort is active.
   const isDragEnabled = !isEntityMode && canWrite && !sortState;
-  // `subtasks` currently has no reader (the detail panel is a global overlay with
-  // its own data fetching — see `useObjectPanel` above) but `handleSaveSubtask`
-  // still optimistically appends to it below, so the setter stays live.
-  const [, setSubtasks] = useState<SubtaskItem[]>([]);
 
   const handleSaveSubtask = useCallback(async (data: {
     title: string;
@@ -732,15 +727,6 @@ export function TasksClient({
     if (result.success && result.data) {
       const subtaskData = result.data as RawApiTask;
       const newSubtask = transformApiTask(subtaskData);
-      setSubtasks(prev => [...prev, {
-        id: subtaskData.id,
-        title: subtaskData.title,
-        status: subtaskData.status,
-        assignee: subtaskData.assignee || null,
-        // New row is a direct child of the currently-selected task, which is
-        // the implicit root of the detail panel's subtask tree — depth 0.
-        depth: 0,
-      }]);
       // Seed / append to the list-view inline cache so the tree picks up the
       // new child immediately, regardless of depth.
       setInlineSubtasks(prev => ({

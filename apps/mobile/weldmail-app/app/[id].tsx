@@ -783,7 +783,6 @@ function EmailDetailContent({ email, setEmail, threadMessages, bodyLoading, curr
   const { openCompose: openComposeOverlay } = useComposeOverlay();
 
   const [showEmailDetails, setShowEmailDetails] = useState(false);
-  const [, setIsScrolled] = useState(false);
   const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(new Set());
   const [snoozePickerVisible, setSnoozePickerVisible] = useState(false);
   const [labelPickerVisible, setLabelPickerVisible] = useState(false);
@@ -931,8 +930,6 @@ function EmailDetailContent({ email, setEmail, threadMessages, bodyLoading, curr
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        onScroll={(e) => setIsScrolled(e.nativeEvent.contentOffset.y > 0)}
-        scrollEventThrottle={16}
       >
         {/* Subject heading — large, below the header bar */}
         <View style={styles.subjectBlock}>

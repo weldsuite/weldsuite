@@ -185,7 +185,6 @@ export function ProductCard({
 }: Readonly<ProductCardProps>) {
   const [isHovered, setIsHovered] = React.useState(false);
   const [isFavorited, setIsFavorited] = React.useState(false);
-  const [, setCurrentImageIndex] = React.useState(0);
 
   const productImages = toImageUrls(product.images);
   const imageUrl = product.imageUrl || productImages[0];
@@ -310,7 +309,6 @@ export function ProductCard({
               <button
                 key={idx}
                 className="w-6 h-6 rounded-full border-2 border-gray-200 hover:border-black transition-colors overflow-hidden"
-                onMouseEnter={() => setCurrentImageIndex(idx)}
                 aria-label={`View color variant ${idx + 1}`}
               >
                 <img src={img} alt="" className="w-full h-full object-cover" />
