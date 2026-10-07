@@ -1,7 +1,7 @@
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useRouter } from '@/lib/router';
-import { Star, Pin, Archive, Trash2, Tag, Clock, Calendar as CalendarIcon, X, Reply, ReplyAll, Forward, Paperclip, Search, ExternalLink, FolderInput, BellOff, ListChecks, Eye, EyeOff, Inbox, AlertCircle } from 'lucide-react';
+import { Star, Pin, Archive, Trash2, Tag, Clock, Calendar as CalendarIcon, X, Reply, ReplyAll, Forward, Paperclip, Search, ExternalLink, FolderInput, BellOff, ListChecks, Eye, EyeOff, Inbox, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -31,7 +31,7 @@ import { format, addHours, addDays, setHours, setMinutes, nextMonday } from 'dat
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { mailApi } from '../lib/api-client';
-import { buildMailItemUrl, buildMailListUrl, currentMailHref } from '../lib/mail-urls';
+import { buildMailItemUrl, currentMailHref } from '../lib/mail-urls';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import type { ThreadSummary } from '../lib/thread-utils';
 import { ConversationList, type ConversationItem } from '@/components/shared/conversation-list';
@@ -289,10 +289,12 @@ interface MessageListProps {
   folder: string;
   selectedMessageId?: string;
   error?: string | null;
-  currentPage?: number;
-  totalPages?: number;
   totalCount?: number;
-  pageSize?: number;
+  /** When set, the list loads more threads as the sentinel scrolls into view. */
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+  onFetchNextPage?: () => void;
+  isLoading?: boolean;
   isUnified?: boolean;
   onThreadLabelUpdate?: (threadId: string, labelName: string, action: 'add' | 'remove') => void;
   /**
@@ -310,10 +312,11 @@ export function MessageList({
   folder,
   selectedMessageId: propSelectedMessageId,
   error,
-  currentPage = 1,
-  totalPages = 1,
   totalCount = 0,
-  pageSize = 25,
+  hasNextPage = false,
+  isFetchingNextPage = false,
+  onFetchNextPage,
+  isLoading = false,
   isUnified = false,
   onThreadLabelUpdate,
   onServerFilterChange,
@@ -327,6 +330,7 @@ export function MessageList({
   const archiveThread = useArchiveThread();
   const trashThread = useTrashThread();
   const markThreadAsRead = useMarkThreadAsRead();
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const markThreadAsSpam = useMarkThreadAsSpam();
   const updateThreadLabels = useUpdateThreadLabels();
   const archiveMessage = useArchiveMailMessage();
@@ -358,9 +362,6 @@ export function MessageList({
     [mailLabels]
   );
 
-  const getPageUrl = (page: number) =>
-    buildMailListUrl({ isUnified, accountId, folder, page });
-
   const getMessageUrl = (messageId: string, threadAccountId?: string) =>
     buildMailItemUrl({
       isUnified,
@@ -368,8 +369,23 @@ export function MessageList({
       folder,
       messageId,
       threadAccountId,
-      page: currentPage,
     });
+
+  // Infinite scroll: load the next page when the sentinel enters view.
+  useEffect(() => {
+    const node = loadMoreSentinelRef.current;
+    if (!node || !onFetchNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          onFetchNextPage();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [onFetchNextPage, hasNextPage, isFetchingNextPage]);
 
   // Gmail-style filter state. `draftFilter` is the in-progress form; it is
   // applied to the visible list (`appliedFilter`) only when the user clicks Search.
@@ -1254,11 +1270,23 @@ export function MessageList({
       contextMenuItems={displayMode === 'threads' ? getThreadContextMenu : getMessageContextMenu}
       onLabelDrop={handleLabelDrop}
       error={error}
-      currentPage={currentPage}
-      totalPages={totalPages}
       totalCount={totalCount}
-      pageSize={pageSize}
-      getPageUrl={getPageUrl}
+      isLoading={isLoading}
+      footer={
+        hasNextPage ? (
+          <div
+            ref={loadMoreSentinelRef}
+            className="flex items-center justify-center py-4 text-xs text-muted-foreground"
+          >
+            {isFetchingNextPage && (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />
+                {t.mail.messageList.loadingMore}
+              </>
+            )}
+          </div>
+        ) : null
+      }
       emptyMessage={displayMode === 'threads' ? t.mail.messageList.noConversationsFound : t.mail.messageList.noMessagesFound}
     />
   );

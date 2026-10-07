@@ -34,7 +34,7 @@ describe('Notification inbox refresh', () => {
   });
 
   it('replays the last notification response on cold start with a handled-id guard', () => {
-    expect(notificationContext).toMatch(/getLastNotificationResponseAsync/);
+    expect(notificationContext).toMatch(/getLastNotificationResponse\(\)/);
     expect(notificationContext).toMatch(/HANDLED_NOTIF_KEY/);
     expect(notificationContext).toMatch(/AsyncStorage\.getItem\(HANDLED_NOTIF_KEY\)/);
     // Must not leave the old "do not replay" early-exit comment as the only path.

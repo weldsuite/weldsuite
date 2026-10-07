@@ -155,7 +155,7 @@ export default function HomeTab() {
   useEffect(() => {
     let cancelled = false;
     networkLoadedRef.current = false;
-    (async () => {
+    void (async () => {
       const [cachedChannels, cachedSections] = await Promise.all([
         cache.getChannels(),
         cache.getSections(),
@@ -187,8 +187,8 @@ export default function HomeTab() {
       networkLoadedRef.current = true;
       setChannels(nextChannels);
       setSections(nextSections);
-      cache.setChannels(nextChannels);
-      cache.setSections(nextSections);
+      void cache.setChannels(nextChannels);
+      void cache.setSections(nextSections);
     } catch (err) {
       // Keep any cached / previously-loaded list instead of clearing to [].
       console.error('Failed to load data:', err);
@@ -206,7 +206,7 @@ export default function HomeTab() {
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      void loadData();
     }, [loadData])
   );
 
@@ -223,7 +223,7 @@ export default function HomeTab() {
     const matches = (ch: Channel) =>
       !query || (ch.name || '').toLowerCase().includes(query);
 
-    const regular = channels.filter(matches);
+    const regular = channels.filter((ch) => matches(ch));
     const groups: { id: string; name: string; channels: Channel[] }[] = sections.map((s) => ({
       id: s.id,
       name: s.name,

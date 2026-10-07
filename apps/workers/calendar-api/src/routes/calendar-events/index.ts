@@ -9,7 +9,9 @@
  *   - attendee mail — Resend invite / reschedule / cancellation with an ICS
  *     attachment, driven by `?sendNotification=true` on update + delete (the
  *     "notify attendees?" dialog) and sent unconditionally on create, cancel
- *     and reschedule, exactly as the legacy route did;
+ *     and reschedule, exactly as the legacy route did. An update that sets the
+ *     status to cancelled mails the cancellation, one that takes it off
+ *     cancelled mails that the event is on again;
  *   - `/:id/reschedule` + `/:id/unpin`, which also pin/unpin the linked
  *     `tasks.startDate` (or the CRM activity's start/end) so the
  *     auto-scheduler respects a hand-picked slot;
@@ -613,6 +615,10 @@ const emailKey = (a: AttendeeLike): string => (a.email ?? '').trim().toLowerCase
  * removed ones a cancellation, and the rest an update when the time moved
  * (reschedule) or a join link was added or changed (update). Nobody is mailed
  * twice for one edit.
+ *
+ * An edit that cancels the event, or puts a cancelled one back on, is one
+ * message to everyone instead: the cancellation, or "it is on again" with the
+ * event as it now reads.
  */
 async function notifyAttendeesOfUpdate(
   c: EventContext,
@@ -648,6 +654,35 @@ async function notifyAttendeesOfUpdate(
   const added = newAttendees.filter((a) => emailKey(a) && !oldKeys.has(emailKey(a)));
   const removed = oldAttendees.filter((a) => emailKey(a) && !newKeys.has(emailKey(a)));
   const retained = newAttendees.filter((a) => oldKeys.has(emailKey(a)));
+
+  const wasCancelled = existing.status === 'cancelled';
+  const isCancelled = (data.status ?? existing.status) === 'cancelled';
+
+  // Cancelled by this edit: whoever was on the event hears it is off, the same
+  // mail a delete sends. Guests added in the same edit were never invited.
+  if (isCancelled && !wasCancelled) {
+    queueMail(c, {
+      kind: 'cancel',
+      organizer,
+      attendees: oldAttendees,
+      event: mailEventFromRow(existing),
+    });
+    return;
+  }
+
+  // Back on: everyone on the event now is told, with its current time and join
+  // link. The .ics is a REQUEST with a newer sequence than the cancellation,
+  // which puts the event back in their calendar.
+  if (wasCancelled && !isCancelled) {
+    queueMail(c, {
+      kind: 'restored',
+      organizer,
+      attendees: newAttendees,
+      event: mailEvent,
+      sequence: nextIcsSequence(),
+    });
+    return;
+  }
 
   // Newly-added attendees get an invitation.
   queueMail(c, {

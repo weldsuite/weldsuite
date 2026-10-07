@@ -22,7 +22,7 @@ export default function DeepJoinScreen() {
   useEffect(() => {
     if (!code) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await weldmeet.getMeetingByJoinCode(code);
         if (cancelled) return;

@@ -466,7 +466,7 @@ export function MyTasksPipeline({
     if (overId.startsWith('stage-')) {
       targetStatus = overId.replace('stage-', '');
     } else {
-      // Dropped on another task â€” find which column it belongs to
+      // Dropped on another task — find which column it belongs to
       const overTask = tasks.find(t => t.id === overId);
       if (overTask) targetStatus = overTask.status;
     }

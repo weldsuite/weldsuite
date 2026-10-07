@@ -387,6 +387,70 @@ describe('/api/calendar-events · pglite integration', () => {
       expect((await meetingRow(meeting.id)).status).toBe('cancelled');
     });
 
+    // ── TASK-935: a cancelled event that is on again ───────────────────────
+
+    it('PATCH /:id taking the status off cancelled restores the meeting', async () => {
+      const userId = `user_restore_${next()}`;
+      const meeting = await seedMeeting(userId);
+      const { eventId } = await createLinkedEvent(userId, meeting);
+
+      await send(userId, 'PATCH', `/${eventId}`, { status: 'cancelled' });
+      expect((await meetingRow(meeting.id)).status).toBe('cancelled');
+
+      const res = await send(userId, 'PATCH', `/${eventId}`, { status: 'confirmed' });
+      expect(res.status).toBe(200);
+      expect((await meetingRow(meeting.id)).status).toBe('scheduled');
+    });
+
+    it('a restored meeting picks up the edits made while the event was cancelled', async () => {
+      const userId = `user_restore_edit_${next()}`;
+      const meeting = await seedMeeting(userId);
+      const { eventId } = await createLinkedEvent(userId, meeting);
+
+      await send(userId, 'PATCH', `/${eventId}`, { status: 'cancelled' });
+      await send(userId, 'PATCH', `/${eventId}`, {
+        title: 'Renamed while off',
+        startTime: '2030-01-04T14:00:00.000Z',
+        endTime: '2030-01-04T15:00:00.000Z',
+      });
+      // Still cancelled: an edit alone does not bring the meeting back.
+      expect((await meetingRow(meeting.id)).status).toBe('cancelled');
+
+      await send(userId, 'PATCH', `/${eventId}`, { status: 'tentative' });
+      const row = await meetingRow(meeting.id);
+      expect(row.status).toBe('scheduled');
+      expect(row.title).toBe('Renamed while off');
+      expect(row.scheduledStart?.toISOString()).toBe('2030-01-04T14:00:00.000Z');
+      expect(row.scheduledEnd?.toISOString()).toBe('2030-01-04T15:00:00.000Z');
+    });
+
+    it('does not restore a meeting whose link the event no longer carries', async () => {
+      const userId = `user_restore_unlinked_${next()}`;
+      const meeting = await seedMeeting(userId);
+      const { eventId } = await createLinkedEvent(userId, meeting);
+
+      // Removing the link cancels the meeting; that is not undone by a later
+      // cancel + un-cancel of the event.
+      await send(userId, 'PATCH', `/${eventId}`, { meetingUrl: '', isVirtual: false });
+      await send(userId, 'PATCH', `/${eventId}`, { status: 'cancelled' });
+      await send(userId, 'PATCH', `/${eventId}`, { status: 'confirmed' });
+      expect((await meetingRow(meeting.id)).status).toBe('cancelled');
+    });
+
+    it('does not bring back a meeting that already ran', async () => {
+      const userId = `user_restore_done_${next()}`;
+      const meeting = await seedMeeting(userId);
+      const { eventId } = await createLinkedEvent(userId, meeting);
+      await db
+        .update(schema.meetings)
+        .set({ status: 'completed' })
+        .where(eq(schema.meetings.id, meeting.id));
+
+      await send(userId, 'PATCH', `/${eventId}`, { status: 'cancelled' });
+      await send(userId, 'PATCH', `/${eventId}`, { status: 'confirmed' });
+      expect((await meetingRow(meeting.id)).status).toBe('completed');
+    });
+
     it('DELETE /:id cancels the linked meeting', async () => {
       const userId = `user_del_${next()}`;
       const meeting = await seedMeeting(userId);

@@ -99,6 +99,14 @@ export const updateHrEmployeeSchema = createHrEmployeeSchema
   .omit({ onboardingTemplateId: true })
   .partial();
 
+/** Create an employee from an active workspace member (Clerk `userId`). */
+export const createHrEmployeeFromMemberSchema = createHrEmployeeSchema
+  .omit({ userId: true })
+  .partial()
+  .extend({
+    userId: z.string().trim().min(1).max(255),
+  });
+
 export const listHrEmployeesQuerySchema = z.object({
   search: z.string().max(200).optional(),
   status: z.string().max(200).optional(),
@@ -446,6 +454,7 @@ export const hrPortalClientRequestSchema = z.object({
 });
 
 export type CreateHrEmployeeInput = z.infer<typeof createHrEmployeeSchema>;
+export type CreateHrEmployeeFromMemberInput = z.infer<typeof createHrEmployeeFromMemberSchema>;
 export type UpdateHrEmployeeInput = z.infer<typeof updateHrEmployeeSchema>;
 export type HrEmployeeSensitiveInput = z.infer<typeof hrEmployeeSensitiveSchema>;
 export type CreateHrAssignmentInput = z.infer<typeof createHrAssignmentSchema>;

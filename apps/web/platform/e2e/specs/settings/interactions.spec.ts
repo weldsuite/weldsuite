@@ -64,7 +64,7 @@ test.describe('Settings · integrations', () => {
 });
 
 test.describe('Settings · apps', () => {
-  for (const app of ['phone-numbers', 'weldcrm', 'welddesk', 'weldmail', 'weldsuite']) {
+  for (const app of ['phone-numbers', 'weldcrm', 'welddesk', 'weldmail', 'weldhr', 'weldsuite']) {
     test(`/settings/apps/${app} renders`, async ({ page }) => {
       await page.goto(`/settings/apps/${app}`);
       await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });

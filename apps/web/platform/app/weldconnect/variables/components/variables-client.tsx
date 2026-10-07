@@ -18,8 +18,6 @@ import {
   Lock,
   Globe,
   GitBranch,
-  Eye,
-  EyeOff,
   Edit,
   Trash2,
 } from 'lucide-react';
@@ -50,6 +48,8 @@ export interface Variable {
 interface VariablesClientProps {
   initialVariables: Variable[];
   isLoading?: boolean;
+  /** Workflow id → name, for workflow-scoped variables. */
+  workflowNames?: Record<string, string>;
 }
 
 const scopeClassConfig: Record<string, { icon: React.ElementType; className: string }> = {
@@ -67,8 +67,10 @@ const scopeClassConfig: Record<string, { icon: React.ElementType; className: str
   },
 };
 
-function formatValue(variable: Variable, revealed: boolean): string {
-  if (variable.isSecret && !revealed) return '••••••••';
+// A secret's value never leaves the server (the API masks it), so there is
+// nothing to reveal here.
+function formatValue(variable: Variable): string {
+  if (variable.isSecret) return '••••••••';
 
   const value = variable.value;
 
@@ -87,7 +89,7 @@ function formatValue(variable: Variable, revealed: boolean): string {
   return String(value);
 }
 
-export function VariablesClient({ initialVariables, isLoading = false }: Readonly<VariablesClientProps>) {
+export function VariablesClient({ initialVariables, isLoading = false, workflowNames }: Readonly<VariablesClientProps>) {
   const { t } = useI18n();
   const vc = t.weldconnect.variablesClient;
 
@@ -103,7 +105,6 @@ export function VariablesClient({ initialVariables, isLoading = false }: Readonl
     setVariables(initialVariables);
   }, [initialVariables]);
 
-  const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set());
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingVariable, setEditingVariable] = useState<Variable | null>(null);
 
@@ -149,15 +150,6 @@ export function VariablesClient({ initialVariables, isLoading = false }: Readonl
     return result;
   }, []);
 
-  const toggleSecretVisibility = useCallback((id: string) => {
-    setRevealedSecrets((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
   const handleDelete = useCallback((variable: Variable) => {
     if (!confirm(t.weldconnect.variables.deleteConfirm.replace('{name}', variable.name))) return;
 
@@ -194,25 +186,8 @@ export function VariablesClient({ initialVariables, isLoading = false }: Readonl
 
         <div className="w-[220px] flex items-center gap-2 min-w-0">
           <span className="text-sm font-mono truncate">
-            {formatValue(variable, revealedSecrets.has(variable.id))}
+            {formatValue(variable)}
           </span>
-          {variable.isSecret && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleSecretVisibility(variable.id);
-              }}
-              className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-            >
-              {revealedSecrets.has(variable.id) ? (
-                <EyeOff className="h-3.5 w-3.5" />
-              ) : (
-                <Eye className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          )}
         </div>
 
         <div className="w-[100px]">
@@ -226,6 +201,11 @@ export function VariablesClient({ initialVariables, isLoading = false }: Readonl
             <ScopeIcon className="h-3 w-3 mr-1" />
             {scopeLabel}
           </Badge>
+          {variable.workflowId && workflowNames?.[variable.workflowId] && (
+            <div className="text-xs text-muted-foreground truncate mt-0.5">
+              {workflowNames[variable.workflowId]}
+            </div>
+          )}
         </div>
 
         <div className="w-[120px]">
@@ -259,7 +239,7 @@ export function VariablesClient({ initialVariables, isLoading = false }: Readonl
         </div>
       </div>
     );
-  }, [handleDelete, revealedSecrets, t, toggleSecretVisibility]);
+  }, [handleDelete, t, workflowNames]);
 
   return (
     <>

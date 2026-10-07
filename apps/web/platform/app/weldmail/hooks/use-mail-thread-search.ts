@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MailThreadSearch } from '@/hooks/queries/use-mail-queries';
 
-/** Search results come as one page; a search is for finding a mail, not for paging. */
-export const MAIL_SEARCH_PAGE_SIZE = 50;
-
 /** Trim every field and drop the empty ones, so `{ search: '  ' }` is no search at all. */
 export function normalizeThreadSearch(filter: MailThreadSearch): MailThreadSearch {
   const out: MailThreadSearch = {};

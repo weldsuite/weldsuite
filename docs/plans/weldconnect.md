@@ -56,7 +56,7 @@ Roughly in the recommended order.
    and step in a real browser, including branches, loops, delays, a webhook
    call and the owner-permission refusals. Everything so far is verified by
    unit/integration tests and type-checks only.
-2. **"After another workflow" trigger** (`workflow_complete`). The engine
+2. **In review (`feat/weldconnect-flow-p2`).** **"After another workflow" trigger** (`workflow_complete`). The engine
    implements it (`workflow-worker/src/engine/workflow-complete.ts`); unlock it
    in the gate and give the editor a workflow picker.
 3. **Server-backed templates.** The gallery
@@ -68,10 +68,10 @@ Roughly in the recommended order.
    workspace credit wallet (`@weldsuite/core-domain/ai-billing`), and enforce
    the per-run credit cap. `settings.maxCreditsPerRun` is stored but nothing
    reads it, and the settings page no longer shows it.
-5. **Unhide the finished sections**: variables, webhooks, analytics/errors
+5. **In review (`feat/weldconnect-flow-p2`); actions/triggers libraries stay hidden.** **Unhide the finished sections**: variables, webhooks, analytics/errors
    (the errors view has data since #859). See
    `WELDCONNECT_OUT_OF_SCOPE_SECTIONS` in `app/weldconnect/mvp.ts`.
-6. **Approval / waiting steps**: write a `waiting_for_input` run status (badge,
+6. **In review (`feat/weldconnect-flow-p2`).** **Approval / waiting steps**: write a `waiting_for_input` run status (badge,
    filter, i18n) and unlock `manual_step`. Waiting is only allowed in the main
    flow, not inside branches or loops (engine refuses it there).
 7. **Third-party providers, one PR each** (or a few grouped once the pattern is

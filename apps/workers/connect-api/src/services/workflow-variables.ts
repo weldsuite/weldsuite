@@ -8,7 +8,7 @@ import { and, desc, eq, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
-const { workflowVariables } = schema;
+const { workflowVariables, workflows } = schema;
 
 export interface ListVariablesParams {
   search?: string;
@@ -42,7 +42,9 @@ export async function listVariables(db: Database, params: ListVariablesParams) {
       .select()
       .from(workflowVariables)
       .where(and(...conditions))
-      .orderBy(desc(workflowVariables.updatedAt))
+      // Ordered by id (time-prefixed, so newest first) to match the `lt(id)`
+      // cursor; ordering by updatedAt skipped and repeated rows across pages.
+      .orderBy(desc(workflowVariables.id))
       .limit(limit + 1),
     db.select({ count: sql<number>`count(*)::int` }).from(workflowVariables).where(and(...filterConditions)),
   ]);
@@ -93,12 +95,68 @@ export async function getWorkflowVariables(db: Database, workflowId: string) {
     .orderBy(workflowVariables.name);
 }
 
+/**
+ * The scope a create request resolves to. The engine treats a variable with no
+ * `workflowId` as global (apps/workers/workflow-worker/src/index.ts), so
+ * `workflow` scope needs one and `global` scope must not carry one.
+ */
+export function resolveVariableScope(data: {
+  scope?: string;
+  isGlobal?: boolean;
+  workflowId?: string | null;
+}): { scope: 'global' | 'workflow'; workflowId: string | null } | null {
+  const scope = data.scope ?? (data.isGlobal === true ? 'global' : data.workflowId ? 'workflow' : 'global');
+  if (scope === 'global') return { scope: 'global', workflowId: null };
+  if (scope === 'workflow' && data.workflowId) return { scope: 'workflow', workflowId: data.workflowId };
+  return null;
+}
+
+/**
+ * A variable a workflow run would see under the same name: the engine merges
+ * a workflow's own variables with every global into one map, so a clash
+ * leaves the value that wins down to row order. A global name must be unique
+ * workspace-wide; a workflow variable must not clash with a global or with
+ * another variable of the same workflow.
+ */
+export async function findConflictingVariable(
+  db: Database,
+  name: string,
+  target: { scope: 'global' | 'workflow'; workflowId: string | null },
+) {
+  const nameMatch = and(eq(workflowVariables.name, name), isNull(workflowVariables.deletedAt));
+  const where =
+    target.scope === 'global' || !target.workflowId
+      ? nameMatch
+      : and(
+          nameMatch,
+          or(isNull(workflowVariables.workflowId), eq(workflowVariables.workflowId, target.workflowId)),
+        );
+  const [row] = await db
+    .select({ id: workflowVariables.id })
+    .from(workflowVariables)
+    .where(where)
+    .limit(1);
+  return row ?? null;
+}
+
+export async function workflowExists(db: Database, workflowId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: workflows.id })
+    .from(workflows)
+    .where(and(eq(workflows.id, workflowId), isNull(workflows.deletedAt)))
+    .limit(1);
+  return !!row;
+}
+
 export async function createVariable(db: Database, data: Record<string, unknown>, userId: string) {
   const id = generateId('var');
   const now = new Date();
-  const scope =
-    (data.scope as string | undefined) ??
-    (data.isGlobal === true ? 'global' : data.workflowId ? 'workflow' : 'global');
+  const resolved = resolveVariableScope({
+    scope: data.scope as string | undefined,
+    isGlobal: data.isGlobal === true,
+    workflowId: (data.workflowId as string | null | undefined) ?? null,
+  });
+  const scope = resolved?.scope ?? 'global';
   await db.insert(workflowVariables).values({
     id,
     name: String(data.name),
@@ -107,7 +165,7 @@ export async function createVariable(db: Database, data: Record<string, unknown>
     value: (data.value ?? null) as any,
     isSecret: data.isSecret === true,
     scope,
-    workflowId: (data.workflowId as string) ?? null,
+    workflowId: resolved?.workflowId ?? null,
     modifiedBy: userId,
     createdAt: now,
     updatedAt: now,

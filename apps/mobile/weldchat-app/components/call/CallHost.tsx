@@ -177,7 +177,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
     if (!session.authToken || initTriggered.current) return;
     initTriggered.current = true;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         await initMeeting({
           authToken: session.authToken,
@@ -232,15 +232,13 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
     const evaluate = () => {
       if (connectedRef.current) return;
       if (count() > 0) {
-        if (!timer) {
-          timer = setTimeout(() => {
-            timer = null;
-            if (count() > 0) {
-              startedAtRef.current = Date.now();
-              setConnected(true);
-            }
-          }, 600);
-        }
+        timer ??= setTimeout(() => {
+          timer = null;
+          if (count() > 0) {
+            startedAtRef.current = Date.now();
+            setConnected(true);
+          }
+        }, 600);
       } else if (timer) {
         clearTimeout(timer);
         timer = null;

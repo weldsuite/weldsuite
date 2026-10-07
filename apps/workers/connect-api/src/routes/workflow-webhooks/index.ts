@@ -17,6 +17,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { generateWebhookSecret } from '../../lib/webhook-secret';
 import { publicApiBase } from '../../lib/public-api-base';
 import { deregisterWebhookOwner, registerWebhookOwner, registryDeps } from '../../services/workflow-webhook-registry';
+import { webhookTriggerIds } from '../../services/weldconnect-mvp';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const wh = schema.workflowWebhooks;
@@ -47,6 +48,35 @@ const updateWebhookSchema = z.object({
   isEnabled: z.boolean().optional(),
 });
 
+type WebhookRow = typeof wh.$inferSelect;
+
+/**
+ * True when the webhook belongs to a `webhook` trigger embedded in its
+ * workflow — the rows services/workflow-webhook-sync.ts provisions on save
+ * and retires when the trigger goes. Those are managed from the workflow
+ * editor; deleting one here would only break the trigger until the next save
+ * provisions a new URL.
+ */
+function isManagedWebhook(webhook: Pick<WebhookRow, 'triggerId'>, workflowTriggers: unknown): boolean {
+  return !!webhook.triggerId && webhookTriggerIds(workflowTriggers).includes(webhook.triggerId);
+}
+
+/**
+ * Read shape of a webhook: the row without its inbound HMAC secret (only
+ * rotate-secret reveals that), plus the absolute receiver URL, the workflow's
+ * name and whether the workflow editor manages it.
+ */
+function toWebhookView(webhook: WebhookRow, workflowName: string | null, workflowTriggers: unknown, base: string) {
+  const { secret, ...rest } = webhook;
+  return {
+    ...rest,
+    externalUrl: webhook.externalUrl || `${base}${webhook.url}`,
+    hasSecret: !!secret,
+    workflowName,
+    isManaged: isManagedWebhook(webhook, workflowTriggers),
+  };
+}
+
 app.get('/', requirePermission('workflow-webhooks:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
@@ -62,18 +92,18 @@ app.get('/', requirePermission('workflow-webhooks:read'), async (c) => {
   try {
     const [rows, countRes] = await Promise.all([
       db
-        .select({ webhook: wh, workflowName: wf.name })
+        .select({ webhook: wh, workflowName: wf.name, workflowTriggers: wf.triggers })
         .from(wh)
         .leftJoin(wf, eq(wh.workflowId, wf.id))
         .where(and(...conditions))
-        .orderBy(desc(wh.createdAt), desc(wh.id))
+        .orderBy(desc(wh.id))
         .limit(limit + 1),
       db.select({ count: sql<number>`count(*)::int` }).from(wh).where(and(...filterConditions)),
     ]);
     const hasMore = rows.length > limit;
     const sliced = hasMore ? rows.slice(0, limit) : rows;
-    // Mask the inbound HMAC secret in reads — it's shown only on create/rotate.
-    const data = sliced.map((r) => ({ ...r.webhook, secret: undefined, workflowName: r.workflowName }));
+    const base = publicApiBase(c.env);
+    const data = sliced.map((r) => toWebhookView(r.webhook, r.workflowName, r.workflowTriggers, base));
     const cursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
     return list(c, data, cursorPagination(Number(countRes[0]?.count ?? 0), hasMore, cursor));
   } catch (err) {
@@ -86,11 +116,18 @@ app.get('/workflow/:workflowId', requirePermission('workflow-webhooks:read'), as
   const db = c.get('tenantDb');
   const workflowId = c.req.param('workflowId');
   try {
-    const [webhook] = await db
-      .select()
-      .from(wh)
-      .where(and(eq(wh.workflowId, workflowId), isNull(wh.deletedAt)))
-      .limit(1);
+    const [rows, [workflow]] = await Promise.all([
+      db
+        .select()
+        .from(wh)
+        .where(and(eq(wh.workflowId, workflowId), isNull(wh.deletedAt)))
+        .orderBy(desc(wh.id)),
+      db.select({ triggers: wf.triggers }).from(wf).where(eq(wf.id, workflowId)).limit(1),
+    ]);
+    // A workflow can carry more than one row (an older hand-made webhook next
+    // to the one its trigger provisioned): the editor's trigger panel must
+    // show the provisioned one, so prefer it, then the newest.
+    const webhook = rows.find((row) => isManagedWebhook(row, workflow?.triggers)) ?? rows[0];
     if (!webhook) return success(c, null);
 
     // The receiver (POST /api/workflows/webhook/:id) is mounted on THIS
@@ -120,14 +157,13 @@ app.get('/:id', requirePermission('workflow-webhooks:read'), async (c) => {
   const id = c.req.param('id');
   try {
     const [row] = await db
-      .select({ webhook: wh, workflowName: wf.name })
+      .select({ webhook: wh, workflowName: wf.name, workflowTriggers: wf.triggers })
       .from(wh)
       .leftJoin(wf, eq(wh.workflowId, wf.id))
       .where(and(eq(wh.id, id), isNull(wh.deletedAt)))
       .limit(1);
     if (!row) return error.notFound(c, 'Webhook', id);
-    // Mask the inbound HMAC secret — shown only on create/rotate.
-    return success(c, { ...row.webhook, secret: undefined, workflowName: row.workflowName });
+    return success(c, toWebhookView(row.webhook, row.workflowName, row.workflowTriggers, publicApiBase(c.env)));
   } catch (err) {
     console.error('[app-api/workflow-webhooks] get failed:', err);
     return error.internal(c, 'Failed to fetch webhook');
@@ -141,18 +177,34 @@ app.get('/:id/events', requirePermission('workflow-webhooks:read'), async (c) =>
     const [webhook] = await db.select().from(wh).where(and(eq(wh.id, id), isNull(wh.deletedAt))).limit(1);
     if (!webhook) return error.notFound(c, 'Webhook', id);
 
+    // The runs this webhook started: the receiver stamps its id into the
+    // trigger data, so a second webhook on the same workflow doesn't mix in.
     const executions = await db
-      .select()
+      .select({
+        id: we.id,
+        startedAt: we.startedAt,
+        status: we.status,
+        errorMessage: sql<string | null>`${we.error}->>'message'`,
+        sourceIp: sql<string | null>`${we.triggerData}->>'sourceIp'`,
+      })
       .from(we)
-      .where(and(eq(we.workflowId, webhook.workflowId), eq(we.triggerType, 'webhook')))
+      .where(
+        and(
+          eq(we.workflowId, webhook.workflowId),
+          eq(we.triggerType, 'webhook'),
+          sql`${we.triggerData}->>'webhookId' = ${webhook.id}`,
+        ),
+      )
       .orderBy(desc(we.startedAt))
       .limit(50);
 
     const events = executions.map((e) => ({
       id: e.id,
+      executionId: e.id,
       timestamp: e.startedAt,
       status: e.status,
-      sourceIp: (e.triggerData as any)?.sourceIp,
+      error: e.errorMessage ?? null,
+      sourceIp: e.sourceIp ?? undefined,
     }));
     return success(c, events);
   } catch (err) {
@@ -355,8 +407,22 @@ app.delete('/:id', requirePermission('workflow-webhooks:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
-    const [existing] = await db.select().from(wh).where(and(eq(wh.id, id), isNull(wh.deletedAt))).limit(1);
-    if (!existing) return error.notFound(c, 'Webhook', id);
+    const [row] = await db
+      .select({ webhook: wh, workflowTriggers: wf.triggers })
+      .from(wh)
+      .leftJoin(wf, eq(wh.workflowId, wf.id))
+      .where(and(eq(wh.id, id), isNull(wh.deletedAt)))
+      .limit(1);
+    if (!row) return error.notFound(c, 'Webhook', id);
+    const existing = row.webhook;
+    // The workflow's webhook trigger owns this row: saving the workflow would
+    // provision a fresh URL anyway, so the trigger is what has to go.
+    if (isManagedWebhook(existing, row.workflowTriggers)) {
+      return error.conflict(c, "This webhook belongs to a workflow's webhook trigger. Remove the trigger in the workflow editor instead.", {
+        reason: 'managed_by_trigger',
+        workflowId: existing.workflowId,
+      });
+    }
     await db.update(wh).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(wh.id, id));
     await deregisterWebhookOwner(registryDeps(c.env), id);
     publishEntityEvent({

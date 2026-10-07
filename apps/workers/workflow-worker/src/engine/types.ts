@@ -74,6 +74,8 @@ export type TriggerType =
 /** Cloudflare Worker env / service bindings available to the engine. */
 export interface WorkflowEnv {
   [key: string]: unknown;
+  /** `development` | `test` | `production`, from wrangler `[vars]`. */
+  ENVIRONMENT?: string;
   // Tenant DB resolution
   DATABASE_URL_MASTER?: string;
   NEON_API_KEY?: string;
@@ -162,6 +164,14 @@ export interface ActionContext {
   chainDepth?: number;
   loopItem?: unknown;
   loopIndex?: number;
+  /**
+   * `workflows.settings.maxCreditsPerRun` — the per-run cap `ai_generate` /
+   * `ai_classify` enforce before each call (engine/actions/ai.ts). Loaded once
+   * in the `load-workflow` step (so a replay keeps the value it started with,
+   * even if the setting changes mid-run) and carried through every step's
+   * context. `undefined`/`null` ⇒ no cap.
+   */
+  maxCreditsPerRun?: number | null;
 }
 
 export type ActionHandler = (
@@ -212,7 +222,8 @@ export interface StepRuntime {
    */
   do<T>(name: string, fn: () => Promise<T>, opts?: { engineRetries?: boolean }): Promise<T>;
   sleep(name: string, ms: number): Promise<void>;
-  waitForEvent<T = unknown>(name: string, opts: { type: string; timeoutMs?: number }): Promise<T>;
+  /** Throws when `timeout` (a duration like `'7 days'`, or ms) passes without the event. */
+  waitForEvent<T = unknown>(name: string, opts: { type: string; timeout?: string | number }): Promise<T>;
 }
 
 export type StepStatus = 'completed' | 'failed' | 'skipped' | 'waiting_for_input';
@@ -246,6 +257,8 @@ export interface WorkflowRunContext {
   variables?: Record<string, unknown>;
   contactData?: Record<string, unknown>;
   chainDepth?: number;
+  /** See `ActionContext.maxCreditsPerRun`. */
+  maxCreditsPerRun?: number | null;
 }
 
 export interface ExecuteStepsDeps {

@@ -67,7 +67,7 @@ export default function LeadsScreen() {
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
-    loadLeads();
+    void loadLeads();
   }, [selectedStatus]);
 
   const loadLeads = async () => {
@@ -92,12 +92,12 @@ export default function LeadsScreen() {
   };
 
   const handleSearch = () => {
-    loadLeads();
+    void loadLeads();
   };
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadLeads();
+    void loadLeads();
   };
 
   const getScoreColor = (score?: number): string => {

@@ -709,7 +709,7 @@ function AssigneesPopover({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className={cn("h-7 text-xs font-medium gap-1.5", assigneeList.length > 0 ? "bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800 pl-1" : "font-normal")}>
-          {assigneeList.length > 0
+          {selected.length > 0
             ? <AssigneesButtonContent selected={selected} />
             : tCrm.taskDialog.assigneesFallback}
         </Button>

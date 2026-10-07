@@ -74,6 +74,8 @@ export const settings = {
       configureMailDomains: 'E-maildomeinen configureren',
       mailAccounts: 'Mail-accounts',
       manageMailAccounts: 'E-mailaccounts beheren',
+      weldhrSettings: 'WeldHR',
+      configureWeldhr: 'Afdelingen, checklisttemplates, verloftypes, beoordelingsformulieren en KPI\'s',
     },
 
     companyInfo: {
@@ -1032,6 +1034,11 @@ export const settings = {
         keepInternal: 'WeldSuite behouden',
         keepExternal: 'Extern behouden',
       },
+    },
+
+    weldhr: {
+      title: 'WeldHR',
+      description: 'Afdelingen, checklisttemplates, verloftypes, beoordelingsformulieren en KPI-definities.',
     },
 
     weldcrm: {

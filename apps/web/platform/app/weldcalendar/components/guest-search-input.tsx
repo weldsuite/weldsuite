@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Mail } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Mail, UserPlus } from 'lucide-react';
+import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
@@ -8,6 +9,7 @@ import { Separator } from '@weldsuite/ui/components/separator';
 import { usePeople, type Person } from '@/components/objects/person/use-person-data';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import { inviteEmailFromQuery, inviteGuestId } from './guest-invite';
+import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
 
 /** Minimal shape this field reads off `/team-members` rows (the query itself is untyped). */
 interface WorkspaceMemberLite {
@@ -26,7 +28,7 @@ interface GuestResult {
   name: string;
   email: string;
   initial: string;
-  type: 'member' | 'contact' | 'invite';
+  type: 'member' | 'contact' | 'invite' | 'create';
   /** Members only: the user id a task assignment needs (`id` is the picker's own `member-<row id>` key). */
   userId?: string;
 }
@@ -55,8 +57,11 @@ export function GuestSearchInput({
   onBlurAway?: () => void;
 }) {
   const t = getTranslations('weldcalendar');
+  const sweep = getTranslations('sweep').entities;
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [createQuery, setCreateQuery] = useState<string | null>(null);
+  const creatingRef = useRef(false);
 
   const { data: peopleData } = usePeople(
     value.length >= 1 ? { search: value, limit: 6 } : { limit: 6 },
@@ -139,6 +144,16 @@ export function GuestSearchInput({
         });
       }
     }
+
+    if (!membersOnly && value.trim()) {
+      listed.push({
+        id: '__create_person__',
+        name: value.trim(),
+        email: '',
+        initial: '+',
+        type: 'create',
+      });
+    }
     return listed;
   }, [allowInvite, contacts, members, membersOnly, selectedEmails, selectedIds, value]);
 
@@ -148,8 +163,28 @@ export function GuestSearchInput({
   }, [results.length, value]);
 
   const pick = (item: GuestResult) => {
+    if (item.type === 'create') {
+      creatingRef.current = true;
+      setCreateQuery(value.trim());
+      setOpen(false);
+      return;
+    }
     onSelect({ id: item.id, name: item.name, email: item.email, ...(item.userId ? { userId: item.userId } : {}) });
     setOpen(false);
+  };
+
+  const handlePersonCreated = (person: Person) => {
+    const email = person.email?.trim() ?? '';
+    if (!email) {
+      toast.info(sweep.personCreatedNeedsEmail);
+      return;
+    }
+    onSelect({
+      id: `contact-${person.id}`,
+      name: person.displayName || email,
+      email,
+    });
+    onChange('');
   };
 
   const pickWithMouse = (e: React.MouseEvent, item: GuestResult) => {
@@ -166,7 +201,11 @@ export function GuestSearchInput({
       e.preventDefault();
       e.stopPropagation();
       const item = results[activeIndex] ?? results[0];
-      if (showDropdown && item) pick(item);
+      // A lone "create person" row is opened by click. Enter still stops the
+      // card from saving, but does not open the dialog until a real result
+      // is highlighted (or the user arrows onto create among other results).
+      const createOnly = results.every((r) => r.type === 'create');
+      if (showDropdown && item && !createOnly) pick(item);
       return;
     }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -201,7 +240,7 @@ export function GuestSearchInput({
             role="option"
             aria-selected={results[activeIndex]?.id === item.id}
             className={cn(
-              'w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent transition-colors',
+              'h-auto w-full justify-start whitespace-normal px-3 py-2 text-left hover:bg-accent',
               results[activeIndex]?.id === item.id && 'bg-accent',
             )}
             onMouseDown={(e) => pickWithMouse(e, item)}
@@ -210,6 +249,8 @@ export function GuestSearchInput({
             <div className={cn('h-[24px] w-[24px] rounded-[5.5px] flex items-center justify-center shrink-0', tint)}>
               {item.type === 'invite' ? (
                 <Mail className="h-3.5 w-3.5 text-primary" />
+              ) : item.type === 'create' ? (
+                <UserPlus className="h-3.5 w-3.5 text-primary" />
               ) : (
                 <span className="text-xs font-medium">{item.initial}</span>
               )}
@@ -218,6 +259,10 @@ export function GuestSearchInput({
               {item.type === 'invite' ? (
                 <p className="text-sm font-medium truncate">
                   {t.eventPreview.inviteGuest.replace('{email}', item.email)}
+                </p>
+              ) : item.type === 'create' ? (
+                <p className="text-sm font-medium truncate">
+                  {sweep.createPersonFromSearch.replace('{name}', item.name)}
                 </p>
               ) : (
                 <>
@@ -233,8 +278,10 @@ export function GuestSearchInput({
   };
 
   const hasMembers = results.some((r) => r.type === 'member');
-  const hasContacts = results.some((r) => r.type === 'contact');
+  const contactCount = results.filter((r) => r.type === 'contact').length;
+  const hasContacts = contactCount > 0;
   const hasInvite = results.some((r) => r.type === 'invite');
+  const peopleLabel = contactCount === 1 ? t.eventPreview.personGroup : t.eventPreview.peopleGroup;
 
   let guestSearchPlaceholder = t.eventPreview.searchMembersContacts;
   if (membersOnly) guestSearchPlaceholder = t.eventPreview.searchMembersOnly;
@@ -250,7 +297,11 @@ export function GuestSearchInput({
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => { setOpen(false); onBlurAway?.(); }, 150)}
+        onBlur={() => setTimeout(() => {
+          setOpen(false);
+          if (creatingRef.current) return;
+          onBlurAway?.();
+        }, 150)}
         onKeyDown={handleKeyDown}
         className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
         autoFocus
@@ -262,10 +313,25 @@ export function GuestSearchInput({
         >
           {renderGroup('member', t.eventPreview.teamMembersGroup, 'bg-blue-500/10 text-blue-600')}
           {hasMembers && hasContacts && <Separator />}
-          {renderGroup('contact', t.eventPreview.contactsGroup, 'bg-primary/10 text-primary')}
+          {renderGroup('contact', peopleLabel, 'bg-primary/10 text-primary')}
           {(hasMembers || hasContacts) && hasInvite && <Separator />}
           {renderGroup('invite', null, 'bg-primary/10 text-primary')}
+          {(hasMembers || hasContacts || hasInvite) && results.some((r) => r.type === 'create') && <Separator />}
+          {renderGroup('create', null, 'bg-primary/10 text-primary')}
         </div>
+      )}
+      {createQuery !== null && (
+        <QuickAddPersonDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) {
+              creatingRef.current = false;
+              setCreateQuery(null);
+            }
+          }}
+          initialName={createQuery}
+          onCreated={handlePersonCreated}
+        />
       )}
     </div>
   );

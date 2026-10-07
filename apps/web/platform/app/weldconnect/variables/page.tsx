@@ -1,17 +1,18 @@
 
 import { useVariables, type WorkflowVariable } from '@/hooks/queries/use-automation-queries';
 import { VariablesClient } from './components/variables-client';
+import { useVariableWorkflows } from './use-variable-workflows';
 
-// The stored entity represents scope via `isGlobal` + `workflowId`, not a
-// literal `scope` field — derive the client's display scope from those.
-function deriveScope(v: WorkflowVariable): 'global' | 'workflow' | 'execution' {
-  if (v.isGlobal) return 'global';
-  if (v.workflowId) return 'workflow';
-  return 'execution';
+// The list reports each row's `scope`; a row without a workflowId is global
+// (that is how the workflow engine reads it).
+function deriveScope(v: WorkflowVariable): 'global' | 'workflow' {
+  return v.scope === 'workflow' && v.workflowId ? 'workflow' : 'global';
 }
 
 export default function VariablesPage() {
-  const { data: variablesResult, isLoading } = useVariables();
+  // The list filters and searches client-side, so load a full page up front.
+  const { data: variablesResult, isLoading } = useVariables({ limit: 100 });
+  const { data: workflowsResult } = useVariableWorkflows();
 
   const variables = variablesResult?.data ?? [];
 
@@ -28,5 +29,10 @@ export default function VariablesPage() {
     createdAt: v.createdAt,
   }));
 
-  return <VariablesClient initialVariables={mappedVariables} isLoading={isLoading} />;
+  const workflowNames: Record<string, string> = {};
+  for (const w of workflowsResult?.data ?? []) workflowNames[w.id] = w.name;
+
+  return (
+    <VariablesClient initialVariables={mappedVariables} isLoading={isLoading} workflowNames={workflowNames} />
+  );
 }

@@ -75,7 +75,15 @@ app.post('/', requirePermission('workflow-variables:create'), zValidator('json',
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json');
+  const target = variables.resolveVariableScope(data);
+  if (!target) return error.badRequest(c, 'A workflow variable needs a workflowId', { reason: 'workflow_required' });
   try {
+    if (target.workflowId && !(await variables.workflowExists(db, target.workflowId))) {
+      return error.notFound(c, 'Workflow', target.workflowId);
+    }
+    if (await variables.findConflictingVariable(db, data.name, target)) {
+      return error.conflict(c, `A variable named "${data.name}" already exists`, { reason: 'name_taken' });
+    }
     const result = await variables.createVariable(db, data, userId);
     publishEntityEvent({
       c,
@@ -98,6 +106,19 @@ for (const method of ['put', 'patch'] as const) {
     const id = c.req.param('id');
     const data = c.req.valid('json');
     try {
+      if (data.name !== undefined) {
+        const current = await variables.getVariable(db, id);
+        if (!current) return error.notFound(c, 'Workflow variable', id);
+        if (data.name !== current.name) {
+          const target = {
+            scope: current.workflowId ? ('workflow' as const) : ('global' as const),
+            workflowId: current.workflowId,
+          };
+          if (await variables.findConflictingVariable(db, data.name, target)) {
+            return error.conflict(c, `A variable named "${data.name}" already exists`, { reason: 'name_taken' });
+          }
+        }
+      }
       const result = await variables.updateVariable(db, id, data, userId);
       if (!result) return error.notFound(c, 'Workflow variable', id);
       publishEntityEvent({

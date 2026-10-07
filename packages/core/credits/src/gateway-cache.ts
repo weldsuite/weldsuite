@@ -2,10 +2,12 @@
  * Gateway credit snapshot cache — how the router answers "is this gateway free?"
  * in a Cloudflare Worker without touching the master DB.
  *
- * Shape: the rollup cron (workflow-worker, the only worker with one) publishes a
- * ~200-byte blob to `WORKSPACE_CACHE`; every AI call reads it. That KV namespace
- * is bound in BOTH workers with identical ids per environment, so one publishes
- * what the other reads. 1 write/min to 1 key is 60× under KV's per-key limit.
+ * Shape: the rollup cron (workflow-worker) publishes a ~200-byte blob to
+ * `WORKSPACE_CACHE`; every AI call reads it. That KV namespace is bound in
+ * BOTH workers with identical ids per environment, so one publishes what the
+ * other reads. 1 write/min to 1 key is 60× under KV's per-key limit.
+ * Test does not run the rollup — a per-minute master query would pin that
+ * compute on — so test routing stays on the fee-order fallback below.
  *
  * ## Staleness is bounded and benign
  *

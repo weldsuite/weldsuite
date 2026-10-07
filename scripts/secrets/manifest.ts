@@ -206,11 +206,30 @@ export const manifest: Record<string, SecretEntry[]> = {
     "INTERNAL_API_SECRET",
   ],
 
-  // WeldConnect execution engine. Bearer on its calls to app-api's
-  // /api/internal/send-email and connect-api's /api/internal/workflow-actions,
-  // and on its own /internal/schedule-index/rebuild. Same value as app-api.
+  // WeldConnect execution engine. Was missing every DB/AI secret below — it
+  // resolves tenant DBs for every action (create_customer, http_request, the
+  // webhook sync, …) and meters ai_generate/ai_classify against the master
+  // credit wallet (see wrangler.toml's header comment), so without these the
+  // worker could not do much beyond the two logic-only actions.
   "workflow-worker": [
+    // Bearer on its calls to app-api's /api/internal/send-email and
+    // connect-api's /api/internal/workflow-actions, and on its own
+    // /internal/schedule-index/rebuild. Same value as app-api.
     "INTERNAL_API_SECRET",
+    // Tenant DB resolution (every action) + the ai_generate/ai_classify
+    // credit-wallet metering, which reads/writes the MASTER db directly.
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    // AI token for ai_generate / ai_classify: @weldsuite/ai uses
+    // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has),
+    // so carry the same token app-api runs on. The dedicated AI token (Workers
+    // AI + AI Gateway Run scopes) is preferred over CLOUDFLARE_API_TOKEN, a
+    // general-purpose token not guaranteed to carry the AI scopes.
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
+    // send_sms action (optional — unset leaves it unavailable).
+    "TELNYX_API_KEY",
     // github.create_issue / github.create_comment (app_installation auth,
     // providers/token.ts + @weldsuite/connect-domain/github/app-auth): mints
     // its own installation token per call, so it needs the SAME GitHub App

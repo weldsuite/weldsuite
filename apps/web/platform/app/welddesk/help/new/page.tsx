@@ -724,7 +724,7 @@ export default function NewHelpArticlePage() {
         const newWrapper = document.createElement('div');
         newWrapper.className = 'my-4 image-wrapper';
         newWrapper.setAttribute('contenteditable', 'false');
-        newWrapper.setAttribute('data-image-wrapper', 'true');
+        newWrapper.dataset.imageWrapper = 'true';
         selectedImage.parentNode?.insertBefore(newWrapper, selectedImage);
         newWrapper.appendChild(selectedImage);
         wrapper = newWrapper;

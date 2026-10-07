@@ -118,7 +118,6 @@ export const navigation = {
         evaluations: 'Evaluations',
         performance: 'KPIs & milestones',
         portal: 'Workforce portal',
-        settings: 'Settings',
         groups: {
           people: 'People',
           time: 'Time',
