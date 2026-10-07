@@ -245,7 +245,7 @@ function externalApiBase(env: Env): string {
  * binding (a same-zone route cannot be reached with a plain fetch from a
  * Worker); falls back to the public URL for local setups without it.
  */
-export async function forwardToExternalApi(
+export function forwardToExternalApi(
   env: Env,
   params: {
     method: string;

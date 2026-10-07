@@ -39,7 +39,7 @@ export function realtimeEnv(): CloudflareRealtimeEnv {
 /**
  * Add a participant to a meeting and get their auth token.
  */
-export async function addParticipant(
+export function addParticipant(
   meetingId: string,
   params: {
     name: string;

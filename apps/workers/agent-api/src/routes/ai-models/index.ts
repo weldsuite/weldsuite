@@ -15,7 +15,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 /**
  * GET /models — AI is currently unavailable.
  */
-app.get('/models', async (c) => {
+app.get('/models', (c) => {
   return c.json({ error: { code: 'ai_unavailable', message: 'AI is currently unavailable' } }, 503);
 });
 

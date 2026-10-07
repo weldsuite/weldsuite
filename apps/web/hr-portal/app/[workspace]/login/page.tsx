@@ -8,7 +8,7 @@ export default async function LoginPage({ params }: Readonly<{ params: Promise<{
   const { workspace } = await params;
   const config = await getPortalConfig(workspace);
   if (!config) return <PortalNotAvailable />;
-  const state = await hydratePortalConfig(workspace, config);
+  const state = hydratePortalConfig(workspace, config);
   return (
     <HydrationBoundary state={state}>
       <LoginView />

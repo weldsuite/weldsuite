@@ -437,11 +437,11 @@ class HubSpotOAuthAdapter implements IntegrationOAuthAdapter {
     };
   }
 
-  async registerWebhooks(): Promise<WebhookRegistration> {
+  registerWebhooks(): Promise<WebhookRegistration> {
     // HubSpot webhooks are configured in the app dashboard (Developer Portal →
     // Webhooks tab), not via API. The connection stores the client secret as
     // webhookSecret for v3 signature verification instead.
-    return { webhookId: 'hubspot-app-webhook', secret: '' };
+    return Promise.resolve({ webhookId: 'hubspot-app-webhook', secret: '' });
   }
 
   async deleteWebhooks(): Promise<void> {

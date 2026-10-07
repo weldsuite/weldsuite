@@ -96,10 +96,12 @@ export async function unpinMessage(
 /**
  * List pinned messages for a channel, newest pin first.
  */
-export async function listPinnedMessages(db: Database, channelId: string) {
-  return db
-    .select()
-    .from(t)
-    .where(and(eq(t.channelId, channelId), eq(t.isPinned, true), isNull(t.deletedAt)))
-    .orderBy(desc(t.pinnedAt));
+export function listPinnedMessages(db: Database, channelId: string) {
+  return Promise.resolve(
+    db
+      .select()
+      .from(t)
+      .where(and(eq(t.channelId, channelId), eq(t.isPinned, true), isNull(t.deletedAt)))
+      .orderBy(desc(t.pinnedAt)),
+  );
 }

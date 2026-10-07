@@ -164,7 +164,7 @@ app.get('/', requirePermission('entities:read'), async (c) => {
 });
 
 // GET /jurisdictions — supported jurisdiction adapters
-app.get('/jurisdictions', requirePermission('entities:read'), async (c) => {
+app.get('/jurisdictions', requirePermission('entities:read'), (c) => {
   return success(c, listJurisdictions());
 });
 

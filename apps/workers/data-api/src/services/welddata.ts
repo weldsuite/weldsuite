@@ -585,13 +585,15 @@ export async function addCrmListMembers(
 // Enrichment columns + cells
 // ---------------------------------------------------------------------------
 
-export async function listColumns(db: Database, listId: string): Promise<ColumnRow[]> {
+export function listColumns(db: Database, listId: string): Promise<ColumnRow[]> {
   const { welddataColumns } = schema;
-  return db
-    .select()
-    .from(welddataColumns)
-    .where(and(eq(welddataColumns.listId, listId), isNull(welddataColumns.deletedAt)))
-    .orderBy(welddataColumns.sortOrder, welddataColumns.createdAt);
+  return Promise.resolve(
+    db
+      .select()
+      .from(welddataColumns)
+      .where(and(eq(welddataColumns.listId, listId), isNull(welddataColumns.deletedAt)))
+      .orderBy(welddataColumns.sortOrder, welddataColumns.createdAt),
+  );
 }
 
 export async function getColumn(db: Database, id: string): Promise<ColumnRow | null> {

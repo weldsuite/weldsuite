@@ -65,7 +65,7 @@ app.get('/drafts/:id', requirePermission('workflows:read'), async (c) => {
   }
 });
 
-app.post('/drafts/:id/chat', requirePermission('workflows:update'), zValidator('json', chatBodySchema), async (c) => {
+app.post('/drafts/:id/chat', requirePermission('workflows:update'), zValidator('json', chatBodySchema), (c) => {
   return c.json({ error: { code: 'ai_unavailable', message: 'AI is currently unavailable' } }, 503);
 });
 

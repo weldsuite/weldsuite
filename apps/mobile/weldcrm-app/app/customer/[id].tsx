@@ -302,7 +302,7 @@ export default function CustomerDetailPage() {
     setFormData(prev => ({ ...prev, [key]: text }));
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!formData.email) {
       toast.error('Email is required');
       return;
@@ -331,7 +331,7 @@ export default function CustomerDetailPage() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => {
             // TODO: wire up DELETE /crm/customers/:id
             toast.success('Customer deleted');
             router.back();

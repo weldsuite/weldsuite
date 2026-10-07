@@ -31,7 +31,7 @@ const askAgentSchema = z.object({
 /**
  * POST /ask — AI is currently unavailable.
  */
-app.post('/ask', requirePermission('messages:create'), zValidator('json', askAgentSchema), async (c) => {
+app.post('/ask', requirePermission('messages:create'), zValidator('json', askAgentSchema), (c) => {
   return c.json({ error: { code: 'ai_unavailable', message: 'AI is currently unavailable' } }, 503);
 });
 

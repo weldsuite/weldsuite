@@ -66,9 +66,9 @@ function pageTextFn(): string {
     ?.innerText?.slice(0, 8000) ?? '';
 }
 
-async function resolveSessionId(browser: {
+function resolveSessionId(browser: {
   sessionId?: (() => string) | string;
-}): Promise<string | undefined> {
+}): string | undefined {
   if (typeof browser.sessionId === 'function') return browser.sessionId();
   if (typeof browser.sessionId === 'string') return browser.sessionId;
   return undefined;
@@ -166,7 +166,7 @@ browserRoutes.post('/open', async (c) => {
     // Live View not available in all environments.
   }
 
-  const resolvedId = await resolveSessionId(browser as { sessionId?: (() => string) | string });
+  const resolvedId = resolveSessionId(browser as { sessionId?: (() => string) | string });
   if (resolvedId) {
     await saveSession(c.env, body.workspaceId, body.agentId, {
       sessionId: resolvedId,
@@ -224,7 +224,7 @@ browserRoutes.post('/act', async (c) => {
 
     const sid =
       stored?.sessionId ??
-      (await resolveSessionId(browser as { sessionId?: (() => string) | string }));
+      resolveSessionId(browser as { sessionId?: (() => string) | string });
     if (sid) {
       await saveSession(c.env, body.workspaceId, body.agentId, {
         sessionId: sid,
