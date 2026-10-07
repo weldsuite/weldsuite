@@ -90,6 +90,7 @@ const STATUS_FILTER_VALUES = [
   'failed',
   'timeout',
   'cancelled',
+  'skipped',
 ] as const;
 // MVP triggers plus `manual`, which Test and retry runs use.
 const TRIGGER_FILTER_VALUES = [
@@ -303,7 +304,7 @@ export function ExecutionsClient() {
 
   // Group configs by status
   const groupConfigs: GroupConfig<ExecutionRow>[] = useMemo(() =>
-    (['running', 'queued', 'waiting_for_input', 'failed', 'timeout', 'completed', 'cancelled'] as const).map((status, index) => ({
+    (['running', 'queued', 'waiting_for_input', 'failed', 'timeout', 'completed', 'cancelled', 'skipped'] as const).map((status, index) => ({
       id: status,
       label: t.weldconnect.executions.statuses[status],
       sortOrder: index + 1,

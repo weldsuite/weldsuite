@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isSequenceWorkflow,
   isValidCronExpression,
+  oneTimeScheduleTriggers,
   recurringScheduleTriggers,
   validateWeldConnectIntegrations,
   validateWeldConnectWorkflow,
@@ -9,6 +10,9 @@ import {
   webhookTriggers,
   workflowCompleteSourceIds,
 } from './weldconnect-mvp';
+
+/** Always-future ISO-local datetime for one-time schedule fixtures. */
+const FUTURE_EXECUTE_AT = `${new Date().getUTCFullYear() + 1}-01-15T09:00`;
 
 const entityTrigger = { id: 'trigger-1', type: 'entity_event', entityType: 'person', eventType: 'created' };
 const scheduleTrigger = {
@@ -125,16 +129,37 @@ describe('validateWeldConnectWorkflow', () => {
     ).toEqual([{ code: 'unknown_entity_event', triggerId: 't' }]);
   });
 
-  it('rejects one-time schedules, bad cron and bad timezones', () => {
+  it('rejects an unsupported schedule type, bad cron and bad timezones', () => {
     const codes = (trigger: Record<string, unknown>) =>
       validateWeldConnectWorkflow({ triggers: [trigger], steps: [emailStep] }).map((i) => i.code);
-    expect(codes({ id: 't', type: 'schedule', scheduleType: 'one_time', executeAt: '2026-10-01T09:00' })).toEqual([
+    expect(codes({ id: 't', type: 'schedule', scheduleType: 'hourly', cronExpression: '0 * * * *' })).toEqual([
       'schedule_not_recurring',
     ]);
     expect(codes({ id: 't', type: 'schedule', cronExpression: '0 9 * *' })).toEqual(['invalid_cron']);
     expect(codes({ id: 't', type: 'schedule', cronExpression: '0 9 * * *', timezone: 'Mars/Olympus' })).toEqual([
       'invalid_timezone',
     ]);
+  });
+
+  it('accepts a one-time schedule with a future executeAt', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [{ id: 't', type: 'schedule', scheduleType: 'one_time', executeAt: FUTURE_EXECUTE_AT, timezone: 'Europe/Amsterdam' }],
+        steps: [emailStep],
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects a one-time schedule in the past, missing executeAt, or a bad timezone', () => {
+    const codes = (trigger: Record<string, unknown>) =>
+      validateWeldConnectWorkflow({ triggers: [trigger], steps: [emailStep] }).map((i) => i.code);
+    expect(codes({ id: 't', type: 'schedule', scheduleType: 'one_time', executeAt: '2026-01-01T09:00' })).toEqual([
+      'schedule_run_at_past',
+    ]);
+    expect(codes({ id: 't', type: 'schedule', scheduleType: 'one_time' })).toEqual(['invalid_execute_at']);
+    expect(
+      codes({ id: 't', type: 'schedule', scheduleType: 'one_time', executeAt: FUTURE_EXECUTE_AT, timezone: 'Mars/Olympus' }),
+    ).toEqual(['invalid_timezone']);
   });
 
   it('reports each missing required field', () => {
@@ -595,6 +620,43 @@ describe('recurringScheduleTriggers', () => {
     ).toEqual([
       { triggerId: 'trigger-2', name: null, cronExpression: '0 9 * * 1-5', timezone: 'Europe/Amsterdam', isEnabled: true },
       { triggerId: 'no-tz', name: 'Nightly', cronExpression: '0 9 * * 1-5', timezone: 'UTC', isEnabled: false },
+    ]);
+  });
+});
+
+describe('oneTimeScheduleTriggers', () => {
+  it('normalizes one-time schedule triggers and skips everything else', () => {
+    const result = oneTimeScheduleTriggers([
+      { id: 'once', type: 'schedule', scheduleType: 'one_time', executeAt: '2026-10-01T09:00', timezone: 'Etc/GMT+5' },
+      {
+        id: 'no-tz',
+        type: 'schedule',
+        scheduleType: 'one_time',
+        executeAt: '2026-10-01T09:00',
+        isEnabled: false,
+        name: 'Launch',
+      },
+      scheduleTrigger,
+      { id: 'bad', type: 'schedule', scheduleType: 'one_time', executeAt: 'nonsense' },
+      { id: 'missing', type: 'schedule', scheduleType: 'one_time' },
+      entityTrigger,
+    ]);
+
+    expect(result).toEqual([
+      {
+        triggerId: 'once',
+        name: null,
+        executeAt: new Date('2026-10-01T14:00:00.000Z'),
+        timezone: 'Etc/GMT+5',
+        isEnabled: true,
+      },
+      {
+        triggerId: 'no-tz',
+        name: 'Launch',
+        executeAt: new Date('2026-10-01T09:00:00.000Z'),
+        timezone: 'UTC',
+        isEnabled: false,
+      },
     ]);
   });
 });

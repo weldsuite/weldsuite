@@ -155,3 +155,38 @@ export function computeNextRunAt(
   }
   return null;
 }
+
+/**
+ * Convert a naive local wall-clock time (no offset, as typed into a
+ * `datetime-local` input — `"YYYY-MM-DDTHH:mm"`) to the UTC instant it names
+ * in `timezone`. Used by the one-time (`executeAt`) schedule trigger: the
+ * editor stores the picked date/time plus an IANA zone name, same as a
+ * recurring schedule's cron + timezone pair.
+ *
+ * Standard `Intl`-only technique (no date library): interpret the naive
+ * string as if it were already UTC, then measure how far that instant's
+ * wall-clock reading in `timezone` differs from its reading in UTC — that
+ * delta is the zone's offset at (approximately) that instant, which is enough
+ * to correct it. DST-safe because the offset is read at the target instant,
+ * not today's.
+ *
+ * Returns `null` for an unparseable string or invalid timezone.
+ */
+export function zonedTimeToUtc(localDateTime: string, timezone: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(localDateTime.trim());
+  if (!match) return null;
+  const [, y, mo, d, h, mi, s] = match;
+  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s ?? '0'));
+  if (Number.isNaN(naiveUtcMs)) return null;
+
+  try {
+    const asIfUtc = new Date(naiveUtcMs);
+    const tz = (timezone || 'UTC').trim() || 'UTC';
+    const inZone = new Date(asIfUtc.toLocaleString('en-US', { timeZone: tz }));
+    const inUtc = new Date(asIfUtc.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const offsetMs = inUtc.getTime() - inZone.getTime();
+    return new Date(naiveUtcMs + offsetMs);
+  } catch {
+    return null;
+  }
+}

@@ -6,6 +6,7 @@
 import { and, desc, eq, gte, inArray, isNull, lt, lte, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { insertSkippedWorkflowExecution, isAtWorkflowConcurrencyLimit } from '@weldsuite/db/lib/workflow-concurrency';
 import { SEQUENCE_WORKFLOW_TAG } from './weldconnect-mvp';
 
 const { workflowExecutions, workflowExecutionSteps, workflows } = schema;
@@ -237,6 +238,16 @@ export interface StartRunInput {
 }
 
 /**
+ * Either a normal start (`skipped: false`, a real CF Workflow instance) or a
+ * run that never started because the workflow was already at its
+ * `settings.maxConcurrentRuns` limit (`skipped: true` — a `skipped`
+ * `workflow_executions` row was inserted instead, no CF Workflow instance).
+ */
+export type StartRunResult =
+  | { skipped: false; executionId: string; instanceId: string }
+  | { skipped: true; executionId: string; instanceId: null };
+
+/**
  * Start a run with a real execution id up front. The `workflow_executions` row
  * is inserted here as `queued` (with a pre-generated `wex_` id), then the
  * Cloudflare Workflow is started with that id in its params and upgrades the
@@ -244,12 +255,33 @@ export interface StartRunInput {
  * Cloudflare instance id is a different thing and not a valid execution id.)
  * When the workflow cannot be started the row is marked failed rather than
  * left queued.
+ *
+ * Covers every non-schedule dispatcher: manual trigger, retry, Test run, and
+ * the public webhook receiver all call this. Test runs (`isTest`) are exempt
+ * from the concurrency check — same exemption as the "workflow must be
+ * active" gate, and for the same reason: trying out a workflow in the editor
+ * should never be blocked by its own in-flight runs.
  */
 export async function startRun(
   db: Database,
   executeWorkflow: Workflow,
   input: StartRunInput,
-): Promise<{ executionId: string; instanceId: string }> {
+): Promise<StartRunResult> {
+  if (!input.isTest && (await isAtWorkflowConcurrencyLimit(db, input.workflow.id, input.workflow.settings))) {
+    const executionId = await insertSkippedWorkflowExecution(db, {
+      workflowId: input.workflow.id,
+      workflowVersion: input.workflow.version,
+      workflowName: input.workflow.name,
+      triggeredBy: input.userId,
+      triggerType: input.triggerType,
+      triggerId: input.triggerId,
+      triggerData: input.triggerData,
+      reason: 'concurrency_limit',
+      message: `Skipped: "${input.workflow.name}" is already at its concurrent run limit.`,
+    });
+    return { skipped: true, executionId, instanceId: null };
+  }
+
   const executionId = generateId('wex');
   const now = new Date();
   const steps = Array.isArray(input.workflow.steps) ? input.workflow.steps.length : 0;
@@ -297,7 +329,7 @@ export async function startRun(
       .set({ cfWorkflowInstanceId: instance.id })
       .where(eq(workflowExecutions.id, executionId))
       .catch((linkErr) => console.warn('[workflow-executions] could not link the workflow instance:', linkErr));
-    return { executionId, instanceId: instance.id };
+    return { skipped: false, executionId, instanceId: instance.id };
   } catch (err) {
     const failedAt = new Date();
     await db
@@ -329,6 +361,7 @@ export async function retryExecution(
   executeWorkflow: Workflow,
 ): Promise<
   | { kind: 'ok'; id: string; executionId: string; instanceId: string; retryOf: string }
+  | { kind: 'skipped'; id: string; executionId: string; retryOf: string }
   | { kind: 'not_found' }
   | { kind: 'not_failed' }
   | { kind: 'workflow_missing'; workflowId: string }
@@ -350,7 +383,7 @@ export async function retryExecution(
     return { kind: 'workflow_inactive', workflowId: workflow.id, status: workflow.status };
   }
 
-  const { executionId, instanceId } = await startRun(db, executeWorkflow, {
+  const result = await startRun(db, executeWorkflow, {
     workspaceId,
     userId,
     workflow,
@@ -361,7 +394,8 @@ export async function retryExecution(
     parent: { id: original.id, retryCount: original.retryCount ?? 0 },
   });
 
-  return { kind: 'ok', id: executionId, executionId, instanceId, retryOf: id };
+  if (result.skipped) return { kind: 'skipped', id: result.executionId, executionId: result.executionId, retryOf: id };
+  return { kind: 'ok', id: result.executionId, executionId: result.executionId, instanceId: result.instanceId, retryOf: id };
 }
 
 /** Engine trigger types a Test run may simulate. */
@@ -420,7 +454,9 @@ export async function startTestRun(
     if (timezone) triggerData.timezone = timezone;
   }
 
-  const { executionId, instanceId } = await startRun(db, executeWorkflow, {
+  // isTest: true always exempts this from the concurrency gate (see startRun),
+  // so `result.skipped` is unreachable here — narrowed for the return type below.
+  const result = await startRun(db, executeWorkflow, {
     workspaceId: input.workspaceId,
     userId: input.userId,
     workflow,
@@ -428,5 +464,6 @@ export async function startTestRun(
     triggerData,
     isTest: true,
   });
-  return { kind: 'ok', executionId, instanceId, triggerType };
+  if (result.skipped) return { kind: 'workflow_missing' };
+  return { kind: 'ok', executionId: result.executionId, instanceId: result.instanceId, triggerType };
 }

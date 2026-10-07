@@ -17,8 +17,8 @@ export const WELDCONNECT_TRIGGER_TYPES = [
   'workflow_complete',
 ] as const;
 
-/** Only recurring schedules are supported (the cron sweep has no one-off runs). */
-export const WELDCONNECT_SCHEDULE_TYPES = ['recurring'] as const;
+/** Recurring (cron) and one-time (fires once at a date/time, then disables itself) schedules are both supported. */
+export const WELDCONNECT_SCHEDULE_TYPES = ['recurring', 'one_time'] as const;
 
 export const WELDCONNECT_ACTION_TYPES = [
   'send_email',

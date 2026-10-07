@@ -30,6 +30,7 @@
  */
 
 import { ENTITY_EVENTS as ENTITY_EVENT_CATALOG } from '@weldsuite/entity-events';
+import { zonedTimeToUtc } from '@weldsuite/workflow-integrations/cron';
 
 export const WELDCONNECT_TRIGGER_TYPES = [
   'entity_event',
@@ -37,6 +38,9 @@ export const WELDCONNECT_TRIGGER_TYPES = [
   'webhook',
   'workflow_complete',
 ] as const;
+
+/** Schedule trigger kinds WeldConnect supports: `one_time` fires exactly once, then disables itself. */
+export const WELDCONNECT_SCHEDULE_TYPES = ['recurring', 'one_time'] as const;
 export const WELDCONNECT_ACTION_TYPES = [
   'send_email',
   'create_customer',
@@ -81,6 +85,8 @@ export type WorkflowIssueCode =
   | 'schedule_not_recurring'
   | 'invalid_cron'
   | 'invalid_timezone'
+  | 'invalid_execute_at'
+  | 'schedule_run_at_past'
   | 'no_steps'
   | 'unsupported_action'
   | 'missing_field'
@@ -286,11 +292,40 @@ function validateEntityEventTrigger(trigger: Bag, triggerId: string | undefined)
   return [];
 }
 
+/**
+ * `one_time`: needs a parseable `executeAt` (naive local datetime, as typed
+ * into a `datetime-local` input) that, read in `timezone`, is still in the
+ * future. A trigger that's already past its fire time can never activate —
+ * the sweep would otherwise fire it the instant the workflow goes live,
+ * surprising whoever just clicked Activate.
+ */
+function validateOneTimeScheduleTrigger(trigger: Bag, triggerId: string | undefined): WorkflowIssue[] {
+  const issues: WorkflowIssue[] = [];
+  const timezone = triggerField(trigger, 'timezone');
+  const timezoneValid = timezone === undefined || (typeof timezone === 'string' && isValidTimezone(timezone));
+  if (!timezoneValid) issues.push({ code: 'invalid_timezone', triggerId });
+
+  const executeAt = triggerField(trigger, 'executeAt');
+  if (typeof executeAt !== 'string' || !executeAt.trim()) {
+    issues.push({ code: 'invalid_execute_at', triggerId });
+    return issues;
+  }
+  const at = zonedTimeToUtc(executeAt, timezoneValid && typeof timezone === 'string' ? timezone : 'UTC');
+  if (!at) {
+    issues.push({ code: 'invalid_execute_at', triggerId });
+    return issues;
+  }
+  if (at.getTime() <= Date.now()) issues.push({ code: 'schedule_run_at_past', triggerId });
+  return issues;
+}
+
 function validateScheduleTrigger(trigger: Bag, triggerId: string | undefined): WorkflowIssue[] {
   const scheduleType = triggerField(trigger, 'scheduleType');
-  if (scheduleType !== undefined && scheduleType !== 'recurring') {
+  if (scheduleType !== undefined && !(WELDCONNECT_SCHEDULE_TYPES as readonly string[]).includes(String(scheduleType))) {
     return [{ code: 'schedule_not_recurring', triggerId }];
   }
+  if (scheduleType === 'one_time') return validateOneTimeScheduleTrigger(trigger, triggerId);
+
   const issues: WorkflowIssue[] = [];
   const cron = triggerField(trigger, 'cronExpression');
   if (typeof cron !== 'string' || !isValidCronExpression(cron)) issues.push({ code: 'invalid_cron', triggerId });
@@ -483,6 +518,50 @@ export function recurringScheduleTriggers(triggers: unknown): RecurringScheduleT
       name: typeof trigger.name === 'string' && trigger.name ? trigger.name : null,
       cronExpression: cron.trim(),
       timezone: typeof timezone === 'string' && isValidTimezone(timezone) ? timezone : 'UTC',
+      isEnabled: trigger.isEnabled !== false,
+    });
+  }
+  return result;
+}
+
+/**
+ * The one-time (`scheduleType: 'one_time'`) schedule triggers of a workflow,
+ * normalized — the input to the `workflow_schedules` sync's one-time half.
+ * Recurring and malformed entries are left out (activation rejects a
+ * malformed one anyway); a past `executeAt` is kept here (the sweep fires it
+ * once, immediately, as a best-effort catch-up) but activation itself still
+ * refuses it (see `validateOneTimeScheduleTrigger`).
+ */
+export interface OneTimeScheduleTrigger {
+  triggerId: string;
+  name: string | null;
+  executeAt: Date;
+  timezone: string;
+  isEnabled: boolean;
+}
+
+export function oneTimeScheduleTriggers(triggers: unknown): OneTimeScheduleTrigger[] {
+  if (!Array.isArray(triggers)) return [];
+  const result: OneTimeScheduleTrigger[] = [];
+  for (const raw of triggers) {
+    const trigger = asBag(raw);
+    // `workflow_schedules.trigger_id` is varchar(30); editor ids (`trigger-<ms>`) fit easily.
+    if (trigger.type !== 'schedule' || typeof trigger.id !== 'string' || !trigger.id || trigger.id.length > 30) {
+      continue;
+    }
+    const scheduleType = triggerField(trigger, 'scheduleType');
+    if (scheduleType !== 'one_time') continue;
+    const rawExecuteAt = triggerField(trigger, 'executeAt');
+    if (typeof rawExecuteAt !== 'string' || !rawExecuteAt.trim()) continue;
+    const timezoneField = triggerField(trigger, 'timezone');
+    const timezone = typeof timezoneField === 'string' && isValidTimezone(timezoneField) ? timezoneField : 'UTC';
+    const executeAt = zonedTimeToUtc(rawExecuteAt, timezone);
+    if (!executeAt) continue;
+    result.push({
+      triggerId: trigger.id,
+      name: typeof trigger.name === 'string' && trigger.name ? trigger.name : null,
+      executeAt,
+      timezone,
       isEnabled: trigger.isEnabled !== false,
     });
   }

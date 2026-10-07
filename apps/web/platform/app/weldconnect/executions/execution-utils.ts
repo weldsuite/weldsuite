@@ -10,7 +10,8 @@ export type ExecutionStatus =
   | 'completed'
   | 'failed'
   | 'cancelled'
-  | 'timeout';
+  | 'timeout'
+  | 'skipped';
 
 interface DurationSource {
   status: string;

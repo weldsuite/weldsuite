@@ -30,14 +30,20 @@ import type { ScheduleIndexSync } from '../../lib/schedule-index';
 import type { WebhookSyncContext } from '../../services/workflow-webhook-sync';
 import { registryDeps } from '../../services/workflow-webhook-registry';
 import { publicApiBase } from '../../lib/public-api-base';
+import { snapshotWorkflowVersion } from '../../services/workflow-versions';
 import { registerGenerateWorkflowRoute } from './generate';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-type WorkflowsContext = Context<{ Bindings: Env; Variables: Variables }>;
+export type WorkflowsContext = Context<{ Bindings: Env; Variables: Variables }>;
 
-/** D1 schedule-index handle for keeping schedule triggers firing (see services/workflow-schedule-sync.ts). */
-function scheduleSyncFor(c: WorkflowsContext): ScheduleIndexSync {
+/**
+ * D1 schedule-index handle for keeping schedule triggers firing (see
+ * services/workflow-schedule-sync.ts). Exported so the version-history
+ * restore route (routes/workflow-versions) can run the exact same sync a
+ * normal save would.
+ */
+export function scheduleSyncFor(c: WorkflowsContext): ScheduleIndexSync {
   return { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') };
 }
 
@@ -46,8 +52,9 @@ function scheduleSyncFor(c: WorkflowsContext): ScheduleIndexSync {
  * services/workflow-webhook-sync.ts). `registry` is a thunk — most saves have
  * no webhook trigger at all, and building a master-DB client is work (and,
  * on a malformed binding, a crash) the sync skips entirely for them.
+ * Exported for the same reason as `scheduleSyncFor` above.
  */
-function webhookSyncFor(c: WorkflowsContext): WebhookSyncContext {
+export function webhookSyncFor(c: WorkflowsContext): WebhookSyncContext {
   return { registry: () => registryDeps(c.env), workspaceId: c.get('workspaceId'), publicApiBase: publicApiBase(c.env) };
 }
 
@@ -63,7 +70,7 @@ function webhookSyncFor(c: WorkflowsContext): WebhookSyncContext {
  * actually exist and be connected — only looked up when a step needs it, so
  * every other activation keeps costing zero extra queries.
  */
-async function rejectUnsupportedActivation(
+export async function rejectUnsupportedActivation(
   c: WorkflowsContext,
   workflow: { triggers?: unknown; steps?: unknown; tags?: unknown },
   /** The workflow's id; absent while it is being created. */
@@ -182,6 +189,18 @@ app.post('/', requirePermission('workflows:create'), zValidator('json', createWo
   try {
     const result = await workflowsService.createWorkflow(db, data, userId, scheduleSyncFor(c), webhookSyncFor(c));
     await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
+    if (data.status === 'active') {
+      await snapshotWorkflowVersion(db, {
+        workflowId: result.id,
+        name: data.name,
+        status: 'active',
+        triggers: data.triggers,
+        steps: data.steps,
+        settings: data.settings,
+        createdBy: userId,
+        reason: 'activated',
+      }).catch((err) => console.warn('[app-api/workflows] version snapshot failed (create):', err));
+    }
     publishEntityEvent({
       c,
       entityType: 'workflow',
@@ -228,6 +247,25 @@ for (const method of ['put', 'patch'] as const) {
       if (!result) return error.notFound(c, 'Workflow', id);
       await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
       const after = await workflowsService.getWorkflow(db, id);
+
+      // Snapshot a version when this save lands the workflow active with a
+      // meaningful change — activating it, or changing what it does while
+      // already active. A rename-only / tag/folder-only touch of an active
+      // workflow does not warrant a new version.
+      const contentChanged = (['name', 'triggers', 'steps', 'settings'] as const).some((k) => data[k] !== undefined);
+      if (after?.status === 'active' && (activating || contentChanged)) {
+        await snapshotWorkflowVersion(db, {
+          workflowId: id,
+          name: after.name,
+          status: after.status,
+          triggers: after.triggers,
+          steps: after.steps,
+          settings: after.settings,
+          createdBy: c.get('userId'),
+          reason: activating ? 'activated' : 'saved',
+        }).catch((err) => console.warn('[app-api/workflows] version snapshot failed (update):', err));
+      }
+
       publishEntityEvent({
         c,
         entityType: 'workflow',
@@ -252,16 +290,32 @@ app.patch(
     const id = c.req.param('id');
     const { status } = c.req.valid('json');
     try {
+      let wasActivating = false;
       if (status === 'active') {
         const existing = await workflowsService.getWorkflow(db, id);
         if (!existing) return error.notFound(c, 'Workflow', id);
         const rejection = await rejectUnsupportedActivation(c, existing, id);
         if (rejection) return rejection;
+        wasActivating = existing.status !== 'active';
       }
       const result = await workflowsService.updateWorkflowStatus(db, id, status, scheduleSyncFor(c));
       if (!result) return error.notFound(c, 'Workflow', id);
       await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
       const after = await workflowsService.getWorkflow(db, id);
+
+      if (status === 'active' && wasActivating && after) {
+        await snapshotWorkflowVersion(db, {
+          workflowId: id,
+          name: after.name,
+          status: after.status,
+          triggers: after.triggers,
+          steps: after.steps,
+          settings: after.settings,
+          createdBy: c.get('userId'),
+          reason: 'activated',
+        }).catch((err) => console.warn('[app-api/workflows] version snapshot failed (status):', err));
+      }
+
       publishEntityEvent({
         c,
         entityType: 'workflow',

@@ -21,6 +21,7 @@ import { eq } from 'drizzle-orm';
 import { getTenantDbForWorkspace, schema } from '../db';
 import type { WorkflowEnv } from '../engine/types';
 import { computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
+import { insertSkippedWorkflowExecution, isAtWorkflowConcurrencyLimit } from '@weldsuite/db/lib/workflow-concurrency';
 import type { ScheduleIndexRow } from '../schedule-index';
 import { scheduledSlot } from '../engine/trigger-data';
 
@@ -94,9 +95,33 @@ function boundsOf(row: ScheduleIndexRow): { startDate: Date | null; endDate: Dat
 
 type OnFired = (row: ScheduleIndexRow, ok: boolean, nextRunAt: number | null, now: number) => Promise<void>;
 
+/**
+ * Gate a due row against its workflow's `settings.maxConcurrentRuns` before
+ * dispatch. Returning `allowed: false` means the implementation already
+ * recorded a `skipped` execution (best-effort) — the sweep still advances the
+ * row's timing as if it had fired, so a workflow stuck at its limit doesn't
+ * pile up catch-up dispatches. Defaults to always-allowed (no tenant I/O),
+ * which is what every existing caller/test gets unless it opts in.
+ */
+export type CheckConcurrency = (row: ScheduleIndexRow, now: number) => Promise<{ allowed: boolean }>;
+const ALWAYS_ALLOWED: CheckConcurrency = async () => ({ allowed: true });
+
+/**
+ * The row's one and only occurrence (its `execute_at`), used ONLY to
+ * materialize a freshly-created one-time row's first `next_run_at`. No
+ * `execute_at` (malformed data) means no occurrence, same as
+ * `computeNextRunAt` returning null for a bad cron.
+ */
+function oneTimeNextRun(row: ScheduleIndexRow): Date | null {
+  return row.execute_at != null ? new Date(row.execute_at) : null;
+}
+
 /** (a) Compute + store a row's first/next fire time (or disable it if none). */
 async function computeMissingNextRun(store: ScheduleIndexStore, row: ScheduleIndexRow, now: number): Promise<void> {
-  const next = computeNextRunAt(row.cron_expression, row.timezone, new Date(now), boundsOf(row));
+  const next =
+    row.schedule_type === 'one_time'
+      ? oneTimeNextRun(row)
+      : computeNextRunAt(row.cron_expression, row.timezone, new Date(now), boundsOf(row));
   if (!next) await store.disable(row.schedule_id, now);
   else await store.setNextRun(row.schedule_id, next.getTime(), now);
 }
@@ -155,18 +180,27 @@ async function dispatchScheduledWorkflow(
 async function fireScheduleRow(
   store: ScheduleIndexStore,
   executeWorkflow: ExecuteWorkflowBinding,
+  checkConcurrency: CheckConcurrency,
   onFired: OnFired,
   row: ScheduleIndexRow,
   now: number,
 ): Promise<boolean> {
   // The slot being fired, read before the index row is advanced past it.
   const slotMs = row.next_run_at;
-  // Advance first, then dispatch.
-  const next = computeNextRunAt(row.cron_expression, row.timezone, new Date(now), boundsOf(row));
+  // Advance first, then dispatch. A one-time schedule has exactly one
+  // occurrence — it never gets a next one, however this fire turns out.
+  const next =
+    row.schedule_type === 'one_time'
+      ? null
+      : computeNextRunAt(row.cron_expression, row.timezone, new Date(now), boundsOf(row));
   const nextMs = next ? next.getTime() : null;
   await store.markFired(row.schedule_id, nextMs, now);
 
-  const ok = await dispatchScheduledWorkflow(executeWorkflow, row, slotMs);
+  // The concurrency gate runs AFTER next_run_at is advanced: a workflow stuck
+  // at its limit still keeps its normal cadence (recurring) or is still
+  // marked done (one-time) instead of being retried every tick.
+  const { allowed } = await checkConcurrency(row, now);
+  const ok = allowed && (await dispatchScheduledWorkflow(executeWorkflow, row, slotMs));
 
   try {
     await onFired(row, ok, nextMs, now);
@@ -190,13 +224,17 @@ export async function sweepDueSchedules(
   executeWorkflow: ExecuteWorkflowBinding | undefined,
   onFired: OnFired,
   now: number = Date.now(),
+  checkConcurrency: CheckConcurrency = ALWAYS_ALLOWED,
 ): Promise<number> {
   const rows = await store.dueRows(now);
   let dispatched = 0;
 
   for (const row of rows) {
-    // (a) Needs a fire time computed. computeNextRunAt always returns a moment
-    // strictly in the future, so a freshly-computed row is never due this tick.
+    // (a) Needs a fire time computed. A freshly-computed row is never due this
+    // tick: computeNextRunAt always returns a moment strictly in the future,
+    // and a one-time row's single occurrence is only "due" once this branch
+    // has stored it as next_run_at (it may already be in the past — a
+    // best-effort catch-up if the sweep missed its minute).
     if (row.next_run_at == null) {
       await computeMissingNextRun(store, row, now);
       continue;
@@ -210,7 +248,7 @@ export async function sweepDueSchedules(
       continue;
     }
 
-    if (await fireScheduleRow(store, executeWorkflow, onFired, row, now)) dispatched++;
+    if (await fireScheduleRow(store, executeWorkflow, checkConcurrency, onFired, row, now)) dispatched++;
   }
 
   return dispatched;
@@ -230,6 +268,11 @@ async function writeTenantScheduleRun(
 ): Promise<void> {
   const db = await getTenantDbForWorkspace(env, row.workspace_id);
   const nextDate = nextRunAt != null ? new Date(nextRunAt) : null;
+  // A one-time schedule has no next occurrence either way (ok or not — the D1
+  // index already disabled it for good in fireScheduleRow) — reflect that on
+  // the UI-facing tenant row too, so it reads "done" rather than "enabled"
+  // with a next run that will never come.
+  const doneForever = row.schedule_type === 'one_time';
 
   if (ok) {
     const [existing] = await db
@@ -241,7 +284,9 @@ async function writeTenantScheduleRun(
       .update(schema.workflowSchedules)
       .set({
         lastRunAt: new Date(now),
+        lastRunStatus: 'completed',
         nextRunAt: nextDate,
+        ...(doneForever ? { isEnabled: false } : {}),
         totalRuns: (existing?.totalRuns ?? 0) + 1,
         updatedAt: new Date(now),
       })
@@ -253,6 +298,7 @@ async function writeTenantScheduleRun(
         lastRunAt: new Date(now),
         lastRunStatus: 'failed',
         nextRunAt: nextDate,
+        ...(doneForever ? { isEnabled: false } : {}),
         updatedAt: new Date(now),
       })
       .where(eq(schema.workflowSchedules.id, row.schedule_id));
@@ -263,6 +309,45 @@ async function writeTenantScheduleRun(
  * Entry point wired to the cron trigger. Polls the D1 index and fires due
  * schedules. No-ops (with a warning) if the D1 binding is missing.
  */
+/**
+ * Real `CheckConcurrency`: opens the row's tenant DB (the same one `onFired`
+ * is about to open anyway), reads the workflow's `settings.maxConcurrentRuns`,
+ * and — when already at the limit — records a `skipped` execution instead of
+ * dispatching. Any failure to even check is treated as allowed (fail open: a
+ * schedule miss is worse than an occasional over-run).
+ */
+async function checkScheduleConcurrency(env: WorkflowEnv, row: ScheduleIndexRow, now: number): Promise<{ allowed: boolean }> {
+  try {
+    const db = await getTenantDbForWorkspace(env, row.workspace_id);
+    const [workflow] = await db
+      .select({ name: schema.workflows.name, version: schema.workflows.version, settings: schema.workflows.settings })
+      .from(schema.workflows)
+      .where(eq(schema.workflows.id, row.workflow_id))
+      .limit(1);
+    if (!workflow) return { allowed: true };
+
+    if (!(await isAtWorkflowConcurrencyLimit(db, row.workflow_id, workflow.settings))) return { allowed: true };
+
+    await insertSkippedWorkflowExecution(db, {
+      workflowId: row.workflow_id,
+      workflowVersion: workflow.version,
+      workflowName: workflow.name,
+      triggerType: 'schedule',
+      triggerId: row.trigger_id,
+      triggerData: {
+        scheduleId: row.schedule_id,
+        scheduledTime: scheduledSlot(row.next_run_at, new Date(now)).toISOString(),
+      },
+      reason: 'concurrency_limit',
+      message: `Skipped: "${workflow.name}" is already at its concurrent run limit.`,
+    });
+    return { allowed: false };
+  } catch (err) {
+    console.warn(`[ScheduleSweep] Concurrency check failed for schedule ${row.schedule_id}, allowing:`, err);
+    return { allowed: true };
+  }
+}
+
 export async function runWorkflowScheduleSweep(env: WorkflowEnv, now: number = Date.now()): Promise<number> {
   const d1 = env.SCHEDULE_INDEX as D1Database | undefined;
   if (!d1) {
@@ -276,6 +361,7 @@ export async function runWorkflowScheduleSweep(env: WorkflowEnv, now: number = D
     env.EXECUTE_WORKFLOW,
     (row, ok, nextRunAt, at) => writeTenantScheduleRun(env, row, ok, nextRunAt, at),
     now,
+    (row, at) => checkScheduleConcurrency(env, row, at),
   );
 
   if (dispatched > 0) console.log(`[ScheduleSweep] Dispatched ${dispatched} workflow(s)`);

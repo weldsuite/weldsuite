@@ -91,9 +91,17 @@ Roughly in the recommended order.
    editor form, gate entries and a test against the real service.
 8. **Help docs**: guides and screenshots on help.weldsuite.org for the new
    triggers and steps (`.agents/skills/help-docs`).
-9. **Extras**: one-time scheduled runs (needs a tenant migration; the sweep only
-   knows cron), workflow version history beyond the `version` column, and a
-   per-workflow concurrency limit.
+9. **Extras** (`feat/weldconnect-extras`, tenant migration `0199_far_tomas`):
+   one-time (`scheduleType: 'one_time'`, `executeAt`) scheduled runs — fires
+   exactly once via the D1 schedule index, then disables itself for good;
+   workflow version history (`workflow_versions` table, snapshotted on
+   activation and on every save of an active workflow, with restore);
+   and `settings.maxConcurrentRuns`, enforced best-effort at every dispatcher
+   (`startRun`, the entity-event matcher, the schedule sweep — NOT yet the
+   `integration_event` matcher or `workflow_complete` trigger, which share the
+   same `@weldsuite/db/lib/workflow-concurrency` helper and could pick it up
+   the same way). Editor History panel is a dialog on the workflow Settings
+   page, not yet a full diff view.
 10. **Backfill legacy webhooks** into `workflow_webhook_registry`, only if any
     pre-#862 webhook workflows are still live (they register again on their
     next save).

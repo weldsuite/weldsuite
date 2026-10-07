@@ -22,6 +22,7 @@ import {
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
 import { workflowsRoutes } from './workflows';
+import { workflowVersionsRoutes } from './workflow-versions';
 
 const ROUTES_DIR = __dirname;
 
@@ -46,6 +47,7 @@ const AUTH_CASES: AuthGateCase<Env, Variables>[] = [];
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/workflows', router: workflowsRoutes, permission: 'workflows:read' },
+  { mount: '/api/workflow-versions', router: workflowVersionsRoutes, permission: 'workflows:read' },
 ];
 
 describe('entity-event coverage', () => {

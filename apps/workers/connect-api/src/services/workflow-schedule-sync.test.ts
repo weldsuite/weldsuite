@@ -76,8 +76,16 @@ describe('workflow schedule-trigger sync', () => {
       isEnabled: true,
     });
     const [upsert] = index.upserts();
-    expect(upsert.args.slice(0, 6)).toEqual([row.id, 'org_sched', id, 'trigger-sched', '0 9 * * *', 'Europe/Amsterdam']);
-    expect(upsert.args[9]).toBe(1); // is_enabled
+    expect(upsert.args.slice(0, 7)).toEqual([
+      row.id,
+      'org_sched',
+      id,
+      'trigger-sched',
+      'recurring',
+      '0 9 * * *',
+      'Europe/Amsterdam',
+    ]);
+    expect(upsert.args[11]).toBe(1); // is_enabled
   });
 
   it('re-indexes on a cron change, disables on pause, and keeps the same row', async () => {
@@ -98,7 +106,7 @@ describe('workflow schedule-trigger sync', () => {
     expect(rows[0]).toMatchObject({ id: created.id, cronExpression: '0 9 * * 1', isEnabled: false });
     // create, cron change, pause → three upserts, the last one disabled.
     expect(index.upserts()).toHaveLength(3);
-    expect(index.upserts()[2].args[9]).toBe(0);
+    expect(index.upserts()[2].args[11]).toBe(0);
   });
 
   it('does not touch the index for a rename-only save', async () => {
@@ -145,6 +153,69 @@ describe('workflow schedule-trigger sync', () => {
     await deleteWorkflow(db, id, index.sync);
     expect(await liveSchedules(id)).toHaveLength(0);
     expect(index.deletes()).toHaveLength(1);
+  });
+
+  it('materializes a one-time schedule on activation, with no cron and a UTC executeAt', async () => {
+    const index = fakeIndex();
+    const onceTrigger = {
+      id: 'trigger-once',
+      type: 'schedule',
+      scheduleType: 'one_time',
+      executeAt: '2026-12-25T09:00',
+      timezone: 'Etc/GMT+5', // UTC-5 -> 14:00 UTC
+      isEnabled: true,
+    };
+    const { id } = await createWorkflow(db, { name: 'launch', triggers: [onceTrigger] }, 'user_1', index.sync);
+    expect(await liveSchedules(id)).toHaveLength(0);
+
+    await updateWorkflowStatus(db, id, 'active', index.sync);
+
+    const [row] = await liveSchedules(id);
+    expect(row).toMatchObject({
+      triggerId: 'trigger-once',
+      scheduleType: 'one_time',
+      cronExpression: null,
+      timezone: 'Etc/GMT+5',
+      isEnabled: true,
+    });
+    expect(row.executeAt?.toISOString()).toBe('2026-12-25T14:00:00.000Z');
+
+    const [upsert] = index.upserts();
+    expect(upsert.args[4]).toBe('one_time'); // schedule_type
+    expect(upsert.args[9]).toBe(row.executeAt!.getTime()); // execute_at
+  });
+
+  it('never resurrects a one-time schedule that has already fired, even on reactivation', async () => {
+    const index = fakeIndex();
+    const onceTrigger = {
+      id: 'trigger-once',
+      type: 'schedule',
+      scheduleType: 'one_time',
+      executeAt: '2026-12-25T09:00',
+      timezone: 'UTC',
+      isEnabled: true,
+    };
+    const { id } = await createWorkflow(
+      db,
+      { name: 'launch', status: 'active', triggers: [onceTrigger] },
+      'user_1',
+      index.sync,
+    );
+    const [created] = await liveSchedules(id);
+
+    // Simulate the sweep having fired it: lastRunAt set, disabled.
+    await db
+      .update(schema.workflowSchedules)
+      .set({ lastRunAt: new Date(), isEnabled: false })
+      .where(eq(schema.workflowSchedules.id, created.id));
+
+    // Pause then reactivate the workflow — a naive re-sync would flip isEnabled
+    // back to true just because the trigger itself is still "enabled".
+    await updateWorkflowStatus(db, id, 'paused', index.sync);
+    await updateWorkflowStatus(db, id, 'active', index.sync);
+
+    const [row] = await liveSchedules(id);
+    expect(row.isEnabled).toBe(false);
   });
 
   it('leaves schedules it does not manage alone', async () => {

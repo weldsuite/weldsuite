@@ -185,7 +185,11 @@ app.post('/:webhookId', async (c) => {
     // startRun pre-creates the `workflow_executions` row (a real `wex_` id)
     // before starting the CF Workflow instance, same as a manual trigger or a
     // retry — the legacy response below still reports it as `executionId`.
-    const { executionId } = await startRun(db, executeWorkflow, {
+    // It also enforces `settings.maxConcurrentRuns`: a webhook arriving while
+    // the workflow is already at its limit gets a `skipped` row instead of a
+    // new run, still reported as a (non-2xx-worthy) success — the webhook
+    // itself was received and handled, it's the workflow run that didn't start.
+    const result = await startRun(db, executeWorkflow, {
       workspaceId,
       userId: workflow.createdBy || 'webhook',
       workflow,
@@ -205,7 +209,8 @@ app.post('/:webhookId', async (c) => {
 
     return c.json({
       success: true,
-      executionId,
+      executionId: result.executionId,
+      ...(result.skipped ? { skipped: true } : {}),
     });
   } catch (err) {
     console.error('[WebhookReceiver] Failed to dispatch workflow:', err);

@@ -11,6 +11,7 @@
 
 import { and, eq, isNull } from 'drizzle-orm';
 import { workflows, workflowTriggerIndex } from '@weldsuite/db/schema';
+import { insertSkippedWorkflowExecution, isAtWorkflowConcurrencyLimit } from '@weldsuite/db/lib/workflow-concurrency';
 import type { TenantDb } from './internal-types';
 
 interface TriggerFilter {
@@ -199,10 +200,12 @@ export function integrationTriggerMatches(
 
 async function dispatchEntityMatches(
   env: WorkflowDispatchEnv,
+  db: TenantDb,
   matches: Array<{
     workflowId: string;
     workflowName: string | null;
     triggerId?: string;
+    settings?: unknown;
   }>,
   base: Omit<MatchAndDispatchInput, 'env' | 'db' | 'changes'> & {
     action: string;
@@ -213,6 +216,29 @@ async function dispatchEntityMatches(
 ): Promise<void> {
   const { workspaceId, userId, entityType, entityId, action, data, changes, eventId, chainDepth } = base;
   for (const row of matches) {
+    // `settings` is absent unless the caller's select projected it — only the
+    // index-row/fallback paths that bothered to do so can ever trip this,
+    // keeping the check free (no extra query) for a workflow with no limit set.
+    if (await isAtWorkflowConcurrencyLimit(db, row.workflowId, row.settings)) {
+      try {
+        await insertSkippedWorkflowExecution(db, {
+          workflowId: row.workflowId,
+          workflowName: row.workflowName,
+          triggeredBy: userId,
+          triggerType: 'entity_event',
+          triggerId: row.triggerId,
+          triggerData: { eventType: `${entityType}:${action}`, entityType, entityId, action, data, changes },
+          reason: 'concurrency_limit',
+          message: `Skipped: "${row.workflowName}" is already at its concurrent run limit.`,
+        });
+      } catch (err) {
+        console.error(`[TriggerMatcher] Failed to record skipped execution for ${row.workflowId}:`, err);
+      }
+      console.log(
+        `[TriggerMatcher] Skipped workflow "${row.workflowName}" for ${entityType}:${action} — at its concurrency limit`,
+      );
+      continue;
+    }
     try {
       await env.EXECUTE_WORKFLOW!.create({
         ...(eventId
@@ -272,6 +298,7 @@ export async function matchAndDispatchWorkflowTriggers(
     eventType: string | null;
     filters: unknown;
     workflowName: string | null;
+    settings: unknown;
   }>;
   let indexUnavailable = false;
   try {
@@ -282,6 +309,7 @@ export async function matchAndDispatchWorkflowTriggers(
         eventType: workflowTriggerIndex.eventType,
         filters: workflowTriggerIndex.filters,
         workflowName: workflows.name,
+        settings: workflows.settings,
       })
       .from(workflowTriggerIndex)
       .innerJoin(workflows, eq(workflowTriggerIndex.workflowId, workflows.id))
@@ -306,17 +334,17 @@ export async function matchAndDispatchWorkflowTriggers(
         (!row.eventType || eventTypes.includes(row.eventType)) &&
         evalFilters((row.filters as TriggerFilter[] | null | undefined) ?? undefined, data),
     );
-    await dispatchEntityMatches(env, matches, dispatchBase);
+    await dispatchEntityMatches(env, db, matches, dispatchBase);
     return;
   }
 
   // Fallback: scan embedded workflows.triggers when index table is missing.
   const activeWorkflows = await db
-    .select({ id: workflows.id, name: workflows.name, triggers: workflows.triggers })
+    .select({ id: workflows.id, name: workflows.name, triggers: workflows.triggers, settings: workflows.settings })
     .from(workflows)
     .where(and(eq(workflows.status, 'active'), isNull(workflows.deletedAt)));
 
-  const matches: Array<{ workflowId: string; workflowName: string | null; triggerId?: string }> = [];
+  const matches: Array<{ workflowId: string; workflowName: string | null; triggerId?: string; settings?: unknown }> = [];
   for (const workflow of activeWorkflows) {
     const triggers = (workflow.triggers as TriggerConfig[]) || [];
     for (const trigger of triggers) {
@@ -325,10 +353,11 @@ export async function matchAndDispatchWorkflowTriggers(
         workflowId: workflow.id,
         workflowName: workflow.name,
         triggerId: typeof trigger.id === 'string' ? trigger.id : undefined,
+        settings: workflow.settings,
       });
     }
   }
-  await dispatchEntityMatches(env, matches, dispatchBase);
+  await dispatchEntityMatches(env, db, matches, dispatchBase);
 }
 
 export interface MatchAndDispatchIntegrationInput {
