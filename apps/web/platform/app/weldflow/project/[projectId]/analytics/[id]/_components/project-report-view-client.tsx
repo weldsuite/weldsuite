@@ -226,7 +226,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
       }
     }
 
-    loadData();
+    void loadData();
   }, [charts, widgetPeriods, projectId, report.id]);
 
   // Handle layout changes

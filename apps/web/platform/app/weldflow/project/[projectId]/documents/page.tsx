@@ -86,7 +86,7 @@ export default function ProjectDocumentsPage() {
   }, [projectId]);
 
   useEffect(() => {
-    loadDocuments();
+    void loadDocuments();
   }, [loadDocuments]);
 
   const filterConfigs: FilterConfig[] = useMemo(() => [], []);
@@ -337,7 +337,7 @@ export default function ProjectDocumentsPage() {
                 onChange={(e) => setNewDocName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isCreating) {
-                    handleCreateDocument();
+                    void handleCreateDocument();
                   }
                 }}
               />
@@ -373,7 +373,7 @@ export default function ProjectDocumentsPage() {
                 onChange={(e) => setRenameValue(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isRenaming) {
-                    handleRenameDocument();
+                    void handleRenameDocument();
                   }
                 }}
               />
