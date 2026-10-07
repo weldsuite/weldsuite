@@ -10,14 +10,13 @@ import { buildMeetingShareUrl, parseMeetingJoinInput } from '@/lib/weldmeet/shar
 import { useWeldMeetCallOptional } from '@/contexts/weldmeet-call-context';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
-import { Card, CardContent } from '@weldsuite/ui/components/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { Video, Plus, Link2, Calendar, Keyboard, Clock, Users, ChevronRight, ClipboardType, Copy, Check, X } from 'lucide-react';
+import { Plus, Link2, Calendar, Keyboard, ChevronRight, ClipboardType, Copy, Check, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -228,6 +227,9 @@ export default function NewMeetingPage() {
   return (
     <div className="flex-1 overflow-auto">
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] -mt-[60px]">
+        {/* The hero and action row stay centered; upcoming meetings hang below
+            them (absolute) so the list never pushes the hero up. */}
+        <div className="relative w-full flex flex-col items-center">
         {/* Hero Section */}
         <div className="text-center max-w-2xl mx-auto px-6">
           <h1
@@ -341,61 +343,59 @@ export default function NewMeetingPage() {
 
         {/* Upcoming Meetings Preview */}
         {upcomingMeetings && upcomingMeetings.length > 0 && (
-          <div className="w-full max-w-xl mx-auto px-6 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-muted-foreground">{t.newMeetingPage.upcomingMeetings}</h2>
+          <div className="absolute top-full inset-x-0 w-full max-w-xl mx-auto px-6 pt-12 pb-8">
+            <div className="flex items-center justify-between mb-2 pl-1">
+              <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t.newMeetingPage.upcomingMeetings}
+              </h2>
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-xs"
+                className="text-xs text-muted-foreground hover:text-foreground -mr-2"
                 onClick={() => navigate({ to: '/weldmeet/upcoming' })}
               >
                 {t.newMeetingPage.viewAll}
-                <ChevronRight className="h-3 w-3 ml-1" />
+                <ChevronRight className="h-3 w-3" />
               </Button>
             </div>
-            <div className="space-y-2">
-              {upcomingMeetings.map((meeting: Meeting) => (
-                <Card
-                  key={meeting.id}
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() =>
-                    navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } })
-                  }
-                >
-                  <CardContent className="flex items-center justify-between py-3 px-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Video className="h-4 w-4 text-primary" />
+            <ul className="space-y-2">
+              {upcomingMeetings.map((meeting: Meeting) => {
+                const start = meeting.scheduledStart ? new Date(meeting.scheduledStart) : null;
+                const end = meeting.scheduledEnd ? new Date(meeting.scheduledEnd) : null;
+                return (
+                  <li key={meeting.id}>
+                    <button
+                      type="button"
+                      className="group flex w-full items-center gap-3 rounded-2xl bg-muted/50 px-5 py-3.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      onClick={() =>
+                        navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } })
+                      }
+                    >
+                      <div className="min-w-0 flex-1">
+                        {start && (
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {format(start, 'EEE, MMM d')} · {format(start, 'h:mm a')}
+                            {end && ` – ${format(end, 'h:mm a')}`}
+                          </p>
+                        )}
+                        <p className="mt-0.5 text-base truncate">{meeting.title}</p>
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm truncate">{meeting.title}</p>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          {meeting.scheduledStart && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {format(new Date(meeting.scheduledStart), 'MMM d, h:mm a')}
-                            </span>
-                          )}
-                          <span className="flex items-center gap-1">
-                            <Users className="h-3 w-3" />
-                            {meeting.attendees?.length ?? 0}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    {meeting.status === 'in_progress' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full dark:bg-green-900 dark:text-green-200">
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                        {t.newMeetingPage.live}
-                      </span>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                      {meeting.status === 'in_progress' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full dark:bg-green-900 dark:text-green-200 shrink-0">
+                          <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                          {t.newMeetingPage.live}
+                        </span>
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
+        </div>
 
       </div>
 

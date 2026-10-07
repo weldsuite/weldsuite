@@ -28,7 +28,7 @@ import {
   Star,
   Bot,
   CalendarDays,
-  CalendarClock,
+  Calendar,
   HardDrive,
   Clock,
   Trash2,
@@ -206,8 +206,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.weldhr.groups.people,
         items: [
           { title: t.navigation.moduleSidebar.weldhr.dashboard, href: '/weldhr', icon: LayoutDashboard },
-          { title: t.navigation.moduleSidebar.weldhr.employees, href: '/weldhr/employees', icon: UsersRound, permission: 'employees:read' },
-          { title: t.navigation.moduleSidebar.weldhr.clients, href: '/weldhr/clients', icon: Building2, permission: 'employees:read' },
+          { title: t.navigation.moduleSidebar.weldhr.employees, href: '/weldhr/employees', icon: User, permission: 'employees:read' },
+          { title: t.navigation.moduleSidebar.weldhr.clients, href: '/weldhr/clients', icon: Building, permission: 'employees:read' },
           { title: t.navigation.moduleSidebar.weldhr.orgChart, href: '/weldhr/org-chart', icon: Network, permission: 'employees:read' },
           { title: t.navigation.moduleSidebar.weldhr.lifecycle, href: '/weldhr/lifecycle', icon: UserPlus, permission: 'employees:read' },
         ],
@@ -303,7 +303,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.groups.general,
         items: [
           { title: t.navigation.moduleSidebar.weldmeet.newMeeting, href: '/weldmeet', icon: Plus },
-          { title: t.navigation.moduleSidebar.weldmeet.upcoming, href: '/weldmeet/upcoming', icon: CalendarClock },
+          { title: t.navigation.moduleSidebar.weldmeet.upcoming, href: '/weldmeet/upcoming', icon: Calendar },
           { title: t.navigation.moduleSidebar.weldmeet.history, href: '/weldmeet/history', icon: History },
           { title: t.navigation.moduleSidebar.weldmeet.people, href: '/weldmeet/people', icon: Users },
         ],
