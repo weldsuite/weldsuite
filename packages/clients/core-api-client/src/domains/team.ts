@@ -12,9 +12,11 @@ import type {
   ListMemberActivityQuery,
 } from '../schemas/member-profile';
 
+const LIMIT_25 = { limit: 25 } as const;
+
 export function createTeamApi(api: ClientApi) {
   return {
-    listMembers(params: ListMembersQuery = { limit: 25 }): Promise<ListResponse<Member>> {
+    listMembers(params: ListMembersQuery = LIMIT_25): Promise<ListResponse<Member>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<Member>>(`/team/members${query}`);
     },
@@ -57,7 +59,7 @@ export function createTeamApi(api: ClientApi) {
     // Activity feed (admin or self only)
     listMemberActivity(
       userId: string,
-      params: ListMemberActivityQuery = { limit: 25 },
+      params: ListMemberActivityQuery = LIMIT_25,
     ): Promise<ListResponse<MemberActivityItem>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<MemberActivityItem>>(

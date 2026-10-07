@@ -50,6 +50,8 @@ import type {
   UpdateEventInput,
 } from '@/types/weldcalendar';
 
+const LIMIT_50 = { limit: 50 } as const;
+
 /** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
 
@@ -116,7 +118,7 @@ const weldcalendar = {
 
   // ── Events ─────────────────────────────────────────────────────────────
 
-  listEvents(params: ListEventsQuery = { limit: 50 }): Promise<ListResponse<CalendarEvent>> {
+  listEvents(params: ListEventsQuery = LIMIT_50): Promise<ListResponse<CalendarEvent>> {
     return client.get<ListResponse<CalendarEvent>>(
       `/calendar-events${buildQueryString(params as Record<string, unknown>)}`,
     );
