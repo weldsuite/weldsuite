@@ -469,7 +469,7 @@ export const mail = {
       createNewContact: 'Create new contact',
       noPeopleFound: 'No people found',
       noRecentPeople: 'No recent recipients',
-      createNewPerson: 'Add as new person',
+      createNewPerson: 'Add new recipient',
       personCreated: 'Person added',
       failedToCreatePerson: 'Failed to add person',
       writePlaceholder: 'Write your message...',

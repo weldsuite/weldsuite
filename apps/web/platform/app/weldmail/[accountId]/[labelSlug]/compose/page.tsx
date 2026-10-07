@@ -10,7 +10,7 @@ import {
   Link,
   Smile,
   Plus,
-  UserPlus,
+  User,
   CircleCheck,
   Trash2,
 } from 'lucide-react';
@@ -34,6 +34,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
+import { Command, CommandItem, CommandList } from '@weldsuite/ui/components/command';
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -1521,70 +1522,18 @@ function ContactSuggestionItem({
   onSelect: (contact: PersonSuggestion) => void;
 }>) {
   return (
-    <Button
-      variant="ghost"
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={() => onSelect(contact)}
-      className="relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors text-left"
-    >
-      <Avatar className="h-7 w-7 !rounded-[9px] flex-shrink-0">
-        {contact.avatarUrl && <AvatarImage src={contact.avatarUrl} alt={contact.name} className="!rounded-[9px]" />}
-        <AvatarFallback className="!rounded-[9px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-          {(contact.name || contact.email || '?').charAt(0).toUpperCase()}
+    <CommandItem value={contact.id} onSelect={() => onSelect(contact)}>
+      <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
+        {contact.avatarUrl && <AvatarImage src={contact.avatarUrl} alt={contact.name} className="!rounded-[7px]" />}
+        <AvatarFallback className="!rounded-[7px] bg-gray-200 dark:bg-muted-foreground/25">
+          <User className="size-2.5" />
         </AvatarFallback>
       </Avatar>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{contact.name}</div>
-        <div className="text-xs text-muted-foreground truncate">{contact.email}</div>
+      <div className="flex flex-1 min-w-0 items-baseline gap-2">
+        <span className="max-w-[60%] font-medium truncate">{contact.name}</span>
+        <span className="min-w-0 flex-1 text-xs text-muted-foreground truncate">{contact.email}</span>
       </div>
-    </Button>
-  );
-}
-
-function CreatePersonSuggestion({
-  query,
-  onCreatePerson,
-}: Readonly<{
-  query: string;
-  onCreatePerson: () => void;
-}>) {
-  const { t } = useI18n();
-
-  return (
-    <Button
-      variant="ghost"
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onCreatePerson}
-      className="relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground transition-colors text-left"
-    >
-      <UserPlus className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium">{t.mail.composePage.createNewPerson}</div>
-        <div className="text-xs text-muted-foreground truncate">{query.trim()}</div>
-      </div>
-    </Button>
-  );
-}
-
-function NoContactsMessage({
-  query,
-  onCreatePerson,
-}: Readonly<{
-  query: string;
-  onCreatePerson: () => void;
-}>) {
-  const { t } = useI18n();
-
-  if (!query.trim()) {
-    return <div className="px-2 py-3 text-sm text-muted-foreground text-center">{t.mail.composePage.noRecentPeople}</div>;
-  }
-
-  return (
-    <>
-      <div className="px-2 py-1.5 text-sm text-muted-foreground text-center">{t.mail.composePage.noPeopleFound}</div>
-      <div className="-mx-1 my-1 h-px bg-border" />
-      <CreatePersonSuggestion query={query} onCreatePerson={onCreatePerson} />
-    </>
+    </CommandItem>
   );
 }
 
@@ -1607,8 +1556,7 @@ function ContactSuggestionsList({
 }>) {
   const { t } = useI18n();
   const available = contacts.filter((c) => !toRecipients.includes(c.email));
-
-  const showCreate = query.trim().length > 0 && !(isLoading && contacts.length === 0);
+  const hasQuery = query.trim().length > 0;
 
   const renderBody = () => {
     if (isLoading && contacts.length === 0) {
@@ -1619,30 +1567,36 @@ function ContactSuggestionsList({
         </div>
       );
     }
-    if (available.length > 0) {
-      return (
-        <>
-          {available.map((contact) => (
-            <ContactSuggestionItem key={contact.id} contact={contact} onSelect={onSelect} />
-          ))}
-          {showCreate && (
-            <>
-              <div className="-mx-1 my-1 h-px bg-border" />
-              <CreatePersonSuggestion query={query} onCreatePerson={onCreatePerson} />
-            </>
-          )}
-        </>
-      );
+    if (available.length === 0 && !hasQuery) {
+      return <div className="px-2 py-3 text-sm text-muted-foreground text-center">{t.mail.composePage.noRecentPeople}</div>;
     }
-    return <NoContactsMessage query={query} onCreatePerson={onCreatePerson} />;
+    return (
+      <>
+        {available.map((contact) => (
+          <ContactSuggestionItem key={contact.id} contact={contact} onSelect={onSelect} />
+        ))}
+        {hasQuery && (
+          <CommandItem value="__add-recipient" onSelect={onCreatePerson}>
+            <Plus />
+            <span className="font-medium truncate">{t.mail.composePage.createNewPerson}</span>
+          </CommandItem>
+        )}
+      </>
+    );
   };
 
+  // The search runs server-side and the text input lives outside the Command,
+  // so cmdk's own filtering is off; mousedown is swallowed to keep the input focused.
   return (
     <div
       ref={containerRef}
-      className="absolute left-0 top-full mt-1 w-full max-w-md bg-popover text-popover-foreground border rounded-md shadow-md z-50 overflow-hidden max-h-[250px] overflow-y-auto p-1"
+      role="presentation"
+      onMouseDown={(e) => e.preventDefault()}
+      className="absolute left-0 top-full mt-1 w-full max-w-sm bg-popover text-popover-foreground border rounded-md shadow-md z-50 overflow-hidden"
     >
-      {renderBody()}
+      <Command shouldFilter={false} className="h-auto">
+        <CommandList className="max-h-[250px] p-1">{renderBody()}</CommandList>
+      </Command>
     </div>
   );
 }

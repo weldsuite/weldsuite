@@ -677,7 +677,7 @@ export function useMailSidebarItems(isActive: boolean): {
           })}
         <SidebarMenuItem>
           <SidebarMenuButton onClick={() => setShowMore(!showMore)}>
-            <MoreToggleIcon className="h-4 w-4 text-gray-500" />
+            <MoreToggleIcon className="h-4 w-4" />
             <span>{moreToggleLabel}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
