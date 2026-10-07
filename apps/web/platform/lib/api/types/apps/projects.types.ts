@@ -63,7 +63,7 @@ export namespace Projects {
    */
   export interface WorkloadTask {
     id: string;
-    /** Workspace-wide sequential number, displayed as TASK-<number>. */
+    /** Workspace-wide sequential number, displayed as the bare number. */
     number?: number | null;
     title: string;
     startDate?: string;
@@ -108,7 +108,7 @@ export namespace Projects {
     description?: string;
     key?: string;
     /**
-     * Workspace-wide sequential number, displayed as TASK-<number>.
+     * Workspace-wide sequential number, displayed as the bare number.
      * Server-assigned on create; null on pre-backfill rows.
      */
     number?: number | null;

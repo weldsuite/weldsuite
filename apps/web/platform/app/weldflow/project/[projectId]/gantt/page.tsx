@@ -50,7 +50,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { cn } from '@/lib/utils';
-import { formatTaskNumber } from '@/lib/task-number';
+import { formatTaskNumber, taskNumberMatches } from '@/lib/task-number';
 import { ganttApi, tasksApi, membersApi, labelsApi } from '@/app/weldflow/lib/api-client';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
@@ -136,7 +136,7 @@ interface GanttFeature {
   owner?: { id: string; name: string; image?: string };
   group: { id: string; name: string };
   priority?: string;
-  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  /** Workspace-wide sequential number, rendered as the bare number. */
   number?: number | null;
   taskKey?: string;
   originalTask?: RawGanttTask;
@@ -158,7 +158,7 @@ interface GanttMarkerType {
 // Raw task shape as returned by the app-api gantt/tasks endpoints
 interface RawGanttTask {
   id: string;
-  /** Workspace-wide sequential number, displayed as TASK-<number>. */
+  /** Workspace-wide sequential number, displayed as the bare number. */
   number?: number | null;
   title?: string;
   startDate?: string | null;
@@ -949,8 +949,8 @@ const GanttPage = () => {
       const q = searchQuery.toLowerCase();
       result = result.filter(feature =>
         feature.name.toLowerCase().includes(q) ||
-        // Lets "TASK-1042" / "1042" find the bar by its number.
-        !!formatTaskNumber(feature.number)?.toLowerCase().includes(q),
+        // Lets "1042" / "#1042" find the bar by its number.
+        taskNumberMatches(feature.number, q),
       );
     }
 

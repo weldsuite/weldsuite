@@ -228,7 +228,7 @@ export interface ProjectTask {
   description?: string | null;
   key?: string | null;
   /**
-   * Workspace-wide sequential number, displayed as TASK-<number>.
+   * Workspace-wide sequential number, displayed as the bare number.
    * Server-assigned on create; null on pre-backfill rows.
    */
   number?: number | null;

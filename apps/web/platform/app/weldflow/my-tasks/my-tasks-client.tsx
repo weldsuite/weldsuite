@@ -65,7 +65,7 @@ import { MyTasksPipeline } from './my-tasks-pipeline';
 
 interface Task {
   id: string;
-  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  /** Workspace-wide sequential number, rendered as the bare number. */
   number?: number | null;
   title: string;
   description?: string;

@@ -33,7 +33,7 @@ describe('create_task', () => {
     expect(res).toEqual({
       taskId: 'task_1',
       number: 42,
-      key: 'TASK-42',
+      key: '42',
       projectId: 'proj_1',
       title: 'Ship the thing',
       url: '/weldflow/project/proj_1/tasks/task_1',
