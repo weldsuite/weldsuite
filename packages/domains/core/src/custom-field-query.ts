@@ -45,7 +45,7 @@ export const CUSTOM_FIELD_KEY_PREFIX = 'custom:';
  * so callers can branch without string-slicing at every call site.
  */
 export function parseCustomFieldKey(key: string | undefined | null): string | null {
-  if (!key || !key.startsWith(CUSTOM_FIELD_KEY_PREFIX)) return null;
+  if (!key?.startsWith(CUSTOM_FIELD_KEY_PREFIX)) return null;
   const slug = key.slice(CUSTOM_FIELD_KEY_PREFIX.length);
   return slug.length > 0 ? slug : null;
 }

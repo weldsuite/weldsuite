@@ -48,7 +48,7 @@ export function applyInterAsDefaultFont() {
       props?: { style?: unknown };
       type?: unknown;
     } | null;
-    if (!element || !element.props) return element;
+    if (!element?.props) return element;
 
     const flat = StyleSheet.flatten(element.props.style as TextStyle) || {};
     const explicitFamily = flat.fontFamily;

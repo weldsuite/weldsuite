@@ -33,7 +33,7 @@ export async function GET(
       .where(eq(meetingSessionWaitlist.id, waitlistId))
       .limit(1);
 
-    if (!row || row.meetingId !== meetingId) {
+    if (row?.meetingId !== meetingId) {
       return NextResponse.json(
         { error: { code: 'NOT_FOUND', message: 'Waitlist entry not found' } },
         { status: 404 },

@@ -591,7 +591,7 @@ export function CustomFieldsManager() {
         field={editingField}
         selectableEntity={isAll}
         onSubmit={(data) => {
-          if (editingField && editingField.id) {
+          if (editingField?.id) {
             handleUpdate(editingField.id, data);
           } else {
             handleCreate({ ...data, entityType: data.entityType ?? createEntityType } as CreateCustomFieldData);

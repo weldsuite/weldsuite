@@ -706,7 +706,7 @@ export async function resumeWorkflow(params: {
       .where(eq(schema.helpdeskWorkflowExecutions.id, executionId))
       .limit(1);
 
-    if (!execution || execution.status !== 'waiting_for_input') {
+    if (execution?.status !== 'waiting_for_input') {
       console.log(`[Workflow] Cannot resume ${executionId}: status=${execution?.status}`);
       return;
     }

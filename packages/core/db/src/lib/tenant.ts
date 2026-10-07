@@ -186,7 +186,7 @@ async function fetchWorkspaceInfoById(workspaceId: string) {
 export async function getTenantInfo(clerkOrgId: string): Promise<TenantInfo | null> {
   // Check cache first
   const cached = getCachedWorkspaceInfo(`org:${clerkOrgId}`);
-  if (cached && cached.workspace.isActive) {
+  if (cached?.workspace.isActive) {
     return {
       workspaceId: cached.workspace.id,
       clerkOrgId,
@@ -254,7 +254,7 @@ export async function getTenantDb(clerkOrgId: string) {
   // Use cache only if workspace is fully provisioned (has databaseUrl).
   // During provisioning the databaseUrl is null until the migration task completes,
   // so caching that state would cause stale reads for up to 5 minutes.
-  if (cached && cached.workspace.isActive && cached.workspace.databaseUrl) {
+  if (cached?.workspace.isActive && cached.workspace.databaseUrl) {
     workspace = cached.workspace;
     tier = cached.tier;
   } else {
@@ -330,7 +330,7 @@ export async function getTenantDbByWorkspaceId(workspaceId: string) {
   let workspace: typeof workspaces.$inferSelect;
   let tier: TenantTier;
 
-  if (cached && cached.workspace.isActive && cached.workspace.databaseUrl) {
+  if (cached?.workspace.isActive && cached.workspace.databaseUrl) {
     workspace = cached.workspace;
     tier = cached.tier;
   } else {

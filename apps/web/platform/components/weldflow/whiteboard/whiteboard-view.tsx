@@ -1326,7 +1326,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   // Drag a rectangle's corner handle to change its border radius
   const dragCornerRadius = (point: Point, handle: CornerHandle, dragStart: CornerRadiusDragStart) => {
     const element = elements.find(el => el.id === selectedElement);
-    if (!element || element.type !== 'rectangle') return;
+    if (element?.type !== 'rectangle') return;
     const newRadius = computeCornerRadius(element, handle, point, dragStart);
     setElements(patchElement(elements, selectedElement, { borderRadius: newRadius }));
   };
@@ -3089,7 +3089,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
               {element.erasedPaths!.map((stroke, strokeIndex) => (
                 <g key={strokeIndex}>
                   {/* Use path only for better performance */}
-                  {stroke && stroke.points && stroke.points.length > 0 && (
+                  {stroke?.points && stroke.points.length > 0 && (
                     <path
                       d={stroke.points.map((p, i) =>
                         i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
@@ -3421,7 +3421,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       {/* Floating toolbar for selected text element */}
       {canWrite && selectedElement && !isPresentMode && !isPanning && (() => {
         const element = elements.find(el => el.id === selectedElement);
-        if (!element || element.type !== 'text') return null;
+        if (element?.type !== 'text') return null;
 
         // Use cached canvas rect position
         const { left: canvasLeft, top: canvasTop } = canvasRectRef.current;

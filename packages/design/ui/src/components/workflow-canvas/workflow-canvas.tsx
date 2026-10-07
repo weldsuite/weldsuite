@@ -42,7 +42,7 @@ const ALIGNMENT_THRESHOLD = 8;
 function useStructurallyStable<T>(value: T): T {
   const ref = useRef<{ key: string; value: T } | null>(null);
   const key = JSON.stringify(value) ?? '';
-  if (!ref.current || ref.current.key !== key) {
+  if (ref.current?.key !== key) {
     ref.current = { key, value };
   }
   return ref.current.value;

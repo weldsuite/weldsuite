@@ -181,7 +181,7 @@ async function companyListCondition(db: Database, listId: string): Promise<SQL |
     .from(lists)
     .where(and(eq(lists.id, listId), isNull(lists.deletedAt)))
     .limit(1);
-  if (!listRow || listRow.kind !== 'company') return null;
+  if (listRow?.kind !== 'company') return null;
   const memberRows = await db
     .select({ entityId: listMembers.entityId })
     .from(listMembers)

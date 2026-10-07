@@ -367,7 +367,7 @@ export function GridProvider<TEntity>({
   const updateEntityField = useCallback(
     async (entityId: string, fieldId: string, value: unknown) => {
       const column = columns.find((c) => c.id === fieldId);
-      if (!column || !column.setValue) {
+      if (!column?.setValue) {
         // Defense in depth — the cell layer already refuses to open an
         // editor for a column with no `setValue` (or `editable: false`), so
         // this should be unreachable in practice. If it ever is, surface it

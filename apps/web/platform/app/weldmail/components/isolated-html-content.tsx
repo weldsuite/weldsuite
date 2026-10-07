@@ -512,7 +512,7 @@ export function IsolatedHtmlContent({ html, className }: Readonly<IsolatedHtmlCo
     doc.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
       const link = target.closest('a');
-      if (!link || !link.href) return;
+      if (!link?.href) return;
       if (!isSafeHref(link.href)) {
         e.preventDefault();
         return;

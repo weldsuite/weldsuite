@@ -633,7 +633,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         .from(weldagentAgents)
         .where(and(eq(weldagentAgents.id, args.agentId), isNull(weldagentAgents.deletedAt)))
         .limit(1);
-      if (!target || target.status !== 'active') {
+      if (target?.status !== 'active') {
         return { error: 'Target agent not found or not active' };
       }
 

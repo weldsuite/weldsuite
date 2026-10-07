@@ -445,7 +445,7 @@ async function consumeOAuthState(
     provider: string;
   } | null;
 
-  if (!stateData || stateData.orgId !== orgId || stateData.provider !== provider) return null;
+  if (stateData?.orgId !== orgId || stateData.provider !== provider) return null;
   await env.WORKSPACE_CACHE.delete(stateKey);
   return stateData;
 }

@@ -26,5 +26,5 @@ export async function loadPortalSettings(db: Database) {
 }
 
 export function isPortalEnabled(settings: { isEnabled: number | null } | null): boolean {
-  return Boolean(settings && settings.isEnabled === 1);
+  return Boolean(settings?.isEnabled === 1);
 }

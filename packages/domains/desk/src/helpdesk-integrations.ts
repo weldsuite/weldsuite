@@ -123,7 +123,7 @@ export async function resolveDiscordIntegration(
 ): Promise<HelpdeskIntegration | undefined> {
   if (integrationId) {
     const row = await findIntegrationById(db, integrationId);
-    if (row && row.provider === 'discord') return row;
+    if (row?.provider === 'discord') return row;
     return undefined;
   }
   return findIntegrationByProvider(db, 'discord');

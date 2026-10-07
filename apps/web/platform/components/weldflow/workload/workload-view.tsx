@@ -74,7 +74,7 @@ const TASK_COLORS = [
 
 // Transform API data to internal format
 function transformApiData(data: Projects.WorkloadOverview | null): { members: TeamMember[], tasks: Task[] } {
-  if (!data || !data.teamMembers) {
+  if (!data?.teamMembers) {
     return { members: [], tasks: [] };
   }
 

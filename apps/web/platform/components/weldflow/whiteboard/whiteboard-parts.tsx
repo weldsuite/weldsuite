@@ -300,7 +300,7 @@ export function areBoundsEqual(a: BoundingBox | null | undefined, b: BoundingBox
  */
 export function positionTextConnectionPoints(container: Element | null, bbox: BoundingBox): void {
   const connPoints = container?.querySelectorAll('.text-connection-point');
-  if (!connPoints || connPoints.length !== 4) return;
+  if (connPoints?.length !== 4) return;
 
   const centerX = bbox.x + bbox.width / 2;
   const centerY = bbox.y + bbox.height / 2;

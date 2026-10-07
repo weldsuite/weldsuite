@@ -438,7 +438,7 @@ app.post('/slug', zValidator('json', updateWorkspaceSlugInput), async (c) => {
     )
     .limit(1);
 
-  if (!membership || membership.role !== 'OWNER') {
+  if (membership?.role !== 'OWNER') {
     return error.forbidden(c, 'Only the workspace owner can change the workspace slug.');
   }
 

@@ -53,7 +53,7 @@ async function assertValidParent(
     .from(t)
     .where(and(eq(t.id, parentId), isNull(t.deletedAt)))
     .limit(1);
-  if (!parent || !parent.isFolder) return { ok: false, kind: 'not_found', parentId };
+  if (!parent?.isFolder) return { ok: false, kind: 'not_found', parentId };
   if (projectId && parent.projectId !== projectId) return { ok: false, kind: 'cross_project' };
   return { ok: true };
 }

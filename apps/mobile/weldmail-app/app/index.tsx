@@ -483,7 +483,7 @@ export default function MailScreen() {
       // read can't land after another switch.
       if (!snapshot) {
         const cached = await cache.getMessages(scopeId, selectedLabel);
-        if (!cancelled && activeScopeRef.current === currentScope && cached && cached.length) {
+        if (!cancelled && activeScopeRef.current === currentScope && cached?.length) {
           const overlaid = await outbox.overlay(cached as EmailListItem[], selectedLabel);
           if (!cancelled && activeScopeRef.current === currentScope) {
             setMessages(overlaid);

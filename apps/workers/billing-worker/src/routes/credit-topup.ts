@@ -53,7 +53,7 @@ creditTopupRoutes.post('/checkout', async (c) => {
     .where(eq(creditPackages.id, body.packageId))
     .limit(1);
 
-  if (!pkg || pkg.isActive !== 1) {
+  if (pkg?.isActive !== 1) {
     return c.json({ error: 'Credit package not found' }, 404);
   }
   if (!pkg.stripePriceId) {

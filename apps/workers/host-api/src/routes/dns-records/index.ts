@@ -319,7 +319,7 @@ app.post(
   async (c) => {
     const id = c.req.param('id');
     const { locked, reason } = c.req.valid('json');
-    const reasonText = reason && reason.trim() ? reason.slice(0, 500) : 'Locked by user';
+    const reasonText = reason?.trim() ? reason.slice(0, 500) : 'Locked by user';
     const result = await dnsRecordsService.toggleUserLock(c.get('tenantDb'), id, {
       locked,
       reason: reasonText,

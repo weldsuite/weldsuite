@@ -195,7 +195,7 @@ export async function getCustomObjectLoader(
 ): Promise<CustomObjectDocumentLoader | null> {
   try {
     const object = await getCustomObjectByEntityKey(db, entityKey);
-    if (!object || !object.enableSearch) return null;
+    if (!object?.enableSearch) return null;
     return buildCustomObjectLoader(object);
   } catch (err) {
     if (isMissingTable(err)) return null;

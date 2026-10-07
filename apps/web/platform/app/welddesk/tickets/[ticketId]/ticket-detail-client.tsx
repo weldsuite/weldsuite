@@ -90,7 +90,7 @@ const GROUP_WINDOW_MINUTES = 5;
 
 // Two adjacent messages are visually grouped when the same side sent both within 5 minutes.
 function isGroupedPair(a: ChatMessage | undefined, b: ChatMessage): boolean {
-  if (!a || a.sender !== b.sender) return false;
+  if (a?.sender !== b.sender) return false;
   const diffInMinutes = Math.abs(new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) / (1000 * 60);
   return diffInMinutes <= GROUP_WINDOW_MINUTES;
 }
@@ -401,7 +401,7 @@ function ActivityTimeline({ notes }: Readonly<{ notes: InternalNote[] }>) {
   const yearGroups: { year: number; months: typeof groups }[] = [];
   for (const g of groups) {
     const last = yearGroups.at(-1);
-    if (last && last.year === g.year) {
+    if (last?.year === g.year) {
       last.months.push(g);
     } else {
       yearGroups.push({ year: g.year, months: [g] });

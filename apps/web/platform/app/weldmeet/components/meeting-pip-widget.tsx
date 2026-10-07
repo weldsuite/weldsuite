@@ -357,7 +357,7 @@ function useGestureMediaSessionPromotion(
       (typeof window !== 'undefined' && window.location.pathname.startsWith('/weldmeet'));
     const onUserGesture = () => {
       const v = pipVideoRef.current;
-      if (v && v.paused) v.play().catch(() => {});
+      if (v?.paused) v.play().catch(() => {});
       if (isMeetingContext() && 'mediaSession' in navigator) {
         tryIgnore(() => { navigator.mediaSession.playbackState = 'playing'; });
       }

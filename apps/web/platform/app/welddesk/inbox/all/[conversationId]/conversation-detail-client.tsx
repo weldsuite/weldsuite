@@ -1213,7 +1213,7 @@ export default function ConversationDetailClient({
     }
     if (weldDeskMessages.length > prevMessageCountRef.current) {
       const lastMsg = weldDeskMessages.at(-1);
-      if (lastMsg && lastMsg.authorType === 'customer' && !lastMsg.isPending) {
+      if (lastMsg?.authorType === 'customer' && !lastMsg.isPending) {
         playMessageReceivedSound();
         refreshConversationData();
       }

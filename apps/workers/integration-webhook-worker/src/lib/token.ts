@@ -74,7 +74,7 @@ export async function getValidAccessToken(
   }
 
   const cfg = getRefreshConfig(connection.provider, env);
-  if (!cfg || !cfg.clientId || !cfg.clientSecret) {
+  if (!cfg?.clientId || !cfg.clientSecret) {
     console.warn(`[Token] No refresh config/credentials for provider ${connection.provider} — using stale token`);
     return tokens.accessToken;
   }

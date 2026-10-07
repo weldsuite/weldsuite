@@ -111,7 +111,7 @@ function encodeCursor(offset: number): string {
 }
 
 function decodeCursor(cursor: string | undefined): number {
-  if (!cursor || !cursor.startsWith('o')) return 0;
+  if (!cursor?.startsWith('o')) return 0;
   const n = Number.parseInt(cursor.slice(1), 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }

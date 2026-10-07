@@ -424,7 +424,7 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
 
   const openLinkDialog = () => {
     const selection = window.getSelection();
-    if (selection && selection.toString()) {
+    if (selection?.toString()) {
       setLinkText(selection.toString());
     }
     setShowCommandMenu(false);

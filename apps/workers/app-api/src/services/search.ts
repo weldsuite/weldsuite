@@ -196,7 +196,7 @@ export async function searchContacts(
   const hasMore = rows.length > limit;
   const items: SearchResultItem[] = rows.slice(0, limit).map((r) => {
     const display =
-      (r.fullName && r.fullName.trim()) ||
+      (r.fullName?.trim()) ||
       [r.firstName, r.lastName].filter(Boolean).join(' ').trim() ||
       r.email ||
       'Contact';
@@ -257,7 +257,7 @@ export async function searchCustomers(
 
   const hasMore = rows.length > limit;
   const items: SearchResultItem[] = rows.slice(0, limit).map((r) => {
-    const display = (r.name && r.name.trim()) || (r.tradingName && r.tradingName.trim()) || r.email || 'Customer';
+    const display = (r.name?.trim()) || (r.tradingName?.trim()) || r.email || 'Customer';
     return {
       id: r.id,
       type: 'customer',
@@ -323,7 +323,7 @@ export async function searchLeads(
   const hasMore = rows.length > limit;
   const items: SearchResultItem[] = rows.slice(0, limit).map((r) => {
     const display =
-      (r.fullName && r.fullName.trim()) ||
+      (r.fullName?.trim()) ||
       [r.firstName, r.lastName].filter(Boolean).join(' ').trim() ||
       r.email ||
       'Lead';

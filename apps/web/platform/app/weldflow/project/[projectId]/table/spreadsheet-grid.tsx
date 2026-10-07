@@ -270,7 +270,7 @@ const DROPDOWN_PALETTE = [
 ];
 
 export function getDropdownOptions(col: SpreadsheetColumn | undefined): string[] | null {
-  if (!col || col.fieldType !== 'select') return null;
+  if (col?.fieldType !== 'select') return null;
   const opts = col.options;
   if (Array.isArray(opts) && opts.length > 0) return opts.map((o) => String(o));
   return null;
@@ -647,7 +647,7 @@ export function SpreadsheetGrid({
 
   // --- Row heights ---
   const getRowHeight = useCallback((ri: number): number => {
-    if (hiddenRows && hiddenRows.has(ri)) return 0; // collapsed by an active filter
+    if (hiddenRows?.has(ri)) return 0; // collapsed by an active filter
     return rowHeights[ri] ?? ROW_HEIGHT;
   }, [rowHeights, hiddenRows]);
 
@@ -1074,7 +1074,7 @@ export function SpreadsheetGrid({
     } catch { return; }
 
     // Use internal clipboard if text matches (preserves formulas)
-    if (internalClipboard && internalClipboard.text === text) {
+    if (internalClipboard?.text === text) {
       for (const c of internalClipboard.cells) {
         const targetCol = cell.col + c.relCol;
         const targetRow = cell.row + c.relRow;
@@ -1121,7 +1121,7 @@ export function SpreadsheetGrid({
       text = await navigator.clipboard.readText();
     } catch { return; }
 
-    if (internalClipboard && internalClipboard.text === text) {
+    if (internalClipboard?.text === text) {
       for (const c of internalClipboard.cells) {
         void commitValue(cell.col + c.relCol, cell.row + c.relRow, c.display);
       }

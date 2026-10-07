@@ -296,7 +296,7 @@ export class TokenValidator {
    */
   public static isExpired(token: string): boolean {
     const payload = this.decodeJWT(token);
-    if (!payload || !payload.exp) {
+    if (!payload?.exp) {
       return true;
     }
 

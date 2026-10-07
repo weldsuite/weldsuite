@@ -71,7 +71,7 @@ export function ProjectPanel(props: Readonly<ObjectPanelComponentProps>) {
           : undefined
       }
       extras={
-        project && project.description && (
+        project?.description && (
           <>
             <SectionHeader>{t('sweep.entities.fieldDescription')}</SectionHeader>
             <ProseBlock>{project.description}</ProseBlock>

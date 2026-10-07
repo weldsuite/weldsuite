@@ -489,7 +489,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
           return;
         }
 
-        const columns = Object.keys(jsonData[0]).filter((col) => col && col.trim());
+        const columns = Object.keys(jsonData[0]).filter((col) => col?.trim());
 
         if (columns.length === 0) {
           setParseError(t.projects.settings.fileNoColumns);

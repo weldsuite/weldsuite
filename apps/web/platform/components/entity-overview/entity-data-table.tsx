@@ -298,7 +298,7 @@ export function EntityDataTable<T = unknown>({
     try {
       const result = await onFetchData(filters);
 
-      if (!result || !result.pagination) {
+      if (!result?.pagination) {
         console.error("Invalid data returned from onFetchData", result);
         setLoading(false);
         setIsFiltering(false);

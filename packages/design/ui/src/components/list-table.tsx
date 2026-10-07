@@ -472,7 +472,7 @@ function ListTableRowActions<T>({
   row: T;
   actions: ListTableAction<T>[];
 }>) {
-  const visible = actions.filter((a) => !a.hidden || !a.hidden(row));
+  const visible = actions.filter((a) => !a.hidden?.(row));
   if (visible.length === 0) return null;
 
   return (

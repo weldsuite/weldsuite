@@ -355,7 +355,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
     };
 
     const currentFolder = findFolder(tree, currentFolderPath);
-    if (currentFolder && currentFolder.children && currentFolder.children.length > 0) {
+    if (currentFolder?.children && currentFolder.children.length > 0) {
       // Reset levels for display and recursively fix nested children
       const resetLevels = (nodes: TreeNodeData[], baseLevel: number): TreeNodeData[] => {
         return nodes.map((child, index, arr) => ({

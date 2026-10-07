@@ -537,7 +537,7 @@ export async function findConnectorRoutines(
     .map(serializeRoutine)
     .filter((r) => {
       const cfg = r.connectorConfig;
-      if (!cfg || cfg.provider !== input.provider) return false;
+      if (cfg?.provider !== input.provider) return false;
       if (cfg.channel && input.channel && cfg.channel !== input.channel) return false;
       if (cfg.repo && input.repo && cfg.repo !== input.repo) return false;
       if (cfg.event && input.event && cfg.event !== input.event) return false;
@@ -661,7 +661,7 @@ export async function decideApproval(
     .from(schema.weldagentApprovals)
     .where(eq(schema.weldagentApprovals.id, id))
     .limit(1);
-  if (!row || row.status !== 'pending') return null;
+  if (row?.status !== 'pending') return null;
   // Conditional on still-pending so a double click can't run the action twice.
   const claimed = await db
     .update(schema.weldagentApprovals)
@@ -1002,7 +1002,7 @@ export async function appendTeachStep(db: AgentDb, id: string, step: Record<stri
     .from(schema.weldagentTeachSessions)
     .where(eq(schema.weldagentTeachSessions.id, id))
     .limit(1);
-  if (!row || row.status !== 'recording') return null;
+  if (row?.status !== 'recording') return null;
   const steps = [...((row.steps ?? []) as Array<Record<string, unknown>>), { ...step, at: now().toISOString() }];
   await db
     .update(schema.weldagentTeachSessions)

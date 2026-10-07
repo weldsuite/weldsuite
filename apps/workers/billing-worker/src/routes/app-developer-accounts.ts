@@ -49,7 +49,7 @@ async function resolveOwnWorkspace(
     .where(eq(workspaces.clerkOrgId, orgId))
     .limit(1);
 
-  if (!workspace || workspace.id !== workspaceId) return null;
+  if (workspace?.id !== workspaceId) return null;
   return workspace;
 }
 

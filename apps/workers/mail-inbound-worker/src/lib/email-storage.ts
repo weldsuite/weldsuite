@@ -917,7 +917,7 @@ async function notifyWorkspaceMember(
   // shared mailbox, or the sender's own address, the sent copy is routed
   // back into this worker. Without this guard the sender gets an in-app +
   // push "New email from <themselves>" notification for their own send.
-  if (member.email && member.email.toLowerCase() === email.from.email.toLowerCase()) {
+  if (member.email?.toLowerCase() === email.from.email.toLowerCase()) {
     return false;
   }
   const userId = member.userId;

@@ -89,7 +89,7 @@ export default function SiteRenderer({ website, store }: Readonly<SiteRendererPr
   const pages = (website as any).websitePages || [];
   const homePage = pages.find((p: any) => p.isHomePage) || pages[0];
 
-  if (!homePage || !homePage.sections) {
+  if (!homePage?.sections) {
     // If there are sections directly on the website, use those
     if (website.sections && website.sections.length > 0) {
       return (

@@ -434,7 +434,7 @@ export function ImportEntitiesDialog({
             setFile(null);
             return;
           }
-          const columns = Object.keys(json[0]!).filter((c) => c && c.trim());
+          const columns = Object.keys(json[0]!).filter((c) => c?.trim());
           if (columns.length === 0) {
             setParseError(t('crm.importExport.fileNoColumns'));
             setFile(null);

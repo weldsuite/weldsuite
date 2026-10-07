@@ -495,7 +495,7 @@ export class IframeManager {
     if (!this.deviceInfo.isMobile || !window.visualViewport) return;
 
     const widget = this.iframes.get(IframeType.WIDGET);
-    if (widget && widget.visible) {
+    if (widget?.visible) {
       const vh = window.visualViewport.height;
       const offsetTop = window.visualViewport.offsetTop;
 

@@ -19,7 +19,7 @@ export const cookieAdapter: LocaleAdapter = {
   read() {
     if (typeof document === 'undefined') return undefined;
     const match = document.cookie.match(new RegExp(`(?:^|; )${COOKIE_NAME}=([^;]*)`));
-    if (!match || match[1] === undefined) return undefined;
+    if (match?.[1] === undefined) return undefined;
     const decoded = decodeURIComponent(match[1]);
     return (languages as readonly string[]).includes(decoded) ? (decoded as Language) : undefined;
   },

@@ -129,7 +129,7 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
     if (callState?.status === 'connected' && callState.connectedAt) {
       durationInterval.current = setInterval(() => {
         setCallState(prev => {
-          if (!prev || !prev.connectedAt) return prev;
+          if (!prev?.connectedAt) return prev;
           const now = new Date();
           const duration = Math.floor((now.getTime() - prev.connectedAt!.getTime()) / 1000);
           return { ...prev, duration };

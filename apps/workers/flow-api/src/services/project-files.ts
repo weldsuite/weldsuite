@@ -34,7 +34,7 @@ export async function createProjectFolder(db: Database, params: CreateProjectFol
       .from(projectFiles)
       .where(and(eq(projectFiles.id, params.parentId), isNull(projectFiles.deletedAt)))
       .limit(1);
-    if (!parent || !parent.isFolder) {
+    if (!parent?.isFolder) {
       throw Object.assign(new Error('Parent folder not found'), { status: 404 });
     }
     if (parent.projectId !== params.projectId) {

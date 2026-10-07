@@ -130,7 +130,7 @@ export function MeetingIntelligence({
   useEffect(() => {
     if (!enableFloatingVideo) return;
     const pending = floatingVideoCtx?.pendingRestore;
-    if (pending && pending.callId === call.id) {
+    if (floatingVideoCtx && pending?.callId === call.id) {
       floatingVideoCtx.consumePendingRestore();
       pendingRestoreRef.current = { currentTime: pending.currentTime, isPlaying: pending.isPlaying };
       setIsMinimized(false);
@@ -143,7 +143,7 @@ export function MeetingIntelligence({
   useEffect(() => {
     if (!enableFloatingVideo) return;
     const pending = floatingCallCtx?.pendingRestore;
-    if (pending && pending.callId === call.id) {
+    if (floatingCallCtx && pending?.callId === call.id) {
       floatingCallCtx.consumePendingRestore();
       pendingRestoreRef.current = { currentTime: pending.currentTime, isPlaying: pending.isPlaying };
       setIsMinimized(false);
@@ -203,7 +203,7 @@ export function MeetingIntelligence({
     const merged: FlatTimelineSegment[] = [];
     for (const seg of raw) {
       const prev = merged.at(-1);
-      if (prev && prev.speakerId === seg.speakerId && Math.abs(seg.start - prev.end) < 0.5) {
+      if (prev?.speakerId === seg.speakerId && Math.abs(seg.start - prev.end) < 0.5) {
         prev.end = seg.end;
       } else {
         merged.push({ ...seg });

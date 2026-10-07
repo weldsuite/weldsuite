@@ -142,7 +142,7 @@ export async function adoptSystemInstallInTenant(params: {
     .where(and(eq(workspaceInstalledApps.appCode, app.code), isNull(workspaceInstalledApps.deletedAt)))
     .limit(1);
 
-  if (!tenantRow || !tenantRow.isActive) return 'none';
+  if (!tenantRow?.isActive) return 'none';
 
   const link = await checkTenantLink(master, tenantRow, app, workspaceId);
   if (link !== 'proceed') return link;

@@ -111,7 +111,7 @@ function hasComposeContent(
   composeData: { to: string; subject: string; body: string },
   editorHtml: string | undefined,
 ) {
-  return composeData.to || composeData.subject || composeData.body || (editorHtml && editorHtml.trim());
+  return composeData.to || composeData.subject || composeData.body || (editorHtml?.trim());
 }
 
 function parseRecipients(str: string): string[] {
@@ -438,7 +438,7 @@ export function FloatingComposePanel() {
     prevIsComposeOpenRef.current = isOpen;
   }, [composeContext?.isComposeOpen]);
 
-  if (!composeContext || !composeContext.isComposeOpen || isExpanding) {
+  if (!composeContext?.isComposeOpen || isExpanding) {
     return null;
   }
 

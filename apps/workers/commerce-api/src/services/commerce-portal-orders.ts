@@ -101,7 +101,7 @@ async function priceOrderLine(
     .where(and(eq(schema.products.id, line.productId), isNull(schema.products.deletedAt)))
     .limit(1);
 
-  if (!product || product.status !== 'active' || (product.visibility && product.visibility !== 'visible')) {
+  if (product?.status !== 'active' || (product.visibility && product.visibility !== 'visible')) {
     throw new PortalOrderError(400, 'One or more products are unavailable');
   }
 
@@ -123,7 +123,7 @@ async function priceOrderLine(
         ),
       )
       .limit(1);
-    if (!variant || variant.status !== 'active') {
+    if (variant?.status !== 'active') {
       throw new PortalOrderError(400, 'One or more products are unavailable');
     }
     if (variant.price != null) unitPrice = Number(variant.price);

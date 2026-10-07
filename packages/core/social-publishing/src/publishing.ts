@@ -1257,7 +1257,7 @@ export async function syncAnalytics(
     .from(socialPosts)
     .where(and(eq(socialPosts.id, postId), isNull(socialPosts.deletedAt)))
     .limit(1);
-  if (!post || !post.postpeerPostId) return { snapshots: 0 };
+  if (!post?.postpeerPostId) return { snapshots: 0 };
 
   // Map PostPeer integration id → our account id so per-account metrics can be
   // attributed. Both postId and accountId are NOT NULL on socialAnalytics.
