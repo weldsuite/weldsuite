@@ -12,7 +12,7 @@ export function SearchBlock({
   buttonText = 'Search',
   variant = 'default',
   mode = 'live'
-}: SearchBlockProps) {
+}: Readonly<SearchBlockProps>) {
   const [query, setQuery] = React.useState('');
 
   const handleSubmit = (e: React.FormEvent) => {

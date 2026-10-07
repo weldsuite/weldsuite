@@ -145,7 +145,7 @@ export function EntityTypeSelect({
   className,
   allowedGroups,
   labels = {},
-}: EntityTypeSelectProps) {
+}: Readonly<EntityTypeSelectProps>) {
   const translatedGroups = ENTITY_TYPE_GROUPS.map((g) => {
     const groupLabels = labels.groups || {};
     const entityLabels = labels.entities || {};

@@ -197,7 +197,7 @@ function NestedBlockWrapper({
   onDeleteBlock,
   sectionId,
   parentBlockId
-}: {
+}: Readonly<{
   child: Block;
   childIndex: number;
   totalChildren: number;
@@ -212,7 +212,7 @@ function NestedBlockWrapper({
   onDeleteBlock?: (sectionId: string, blockId: string) => void;
   sectionId?: string;
   parentBlockId?: string;
-}) {
+}>) {
   const [isHovered, setIsHovered] = useState(false);
   const isSelected = selectedBlockId === child.id;
   const canMoveUp = childIndex > 0;
@@ -339,7 +339,7 @@ export function BlockRenderer({
   onDuplicateBlock,
   onDeleteBlock,
   sectionId
-}: BlockRendererProps) {
+}: Readonly<BlockRendererProps>) {
   const blockComponents: Record<string, BlockComponent> = {
     // Original blocks
     text: TextBlock,

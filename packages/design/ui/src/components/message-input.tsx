@@ -38,7 +38,7 @@ export function MessageInput({
   onAttachmentClick,
   onActionsClick,
   actionButtons,
-}: MessageInputProps) {
+}: Readonly<MessageInputProps>) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

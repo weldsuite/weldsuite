@@ -68,7 +68,7 @@ export function TrustStripBlock({
   alignment = 'center',
   itemGap = 24,
   showDescriptions = true,
-}: TrustStripBlockProps) {
+}: Readonly<TrustStripBlockProps>) {
   // Icon mapping function - dynamically resolve any Lucide icon (per-icon
   // chunk via lucide-react/dynamic). Falls back to Star when the name is
   // missing or unknown.

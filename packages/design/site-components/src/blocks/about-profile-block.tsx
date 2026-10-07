@@ -34,7 +34,7 @@ export function AboutProfileBlock({
   cardBackgroundColor = "#fafafa",
   cardTextColor = "#09090b",
   className,
-}: AboutProfileBlockProps) {
+}: Readonly<AboutProfileBlockProps>) {
   return (
     <section
       className={cn("py-32", className)}

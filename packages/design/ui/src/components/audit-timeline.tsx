@@ -94,7 +94,7 @@ function DataSnapshot({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-export function AuditTimelineSkeleton({ count = 3 }: { count?: number }) {
+export function AuditTimelineSkeleton({ count = 3 }: Readonly<{ count?: number }>) {
   return (
     <div className="space-y-0">
       {Array.from({ length: count }).map((_, i) => (

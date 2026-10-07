@@ -61,7 +61,7 @@ function mapFile(api: ApiFile): FileRow {
   };
 }
 
-function Render({ settings }: { settings: WelddriveRecentSettings }) {
+function Render({ settings }: Readonly<{ settings: WelddriveRecentSettings }>) {
   const res = useDriveFiles({ pageSize: settings.maxCount, sort: 'modified_desc' } as never);
   const apiRows = ((res.data as { data?: ApiFile[] } | undefined)?.data ?? []) as ApiFile[];
   const rows = apiRows.map(mapFile).slice(0, settings.maxCount);

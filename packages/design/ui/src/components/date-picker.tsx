@@ -24,7 +24,7 @@ export function DatePicker({
   onDateChange, 
   placeholder = "Pick a date",
   className 
-}: DatePickerProps) {
+}: Readonly<DatePickerProps>) {
   return (
     <Popover>
       <PopoverTrigger asChild>

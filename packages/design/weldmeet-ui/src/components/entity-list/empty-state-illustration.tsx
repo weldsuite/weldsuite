@@ -7,7 +7,7 @@ interface EmptyStateIllustrationProps {
   height?: number;
 }
 
-export function EmptyStateIllustration({ children, width = 240, height = 170 }: EmptyStateIllustrationProps) {
+export function EmptyStateIllustration({ children, width = 240, height = 170 }: Readonly<EmptyStateIllustrationProps>) {
   const patternId = useId();
   const maskId = `${patternId}-mask`;
 

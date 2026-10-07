@@ -4,19 +4,19 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
 type TabIconProps = { color: string; size: number };
 
-function CalendarTabIcon({ color, size }: TabIconProps) {
+function CalendarTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <Calendar size={size} color={color} />;
 }
 
-function ClockTabIcon({ color, size }: TabIconProps) {
+function ClockTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <Clock size={size} color={color} />;
 }
 
-function FileVideoTabIcon({ color, size }: TabIconProps) {
+function FileVideoTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <FileVideo size={size} color={color} />;
 }
 
-function SettingsTabIcon({ color, size }: TabIconProps) {
+function SettingsTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <Settings size={size} color={color} />;
 }
 

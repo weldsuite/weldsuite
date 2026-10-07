@@ -29,7 +29,7 @@ export function AchievementNotification({
   onClose,
   onViewDetails,
   className
-}: AchievementNotificationProps) {
+}: Readonly<AchievementNotificationProps>) {
   const [isVisible, setIsVisible] = React.useState(false);
   const [isExiting, setIsExiting] = React.useState(false);
 
@@ -155,7 +155,7 @@ export function AchievementNotificationContainer({
   notifications,
   onClose,
   onViewDetails
-}: NotificationContainerProps) {
+}: Readonly<NotificationContainerProps>) {
   return (
     <div className="fixed top-4 right-4 z-50 space-y-3">
       {notifications.map((notification, index) => (

@@ -48,7 +48,7 @@ function BlockActionMenu({
   onMoveBlockDown,
   onDuplicateBlock,
   onDeleteBlock,
-}: BlockActionMenuProps) {
+}: Readonly<BlockActionMenuProps>) {
   return (
     <div
       className="absolute -bottom-12 left-1/2 -translate-x-1/2 z-40 flex gap-1 bg-white shadow-lg rounded-md border border-gray-200 p-1"
@@ -137,7 +137,7 @@ export function SectionRenderer({
   onDeleteBlock,
   selectedBlockId,
   previewMode = 'desktop'
-}: SectionRendererProps) {
+}: Readonly<SectionRendererProps>) {
   const isEditing = mode === 'edit';
   const [hoveredBlockId, setHoveredBlockId] = React.useState<string | null>(null);
 

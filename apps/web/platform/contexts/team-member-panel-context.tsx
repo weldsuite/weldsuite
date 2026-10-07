@@ -23,7 +23,7 @@ const TeamMemberPanelContext = React.createContext<TeamMemberPanelContextValue |
 
 const EVENT_NAME = 'weldchat:open-user-profile';
 
-export function TeamMemberPanelProvider({ children }: { children: React.ReactNode }) {
+export function TeamMemberPanelProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [userId, setUserId] = React.useState<string | null>(null);
   const [isOpen, setIsOpen] = React.useState(false);
   const [defaultTab, setDefaultTab] = React.useState<TeamMemberPanelTab>('overview');

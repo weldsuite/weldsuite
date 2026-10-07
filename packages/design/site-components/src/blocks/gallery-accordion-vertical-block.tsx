@@ -103,7 +103,7 @@ export function GalleryAccordionVerticalBlock({
   textColor,
   className,
   mode = 'live',
-}: GalleryAccordionVerticalBlockProps) {
+}: Readonly<GalleryAccordionVerticalBlockProps>) {
   const [activeImage, setActiveImage] = useState<number | null>(1);
   const isEditing = mode === 'edit' || mode === 'preview';
 

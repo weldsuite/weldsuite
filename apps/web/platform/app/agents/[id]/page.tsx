@@ -86,7 +86,7 @@ function formMatches(synced: FormFields, current: FormFields): boolean {
   );
 }
 
-function AgentEventSubscriptions({ events }: { events: AgentDetail['eventSubscriptions'] }) {
+function AgentEventSubscriptions({ events }: Readonly<{ events: AgentDetail['eventSubscriptions'] }>) {
   const t = getTranslations('common');
   return (
     <div className="flex flex-wrap gap-2">
@@ -105,7 +105,7 @@ function AgentEventSubscriptions({ events }: { events: AgentDetail['eventSubscri
   );
 }
 
-function AgentRecentRuns({ runs }: { runs: AgentDetail['recentRuns'] }) {
+function AgentRecentRuns({ runs }: Readonly<{ runs: AgentDetail['recentRuns'] }>) {
   const t = getTranslations('common');
   if ((runs ?? []).length === 0) {
     return <p className="text-sm text-muted-foreground">{t.agents.detail.runs.emptyDescription}</p>;

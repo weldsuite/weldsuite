@@ -8,10 +8,10 @@ const PreviewInstalledAppsContext = createContext<InstalledApp[] | null>(null);
 export function PreviewInstalledAppsProvider({
   apps,
   children,
-}: {
+}: Readonly<{
   apps: InstalledApp[];
   children: ReactNode;
-}) {
+}>) {
   return (
     <PreviewInstalledAppsContext.Provider value={apps}>
       {children}

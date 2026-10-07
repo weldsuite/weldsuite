@@ -25,7 +25,7 @@ export function QuoteBlock({
   borderColor = '#3b82f6',
   fontSize = 'lg',
   fontStyle = 'italic'
-}: QuoteBlockProps) {
+}: Readonly<QuoteBlockProps>) {
   const fontSizeClasses = {
     sm: 'text-base',
     md: 'text-lg',

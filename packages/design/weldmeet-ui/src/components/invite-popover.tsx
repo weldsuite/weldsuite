@@ -11,7 +11,7 @@ export interface InvitePopoverProps {
  * The small "+" trigger next to the join-code chip in the meeting header.
  * Content is a slot so the host app can plug in workspace-member-aware UI.
  */
-export function InvitePopover({ popoverContent }: InvitePopoverProps) {
+export function InvitePopover({ popoverContent }: Readonly<InvitePopoverProps>) {
   return (
     <Popover>
       <PopoverTrigger asChild>

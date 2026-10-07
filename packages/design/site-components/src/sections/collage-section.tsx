@@ -28,7 +28,7 @@ export function CollageSection({
   paddingTop = 60,
   paddingBottom = 60,
   backgroundColor = '#ffffff',
-}: CollageSectionProps) {
+}: Readonly<CollageSectionProps>) {
   return (
     <section
       className="px-4 md:px-8"

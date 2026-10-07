@@ -18,7 +18,7 @@ const variantClass: Record<BadgeVariant, string> = {
 };
 
 /** Status / label chip (platform Badge). */
-export function Badge({ variant = 'default', className, ...props }: BadgeProps) {
+export function Badge({ variant = 'default', className, ...props }: Readonly<BadgeProps>) {
   return (
     <span data-slot="badge" className={cn('wui-badge', variantClass[variant], className)} {...props} />
   );

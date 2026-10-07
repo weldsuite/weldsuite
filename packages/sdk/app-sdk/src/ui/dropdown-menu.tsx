@@ -58,7 +58,7 @@ export interface DropdownMenuProps {
 }
 
 /** Lightweight dropdown menu (MIT, no Radix). */
-export function DropdownMenu({ children }: DropdownMenuProps) {
+export function DropdownMenu({ children }: Readonly<DropdownMenuProps>) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLElement | null>(null);
   const menuId = useId();
@@ -76,7 +76,7 @@ export interface DropdownMenuTriggerProps {
   onClick?: (e: MouseEvent) => void;
 }
 
-export function DropdownMenuTrigger({ asChild, children, onClick }: DropdownMenuTriggerProps) {
+export function DropdownMenuTrigger({ asChild, children, onClick }: Readonly<DropdownMenuTriggerProps>) {
   const { open, setOpen, triggerRef, menuId } = useDropdownContext('DropdownMenuTrigger');
 
   const handleClick = (e: MouseEvent) => {

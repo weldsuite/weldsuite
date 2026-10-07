@@ -15,7 +15,7 @@ export function RewardBadge({
   name, 
   size = 'md',
   className 
-}: RewardBadgeProps) {
+}: Readonly<RewardBadgeProps>) {
   const sizeClasses = {
     sm: 'w-12 h-12 text-lg',
     md: 'w-16 h-16 text-2xl',

@@ -7,7 +7,7 @@ import { getTranslations } from '@/lib/i18n';
 
 type Phase = 'minting' | 'redirecting' | 'error' | 'done';
 
-function PhaseIcon({ phase }: { phase: Phase }) {
+function PhaseIcon({ phase }: Readonly<{ phase: Phase }>) {
   if (phase === 'error') {
     return (
       <div className="h-14 w-14 rounded-full bg-red-50 flex items-center justify-center text-red-600">

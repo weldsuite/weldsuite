@@ -84,7 +84,7 @@ export function InfoBanner({
   dismissible = false,
   onDismiss,
   className,
-}: InfoBannerProps) {
+}: Readonly<InfoBannerProps>) {
   const [dismissed, setDismissed] = useState(false);
   const config = variantConfig[variant];
   const Icon = config.icon;

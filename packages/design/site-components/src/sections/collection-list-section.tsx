@@ -84,7 +84,7 @@ export function CollectionListSection({
   paddingTop = 60,
   paddingBottom = 60,
   store,
-}: CollectionListSectionProps) {
+}: Readonly<CollectionListSectionProps>) {
   // Use real collections if available, otherwise fall back to mock data
   const storeCollections: Collection[] = (store?.collections ?? []).map((c, i) => ({
     id: Number(c.id ?? i),

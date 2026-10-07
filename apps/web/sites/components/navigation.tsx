@@ -9,7 +9,7 @@ interface NavigationProps {
   siteName: string;
 }
 
-export default function Navigation({ navigation, logo, siteName }: NavigationProps) {
+export default function Navigation({ navigation, logo, siteName }: Readonly<NavigationProps>) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   if (!navigation || navigation.length === 0) {

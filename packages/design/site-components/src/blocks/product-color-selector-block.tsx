@@ -24,7 +24,7 @@ export function ProductColorSelectorBlock({
   textColor = '#000000',
   borderRadius = 9999,
   store,
-}: ProductColorSelectorBlockProps) {
+}: Readonly<ProductColorSelectorBlockProps>) {
   // Extract colors from product variants if available
   const productColors = store?.selectedProduct?.variants
     ?.filter((v) => v.color)

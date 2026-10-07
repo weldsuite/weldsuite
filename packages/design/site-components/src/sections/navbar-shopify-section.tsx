@@ -112,7 +112,7 @@ export function NavbarShopifySection({
   mobileMenuStyle = 'drawer',
   store,
   mode = 'live'
-}: NavbarShopifySectionProps) {
+}: Readonly<NavbarShopifySectionProps>) {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [activeMenu, setActiveMenu] = React.useState<string | null>(null);
   const [searchOpen, setSearchOpen] = React.useState(false);

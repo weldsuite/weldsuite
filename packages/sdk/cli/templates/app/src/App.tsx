@@ -21,12 +21,12 @@ function ItemsList({
   records,
   onToggle,
   onRemove,
-}: {
+}: Readonly<{
   loading: boolean;
   records: AppRecord<Item>[];
   onToggle: (record: AppRecord<Item>) => void;
   onRemove: (record: AppRecord<Item>) => void;
-}) {
+}>) {
   if (loading) return <p className="status">Loading items…</p>;
   if (records.length === 0) return <p className="status">No items yet — add your first one above.</p>;
   return (
@@ -50,11 +50,11 @@ function PeopleList({
   loading,
   error,
   people,
-}: {
+}: Readonly<{
   loading: boolean;
   error: string | null;
   people: PersonSummary[];
-}) {
+}>) {
   if (loading) return <p className="status">Loading people…</p>;
   if (error) return <p className="status">{error}</p>;
   if (people.length === 0) return <p className="status">No people in this workspace yet.</p>;

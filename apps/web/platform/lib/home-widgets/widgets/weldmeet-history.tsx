@@ -54,7 +54,7 @@ function mapMeeting(api: ApiMeeting): MeetingHistoryRow {
   };
 }
 
-function Render({ settings }: { settings: WeldmeetHistorySettings }) {
+function Render({ settings }: Readonly<{ settings: WeldmeetHistorySettings }>) {
   const res = useMeetings({ status: 'completed', pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: ApiMeeting[] } | undefined)?.data ?? []) as ApiMeeting[];
   const rows = apiRows.map(mapMeeting).slice(0, settings.maxCount);

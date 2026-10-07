@@ -9,7 +9,7 @@ interface SpacerBlockProps {
 
 export function SpacerBlock({
   height = 40,
-}: SpacerBlockProps) {
+}: Readonly<SpacerBlockProps>) {
 
   return (
     <div

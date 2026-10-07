@@ -7,7 +7,7 @@ interface PageProps {
   searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export default async function DynamicPage({ params, searchParams }: PageProps) {
+export default async function DynamicPage({ params, searchParams }: Readonly<PageProps>) {
   const { domain, slug } = await params;
   const pagePath = `/${slug.join('/')}`;
 

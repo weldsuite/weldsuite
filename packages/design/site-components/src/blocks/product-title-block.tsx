@@ -14,7 +14,7 @@ export function ProductTitleBlock({
   productName = 'glazing milk',
   textColor = '#000000',
   store,
-}: ProductTitleBlockProps) {
+}: Readonly<ProductTitleBlockProps>) {
   // Use product data from store if available
   const displayName = store?.selectedProduct?.name || productName;
 

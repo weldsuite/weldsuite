@@ -12,7 +12,7 @@ export function EntitySectionCard({
   description,
   children,
   actions,
-}: EntitySectionCardProps) {
+}: Readonly<EntitySectionCardProps>) {
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between">

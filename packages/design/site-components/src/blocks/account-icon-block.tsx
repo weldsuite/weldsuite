@@ -19,7 +19,7 @@ export function AccountIconBlock({
   isLoggedIn = false,
   showLabel = false,
   labelText
-}: AccountIconBlockProps) {
+}: Readonly<AccountIconBlockProps>) {
   const sizeMap = {
     sm: 20,
     md: 24,

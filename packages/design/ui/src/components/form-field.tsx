@@ -29,7 +29,7 @@ export function FormField({
   helpText,
   className,
   children,
-}: FormFieldProps) {
+}: Readonly<FormFieldProps>) {
   return (
     <div className={className}>
       {label && (

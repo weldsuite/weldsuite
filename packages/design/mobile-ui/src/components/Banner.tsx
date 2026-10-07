@@ -44,7 +44,7 @@ export function Banner({
   onClose,
   icon,
   style,
-}: BannerProps) {
+}: Readonly<BannerProps>) {
   const { colors } = useTheme();
 
   const accentColor: Record<BannerVariant, string> = {

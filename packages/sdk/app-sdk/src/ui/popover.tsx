@@ -61,7 +61,7 @@ export interface PopoverProps {
 }
 
 /** Lightweight anchored popover (MIT, no Radix). */
-export function Popover({ open: openProp, onOpenChange, children }: PopoverProps) {
+export function Popover({ open: openProp, onOpenChange, children }: Readonly<PopoverProps>) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const triggerRef = useRef<HTMLElement | null>(null);
   const contentId = useId();
@@ -88,7 +88,7 @@ export interface PopoverTriggerProps {
   children: ReactNode;
 }
 
-export function PopoverTrigger({ asChild, children }: PopoverTriggerProps) {
+export function PopoverTrigger({ asChild, children }: Readonly<PopoverTriggerProps>) {
   const { open, setOpen, triggerRef, contentId } = usePopoverContext('PopoverTrigger');
 
   const onClick = (e: MouseEvent) => {

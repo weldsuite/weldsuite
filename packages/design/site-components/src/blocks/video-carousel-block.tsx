@@ -152,7 +152,7 @@ export function VideoCarouselBlock({
   backgroundColor = "#ffffff",
   textColor = "#000000",
   className,
-}: VideoCarouselBlockProps) {
+}: Readonly<VideoCarouselBlockProps>) {
   return (
     <section
       className={cn("w-full", className)}

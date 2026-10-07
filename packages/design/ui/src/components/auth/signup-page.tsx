@@ -20,7 +20,7 @@ interface SignupPageProps {
 export function SignupPage({ 
   appName = 'WeldSuite',
   showSocialLogin = true
-}: SignupPageProps) {
+}: Readonly<SignupPageProps>) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

@@ -27,7 +27,7 @@ interface PermissionResponse {
 
 const NO_KEYS: string[] = [];
 
-export function PlatformPermissionProvider({ children }: { children: React.ReactNode }) {
+export function PlatformPermissionProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getClient } = useAppApiClient();
   const { isSignedIn, orgId } = useAuth();
   const app = appFromPathname(usePathname());

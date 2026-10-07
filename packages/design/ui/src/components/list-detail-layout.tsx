@@ -34,7 +34,7 @@ export function ListDetailLayout({
   listClassName,
   detailClassName,
   isDetailSelected = false,
-}: ListDetailLayoutProps) {
+}: Readonly<ListDetailLayoutProps>) {
   const widthStyle = typeof listWidth === 'number' ? `${listWidth}px` : listWidth;
 
   return (

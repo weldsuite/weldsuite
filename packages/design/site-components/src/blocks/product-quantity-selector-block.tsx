@@ -19,7 +19,7 @@ export function ProductQuantitySelectorBlock({
   maxQuantity = 99,
   borderRadius = 8,
   store,
-}: ProductQuantitySelectorBlockProps) {
+}: Readonly<ProductQuantitySelectorBlockProps>) {
   // Use product stock as max quantity if available
   const productStock = store?.selectedProduct?.stock;
   const displayMaxQuantity = productStock ? Math.min(productStock, maxQuantity) : maxQuantity;

@@ -16,7 +16,7 @@ interface TimeLeft {
 
 export function CountdownTimerBlock({
   endDate = "2025-12-31",
-}: CountdownTimerBlockProps) {
+}: Readonly<CountdownTimerBlockProps>) {
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
     hours: 0,

@@ -40,7 +40,7 @@ export function ContactFormModernSection({
   inputBorderColor = '#e5e7eb',
   maxWidth = 800,
   customFields = [],
-}: ContactFormModernSectionProps) {
+}: Readonly<ContactFormModernSectionProps>) {
   // Helper function to render a form field
   const renderField = (field: FormField) => {
     const fieldStyle = {

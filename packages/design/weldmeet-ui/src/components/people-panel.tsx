@@ -59,7 +59,7 @@ export function PeoplePanel({
   joinCode,
   shareUrl,
   invitePopoverSlot,
-}: PeoplePanelProps) {
+}: Readonly<PeoplePanelProps>) {
   const [waitlisted, setWaitlisted] = useState<WaitlistedPeer[]>([]);
   const [codeCopied, setCodeCopied] = useState(false);
 
@@ -169,11 +169,11 @@ function WaitlistedRow({
   peer,
   onAdmit,
   onReject,
-}: {
+}: Readonly<{
   peer: WaitlistedPeer;
   onAdmit: (id: string) => void;
   onReject: (id: string) => void;
-}) {
+}>) {
   const seed = String(peer.customParticipantId ?? peer.userId ?? peer.id ?? peer.name ?? '');
   return (
     <div className="flex items-center gap-3 py-2">
@@ -204,11 +204,11 @@ function MediaStateBadge({
   enabled,
   onIcon,
   offIcon,
-}: {
+}: Readonly<{
   enabled?: boolean;
   onIcon: ReactNode;
   offIcon: ReactNode;
-}) {
+}>) {
   return (
     <div className={cn('flex h-7 w-7 items-center justify-center rounded-[8px]', enabled ? 'bg-muted text-muted-foreground' : 'bg-red-500/10 text-red-400')}>
       {enabled ? onIcon : offIcon}
@@ -226,12 +226,12 @@ function ParticipantRow({
   isSelf,
   selfIsHost,
   onClickDetails,
-}: {
+}: Readonly<{
   participant: MeetingPeer;
   isSelf: boolean;
   selfIsHost: boolean;
   onClickDetails?: (participant: MeetingPeer) => void;
-}) {
+}>) {
   const initials = (p.name ?? '?').charAt(0).toUpperCase();
   const clickable = !!onClickDetails;
   return (

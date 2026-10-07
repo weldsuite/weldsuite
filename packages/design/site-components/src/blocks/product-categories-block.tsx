@@ -77,7 +77,7 @@ export function ProductCategoriesBlock({
   buttonTextColor = '#ffffff',
   imageRounding = 0,
   mode = 'live',
-}: ProductCategoriesBlockProps) {
+}: Readonly<ProductCategoriesBlockProps>) {
   const category1 = categories[0];
   const category2 = categories[1];
 

@@ -54,7 +54,7 @@ export interface AdmitGuestsPillProps {
  * waiting room and shows their avatar, name, and inline `Admit` / `Deny entry`
  * actions. Returns null when no one is waiting.
  */
-export function AdmitGuestsPill({ meeting }: AdmitGuestsPillProps) {
+export function AdmitGuestsPill({ meeting }: Readonly<AdmitGuestsPillProps>) {
   const [waitlisted, setWaitlisted] = useState<WaitlistedPeer[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 

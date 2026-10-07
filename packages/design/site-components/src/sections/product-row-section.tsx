@@ -17,7 +17,7 @@ export function ProductRowSection({
   title = "More from",
   brand = "rhode",
   products = []
-}: ProductRowSectionProps) {
+}: Readonly<ProductRowSectionProps>) {
   // If no products provided, use placeholder data
   const displayProducts = products.length > 0 ? products : [
     { id: '1', name: 'Product 1', image: '/api/placeholder/220/293', price: 0 },

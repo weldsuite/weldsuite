@@ -51,7 +51,7 @@ function mapSequence(api: ApiSequence): SequenceRow {
   };
 }
 
-function Render({ settings }: { settings: WeldcrmSequencesSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldcrmSequencesSettings }>) {
   const res = useSequences({ pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: ApiSequence[] } | undefined)?.data ?? []) as ApiSequence[];
   const rows = apiRows.map(mapSequence).slice(0, settings.maxCount);

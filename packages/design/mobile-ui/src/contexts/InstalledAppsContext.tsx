@@ -22,7 +22,7 @@ interface InstalledAppsProviderProps {
   api: InstalledAppsApi;
 }
 
-export function InstalledAppsProvider({ children, api }: InstalledAppsProviderProps) {
+export function InstalledAppsProvider({ children, api }: Readonly<InstalledAppsProviderProps>) {
   const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);

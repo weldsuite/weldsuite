@@ -45,7 +45,7 @@ function Marquee({
   vertical = false,
   repeat = 4,
   ...props
-}: MarqueeProps) {
+}: Readonly<MarqueeProps>) {
   const [styleId] = React.useState(() => `marquee-${++marqueeStyleId}`);
 
   // Inject keyframes into document head

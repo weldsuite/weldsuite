@@ -58,7 +58,7 @@ interface MailEventsValue {
 
 const MailEventsContext = createContext<MailEventsValue | null>(null);
 
-export function MailEventsProvider({ children }: { children: ReactNode }) {
+export function MailEventsProvider({ children }: Readonly<{ children: ReactNode }>) {
   const { getToken, isSignedIn, userId } = useAuth();
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [unreadCount, setUnreadCount] = useState(0);

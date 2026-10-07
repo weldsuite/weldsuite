@@ -15,7 +15,7 @@ export function ProductPriceDisplayElement({
   compareAtPrice,
   showShipping = true,
   shippingText = '🚚 Verzendkosten worden berekend bij de checkout',
-}: ProductPriceDisplayElementProps) {
+}: Readonly<ProductPriceDisplayElementProps>) {
   return (
     <>
       {/* Price */}

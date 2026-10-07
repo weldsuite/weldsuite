@@ -35,7 +35,7 @@ export function ProductImageGalleryBlock({
   buttonBorderRadius = 9999,
   layout = 'horizontal',
   store,
-}: ProductImageGalleryBlockProps) {
+}: Readonly<ProductImageGalleryBlockProps>) {
   // Use product data from store if available
   const productImages = toImageUrls(store?.selectedProduct?.images);
   const displayImages = productImages.length > 0 ? productImages : images;

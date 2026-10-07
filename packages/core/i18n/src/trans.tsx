@@ -25,7 +25,7 @@ interface TransProps {
  * Missing placeholders are left visible (e.g. `{foo}`) rather than silently
  * dropped, so translation bugs are loud during development.
  */
-export function Trans({ template, values }: TransProps): ReactElement {
+export function Trans({ template, values }: Readonly<TransProps>): ReactElement {
   const parts: ReactNode[] = [];
   const regex = /\{(\w+)\}/g;
   let lastIndex = 0;

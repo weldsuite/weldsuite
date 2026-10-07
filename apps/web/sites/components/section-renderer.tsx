@@ -23,7 +23,7 @@ interface SectionRendererProps {
   settings: Record<string, any>;
 }
 
-export default function SectionRenderer({ section, store, settings }: SectionRendererProps) {
+export default function SectionRenderer({ section, store, settings }: Readonly<SectionRendererProps>) {
   const commonProps = {
     ...section.props,
     store,

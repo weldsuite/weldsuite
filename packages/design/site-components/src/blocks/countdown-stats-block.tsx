@@ -25,7 +25,7 @@ export function CountdownStatsBlock({
   buttonText = "Join The Waitlist",
   buttonLink = "#",
   mode = 'live',
-}: CountdownStatsBlockProps) {
+}: Readonly<CountdownStatsBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,

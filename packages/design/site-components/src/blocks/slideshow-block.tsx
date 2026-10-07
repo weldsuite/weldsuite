@@ -67,7 +67,7 @@ export function SlideshowBlock({
   contentAlignment = 'center',
   transitionStyle = 'fade',
   mode = 'live',
-}: SlideshowBlockProps) {
+}: Readonly<SlideshowBlockProps>) {
   const isEditing = mode === 'edit';
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);

@@ -44,7 +44,7 @@ export function WorkspaceSwitcher({
   onSwitch,
   onCreateClick,
   createDialog,
-}: WorkspaceSwitcherProps) {
+}: Readonly<WorkspaceSwitcherProps>) {
   const [open, setOpen] = useState(false);
 
   if (loading) {

@@ -191,10 +191,10 @@ function bucketsAreEmpty<T>(buckets: ListTableBuckets<T> | null): boolean {
 function ListTableEmptyBlock({
   emptyState,
   emptyMessage,
-}: {
+}: Readonly<{
   emptyState?: ListTableEmptyState;
   emptyMessage: React.ReactNode;
-}) {
+}>) {
   if (!emptyState) {
     return <div className="text-center text-muted-foreground py-8">{emptyMessage}</div>;
   }
@@ -222,7 +222,7 @@ function ListTableEmptyBlock({
   );
 }
 
-function ListTableNoResultsBlock({ state }: { state: ListTableNoResultsState }) {
+function ListTableNoResultsBlock({ state }: Readonly<{ state: ListTableNoResultsState }>) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <XCircle className="h-8 w-8 text-muted-foreground mb-3" />
@@ -244,12 +244,12 @@ function ListTableGroupedRows<T>({
   ungroupedLabel,
   stickyOffset,
   renderRow,
-}: {
+}: Readonly<{
   buckets: ListTableBuckets<T>;
   ungroupedLabel?: React.ReactNode;
   stickyOffset: number;
   renderRow: (row: T, idx: number) => React.ReactNode;
-}) {
+}>) {
   return (
     <>
       {buckets.ordered.map(({ group, rows }) => {
@@ -308,7 +308,7 @@ export function ListTable<T>({
   dense,
   groups,
   ungroupedLabel,
-}: ListTableProps<T>) {
+}: Readonly<ListTableProps<T>>) {
   const visibleColumns = columns.filter((c) => !c.hidden);
   const showActions = !!actionsRenderer || (actions && actions.length > 0);
 
@@ -437,12 +437,12 @@ function GroupHeaderRow({
   count,
   renderCount,
   stickyOffset,
-}: {
+}: Readonly<{
   label: React.ReactNode;
   count: number;
   renderCount?: (count: number) => React.ReactNode;
   stickyOffset: number;
-}) {
+}>) {
   return (
     <div
       className="relative flex items-center gap-2 px-4 h-8 bg-background border-b border-border/70 sticky z-[9]"
@@ -468,10 +468,10 @@ function GroupHeaderRow({
 function ListTableRowActions<T>({
   row,
   actions,
-}: {
+}: Readonly<{
   row: T;
   actions: ListTableAction<T>[];
-}) {
+}>) {
   const visible = actions.filter((a) => !a.hidden || !a.hidden(row));
   if (visible.length === 0) return null;
 

@@ -14,7 +14,7 @@ interface ToastProps {
   onHide: () => void;
 }
 
-export function Toast({ message, type = 'success', duration = 3000, onHide }: ToastProps) {
+export function Toast({ message, type = 'success', duration = 3000, onHide }: Readonly<ToastProps>) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(80)).current;
   const opacity = useRef(new Animated.Value(0)).current;

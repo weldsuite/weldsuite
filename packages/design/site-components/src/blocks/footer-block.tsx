@@ -150,7 +150,7 @@ interface FooterColumnsGridProps {
   textColor: string;
 }
 
-function FooterColumnsGrid({ columns, isMobileView, isEditing, textColor }: FooterColumnsGridProps) {
+function FooterColumnsGrid({ columns, isMobileView, isEditing, textColor }: Readonly<FooterColumnsGridProps>) {
   const gridColsClass = isMobileView
     ? 'grid-cols-1'
     : `grid-cols-2 md:grid-cols-${Math.min(columns.length, 5)}`;
@@ -187,7 +187,7 @@ interface SocialIconLinksProps {
   isEditing: boolean;
 }
 
-function SocialIconLinks({ links, isEditing }: SocialIconLinksProps) {
+function SocialIconLinks({ links, isEditing }: Readonly<SocialIconLinksProps>) {
   return (
     <div className="flex gap-4">
       {links.map((social, index) => {
@@ -237,7 +237,7 @@ function FooterDropdown({
   isEditing,
   textColor,
   background,
-}: FooterDropdownProps) {
+}: Readonly<FooterDropdownProps>) {
   return (
     <div className={wrapperClass}>
       <button
@@ -309,7 +309,7 @@ function FooterSelectors({
   isMobileView,
   textColor,
   background,
-}: FooterSelectorsProps) {
+}: Readonly<FooterSelectorsProps>) {
   if (!showCurrency && !showLanguage) return null;
 
   return (
@@ -352,7 +352,7 @@ interface PaymentMethodsProps {
   textColor: string;
 }
 
-function PaymentMethods({ isMobileView, textColor }: PaymentMethodsProps) {
+function PaymentMethods({ isMobileView, textColor }: Readonly<PaymentMethodsProps>) {
   return (
     <div className={`mt-8 flex gap-3 ${isMobileView ? 'justify-start' : 'justify-end'}`}>
       <div className="flex gap-2 items-center flex-wrap">
@@ -391,7 +391,7 @@ function BottomArea({
   copyright,
   isEditing,
   textColor,
-}: BottomAreaProps) {
+}: Readonly<BottomAreaProps>) {
   return (
     <div className={className}>
       {socialLinks.length > 0 && socialIconsPosition === area && (
@@ -438,7 +438,7 @@ export function FooterBlock({
   ],
   mode = 'live',
   previewMode = 'desktop',
-}: FooterBlockProps) {
+}: Readonly<FooterBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
   const isMobileView = previewMode === 'mobile';
 

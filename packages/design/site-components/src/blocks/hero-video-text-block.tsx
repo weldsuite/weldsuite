@@ -77,7 +77,7 @@ export function HeroVideoTextDescriptionBlock({
   fontSize = "lg",
   maxWidth = "xl",
   className,
-}: HeroVideoTextDescriptionBlockProps) {
+}: Readonly<HeroVideoTextDescriptionBlockProps>) {
   const maxWidthClasses: Record<string, string> = {
     sm: 'max-w-sm',
     md: 'max-w-md',
@@ -131,7 +131,7 @@ export function HeroVideoTextButtonBlock({
   showIcon = true,
   className,
   mode = 'live',
-}: HeroVideoTextButtonBlockProps) {
+}: Readonly<HeroVideoTextButtonBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
 
   if (!buttonText) return null;
@@ -196,7 +196,7 @@ export function HeroVideoTextBlock({
   buttonLink,
   fontFamily,
   textColor,
-}: HeroVideoTextBlockProps) {
+}: Readonly<HeroVideoTextBlockProps>) {
   // Check if children are provided and not empty
   const hasChildren = React.Children.count(children) > 0;
 

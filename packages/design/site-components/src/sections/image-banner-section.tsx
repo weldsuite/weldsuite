@@ -24,7 +24,7 @@ export function ImageBannerSection({
   textColor = '#ffffff',
   contentAlignment = 'center',
   minHeight = 500,
-}: ImageBannerSectionProps) {
+}: Readonly<ImageBannerSectionProps>) {
   const alignmentClasses = {
     left: 'items-start text-left',
     center: 'items-center text-center',

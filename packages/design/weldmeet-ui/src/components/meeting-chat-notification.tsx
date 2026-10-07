@@ -56,7 +56,7 @@ export function MeetingChatNotification({
   isChatOpen,
   onOpenChat,
   host,
-}: MeetingChatNotificationProps) {
+}: Readonly<MeetingChatNotificationProps>) {
   const [notes, setNotes] = useState<ActiveNote[]>([]);
 
   // Message ids already processed — guards against re-firing on re-render and

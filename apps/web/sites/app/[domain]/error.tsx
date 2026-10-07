@@ -5,10 +5,10 @@ import { useEffect } from 'react';
 export default function ErrorPage({
   error,
   reset,
-}: {
+}: Readonly<{
   error: Error & { digest?: string };
   reset: () => void;
-}) {
+}>) {
   useEffect(() => {
     // Log the error to console or error reporting service
     console.error('Site error:', error);

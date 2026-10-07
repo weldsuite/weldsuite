@@ -35,7 +35,7 @@ function targetLabel(account: SocialAccount | undefined, accountId: string): str
   return `${account.name}${handle}`;
 }
 
-function TargetsList({ post, accountsById }: TargetsListProps) {
+function TargetsList({ post, accountsById }: Readonly<TargetsListProps>) {
   const { colors } = useTheme();
   if (!(post.targetAccountIds ?? []).length) {
     return <Text style={{ color: colors.mutedForeground }}>No target accounts selected.</Text>;

@@ -39,7 +39,7 @@ interface PinnedNoteContextType {
 
 const PinnedNoteContext = createContext<PinnedNoteContextType | null>(null);
 
-export function PinnedNoteProvider({ children }: { children: ReactNode }) {
+export function PinnedNoteProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [pinnedNote, setPinnedNote] = useState<Note | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [onSave, setOnSave] = useState<((content: string) => Promise<void>) | null>(null);

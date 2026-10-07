@@ -91,7 +91,7 @@ interface ProductRatingProps {
   reviewCount?: number;
 }
 
-function ProductRating({ rating, reviewCount }: ProductRatingProps) {
+function ProductRating({ rating, reviewCount }: Readonly<ProductRatingProps>) {
   if (!rating) return null;
   return (
     <div className="flex items-center gap-1">
@@ -135,7 +135,7 @@ interface ProductCardImagesProps {
   imageHoverEffectClass: string;
 }
 
-function ProductCardImages({ name, imageUrl, secondImage, isHovered, imageHoverEffectClass }: ProductCardImagesProps) {
+function ProductCardImages({ name, imageUrl, secondImage, isHovered, imageHoverEffectClass }: Readonly<ProductCardImagesProps>) {
   // Gray placeholder when no image
   if (!imageUrl) return <div className="absolute inset-0 w-full h-full bg-gray-200" />;
 
@@ -182,7 +182,7 @@ export function ProductCard({
   cardHoverEffect = 'none',
   textColor,
   priceColor,
-}: ProductCardProps) {
+}: Readonly<ProductCardProps>) {
   const [isHovered, setIsHovered] = React.useState(false);
   const [isFavorited, setIsFavorited] = React.useState(false);
   const [, setCurrentImageIndex] = React.useState(0);

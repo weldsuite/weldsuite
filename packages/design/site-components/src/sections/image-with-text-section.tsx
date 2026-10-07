@@ -35,7 +35,7 @@ export function ImageWithTextSection({
   textFont = 'Inter',
   textFontWeight = 'font-normal',
   textSize = 'text-lg',
-}: ImageWithTextSectionProps) {
+}: Readonly<ImageWithTextSectionProps>) {
   // Load Google Font if needed
   useEffect(() => {
     if (textFont && textFont !== 'system-ui' && textFont !== 'Inter') {

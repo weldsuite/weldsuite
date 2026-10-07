@@ -70,7 +70,7 @@ function mapCall(api: ApiCall): CallRow {
   };
 }
 
-function Render({ settings }: { settings: WeldcallHistorySettings }) {
+function Render({ settings }: Readonly<{ settings: WeldcallHistorySettings }>) {
   const res = useVoipCalls({ pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: ApiCall[] } | undefined)?.data ?? []) as ApiCall[];
   const rows = apiRows.map(mapCall).slice(0, settings.maxCount);

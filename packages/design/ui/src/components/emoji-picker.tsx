@@ -553,7 +553,7 @@ export default function EmojiPicker({
   onEmojiSelect,
   trigger,
   maxRecentEmojis = 24,
-}: EmojiPickerProps) {
+}: Readonly<EmojiPickerProps>) {
   const [searchTerm, setSearchTerm] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [recentEmojis, setRecentEmojis] = useState<string[]>([]);

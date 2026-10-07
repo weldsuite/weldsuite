@@ -87,7 +87,7 @@ export function AnnouncementBarBlock({
   iconColor,
   dismissible = true,
   mode = 'live'
-}: AnnouncementBarBlockProps) {
+}: Readonly<AnnouncementBarBlockProps>) {
   const [isVisible, setIsVisible] = useState(true);
 
   // Icon mapping function - dynamically resolve any Lucide icon

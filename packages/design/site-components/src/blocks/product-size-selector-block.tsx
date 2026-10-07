@@ -19,7 +19,7 @@ export function ProductSizeSelectorBlock({
   showSizeFit = true,
   borderRadius = 6,
   store,
-}: ProductSizeSelectorBlockProps) {
+}: Readonly<ProductSizeSelectorBlockProps>) {
   // Extract sizes from product variants if available
   const productSizes = store?.selectedProduct?.variants
     ?.filter((v) => v.size)

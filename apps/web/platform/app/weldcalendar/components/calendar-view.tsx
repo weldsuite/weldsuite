@@ -4009,7 +4009,7 @@ export function EventDetailPanel({
   width,
   onClose,
   onEdit,
-}: {
+}: Readonly<{
   event: CalendarEvent | null;
   isOpen: boolean;
   calendars: UserCalendar[];
@@ -4017,7 +4017,7 @@ export function EventDetailPanel({
   width: number;
   onClose: () => void;
   onEdit: () => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   const deleteEvent = useDeleteCalendarEvent();

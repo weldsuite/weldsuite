@@ -16,7 +16,7 @@ export function TabsBlock({
   items = [],
   defaultTab = 0,
   variant = 'underline'
-}: TabsBlockProps) {
+}: Readonly<TabsBlockProps>) {
   const [activeTab, setActiveTab] = React.useState(defaultTab);
 
   if (items.length === 0) {

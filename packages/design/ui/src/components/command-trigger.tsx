@@ -25,7 +25,7 @@ export function CommandTrigger({
   shortcutText = "⌘K",
   position = "relative",
   fixedPosition = "bottom-right",
-}: CommandTriggerProps) {
+}: Readonly<CommandTriggerProps>) {
   const positionClasses = position === "fixed" 
     ? {
         "bottom-right": "fixed bottom-6 right-6 z-50",
@@ -69,7 +69,7 @@ interface FloatingCommandTriggerProps {
 export function FloatingCommandTrigger({
   onOpen,
   position = "bottom-right",
-}: FloatingCommandTriggerProps) {
+}: Readonly<FloatingCommandTriggerProps>) {
   return (
     <CommandTrigger
       onClick={onOpen}

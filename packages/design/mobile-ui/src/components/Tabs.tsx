@@ -30,7 +30,7 @@ export function Tabs({
   onChange,
   scrollable = true,
   style,
-}: TabsProps) {
+}: Readonly<TabsProps>) {
   const { colors } = useTheme();
 
   const content = (

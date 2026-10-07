@@ -18,7 +18,7 @@ export function LinkBlock({
   fontSize = 'base',
   fontWeight = 'normal',
   mode = 'live'
-}: LinkBlockProps) {
+}: Readonly<LinkBlockProps>) {
   const sizeClass = {
     xs: 'text-xs',
     sm: 'text-sm',

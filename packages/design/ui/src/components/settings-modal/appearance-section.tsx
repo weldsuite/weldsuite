@@ -20,7 +20,7 @@ export function AppearanceSection({
   fontSize,
   onThemeChange,
   onFontSizeChange
-}: AppearanceSectionProps) {
+}: Readonly<AppearanceSectionProps>) {
   return (
     <div className="space-y-6">
       <Card>

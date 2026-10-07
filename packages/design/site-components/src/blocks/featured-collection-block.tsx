@@ -41,7 +41,7 @@ export function FeaturedCollectionBlock({
   showQuickAdd = true,
   mode = 'live',
   store,
-}: FeaturedCollectionBlockProps) {
+}: Readonly<FeaturedCollectionBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
 
   // Get products from store

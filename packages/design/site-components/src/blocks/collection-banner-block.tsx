@@ -25,7 +25,7 @@ export function CollectionBannerBlock({
   overlayOpacity = 0.4,
   textColor = '#ffffff',
   buttonColor = '#ffffff'
-}: CollectionBannerBlockProps) {
+}: Readonly<CollectionBannerBlockProps>) {
   return (
     <div className="relative w-full h-64 md:h-80 lg:h-96 overflow-hidden rounded-lg">
       <img

@@ -35,7 +35,7 @@ export function ListItem({
   destructive = false,
   divider = false,
   style,
-}: ListItemProps) {
+}: Readonly<ListItemProps>) {
   const { colors } = useTheme();
 
   return (

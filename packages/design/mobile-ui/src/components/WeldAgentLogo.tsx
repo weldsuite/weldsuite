@@ -7,7 +7,7 @@ interface WeldAgentLogoProps {
   color?: string;
 }
 
-export default function WeldAgentLogo({ size = 24, color = '#000000' }: WeldAgentLogoProps) {
+export default function WeldAgentLogo({ size = 24, color = '#000000' }: Readonly<WeldAgentLogoProps>) {
   return (
     <View style={[styles.container, { width: size * 1.5, height: size * 1.5, backgroundColor: color }]}>
       <Sparkles size={size * 0.7} color="#FFFFFF" strokeWidth={2} />

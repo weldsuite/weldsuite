@@ -32,7 +32,7 @@ export function TierProgress({
   nextTier,
   totalPoints,
   className
-}: TierProgressProps) {
+}: Readonly<TierProgressProps>) {
   const progressToNext = nextTier 
     ? ((totalPoints - (currentTier ? totalPoints : 0)) / nextTier.requiredPoints) * 100
     : 100;

@@ -90,7 +90,7 @@ const navigationData = {
   ],
 }
 
-export function SettingsModal({ open = false, onOpenChange, trigger }: SettingsModalProps) {
+export function SettingsModal({ open = false, onOpenChange, trigger }: Readonly<SettingsModalProps>) {
   const [activeSection, setActiveSection] = React.useState("appearance")
   const [theme, setTheme] = React.useState<"light" | "dark" | "system">("system")
   const [fontSize, setFontSize] = React.useState(100)

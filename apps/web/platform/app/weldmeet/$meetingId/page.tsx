@@ -224,7 +224,7 @@ function buildChatToggleAction(t: WeldmeetStrings, showChat: boolean, onToggle: 
   };
 }
 
-function ChatHistorySidebar({ t, meetingId, onClose }: { t: WeldmeetStrings; meetingId: string; onClose: () => void }) {
+function ChatHistorySidebar({ t, meetingId, onClose }: Readonly<{ t: WeldmeetStrings; meetingId: string; onClose: () => void }>) {
   return (
     <>
       <div className="px-4 border-b flex-shrink-0 h-[53px] flex items-center justify-between">
@@ -245,14 +245,14 @@ function RenameMeetingDialog({
   draft,
   onDraftChange,
   onRename,
-}: {
+}: Readonly<{
   t: WeldmeetStrings;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   draft: string;
   onDraftChange: (draft: string) => void;
   onRename: (title: string) => void;
-}) {
+}>) {
   const commit = () => {
     const title = draft.trim();
     if (!title) return;

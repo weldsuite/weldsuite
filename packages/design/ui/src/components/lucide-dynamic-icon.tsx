@@ -20,7 +20,7 @@ export interface LucideDynamicIconProps {
   size?: number;
 }
 
-export function LucideDynamicIcon({ name, className, size }: LucideDynamicIconProps) {
+export function LucideDynamicIcon({ name, className, size }: Readonly<LucideDynamicIconProps>) {
   const kebab = name.includes('-') ? name : toKebab(name);
   // `name` is loosely typed here — lucide's DynamicIcon throws on unknown
   // names. We use a Hash fallback to keep the UI rendering instead of

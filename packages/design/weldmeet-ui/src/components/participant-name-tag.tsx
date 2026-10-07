@@ -35,7 +35,7 @@ export function ParticipantNameTag({
   className,
   onClick,
   icon,
-}: ParticipantNameTagProps) {
+}: Readonly<ParticipantNameTagProps>) {
   return (
     <div
       className={cn(

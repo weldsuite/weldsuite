@@ -18,7 +18,7 @@ interface ProductCarouselProps {
   className?: string
 }
 
-export function ProductCarousel({ title, products, className }: ProductCarouselProps) {
+export function ProductCarousel({ title, products, className }: Readonly<ProductCarouselProps>) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
 

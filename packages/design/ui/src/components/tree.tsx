@@ -253,7 +253,7 @@ interface TreeIconProps {
   className?: string;
 }
 
-export function TreeIcon({ hasChildren = false, icon, className }: TreeIconProps) {
+export function TreeIcon({ hasChildren = false, icon, className }: Readonly<TreeIconProps>) {
   const nodeContext = React.useContext(TreeNodeContext);
   const treeContext = useTreeContext();
 

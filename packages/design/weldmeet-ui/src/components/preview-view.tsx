@@ -306,7 +306,7 @@ export function PreviewView({
   videoPermission = 'unknown',
   permissionHelpLabels = DEFAULT_PERMISSION_HELP_LABELS,
   labels: labelOverrides,
-}: PreviewViewProps) {
+}: Readonly<PreviewViewProps>) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const labels: PreviewViewLabels = { ...DEFAULT_PREVIEW_VIEW_LABELS, ...labelOverrides };
 

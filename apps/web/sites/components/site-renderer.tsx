@@ -17,7 +17,7 @@ interface SiteRendererProps {
   store?: any;
 }
 
-export default function SiteRenderer({ website, store }: SiteRendererProps) {
+export default function SiteRenderer({ website, store }: Readonly<SiteRendererProps>) {
   // Apply theme styles
   const themeStyles = React.useMemo(() => {
     return {

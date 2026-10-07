@@ -14,7 +14,7 @@ import { setProjectsApiTokenProvider } from '@/app/weldflow/lib/api-client';
  * (It previously also vended a `useApiClient()` hook over two api-worker
  * clients. Those are gone with the worker.)
  */
-export function ApiClientProvider({ children }: { children: React.ReactNode }) {
+export function ApiClientProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getToken } = useAuth();
 
   // Without the `appApi` line every domain client falls back to polling

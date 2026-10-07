@@ -241,7 +241,7 @@ const useSettingsState = () => {
 export function SettingsCommand({
   open = false,
   onOpenChange,
-}: SettingsCommandProps) {
+}: Readonly<SettingsCommandProps>) {
   const [activeTab, setActiveTab] = React.useState("appearance")
   const [hasChanges, setHasChanges] = React.useState(false)
   const state = useSettingsState()

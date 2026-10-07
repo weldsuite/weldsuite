@@ -14,7 +14,7 @@ interface CustomerPanelContextType {
 
 const CustomerPanelContext = createContext<CustomerPanelContextType | null>(null);
 
-export function CustomerPanelProvider({ children }: { children: React.ReactNode }) {
+export function CustomerPanelProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [isOpen, setIsOpenState] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);

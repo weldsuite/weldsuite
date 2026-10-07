@@ -43,7 +43,7 @@ export function ProductDetailGalleryBlock({
   images,
   textColor = '#171717',
   store,
-}: ProductDetailGalleryBlockProps) {
+}: Readonly<ProductDetailGalleryBlockProps>) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const thumbnailRef = useRef<HTMLUListElement>(null);
 
@@ -288,7 +288,7 @@ export function ProductDetailTitleBlock({
   fontSize = 'lg',
   fontWeight = 'normal',
   store,
-}: ProductDetailTitleBlockProps) {
+}: Readonly<ProductDetailTitleBlockProps>) {
   const displayTitle = store?.selectedProduct?.name || title;
 
   const fontSizeClass = {
@@ -334,7 +334,7 @@ export function ProductDetailPriceBlock({
   currency = 'USD',
   textColor = '#171717',
   store,
-}: ProductDetailPriceBlockProps) {
+}: Readonly<ProductDetailPriceBlockProps>) {
   const displayPrice = toPriceNumber(store?.selectedProduct?.price) || price;
   const displaySalePrice = store?.selectedProduct?.salePrice || salePrice;
   const displayCurrency = store?.selectedProduct?.currency || currency;
@@ -397,7 +397,7 @@ export function ProductDetailVariantSelectorBlock({
     { id: 'red', label: 'Red', value: 'red', inStock: false },
   ],
   textColor = '#171717',
-}: ProductDetailVariantSelectorBlockProps) {
+}: Readonly<ProductDetailVariantSelectorBlockProps>) {
   const [selectedValue, setSelectedValue] = useState(options.find(o => o.inStock)?.value || options[0]?.value);
 
   return (
@@ -443,7 +443,7 @@ export interface ProductDetailQuantityBlockProps {
 export function ProductDetailQuantityBlock({
   label = 'Quantity',
   textColor = '#171717',
-}: ProductDetailQuantityBlockProps) {
+}: Readonly<ProductDetailQuantityBlockProps>) {
   const [quantity, setQuantity] = useState(1);
 
   const decreaseQuantity = () => setQuantity(prev => Math.max(1, prev - 1));
@@ -500,7 +500,7 @@ export function ProductDetailButtonsBlock({
   showBuyNow = true,
   textColor = '#171717',
   mode = 'live',
-}: ProductDetailButtonsBlockProps) {
+}: Readonly<ProductDetailButtonsBlockProps>) {
   return (
     <div className="flex flex-col gap-3">
       {showAddToCart && (
@@ -542,7 +542,7 @@ export function ProductDetailDescriptionBlock({
   description = 'Our sculptural, soft-structured handbag brings elegance and utility together in one refined piece. With a simple adjustment, it transforms from a shoulder bag to a top-handle or crossbody companion.',
   textColor = '#171717',
   store,
-}: ProductDetailDescriptionBlockProps) {
+}: Readonly<ProductDetailDescriptionBlockProps>) {
   const displayDescription = store?.selectedProduct?.description || description;
 
   return (
@@ -585,7 +585,7 @@ export function ProductDetailAccordionBlock({
   textColor = '#171717',
   borderColor = '#e5e5e5',
   store,
-}: ProductDetailAccordionBlockProps) {
+}: Readonly<ProductDetailAccordionBlockProps>) {
   const [openItem, setOpenItem] = useState<string | null>(null);
   const displayItems: AccordionItem[] = store?.selectedProduct?.info
     ? store.selectedProduct.info.map((row, i) => ({ id: String(i), title: row.title ?? '', content: row.content ?? '' }))
@@ -638,7 +638,7 @@ export function ProductDetailBlock({
   mode = 'live',
   store,
   children,
-}: ProductDetailBlockProps) {
+}: Readonly<ProductDetailBlockProps>) {
   // If children are provided, separate gallery from info blocks based on order
   // First child is gallery, rest are info blocks
   if (children) {

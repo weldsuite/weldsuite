@@ -16,7 +16,7 @@ export function ProductDescriptionBlock({
   heading = 'Omschrijving',
   textColor = '#000000',
   store,
-}: ProductDescriptionBlockProps) {
+}: Readonly<ProductDescriptionBlockProps>) {
   // Use product data from store if available
   const displayDescription = store?.selectedProduct?.description || description;
 

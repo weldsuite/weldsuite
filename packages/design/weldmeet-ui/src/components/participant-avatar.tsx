@@ -25,7 +25,7 @@ export function ParticipantAvatar({
   color,
   picture,
   className,
-}: ParticipantAvatarProps) {
+}: Readonly<ParticipantAvatarProps>) {
   return (
     <div
       className={cn(

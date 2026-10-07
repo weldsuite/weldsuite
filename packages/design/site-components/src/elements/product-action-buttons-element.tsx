@@ -15,7 +15,7 @@ export function ProductActionButtonsElement({
   buyNowText = 'Koop nu',
   buttonColor = '#000000',
   textColor = '#000000',
-}: ProductActionButtonsElementProps) {
+}: Readonly<ProductActionButtonsElementProps>) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <button

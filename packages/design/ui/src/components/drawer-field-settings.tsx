@@ -30,7 +30,7 @@ export function DrawerFieldSettings({
   label = 'Visible fields',
   maxVisible,
   title = 'Configure visible fields',
-}: DrawerFieldSettingsProps) {
+}: Readonly<DrawerFieldSettingsProps>) {
   const visibleCount = fields.reduce(
     (n, f) => n + (f.required || fieldVisibility[f.id] ? 1 : 0),
     0,

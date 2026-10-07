@@ -12,7 +12,7 @@ export interface FormFieldProps {
 }
 
 /** Label + control + optional hint/error. */
-export function FormField({ label, htmlFor, hint, error, className, children }: FormFieldProps) {
+export function FormField({ label, htmlFor, hint, error, className, children }: Readonly<FormFieldProps>) {
   return (
     <div className={cn('wui-field', className)}>
       <Label htmlFor={htmlFor}>{label}</Label>
@@ -23,7 +23,7 @@ export function FormField({ label, htmlFor, hint, error, className, children }: 
   );
 }
 
-export function FormFieldRow({ children, className }: { children: ReactNode; className?: string }) {
+export function FormFieldRow({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
   return <div className={cn('wui-field-row', className)}>{children}</div>;
 }
 
@@ -35,6 +35,6 @@ export function Form({ children, className, ...props }: FormHTMLAttributes<HTMLF
   );
 }
 
-export function FormActions({ children, className }: { children: ReactNode; className?: string }) {
+export function FormActions({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
   return <div className={cn('wui-form__actions', className)}>{children}</div>;
 }

@@ -193,13 +193,13 @@ function FilterTabButton({
   mutedColor,
   styles,
   onPress,
-}: {
+}: Readonly<{
   tab: (typeof TABS)[number];
   active: boolean;
   mutedColor: string;
   styles: Styles;
   onPress: (key: FilterTab) => void;
-}) {
+}>) {
   const Icon = tab.Icon;
   return (
     <TouchableOpacity
@@ -223,7 +223,7 @@ function IdleState({
   onClearAll,
   onTap,
   onRemove,
-}: {
+}: Readonly<{
   showRecent: boolean;
   recentSearches: string[];
   colors: ThemeColors;
@@ -231,7 +231,7 @@ function IdleState({
   onClearAll: () => void;
   onTap: (term: string) => void;
   onRemove: (term: string) => void;
-}) {
+}>) {
   if (!showRecent) {
     return (
       <View style={styles.emptyState}>
@@ -276,11 +276,11 @@ function PersonRow({
   item,
   styles,
   onPress,
-}: {
+}: Readonly<{
   item: MemberResult;
   styles: Styles;
   onPress: (userId: string) => void;
-}) {
+}>) {
   return (
     <TouchableOpacity
       style={styles.personItem}
@@ -308,13 +308,13 @@ function PeopleList({
   colors,
   styles,
   onPressPerson,
-}: {
+}: Readonly<{
   members: MemberResult[];
   showEmpty: boolean;
   colors: ThemeColors;
   styles: Styles;
   onPressPerson: (userId: string) => void;
-}) {
+}>) {
   return (
     <FlatList
       data={members}
@@ -339,12 +339,12 @@ function ResultRow({
   colors,
   styles,
   onPress,
-}: {
+}: Readonly<{
   item: SearchResult;
   colors: ThemeColors;
   styles: Styles;
   onPress: (item: SearchResult) => void;
-}) {
+}>) {
   const att = item.attachments?.[0];
   return (
     <TouchableOpacity
@@ -394,13 +394,13 @@ function ResultsList({
   colors,
   styles,
   onPressResult,
-}: {
+}: Readonly<{
   results: SearchResult[];
   showEmpty: boolean;
   colors: ThemeColors;
   styles: Styles;
   onPressResult: (item: SearchResult) => void;
-}) {
+}>) {
   return (
     <FlatList
       data={results}

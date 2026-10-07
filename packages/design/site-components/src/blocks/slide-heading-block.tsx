@@ -15,7 +15,7 @@ export function SlideHeadingBlock({
   fontSize = 64,
   fontWeight = 700,
   color = '#ffffff',
-}: SlideHeadingBlockProps) {
+}: Readonly<SlideHeadingBlockProps>) {
   return (
     <h2
       className="mb-4 md:mb-6 transition-all duration-700"

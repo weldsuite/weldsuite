@@ -21,7 +21,7 @@ interface BreadcrumbProviderProps {
   defaultBreadcrumbs?: BreadcrumbSegment[];
 }
 
-export function BreadcrumbProvider({ children, defaultBreadcrumbs = [] }: BreadcrumbProviderProps) {
+export function BreadcrumbProvider({ children, defaultBreadcrumbs = [] }: Readonly<BreadcrumbProviderProps>) {
   const [breadcrumbs, setBreadcrumbsState] = useState<BreadcrumbSegment[]>(defaultBreadcrumbs);
 
   const setBreadcrumbs = useCallback((segments: BreadcrumbSegment[]) => {

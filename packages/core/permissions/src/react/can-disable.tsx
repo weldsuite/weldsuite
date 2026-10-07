@@ -110,7 +110,7 @@ export function CanDisable({
   tooltip,
   visualDisabled = true,
   children,
-}: CanDisableProps): ReactElement {
+}: Readonly<CanDisableProps>): ReactElement {
   const ctx = usePermissionsMaybe();
 
   if (!isValidElement(children)) {

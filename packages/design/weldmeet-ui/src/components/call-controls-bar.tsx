@@ -336,11 +336,11 @@ function BlockedMediaButton({
   kind,
   labels,
   children,
-}: {
+}: Readonly<{
   kind: PermissionKind;
   labels: PermissionHelpLabels;
   children: React.ReactNode;
-}) {
+}>) {
   const label = kind === 'microphone' ? labels.microphoneBlockedAction : labels.cameraBlockedAction;
   return (
     <Popover>
@@ -374,12 +374,12 @@ function DeviceRadioGroup({
   activeId,
   onChange,
   fallbackPrefix,
-}: {
+}: Readonly<{
   devices: MediaDeviceInfo[];
   activeId: string;
   onChange: (deviceId: string) => void;
   fallbackPrefix: string;
-}) {
+}>) {
   return (
     <DropdownMenuRadioGroup value={activeId} onValueChange={onChange}>
       {devices.map((d) => (
