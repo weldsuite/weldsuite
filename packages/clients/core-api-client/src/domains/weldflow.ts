@@ -17,9 +17,12 @@ import type {
   CreateLabelInput,
 } from '../schemas/weldflow';
 
+const LIMIT_25 = { limit: 25 } as const;
+const LIMIT_50 = { limit: 50 } as const;
+
 export function createWeldflowApi(api: ClientApi) {
   return {
-    listProjects(params: ListProjectsQuery = { limit: 25 }): Promise<ListResponse<Project>> {
+    listProjects(params: ListProjectsQuery = LIMIT_25): Promise<ListResponse<Project>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<Project>>(`/weldflow/projects${query}`);
     },
@@ -46,7 +49,7 @@ export function createWeldflowApi(api: ClientApi) {
 
     listProjectTasks(
       projectId: string,
-      params: ListTasksQuery = { limit: 50 },
+      params: ListTasksQuery = LIMIT_50,
     ): Promise<ListResponse<ProjectTask>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<ProjectTask>>(`/weldflow/projects/${projectId}/tasks${query}`);
@@ -89,7 +92,7 @@ export function createWeldflowApi(api: ClientApi) {
       return api.delete<void>(`/weldflow/projects/${projectId}/tasks/${taskId}`);
     },
 
-    listMyTasks(params: ListMyTasksQuery = { limit: 50 }): Promise<ListResponse<ProjectTaskWithProject>> {
+    listMyTasks(params: ListMyTasksQuery = LIMIT_50): Promise<ListResponse<ProjectTaskWithProject>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<ProjectTaskWithProject>>(`/weldflow/my-tasks${query}`);
     },

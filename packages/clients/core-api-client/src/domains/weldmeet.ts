@@ -32,6 +32,9 @@ import type {
   HostControls,
 } from '../schemas/weldmeet';
 
+const FIRST_PAGE = { page: 1, pageSize: 20 } as const;
+const NEXT_WEEK = { days: 7, limit: 20 } as const;
+
 export function createWeldmeetApi(api: ClientApi) {
   return {
     // ====== Single-shot start-instant ======
@@ -45,7 +48,7 @@ export function createWeldmeetApi(api: ClientApi) {
     },
 
     // ====== Meetings ======
-    listMeetings(params: ListMeetingsQuery = { page: 1, pageSize: 20 }): Promise<ListResponse<Meeting>> {
+    listMeetings(params: ListMeetingsQuery = FIRST_PAGE): Promise<ListResponse<Meeting>> {
       return api.get<ListResponse<Meeting>>(
         `/weldmeet/meetings${buildQueryString(params as Record<string, unknown>)}`,
       );
@@ -56,7 +59,7 @@ export function createWeldmeetApi(api: ClientApi) {
     },
 
     listUpcoming(
-      params: UpcomingMeetingsQuery = { days: 7, limit: 20 },
+      params: UpcomingMeetingsQuery = NEXT_WEEK,
     ): Promise<DataResponse<Meeting[]>> {
       return api.get<DataResponse<Meeting[]>>(
         `/weldmeet/meetings/upcoming${buildQueryString(params as Record<string, unknown>)}`,

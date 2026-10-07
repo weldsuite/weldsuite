@@ -17,10 +17,13 @@ import type {
   ListStockQuery,
 } from '../schemas/weldstash';
 
+const LIMIT_25 = { limit: 25 } as const;
+const LIMIT_50 = { limit: 50 } as const;
+
 export function createWeldstashApi(api: ClientApi) {
   return {
     // ---------- Products ----------
-    listProducts(params: WeldstashListQuery = { limit: 25 }): Promise<ListResponse<WeldstashProduct>> {
+    listProducts(params: WeldstashListQuery = LIMIT_25): Promise<ListResponse<WeldstashProduct>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<WeldstashProduct>>(`/weldstash/products${query}`);
     },
@@ -38,7 +41,7 @@ export function createWeldstashApi(api: ClientApi) {
     },
 
     // ---------- Suppliers ----------
-    listSuppliers(params: WeldstashListQuery = { limit: 25 }): Promise<ListResponse<WeldstashSupplier>> {
+    listSuppliers(params: WeldstashListQuery = LIMIT_25): Promise<ListResponse<WeldstashSupplier>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<WeldstashSupplier>>(`/weldstash/suppliers${query}`);
     },
@@ -56,7 +59,7 @@ export function createWeldstashApi(api: ClientApi) {
     },
 
     // ---------- Warehouses ----------
-    listWarehouses(params: WeldstashListQuery = { limit: 25 }): Promise<ListResponse<WeldstashWarehouse>> {
+    listWarehouses(params: WeldstashListQuery = LIMIT_25): Promise<ListResponse<WeldstashWarehouse>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<WeldstashWarehouse>>(`/weldstash/warehouses${query}`);
     },
@@ -74,7 +77,7 @@ export function createWeldstashApi(api: ClientApi) {
     },
 
     // ---------- Stock / Inventory ----------
-    listStock(params: ListStockQuery = { limit: 50 }): Promise<ListResponse<WeldstashStockRow>> {
+    listStock(params: ListStockQuery = LIMIT_50): Promise<ListResponse<WeldstashStockRow>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<WeldstashStockRow>>(`/weldstash/inventory${query}`);
     },

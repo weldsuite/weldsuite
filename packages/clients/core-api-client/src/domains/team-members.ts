@@ -37,6 +37,8 @@ import type {
   ListMemberActivityQuery,
 } from '../schemas/member-profile';
 
+const LIMIT_25 = { limit: 25 } as const;
+
 export interface TeamMemberListItem {
   id: string;
   userId: string;
@@ -161,7 +163,7 @@ export function createTeamMembersApi(api: ClientApi) {
 
     listActivity(
       userId: string,
-      params: ListMemberActivityQuery = { limit: 25 },
+      params: ListMemberActivityQuery = LIMIT_25,
     ): Promise<ListResponse<MemberActivityItem>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<MemberActivityItem>>(

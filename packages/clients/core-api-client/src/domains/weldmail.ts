@@ -5,6 +5,8 @@ import type {
   MailAccount, ListAccountsQuery,
 } from '../schemas/weldmail';
 
+const LIMIT_50 = { limit: 50 } as const;
+
 export function createWeldmailApi(api: ClientApi) {
   return {
     listLabels(params: ListLabelsQuery): Promise<ListResponse<MailLabel>> {
@@ -25,7 +27,7 @@ export function createWeldmailApi(api: ClientApi) {
     },
 
     // Accounts
-    listAccounts(params: ListAccountsQuery = { limit: 50 }): Promise<ListResponse<MailAccount>> {
+    listAccounts(params: ListAccountsQuery = LIMIT_50): Promise<ListResponse<MailAccount>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<MailAccount>>(`/weldmail/accounts${query}`);
     },

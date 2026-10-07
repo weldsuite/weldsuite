@@ -30,10 +30,13 @@ import type {
   WorkflowDraft,
 } from '../schemas/weldconnect-builder';
 
+const ALL_SCOPES_FIRST_PAGE = { limit: 25, scope: 'all' } as const;
+const LIMIT_25 = { limit: 25 } as const;
+
 export function createWeldconnectApi(api: ClientApi) {
   return {
     // ====== Workflows ======
-    listWorkflows(params: ListWorkflowsQuery = { limit: 25 }): Promise<ListResponse<Workflow>> {
+    listWorkflows(params: ListWorkflowsQuery = LIMIT_25): Promise<ListResponse<Workflow>> {
       return api.get<ListResponse<Workflow>>(`/workflows${buildQueryString(params as Record<string, unknown>)}`);
     },
     getWorkflow(id: string): Promise<DataResponse<Workflow>> {
@@ -69,7 +72,7 @@ export function createWeldconnectApi(api: ClientApi) {
     },
 
     // ====== Executions ======
-    listExecutions(params: ListExecutionsQuery = { limit: 25 }): Promise<ListResponse<WorkflowExecution>> {
+    listExecutions(params: ListExecutionsQuery = LIMIT_25): Promise<ListResponse<WorkflowExecution>> {
       return api.get<ListResponse<WorkflowExecution>>(`/workflow-executions${buildQueryString(params as Record<string, unknown>)}`);
     },
     getExecution(id: string): Promise<DataResponse<WorkflowExecution>> {
@@ -101,7 +104,7 @@ export function createWeldconnectApi(api: ClientApi) {
     },
 
     // ====== Templates ======
-    listTemplates(params: ListTemplatesQuery = { limit: 25 }): Promise<ListResponse<WorkflowTemplate>> {
+    listTemplates(params: ListTemplatesQuery = LIMIT_25): Promise<ListResponse<WorkflowTemplate>> {
       return api.get<ListResponse<WorkflowTemplate>>(`/workflow-templates${buildQueryString(params as Record<string, unknown>)}`);
     },
     getTemplate(id: string): Promise<DataResponse<WorkflowTemplate>> {
@@ -127,7 +130,7 @@ export function createWeldconnectApi(api: ClientApi) {
     },
 
     // ====== Schedules ======
-    listSchedules(params: ListSchedulesQuery = { limit: 25 }): Promise<ListResponse<WorkflowSchedule>> {
+    listSchedules(params: ListSchedulesQuery = LIMIT_25): Promise<ListResponse<WorkflowSchedule>> {
       return api.get<ListResponse<WorkflowSchedule>>(`/workflow-schedules${buildQueryString(params as Record<string, unknown>)}`);
     },
     getSchedule(id: string): Promise<DataResponse<WorkflowSchedule>> {
@@ -147,7 +150,7 @@ export function createWeldconnectApi(api: ClientApi) {
     },
 
     // ====== Variables ======
-    listVariables(params: ListVariablesQuery = { limit: 25, scope: 'all' }): Promise<ListResponse<WorkflowVariable>> {
+    listVariables(params: ListVariablesQuery = ALL_SCOPES_FIRST_PAGE): Promise<ListResponse<WorkflowVariable>> {
       return api.get<ListResponse<WorkflowVariable>>(`/workflow-variables${buildQueryString(params as Record<string, unknown>)}`);
     },
     getVariable(id: string): Promise<DataResponse<WorkflowVariable>> {
