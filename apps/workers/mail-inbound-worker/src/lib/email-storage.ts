@@ -30,6 +30,7 @@ import {
   expandCatchAllCandidates,
   isCatchAllRegistryEmail,
 } from './catch-all';
+import { selectNotifyMembers } from './notify-recipients';
 import {
   buildMailAutoLabelQuestions,
   buildMailAutoLabelState,
@@ -108,7 +109,10 @@ export interface RecipientAccount {
   personalAccountId: string | null;
   /** Clerk user id — notification target for personal mail. */
   clerkUserId: string | null;
-  /** Active members eligible for notification. */
+  /**
+   * Active members to notify: the ones who may open the mailbox. May be empty
+   * for a workspace mailbox, in which case the mail is stored without a ping.
+   */
   members: { userId: string; email: string | null }[];
 }
 
@@ -272,6 +276,7 @@ async function resolveWorkspaceRecipient(
     .select({
       userId: tenantSchema.workspaceMembers.userId,
       email: tenantSchema.workspaceMembers.email,
+      role: tenantSchema.workspaceMembers.role,
     })
     .from(tenantSchema.workspaceMembers)
     .where(
@@ -301,15 +306,15 @@ async function resolveWorkspaceRecipient(
     return null;
   }
 
-  const assigned = accountAccess.assignedUserIds ?? undefined;
-  const scopeToAssigned =
-    !accountAccess.isShared && assigned !== undefined && assigned.length > 0;
+  // Notify the members who may open the mailbox, nobody else: a private
+  // mailbox pings its assignees, or admins/owners when nobody is assigned.
+  const eligibleMembers = selectNotifyMembers(accountAccess, members);
 
-  const eligibleMembers = scopeToAssigned
-    ? members.filter((m) => assigned!.includes(m.userId))
-    : members;
-
-  const uniqueMembers = [...new Map(eligibleMembers.map((m) => [m.userId, m])).values()];
+  const uniqueMembers = [
+    ...new Map(
+      eligibleMembers.map((m) => [m.userId, { userId: m.userId, email: m.email }]),
+    ).values(),
+  ];
 
   // Catch-all registry email is `*@domain`; deliver into the real mailbox address.
   const accountEmail = isCatchAllRegistryEmail(reg.email)
@@ -320,7 +325,10 @@ async function resolveWorkspaceRecipient(
     console.warn(`[Recipients] Workspace ${reg.workspaceId} has no clerkOrgId — realtime events will be skipped`);
     return null;
   }
-  if (uniqueMembers.length === 0) return null;
+  // Null means "this account cannot receive mail", so it is reserved for a
+  // workspace with no active member at all. An empty notify list (a private
+  // mailbox whose assignees are all deactivated) still stores the message.
+  if (members.length === 0) return null;
 
   return {
     accountId: reg.accountId,

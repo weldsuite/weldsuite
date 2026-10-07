@@ -17,6 +17,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { listAccessibleAccountIds } from '@weldsuite/mail-domain/access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -180,11 +181,22 @@ app.get('/sidebar-badges', async (c) => {
 
     try {
       const { mailMessages } = schema;
-      const [messageCount] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(mailMessages)
-        .where(and(eq(mailMessages.isRead, false), isNull(mailMessages.deletedAt)));
-      badges.unreadMessages = messageCount?.count || 0;
+      // Only the mailboxes this member may open: the count of a colleague's
+      // private mailbox is theirs alone.
+      const accountIds = await listAccessibleAccountIds(db, c.get('userId'));
+      if (accountIds.length > 0) {
+        const [messageCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(mailMessages)
+          .where(
+            and(
+              eq(mailMessages.isRead, false),
+              isNull(mailMessages.deletedAt),
+              inArray(mailMessages.accountId, accountIds),
+            ),
+          );
+        badges.unreadMessages = messageCount?.count || 0;
+      }
     } catch {
       // mailMessages table may not exist.
     }
