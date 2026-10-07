@@ -47,7 +47,7 @@ import type {
   StripeCharge,
   StripeConnectAccount,
 } from '../types/stripe';
-import { asText } from '@weldsuite/text';
+import { asText, logSafe } from '@weldsuite/text';
 
 const {
   workspaces,
@@ -107,7 +107,7 @@ async function saveCheckoutPaymentMethodAsDefault(
     }
     await setCustomerDefaultPaymentMethod(secret, customerId, paymentMethodId);
     console.log(
-      `[Domain Registration] Saved ${paymentMethodId} as default payment method for ${customerId}`,
+      `[Domain Registration] Saved ${logSafe(paymentMethodId)} as default payment method for ${logSafe(customerId)}`,
     );
   } catch (err) {
     console.warn('[Domain Registration] Could not save default payment method:', err);
@@ -201,7 +201,7 @@ webhookRoutes.post('/', async (c) => {
   }
 
   const event: StripeEvent = JSON.parse(rawBody);
-  console.log(`[Stripe Webhook] Received event: ${event.type}`);
+  console.log(`[Stripe Webhook] Received event: ${logSafe(event.type)}`);
 
   const masterDb = getMasterDb(c.env);
 
@@ -294,7 +294,7 @@ webhookRoutes.post('/', async (c) => {
         break;
 
       default:
-        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+        console.log(`[Stripe Webhook] Unhandled event type: ${logSafe(event.type)}`);
     }
 
     return c.json({ received: true });
@@ -410,7 +410,7 @@ async function handleCheckoutCompleted(
     return;
   }
 
-  console.log(`[Stripe Webhook] Updated workspace ${workspaceId} to plan ${planId} with ${purchasedSeats} seats`);
+  console.log(`[Stripe Webhook] Updated workspace ${logSafe(workspaceId)} to plan ${logSafe(planId)} with ${logSafe(purchasedSeats)} seats`);
 
   // Checkout always creates a new subscription. Cancel the previous one
   // (typically the $0 Free sub from signup) so the customer is not left
@@ -946,7 +946,7 @@ async function handleSubscriptionDeleted(
         })
         .where(eq(workspaces.id, workspace.id));
 
-      console.log(`[Stripe Webhook] Created new free subscription ${newSubscription.id} for workspace ${workspace.id}`);
+      console.log(`[Stripe Webhook] Created new free subscription ${logSafe(newSubscription.id)} for workspace ${logSafe(workspace.id)}`);
     } catch (subError) {
       console.error('[Stripe Webhook] Failed to create free subscription after downgrade:', subError);
     }
@@ -2500,7 +2500,7 @@ async function handleDomainCheckoutFailed(
         ),
       );
 
-    console.log(`[Domain Registration] Soft-deleted ${registrationIds.length} pending rows for session ${session.id} (${reason})`);
+    console.log(`[Domain Registration] Soft-deleted ${registrationIds.length} pending rows for session ${logSafe(session.id)} (${logSafe(reason)})`);
   } catch (err) {
     console.error('[Domain Registration] handleDomainCheckoutFailed failed:', err);
   }

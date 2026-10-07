@@ -47,6 +47,7 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import { cancelSubscriptionImmediately } from '@weldsuite/stripe';
 import { getMasterDb, masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import * as settingsService from '../../services/workspace-settings';
+import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -399,7 +400,7 @@ app.put('/name', zValidator('json', updateWorkspaceNameInput), async (c) => {
       return error.notFound(c, 'Workspace');
     }
     if (err instanceof ClerkSyncError) {
-      console.error('[app-api/workspace-settings] name sync failed:', err.clerkStatus, err.details);
+      console.error('[app-api/workspace-settings] name sync failed:', logSafe(err.clerkStatus), logSafe(err.details));
       return error.conflict(c, 'That name could not be used. Please try a different value.');
     }
     console.error('[app-api/workspace-settings] updateWorkspaceName failed:', err);
@@ -475,7 +476,7 @@ app.post('/slug', zValidator('json', updateWorkspaceSlugInput), async (c) => {
       return error.notFound(c, 'Workspace');
     }
     if (err instanceof ClerkSyncError) {
-      console.error('[app-api/workspace-settings] slug sync failed:', err.clerkStatus, err.details);
+      console.error('[app-api/workspace-settings] slug sync failed:', logSafe(err.clerkStatus), logSafe(err.details));
       return error.conflict(c, SLUG_SYNC_FAILURE_MESSAGES[err.reasonCode]);
     }
     console.error('[app-api/workspace-settings] updateWorkspaceSlug failed:', err);

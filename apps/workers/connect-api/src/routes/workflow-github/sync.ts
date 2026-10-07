@@ -12,6 +12,7 @@ import { success, error } from '@weldsuite/worker-kit/response';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { getConnectionByWorkspace } from '../../services/github/connections';
 import { getLinkedRepo } from '../../services/github/repos';
+import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -51,7 +52,7 @@ app.post(
         params: { workspaceId, repoLinkId: linkId },
       });
 
-      console.log(`[GitHub] Full sync workflow started for repo link ${linkId}, runId: ${instance.id}`);
+      console.log(`[GitHub] Full sync workflow started for repo link ${logSafe(linkId)}, runId: ${logSafe(instance.id)}`);
 
       return success(c, { runId: instance.id });
     } catch (err) {

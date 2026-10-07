@@ -8,6 +8,7 @@
 import { eq } from 'drizzle-orm';
 import type { Env } from '../index';
 import { type getMasterDb, masterSchema } from './db';
+import { logSafe } from '@weldsuite/text';
 
 const { userWorkspaces } = masterSchema;
 
@@ -87,7 +88,7 @@ export async function syncClerkSeatLimit(
     if (!res.ok) {
       const text = await res.text();
       console.error(
-        `[Clerk Sync] Failed to update max_allowed_memberships for ${clerkOrgId}: ${res.status} ${text}`,
+        `[Clerk Sync] Failed to update max_allowed_memberships for ${logSafe(clerkOrgId)}: ${res.status} ${logSafe(text)}`,
       );
     } else {
       console.log(
