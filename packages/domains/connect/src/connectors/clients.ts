@@ -46,7 +46,7 @@ export function storeUrlOf(client: ConnectorClient): string {
   return client.storeUrl;
 }
 
-export async function testConnectorCredentials(
+export function testConnectorCredentials(
   provider: string,
   credentials: Record<string, string>,
 ): Promise<{ ok: true; storeUrl: string } | { ok: false; message: string }> {
@@ -54,10 +54,10 @@ export async function testConnectorCredentials(
     const client = createConnectorClient(provider, credentials);
     return client.test();
   } catch (err) {
-    return {
+    return Promise.resolve({
       ok: false,
       message: err instanceof ConnectorApiError ? err.message : `Unknown connector '${provider}'`,
-    };
+    });
   }
 }
 

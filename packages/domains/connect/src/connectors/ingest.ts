@@ -109,23 +109,25 @@ function emptyCounts(): IngestCounts {
   return { created: 0, modified: 0, skipped: 0, deleted: 0, failed: 0 };
 }
 
-async function loadConnectorFieldMappings(
+function loadConnectorFieldMappings(
   db: Database,
   connectionId: string,
   entityType: string,
 ): Promise<ConnectorFieldMappingRow[]> {
   const fm = schema.integrationFieldMappings;
-  return db
-    .select({
-      externalFieldPath: fm.externalFieldPath,
-      internalFieldPath: fm.internalFieldPath,
-      direction: fm.direction,
-      transformType: fm.transformType,
-      transformConfig: fm.transformConfig,
-      isRequired: fm.isRequired,
-    })
-    .from(fm)
-    .where(and(eq(fm.connectionId, connectionId), eq(fm.entityType, entityType)));
+  return Promise.resolve(
+    db
+      .select({
+        externalFieldPath: fm.externalFieldPath,
+        internalFieldPath: fm.internalFieldPath,
+        direction: fm.direction,
+        transformType: fm.transformType,
+        transformConfig: fm.transformConfig,
+        isRequired: fm.isRequired,
+      })
+      .from(fm)
+      .where(and(eq(fm.connectionId, connectionId), eq(fm.entityType, entityType)))
+  );
 }
 
 function applyMappingsToRecord(

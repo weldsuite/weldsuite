@@ -87,7 +87,7 @@ export function PeoplePanel({
     };
   }, [meeting]);
 
-  const handleAdmit = useCallback(async (id: string) => {
+  const handleAdmit = useCallback((id: string) => {
     try { meeting?.participants?.acceptWaitingRoomRequest(id); } catch { /* ignore */ }
   }, [meeting]);
 

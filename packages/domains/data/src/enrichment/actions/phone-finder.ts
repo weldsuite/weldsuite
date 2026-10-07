@@ -138,11 +138,11 @@ async function findFromWebsite(domain: string): Promise<ActionResult> {
  * returns "not found" after logging a warning, same shape as any other
  * exhausted phone-finder attempt.
  */
-async function findViaWebSearch(
+function findViaWebSearch(
   _ctx: ActionContext,
   company: string,
   _domain: string,
-): Promise<ActionResult> {
+): ActionResult {
   console.warn(
     `[ai] AI is currently unavailable — skipping phone-finder web-search fallback for "${company}"`,
   );

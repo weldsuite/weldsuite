@@ -160,7 +160,7 @@ async function provisionWorkspace(clerkOrgId: string): Promise<Workspace> {
 }
 
 // Helper to query workspace + plan from master DB
-async function fetchWorkspaceInfo(clerkOrgId: string) {
+function fetchWorkspaceInfo(clerkOrgId: string) {
   return masterDb
     .select({
       workspace: workspaces,
@@ -171,7 +171,7 @@ async function fetchWorkspaceInfo(clerkOrgId: string) {
     .where(eq(workspaces.clerkOrgId, clerkOrgId));
 }
 
-async function fetchWorkspaceInfoById(workspaceId: string) {
+function fetchWorkspaceInfoById(workspaceId: string) {
   return masterDb
     .select({
       workspace: workspaces,

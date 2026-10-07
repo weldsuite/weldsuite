@@ -70,22 +70,24 @@ async function applyRemoteCampaignState(
 type AdAccountRow = typeof adAccounts.$inferSelect;
 type AdCampaignRow = typeof adCampaigns.$inferSelect;
 
-async function loadSelectedAccounts(
+function loadSelectedAccounts(
   db: Database,
   connectionId: string,
   platformAccountId?: string,
 ): Promise<AdAccountRow[]> {
-  return db
-    .select()
-    .from(adAccounts)
-    .where(
-      and(
-        eq(adAccounts.connectionId, connectionId),
-        eq(adAccounts.isSelected, true),
-        isNull(adAccounts.deletedAt),
-        ...(platformAccountId ? [eq(adAccounts.platformAccountId, platformAccountId)] : []),
-      ),
-    );
+  return Promise.resolve(
+    db
+      .select()
+      .from(adAccounts)
+      .where(
+        and(
+          eq(adAccounts.connectionId, connectionId),
+          eq(adAccounts.isSelected, true),
+          isNull(adAccounts.deletedAt),
+          ...(platformAccountId ? [eq(adAccounts.platformAccountId, platformAccountId)] : []),
+        ),
+      )
+  );
 }
 
 function buildCampaignUpdate(campaign: AdCampaignRow): UpdateMetaCampaignInput {
@@ -99,7 +101,7 @@ function buildCampaignUpdate(campaign: AdCampaignRow): UpdateMetaCampaignInput {
 }
 
 /** Create the campaign on Meta when it has no platform id yet, otherwise update it. */
-async function pushCampaignToMeta(
+function pushCampaignToMeta(
   client: MetaMarketingClient,
   account: AdAccountRow,
   campaign: AdCampaignRow,

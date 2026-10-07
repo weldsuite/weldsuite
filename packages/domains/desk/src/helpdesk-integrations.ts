@@ -74,8 +74,8 @@ export function helpdeskOAuthRedirectUri(env: HelpdeskUrlEnv, provider: 'discord
 // ============================================================================
 
 /** Every live integration, newest first. */
-export async function listIntegrations(db: Database): Promise<HelpdeskIntegration[]> {
-  return db.select().from(hci).where(isNull(hci.deletedAt)).orderBy(desc(hci.createdAt));
+export function listIntegrations(db: Database): Promise<HelpdeskIntegration[]> {
+  return Promise.resolve(db.select().from(hci).where(isNull(hci.deletedAt)).orderBy(desc(hci.createdAt)));
 }
 
 /** The live integration for a provider, or undefined. */
@@ -92,15 +92,17 @@ export async function findIntegrationByProvider(
 }
 
 /** Every live integration for a provider, newest first. */
-export async function listIntegrationsByProvider(
+export function listIntegrationsByProvider(
   db: Database,
   provider: string,
 ): Promise<HelpdeskIntegration[]> {
-  return db
-    .select()
-    .from(hci)
-    .where(and(eq(hci.provider, provider), isNull(hci.deletedAt)))
-    .orderBy(desc(hci.createdAt));
+  return Promise.resolve(
+    db
+      .select()
+      .from(hci)
+      .where(and(eq(hci.provider, provider), isNull(hci.deletedAt)))
+      .orderBy(desc(hci.createdAt))
+  );
 }
 
 /** The live Discord integration for a guild id, or undefined. */

@@ -129,15 +129,15 @@ export const adminWorkspaces = {
     return updated;
   },
 
-  async suspend(id: string) {
+  suspend(id: string) {
     return this.update(id, { isActive: false });
   },
 
-  async activate(id: string) {
+  activate(id: string) {
     return this.update(id, { isActive: true });
   },
 
-  async delete(id: string) {
+  delete(id: string) {
     // Soft delete by deactivating
     return this.suspend(id);
   },
@@ -185,12 +185,14 @@ export const adminWorkspaces = {
  * Admin database operations for plans
  */
 export const adminPlans = {
-  async findMany() {
-    return masterDb
-      .select()
-      .from(masterSchema.plans)
-      .where(isNull(masterSchema.plans.deletedAt))
-      .orderBy(masterSchema.plans.sortOrder);
+  findMany() {
+    return Promise.resolve(
+      masterDb
+        .select()
+        .from(masterSchema.plans)
+        .where(isNull(masterSchema.plans.deletedAt))
+        .orderBy(masterSchema.plans.sortOrder)
+    );
   },
 
   async findOne(id: string) {
@@ -235,7 +237,7 @@ export const adminPlans = {
     return updated;
   },
 
-  async delete(id: string) {
+  delete(id: string) {
     // Soft delete
     return this.update(id, { deletedAt: new Date() });
   },
@@ -245,11 +247,13 @@ export const adminPlans = {
  * Admin database operations for domain pricing
  */
 export const adminDomainPricing = {
-  async findMany() {
-    return masterDb
-      .select()
-      .from(masterSchema.hostDomainPricing)
-      .orderBy(masterSchema.hostDomainPricing.tld);
+  findMany() {
+    return Promise.resolve(
+      masterDb
+        .select()
+        .from(masterSchema.hostDomainPricing)
+        .orderBy(masterSchema.hostDomainPricing.tld)
+    );
   },
 
   async findOne(id: string) {
@@ -291,18 +295,22 @@ export const adminDomainPricing = {
  * Admin database operations for system settings
  */
 export const adminSettings = {
-  async findMany(category?: string) {
+  findMany(category?: string) {
     if (category) {
-      return masterDb
+      return Promise.resolve(
+        masterDb
+          .select()
+          .from(masterSchema.systemSettings)
+          .where(eq(masterSchema.systemSettings.category, category))
+          .orderBy(masterSchema.systemSettings.key)
+      );
+    }
+    return Promise.resolve(
+      masterDb
         .select()
         .from(masterSchema.systemSettings)
-        .where(eq(masterSchema.systemSettings.category, category))
-        .orderBy(masterSchema.systemSettings.key);
-    }
-    return masterDb
-      .select()
-      .from(masterSchema.systemSettings)
-      .orderBy(masterSchema.systemSettings.category, masterSchema.systemSettings.key);
+        .orderBy(masterSchema.systemSettings.category, masterSchema.systemSettings.key)
+    );
   },
 
   async findByKey(key: string) {
@@ -356,46 +364,46 @@ export const adminSettings = {
  * by iterating through workspaces using getTenantDbByWorkspaceId().
  */
 export const adminUsers = {
-  async findMany(): Promise<never> {
-    throw new Error(
+  findMany(): Promise<never> {
+    return Promise.reject(new Error(
       'adminUsers.findMany() is no longer supported. Each workspace has its own database. ' +
       'Query users through specific workspace databases using getTenantDbByWorkspaceId().'
-    );
+    ));
   },
 
-  async findOne(_id: string): Promise<never> {
-    throw new Error(
+  findOne(_id: string): Promise<never> {
+    return Promise.reject(new Error(
       'adminUsers.findOne() is no longer supported. Each workspace has its own database. ' +
       'Query users through specific workspace databases using getTenantDbByWorkspaceId().'
-    );
+    ));
   },
 
-  async findByUserId(_userId: string): Promise<never> {
-    throw new Error(
+  findByUserId(_userId: string): Promise<never> {
+    return Promise.reject(new Error(
       'adminUsers.findByUserId() is no longer supported. Each workspace has its own database. ' +
       'Query users through specific workspace databases using getTenantDbByWorkspaceId().'
-    );
+    ));
   },
 
-  async update(_id: string, _data: Record<string, unknown>): Promise<never> {
-    throw new Error(
+  update(_id: string, _data: Record<string, unknown>): Promise<never> {
+    return Promise.reject(new Error(
       'adminUsers.update() is no longer supported. Each workspace has its own database. ' +
       'Update users through specific workspace databases using getTenantDbByWorkspaceId().'
-    );
+    ));
   },
 
-  async delete(_id: string): Promise<never> {
-    throw new Error(
+  delete(_id: string): Promise<never> {
+    return Promise.reject(new Error(
       'adminUsers.delete() is no longer supported. Each workspace has its own database. ' +
       'Delete users through specific workspace databases using getTenantDbByWorkspaceId().'
-    );
+    ));
   },
 
-  async getStats(): Promise<never> {
-    throw new Error(
+  getStats(): Promise<never> {
+    return Promise.reject(new Error(
       'adminUsers.getStats() is no longer supported. Each workspace has its own database. ' +
       'Aggregate stats must be computed by iterating through workspaces.'
-    );
+    ));
   },
 };
 
@@ -405,18 +413,22 @@ export const adminUsers = {
 type InquiryStatus = 'new' | 'contacted' | 'in_progress' | 'closed' | 'converted';
 
 export const adminEnterpriseInquiries = {
-  async findMany(status?: InquiryStatus) {
+  findMany(status?: InquiryStatus) {
     if (status) {
-      return masterDb
+      return Promise.resolve(
+        masterDb
+          .select()
+          .from(masterSchema.enterpriseInquiries)
+          .where(eq(masterSchema.enterpriseInquiries.status, status))
+          .orderBy(desc(masterSchema.enterpriseInquiries.createdAt))
+      );
+    }
+    return Promise.resolve(
+      masterDb
         .select()
         .from(masterSchema.enterpriseInquiries)
-        .where(eq(masterSchema.enterpriseInquiries.status, status))
-        .orderBy(desc(masterSchema.enterpriseInquiries.createdAt));
-    }
-    return masterDb
-      .select()
-      .from(masterSchema.enterpriseInquiries)
-      .orderBy(desc(masterSchema.enterpriseInquiries.createdAt));
+        .orderBy(desc(masterSchema.enterpriseInquiries.createdAt))
+    );
   },
 
   async findOne(id: string) {
@@ -447,7 +459,7 @@ export const adminEnterpriseInquiries = {
     return updated;
   },
 
-  async updateStatus(id: string, status: 'new' | 'contacted' | 'in_progress' | 'closed' | 'converted', notes?: string) {
+  updateStatus(id: string, status: 'new' | 'contacted' | 'in_progress' | 'closed' | 'converted', notes?: string) {
     const updateData: Partial<masterSchema.NewEnterpriseInquiry> = {
       status,
       updatedAt: new Date(),
@@ -485,7 +497,7 @@ export const adminEnterpriseInquiries = {
  * Admin database operations for feature requests
  */
 export const adminFeatureRequests = {
-  async findMany(options?: {
+  findMany(options?: {
     status?: masterSchema.FeatureStatus;
     type?: masterSchema.FeatureType;
     sortBy?: 'votes' | 'newest' | 'oldest';
@@ -523,7 +535,7 @@ export const adminFeatureRequests = {
       query = query.limit(options.limit) as typeof query;
     }
 
-    return query;
+    return Promise.resolve(query);
   },
 
   async findOne(id: string) {
@@ -646,18 +658,22 @@ export const adminFeatureRequests = {
  * Admin database operations for app catalog
  */
 export const adminAppCatalog = {
-  async findMany(options?: { includeInactive?: boolean }) {
+  findMany(options?: { includeInactive?: boolean }) {
     if (options?.includeInactive) {
-      return masterDb
+      return Promise.resolve(
+        masterDb
+          .select()
+          .from(masterSchema.appCatalog)
+          .orderBy(masterSchema.appCatalog.sortOrder)
+      );
+    }
+    return Promise.resolve(
+      masterDb
         .select()
         .from(masterSchema.appCatalog)
-        .orderBy(masterSchema.appCatalog.sortOrder);
-    }
-    return masterDb
-      .select()
-      .from(masterSchema.appCatalog)
-      .where(eq(masterSchema.appCatalog.isActive, true))
-      .orderBy(masterSchema.appCatalog.sortOrder);
+        .where(eq(masterSchema.appCatalog.isActive, true))
+        .orderBy(masterSchema.appCatalog.sortOrder)
+    );
   },
 
   async findOne(id: string) {
@@ -725,12 +741,14 @@ export const adminAppCatalog = {
  * Admin database operations for app screenshots
  */
 export const adminAppScreenshots = {
-  async findByAppId(appId: string) {
-    return masterDb
-      .select()
-      .from(masterSchema.appScreenshots)
-      .where(eq(masterSchema.appScreenshots.appId, appId))
-      .orderBy(masterSchema.appScreenshots.sortOrder);
+  findByAppId(appId: string) {
+    return Promise.resolve(
+      masterDb
+        .select()
+        .from(masterSchema.appScreenshots)
+        .where(eq(masterSchema.appScreenshots.appId, appId))
+        .orderBy(masterSchema.appScreenshots.sortOrder)
+    );
   },
 
   async findOne(id: string) {

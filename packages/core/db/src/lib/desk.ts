@@ -343,17 +343,19 @@ export async function findOpenConversationForVisitor(
 }
 
 /** A visitor's conversations, most recent activity first (messenger history). */
-export async function listDeskConversationsForVisitor(
+export function listDeskConversationsForVisitor(
   db: AnyDb,
   visitorId: string,
   limit = 25,
 ): Promise<DeskConversation[]> {
-  return db
-    .select()
-    .from(conversations)
-    .where(eq(conversations.visitorId, visitorId))
-    .orderBy(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt}) DESC`)
-    .limit(Math.min(limit, 100));
+  return Promise.resolve(
+    db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.visitorId, visitorId))
+      .orderBy(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt}) DESC`)
+      .limit(Math.min(limit, 100))
+  );
 }
 
 /**
@@ -482,15 +484,17 @@ export async function getDeskConversation(
   return { conversation, messages: rows };
 }
 
-export async function listDeskMessages(
+export function listDeskMessages(
   db: AnyDb,
   conversationId: string,
 ): Promise<DeskMessage[]> {
-  return db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(messages.createdAt);
+  return Promise.resolve(
+    db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(messages.createdAt)
+  );
 }
 
 /** Strip RFC 5322 angle brackets so In-Reply-To / References match stored ids. */

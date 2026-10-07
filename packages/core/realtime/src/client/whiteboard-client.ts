@@ -181,20 +181,24 @@ export class WhiteboardClient {
 
   // ---- Element Operations ----
 
-  async broadcastElementAdd(element: any): Promise<void> {
+  broadcastElementAdd(element: any): Promise<void> {
     this.send({ type: 'element:add', element, sessionId: this.sessionId });
+    return Promise.resolve();
   }
 
-  async broadcastElementUpdate(elementId: string, changes: any): Promise<void> {
+  broadcastElementUpdate(elementId: string, changes: any): Promise<void> {
     this.send({ type: 'element:update', elementId, changes, sessionId: this.sessionId });
+    return Promise.resolve();
   }
 
-  async broadcastElementDelete(elementId: string): Promise<void> {
+  broadcastElementDelete(elementId: string): Promise<void> {
     this.send({ type: 'element:delete', elementId, sessionId: this.sessionId });
+    return Promise.resolve();
   }
 
-  async broadcastBatchChange(batch: WhiteboardBatchChange): Promise<void> {
+  broadcastBatchChange(batch: WhiteboardBatchChange): Promise<void> {
     this.send({ type: 'element:batch', ...batch, sessionId: this.sessionId });
+    return Promise.resolve();
   }
 
   // ---- Cursor (throttled) ----
@@ -222,8 +226,9 @@ export class WhiteboardClient {
 
   // ---- Selection ----
 
-  async broadcastSelectionChange(elementIds: string[]): Promise<void> {
+  broadcastSelectionChange(elementIds: string[]): Promise<void> {
     this.send({ type: 'selection:change', elementIds });
+    return Promise.resolve();
   }
 
   // ---- Event Handlers ----

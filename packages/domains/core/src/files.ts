@@ -63,7 +63,7 @@ export interface ListFilesParams {
   entityId?: string;
 }
 
-export async function listFiles(db: Database, params: ListFilesParams) {
+export function listFiles(db: Database, params: ListFilesParams) {
   const conditions = [isNull(files.deletedAt)];
   if (params.folderId) {
     conditions.push(eq(files.folderId, params.folderId));
@@ -74,11 +74,13 @@ export async function listFiles(db: Database, params: ListFilesParams) {
   if (params.entityType) conditions.push(eq(files.entityType, params.entityType));
   if (params.entityId) conditions.push(eq(files.entityId, params.entityId));
 
-  return db
-    .select()
-    .from(files)
-    .where(and(...conditions))
-    .orderBy(desc(files.createdAt));
+  return Promise.resolve(
+    db
+      .select()
+      .from(files)
+      .where(and(...conditions))
+      .orderBy(desc(files.createdAt))
+  );
 }
 
 export async function getFile(db: Database, id: string) {
@@ -304,12 +306,14 @@ export async function moveFile(
 // Trash (file-specific helpers used by /api/drive routes)
 // ============================================================================
 
-export async function listTrashedFiles(db: Database) {
-  return db
-    .select()
-    .from(files)
-    .where(isNotNull(files.deletedAt))
-    .orderBy(desc(files.deletedAt));
+export function listTrashedFiles(db: Database) {
+  return Promise.resolve(
+    db
+      .select()
+      .from(files)
+      .where(isNotNull(files.deletedAt))
+      .orderBy(desc(files.deletedAt))
+  );
 }
 
 export async function restoreFile(db: Database, id: string) {
