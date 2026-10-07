@@ -22,7 +22,7 @@ import type { HonoEnv } from '../../types';
 import { hasScope } from '../../lib/scopes';
 import { generateId } from '../../lib/id';
 import { createMasterDb, masterSchema, type MasterDatabase } from '../../lib/master-db';
-import { error, list, noContent, success, cursorPagination } from '../../lib/response';
+import { error, list, success, cursorPagination } from '../../lib/response';
 
 const app = new Hono<HonoEnv>();
 

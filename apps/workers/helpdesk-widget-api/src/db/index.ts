@@ -6,7 +6,7 @@
  * Workspace URL lookups are cached in Cloudflare KV for 5 minutes.
  */
 
-import { drizzle, PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { neon } from '@neondatabase/serverless';

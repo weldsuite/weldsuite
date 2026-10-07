@@ -15,7 +15,7 @@
  * - collect_input: persist + send prompt (pauses for response)
  */
 
-import { eq, and, isNull, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, isNull, sql, inArray } from 'drizzle-orm';
 import type { ThreadChannel, TextChannel } from 'discord.js';
 import {
   EmbedBuilder,
@@ -23,7 +23,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
-import { getTenantDb, schema, type Database } from '../lib/db.js';
+import { schema, type Database } from '../lib/db.js';
 import { generateId } from '../lib/id.js';
 import { publishConversationEvent } from '../lib/realtime.js';
 

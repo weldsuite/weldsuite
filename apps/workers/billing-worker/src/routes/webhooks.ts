@@ -17,7 +17,6 @@ import {
   retrieveSubscription,
   createStripeSubscription,
   cancelSubscriptionImmediately,
-  stripeApiRequest,
   retrievePaymentIntent,
   retrieveCustomer,
   setCustomerDefaultPaymentMethod,

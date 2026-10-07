@@ -6,7 +6,7 @@
  * single `UnifiedFile` shape so the frontend can render one feed.
  */
 
-import { and, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const {

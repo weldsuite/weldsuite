@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull } from 'drizzle-orm';
-import { z } from 'zod';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { updateAccountingSettingsSchema } from '@weldsuite/app-api-client/schemas/accounting-settings';
 import { schema } from '../../../db';

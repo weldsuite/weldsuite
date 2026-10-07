@@ -6,7 +6,6 @@ import {
   verifyClerkJwt,
   verifyPersonalClerkJwt,
   verifyWidgetToken,
-  verifyAuth,
   pemToBuffer,
   base64UrlToBuffer,
 } from './lib/auth';

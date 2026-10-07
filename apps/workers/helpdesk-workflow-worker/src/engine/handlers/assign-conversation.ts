@@ -1,5 +1,4 @@
 import type { StepHandler, StepContext, StepResult } from '../../types';
-import { createBotMessage } from '../helpers';
 import { eq, and, isNull, asc, sql } from 'drizzle-orm';
 import { schema } from '../../db';
 import { publishMessageToConversation, publishToRealtimeChannel } from '../../lib/realtime-publisher';

@@ -9,7 +9,6 @@ import type {
   ApiResponse,
   StartConversationRequest,
   StartConversationResponse,
-  ConversationResponse,
   SendCustomerMessageRequest,
   SendCustomerMessageResponse,
   WidgetConfigResponse,

@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { and, desc, eq, gte, like, lte, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
-import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
+import { cursorPagination, error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

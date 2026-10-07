@@ -15,7 +15,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like, sql } from 'drizzle-orm';
 import { schema, masterSchema, getMasterDb, type Database } from '@weldsuite/worker-kit/db';
 import { createCompany } from '@weldsuite/crm-domain/companies';
 import { createPerson } from '@weldsuite/crm-domain/people';
