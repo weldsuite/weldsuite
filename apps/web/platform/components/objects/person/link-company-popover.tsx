@@ -7,7 +7,7 @@
  * disabled so the constraint is obvious.
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useDebounce } from '@/hooks/use-debounce';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -68,6 +68,53 @@ export function LinkCompanyPopover({ personId, linkedCompanyIds }: Readonly<Link
     );
   };
 
+  let companiesContent: ReactNode;
+  if (companiesQuery.isLoading) {
+    companiesContent = (
+      <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+        {t('sweep.entities.loadingEllipsis')}
+      </div>
+    );
+  } else if (companies.length === 0) {
+    companiesContent = (
+      <CommandEmpty>{t('sweep.entities.noCompaniesFoundPeriod')}</CommandEmpty>
+    );
+  } else {
+    companiesContent = (
+      <CommandGroup>
+        {companies.map((c) => {
+          const already = linkedCompanyIds.has(c.id);
+          return (
+            <CommandItem
+              key={c.id}
+              value={c.displayName + (c.industry ? ` ${c.industry}` : '')}
+              disabled={already || linkMut.isPending}
+              onSelect={() => handlePick(c)}
+              className="flex items-center gap-2"
+            >
+              <Avatar className="h-6 w-6 rounded-md">
+                <AvatarImage
+                  src={c.avatarUrl ?? undefined}
+                  className="rounded-md object-cover"
+                />
+                <AvatarFallback className="rounded-md text-[10px]">
+                  {companyInitial(c)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm truncate">{c.displayName}</div>
+                {c.industry && (
+                  <div className="text-xs text-muted-foreground truncate">{c.industry}</div>
+                )}
+              </div>
+              {already && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
+            </CommandItem>
+          );
+        })}
+      </CommandGroup>
+    );
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -87,45 +134,7 @@ export function LinkCompanyPopover({ personId, linkedCompanyIds }: Readonly<Link
             onValueChange={setSearch}
           />
           <CommandList className="max-h-[260px]">
-            {companiesQuery.isLoading ? (
-              <div className="px-3 py-6 text-sm text-muted-foreground text-center">
-                {t('sweep.entities.loadingEllipsis')}
-              </div>
-            ) : companies.length === 0 ? (
-              <CommandEmpty>{t('sweep.entities.noCompaniesFoundPeriod')}</CommandEmpty>
-            ) : (
-              <CommandGroup>
-                {companies.map((c) => {
-                  const already = linkedCompanyIds.has(c.id);
-                  return (
-                    <CommandItem
-                      key={c.id}
-                      value={c.displayName + (c.industry ? ` ${c.industry}` : '')}
-                      disabled={already || linkMut.isPending}
-                      onSelect={() => handlePick(c)}
-                      className="flex items-center gap-2"
-                    >
-                      <Avatar className="h-6 w-6 rounded-md">
-                        <AvatarImage
-                          src={c.avatarUrl ?? undefined}
-                          className="rounded-md object-cover"
-                        />
-                        <AvatarFallback className="rounded-md text-[10px]">
-                          {companyInitial(c)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm truncate">{c.displayName}</div>
-                        {c.industry && (
-                          <div className="text-xs text-muted-foreground truncate">{c.industry}</div>
-                        )}
-                      </div>
-                      {already && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
+            {companiesContent}
           </CommandList>
         </Command>
       </PopoverContent>

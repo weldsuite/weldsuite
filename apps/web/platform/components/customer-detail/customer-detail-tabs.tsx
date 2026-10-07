@@ -76,9 +76,14 @@ export function CustomerDetailTabs({ variant = 'page' }: Readonly<CustomerDetail
   const counts = data?.counts ? { ...data.counts, tasks: activeTaskCount, ...countOverrides } : undefined;
 
   // Filter tabs based on variant, entity type, and user visibility preferences.
-  const baseTabIds = entityType === 'contact'
-    ? (variant === 'panel' ? panelTabs : ['overview', 'activity', 'emails', 'calls', 'notes', 'tasks', 'files'] as CustomerDetailTab[])
-    : (variant === 'panel' ? panelTabs : pageTabs);
+  let baseTabIds: CustomerDetailTab[];
+  if (variant === 'panel') {
+    baseTabIds = panelTabs;
+  } else if (entityType === 'contact') {
+    baseTabIds = ['overview', 'activity', 'emails', 'calls', 'notes', 'tasks', 'files'];
+  } else {
+    baseTabIds = pageTabs;
+  }
   const visibleTabIds = baseTabIds.filter(tabId => isFieldVisible(tabId));
   // Preserve the order from baseTabIds (e.g. panelTabs) instead of allTabs
   // so callers can dictate the tab order — important for the panel variant

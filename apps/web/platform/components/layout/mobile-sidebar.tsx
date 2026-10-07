@@ -56,6 +56,12 @@ function appHref(appCode: string, appType?: 'system' | 'user' | 'object'): strin
   return `/${appCode}`;
 }
 
+function railBadgeSizeClass(badgeCount: number): string {
+  if (badgeCount > 99) return 'min-w-[32px] px-[5px] indent-[1.5px]';
+  if (badgeCount >= 10) return 'min-w-[26px] px-[4px] indent-[1.5px]';
+  return 'w-[22px] indent-[0.5px]';
+}
+
 interface RailIconProps {
   appCode: string;
   name: string;
@@ -224,11 +230,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
           <span
             className={cn(
               'absolute -top-[4px] -right-[3px] z-10 text-[12px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[22px] flex items-center justify-center rounded-[8px] pointer-events-none',
-              badgeCount > 99
-                ? 'min-w-[32px] px-[5px] indent-[1.5px]'
-                : badgeCount >= 10
-                ? 'min-w-[26px] px-[4px] indent-[1.5px]'
-                : 'w-[22px] indent-[0.5px]'
+              railBadgeSizeClass(badgeCount)
             )}
           >
             {badgeCount > 99 ? '99+' : badgeCount}
@@ -242,6 +244,38 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
       </Button>
     );
   };
+
+  let moduleHeader: React.ReactNode;
+  if (moduleInfo?.logo && (isDark ? moduleInfo.logo.textDark : moduleInfo.logo.textLight)) {
+    moduleHeader = (
+      <img
+        src={isDark ? moduleInfo.logo.textDark : moduleInfo.logo.textLight}
+        alt={moduleInfo.name}
+        width={320}
+        height={80}
+        className={moduleInfo.logo.textClassName || 'h-auto w-[140px]'}
+      />
+    );
+  } else if (moduleInfo) {
+    moduleHeader = (
+      <>
+        {moduleInfo.logo ? (
+          <img
+            src={isDark ? moduleInfo.logo.iconDark : moduleInfo.logo.iconLight}
+            alt={moduleInfo.name}
+            width={48}
+            height={48}
+            className={moduleInfo.logo.iconClassName || 'h-5 w-5 shrink-0 object-contain'}
+          />
+        ) : (
+          <moduleInfo.icon className="h-5 w-5 shrink-0" />
+        )}
+        <span className="text-base font-semibold truncate">{moduleInfo.name}</span>
+      </>
+    );
+  } else {
+    moduleHeader = <span className="text-base font-semibold">WeldSuite</span>;
+  }
 
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
@@ -331,32 +365,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Active app header (logo + name) — mirrors desktop top-of-sidebar */}
           <div className="h-14 px-4 border-b flex items-center gap-2">
-            {moduleInfo?.logo && (isDark ? moduleInfo.logo.textDark : moduleInfo.logo.textLight) ? (
-              <img
-                src={isDark ? moduleInfo.logo.textDark : moduleInfo.logo.textLight}
-                alt={moduleInfo.name}
-                width={320}
-                height={80}
-                className={moduleInfo.logo.textClassName || 'h-auto w-[140px]'}
-              />
-            ) : moduleInfo ? (
-              <>
-                {moduleInfo.logo ? (
-                  <img
-                    src={isDark ? moduleInfo.logo.iconDark : moduleInfo.logo.iconLight}
-                    alt={moduleInfo.name}
-                    width={48}
-                    height={48}
-                    className={moduleInfo.logo.iconClassName || 'h-5 w-5 shrink-0 object-contain'}
-                  />
-                ) : (
-                  <moduleInfo.icon className="h-5 w-5 shrink-0" />
-                )}
-                <span className="text-base font-semibold truncate">{moduleInfo.name}</span>
-              </>
-            ) : (
-              <span className="text-base font-semibold">WeldSuite</span>
-            )}
+            {moduleHeader}
           </div>
 
           {/* Module Menu Items */}
@@ -403,13 +412,13 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
                                   )}
                                 >
                                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                                    {Icon ? (
+                                    {Icon && (
                                       item.iconStyle === 'colored-square' ? (
                                         <ColoredSquareIcon icon={Icon} color={item.iconColor} />
                                       ) : (
                                         <Icon className="h-4 w-4 shrink-0" />
                                       )
-                                    ) : null}
+                                    )}
                                     <span className="truncate min-w-0">{item.title}</span>
                                   </div>
                                   <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180" />
@@ -452,13 +461,13 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
                             isActive && 'bg-accent text-accent-foreground font-medium'
                           )}
                         >
-                          {Icon ? (
+                          {Icon && (
                             item.iconStyle === 'colored-square' ? (
                               <ColoredSquareIcon icon={Icon} color={item.iconColor} />
                             ) : (
                               <Icon className="h-4 w-4 shrink-0" />
                             )
-                          ) : null}
+                          )}
                           <span className={cn("truncate min-w-0 flex-1", item.bold && "font-semibold")}>{item.title}</span>
                           {item.badge && (
                             <span className="shrink-0 text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] px-1 flex items-center justify-center rounded-[6px]">

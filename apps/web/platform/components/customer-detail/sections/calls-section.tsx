@@ -171,15 +171,20 @@ export function CallsSection({ customer, activities }: Readonly<CallsSectionProp
   // Row renderer
   const renderCallRow = useCallback((call: CallItem) => {
     const direction = call.computedDirection;
-    const DirectionIcon = direction === 'inbound' ? PhoneIncoming
-      : direction === 'missed' ? PhoneMissed
-      : PhoneOutgoing;
-    const directionColor = direction === 'inbound' ? 'text-green-600'
-      : direction === 'missed' ? 'text-red-500'
-      : 'text-blue-600';
-    const directionLabel = direction === 'inbound' ? t('sweep.weldcrm.callsSection.inbound')
-      : direction === 'missed' ? t('sweep.weldcrm.callsSection.missed')
-      : t('sweep.weldcrm.callsSection.outbound');
+    let DirectionIcon = PhoneOutgoing;
+    let directionColor = 'text-blue-600';
+    let directionLabel: string;
+    if (direction === 'inbound') {
+      DirectionIcon = PhoneIncoming;
+      directionColor = 'text-green-600';
+      directionLabel = t('sweep.weldcrm.callsSection.inbound');
+    } else if (direction === 'missed') {
+      DirectionIcon = PhoneMissed;
+      directionColor = 'text-red-500';
+      directionLabel = t('sweep.weldcrm.callsSection.missed');
+    } else {
+      directionLabel = t('sweep.weldcrm.callsSection.outbound');
+    }
     const status = call.computedStatus;
 
     return (

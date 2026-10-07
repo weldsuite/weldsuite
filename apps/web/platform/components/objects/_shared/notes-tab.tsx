@@ -140,20 +140,25 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
     [deleteMut, activeNoteId, t],
   );
 
+  let notesSummary: string;
+  if (isLoading) {
+    notesSummary = t('sweep.entities.loadingEllipsis');
+  } else if (notes.length === 0) {
+    notesSummary = t('sweep.entities.noNotesYet');
+  } else {
+    notesSummary = t(
+      notes.length === 1
+        ? 'sweep.entities.notesCountSingular'
+        : 'sweep.entities.notesCountPlural',
+      { count: notes.length },
+    );
+  }
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <span className="text-xs uppercase tracking-wide text-muted-foreground">
-          {isLoading
-            ? t('sweep.entities.loadingEllipsis')
-            : notes.length === 0
-              ? t('sweep.entities.noNotesYet')
-              : t(
-                notes.length === 1
-                  ? 'sweep.entities.notesCountSingular'
-                  : 'sweep.entities.notesCountPlural',
-                { count: notes.length },
-              )}
+          {notesSummary}
         </span>
         <Button
           size="sm"

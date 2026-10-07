@@ -15,7 +15,7 @@
  *   - Sidebar: company chat (locked-open in fullscreen).
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Archive,
   Bookmark,
@@ -543,6 +543,66 @@ function CompanyPeopleTab({
     (pc: CompanyPersonListItem) => {
       const name = pc.person?.displayName ?? st('sweep.entities.deletedPerson');
       const avatarSrc = pc.person?.avatarUrl ?? personRowGravatar(pc.person?.email);
+      let portalActions: ReactNode = null;
+      if (!pc.endedAt && pc.person?.email) {
+        if (accessByPerson.get(pc.personId)?.status === 'revoked' || !accessByPerson.get(pc.personId)) {
+          portalActions = (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
+              disabled={inviteMut.isPending}
+              onClick={() => {
+                inviteMut.mutate(
+                  { personId: pc.personId, companyId },
+                  {
+                    onSuccess: () => toast.success(portalT.invitedToast),
+                    onError: () => toast.error(portalT.inviteFailed),
+                  },
+                );
+              }}
+            >
+              {portalT.invite}
+            </Button>
+          );
+        } else {
+          portalActions = (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
+                disabled={resendMut.isPending}
+                onClick={() => {
+                  const access = accessByPerson.get(pc.personId);
+                  if (!access) return;
+                  resendMut.mutate(access.id, {
+                    onSuccess: () => toast.success(portalT.resentToast),
+                    onError: () => toast.error(portalT.inviteFailed),
+                  });
+                }}
+              >
+                {portalT.resend}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
+                disabled={revokeMut.isPending}
+                onClick={() => {
+                  const access = accessByPerson.get(pc.personId);
+                  if (!access) return;
+                  revokeMut.mutate(access.id, {
+                    onSuccess: () => toast.success(portalT.revokedToast),
+                  });
+                }}
+              >
+                {portalT.revoke}
+              </Button>
+            </>
+          );
+        }
+      }
       return (
         <div key={pc.id} className="group/row flex items-center gap-1 px-2 py-0.5">
           <Button
@@ -578,61 +638,7 @@ function CompanyPeopleTab({
               )}
             </span>
           </Button>
-          {!pc.endedAt && pc.person?.email ? (
-            accessByPerson.get(pc.personId)?.status === 'revoked' || !accessByPerson.get(pc.personId) ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
-                disabled={inviteMut.isPending}
-                onClick={() => {
-                  inviteMut.mutate(
-                    { personId: pc.personId, companyId },
-                    {
-                      onSuccess: () => toast.success(portalT.invitedToast),
-                      onError: () => toast.error(portalT.inviteFailed),
-                    },
-                  );
-                }}
-              >
-                {portalT.invite}
-              </Button>
-            ) : (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
-                  disabled={resendMut.isPending}
-                  onClick={() => {
-                    const access = accessByPerson.get(pc.personId);
-                    if (!access) return;
-                    resendMut.mutate(access.id, {
-                      onSuccess: () => toast.success(portalT.resentToast),
-                      onError: () => toast.error(portalT.inviteFailed),
-                    });
-                  }}
-                >
-                  {portalT.resend}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
-                  disabled={revokeMut.isPending}
-                  onClick={() => {
-                    const access = accessByPerson.get(pc.personId);
-                    if (!access) return;
-                    revokeMut.mutate(access.id, {
-                      onSuccess: () => toast.success(portalT.revokedToast),
-                    });
-                  }}
-                >
-                  {portalT.revoke}
-                </Button>
-              </>
-            )
-          ) : null}
+          {portalActions}
           <Button
             variant="ghost"
             size="icon"

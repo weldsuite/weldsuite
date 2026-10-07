@@ -452,6 +452,21 @@ function GridFilterPills<TEntity>({
 
   const needsValue = (operator: string) => operator !== 'is_empty' && operator !== 'is_not_empty';
 
+  let filterTrigger: React.ReactNode = null;
+  if (filters.length > 0 && filters.length < maxFilters) {
+    filterTrigger = (
+      <Button variant="ghost" className="flex items-center justify-center h-[30px] w-[30px] border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border">
+        <Plus className="h-3.5 w-3.5" />
+      </Button>
+    );
+  } else if (filters.length === 0) {
+    filterTrigger = (
+      <Button variant="outline" className="h-8 text-sm px-3 shadow-none text-muted-foreground">
+        {t('sweep.entities.filter')}
+      </Button>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2">
       {/* Active filter pills */}
@@ -574,15 +589,7 @@ function GridFilterPills<TEntity>({
       {/* Add filter button */}
       <Popover open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
         <PopoverTrigger asChild>
-          {filters.length > 0 && filters.length < maxFilters ? (
-            <Button variant="ghost" className="flex items-center justify-center h-[30px] w-[30px] border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border">
-              <Plus className="h-3.5 w-3.5" />
-            </Button>
-          ) : filters.length === 0 ? (
-            <Button variant="outline" className="h-8 text-sm px-3 shadow-none text-muted-foreground">
-              {t('sweep.entities.filter')}
-            </Button>
-          ) : null}
+          {filterTrigger}
         </PopoverTrigger>
         <PopoverContent align="start" className="w-36 p-1 max-h-[300px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/10 dark:[&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
           {columns

@@ -45,6 +45,11 @@ function colIndexToLetter(index: number): string {
   return result;
 }
 
+function headerCellLayoutClass(fillViewport: boolean | undefined, index: number): string {
+  if (fillViewport) return 'justify-center px-3';
+  return index === 0 ? 'pl-5 pr-3 gap-3' : 'px-3 gap-1.5';
+}
+
 export function GridHeader() {
   const t = useTranslations();
   const {
@@ -138,9 +143,7 @@ export function GridHeader() {
               className={cn(
                 'group w-full h-full flex items-center transition-colors',
                 openColumnMenu === column.id ? 'bg-muted/50' : 'hover:bg-muted/50',
-                config.fillViewport
-                  ? 'justify-center px-3'
-                  : index === 0 ? 'pl-5 pr-3 gap-3' : 'px-3 gap-1.5'
+                headerCellLayoutClass(config.fillViewport, index)
               )}
               style={{ height: config.fillViewport ? '21px' : '40px' }}
             >
