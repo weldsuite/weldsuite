@@ -229,13 +229,13 @@ function useMeetingDevices(meeting: MeetingClient | null) {
       } catch { /* devices not available */ }
     }
 
-    loadDevices();
+    void loadDevices();
 
     // Refresh device list whenever the OS reports a change — covers OBS
     // Virtual Camera starting after meeting join, USB cam plug/unplug,
     // bluetooth headset connect, etc. Without this, the dropdown is frozen
     // at whatever was available at meeting-connect time.
-    const onDeviceChange = () => { loadDevices(); };
+    const onDeviceChange = () => { void loadDevices(); };
     tryIgnore(() => navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange));
 
     // RTK also surfaces device updates via its own event. Subscribing to
@@ -501,7 +501,7 @@ function ScreenShareControl({
           className="h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
           onClick={isScreenSharing ? stopScreenShare : () => {
             const res = SCREEN_RESOLUTIONS[selectedResolutionIdx]!;
-            startScreenShare({
+            void startScreenShare({
               video: { width: { ideal: res.width }, height: { ideal: res.height }, frameRate: { ideal: res.frameRate } },
               audio: shareScreenAudio,
             });

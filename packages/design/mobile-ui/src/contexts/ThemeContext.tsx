@@ -17,7 +17,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeType>('light');
 
   useEffect(() => {
-    loadTheme();
+    void loadTheme();
   }, []);
 
   const loadTheme = async () => {

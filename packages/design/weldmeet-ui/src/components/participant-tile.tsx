@@ -64,7 +64,8 @@ export function useIsSpeaking(audioTrack: MediaStreamTrack | null | undefined): 
       const data = new Uint8Array(analyser.frequencyBinCount);
       ctx.createMediaStreamSource(new MediaStream([audioTrack])).connect(analyser);
 
-      ctx.resume();
+      // Best effort: a suspended context just reads as not speaking.
+      ctx.resume().catch(() => {});
 
       intervalId = setInterval(() => {
         if (ctx?.state === 'running') {
@@ -79,7 +80,7 @@ export function useIsSpeaking(audioTrack: MediaStreamTrack | null | undefined): 
 
     return () => {
       if (intervalId !== null) clearInterval(intervalId);
-      ctx?.close();
+      ctx?.close().catch(() => {});
       setIsSpeaking(false);
     };
   }, [audioTrack]);

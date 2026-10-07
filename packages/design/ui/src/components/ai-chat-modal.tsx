@@ -162,13 +162,13 @@ export function AiChatModal({
     }
     
     const prompt = promptMap[suggestion.action] || "Help me with "
-    handleSendMessage(prompt + suggestion.title.toLowerCase())
+    void handleSendMessage(prompt + suggestion.title.toLowerCase())
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      handleSendMessage(input)
+      void handleSendMessage(input)
     }
   }
 

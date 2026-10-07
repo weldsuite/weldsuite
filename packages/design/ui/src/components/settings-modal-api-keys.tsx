@@ -150,10 +150,17 @@ export function ApiKeysContent({
   };
 
   const copyToken = (token: string) => {
-    navigator.clipboard.writeText(token);
-    setCopiedToken(true);
-    setTimeout(() => setCopiedToken(false), 2000);
-    toast.success('API key copied to clipboard');
+    navigator.clipboard.writeText(token).then(
+      () => {
+        setCopiedToken(true);
+        setTimeout(() => setCopiedToken(false), 2000);
+        toast.success('API key copied to clipboard');
+      },
+      () => {
+        // Clipboard blocked (permissions / insecure context): the key stays
+        // on screen to copy by hand.
+      },
+    );
   };
 
   const getEnvironmentBadgeVariant = (env?: string) => {

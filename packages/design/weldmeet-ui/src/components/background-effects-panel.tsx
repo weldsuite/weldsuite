@@ -266,7 +266,7 @@ export function BackgroundEffectsPanel({
                     const file = e.target.files?.[0];
                     if (file) {
                       const url = URL.createObjectURL(file);
-                      onApplyImage(url);
+                      void onApplyImage(url);
                     }
                     e.target.value = '';
                   }}

@@ -77,7 +77,7 @@ export function useHelpdeskWidget(config: WeldConfig): UseHelpdeskWidgetResult {
       }
     };
 
-    initWidget();
+    void initWidget();
 
     // Cleanup on unmount
     return () => {

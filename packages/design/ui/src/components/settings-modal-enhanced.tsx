@@ -273,7 +273,7 @@ export function SettingsModalEnhanced({
   // Load data when modal opens or section changes
   React.useEffect(() => {
     if (open && serverActions) {
-      loadDataForSection(activeSection)
+      void loadDataForSection(activeSection)
     }
   }, [open, activeSection, serverActions, loadDataForSection])
 
@@ -355,8 +355,11 @@ export function SettingsModalEnhanced({
       if (result.success && result.data) {
         toast.success("API key created successfully")
         // Copy key to clipboard
-        navigator.clipboard.writeText(result.data.key)
-        toast.info("API key copied to clipboard")
+        navigator.clipboard
+          .writeText(result.data.key)
+          .then(() => toast.info("API key copied to clipboard"))
+          // Clipboard blocked: the new key is still listed to copy by hand.
+          .catch(() => {})
         setShowAddApiKeyDialog(false)
         setNewApiKeyData({ name: "", permissions: [] })
         // Reload API keys
@@ -881,8 +884,11 @@ export function SettingsModalEnhanced({
                             variant="ghost"
                             size="icon"
                             onClick={() => {
-                              navigator.clipboard.writeText(apiKey.key)
-                              toast.success("API key copied to clipboard")
+                              navigator.clipboard
+                                .writeText(apiKey.key)
+                                .then(() => toast.success("API key copied to clipboard"))
+                                // Clipboard blocked: the key stays on screen.
+                                .catch(() => {})
                             }}
                           >
                             <Copy className="h-3 w-3" />

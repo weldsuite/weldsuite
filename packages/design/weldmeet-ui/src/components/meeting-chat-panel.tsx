@@ -655,8 +655,11 @@ function MessageItem({
   }
 
   const handleCopyText = () => {
-    navigator.clipboard.writeText(message.content);
-    onCopyToast?.('Message copied');
+    navigator.clipboard
+      .writeText(message.content)
+      .then(() => onCopyToast?.('Message copied'))
+      // Clipboard blocked: nothing to confirm, the message stays selectable.
+      .catch(() => {});
   };
 
   const handlePin = () => {
@@ -840,7 +843,7 @@ function MessageInput({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 

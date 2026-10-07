@@ -113,7 +113,7 @@ export class WeldSDK {
     if (event.data?.type === 'launcher:clicked') {
       if (this.status !== SDKStatus.READY) {
         console.log('[Weld SDK] Launcher clicked but SDK not ready yet — waiting...');
-        this.readyPromise?.then(() => {
+        void this.readyPromise?.then(() => {
           this.handleLauncherClickMessage(event);
         });
         return;

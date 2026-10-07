@@ -49,7 +49,7 @@ export function Auth0Provider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    fetchUser();
+    void fetchUser();
   }, []);
 
   const login = (returnTo?: string) => {

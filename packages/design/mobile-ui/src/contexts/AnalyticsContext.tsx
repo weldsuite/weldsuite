@@ -20,7 +20,9 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useClerkAuth();
 
   useEffect(() => {
-    initMixpanel(MIXPANEL_TOKEN);
+    initMixpanel(MIXPANEL_TOKEN).catch(() => {
+      // Analytics is best effort; the app works without it.
+    });
   }, []);
 
   useEffect(() => {

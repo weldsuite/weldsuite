@@ -43,7 +43,11 @@ export class HelpdeskWidgetService implements OnDestroy {
 
     try {
       this.widget = new WeldSDK(config);
-      this.widget.init();
+      // init() is async: a failed load is logged here, while construction
+      // errors still throw to the caller below.
+      this.widget.init().catch((error: unknown) => {
+        console.error('Failed to initialize Helpdesk Widget:', error);
+      });
     } catch (error) {
       console.error('Failed to initialize Helpdesk Widget:', error);
       throw error;
