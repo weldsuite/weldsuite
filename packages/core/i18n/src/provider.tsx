@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { TranslationsType } from './types';
 import {
   defaultLanguage,
@@ -57,23 +57,30 @@ export function I18nProvider({
   children,
   initialLanguage,
   adapter = cookieAdapter,
-}: I18nProviderProps) {
-  const [language, setLanguageState] = useState<Language>(() => {
+}: Readonly<I18nProviderProps>) {
+  const [language, setLanguage] = useState<Language>(() => {
     return initialLanguage ?? adapter.read?.() ?? defaultLanguage;
   });
 
   // Re-render trigger so consumers see fresh translations once a lazy
   // locale has finished loading. The actual translations live in the
   // module-level cache inside `./locales`.
-  const [, setLocaleVersion] = useState(0);
+  const [localeVersion, setLocaleVersion] = useState(0);
 
   // Lazy-load the active locale's bundle if it isn't already in memory.
   useEffect(() => {
     if (isLocaleLoaded(language)) return;
     let cancelled = false;
-    loadLocale(language).then(() => {
-      if (!cancelled) setLocaleVersion((v) => v + 1);
-    });
+    loadLocale(language).then(
+      () => {
+        if (!cancelled) setLocaleVersion((v) => v + 1);
+      },
+      (err) => {
+        // The bundle failed to load (offline, stale chunk): keep rendering
+        // with the fallback strings rather than leaving a rejection unhandled.
+        console.warn(`[i18n] Failed to load locale "${language}":`, err);
+      },
+    );
     return () => {
       cancelled = true;
     };
@@ -87,7 +94,7 @@ export function I18nProvider({
     if (adapter.read?.()) return;
     const detected = detectBrowserLanguage();
     if (detected) {
-      setLanguageState(detected);
+      setLanguage(detected);
       adapter.write(detected);
     }
   }, [adapter, initialLanguage]);
@@ -95,23 +102,31 @@ export function I18nProvider({
   useEffect(() => {
     return adapter.subscribe?.(next => {
       if ((languages as readonly string[]).includes(next)) {
-        setLanguageState(next);
+        setLanguage(next);
       }
     });
   }, [adapter]);
 
-  const setLanguage = (lang: Language) => {
-    setLanguageState(lang);
-    adapter.write(lang);
-  };
+  const changeLanguage = useCallback(
+    (lang: Language) => {
+      setLanguage(lang);
+      adapter.write(lang);
+    },
+    [adapter],
+  );
 
-  const value: I18nContextType = {
-    language,
-    setLanguage,
-    t: getLoadedTranslations(language) as TranslationsType,
-    plural: (count, forms) => pluralImpl(count, forms, language),
-    format: interpolate,
-  };
+  // `localeVersion` bumps when a lazily loaded bundle lands, so the memo
+  // re-reads the translations cache.
+  const value = useMemo<I18nContextType>(
+    () => ({
+      language,
+      setLanguage: changeLanguage,
+      t: getLoadedTranslations(language) as TranslationsType,
+      plural: (count, forms) => pluralImpl(count, forms, language),
+      format: interpolate,
+    }),
+    [language, changeLanguage, localeVersion],
+  );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
@@ -125,7 +140,13 @@ export function useI18n() {
 }
 
 export function interpolate(str: string, values: Record<string, unknown>): string {
-  return str.replace(/{(\w+)}/g, (match, key) => {
-    return values[key] !== undefined ? String(values[key]) : match;
+  return str.replace(/{(\w+)}/g, (match, key: string) => {
+    const value = values[key];
+    if (value === undefined) return match;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      return String(value);
+    }
+    return JSON.stringify(value);
   });
 }

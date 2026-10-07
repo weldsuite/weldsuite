@@ -61,7 +61,7 @@ export function useDocumentRoom(
 
     client.onConnectionChange(setState);
     client.onPresence(setPresence);
-    client.connect();
+    void client.connect();
 
     return () => {
       client.disconnect();
