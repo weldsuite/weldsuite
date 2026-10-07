@@ -3,7 +3,7 @@
  * dashboard's recent activity, so every surface reads a run the same way.
  */
 
-export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout';
+export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout' | 'skipped';
 
 interface DurationSource {
   status: string;

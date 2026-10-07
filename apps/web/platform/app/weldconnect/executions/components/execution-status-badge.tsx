@@ -1,5 +1,5 @@
 import { Badge } from '@weldsuite/ui/components/badge';
-import { AlertCircle, Ban, CheckCircle2, Clock, Loader2, XCircle } from 'lucide-react';
+import { AlertCircle, Ban, CheckCircle2, Clock, Loader2, SkipForward, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { normalizeExecutionStatus } from '../execution-utils';
@@ -28,6 +28,10 @@ const statusConfig: Record<string, { icon: React.ElementType; className: string 
   timeout: {
     icon: AlertCircle,
     className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+  },
+  skipped: {
+    icon: SkipForward,
+    className: 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground',
   },
 };
 

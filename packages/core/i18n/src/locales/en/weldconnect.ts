@@ -511,6 +511,7 @@ export const weldconnect = {
       cancelled: 'Cancelled',
       queued: 'Queued',
       timeout: 'Timeout',
+      skipped: 'Skipped',
     },
     actions: {
       viewDetails: 'View Details',
@@ -605,6 +606,7 @@ export const weldconnect = {
       queued: 'Queued',
       cancelled: 'Cancelled',
       timeout: 'Timeout',
+      skipped: 'Skipped',
     },
     stepStatuses: {
       success: 'Success',
@@ -1214,6 +1216,16 @@ export const weldconnect = {
       maxCreditsHint: 'Workflow run will stop if this limit is reached',
       creditsUnit: 'credits',
     },
+    concurrency: {
+      title: 'Concurrency',
+      maxConcurrentRunsLabel: 'Maximum concurrent runs',
+      maxConcurrentRunsHint:
+        'Leave empty for unlimited. While this many runs are already queued or in progress, a new one is skipped rather than started.',
+      runsUnit: 'runs',
+    },
+    history: {
+      button: 'History',
+    },
     notifications: {
       title: 'Notifications',
       notifyOnErrorLabel: 'Get notified when this workflow fails',
@@ -1221,6 +1233,33 @@ export const weldconnect = {
       notifyOnCompleteLabel: 'Get notified when this workflow completes',
       notifyOnCompleteHint: 'Receive an in-app notification when a run completes successfully',
     },
+  },
+
+  // Version history dialog (workflow settings "History" button)
+  versionHistory: {
+    title: 'Version history',
+    description: 'Every version WeldConnect saved when this workflow was activated, or changed while active.',
+    close: 'Close',
+    loadFailed: 'Could not load version history',
+    retry: 'Try again',
+    empty: 'No versions yet',
+    emptyHint: 'A version is saved the first time this workflow is activated, and on every save after that while it stays active.',
+    current: 'Current',
+    restore: 'Restore',
+    restoring: 'Restoring...',
+    restoreConfirmTitle: 'Restore this version?',
+    restoreConfirmDescription:
+      "This replaces the workflow's current triggers, steps and settings with version {version}. Restoring itself becomes a new version, so nothing is lost.",
+    restoreConfirmAction: 'Restore version {version}',
+    restoreSucceeded: 'Restored version {version}',
+    restoreFailed: 'Could not restore this version',
+    restoreFailedGate: 'This version uses triggers or actions this workflow can no longer use while active.',
+    reasons: {
+      activated: 'Activated',
+      saved: 'Saved',
+      restored: 'Restored',
+    },
+    restoredFromNote: 'Restored from version {version}',
   },
 
   // Workflow detail view
@@ -1642,9 +1681,11 @@ export const weldconnect = {
       unsupported_trigger: 'This trigger is not available yet. Choose a different trigger.',
       incomplete_entity_event: 'The trigger needs a record type and an event.',
       unknown_entity_event: 'The trigger uses an event that does not exist. Choose it again.',
-      schedule_not_recurring: 'Only recurring schedules are supported.',
+      schedule_not_recurring: 'This schedule type is not supported.',
       invalid_cron: 'The schedule has an invalid cron expression. Fix it in the trigger.',
       invalid_timezone: 'The schedule has an invalid timezone. Choose it again in the trigger.',
+      invalid_execute_at: 'Choose a date and time for the one-time schedule.',
+      schedule_run_at_past: 'The one-time schedule\'s date and time is in the past. Choose a time in the future.',
       no_steps: 'Add at least one step before publishing.',
       unsupported_action: 'This workflow has an action that is not available yet. Remove or replace it.',
       missing_field: 'A step is missing a required field.',

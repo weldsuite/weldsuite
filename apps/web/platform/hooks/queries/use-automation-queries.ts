@@ -59,6 +59,7 @@ export const WELDCONNECT_API = {
   executions: '/workflow-executions',
   templates: '/workflow-templates',
   variables: '/workflow-variables',
+  versions: '/workflow-versions',
   webhooks: '/workflow-webhooks',
   dashboard: '/workflow-dashboard',
   integrations: '/workflow-integrations',
@@ -98,6 +99,7 @@ export const automationKeys = {
   execution: (id: string) => [...automationKeys.all, 'execution', id] as const,
   executionSteps: (id: string) => [...automationKeys.all, 'execution-steps', id] as const,
   executionLogs: (id: string) => [...automationKeys.all, 'execution-logs', id] as const,
+  versions: (workflowId: string) => [...automationKeys.all, 'versions', workflowId] as const,
   executionTrends: (period?: string) => [...automationKeys.all, 'execution-trends', period] as const,
   recentExecutions: (limit?: number) => [...automationKeys.all, 'recent-executions', limit] as const,
   slowExecutions: (limit?: number) => [...automationKeys.all, 'slow-executions', limit] as const,
@@ -634,6 +636,56 @@ export function useUpdateWorkflowStatus(apiBasePath: string = WELDCONNECT_API.wo
         qc.invalidateQueries({ queryKey: automationKeys.workflow(variables.id) });
       }
       refreshEditorWorkflow(qc, variables.id, { status: variables.status });
+    },
+  });
+}
+
+export interface WorkflowVersion {
+  id: string;
+  workflowId: string;
+  version: number;
+  name: string;
+  status: string;
+  createdBy: string | null;
+  createdAt: string;
+  reason: 'activated' | 'saved' | 'restored';
+  restoredFromVersion: number | null;
+  note: string | null;
+}
+
+// 4a-v. Version history — list (WeldConnect workflows only; CRM sequences and
+// helpdesk workflows don't have a History panel yet).
+export function useWorkflowVersions(workflowId: string) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: automationKeys.versions(workflowId),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: WorkflowVersion[]; pagination: CursorPaginationMeta }>(
+        `${WELDCONNECT_API.versions}?workflowId=${workflowId}&limit=100`,
+      );
+    },
+    enabled: Boolean(workflowId),
+  });
+}
+
+// 4a-vi. Restore a past version — re-applies it through the normal update
+// path server-side (gate + schedule/webhook resync), then snapshots a new version.
+export function useRestoreWorkflowVersion(workflowId: string) {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (versionId: string) => {
+      const client = await getClient();
+      return client.post<{ data: { workflowId: string; version: number; restoredFromVersion: number } }>(
+        `${WELDCONNECT_API.versions}/${versionId}/restore`,
+        {},
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: automationKeys.versions(workflowId) });
+      qc.invalidateQueries({ queryKey: automationKeys.workflow(workflowId) });
+      refreshEditorWorkflow(qc, workflowId, {});
     },
   });
 }

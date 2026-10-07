@@ -164,8 +164,11 @@ app.post('/:id/retry', requirePermission('workflows:create'), async (c) => {
       entityType: 'workflow_execution',
       entityId: result.id,
       action: 'created',
-      data: { id: result.id, workflowId: '', status: 'queued' },
+      data: { id: result.id, workflowId: '', status: result.kind === 'skipped' ? 'skipped' : 'queued' },
     });
+    if (result.kind === 'skipped') {
+      return success(c, { id: result.id, executionId: result.executionId, retryOf: result.retryOf, skipped: true }, 201);
+    }
     return success(
       c,
       { id: result.id, executionId: result.executionId, instanceId: result.instanceId, retryOf: result.retryOf },

@@ -511,6 +511,7 @@ export const weldconnect = {
       cancelled: 'Geannuleerd',
       queued: 'In wachtrij',
       timeout: 'Time-out',
+      skipped: 'Overgeslagen',
     },
     actions: {
       viewDetails: 'Details bekijken',
@@ -605,6 +606,7 @@ export const weldconnect = {
       queued: 'In wachtrij',
       cancelled: 'Geannuleerd',
       timeout: 'Time-out',
+      skipped: 'Overgeslagen',
     },
     stepStatuses: {
       success: 'Geslaagd',
@@ -1214,6 +1216,16 @@ export const weldconnect = {
       maxCreditsHint: 'De workflow stopt als deze limiet wordt bereikt',
       creditsUnit: 'credits',
     },
+    concurrency: {
+      title: 'Gelijktijdigheid',
+      maxConcurrentRunsLabel: 'Maximaal aantal gelijktijdige uitvoeringen',
+      maxConcurrentRunsHint:
+        'Laat leeg voor onbeperkt. Als dit aantal al in de wachtrij staat of loopt, wordt een nieuwe uitvoering overgeslagen in plaats van gestart.',
+      runsUnit: 'uitvoeringen',
+    },
+    history: {
+      button: 'Geschiedenis',
+    },
     notifications: {
       title: 'Meldingen',
       notifyOnErrorLabel: 'Meldingen ontvangen als deze workflow mislukt',
@@ -1221,6 +1233,33 @@ export const weldconnect = {
       notifyOnCompleteLabel: 'Meldingen ontvangen als deze workflow voltooid is',
       notifyOnCompleteHint: 'Ontvang een in-app melding wanneer een uitvoering succesvol voltooid is',
     },
+  },
+
+  // Versiegeschiedenis-dialoog (knop "Geschiedenis" in workflowinstellingen)
+  versionHistory: {
+    title: 'Versiegeschiedenis',
+    description: 'Elke versie die WeldConnect heeft opgeslagen toen deze workflow werd geactiveerd, of werd gewijzigd terwijl deze actief was.',
+    close: 'Sluiten',
+    loadFailed: 'Kan de versiegeschiedenis niet laden',
+    retry: 'Opnieuw proberen',
+    empty: 'Nog geen versies',
+    emptyHint: 'Er wordt een versie opgeslagen de eerste keer dat deze workflow wordt geactiveerd, en bij elke opslag daarna terwijl deze actief blijft.',
+    current: 'Huidig',
+    restore: 'Herstellen',
+    restoring: 'Herstellen...',
+    restoreConfirmTitle: 'Deze versie herstellen?',
+    restoreConfirmDescription:
+      'Dit vervangt de huidige triggers, stappen en instellingen van de workflow door versie {version}. Het herstellen zelf wordt een nieuwe versie, dus er gaat niets verloren.',
+    restoreConfirmAction: 'Versie {version} herstellen',
+    restoreSucceeded: 'Versie {version} is hersteld',
+    restoreFailed: 'Kan deze versie niet herstellen',
+    restoreFailedGate: 'Deze versie gebruikt triggers of acties die deze workflow niet meer mag gebruiken terwijl deze actief is.',
+    reasons: {
+      activated: 'Geactiveerd',
+      saved: 'Opgeslagen',
+      restored: 'Hersteld',
+    },
+    restoredFromNote: 'Hersteld van versie {version}',
   },
 
   // Workflow-detailweergave
@@ -1642,9 +1681,11 @@ export const weldconnect = {
       unsupported_trigger: 'Deze trigger is nog niet beschikbaar. Kies een andere trigger.',
       incomplete_entity_event: 'De trigger heeft een recordtype en een gebeurtenis nodig.',
       unknown_entity_event: 'De trigger gebruikt een gebeurtenis die niet bestaat. Kies hem opnieuw.',
-      schedule_not_recurring: 'Alleen terugkerende schema\'s worden ondersteund.',
+      schedule_not_recurring: 'Dit schematype wordt niet ondersteund.',
       invalid_cron: 'Het schema heeft een ongeldige cron-expressie. Pas die aan in de trigger.',
       invalid_timezone: 'Het schema heeft een ongeldige tijdzone. Kies hem opnieuw in de trigger.',
+      invalid_execute_at: 'Kies een datum en tijd voor het eenmalige schema.',
+      schedule_run_at_past: 'De datum en tijd van het eenmalige schema ligt in het verleden. Kies een tijdstip in de toekomst.',
       no_steps: 'Voeg minstens één stap toe voordat je publiceert.',
       unsupported_action: 'Deze workflow bevat een actie die nog niet beschikbaar is. Verwijder of vervang die.',
       missing_field: 'Bij een stap ontbreekt een verplicht veld.',

@@ -346,6 +346,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/workflow-templates',
     '/api/workflow-triggers',
     '/api/workflow-variables',
+    '/api/workflow-versions',
     '/api/workflow-webhooks',
     '/api/workflows',
   ]),

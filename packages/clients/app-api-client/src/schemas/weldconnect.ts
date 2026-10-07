@@ -24,7 +24,11 @@ export const filterSchema = z.object({
 
 export const scheduleTriggerConfigSchema = z.object({
   type: z.literal('schedule'),
-  cronExpression: z.string().min(1),
+  scheduleType: z.enum(['recurring', 'one_time']).default('recurring'),
+  // Required for 'recurring'.
+  cronExpression: z.string().min(1).optional(),
+  // Required for 'one_time': a naive local datetime (`datetime-local` input value), read in `timezone`.
+  executeAt: z.string().optional(),
   timezone: z.string().default('UTC'),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
@@ -140,6 +144,10 @@ export const workflowSettingsSchema = z.object({
   // Per-run credit cap. Nothing in a WeldConnect run spends credits yet, so this is
   // stored but not enforced; validated so nonsense (0, negatives, fractions) is never saved.
   maxCreditsPerRun: z.number().int().min(1).max(100_000).nullish(),
+  // Max concurrent runs (queued/running/waiting_for_input) this workflow may have at
+  // once; unset = unlimited. Enforced best-effort by every dispatcher (see
+  // @weldsuite/db/lib/workflow-concurrency).
+  maxConcurrentRuns: z.number().int().min(1).max(10_000).nullish(),
 });
 
 // Known keys are validated (a bad `maxCreditsPerRun` is a 400, not silently kept); unknown keys pass through.
@@ -196,7 +204,7 @@ export const listExecutionsQuery = z.object({
   limit: z.coerce.number().min(1).max(100).default(25),
   workflowId: z.string().optional(),
   status: z
-    .enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'timeout', 'waiting_for_input'])
+    .enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'timeout', 'waiting_for_input', 'skipped'])
     .optional(),
   triggerType: z.string().optional(),
   startDate: z.string().optional(),

@@ -81,7 +81,7 @@ const progressBarColorByStatus: Record<string, string> = {
   running: 'bg-blue-500',
 };
 
-const STATUS_FILTER_VALUES = ['running', 'queued', 'completed', 'failed', 'timeout', 'cancelled'] as const;
+const STATUS_FILTER_VALUES = ['running', 'queued', 'completed', 'failed', 'timeout', 'cancelled', 'skipped'] as const;
 // MVP triggers plus `manual`, which Test and retry runs use.
 const TRIGGER_FILTER_VALUES = ['entity_event', 'schedule', 'manual'] as const;
 
@@ -288,7 +288,7 @@ export function ExecutionsClient() {
 
   // Group configs by status
   const groupConfigs: GroupConfig<ExecutionRow>[] = useMemo(() =>
-    (['running', 'queued', 'failed', 'timeout', 'completed', 'cancelled'] as const).map((status, index) => ({
+    (['running', 'queued', 'failed', 'timeout', 'completed', 'cancelled', 'skipped'] as const).map((status, index) => ({
       id: status,
       label: t.weldconnect.executions.statuses[status],
       sortOrder: index + 1,
