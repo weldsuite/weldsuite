@@ -683,6 +683,126 @@ function ViewOptionsMenuSection({
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+/** Microphone toggle (or the blocked-permission button) with its device chooser. */
+function MicControl({
+  isMuted,
+  micBlocked,
+  toggleMute,
+  permissionHelpLabels,
+  audioDevices,
+  activeDeviceId,
+  handleDeviceChange,
+  speaker,
+}: Readonly<{
+  isMuted: boolean;
+  micBlocked: boolean;
+  toggleMute: () => void;
+  permissionHelpLabels: PermissionHelpLabels;
+  audioDevices: MediaDeviceInfo[];
+  activeDeviceId: string;
+  handleDeviceChange: (deviceId: string) => void;
+  speaker: ReturnType<typeof useSpeakerDevices>;
+}>) {
+  return (
+    <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isMuted || micBlocked ? "ring-red-400/40" : "ring-border")}>
+      {micBlocked ? (
+        <BlockedMediaButton kind="microphone" labels={permissionHelpLabels}>
+          <MicOff className="!h-[20px] !w-[20px]" />
+        </BlockedMediaButton>
+      ) : (
+        <CallTooltip label={isMuted ? 'Turn on microphone' : 'Turn off microphone'}>
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label={isMuted ? 'Turn on microphone' : 'Turn off microphone'}
+            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isMuted ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
+            onClick={toggleMute}
+          >
+            {isMuted ? <MicOff className="!h-[20px] !w-[20px]" /> : <Mic className="!h-[20px] !w-[20px]" />}
+          </Button>
+        </CallTooltip>
+      )}
+
+      <DeviceMenu
+        tooltip="Microphone options"
+        off={isMuted || micBlocked}
+        devices={audioDevices}
+        activeId={activeDeviceId}
+        onChange={handleDeviceChange}
+        fallbackPrefix="Microphone"
+        output={{ devices: speaker.devices, activeId: speaker.activeDeviceId, onChange: speaker.setDeviceId }}
+      />
+    </div>
+  );
+}
+
+/** Camera toggle (or the blocked-permission button) with its device chooser. */
+function CameraControl({
+  isVideoOff,
+  cameraBlocked,
+  toggleVideo,
+  permissionHelpLabels,
+  videoDevices,
+  activeVideoDeviceId,
+  handleVideoDeviceChange,
+}: Readonly<{
+  isVideoOff: boolean;
+  cameraBlocked: boolean;
+  toggleVideo: () => void;
+  permissionHelpLabels: PermissionHelpLabels;
+  videoDevices: MediaDeviceInfo[];
+  activeVideoDeviceId: string;
+  handleVideoDeviceChange: (deviceId: string) => void;
+}>) {
+  return (
+    <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isVideoOff || cameraBlocked ? "ring-red-400/40" : "ring-border")}>
+      {cameraBlocked ? (
+        <BlockedMediaButton kind="camera" labels={permissionHelpLabels}>
+          <VideoOff className="!h-[20px] !w-[20px]" />
+        </BlockedMediaButton>
+      ) : (
+        <CallTooltip label={isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isVideoOff ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
+            onClick={toggleVideo}
+          >
+            {isVideoOff ? (
+              <VideoOff className="!h-[20px] !w-[20px]" />
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="!h-[22px] !w-[22px]"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
+                />
+              </svg>
+            )}
+          </Button>
+        </CallTooltip>
+      )}
+      <DeviceMenu
+        tooltip="Camera options"
+        off={isVideoOff || cameraBlocked}
+        devices={videoDevices}
+        activeId={activeVideoDeviceId}
+        onChange={handleVideoDeviceChange}
+        fallbackPrefix="Camera"
+      />
+    </div>
+  );
+}
+
 export function CallControlsBar({
   meeting,
   isMuted,
@@ -748,83 +868,26 @@ export function CallControlsBar({
 
   return (
     <div className="flex items-center justify-center gap-3 p-4 bg-background/80 backdrop-blur">
-      {/* Mic button + device chooser */}
-      <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isMuted || micBlocked ? "ring-red-400/40" : "ring-border")}>
-        {micBlocked ? (
-          <BlockedMediaButton kind="microphone" labels={permissionHelpLabels}>
-            <MicOff className="!h-[20px] !w-[20px]" />
-          </BlockedMediaButton>
-        ) : (
-          <CallTooltip label={isMuted ? 'Turn on microphone' : 'Turn off microphone'}>
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label={isMuted ? 'Turn on microphone' : 'Turn off microphone'}
-              className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isMuted ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
-              onClick={toggleMute}
-            >
-              {isMuted ? <MicOff className="!h-[20px] !w-[20px]" /> : <Mic className="!h-[20px] !w-[20px]" />}
-            </Button>
-          </CallTooltip>
-        )}
+      <MicControl
+        isMuted={isMuted}
+        micBlocked={micBlocked}
+        toggleMute={toggleMute}
+        permissionHelpLabels={permissionHelpLabels}
+        audioDevices={audioDevices}
+        activeDeviceId={activeDeviceId}
+        handleDeviceChange={handleDeviceChange}
+        speaker={speaker}
+      />
 
-        <DeviceMenu
-          tooltip="Microphone options"
-          off={isMuted || micBlocked}
-          devices={audioDevices}
-          activeId={activeDeviceId}
-          onChange={handleDeviceChange}
-          fallbackPrefix="Microphone"
-          output={{ devices: speaker.devices, activeId: speaker.activeDeviceId, onChange: speaker.setDeviceId }}
-        />
-      </div>
-
-      {/* Camera button + device chooser */}
-      <div className={cn("flex items-center rounded-[18px] overflow-hidden ring-1", isVideoOff || cameraBlocked ? "ring-red-400/40" : "ring-border")}>
-        {cameraBlocked ? (
-          <BlockedMediaButton kind="camera" labels={permissionHelpLabels}>
-            <VideoOff className="!h-[20px] !w-[20px]" />
-          </BlockedMediaButton>
-        ) : (
-          <CallTooltip label={isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
-              className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isVideoOff ? OFF_STATE_CLASSES : "[&]:hover:brightness-95 dark:[&]:hover:brightness-110")}
-              onClick={toggleVideo}
-            >
-              {isVideoOff ? (
-                <VideoOff className="!h-[20px] !w-[20px]" />
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="!h-[22px] !w-[22px]"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
-                  />
-                </svg>
-              )}
-            </Button>
-          </CallTooltip>
-        )}
-        <DeviceMenu
-          tooltip="Camera options"
-          off={isVideoOff || cameraBlocked}
-          devices={videoDevices}
-          activeId={activeVideoDeviceId}
-          onChange={handleVideoDeviceChange}
-          fallbackPrefix="Camera"
-        />
-      </div>
+      <CameraControl
+        isVideoOff={isVideoOff}
+        cameraBlocked={cameraBlocked}
+        toggleVideo={toggleVideo}
+        permissionHelpLabels={permissionHelpLabels}
+        videoDevices={videoDevices}
+        activeVideoDeviceId={activeVideoDeviceId}
+        handleVideoDeviceChange={handleVideoDeviceChange}
+      />
 
       {/* Screen share + resolution */}
       {showScreenShare && (
