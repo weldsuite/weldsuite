@@ -103,7 +103,7 @@ describe('ticket-type → custom_field_definitions sync (Pile B)', () => {
       { key: 'urgency', label: 'Urgency', type: 'text', required: false, order: 0 },
       { key: 'dept', label: 'Department', type: 'text', required: false, order: 1 },
     ]);
-    expect((await activeTicketDefs(db, typeId)).length).toBe(2);
+    expect(await activeTicketDefs(db, typeId)).toHaveLength(2);
 
     // Re-sync with `dept` removed and `urgency` relabeled.
     await syncTicketTypeDefinitions(db, generateId, typeId, [

@@ -49,9 +49,11 @@ const withAndroidPackagingExcludes = (config) => {
   });
 };
 
-module.exports = ({ config }) => {
+const appConfig = ({ config }) => {
   config = withAndroidPackagingExcludes(config);
   config = withBlobProviderAuthority(config);
 
   return config;
 };
+
+module.exports = appConfig;

@@ -117,7 +117,7 @@ const withFullScreenIntent = (config) => {
   });
 };
 
-module.exports = ({ config }) => {
+const appConfig = ({ config }) => {
   // Bare workflow (checked-in android/) rejects runtimeVersion policies like
   // `{ policy: "appVersion" }` during `eas update`. Keep a plain string in sync
   // with expo.version so OTA targets the same installs a policy would have.
@@ -131,3 +131,5 @@ module.exports = ({ config }) => {
   config = withFullScreenIntent(config);
   return config;
 };
+
+module.exports = appConfig;

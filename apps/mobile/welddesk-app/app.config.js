@@ -90,7 +90,7 @@ const withAndroidPackagingExcludes = (config) => {
   });
 };
 
-module.exports = ({ config }) => {
+const appConfig = ({ config }) => {
   config = withGoogleServices(config);
   config = withCleartextPolicy(config);
   config = withAndroidPackagingExcludes(config);
@@ -98,3 +98,5 @@ module.exports = ({ config }) => {
 
   return config;
 };
+
+module.exports = appConfig;

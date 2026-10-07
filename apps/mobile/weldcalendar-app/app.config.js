@@ -98,9 +98,11 @@ const withFirebaseOrSafePush = (config) => {
   return config;
 };
 
-module.exports = ({ config }) => {
+const appConfig = ({ config }) => {
   config = withIncreasedGradleMemory(config);
   config = withAndroidPackagingExcludes(config);
   config = withFirebaseOrSafePush(config);
   return config;
 };
+
+module.exports = appConfig;

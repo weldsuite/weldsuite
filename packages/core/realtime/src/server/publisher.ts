@@ -55,7 +55,7 @@ export class RealtimePublisher {
     workspaceId: string,
     topic: string,
     event: string,
-    data: Record<string, unknown> | unknown,
+    data: unknown,
     targetUserId: string,
   ): Promise<void> {
     const payload = {

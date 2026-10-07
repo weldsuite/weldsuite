@@ -87,7 +87,7 @@ const withAndroidPackagingExcludes = (config) => {
   });
 };
 
-module.exports = ({ config }) => {
+const appConfig = ({ config }) => {
   // Explicitly pass EXPO_PUBLIC_CLERK_* env vars into extra so @clerk/expo can find them
   // via Constants.expoConfig.extra (auto-injection can be unreliable with custom app.config.js)
   config.extra = {
@@ -103,3 +103,5 @@ module.exports = ({ config }) => {
   config = withAndroidPackagingExcludes(config);
   return config;
 };
+
+module.exports = appConfig;

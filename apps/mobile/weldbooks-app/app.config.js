@@ -117,7 +117,9 @@ const withClerkGoogleExtra = (config) => {
   return config;
 };
 
-module.exports = ({ config }) =>
+const appConfig = ({ config }) =>
   withIncreasedGradleMemory(
     withGoogleSignInUrlScheme(withClerkGoogleExtra(withProductionCleartext(withEasProject(config)))),
   );
+
+module.exports = appConfig;

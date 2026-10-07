@@ -141,7 +141,7 @@ describe('crm-sync-index', () => {
       intervalMinutes: 360,
       now: 1_000,
     });
-    expect((await listDueCrmSyncIndex(d1, 1_000)).length).toBe(0);
+    expect(await listDueCrmSyncIndex(d1, 1_000)).toHaveLength(0);
     expect(d1.rows.get('intc_1')!.next_due_at).toBe(1_000 + 360 * 60_000);
   });
 });
