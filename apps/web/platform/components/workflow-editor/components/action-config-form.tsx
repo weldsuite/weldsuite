@@ -93,6 +93,21 @@ interface WorkspaceMember {
   avatar?: string;
 }
 
+/** Props shared by the step forms that offer workflow variables. */
+type StepFormProps = Readonly<{
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+}>;
+
+type VariableStepFormProps = StepFormProps &
+  Readonly<{
+    extraVariableGroups?: VariableGroup[];
+    excludeGroups?: string[];
+  }>;
+
 interface ActionConfigFormProps {
   actionType: string;
   config: Record<string, unknown>;
@@ -560,13 +575,7 @@ function HttpRequestForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}>) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -800,15 +809,7 @@ function CreateCustomerForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}>) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
@@ -2662,13 +2663,7 @@ function LogMessageForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}>) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -2736,13 +2731,7 @@ function TransformDataForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}>) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2795,14 +2784,7 @@ function RecordForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  isUpdate?: boolean;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}>) {
+}: StepFormProps & Readonly<{ isUpdate?: boolean }>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2864,13 +2846,7 @@ function DeleteRecordForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}>) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2926,13 +2902,7 @@ function QueryDataForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}>) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -3049,13 +3019,7 @@ function SetVariableForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}>) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -4102,15 +4066,7 @@ function AiGenerateForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}>) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -4190,15 +4146,7 @@ function AiClassifyForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: Readonly<{
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}>) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
