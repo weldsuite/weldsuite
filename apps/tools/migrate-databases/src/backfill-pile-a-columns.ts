@@ -213,7 +213,7 @@ function planMappedKey(
   samples: Samples,
   plan: RowPlan,
 ): void {
-  if (!Object.prototype.hasOwnProperty.call(blob, m.key)) return;
+  if (!Object.hasOwn(blob, m.key)) return;
   counts.keysFound++;
   const coerced = coerce(m.type, blob[m.key]);
   if (coerced === INVALID) {

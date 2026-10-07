@@ -3,7 +3,6 @@ import type { NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
   const hostname = request.headers.get('host') || '';
-  const url = request.nextUrl.clone();
   
   // Extract subdomain by removing port and base domain
   let currentHost = hostname

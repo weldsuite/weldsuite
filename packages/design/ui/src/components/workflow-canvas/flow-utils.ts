@@ -1228,7 +1228,7 @@ export function autoLayoutNodes(
   edges: Edge[]
 ): Node[] {
   // Find trigger node
-  const triggerNode = nodes.find((n) => n.type === 'trigger');
+  const hasTrigger = nodes.some((n) => n.type === 'trigger');
   const otherNodes = nodes.filter((n) => n.type !== 'trigger');
 
   const nodesWithFixedPosition = new Set<string>();
@@ -1262,12 +1262,12 @@ export function autoLayoutNodes(
   const positioned = new Map<string, { x: number; y: number }>();
   let currentY = START_Y;
 
-  if (triggerNode) {
+  if (hasTrigger) {
     positioned.set('trigger', { x: START_X, y: currentY });
     currentY += NODE_GAP_Y + NODE_HEIGHT;
   }
 
-  const queue: string[] = triggerNode ? ['trigger'] : [];
+  const queue: string[] = hasTrigger ? ['trigger'] : [];
   const visited = new Set<string>();
 
   while (queue.length > 0) {

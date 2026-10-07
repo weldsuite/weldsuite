@@ -125,7 +125,6 @@ export async function endChatCall(
     : 0;
 
   const priorStatus = call.status;
-  const participants = call.participants ?? [];
   const unanswered = !wasAnswered(call);
 
   await db.update(chatCalls).set({

@@ -1066,7 +1066,7 @@ function renderAreaChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
     <AreaChart accessibilityLayer data={points} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
       <CartesianGrid vertical={false} />
       <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatTick} />
-      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={(value) => String(value)} />} />
+      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={String} />} />
       <Area dataKey="value" type={chart.smoothCurve ? "natural" : "linear"} fill={chart.fillArea ? chart.color : "transparent"} fillOpacity={chart.fillArea ? 0.2 : 0} stroke={chart.color} strokeWidth={2} dot={chart.showDataLabels} />
     </AreaChart>
   );
@@ -1210,7 +1210,7 @@ function renderDefaultChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
     <AreaChart accessibilityLayer data={points} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
       <CartesianGrid vertical={false} />
       <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatTick} />
-      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={(value) => String(value)} />} />
+      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={String} />} />
       <Area dataKey="value" type="natural" fill={chart.color} fillOpacity={0.2} stroke={chart.color} strokeWidth={2} />
     </AreaChart>
   );

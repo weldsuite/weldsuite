@@ -126,8 +126,8 @@ export default function DiscordSettingsPage() {
       await disconnectMutation.mutateAsync(selectedServer.id);
       toast.success(t.helpdesk.integrationSettings.discordDisconnected);
       setDisconnectOpen(false);
-      const remaining = servers.filter((server) => server.id !== selectedServer.id);
-      setSelectedIntegrationId(remaining[0]?.id ?? null);
+      const remaining = servers.find((server) => server.id !== selectedServer.id);
+      setSelectedIntegrationId(remaining?.id ?? null);
       void refetchServers();
     } catch {
       toast.error(t.helpdesk.integrationSettings.failedToDisconnectDiscord);

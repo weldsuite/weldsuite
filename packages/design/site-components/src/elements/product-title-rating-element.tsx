@@ -31,7 +31,7 @@ export function ProductTitleRatingElement({
       {showRating && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            {[...Array(5)].map((_, i) => (
+            {[...new Array(5)].map((_, i) => (
               <Star
                 key={i}
                 style={{

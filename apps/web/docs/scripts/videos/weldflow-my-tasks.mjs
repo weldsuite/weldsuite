@@ -108,7 +108,7 @@ function mockRoutes(page, env) {
         pagination: pagination(1),
       }),
     ],
-    [/.*/, ({ url }) => { if (process.env.VIDEO_DEBUG) console.log('UNMOCKED', url.pathname + url.search); return { status: 404, body: { error: {} } } }],
+    [/.*/, ({ url }) => { if (process.env.VIDEO_DEBUG) { console.log('UNMOCKED', url.pathname + url.search); } return { status: 404, body: { error: {} } } }],
   ])
 }
 

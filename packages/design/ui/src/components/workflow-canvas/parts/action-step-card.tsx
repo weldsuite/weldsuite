@@ -165,7 +165,7 @@ const CONFIG_SUMMARIZERS: Record<string, (config: ActionConfig) => string[]> = {
 };
 
 function getConfigSummary(actionType: string, config: ActionConfig): string[] {
-  const summarize = Object.prototype.hasOwnProperty.call(CONFIG_SUMMARIZERS, actionType)
+  const summarize = Object.hasOwn(CONFIG_SUMMARIZERS, actionType)
     ? CONFIG_SUMMARIZERS[actionType]
     : undefined;
   return summarize ? summarize(config) : [];

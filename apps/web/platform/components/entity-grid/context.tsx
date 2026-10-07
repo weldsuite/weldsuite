@@ -51,12 +51,12 @@ const formatCalcNumber = (v: number, fieldType: FieldType) =>
 const numericValues = (values: unknown[]) => values.filter((v) => typeof v === 'number') as number[];
 const parseDateValues = (values: unknown[]) =>
   values
-    .filter((v) => v)
+    .filter(Boolean)
     .map((v) => new Date(v as string))
     .filter((d) => !Number.isNaN(d.getTime()));
 
 function countUnique(values: unknown[]): number {
-  return new Set(values.map((v) => String(v))).size;
+  return new Set(values.map(String)).size;
 }
 
 function countDuplicates(values: unknown[]): number {

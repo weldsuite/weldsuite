@@ -104,7 +104,7 @@ export default function DefaultStoreLayout({ store }: Readonly<DefaultStoreLayou
                         <span className="text-2xl font-bold">
                           ${product.price.toString()}
                         </span>
-                        {product.compareAtPrice && (
+                        {!!product.compareAtPrice && (
                           <span className="text-sm opacity-60 line-through ml-2">
                             ${product.compareAtPrice.toString()}
                           </span>

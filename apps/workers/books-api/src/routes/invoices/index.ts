@@ -314,8 +314,10 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
 
     const overdueOnly = c.req.query('overdue');
     if (overdueOnly === 'true') {
-      conditions.push(sql`${invoices.balanceDue}::numeric > 0`);
-      conditions.push(lte(invoices.dueDate, new Date()));
+      conditions.push(
+        sql`${invoices.balanceDue}::numeric > 0`,
+        lte(invoices.dueDate, new Date()),
+      );
     }
 
     const search = c.req.query('search');

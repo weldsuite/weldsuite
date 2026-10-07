@@ -92,7 +92,7 @@ const LABEL_COMPONENT_FIELDS = new Set([
 
 /** Suffixes that mark a value as an identifier rather than content. */
 function isIdentifierField(key: string): boolean {
-  return key === 'id' || /Id$/.test(key) || /_id$/.test(key);
+  return key === 'id' || key.endsWith('Id') || key.endsWith('_id');
 }
 
 function isIsoTimestamp(value: unknown): value is string {

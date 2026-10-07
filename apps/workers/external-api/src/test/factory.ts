@@ -21,7 +21,7 @@ const FIXED_UUID = '00000000-0000-0000-0000-000000000000';
 const FIXED_DATE = '2025-01-15T12:00:00.000Z';
 
 function isIdKey(key: string): boolean {
-  return key === 'id' || /Id$/.test(key) || /_id$/.test(key);
+  return key === 'id' || key.endsWith('Id') || key.endsWith('_id');
 }
 
 /** Fixed string value derived from the field name; null when no heuristic matches. */
@@ -115,8 +115,8 @@ function sample(schema: any, key = '', depth = 0): unknown {
       return Object.values(def.values ?? { a: 'option' })[0];
     case 'ZodUnion': {
       const opts = def.options instanceof Map ? [...def.options.values()] : def.options ?? [];
-      const nonNull = opts.filter((o: any) => !['ZodNull', 'ZodUndefined'].includes(o?._def?.typeName));
-      return sample((nonNull[0] ?? opts[0]), key, depth);
+      const nonNull = opts.find((o: any) => !['ZodNull', 'ZodUndefined'].includes(o?._def?.typeName));
+      return sample((nonNull ?? opts[0]), key, depth);
     }
     case 'ZodDiscriminatedUnion': {
       const opts = def.options instanceof Map ? [...def.options.values()] : def.options ?? [];

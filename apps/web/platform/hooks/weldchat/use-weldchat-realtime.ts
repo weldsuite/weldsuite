@@ -39,41 +39,26 @@ export function useWeldChatRealtime(
         queryClient.invalidateQueries({ queryKey: weldchatKeys.messages(channelId) });
         onReactionChanged?.(event);
       }),
-    );
-
-    // Pins
-    unsubs.push(
+      // Pins
       client.on('pin', () => {
         queryClient.invalidateQueries({ queryKey: weldchatKeys.pinnedMessages(channelId) });
         queryClient.invalidateQueries({ queryKey: weldchatKeys.messages(channelId) });
       }),
-    );
-
-    // Members
-    unsubs.push(
+      // Members
       client.on('member', () => {
         queryClient.invalidateQueries({ queryKey: weldchatKeys.members(channelId) });
         queryClient.invalidateQueries({ queryKey: weldchatKeys.channelDetail(channelId) });
       }),
-    );
-
-    // Channel metadata
-    unsubs.push(
+      // Channel metadata
       client.on('channel:updated', () => {
         queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
         queryClient.invalidateQueries({ queryKey: weldchatKeys.channelDetail(channelId) });
       }),
-    );
-
-    // Read receipts
-    unsubs.push(
+      // Read receipts
       client.on('read:updated', () => {
         queryClient.invalidateQueries({ queryKey: weldchatKeys.readReceipts(channelId) });
       }),
-    );
-
-    // Clip transcript updates
-    unsubs.push(
+      // Clip transcript updates
       client.on('clip:transcript:updated', (event) => {
         // `transcript` is `unknown` at the realtime-event layer (opaque JSON
         // from the transcription service); the cache updater expects an object.
@@ -86,17 +71,11 @@ export function useWeldChatRealtime(
           event.transcript as Record<string, unknown>,
         );
       }),
-    );
-
-    // Call events
-    unsubs.push(
+      // Call events
       client.on('call', () => {
         queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(channelId) });
         queryClient.invalidateQueries({ queryKey: weldchatKeys.messages(channelId) });
       }),
-    );
-
-    unsubs.push(
       client.on('call:participant', () => {
         queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(channelId) });
       }),

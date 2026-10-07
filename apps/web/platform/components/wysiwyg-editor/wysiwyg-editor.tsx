@@ -1355,7 +1355,7 @@ export function DefaultToolbar({
   return (
     <div className="flex items-center gap-1 flex-wrap">
       {/* Font Family */}
-      <Popover open={fontFamilyOpen} onOpenChange={(open) => { if (open) saveSelection(); setFontFamilyOpen(open); }}>
+      <Popover open={fontFamilyOpen} onOpenChange={(open) => { if (open) { saveSelection(); } setFontFamilyOpen(open); }}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -1404,7 +1404,7 @@ export function DefaultToolbar({
       </Popover>
 
       {/* Font Size */}
-      <Popover open={fontSizeOpen} onOpenChange={(open) => { if (open) saveSelection(); setFontSizeOpen(open); }}>
+      <Popover open={fontSizeOpen} onOpenChange={(open) => { if (open) { saveSelection(); } setFontSizeOpen(open); }}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -1494,7 +1494,7 @@ export function DefaultToolbar({
       <div className="hidden md:block w-px h-5 bg-border mx-1" />
 
       {/* Text Color */}
-      <Popover open={textColorOpen} onOpenChange={(open) => { if (open) saveSelection(); setTextColorOpen(open); }}>
+      <Popover open={textColorOpen} onOpenChange={(open) => { if (open) { saveSelection(); } setTextColorOpen(open); }}>
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
@@ -1525,7 +1525,7 @@ export function DefaultToolbar({
           </div>
         </PopoverContent>
       </Popover>
-      <Popover open={highlightColorOpen} onOpenChange={(open) => { if (open) saveSelection(); setHighlightColorOpen(open); }}>
+      <Popover open={highlightColorOpen} onOpenChange={(open) => { if (open) { saveSelection(); } setHighlightColorOpen(open); }}>
         <PopoverTrigger asChild>
           <Button
             variant="ghost"

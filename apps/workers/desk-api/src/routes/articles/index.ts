@@ -45,8 +45,8 @@ async function resolveFolder(
   db: Database,
   data: Record<string, unknown>,
 ): Promise<{ categoryId: string | null; categoryName: string | null; category: string | null } | undefined> {
-  const hasFolderId = Object.prototype.hasOwnProperty.call(data, 'folderId');
-  const hasCategoryId = Object.prototype.hasOwnProperty.call(data, 'categoryId');
+  const hasFolderId = Object.hasOwn(data, 'folderId');
+  const hasCategoryId = Object.hasOwn(data, 'categoryId');
   if (!hasFolderId && !hasCategoryId) return undefined;
 
   const raw = (hasFolderId ? data.folderId : data.categoryId) as string | null | undefined;

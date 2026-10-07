@@ -145,7 +145,6 @@ export class HubSpotProvider implements IntegrationProvider {
       webhookId: '',
       events: events.map(event => {
         const objectType = event.objectTypeId || '';
-        const entityType = OBJECT_TYPE_MAP[objectType] || 'contact';
         const subscriptionType = event.subscriptionType || '';
 
         let eventType: ParsedWebhookEvent['eventType'];

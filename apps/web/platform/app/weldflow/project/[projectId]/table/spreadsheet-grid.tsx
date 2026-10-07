@@ -272,7 +272,7 @@ const DROPDOWN_PALETTE = [
 export function getDropdownOptions(col: SpreadsheetColumn | undefined): string[] | null {
   if (col?.fieldType !== 'select') return null;
   const opts = col.options;
-  if (Array.isArray(opts) && opts.length > 0) return opts.map((o) => String(o));
+  if (Array.isArray(opts) && opts.length > 0) return opts.map(String);
   return null;
 }
 

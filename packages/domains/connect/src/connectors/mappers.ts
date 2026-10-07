@@ -159,7 +159,7 @@ function pickString(source: Record<string, unknown>, paths: string[], maxLength?
 function pickNumber(source: Record<string, unknown>, paths: string[]): number | null {
   const raw = pickString(source, paths);
   if (raw === null) return null;
-  const parsed = Number(raw.replace(/[^0-9.\-]/g, ''));
+  const parsed = Number(raw.replace(/[^0-9.-]/g, ''));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -577,7 +577,7 @@ function parseDate(value: string | null): Date | null {
 
 function decimalString(value: string | null, fallback = '0'): string {
   if (!value) return fallback;
-  const parsed = Number(value.replace(',', '.').replace(/[^0-9.\-]/g, ''));
+  const parsed = Number(value.replace(',', '.').replace(/[^0-9.-]/g, ''));
   return Number.isFinite(parsed) ? parsed.toFixed(2) : fallback;
 }
 

@@ -41,7 +41,7 @@ export function PinnedNotesProvider({ children }: Readonly<{ children: ReactNode
 
   const addPinnedNote = (note: Note) => {
     // Check if already pinned
-    if (pinnedNotes.find(n => n.id === note.id)) return;
+    if (pinnedNotes.some(n => n.id === note.id)) return;
     
     // Add note with default position (bottom right corner with padding)
     setPinnedNotes(prev => [...prev, {

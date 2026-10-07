@@ -662,8 +662,7 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
     }));
 
     try {
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const file = selectedFiles[i];
+      for (const file of selectedFiles) {
         const fileId = `${file.name}-${Date.now()}`;
 
         try {

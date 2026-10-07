@@ -202,7 +202,7 @@ export function FieldBuilder({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {entry.key && !suggestedFields.find((f) => f.name === entry.key) && (
+                      {entry.key && !suggestedFields.some((f) => f.name === entry.key) && (
                         <SelectItem value={entry.key}>
                           <span className="font-mono text-xs">{entry.key}</span>
                         </SelectItem>

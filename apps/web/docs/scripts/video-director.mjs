@@ -155,7 +155,7 @@ class ScreencastRecorder {
 async function encodeMp4({ frames, endedAt }, frameDir, outFile, trimStart = 0) {
   const usable = frames.filter((f) => f.timestamp >= trimStart)
   // Keep the frame that was on screen when trimming started.
-  const before = frames.filter((f) => f.timestamp < trimStart).at(-1)
+  const before = frames.findLast((f) => f.timestamp < trimStart)
   if (before) usable.unshift({ ...before, timestamp: trimStart })
   if (usable.length === 0) throw new Error('No frames captured')
 

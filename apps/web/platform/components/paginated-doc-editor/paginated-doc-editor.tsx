@@ -1110,7 +1110,7 @@ function BlockTypeMenu({ current, onPick }: Readonly<{ current: BlockKind; onPic
               key={label}
               type="button"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { if (kind) onPick(kind); setOpen(false); }}
+              onClick={() => { if (kind) { onPick(kind); } setOpen(false); }}
               className={cn(
                 'w-full flex items-center px-2 py-1.5 text-sm rounded-[7px] hover:bg-accent',
                 match && 'bg-accent text-foreground font-medium',

@@ -147,14 +147,14 @@ export function ProductRow({
                 </div>
 
                 {/* Product Info - Optional */}
-                {(product.name || product.price) && (
+                {!!(product.name || product.price) && (
                   <div className="mt-3 space-y-1">
                     {product.name && (
                       <p className="text-sm text-gray-900 line-clamp-1">
                         {product.name}
                       </p>
                     )}
-                    {product.price && (
+                    {!!product.price && (
                       <p className="text-sm font-medium text-gray-900">
                         ${product.price.toFixed(2)}
                       </p>

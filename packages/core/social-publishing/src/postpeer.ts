@@ -113,7 +113,7 @@ export function toPostPeerSchedule(isoInstant: string): {
   }
   const date = new Date(isoInstant);
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid scheduled time: ${isoInstant}`);
+    throw new TypeError(`Invalid scheduled time: ${isoInstant}`);
   }
   // '2030-06-01T16:00:00+02:00' -> '2030-06-01T14:00:00.000Z'
   return { scheduledFor: date.toISOString(), timezone: 'UTC' };

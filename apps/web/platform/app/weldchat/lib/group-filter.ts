@@ -187,7 +187,7 @@ interface ExcludeRule {
 /** Each enabled flag excludes every channel for which `excludes` returns true. */
 const EXCLUDE_RULES: ExcludeRule[] = [
   { flag: 'showOnlyUnread', excludes: (ch) => !hasUnread(ch) },
-  { flag: 'showOnlyMentions', excludes: (ch) => !((ch.unreadMentionCount ?? 0) > 0) },
+  { flag: 'showOnlyMentions', excludes: (ch) => (ch.unreadMentionCount ?? 0) <= 0 },
   { flag: 'showOnlyActiveCalls', excludes: (ch) => !ch.hasActiveCall },
   { flag: 'showOnlyPinned', excludes: (ch) => !ch.isPinned },
   { flag: 'showOnlyFavorited', excludes: (ch) => !ch.isFavorite },

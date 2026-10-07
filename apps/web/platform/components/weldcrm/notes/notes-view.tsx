@@ -402,10 +402,7 @@ function NoteEditorDialog({
               variant="ghost"
               size="icon"
               onClick={() => {
-                if (isMinimized) {
-                  setStartMinimized(false);
-                  handlePinToGlobal();
-                } else if (isPinned) {
+                if (isPinned && !isMinimized) {
                   setIsPinned(false);
                 } else {
                   setStartMinimized(false);
