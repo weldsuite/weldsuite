@@ -5,9 +5,10 @@
  * rendered inside the message stream.
  */
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, type RefObject } from 'react';
 import { Play, Pause, Volume2, VolumeX, MoreVertical, Download, Share2, Link2, Maximize, X, Captions, Loader2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { toast } from 'sonner';
 import { useTranscribeClip } from '@/hooks/queries/use-weldchat-queries';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
@@ -71,7 +72,7 @@ function seekWithKeyboard(
 function generateWaveform(seed: string, count: number): number[] {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
-    hash = toInt32((hash << 5) - hash + seed.charCodeAt(i));
+    hash = toInt32((hash << 5) - hash + seed.codePointAt(i)!);
   }
   const bars: number[] = [];
   for (let i = 0; i < count; i++) {
@@ -86,12 +87,50 @@ function generateWaveform(seed: string, count: number): number[] {
 // Audio Clip Player
 // ============================================================================
 
-function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlayerProps>) {
-  const { t } = useI18n();
-  const audioRef = useRef<HTMLAudioElement>(null);
+/** Mirrors a media element's play state, position and duration into React state. */
+function useMediaPlayback(mediaRef: RefObject<HTMLMediaElement | null>, initialDuration: number) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(attachment.durationSeconds || 0);
+  const [duration, setDuration] = useState(initialDuration);
+
+  useEffect(() => {
+    const media = mediaRef.current;
+    if (!media) return;
+
+    const onTimeUpdate = () => setCurrentTime(media.currentTime);
+    const onDurationChange = () => {
+      if (media.duration && Number.isFinite(media.duration)) setDuration(media.duration);
+    };
+    const onEnded = () => setIsPlaying(false);
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+
+    media.addEventListener('timeupdate', onTimeUpdate);
+    media.addEventListener('durationchange', onDurationChange);
+    media.addEventListener('ended', onEnded);
+    media.addEventListener('play', onPlay);
+    media.addEventListener('pause', onPause);
+
+    return () => {
+      media.removeEventListener('timeupdate', onTimeUpdate);
+      media.removeEventListener('durationchange', onDurationChange);
+      media.removeEventListener('ended', onEnded);
+      media.removeEventListener('play', onPlay);
+      media.removeEventListener('pause', onPause);
+    };
+  }, [mediaRef]);
+
+  return { isPlaying, currentTime, duration };
+}
+
+function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlayerProps>) {
+  const { t } = useI18n();
+  const copyLink = useCallback(() => {
+    navigator.clipboard.writeText(attachment.url).catch(() => {
+      toast.error(t.sweep.entities.copyLinkFailed);
+    });
+  }, [attachment.url, t]);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [rateIndex, setRateIndex] = useState(0);
   const { mutate: triggerTranscribe, isPending: isTranscribing } = useTranscribeClip();
 
@@ -105,32 +144,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
     [attachment.id, attachment.fileName],
   );
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const onTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const onDurationChange = () => {
-      if (audio.duration && Number.isFinite(audio.duration)) setDuration(audio.duration);
-    };
-    const onEnded = () => setIsPlaying(false);
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
-
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.addEventListener('durationchange', onDurationChange);
-    audio.addEventListener('ended', onEnded);
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('pause', onPause);
-
-    return () => {
-      audio.removeEventListener('timeupdate', onTimeUpdate);
-      audio.removeEventListener('durationchange', onDurationChange);
-      audio.removeEventListener('ended', onEnded);
-      audio.removeEventListener('play', onPlay);
-      audio.removeEventListener('pause', onPause);
-    };
-  }, []);
+  const { isPlaying, currentTime, duration } = useMediaPlayback(audioRef, attachment.durationSeconds || 0);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
@@ -138,7 +152,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
     if (isPlaying) {
       audio.pause();
     } else {
-      audio.play();
+      void audio.play();
     }
   }, [isPlaying]);
 
@@ -270,9 +284,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
               </a>
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => {
-                navigator.clipboard.writeText(attachment.url);
-              }}
+              onClick={copyLink}
             >
               <Link2 className="h-3.5 w-3.5 mr-0.5" />
               {t.weldchat.clipPlayer.copyLink}
@@ -280,9 +292,10 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
             <DropdownMenuItem
               onClick={() => {
                 if (navigator.share) {
-                  navigator.share({ title: t.weldchat.clipPlayer.voiceClip, url: attachment.url });
+                  // Rejects when the user dismisses the share sheet; nothing to do then.
+                  navigator.share({ title: t.weldchat.clipPlayer.voiceClip, url: attachment.url }).catch(() => {});
                 } else {
-                  navigator.clipboard.writeText(attachment.url);
+                  copyLink();
                 }
               }}
             >
@@ -306,47 +319,11 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
 function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlayerProps>) {
   const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(attachment.durationSeconds || 0);
   const [rateIndex, setRateIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
-  const [, setShowOverlay] = useState(true);
   const [isLightbox, setIsLightbox] = useState(false);
-  const [, setVideoLoaded] = useState(false);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const onTimeUpdate = () => setCurrentTime(video.currentTime);
-    const onDurationChange = () => {
-      if (video.duration && Number.isFinite(video.duration)) setDuration(video.duration);
-    };
-    const onEnded = () => { setIsPlaying(false); setShowOverlay(true); };
-    const onPlay = () => { setIsPlaying(true); setShowOverlay(false); };
-    const onPause = () => setIsPlaying(false);
-    const onLoaded = () => setVideoLoaded(true);
-
-    video.addEventListener('timeupdate', onTimeUpdate);
-    video.addEventListener('durationchange', onDurationChange);
-    video.addEventListener('ended', onEnded);
-    video.addEventListener('play', onPlay);
-    video.addEventListener('pause', onPause);
-    video.addEventListener('loadeddata', onLoaded);
-
-    // Already loaded (cached)
-    if (video.readyState >= 2) setVideoLoaded(true);
-
-    return () => {
-      video.removeEventListener('timeupdate', onTimeUpdate);
-      video.removeEventListener('durationchange', onDurationChange);
-      video.removeEventListener('ended', onEnded);
-      video.removeEventListener('play', onPlay);
-      video.removeEventListener('pause', onPause);
-      video.removeEventListener('loadeddata', onLoaded);
-    };
-  }, []);
+  const { isPlaying, currentTime, duration } = useMediaPlayback(videoRef, attachment.durationSeconds || 0);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -354,7 +331,7 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
     if (isPlaying) {
       video.pause();
     } else {
-      video.play();
+      void video.play();
     }
   }, [isPlaying]);
 
@@ -533,40 +510,14 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
 function VideoLightbox({ attachment, onClose }: Readonly<{ attachment: ChatClipAttachment; onClose: () => void }>) {
   const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(attachment.durationSeconds || 0);
   const [isMuted, setIsMuted] = useState(false);
   const [rateIndex, setRateIndex] = useState(0);
 
+  const { isPlaying, currentTime, duration } = useMediaPlayback(videoRef, attachment.durationSeconds || 0);
+
+  // Auto-play on open
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const onTimeUpdate = () => setCurrentTime(video.currentTime);
-    const onDurationChange = () => {
-      if (video.duration && Number.isFinite(video.duration)) setDuration(video.duration);
-    };
-    const onEnded = () => setIsPlaying(false);
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
-
-    video.addEventListener('timeupdate', onTimeUpdate);
-    video.addEventListener('durationchange', onDurationChange);
-    video.addEventListener('ended', onEnded);
-    video.addEventListener('play', onPlay);
-    video.addEventListener('pause', onPause);
-
-    // Auto-play on open
-    video.play().catch(() => {});
-
-    return () => {
-      video.removeEventListener('timeupdate', onTimeUpdate);
-      video.removeEventListener('durationchange', onDurationChange);
-      video.removeEventListener('ended', onEnded);
-      video.removeEventListener('play', onPlay);
-      video.removeEventListener('pause', onPause);
-    };
+    videoRef.current?.play().catch(() => {});
   }, []);
 
   // Close on Escape
@@ -582,7 +533,7 @@ function VideoLightbox({ attachment, onClose }: Readonly<{ attachment: ChatClipA
     const video = videoRef.current;
     if (!video) return;
     if (isPlaying) video.pause();
-    else video.play();
+    else void video.play();
   }, [isPlaying]);
 
   const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

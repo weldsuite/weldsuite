@@ -264,7 +264,7 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: Readon
 
   useEffect(() => {
     if (open && recorder.state === 'idle') {
-      recorder.startPreview();
+      void recorder.startPreview();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, recorder.state]);

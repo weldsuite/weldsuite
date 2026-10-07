@@ -23,7 +23,7 @@ export default function UnifiedComposePage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
 
   useEffect(() => {
-    mailApi.accounts.list().then((result) => {
+    void mailApi.accounts.list().then((result) => {
       if (result.success && result.data) {
         setAccounts(result.data);
         if (result.data.length === 1) {

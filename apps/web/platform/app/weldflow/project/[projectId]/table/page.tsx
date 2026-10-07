@@ -85,7 +85,7 @@ export default function ProjectTablePage() {
   }, [projectId]);
 
   useEffect(() => {
-    loadTables();
+    void loadTables();
   }, [loadTables]);
 
   const filterConfigs: FilterConfig[] = useMemo(() => [], []);
@@ -309,7 +309,7 @@ export default function ProjectTablePage() {
                 onChange={(e) => setNewTableName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isCreating) {
-                    handleCreateTable();
+                    void handleCreateTable();
                   }
                 }}
               />
@@ -345,7 +345,7 @@ export default function ProjectTablePage() {
                 onChange={(e) => setRenameValue(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isRenaming) {
-                    handleRenameTable();
+                    void handleRenameTable();
                   }
                 }}
               />

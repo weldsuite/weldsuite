@@ -481,13 +481,13 @@ export function MyTasksClient({
     cancelled: { label: t.projects.myTasks.statusLabels.cancelled, ...statusConfigBase.cancelled },
   }), [t]);
 
-  const [tasks, setTasks] = useState<Task[]>(initialTasks.map(transformApiTask));
+  const [tasks, setTasks] = useState<Task[]>(initialTasks.map((task) => transformApiTask(task)));
   const prevInitialTasksRef = useRef(initialTasks);
   useEffect(() => {
     if (prevInitialTasksRef.current !== initialTasks) {
       prevInitialTasksRef.current = initialTasks;
       setTasks((prev) => {
-        const fresh = initialTasks.map(transformApiTask);
+        const fresh = initialTasks.map((task) => transformApiTask(task));
         const freshById = new Map(fresh.map((f) => [f.id, f]));
         const prevById = new Map(prev.map((p) => [p.id, p]));
 
@@ -590,7 +590,7 @@ export function MyTasksClient({
       if (result.success && result.data) {
         setShowSubtaskDialog(false);
         toast.success(t.projects.myTasks.subtaskCreated);
-        queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
+        void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
       } else {
         toast.error(t.projects.myTasks.subtaskCreateFailed);
       }
@@ -605,7 +605,7 @@ export function MyTasksClient({
         setAvailableLabels(result.data);
       }
     }
-    loadLabels();
+    void loadLabels();
   }, []);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
@@ -638,7 +638,7 @@ export function MyTasksClient({
       });
       setAvailableAssignees(Array.from(memberMap.values()));
     }
-    if (projects.length > 0) loadMembers();
+    if (projects.length > 0) void loadMembers();
   }, [projects]);
 
   // Live task sync: useRealtimeSync(platformSyncMap) invalidates ['task'] /
@@ -670,7 +670,7 @@ export function MyTasksClient({
         setTasks(prev => [newTask, ...prev]);
         setShowTaskDialog(false);
         toast.success(t.projects.myTasks.taskCreated);
-        queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
+        void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
       } else {
         toast.error(result.error || t.projects.myTasks.taskCreateFailed);
       }
@@ -701,7 +701,7 @@ export function MyTasksClient({
           }
         }
 
-        queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
+        void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
       } else {
         toast.error(result.error || t.projects.myTasks.taskUpdateFailed);
       }
@@ -714,7 +714,7 @@ export function MyTasksClient({
       if (result.success) {
         setTasks(tasks.filter((task) => task.id !== taskId));
         toast.success(t.projects.myTasks.taskDeleted);
-        queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
+        void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
       } else {
         toast.error(result.error || t.projects.myTasks.taskDeleteFailed);
       }
@@ -750,7 +750,7 @@ export function MyTasksClient({
         }
       }
       toast.success(t.projects.myTasks.taskMoved);
-      queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
+      void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
     } else {
       // Rollback
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: oldStatus } : t));
@@ -887,7 +887,7 @@ export function MyTasksClient({
       ? await tasksApi.update(projectId, taskId, apiData as Parameters<typeof tasksApi.update>[2])
       : await tasksApi.updateById(taskId, apiData as Parameters<typeof tasksApi.updateById>[1]);
     if (result.success) {
-      queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
+      void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
     } else {
       // Rollback on failure
       setTasks(prev => prev.map(t => {
@@ -1228,7 +1228,7 @@ export function MyTasksClient({
                 mode="single"
                 selected={task.dueDate}
                 onSelect={(date) => updateTaskInline(task.id, { dueDate: date || undefined })}
-                initialFocus
+                autoFocus
               />
               {task.dueDate && (
                 <div className="p-1 border-t border-border">
@@ -1410,7 +1410,7 @@ export function MyTasksClient({
                     }
                     setTasks(prev => [newTask, ...prev]);
                     toast.success(t.projects.myTasks.taskDuplicated);
-                    queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
+                    void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
                   } else {
                     toast.error(t.projects.myTasks.taskDuplicateFailed);
                   }
@@ -1626,7 +1626,7 @@ export function MyTasksClient({
               setShowTaskDialog(false);
               setEditingCrmTask(null);
               toast.success(t.projects.myTasks.taskUpdated);
-              queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
+              void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
             } else {
               toast.error(t.projects.myTasks.taskUpdateFailed);
             }

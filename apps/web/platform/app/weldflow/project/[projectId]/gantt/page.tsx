@@ -55,8 +55,10 @@ import { ganttApi, tasksApi, membersApi, labelsApi } from '@/app/weldflow/lib/ap
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { useObjectPanel } from '@/components/object-panel';
+import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { useI18n } from '@/lib/i18n/provider';
+import { copyText } from '@/lib/clipboard';
 
 const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 
@@ -531,18 +533,7 @@ const GanttPage = () => {
   const [editingCrmTask, setEditingCrmTask] = useState<CrmTask | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [projectMembers, setProjectMembers] = useState<{ userId: string; user?: { id: string; name: string; email: string; avatar?: string } }[]>([]);
-  const [availableLabels, setAvailableLabels] = useState<ProjectLabel[]>([]);
-
-  // Fetch this project's labels (plus legacy workspace-wide labels)
-  useEffect(() => {
-    async function loadLabels() {
-      const result = await labelsApi.list(projectId);
-      if (result.success && result.data) {
-        setAvailableLabels(result.data);
-      }
-    }
-    loadLabels();
-  }, [projectId]);
+  const [availableLabels, setAvailableLabels] = useProjectLabels(projectId);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
     const result = await labelsApi.create({ ...data, projectId });
@@ -628,7 +619,7 @@ const GanttPage = () => {
       }
 
       if (milestonesResult.success && milestonesResult.data) {
-        const mappedMarkers = milestonesResult.data.map(mapMilestoneToMarker);
+        const mappedMarkers = milestonesResult.data.map((milestone) => mapMilestoneToMarker(milestone));
         setMarkers(mappedMarkers);
       } else {
         console.error('Failed to load milestones:', milestonesResult.error);
@@ -658,7 +649,7 @@ const GanttPage = () => {
         setProjectMembers(result.data);
       }
     }
-    loadMembers();
+    void loadMembers();
   }, [projectId]);
 
   const handleViewFeature = (id: string) => {
@@ -697,8 +688,7 @@ const GanttPage = () => {
 
 
   const handleCopyLink = (id: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/projects/task/${id}`);
-    toast.success(t.projects.gantt.linkCopied);
+    copyText(`${window.location.origin}/projects/task/${id}`, () => toast.success(t.projects.gantt.linkCopied));
   };
 
   const handleRemoveFeature = async (id: string) => {
@@ -1299,7 +1289,7 @@ const GanttPage = () => {
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    handleSaveRename();
+                    void handleSaveRename();
                   }
                 }}
               />
@@ -1331,7 +1321,7 @@ const GanttPage = () => {
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    handleSaveMarkerRename();
+                    void handleSaveMarkerRename();
                   }
                 }}
               />
@@ -1389,10 +1379,10 @@ const GanttPage = () => {
                       if (date) {
                         const prev = selectedMarker.date;
                         date.setHours(prev.getHours(), prev.getMinutes());
-                        handleChangeMarkerDate(selectedMarker.id, date);
+                        void handleChangeMarkerDate(selectedMarker.id, date);
                       }
                     }}
-                    initialFocus
+                    autoFocus
                   />
                   <Separator />
                   <div className="px-3 py-2 flex items-center justify-center gap-1.5">
@@ -1401,7 +1391,7 @@ const GanttPage = () => {
                       onValueChange={(h) => {
                         const newDate = new Date(selectedMarker.date);
                         newDate.setHours(Number.parseInt(h));
-                        handleChangeMarkerDate(selectedMarker.id, newDate);
+                        void handleChangeMarkerDate(selectedMarker.id, newDate);
                       }}
                     >
                       <SelectTrigger className="w-24 h-8 text-sm">
@@ -1419,7 +1409,7 @@ const GanttPage = () => {
                       onValueChange={(m) => {
                         const newDate = new Date(selectedMarker.date);
                         newDate.setMinutes(Number.parseInt(m));
-                        handleChangeMarkerDate(selectedMarker.id, newDate);
+                        void handleChangeMarkerDate(selectedMarker.id, newDate);
                       }}
                     >
                       <SelectTrigger className="w-24 h-8 text-sm">
@@ -1546,7 +1536,7 @@ const GanttPage = () => {
           if (data.dueDate !== undefined) updateData.dueDate = data.dueDate?.toISOString();
           if (data.labels !== undefined) updateData.labels = data.labels;
 
-          (async () => {
+          void (async () => {
             const result = await tasksApi.update(projectId, taskId, updateData);
             if (result.success) {
               void loadData();

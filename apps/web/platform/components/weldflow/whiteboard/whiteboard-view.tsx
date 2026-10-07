@@ -305,7 +305,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
         el.id === selectedElement ? { ...el, ...updates } : el
       ));
       // Broadcast style changes
-      broadcastElementUpdate(selectedElement, updates);
+      void broadcastElementUpdate(selectedElement, updates);
     }
   }, [selectedElement, broadcastElementUpdate]);
   
@@ -572,7 +572,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     }
 
     saveTimeoutRef.current = setTimeout(() => {
-      saveWhiteboard(elements);
+      void saveWhiteboard(elements);
     }, 500);
 
     return () => {
@@ -613,7 +613,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     const selectedIds = selectedElement
       ? [selectedElement]
       : Array.from(selectedElements);
-    broadcastSelectionChange(selectedIds);
+    void broadcastSelectionChange(selectedIds);
   }, [selectedElement, selectedElements, isConnected, broadcastSelectionChange]);
 
   // Add to history
@@ -666,19 +666,19 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   const addElementWithBroadcast = useCallback((element: WhiteboardElement) => {
     setElements(prev => [...prev, element]);
     // Always try to broadcast - the broadcast function checks connection internally
-    broadcastElementAdd(element);
+    void broadcastElementAdd(element);
   }, [broadcastElementAdd]);
 
   const _updateElementWithBroadcast = useCallback((elementId: string, changes: Partial<WhiteboardElement>) => {
     setElements(prev => prev.map(el =>
       el.id === elementId ? { ...el, ...changes } : el
     ));
-    broadcastElementUpdate(elementId, changes);
+    void broadcastElementUpdate(elementId, changes);
   }, [broadcastElementUpdate]);
 
   const deleteElementWithBroadcast = useCallback((elementId: string) => {
     setElements(prev => prev.filter(el => el.id !== elementId));
-    broadcastElementDelete(elementId);
+    void broadcastElementDelete(elementId);
   }, [broadcastElementDelete]);
 
   // Get connection points for an element (top, right, bottom, left)
@@ -1360,7 +1360,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
 
   // Erase along the pointer's path
   const dragEraser = (point: Point) => {
-    const lastPoint = eraserPath[eraserPath.length - 1];
+    const lastPoint = eraserPath.at(-1);
     if (!lastPoint) {
       // First point
       setEraserPath([point]);
@@ -1442,7 +1442,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   const broadcastDraggedElement = (id: string) => {
     const el = elements.find(candidate => candidate.id === id);
     if (el) {
-      broadcastElementUpdate(id, { x: el.x, y: el.y, endX: el.endX, endY: el.endY, points: el.points });
+      void broadcastElementUpdate(id, { x: el.x, y: el.y, endX: el.endX, endY: el.endY, points: el.points });
     }
   };
 
@@ -1521,7 +1521,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
       // Broadcast the final size of resized element
       const el = elements.find(candidate => candidate.id === selectedElement);
       if (selectedElement && el) {
-        broadcastElementUpdate(selectedElement, {
+        void broadcastElementUpdate(selectedElement, {
           x: el.x, y: el.y,
           width: el.width, height: el.height,
           radiusX: el.radiusX, radiusY: el.radiusY,
@@ -1538,7 +1538,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
       // Broadcast corner radius change
       const el = elements.find(candidate => candidate.id === selectedElement);
       if (selectedElement && el) {
-        broadcastElementUpdate(selectedElement, { borderRadius: el.borderRadius });
+        void broadcastElementUpdate(selectedElement, { borderRadius: el.borderRadius });
       }
       setIsDraggingCornerRadius(null);
       setCornerRadiusDragStart(null);
@@ -2240,7 +2240,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       // Delete multiple elements and broadcast
       selectedElements.forEach(id => {
         if (isConnected) {
-          broadcastElementDelete(id);
+          void broadcastElementDelete(id);
         }
       });
       setElements(elements.filter(el => !selectedElements.has(el.id)));
@@ -2356,7 +2356,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       // Don't trigger shortcuts when typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
       // Copy, paste, duplicate, z-order and select-all: Cmd/Ctrl + C/V/D/]/[/A
@@ -2665,7 +2665,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       setSelectedElement(null);
     } else {
       // Broadcast text change
-      broadcastElementUpdate(elementId, { text: textValue });
+      void broadcastElementUpdate(elementId, { text: textValue });
     }
     setEditingElement(null);
     setTimeout(addToHistory, 100);
@@ -2910,7 +2910,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
                 onChange={(e) => updateElementText(element.id, e.target.value)}
                 onBlur={(e) => {
                   // Broadcast text change
-                  broadcastElementUpdate(element.id, { text: (e.target as HTMLTextAreaElement).value });
+                  void broadcastElementUpdate(element.id, { text: (e.target as HTMLTextAreaElement).value });
                   setEditingElement(null);
                   setTimeout(addToHistory, 100);
                 }}
@@ -4173,7 +4173,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
           )}
           
           {/* Render elements */}
-          {elements.map(renderElement)}
+          {elements.map((element) => renderElement(element))}
           
           {/* Selection box */}
           {isSelecting && selectionBox && (

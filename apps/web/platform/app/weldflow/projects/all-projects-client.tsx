@@ -232,7 +232,7 @@ export function AllProjectsClient({
       setProjects(transformedProjects);
 
       // Fetch members for each project to find the owner
-      Promise.all(
+      void Promise.all(
         initialProjects.map(async (project) => {
           const result = await membersApi.list(project.id);
           if (result.success && result.data) {
@@ -266,7 +266,7 @@ export function AllProjectsClient({
   // Real-time: invalidate project queries on any project or member event
   const queryClient = useQueryClient();
   const invalidateProjects = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: projectKeys.all });
+    void queryClient.invalidateQueries({ queryKey: projectKeys.all });
   }, [queryClient]);
 
   useTopic('project', invalidateProjects);
@@ -598,13 +598,13 @@ export function AllProjectsClient({
                 selected={project.dueDate ? new Date(project.dueDate + 'T00:00:00') : undefined}
                 onSelect={(date) => {
                   const iso = date ? date.toISOString().split('T')[0] : '';
-                  updateProjectInline(
+                  void updateProjectInline(
                     project.id,
                     { dueDate: iso },
                     { endDate: date ? date.toISOString() : undefined },
                   );
                 }}
-                initialFocus
+                autoFocus
               />
               {project.dueDate && (
                 <div className="p-1 border-t border-border">
@@ -845,7 +845,7 @@ export function AllProjectsClient({
                   onChange={(e) => setNewProjectName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && newProjectName.trim()) {
-                      handleAddProject();
+                      void handleAddProject();
                     }
                   }}
                   autoFocus

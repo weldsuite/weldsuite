@@ -3,13 +3,6 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from '@weldsuite/ui/components/dropdown-menu';
-import {
   Dialog,
   DialogTitle,
   DialogPortal,
@@ -18,17 +11,15 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Building,
   Star,
-  Trash2,
   Bot,
   X,
   Minus,
   Pin as PinIcon,
   Maximize,
-  EllipsisVertical,
-  Pencil,
   Contact,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { NoteActionsMenu } from './note-actions-menu';
 import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
 import {
   useCreateNote,
@@ -290,7 +281,7 @@ function NoteEditorDialog({
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen && isPinned) return;
     if (!newOpen) {
-      flushSave();
+      void flushSave();
       setIsMinimized(false);
       setIsPinned(false);
     }
@@ -432,7 +423,7 @@ function NoteEditorDialog({
               variant="ghost"
               size="icon"
               onClick={() => {
-                flushSave();
+                void flushSave();
                 setIsPinned(false);
                 onOpenChange(false);
               }}
@@ -806,31 +797,12 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
 
       {/* Actions */}
       <div className="w-[40px] flex justify-end">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
-              <EllipsisVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openEditDialog(note); }}>
-              <Pencil className="mr-0.5 h-4 w-4" />
-              {t('sweep.weldcrm.notesView.edit')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleToggleFavorite(note.id); }}>
-              <Star className={cn("mr-0.5 h-4 w-4", note.isPinned && "fill-yellow-400 text-yellow-400")} />
-              {note.isPinned ? t('sweep.weldcrm.notesView.unfavorite') : t('sweep.weldcrm.notesView.favorite')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={(e) => { e.stopPropagation(); requestDelete(note.id); }}
-              className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
-            >
-              <Trash2 className="mr-0.5 h-4 w-4 text-red-500" />
-              {t('sweep.weldcrm.notesView.delete')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <NoteActionsMenu
+          isPinned={!!note.isPinned}
+          onEdit={() => openEditDialog(note)}
+          onToggleFavorite={() => handleToggleFavorite(note.id)}
+          onDelete={() => requestDelete(note.id)}
+        />
       </div>
     </div>
   ), [openEditDialog, requestDelete, handleToggleFavorite, openPanel, t]);

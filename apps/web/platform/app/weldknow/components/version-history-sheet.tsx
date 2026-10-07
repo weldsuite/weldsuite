@@ -120,7 +120,7 @@ export function VersionHistorySheet({ pageId, open, onOpenChange, onRestored }: 
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                handleCreate();
+                void handleCreate();
               }
             }}
           />

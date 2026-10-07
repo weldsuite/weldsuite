@@ -132,7 +132,7 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const startAdd = () => {
     setAdding(true);
@@ -158,7 +158,7 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
     if (res.success) {
       toast.success(t.projects.settings.statusAdded);
       cancelAdd();
-      load();
+      void load();
     } else {
       toast.error(res.error || t.projects.settings.failedToAddStatus);
     }
@@ -180,7 +180,7 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
     if (res.success) {
       toast.success(t.projects.settings.statusUpdated);
       setEditingStage(null);
-      load();
+      void load();
     } else {
       toast.error(res.error || t.projects.settings.failedToUpdateStatus);
     }
@@ -195,7 +195,7 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
       toast.success(t.projects.settings.statusDeleted);
       setDeletingStage(null);
       setReassignTargetId('');
-      load();
+      void load();
     } else {
       toast.error(res.error || t.projects.settings.failedToDeleteStatus);
     }
@@ -333,7 +333,7 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder={t.projects.settings.stageNamePlaceholder}
                   autoFocus
-                  onKeyDown={(e) => { if (e.key === 'Enter' && newName.trim()) saveAdd(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && newName.trim()) void saveAdd(); }}
                   className="h-9 flex-1 focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
               </div>

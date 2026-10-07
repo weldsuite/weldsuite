@@ -42,6 +42,7 @@ import {
   Check,
   Hash,
   Lock,
+  Github,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -62,6 +63,9 @@ import { useChannels } from '@/hooks/queries/use-weldchat-queries';
 import {
   useWorkflowIntegrations,
   useSlackChannels,
+  useGithubRepos,
+  useGoogleSpreadsheet,
+  useGoogleCalendars,
 } from '@/hooks/queries/use-workflow-integration-queries';
 
 // Types for context data
@@ -1532,6 +1536,835 @@ function SlackPostMessageForm({
           value={(config.threadTs as string | undefined) || ''}
           onChange={(v) => onChange({ ...config, threadTs: v })}
           placeholder={cf.threadTsPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+/**
+ * Shared repo picker + connection picker for the two `github.*` steps
+ * (`app_installation` auth — reuses WeldFlow's existing GitHub App
+ * installation, no OAuth connection picker in the usual sense, but the
+ * workspace can still have more than one `workflow_integrations` row of type
+ * `github` in principle, so the same "only shown when > 1" rule applies).
+ */
+function useGithubConnectionAndRepos(config: Record<string, unknown>) {
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'github',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  const effectiveIntegrationId = configuredIntegrationId || connections[0]?.id || '';
+
+  const { data: reposData, isLoading: reposLoading } = useGithubRepos(effectiveIntegrationId || undefined);
+  const repos = reposData?.data ?? [];
+
+  return { connections, connectionsLoading, configuredIntegrationId, effectiveIntegrationId, repos, reposLoading };
+}
+
+function GithubRepoField({
+  cf,
+  config,
+  onChange,
+  connections,
+  connectionsLoading,
+  configuredIntegrationId,
+  effectiveIntegrationId,
+  repos,
+  reposLoading,
+}: {
+  cf: {
+    noConnection: string;
+    connection: string;
+    connectionDesc: string;
+    selectConnection: string;
+    repo: string;
+    repoDesc: string;
+    selectRepo: string;
+    loadingRepos: string;
+    noRepos: string;
+  };
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  connections: Array<{ id: string; name: string }>;
+  connectionsLoading: boolean;
+  configuredIntegrationId: string;
+  effectiveIntegrationId: string;
+  repos: Array<{ id: number; fullName: string; private: boolean }>;
+  reposLoading: boolean;
+}) {
+  const repoValue = (config.repo as string | undefined) || '';
+
+  return (
+    <>
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value, repo: '' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.repo} required description={cf.repoDesc}>
+        <Select
+          value={repoValue}
+          onValueChange={(value) => onChange({ ...config, repo: value })}
+          disabled={reposLoading || !effectiveIntegrationId}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={reposLoading ? cf.loadingRepos : cf.selectRepo} />
+          </SelectTrigger>
+          <SelectContent>
+            {repos.map((repo) => (
+              <SelectItem key={repo.id} value={repo.fullName}>
+                <span className="inline-flex items-center gap-1.5">
+                  {repo.private ? (
+                    <Lock className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <Github className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  {repo.fullName}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!reposLoading && effectiveIntegrationId && repos.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{cf.noRepos}</p>
+        )}
+      </FormField>
+    </>
+  );
+}
+
+/** `github.create_issue` — repo picker + title/body/labels/assignees. */
+function GithubCreateIssueForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.githubCreateIssue;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const gh = useGithubConnectionAndRepos(config);
+
+  return (
+    <div className="space-y-4">
+      <GithubRepoField cf={cf} config={config} onChange={onChange} {...gh} />
+
+      <FormField label={cf.title} required description={cf.titleDesc}>
+        <VariableInput
+          value={(config.title as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, title: v })}
+          placeholder={cf.titlePlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.body} description={cf.bodyDesc}>
+        <VariableInput
+          value={(config.body as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, body: v })}
+          placeholder={cf.bodyPlaceholder}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.labels} description={cf.labelsDesc}>
+        <VariableInput
+          value={(config.labels as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, labels: v })}
+          placeholder={cf.labelsPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.assignees} description={cf.assigneesDesc}>
+        <VariableInput
+          value={(config.assignees as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, assignees: v })}
+          placeholder={cf.assigneesPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+/** `github.create_comment` — repo picker + issue/PR number + body. */
+function GithubCreateCommentForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.githubCreateComment;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const gh = useGithubConnectionAndRepos(config);
+
+  return (
+    <div className="space-y-4">
+      <GithubRepoField cf={cf} config={config} onChange={onChange} {...gh} />
+
+      <FormField label={cf.issueNumber} required description={cf.issueNumberDesc}>
+        <VariableInput
+          value={(config.issueNumber as string | undefined) ?? (config.issueNumber != null ? String(config.issueNumber) : '')}
+          onChange={(v) => onChange({ ...config, issueNumber: v })}
+          placeholder={cf.issueNumberPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.body} required description={cf.bodyDesc}>
+        <VariableInput
+          value={(config.body as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, body: v })}
+          placeholder={cf.bodyPlaceholder}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+// ============================================================================
+// Google provider forms — google_sheets.append_row / update_row,
+// gmail.send_email, google_calendar.create_event. Same shape as Slack's
+// (SlackPostMessageForm above); see "Provider pattern" in
+// docs/plans/weldconnect.md. All three Google products share one OAuth app
+// but connect as separate workflow_integrations rows, so each form queries
+// `useWorkflowIntegrations({ type: '<product>', status: 'connected' })`
+// independently.
+// ============================================================================
+
+/** A `{ "A": "...", "B": "..." }` column mapping, edited as a list of rows. */
+function ColumnMappingEditor({
+  value,
+  onChange,
+  labels,
+  variableProps,
+}: {
+  value: Record<string, unknown>;
+  onChange: (next: Record<string, unknown>) => void;
+  labels: {
+    column: string;
+    columnPlaceholder: string;
+    valuePlaceholder: string;
+    addColumn: string;
+    removeColumn: string;
+  };
+  variableProps: {
+    triggerType?: string;
+    steps?: WorkflowStep[];
+    workflowVariables?: WorkflowVariable[];
+    extraVariableGroups?: VariableGroup[];
+    excludeGroups?: string[];
+  };
+}) {
+  const rows = Object.entries(value);
+
+  function setRow(index: number, column: string, cellValue: string) {
+    const next = [...rows];
+    next[index] = [column, cellValue];
+    onChange(Object.fromEntries(next.filter(([c]) => c.trim() !== '')));
+  }
+
+  function removeRow(index: number) {
+    onChange(Object.fromEntries(rows.filter((_, i) => i !== index)));
+  }
+
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 && (
+        <div className="flex items-center gap-2">
+          <Input
+            className="w-16 uppercase"
+            maxLength={2}
+            placeholder={labels.columnPlaceholder}
+            value=""
+            onChange={(e) => setRow(0, e.target.value.toUpperCase(), '')}
+          />
+        </div>
+      )}
+      {rows.map(([column, cellValue], index) => (
+        <div key={index} className="flex items-start gap-2">
+          <Input
+            className="w-16 uppercase"
+            maxLength={2}
+            placeholder={labels.columnPlaceholder}
+            value={column}
+            onChange={(e) => setRow(index, e.target.value.toUpperCase(), String(cellValue ?? ''))}
+          />
+          <div className="flex-1">
+            <VariableInput
+              value={String(cellValue ?? '')}
+              onChange={(v) => setRow(index, column, v)}
+              placeholder={labels.valuePlaceholder}
+              {...variableProps}
+            />
+          </div>
+          <Button type="button" variant="ghost" size="icon" onClick={() => removeRow(index)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => onChange({ ...value, '': '' })}
+      >
+        <Plus className="h-3.5 w-3.5 mr-1" />
+        {labels.addColumn}
+      </Button>
+    </div>
+  );
+}
+
+interface GoogleSheetsRowLabels {
+  connection: string;
+  connectionDesc: string;
+  selectConnection: string;
+  noConnection: string;
+  spreadsheet: string;
+  spreadsheetDesc: string;
+  spreadsheetPlaceholder: string;
+  spreadsheetLoading: string;
+  spreadsheetError: string;
+  sheet: string;
+  sheetDesc: string;
+  selectSheet: string;
+  columnMapping: string;
+  columnMappingDesc: string;
+  column: string;
+  columnPlaceholder: string;
+  valuePlaceholder: string;
+  addColumn: string;
+  removeColumn: string;
+  targetMode: string;
+  targetByRow: string;
+  targetByLookup: string;
+  rowNumber: string;
+  rowNumberDesc: string;
+  lookupColumn: string;
+  lookupColumnDesc: string;
+  lookupValue: string;
+  lookupValueDesc: string;
+  ownerHint: string;
+}
+
+/** Shared connection + spreadsheet + sheet-tab picker for both Sheets actions. */
+function GoogleSheetsLocationFields({
+  config,
+  onChange,
+  cf,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  cf: GoogleSheetsRowLabels;
+}) {
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'google_sheets',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  const effectiveIntegrationId = configuredIntegrationId || connections[0]?.id || '';
+
+  // Resolved only once a value is present — no Drive scope is requested, so
+  // the "picker" is paste-the-link-or-id, validated + turned into sheet tabs
+  // by one connect-api call (services/workflow-integrations/google.ts).
+  const spreadsheetInput = (config.spreadsheetId as string | undefined) || '';
+  const { data: spreadsheetData, isLoading: spreadsheetLoading, isError: spreadsheetErrored } = useGoogleSpreadsheet(
+    effectiveIntegrationId || undefined,
+    spreadsheetInput || undefined,
+  );
+  const sheets = spreadsheetData?.data.sheets ?? [];
+  const sheetName = (config.sheetName as string | undefined) || '';
+
+  return (
+    <>
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value, spreadsheetId: '', sheetName: '' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.spreadsheet} required description={cf.spreadsheetDesc}>
+        <Input
+          value={spreadsheetInput}
+          onChange={(e) => onChange({ ...config, spreadsheetId: e.target.value, sheetName: '' })}
+          placeholder={cf.spreadsheetPlaceholder}
+        />
+        {spreadsheetLoading && <p className="text-xs text-muted-foreground mt-1">{cf.spreadsheetLoading}</p>}
+        {spreadsheetErrored && <p className="text-xs text-destructive mt-1">{cf.spreadsheetError}</p>}
+        {spreadsheetData && <p className="text-xs text-muted-foreground mt-1">{spreadsheetData.data.title}</p>}
+      </FormField>
+
+      <FormField label={cf.sheet} description={cf.sheetDesc}>
+        {sheets.length > 0 ? (
+          <Select value={sheetName || sheets[0]?.title} onValueChange={(value) => onChange({ ...config, sheetName: value })}>
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectSheet} />
+            </SelectTrigger>
+            <SelectContent>
+              {sheets.map((s) => (
+                <SelectItem key={s.sheetId} value={s.title}>
+                  {s.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input
+            value={sheetName}
+            onChange={(e) => onChange({ ...config, sheetName: e.target.value })}
+            placeholder="Sheet1"
+          />
+        )}
+      </FormField>
+    </>
+  );
+}
+
+function GoogleSheetsAppendRowForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const cf = t.weldconnect.actionConfigForm.googleSheetsRow;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const columnMapping = (config.columnMapping as Record<string, unknown> | undefined) || {};
+
+  return (
+    <div className="space-y-4">
+      <GoogleSheetsLocationFields config={config} onChange={onChange} cf={cf} />
+      <FormField label={cf.columnMapping} required description={cf.columnMappingDesc}>
+        <ColumnMappingEditor
+          value={columnMapping}
+          onChange={(next) => onChange({ ...config, columnMapping: next })}
+          labels={cf}
+          variableProps={variableProps}
+        />
+      </FormField>
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+function GoogleSheetsUpdateRowForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const cf = t.weldconnect.actionConfigForm.googleSheetsRow;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const columnMapping = (config.columnMapping as Record<string, unknown> | undefined) || {};
+  const targetMode = config.lookupColumn || config.lookupValue ? 'lookup' : 'row';
+
+  return (
+    <div className="space-y-4">
+      <GoogleSheetsLocationFields config={config} onChange={onChange} cf={cf} />
+
+      <FormField label={cf.targetMode}>
+        <Select
+          value={targetMode}
+          onValueChange={(value) =>
+            onChange(
+              value === 'row'
+                ? { ...config, lookupColumn: '', lookupValue: '' }
+                : { ...config, rowNumber: '' },
+            )
+          }
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="row">{cf.targetByRow}</SelectItem>
+            <SelectItem value="lookup">{cf.targetByLookup}</SelectItem>
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      {targetMode === 'row' ? (
+        <FormField label={cf.rowNumber} required description={cf.rowNumberDesc}>
+          <Input
+            type="number"
+            min={1}
+            value={(config.rowNumber as string | number | undefined) ?? ''}
+            onChange={(e) => onChange({ ...config, rowNumber: e.target.value })}
+          />
+        </FormField>
+      ) : (
+        <>
+          <FormField label={cf.lookupColumn} required description={cf.lookupColumnDesc}>
+            <Input
+              className="w-20 uppercase"
+              maxLength={2}
+              value={(config.lookupColumn as string | undefined) || ''}
+              onChange={(e) => onChange({ ...config, lookupColumn: e.target.value.toUpperCase() })}
+              placeholder="A"
+            />
+          </FormField>
+          <FormField label={cf.lookupValue} required description={cf.lookupValueDesc}>
+            <VariableInput
+              value={(config.lookupValue as string | undefined) || ''}
+              onChange={(v) => onChange({ ...config, lookupValue: v })}
+              {...variableProps}
+            />
+          </FormField>
+        </>
+      )}
+
+      <FormField label={cf.columnMapping} required description={cf.columnMappingDesc}>
+        <ColumnMappingEditor
+          value={columnMapping}
+          onChange={(next) => onChange({ ...config, columnMapping: next })}
+          labels={cf}
+          variableProps={variableProps}
+        />
+      </FormField>
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+function GmailSendEmailForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const cf = t.weldconnect.actionConfigForm.gmailSendEmail;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'gmail',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  const isHtml = config.isHtml !== false;
+
+  return (
+    <div className="space-y-4">
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.to} required description={cf.toDesc}>
+        <VariableInput
+          value={(config.to as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, to: v })}
+          placeholder={cf.toPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={cf.cc}>
+        <VariableInput
+          value={(config.cc as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, cc: v })}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={cf.bcc}>
+        <VariableInput
+          value={(config.bcc as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, bcc: v })}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={cf.subject} required>
+        <VariableInput
+          value={(config.subject as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, subject: v })}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={cf.body} required description={cf.bodyDesc}>
+        <VariableInput
+          value={(config.body as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, body: v })}
+          multiline
+          rows={6}
+          {...variableProps}
+        />
+      </FormField>
+      <div className="flex items-center gap-2">
+        <Switch id="gmail-is-html" checked={isHtml} onCheckedChange={(checked) => onChange({ ...config, isHtml: checked })} />
+        <Label htmlFor="gmail-is-html" className="text-sm">
+          {cf.isHtml}
+        </Label>
+      </div>
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+function GoogleCalendarCreateEventForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const cf = t.weldconnect.actionConfigForm.googleCalendarCreateEvent;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'google_calendar',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  const effectiveIntegrationId = configuredIntegrationId || connections[0]?.id || '';
+
+  const { data: calendarsData, isLoading: calendarsLoading } = useGoogleCalendars(effectiveIntegrationId || undefined);
+  const calendars = calendarsData?.data ?? [];
+  const calendarId = (config.calendarId as string | undefined) || '';
+
+  return (
+    <div className="space-y-4">
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value, calendarId: '' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.calendar} description={cf.calendarDesc}>
+        <Select
+          value={calendarId || calendars.find((c) => c.primary)?.id || ''}
+          onValueChange={(value) => onChange({ ...config, calendarId: value })}
+          disabled={calendarsLoading || !effectiveIntegrationId}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={calendarsLoading ? cf.loadingCalendars : cf.selectCalendar} />
+          </SelectTrigger>
+          <SelectContent>
+            {calendars.map((cal) => (
+              <SelectItem key={cal.id} value={cal.id}>
+                {cal.summary}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!calendarsLoading && effectiveIntegrationId && calendars.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{cf.noCalendars}</p>
+        )}
+      </FormField>
+
+      <FormField label={cf.title} required>
+        <VariableInput
+          value={(config.summary as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, summary: v })}
+          {...variableProps}
+        />
+      </FormField>
+
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label={cf.start} required description={cf.startDesc}>
+          <VariableInput
+            value={(config.startDateTime as string | undefined) || ''}
+            onChange={(v) => onChange({ ...config, startDateTime: v })}
+            placeholder={cf.startPlaceholder}
+            {...variableProps}
+          />
+        </FormField>
+        <FormField label={cf.end} required>
+          <VariableInput
+            value={(config.endDateTime as string | undefined) || ''}
+            onChange={(v) => onChange({ ...config, endDateTime: v })}
+            {...variableProps}
+          />
+        </FormField>
+      </div>
+
+      <FormField label={cf.timeZone} description={cf.timeZoneDesc}>
+        <VariableInput
+          value={(config.timeZone as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, timeZone: v })}
+          placeholder={cf.timeZonePlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.description}>
+        <VariableInput
+          value={(config.description as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, description: v })}
+          multiline
+          rows={3}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.attendees} description={cf.attendeesDesc}>
+        <VariableInput
+          value={(config.attendees as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, attendees: v })}
+          placeholder={cf.attendeesPlaceholder}
           {...variableProps}
         />
       </FormField>
@@ -3757,6 +4590,84 @@ export function ActionConfigForm({
       case 'slack.post_message':
         return (
           <SlackPostMessageForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'github.create_issue':
+        return (
+          <GithubCreateIssueForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'github.create_comment':
+        return (
+          <GithubCreateCommentForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'google_sheets.append_row':
+        return (
+          <GoogleSheetsAppendRowForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'google_sheets.update_row':
+        return (
+          <GoogleSheetsUpdateRowForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'gmail.send_email':
+        return (
+          <GmailSendEmailForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'google_calendar.create_event':
+        return (
+          <GoogleCalendarCreateEventForm
             config={config}
             onChange={onChange}
             triggerType={triggerType}

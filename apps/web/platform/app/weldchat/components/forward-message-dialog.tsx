@@ -263,8 +263,10 @@ export function ForwardMessageDialog({
       return;
     }
     const url = `${window.location.origin}/weldchat/${sourceChannelId}?msg=${messageId}`;
-    navigator.clipboard.writeText(url);
-    toast.success(t.weldchat.forwardMessage.messageLinkCopied);
+    navigator.clipboard.writeText(url).then(
+      () => toast.success(t.weldchat.forwardMessage.messageLinkCopied),
+      () => toast.error(t.sweep.entities.copyLinkFailed),
+    );
   };
 
   return (
@@ -428,7 +430,7 @@ export function ForwardMessageDialog({
                     today.setHours(0, 0, 0, 0);
                     return date < today || date > latestScheduleDate();
                   }}
-                  initialFocus
+                  autoFocus
                 />
                 <div className="flex items-center gap-2 p-3 border-t">
                   <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />

@@ -7,7 +7,7 @@
  */
 
 import RealtimeKitClient, { type RTKParticipant, type RTKSelf } from '@cloudflare/realtimekit';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useReducer, useRef, useState, useCallback } from 'react';
 import { Loader2, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
@@ -102,7 +102,8 @@ export default function CallRoomPage() {
   const [isVideoOff, setIsVideoOff] = useState(callType === 'voice');
   const [duration, setDuration] = useState(0);
   const [reconnecting, setReconnecting] = useState(false);
-  const [, forceUpdate] = useState(0);
+  // Re-render on participant / media changes; RTK mutates the meeting object in place.
+  const [, forceUpdate] = useReducer(increment, 0);
 
   const durationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -114,7 +115,7 @@ export default function CallRoomPage() {
 
     let m: RealtimeKitClient;
 
-    (async () => {
+    void (async () => {
       try {
         m = await RealtimeKitClient.init({
           authToken: token,
@@ -143,10 +144,10 @@ export default function CallRoomPage() {
           if (durationRef.current) clearInterval(durationRef.current);
         });
 
-        m.participants.joined.on('participantJoined', () => forceUpdate(increment));
-        m.participants.joined.on('participantLeft', () => forceUpdate(increment));
-        m.self.on('audioUpdate', () => forceUpdate(increment));
-        m.self.on('videoUpdate', () => forceUpdate(increment));
+        m.participants.joined.on('participantJoined', () => forceUpdate());
+        m.participants.joined.on('participantLeft', () => forceUpdate());
+        m.self.on('audioUpdate', () => forceUpdate());
+        m.self.on('videoUpdate', () => forceUpdate());
 
         await m.join();
         setMeeting(m);
@@ -162,7 +163,7 @@ export default function CallRoomPage() {
     };
   }, [token, callType]);
 
-  const handleLeave = useCallback(async () => {
+  const handleLeave = useCallback(() => {
     if (meeting) {
       // Stop the local hardware tracks first — RTK's leave() does not reliably
       // release the camera/mic, so the device indicator would otherwise stay on.

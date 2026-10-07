@@ -45,6 +45,7 @@ import {
   type Company,
 } from '@/components/person-detail';
 import { useI18n } from '@/lib/i18n/provider';
+import { copyText } from '@/lib/clipboard';
 
 interface ConversationData {
   id: string;
@@ -161,7 +162,7 @@ function ConversationsTable({ tc, conversations, router }: Readonly<{
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={(e) => {
                         e.stopPropagation();
-                        navigator.clipboard.writeText(conversation.id);
+                        copyText(conversation.id);
                       }}>
                         <Copy className="h-3.5 w-3.5 mr-2" />
                         {tc.copyId}

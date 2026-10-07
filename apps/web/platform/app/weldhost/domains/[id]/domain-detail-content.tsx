@@ -58,6 +58,7 @@ import {
   type ContactInput,
 } from '@weldsuite/core-api-client/schemas/domains';
 import type { DnsZone } from '@weldsuite/core-api-client/schemas/dns-zones';
+import { copyText } from '@/lib/clipboard';
 
 type DomainContact = Partial<ContactInput>;
 
@@ -190,8 +191,7 @@ export function DomainDetailContent({
   };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success(td.copiedToClipboard);
+    copyText(text, () => toast.success(td.copiedToClipboard));
   };
 
   const handleAddRecord = async (formData: FormData) => {

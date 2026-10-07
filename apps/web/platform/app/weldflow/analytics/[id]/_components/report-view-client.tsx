@@ -107,7 +107,7 @@ export function ReportViewClient({ report, charts }: Readonly<ReportViewClientPr
       }
     }
 
-    loadData();
+    void loadData();
   }, [charts, report.id]);
 
   const renderChart = (chart: AnalyticsChart, data: ChartDataPoint[]) => {
