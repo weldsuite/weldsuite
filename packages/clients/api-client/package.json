@@ -9,7 +9,9 @@
     "./client": "./src/client.ts",
     "./types": "./src/types.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@weldsuite/text": "workspace:*"
+  },
   "devDependencies": {
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2"

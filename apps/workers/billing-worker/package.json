@@ -19,6 +19,7 @@
     "@weldsuite/realtime-registrar": "workspace:*",
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.34",
     "nanoid": "^5.1.16",

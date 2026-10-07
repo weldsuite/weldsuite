@@ -16,6 +16,7 @@
     "typescript": "^5.7"
   },
   "dependencies": {
+    "@weldsuite/text": "workspace:*",
     "cloudflare": "^7.0.0"
   }
 }

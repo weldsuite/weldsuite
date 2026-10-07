@@ -31,6 +31,7 @@ import {
 } from '@weldsuite/core-domain/ai-billing';
 import { getAgent, type AgentDb } from './agents';
 import { runAgentOnce, REQUEST_RUN_TIMEOUT_MS } from './executor';
+import { asText } from '@weldsuite/text';
 
 const WELDAGENT_SYSTEM =
   'You are WeldAgent, the AI assistant built into the WeldSuite business platform. ' +
@@ -101,7 +102,7 @@ function summarizeToolInvocations(raw: unknown): string {
       result = '[unserializable]';
     }
     if (result.length > 400) result = `${result.slice(0, 400)}…`;
-    lines.push(`- ${String(inv.toolName)} → ${result}`);
+    lines.push(`- ${asText(inv.toolName)} → ${result}`);
   }
   if (lines.length === 0) return '';
   let summary = `[Tools used in this turn]\n${lines.join('\n')}`;

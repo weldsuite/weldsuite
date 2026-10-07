@@ -25,6 +25,7 @@
     "@weldsuite/df3-noise-suppression": "workspace:*",
     "@weldsuite/meet-domain": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "@weldsuite/weldmeet-ui": "workspace:*",
     "aws4fetch": "^1.0.20",

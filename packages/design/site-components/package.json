@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "embla-carousel-autoplay": "^8.6.0",
     "framer-motion": "^11.18.0",

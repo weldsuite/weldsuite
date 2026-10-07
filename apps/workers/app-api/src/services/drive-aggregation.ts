@@ -8,6 +8,7 @@
 
 import { and, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { asText } from '@weldsuite/text';
 
 const {
   files,
@@ -363,7 +364,7 @@ export function queryArray<T>(items: T[], options: QueryOptions<T>): PaginatedRe
         options.searchFields!.some((field) => {
           const value = (item as Record<string, unknown>)[field as string];
           if (value == null) return false;
-          return String(value).toLowerCase().includes(term);
+          return asText(value).toLowerCase().includes(term);
         }),
       );
     }

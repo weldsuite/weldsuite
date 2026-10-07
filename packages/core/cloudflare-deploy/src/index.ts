@@ -20,6 +20,7 @@ import { BaseSecrets } from 'cloudflare/resources/workers/scripts/secrets';
 import { BaseProjects } from 'cloudflare/resources/pages/projects/projects';
 import { BaseAccounts } from 'cloudflare/resources/accounts/accounts';
 import type { ClientOptions } from 'cloudflare/client';
+import { asText } from '@weldsuite/text';
 
 /** Cloudflare's documented ceiling for one bulk-secrets request. */
 const BULK_SECRET_LIMIT = 100;
@@ -64,7 +65,7 @@ function toDeployError(err: unknown, what: string): CloudflareDeployError {
   if (!(err instanceof APIError)) {
     return new CloudflareDeployError(
       'UNKNOWN',
-      `${what}: ${err instanceof Error ? err.message : String(err)}`,
+      `${what}: ${err instanceof Error ? err.message : asText(err)}`,
     );
   }
 

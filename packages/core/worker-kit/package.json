@@ -41,6 +41,7 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/feature-flags": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "peerDependencies": {

@@ -132,6 +132,7 @@ import { GridBlock } from '../blocks/grid-block';
 import { FlexBlock } from '../blocks/flex-block';
 import { ProductGridBlock } from '../blocks/product-grid-block';
 import { FAQBlock } from '../blocks/faq-block';
+import { asText } from '@weldsuite/text';
 
 /**
  * The block registry maps a block type to its component. Every block takes a
@@ -173,7 +174,7 @@ function replaceDynamicContent(content: unknown, store?: StoreData): unknown {
         const value = fields[field];
         if (value === undefined || value === null || value === '') return match;
         if (field === 'price') return `$${toPriceNumber(product.price).toFixed(2)}`;
-        return String(value);
+        return asText(value);
       });
     }
   }

@@ -13,6 +13,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { workflows, workflowTriggerIndex } from '@weldsuite/db/schema';
 import { insertSkippedWorkflowExecution, isAtWorkflowConcurrencyLimit } from '@weldsuite/db/lib/workflow-concurrency';
 import type { TenantDb } from './internal-types';
+import { asText } from '@weldsuite/text';
 
 interface TriggerFilter {
   field: string;
@@ -61,7 +62,7 @@ export function evalFilters(
       case 'not_equals':
         return val !== f.value;
       case 'contains':
-        return String(val).includes(String(f.value));
+        return asText(val).includes(asText(f.value));
       case 'exists':
         return val !== undefined && val !== null;
       case 'not_exists':
