@@ -4019,217 +4019,145 @@ function AiClassifyForm({
 
 
 // ============================================================================
-// Manual Step Form
+// Approval step (manual_step)
 // ============================================================================
 
-function ManualStepForm({ config, onChange, workspaceMembers }: {
+/**
+ * The approvers an approval step lists. Older steps stored one reviewer as
+ * `assignTo: 'specific_user'` + `assigneeId`; the engine still reads that.
+ */
+function approverIdsOf(config: Record<string, unknown>): string[] {
+  if (Array.isArray(config.approverIds)) return config.approverIds.filter((id): id is string => typeof id === 'string');
+  return config.assignTo === 'specific_user' && typeof config.assigneeId === 'string' && config.assigneeId
+    ? [config.assigneeId]
+    : [];
+}
+
+/**
+ * manual_step — an approval. The run pauses until one of the approvers (or,
+ * with none listed, a member who may manage runs) approves or rejects it on
+ * the run page; the next steps read the decision as {{steps.<id>.approved}}.
+ * Executed by workflow-worker engine/actions/interactive.ts.
+ */
+function ManualStepForm({
+  config,
+  onChange,
+  workspaceMembers = [],
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
   workspaceMembers?: WorkspaceMember[];
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
 }) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
-  const st = useTranslations();
-  const fields: Array<{ id: string; label: string; type: string; required?: boolean }> = (config.fields as Array<{ id: string; label: string; type: string; required?: boolean }> | undefined) || [];
+  const ta = acf.approvalStep;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const [approversOpen, setApproversOpen] = useState(false);
+  const approverIds = approverIdsOf(config);
 
-  const addField = () => {
-    const newField = {
-      id: `field_${Date.now()}`,
-      label: '',
-      type: 'text',
-      required: false,
-    };
-    onChange({ ...config, fields: [...fields, newField] });
-  };
+  const getInitials = (name: string) =>
+    name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 
-  const updateField = (index: number, updates: Record<string, unknown>) => {
-    const newFields = [...fields];
-    newFields[index] = { ...newFields[index], ...updates };
-    onChange({ ...config, fields: newFields });
-  };
-
-  const removeField = (index: number) => {
-    onChange({ ...config, fields: fields.filter((_, i) => i !== index) });
+  const toggleApprover = (userId: string) => {
+    const next = approverIds.includes(userId)
+      ? approverIds.filter((id) => id !== userId)
+      : [...approverIds, userId];
+    // Writing the list retires the legacy single-reviewer fields.
+    const rest = Object.fromEntries(
+      Object.entries(config).filter(([key]) => key !== 'assignTo' && key !== 'assigneeId'),
+    );
+    onChange({ ...rest, approverIds: next });
   };
 
   return (
     <div className="space-y-4">
-      <FormField label={acf.manualTitle} description={acf.manualTitleDesc} required>
-        <Input
+      <FormField label={acf.manualTitle} description={ta.titleDesc} required>
+        <VariableInput
           value={(config.title as string | undefined) || ''}
-          onChange={(e) => onChange({ ...config, title: e.target.value })}
-          placeholder={st('sweep.weldflow.actionConfig.manualStepTitlePlaceholder')}
+          onChange={(v) => onChange({ ...config, title: v })}
+          placeholder={ta.titlePlaceholder}
+          {...variableProps}
         />
       </FormField>
 
-      <FormField label={acf.description} description={acf.descriptionDesc}>
-        <Textarea
+      <FormField label={ta.instructions} description={ta.instructionsDesc}>
+        <VariableInput
           value={(config.description as string | undefined) || ''}
-          onChange={(e) => onChange({ ...config, description: e.target.value })}
-          placeholder={st('sweep.weldflow.actionConfig.manualStepDescriptionPlaceholder')}
+          onChange={(v) => onChange({ ...config, description: v })}
+          placeholder={ta.instructionsPlaceholder}
+          multiline
           rows={3}
+          {...variableProps}
         />
       </FormField>
 
-      <FormField label={acf.assignTo} description={acf.assignToDesc}>
-        <Select
-          value={(config.assignTo as string | undefined) || 'workflow_creator'}
-          onValueChange={(v) => onChange({ ...config, assignTo: v })}
-        >
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="workflow_creator">{acf.assignToOptions.workflow_creator}</SelectItem>
-            <SelectItem value="specific_user">{acf.assignToOptions.specific_user}</SelectItem>
-          </SelectContent>
-        </Select>
-      </FormField>
-
-      {config.assignTo === 'specific_user' && workspaceMembers && (
-        <FormField label={acf.user}>
-          <Select
-            value={(config.assigneeId as string | undefined) || ''}
-            onValueChange={(v) => onChange({ ...config, assigneeId: v })}
-          >
-            <SelectTrigger><SelectValue placeholder={acf.selectUser} /></SelectTrigger>
-            <SelectContent>
-              {workspaceMembers.map((m) => (
-                <SelectItem key={m.id} value={m.id}>{m.name} ({m.email})</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FormField>
-      )}
-
-      <FormField label={acf.actions} description={acf.actionsDesc}>
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              checked={((config.actions as string[] | undefined) || ['approve', 'reject']).includes('approve')}
-              onCheckedChange={(checked) => {
-                const actions = (config.actions as string[] | undefined) || ['approve', 'reject'];
-                onChange({
-                  ...config,
-                  actions: checked
-                    ? [...new Set([...actions, 'approve'])]
-                    : actions.filter((a: string) => a !== 'approve'),
-                });
-              }}
-            />
-            <span className="text-sm">{acf.approve}</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              checked={((config.actions as string[] | undefined) || ['approve', 'reject']).includes('reject')}
-              onCheckedChange={(checked) => {
-                const actions = (config.actions as string[] | undefined) || ['approve', 'reject'];
-                onChange({
-                  ...config,
-                  actions: checked
-                    ? [...new Set([...actions, 'reject'])]
-                    : actions.filter((a: string) => a !== 'reject'),
-                });
-              }}
-            />
-            <span className="text-sm">{acf.reject}</span>
-          </label>
-        </div>
-      </FormField>
-
-      <div className="grid grid-cols-2 gap-4">
-        <FormField label={acf.approveButtonLabel}>
-          <Input
-            value={(config.approveLabel as string | undefined) || ''}
-            onChange={(e) => onChange({ ...config, approveLabel: e.target.value })}
-            placeholder={acf.approve}
-          />
-        </FormField>
-        <FormField label={acf.rejectButtonLabel}>
-          <Input
-            value={(config.rejectLabel as string | undefined) || ''}
-            onChange={(e) => onChange({ ...config, rejectLabel: e.target.value })}
-            placeholder={acf.reject}
-          />
-        </FormField>
-      </div>
-
-      <FormField label={acf.formFields} description={acf.formFieldsDesc}>
-        <div className="space-y-3">
-          {fields.map((field, index) => (
-            <div key={field.id} className="flex items-start gap-2 p-3 rounded-lg border">
-              <div className="flex-1 space-y-2">
-                <Input
-                  value={field.label}
-                  onChange={(e) => updateField(index, { label: e.target.value })}
-                  placeholder={acf.fieldLabel}
-                />
-                <div className="flex gap-2">
-                  <Select
-                    value={field.type}
-                    onValueChange={(v) => updateField(index, { type: v })}
-                  >
-                    <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="text">{acf.fieldTypes.text}</SelectItem>
-                      <SelectItem value="textarea">{acf.fieldTypes.textarea}</SelectItem>
-                      <SelectItem value="number">{acf.fieldTypes.number}</SelectItem>
-                      <SelectItem value="select">{acf.fieldTypes.select}</SelectItem>
-                      <SelectItem value="checkbox">{acf.fieldTypes.checkbox}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <Checkbox
-                      checked={field.required || false}
-                      onCheckedChange={(checked) => updateField(index, { required: !!checked })}
-                    />
-                    <span className="text-xs text-muted-foreground">{acf.required}</span>
-                  </label>
+      <FormField label={ta.approvers} description={ta.approversDesc}>
+        <Popover open={approversOpen} onOpenChange={setApproversOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" role="combobox" aria-expanded={approversOpen} className="w-full justify-between h-auto min-h-10">
+              {approverIds.length === 0 ? (
+                <span className="text-muted-foreground">{ta.selectApprovers}</span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {approverIds.map((userId) => {
+                    const member = workspaceMembers.find((m) => m.id === userId);
+                    return (
+                      <Badge key={userId} variant="secondary" className="text-xs">
+                        {member?.name || userId}
+                      </Badge>
+                    );
+                  })}
                 </div>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => removeField(index)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
-          <Button variant="outline" size="sm" onClick={addField} className="w-full">
-            <Plus className="h-4 w-4 mr-1" /> {acf.addField}
-          </Button>
-        </div>
+              )}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[350px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder={acf.searchUsers} />
+              <CommandList>
+                <CommandEmpty>{acf.noUsersFound}</CommandEmpty>
+                <CommandGroup>
+                  {workspaceMembers.map((member) => {
+                    const isSelected = approverIds.includes(member.id);
+                    return (
+                      <CommandItem key={member.id} value={`${member.name} ${member.email}`} onSelect={() => toggleApprover(member.id)}>
+                        <div className="flex items-center gap-3 w-full">
+                          <Checkbox checked={isSelected} />
+                          <Avatar className="h-6 w-6">
+                            <AvatarImage src={member.avatar} alt={member.name} />
+                            <AvatarFallback className="text-xs">{getInitials(member.name)}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="text-sm font-medium truncate">{member.name}</span>
+                            <span className="text-xs text-muted-foreground truncate">{member.email}</span>
+                          </div>
+                          {isSelected && <Check className="h-4 w-4 text-primary" />}
+                        </div>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </FormField>
 
-      <FormField label={acf.notification} description={acf.notificationDesc}>
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              checked={((config.notifyVia as string[] | undefined) || ['in_app']).includes('in_app')}
-              onCheckedChange={(checked) => {
-                const channels = (config.notifyVia as string[] | undefined) || ['in_app'];
-                onChange({
-                  ...config,
-                  notifyVia: checked
-                    ? [...new Set([...channels, 'in_app'])]
-                    : channels.filter((c: string) => c !== 'in_app'),
-                });
-              }}
-            />
-            <span className="text-sm">{acf.inAppNotification}</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              checked={((config.notifyVia as string[] | undefined) || []).includes('email')}
-              onCheckedChange={(checked) => {
-                const channels = (config.notifyVia as string[] | undefined) || ['in_app'];
-                onChange({
-                  ...config,
-                  notifyVia: checked
-                    ? [...new Set([...channels, 'email'])]
-                    : channels.filter((c: string) => c !== 'email'),
-                });
-              }}
-            />
-            <span className="text-sm">{acf.emailNotification}</span>
-          </label>
-        </div>
-      </FormField>
+      <div className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+        <p>{ta.waitNote}</p>
+        <p>{ta.decisionNote}</p>
+      </div>
     </div>
   );
 }
@@ -4648,9 +4576,20 @@ export function ActionConfigForm({
       case 'ai_agent':
         return <AiUnavailable variant="inline" />;
 
-      // Human-in-the-loop
+      // Human-in-the-loop: an approval
       case 'manual_step':
-        return <ManualStepForm config={config} onChange={onChange} workspaceMembers={workspaceMembers} />;
+        return (
+          <ManualStepForm
+            config={config}
+            onChange={onChange}
+            workspaceMembers={workspaceMembers}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
 
       // Attribute setters — pick a definition instead of hand-editing JSON.
       case 'set_contact_attribute':

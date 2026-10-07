@@ -10,7 +10,12 @@
 
 import { isApiError } from '@weldsuite/api-client';
 
-export const WELDCONNECT_TRIGGER_TYPES = ['entity_event', 'schedule', 'webhook'] as const;
+export const WELDCONNECT_TRIGGER_TYPES = [
+  'entity_event',
+  'schedule',
+  'webhook',
+  'workflow_complete',
+] as const;
 
 /** Only recurring schedules are supported (the cron sweep has no one-off runs). */
 export const WELDCONNECT_SCHEDULE_TYPES = ['recurring'] as const;
@@ -28,6 +33,9 @@ export const WELDCONNECT_ACTION_TYPES = [
   'send_notification',
   'post_chat_message',
   'http_request',
+  // AI steps, metered against the workspace credit wallet (@weldsuite/credits).
+  'ai_generate',
+  'ai_classify',
   'condition',
   'loop',
   'delay',
@@ -38,6 +46,7 @@ export const WELDCONNECT_ACTION_TYPES = [
   'google_sheets.update_row',
   'gmail.send_email',
   'google_calendar.create_event',
+  'manual_step',
 ] as const;
 
 /**
@@ -46,14 +55,16 @@ export const WELDCONNECT_ACTION_TYPES = [
  * still lands on them through an old link, marked with a notice saying that
  * nothing set up there can be used in a workflow yet. Integrations and
  * connectors are not listed: Settings links to them and they work on their own.
+ *
+ * `actions` / `triggers` are static reference catalogs (connect-api
+ * workflow-dashboard/static-catalogs.ts) with placeholder fields (premium,
+ * usage counts, inputs/outputs) nothing backs; the editor already offers
+ * exactly what can go live. `templates` is being rebuilt server-side.
  */
 export const WELDCONNECT_OUT_OF_SCOPE_SECTIONS = [
   'actions',
-  'analytics',
   'templates',
   'triggers',
-  'variables',
-  'webhooks',
 ] as const;
 
 /** CRM sequences are `workflows` rows too; WeldConnect lists exclude them. */

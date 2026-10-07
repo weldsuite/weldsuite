@@ -6,7 +6,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { usePageAgentContext } from '@/components/weldagent-wrapper';
 import { useDataEvent } from '@/lib/events/data-events';
 import { automationKeys } from '@/hooks/queries/use-automation-queries';
-import { workflowEditorKeys, useRotateWebhookSecret, useDisableWebhookSignature } from '@/hooks/use-workflow-editor-data';
+import { workflowEditorKeys, useRotateWebhookSecret, useDisableWebhookSignature, useWorkflowDetail } from '@/hooks/use-workflow-editor-data';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -88,7 +88,7 @@ import {
   isStepConfigured,
 } from '@weldsuite/ui/components/workflow-canvas';
 import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepConfig } from '@weldsuite/ui/components/workflow-canvas';
-import { buildAllVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
+import { buildAllVariables, getStepOutputVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { WorkflowTemplateDialog } from '@/app/weldconnect/components/workflow-template-dialog';
 import { getWorkflowIssueCodes, isUnsupportedWorkflowError } from '@/app/weldconnect/mvp';
 import type { RecordFieldDef } from '@/app/weldconnect/record-fields';
@@ -96,7 +96,7 @@ import { TriggerEmptyState } from './components/trigger-empty-state';
 import { RunsPanel } from './components/runs-panel';
 import { TestRunDialog, type TestRunRequest } from './components/test-run-dialog';
 import { isValidCronExpression, nextCronRun } from './lib/cron';
-import { findUnknownVariables, getStepFormatIssues, isInsideLoop } from './lib/step-issues';
+import { findUnknownVariables, getStepFormatIssues, isInsideLoop, isNestedWaitingStep } from './lib/step-issues';
 import { TriggerRecordFieldsProvider } from './lib/editor-field-context';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
@@ -2256,12 +2256,12 @@ function StepStatusBanner({ step, unsupported }: { step: WorkflowStepBag; unsupp
   const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
   const formatIssues = useFormatIssueMessages(step);
 
-  if (unsupported) {
+  if (unsupported || isNestedWaitingStep(step)) {
     return (
       <div className="mx-3 mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
         <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
           <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-          <span className="text-xs">{tec.publishGate.unsupportedStep}</span>
+          <span className="text-xs">{unsupported ? tec.publishGate.unsupportedStep : tec.publishIssues.nested_waiting_step}</span>
         </div>
       </div>
     );
@@ -2513,13 +2513,15 @@ function StepChecklistItem({ step, index, unsupported, unknownVariables, actionT
   const tec = t.weldconnect.workflowEditorClient;
   const missing = getMissingRequiredFields(step.type || '', step.config || {});
   const formatIssues = useFormatIssueMessages(step);
-  if (!unsupported && missing.length === 0 && formatIssues.length === 0 && unknownVariables.length === 0) return null;
+  const nestedWaiting = isNestedWaitingStep(step);
+  if (!unsupported && !nestedWaiting && missing.length === 0 && formatIssues.length === 0 && unknownVariables.length === 0) return null;
 
   const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
   const missingLabels = missing.map((m) => acf[m.labelKey] || m.labelKey).join(', ');
   const actionMeta = actionTypes.find((a) => a.id === step.type);
   const Icon = step.type ? getActionMeta(step.type).icon : Code;
   const messages = [
+    ...(nestedWaiting ? [tec.publishIssues.nested_waiting_step] : []),
     ...(missing.length > 0 ? [tec.overviewPanel.missingFields.replace('{fields}', missingLabels)] : []),
     ...formatIssues,
     ...(unknownVariables.length > 0
@@ -3381,7 +3383,11 @@ export function WorkflowEditorClient({
   // --- Validation: which steps / the trigger still need required config -----
   const stepNeedsWork = useCallback(
     (s: WorkflowStepBag) =>
-      isStepUnsupported(s.type) || !isStepConfigured(asWorkflowStep(s)) || getStepFormatIssues(s).length > 0,
+      isStepUnsupported(s.type) ||
+      !isStepConfigured(asWorkflowStep(s)) ||
+      getStepFormatIssues(s).length > 0 ||
+      // An approval only works in the main flow (the engine refuses it in a branch or loop).
+      isNestedWaitingStep(s),
     [isStepUnsupported],
   );
   const incompleteStepIds = useMemo(
@@ -3412,7 +3418,25 @@ export function WorkflowEditorClient({
     [isEntityEventTrigger, resolveRecordFields, savedEntityType, savedEventType],
   );
   const recordFieldLabels = t.weldconnect.recordFields as Record<string, string>;
+
+  // "After another workflow finishes" with "Pass output data": the previous
+  // run's step outputs arrive as {{trigger.output.<stepId>.<field>}}.
+  const chainSettings = firstTrigger?.type === 'workflow_complete' ? readWorkflowCompleteSettings(firstTrigger) : null;
+  const chainSourceId = chainSettings?.passOutput ? chainSettings.sourceWorkflowId : '';
+  const chainSource = useWorkflowDetail(chainSourceId, { enabled: !!chainSourceId });
+  const chainOutputFields = useMemo(() => {
+    if (!chainSourceId) return undefined;
+    return (chainSource.data?.steps ?? []).flatMap((sourceStep) =>
+      getStepOutputVariables(sourceStep.type || '').map((field) => ({
+        ...field,
+        path: `output.${sourceStep.id}.${field.path}`,
+        label: `${sourceStep.name || sourceStep.id}: ${field.label}`,
+      })),
+    );
+  }, [chainSourceId, chainSource.data?.steps]);
+
   const triggerRecordFields = useMemo(() => {
+    if (chainSettings) return chainOutputFields;
     if (!isEntityEventTrigger || !resolveRecordFields) return undefined;
     // An entity whose payload is not catalogued: only its id is certain.
     const defs: RecordFieldDef[] = recordFieldDefs ?? [{ path: 'id' }];
@@ -3421,7 +3445,7 @@ export function WorkflowEditorClient({
       label: recordFieldLabels[field.path] ?? field.path,
       type: field.type ?? ('string' as const),
     }));
-  }, [isEntityEventTrigger, resolveRecordFields, recordFieldDefs, recordFieldLabels]);
+  }, [chainSettings, chainOutputFields, isEntityEventTrigger, resolveRecordFields, recordFieldDefs, recordFieldLabels]);
   const testRecordFields = useMemo(
     () => recordFieldDefs?.map((field) => ({
       path: field.path,
@@ -3442,9 +3466,10 @@ export function WorkflowEditorClient({
         variableNames: workflowVariables.map((variable) => variable.name),
         extraRoots: extraVariableGroups?.flatMap((group) => group.variables.map((v) => v.path.split('.')[0])),
         inLoop: isInsideLoop(step, workflow.steps),
+        extraTriggerKeys: chainSourceId ? ['output'] : undefined,
       });
     },
-    [flagUnknownVariables, workflow.steps, triggerLocked, firstTrigger?.type, recordFieldDefs, workflowVariables, extraVariableGroups],
+    [flagUnknownVariables, workflow.steps, triggerLocked, firstTrigger?.type, recordFieldDefs, workflowVariables, extraVariableGroups, chainSourceId],
   );
 
   // Draft / Active / Paused, when the host shows it (see `showStatus`).

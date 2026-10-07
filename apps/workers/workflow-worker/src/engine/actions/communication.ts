@@ -191,6 +191,7 @@ export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
   return {
     sent: true,
     notificationIds,
+    notifiedUserIds: userIds,
     count: notificationIds.length,
     skipped: requested.length - userIds.length,
   };

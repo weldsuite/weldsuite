@@ -14,7 +14,7 @@ export function useLoopingSound(active: boolean, source: number) {
     let cancelled = false;
 
     if (active) {
-      (async () => {
+      void (async () => {
         try {
           // Ring through the speaker even with the ringer switch off, and mix so
           // we don't fight the WebRTC audio session once the call connects.

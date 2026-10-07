@@ -93,4 +93,7 @@ async function fitRect(srcSharp, width, height, targetFraction, bg) {
     const m = await sharp(path.join(OUT, f)).metadata();
     console.log(' ', f, m.width + 'x' + m.height);
   }
-})();
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

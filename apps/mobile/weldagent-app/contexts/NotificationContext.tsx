@@ -3,7 +3,7 @@ import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { AppState, Platform } from 'react-native';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useRouter } from 'expo-router';
 import { appApi } from '@/services/app-api';
@@ -27,7 +27,7 @@ const EAS_PROJECT_ID =
   '';
 const APP_CODE = 'weldagent';
 
-const isExpoGo = Constants.appOwnership === 'expo';
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 let Notifications: typeof import('expo-notifications') | null = null;
 let notifUtils: {
   registerForPushNotificationsAsync: (id: string) => Promise<string | undefined>;
@@ -211,11 +211,11 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
             if (data?.unreadCount !== undefined) {
               const count = Number(data.unreadCount) || 0;
               setUnreadCount(count);
-              notifUtils!.setBadgeCount(count);
+              void notifUtils!.setBadgeCount(count);
             } else {
               setUnreadCount((c) => {
                 const next = c + 1;
-                notifUtils!.setBadgeCount(next);
+                void notifUtils!.setBadgeCount(next);
                 return next;
               });
             }
@@ -252,7 +252,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
     };
 
-    init();
+    void init();
     return () => {
       if (cleanupRef.current) {
         cleanupRef.current();

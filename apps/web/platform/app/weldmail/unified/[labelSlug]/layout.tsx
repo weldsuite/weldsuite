@@ -1,10 +1,8 @@
-
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams } from '@/lib/router';
-import { useMailListPage } from '../../hooks/use-mail-list-page';
-import { MAIL_SEARCH_PAGE_SIZE, useMailThreadSearch } from '../../hooks/use-mail-thread-search';
-import { useMailLabelThreads } from '@/hooks/queries/use-mail-queries';
+import { useMailThreadSearch } from '../../hooks/use-mail-thread-search';
+import { useInfiniteMailLabelThreads } from '@/hooks/queries/use-mail-queries';
 import { getSystemLabelConfig } from '../../lib/label-config';
 import type { ThreadSummary } from '../../lib/thread-utils';
 import { MailDetailWrapper } from '../../components/mail-detail-wrapper';
@@ -12,10 +10,6 @@ import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MessageList } from '../../components/message-list';
 import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
 import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list';
-import {
-  useMailNextPageThreads,
-  useToppedUpThreadList,
-} from '../../hooks/use-mail-thread-list-top-up';
 import { mailThreadListKey } from '../../lib/optimistic-thread-list';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
 import { UNIFIED_ACCOUNT } from '../../lib/mail-preferences';
@@ -31,6 +25,52 @@ function applyLabelAction(current: string[], labelName: string, action: 'add' | 
   return current.includes(labelName) ? current : [...current, labelName];
 }
 
+function mapApiThreads(
+  apiThreads: Array<{
+    threadId: string;
+    subject: string;
+    participants: string[];
+    latestMessageId: string;
+    latestSender: string;
+    latestSenderEmail: string;
+    latestSenderAvatarUrl?: string | null;
+    latestDate?: string | Date | null;
+    preview: string;
+    messageCount: number;
+    unreadCount: number;
+    hasAttachments: boolean;
+    isStarred: boolean;
+    labels: string[];
+    scheduledFor?: string | Date | null;
+    sendStatus?: string | null;
+    messages: ThreadSummary['messages'];
+    accountId?: string;
+  }>,
+): ThreadSummary[] {
+  return apiThreads.map(
+    (th): ThreadSummary => ({
+      threadId: th.threadId,
+      subject: th.subject,
+      participants: th.participants,
+      latestMessageId: th.latestMessageId,
+      latestSender: th.latestSender,
+      latestSenderEmail: th.latestSenderEmail,
+      latestSenderAvatarUrl: th.latestSenderAvatarUrl,
+      latestDate: th.latestDate ? new Date(th.latestDate) : new Date(0),
+      preview: th.preview,
+      messageCount: th.messageCount,
+      unreadCount: th.unreadCount,
+      hasAttachments: th.hasAttachments,
+      isStarred: th.isStarred,
+      labels: th.labels,
+      scheduledFor: th.scheduledFor,
+      sendStatus: th.sendStatus,
+      messages: th.messages,
+      accountId: th.accountId,
+    }),
+  );
+}
+
 export default function UnifiedLabelLayout({
   children,
 }: Readonly<{
@@ -39,12 +79,9 @@ export default function UnifiedLabelLayout({
   const { t } = useI18n();
   const params = useParams<{ labelSlug: string }>();
   const labelSlug = decodeURIComponent(params.labelSlug);
-  const urlPage = useMailListPage();
 
   // Search box and Filter panel run on the server (see useMailThreadSearch).
-  const { search: threadSearch, isSearching, setSearch } = useMailThreadSearch();
-  const currentPage = isSearching ? 1 : urlPage;
-  const pageSize = isSearching ? MAIL_SEARCH_PAGE_SIZE : PAGE_SIZE;
+  const { search: threadSearch, setSearch } = useMailThreadSearch();
 
   // Remember that the unified inbox was the last view opened (per-user).
   const { data: preferences } = useUserPreferences();
@@ -60,32 +97,15 @@ export default function UnifiedLabelLayout({
 
   // Unified inbox: omit `accountId` so app-api's /mail-labels/threads
   // aggregates threads across every account the caller can read.
-  const threadsQuery = useMailLabelThreads({ labelSlug, page: currentPage, pageSize, ...threadSearch });
+  const threadsQuery = useInfiniteMailLabelThreads({
+    labelSlug,
+    pageSize: PAGE_SIZE,
+    ...threadSearch,
+  });
 
   const mappedThreads = useMemo<ThreadSummary[]>(() => {
-    const apiThreads = threadsQuery.data?.data?.threads ?? [];
-    return apiThreads.map(
-      (th): ThreadSummary => ({
-        threadId: th.threadId,
-        subject: th.subject,
-        participants: th.participants,
-        latestMessageId: th.latestMessageId,
-        latestSender: th.latestSender,
-        latestSenderEmail: th.latestSenderEmail,
-        latestSenderAvatarUrl: th.latestSenderAvatarUrl,
-        latestDate: th.latestDate ? new Date(th.latestDate) : new Date(0),
-        preview: th.preview,
-        messageCount: th.messageCount,
-        unreadCount: th.unreadCount,
-        hasAttachments: th.hasAttachments,
-        isStarred: th.isStarred,
-        labels: th.labels,
-        scheduledFor: th.scheduledFor,
-        sendStatus: th.sendStatus,
-        messages: th.messages,
-        accountId: th.accountId,
-      }),
-    );
+    const apiThreads = threadsQuery.data?.pages.flatMap((page) => page.data?.threads ?? []) ?? [];
+    return mapApiThreads(apiThreads);
   }, [threadsQuery.data]);
 
   // Local copy so optimistic label updates render immediately; re-seeded
@@ -95,45 +115,29 @@ export default function UnifiedLabelLayout({
     setThreads(mappedThreads);
   }, [mappedThreads]);
 
-  const serverTotalCount = threadsQuery.data?.data?.totalCount ?? 0;
-
-  const { nextPageThreads, nextPageThreadIds } = useMailNextPageThreads({
-    labelSlug,
-    page: currentPage,
-    pageSize: PAGE_SIZE,
-    serverTotalCount,
-    enabled: !isSearching,
-  });
+  const serverTotalCount = threadsQuery.data?.pages[0]?.data?.totalCount ?? 0;
 
   // Archive-and-next hides the row immediately so the left list doesn't
-  // wait on the background refetch. Prefetched next-page rows refill the gap.
+  // wait on the background refetch.
   const {
-    threads: visibleThreads,
-    hidden,
+    threads: listThreads,
     hiddenCount,
     hideThread,
     unhideThread,
   } = useOptimisticThreadList(
     threads,
-    mailThreadListKey({ accountId: 'unified', folder: labelSlug, page: currentPage, pageSize: PAGE_SIZE }),
-    nextPageThreadIds,
+    mailThreadListKey({ accountId: 'unified', folder: labelSlug, pageSize: PAGE_SIZE }),
   );
 
-  const listThreads = useToppedUpThreadList(
-    visibleThreads,
-    nextPageThreads,
-    pageSize,
-    hidden,
-  );
-
-  const totalCount = isSearching
-    ? Math.min(serverTotalCount, MAIL_SEARCH_PAGE_SIZE)
-    : Math.max(0, serverTotalCount - hiddenCount);
-  const totalPages = Math.ceil(totalCount / pageSize) || 1;
+  const totalCount = Math.max(0, serverTotalCount - hiddenCount);
   const error = threadsQuery.isError ? t.mail.unifiedLayout.failedToLoadConversations : null;
 
   const refetchThreads = useCallback(() => {
     void threadsQuery.refetch();
+  }, [threadsQuery]);
+
+  const handleFetchNextPage = useCallback(() => {
+    void threadsQuery.fetchNextPage();
   }, [threadsQuery]);
 
   useEffect(() => {
@@ -198,10 +202,11 @@ export default function UnifiedLabelLayout({
         accountId="unified"
         folder={labelSlug}
         error={error}
-        currentPage={currentPage}
-        totalPages={totalPages}
         totalCount={totalCount}
-        pageSize={pageSize}
+        hasNextPage={Boolean(threadsQuery.hasNextPage)}
+        isFetchingNextPage={threadsQuery.isFetchingNextPage}
+        onFetchNextPage={handleFetchNextPage}
+        isLoading={threadsQuery.isLoading}
         isUnified
         onThreadLabelUpdate={handleThreadLabelUpdate}
         onServerFilterChange={setSearch}

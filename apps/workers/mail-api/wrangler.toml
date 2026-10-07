@@ -87,7 +87,8 @@ class_name = "SendScheduledEmailWorkflow"
 
 # Snooze wake-up sweep (src/cron/snooze-sweep.ts, scheduled() in
 # src/index.ts): snoozed mail whose time has come goes back to the inbox.
-# Keep the expression in step with SNOOZE_SWEEP_CRON.
+# Keep the expression in step with SNOOZE_SWEEP_CRONS. Test is hourly
+# (below) so its master Neon compute can scale to zero.
 [triggers]
 crons = ["*/5 * * * *"]
 
@@ -132,8 +133,11 @@ name = "send-scheduled-email-v3-test"
 binding = "SEND_SCHEDULED_EMAIL"
 class_name = "SendScheduledEmailWorkflow"
 
+# Hourly, not */5. Each sweep reads the master DB (mailbox workspaces, then
+# tenant URLs once the 5-minute workspace cache expires). On test that kept
+# the master compute from ever suspending. Wake-up latency here is up to an hour.
 [env.test.triggers]
-crons = ["*/5 * * * *"]
+crons = ["0 * * * *"]
 
 [env.test.observability]
 enabled = true

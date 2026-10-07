@@ -296,6 +296,7 @@ class StepRunner {
       chainDepth: this.context.chainDepth ?? 0,
       loopItem: scope.loop?.item,
       loopIndex: scope.loop?.index,
+      maxCreditsPerRun: this.context.maxCreditsPerRun,
     };
 
     // 3. Execute with retry.

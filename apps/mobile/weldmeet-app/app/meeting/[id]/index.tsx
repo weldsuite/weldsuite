@@ -43,7 +43,7 @@ export default function MeetingDetailScreen() {
         Alert.alert('Could not cancel', err instanceof Error ? err.message : 'Please try again.');
       } finally {
         setBusy(false);
-        refresh();
+        void refresh();
       }
     };
     Alert.alert('Cancel meeting', 'Notify attendees?', [

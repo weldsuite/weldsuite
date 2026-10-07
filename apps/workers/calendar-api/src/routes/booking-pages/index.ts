@@ -26,6 +26,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { validationHook } from '../../lib/validation';
 import {
   computeAvailableSlots,
   type DateOverride,
@@ -99,7 +100,7 @@ app.get('/:id', requirePermission('bookings:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('bookings:create'), zValidator('json', createBookingPageSchema), async (c) => {
+app.post('/', requirePermission('bookings:create'), zValidator('json', createBookingPageSchema, validationHook), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json') as Record<string, any>;
   const userId = c.get('userId');
@@ -132,7 +133,7 @@ app.post('/', requirePermission('bookings:create'), zValidator('json', createBoo
   }
 });
 
-app.patch('/:id', requirePermission('bookings:update'), zValidator('json', updateBookingPageSchema), async (c) => {
+app.patch('/:id', requirePermission('bookings:update'), zValidator('json', updateBookingPageSchema, validationHook), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json') as Record<string, any>;
@@ -260,7 +261,7 @@ const slotsQuerySchema = z.object({
   date: z.string().min(1),
 });
 
-app.get('/:id/available-slots', requirePermission('bookings:read'), zValidator('query', slotsQuerySchema), async (c) => {
+app.get('/:id/available-slots', requirePermission('bookings:read'), zValidator('query', slotsQuerySchema, validationHook), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const { date } = c.req.valid('query');

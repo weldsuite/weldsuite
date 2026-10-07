@@ -135,6 +135,17 @@ export default defineConfig(async () => {
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, '.') },
+    // Packages that keep module-level state and must exist once in the bundle.
+    //
+    // The workspace installs with `node-linker=hoisted`, and the root slot for
+    // `sonner` is taken by the 1.x the portals use. The platform,
+    // `@weldsuite/ui` and `@weldsuite/weldmeet-ui` therefore each get their own
+    // nested copy of sonner 2.x, each with its own toast store. The `<Toaster>`
+    // (mounted from `@weldsuite/ui`) listens to one of them, so a `toast()`
+    // called from platform or weldmeet-ui code landed in a store nobody
+    // rendered. Deduping resolves every import to the platform's copy.
+    // Keep in sync with vitest.config.ts (components/toaster.test.tsx covers it).
+    dedupe: ['sonner'],
   },
   envPrefix: 'VITE_',
   server: {

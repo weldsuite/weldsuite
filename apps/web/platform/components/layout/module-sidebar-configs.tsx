@@ -231,7 +231,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.groups.settings,
         items: [
           { title: t.navigation.moduleSidebar.weldhr.portal, href: '/weldhr/portal', icon: AppWindow, permission: 'employees:manage' },
-          { title: t.navigation.moduleSidebar.weldhr.settings, href: '/weldhr/settings', icon: Settings, permission: 'employees:manage' },
         ],
       },
     ],

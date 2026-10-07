@@ -1,26 +1,13 @@
 
-import { useWebhooks, useWorkflows, type Workflow } from '@/hooks/queries/use-automation-queries';
+import { useWebhooks } from '@/hooks/queries/use-automation-queries';
 import { WebhooksClient, type WebhookView } from './webhooks-client';
 
 export default function WebhooksPage() {
-  const { data: webhooksResult, isLoading: isWebhooksLoading } = useWebhooks();
-  const { data: workflowsResult, isLoading: isWorkflowsLoading } = useWorkflows();
+  // The list filters and searches client-side, so load a full page up front.
+  // Each row already carries its workflow's name.
+  const { data: webhooksResult, isLoading } = useWebhooks({ limit: 100 });
 
-  if (isWebhooksLoading || isWorkflowsLoading) {
-    return <WebhooksClient webhooks={[]} isLoading />;
-  }
+  const webhooks = (webhooksResult?.data ?? []) as unknown as WebhookView[];
 
-  const webhooks = webhooksResult?.data ?? [];
-  const workflows = workflowsResult?.data ?? [];
-
-  // Create workflow name lookup
-  const workflowNames = new Map(workflows.map((w: Workflow) => [w.id, w.name]));
-
-  // Map webhooks with workflow names
-  const mappedWebhooks = webhooks.map((w): WebhookView => ({
-    ...(w as unknown as WebhookView),
-    workflowName: w.workflowId ? workflowNames.get(w.workflowId as string) : undefined,
-  }));
-
-  return <WebhooksClient webhooks={mappedWebhooks} isLoading={isWebhooksLoading || isWorkflowsLoading} />;
+  return <WebhooksClient webhooks={webhooks} isLoading={isLoading} />;
 }

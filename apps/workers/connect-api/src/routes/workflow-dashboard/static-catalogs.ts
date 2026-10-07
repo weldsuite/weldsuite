@@ -38,6 +38,7 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'condition', name: 'Condition', description: 'Branch based on conditions', category: 'logic', icon: 'git-branch' },
   { id: 'loop', name: 'Loop', description: 'Iterate over a list', category: 'logic', icon: 'repeat' },
   { id: 'delay', name: 'Delay', description: 'Wait for a specified time', category: 'logic', icon: 'clock' },
+  { id: 'manual_step', name: 'Approval', description: 'Pause until someone approves or rejects', category: 'logic', icon: 'user-check' },
   { id: 'transform', name: 'Transform Data', description: 'Transform data using expressions', category: 'logic', icon: 'shuffle' },
   // Integration
   { id: 'http_request', name: 'HTTP Request', description: 'Make an HTTP request', category: 'integration', icon: 'globe' },

@@ -125,7 +125,11 @@ export function mirrorLatestReadyPart(parts: RecordingPart[] | null | undefined)
     recordingVideoKey: latest?.videoKey ?? null,
     recordingAudioKey: latest?.audioKey ?? null,
     recordingSizeBytes: latest?.sizeBytes ?? null,
-    recordingDurationSeconds: latest?.durationSeconds ?? null,
+    // RealtimeKit reports fractional seconds (10.444) and the column is an
+    // integer: Postgres rejects the whole update otherwise, which leaves a
+    // copied recording marked as failed. The part keeps the exact value.
+    recordingDurationSeconds:
+      typeof latest?.durationSeconds === 'number' ? Math.round(latest.durationSeconds) : null,
   };
 }
 

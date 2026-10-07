@@ -61,6 +61,8 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { tasksApi, membersApi, labelsApi, stagesApi } from '@/app/weldflow/lib/api-client';
 import { useFeatureFlag } from '@/hooks/queries/use-feature-flags-queries';
+import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
+import { buildEntityAssigneeDirectory } from './entity-assignees';
 import { MoveTaskDialog } from '@/components/weldflow/move-task-dialog';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
@@ -148,7 +150,8 @@ interface TasksClientProps {
    * When set, the board renders in entity-scoped mode (CRM company/person panel).
    * Tasks come from the entity wrapper (useTasks with customerId/personId) and
    * span multiple projects. Project-only features (DnD reorder, sprints/sections
-   * group-by, project stages, project members, breadcrumbs) are suppressed.
+   * group-by, project stages, breadcrumbs) are suppressed. Assignees come from
+   * the workspace member directory instead of a per-project member list.
    */
   entityScope?: { kind: 'company' | 'person'; id: string };
 }
@@ -569,6 +572,9 @@ export function TasksClient({
   // Only needed in entity mode, to pre-fill the "Add Task" dialog's assignee
   // the way the My Tasks dialog does (defaults to the current user).
   const { userId: currentUserId } = useAuth();
+  // Entity mode has no project member list. Walk every cursor page of the
+  // workspace directory only there; project boards keep using membersApi.list.
+  const { data: workspaceMembersData } = useWorkspaceMemberDirectory(isEntityMode);
 
   const priorityConfig = useMemo(() => ({
     low: { label: t.projects.tasks.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
@@ -642,7 +648,7 @@ export function TasksClient({
 
   const [editingCrmTask, setEditingCrmTask] = useState<CrmTask | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
-  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [loadedProjectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   // Fetch companies so the task detail panel's Company picker has real
   // options to choose from (instead of "No records available").
   const companiesQuery = useCompanies({ limit: 100 });
@@ -860,10 +866,8 @@ export function TasksClient({
   // Live task sync: useRealtimeSync(platformSyncMap) invalidates project/task
   // query roots — no parallel useTaskEvents bridge (Phase 9 stub cleanup).
 
-  // Fetch project members for assignee dropdown.
-  // In entity mode there is no single project to query for members. Instead we
-  // derive a synthetic member list from the assignees embedded in the task data,
-  // so the assignee column + popover still renders correctly.
+  // Fetch project members for the assignee dropdown. Entity mode has no single
+  // project, so that board uses the workspace directory instead (see below).
   useEffect(() => {
     if (isEntityMode) return;
     async function loadMembers() {
@@ -875,32 +879,17 @@ export function TasksClient({
     loadMembers();
   }, [projectId, isEntityMode]);
 
-  // In entity mode: build a synthetic ProjectMember list from assignees already
-  // embedded in the task data. This populates the assignee column without a
-  // per-project API call.
-  useEffect(() => {
-    if (!isEntityMode) return;
-    const seen = new Map<string, ProjectMember>();
-    for (const task of tasks) {
-      const assigneesList = task.assignees ?? [];
-      for (const a of assigneesList) {
-        if (!seen.has(a.id)) {
-          seen.set(a.id, {
-            userId: a.id,
-            user: { id: a.id, name: a.name, email: a.email ?? '', avatar: a.avatar },
-          });
-        }
-      }
-      // Also handle legacy single-assignee fields
-      if (!seen.has(task.assigneeId ?? '') && task.assigneeId && task.assignee) {
-        seen.set(task.assigneeId, {
-          userId: task.assigneeId,
-          user: { id: task.assigneeId, name: task.assignee, email: '' },
-        });
-      }
-    }
-    setProjectMembers(Array.from(seen.values()));
-  }, [isEntityMode, tasks]);
+  // Customer/person Tasks tab: every workspace member is selectable, including
+  // on a customer that has no tasks yet. People already assigned who have left
+  // the workspace stay in the list so their name still renders.
+  const entityAssigneeDirectory = useMemo(
+    () =>
+      isEntityMode
+        ? buildEntityAssigneeDirectory(workspaceMembersData?.data ?? [], tasks)
+        : null,
+    [isEntityMode, workspaceMembersData, tasks],
+  );
+  const projectMembers = entityAssigneeDirectory ?? loadedProjectMembers;
 
   const handleTaskDialogSave = async (data: {
     title: string;

@@ -66,9 +66,13 @@ function webhookSyncFor(c: WorkflowsContext): WebhookSyncContext {
 async function rejectUnsupportedActivation(
   c: WorkflowsContext,
   workflow: { triggers?: unknown; steps?: unknown; tags?: unknown },
+  /** The workflow's id; absent while it is being created. */
+  workflowId?: string,
 ) {
   if (isSequenceWorkflow(workflow.tags)) return null;
-  const issues = validateWeldConnectWorkflow(workflow);
+  const issues = validateWeldConnectWorkflow(workflow, { workflowId });
+  // "After another workflow finishes" must point at a workflow that exists.
+  issues.push(...(await workflowsService.findMissingSourceWorkflows(c.get('tenantDb'), workflow.triggers)));
 
   const steps = Array.isArray(workflow.steps) ? workflow.steps : [];
   const hasProviderStep = steps.some(
@@ -208,11 +212,15 @@ for (const method of ['put', 'patch'] as const) {
       const activating = nextStatus === 'active' && existing.status !== 'active';
       const flowChanged = data.triggers !== undefined || data.steps !== undefined;
       if (nextStatus === 'active' && (activating || flowChanged)) {
-        const rejection = await rejectUnsupportedActivation(c, {
-          triggers: data.triggers ?? existing.triggers,
-          steps: data.steps ?? existing.steps,
-          tags: data.tags ?? existing.tags,
-        });
+        const rejection = await rejectUnsupportedActivation(
+          c,
+          {
+            triggers: data.triggers ?? existing.triggers,
+            steps: data.steps ?? existing.steps,
+            tags: data.tags ?? existing.tags,
+          },
+          id,
+        );
         if (rejection) return rejection;
       }
 
@@ -247,7 +255,7 @@ app.patch(
       if (status === 'active') {
         const existing = await workflowsService.getWorkflow(db, id);
         if (!existing) return error.notFound(c, 'Workflow', id);
-        const rejection = await rejectUnsupportedActivation(c, existing);
+        const rejection = await rejectUnsupportedActivation(c, existing, id);
         if (rejection) return rejection;
       }
       const result = await workflowsService.updateWorkflowStatus(db, id, status, scheduleSyncFor(c));

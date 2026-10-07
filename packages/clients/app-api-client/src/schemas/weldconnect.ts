@@ -137,8 +137,9 @@ export const workflowSettingsSchema = z.object({
   notifyOnError: z.boolean().optional(),
   notifyEmails: z.array(z.string()).optional(),
   timezone: z.string().optional(),
-  // Per-run credit cap. Nothing in a WeldConnect run spends credits yet, so this is
-  // stored but not enforced; validated so nonsense (0, negatives, fractions) is never saved.
+  // Per-run credit cap, enforced by the engine before every ai_generate / ai_classify
+  // call (apps/workers/workflow-worker/src/engine/actions/ai.ts). Validated so nonsense
+  // (0, negatives, fractions) is never saved; null/absent means no cap.
   maxCreditsPerRun: z.number().int().min(1).max(100_000).nullish(),
 });
 
@@ -208,6 +209,25 @@ export const resumeExecutionSchema = z.object({
   response: z.record(z.unknown()),
 });
 
+/** Approve or reject the approval step (`manual_step`) a run is waiting on. */
+export const approvalDecisionSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  comment: z.string().max(2000).nullish(),
+});
+
+/** GET /workflow-executions/:id/approval — the approval a run waits on, and whether the caller may decide. */
+export const pendingApprovalResponseSchema = z.object({
+  approval: z
+    .object({
+      stepId: z.string(),
+      title: z.string().nullable(),
+      description: z.string().nullable(),
+      approverIds: z.array(z.string()),
+    })
+    .nullable(),
+  canDecide: z.boolean(),
+});
+
 // ============================================================================
 // Template Schemas
 // ============================================================================
@@ -270,8 +290,15 @@ export const listSchedulesQuery = z.object({
 // Variable Schemas
 // ============================================================================
 
+/**
+ * A variable is read in a workflow as `{{variables.<name>}}`, so its name must
+ * be a plain identifier (letters, digits, underscores; not starting with a
+ * digit) for the expression to resolve.
+ */
+export const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 export const createVariableSchema = z.object({
-  name: z.string().min(1).max(255),
+  name: z.string().min(1).max(255).regex(VARIABLE_NAME_PATTERN),
   description: z.string().optional(),
   type: z.enum(['string', 'number', 'boolean', 'json']).default('string'),
   value: z.string(),
@@ -282,7 +309,7 @@ export const createVariableSchema = z.object({
 });
 
 export const updateVariableSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
+  name: z.string().min(1).max(255).regex(VARIABLE_NAME_PATTERN).optional(),
   description: z.string().optional(),
   type: z.enum(['string', 'number', 'boolean', 'json']).optional(),
   value: z.string().optional(),
@@ -348,6 +375,8 @@ export type CreateWorkflowInput = z.infer<typeof createWorkflowSchema>;
 export type UpdateWorkflowInput = z.infer<typeof updateWorkflowSchema>;
 export type ListWorkflowsQuery = z.infer<typeof listWorkflowsQuery>;
 export type TriggerWorkflowInput = z.infer<typeof triggerWorkflowSchema>;
+export type ApprovalDecisionInput = z.infer<typeof approvalDecisionSchema>;
+export type PendingApprovalResponse = z.infer<typeof pendingApprovalResponseSchema>;
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 export type TriggerConfig = z.infer<typeof triggerConfigSchema>;
 export type WorkflowSettings = z.infer<typeof workflowSettingsSchema>;
@@ -469,7 +498,8 @@ export interface WorkflowVariable {
   type: string;
   value: string;
   isSecret: boolean;
-  isGlobal: boolean;
+  /** `global` (no workflowId; every workflow sees it) or `workflow`. */
+  scope: string;
   workflowId: string | null;
   createdBy: string | null;
   createdAt: string;

@@ -2,10 +2,14 @@
  * AI gateway credit rollup — re-derives per-gateway spend and publishes the
  * snapshot the whole platform routes on.
  *
- * Runs on workflow-worker's existing `* * * * *` trigger. That placement is
- * load-bearing: **workflow-worker is the only worker with a cron**, so there is
- * exactly one writer by construction — no distributed coordination, no leader
- * election. (The KV lock below only guards a run overrunning its own minute.)
+ * Runs on workflow-worker's existing `* * * * *` trigger in production. That
+ * placement is load-bearing there: one cron, one writer, no leader election.
+ * (The KV lock below only guards a run overrunning its own minute.)
+ *
+ * Test skips the query. Neon suspends a compute after 5 minutes without one,
+ * and this rollup is the fleet's only per-minute master read, so running it
+ * on test keeps that database billed 24/7. With no snapshot, routers fall
+ * back to fee order and do not touch the master DB (see gateway-cache.ts).
  *
  * Why re-aggregate instead of incrementing a counter per call: see
  * `packages/core/credits/src/gateway-costs.ts`. Short version — a SUM self-heals and
@@ -35,6 +39,8 @@ import type { WorkflowEnv } from '../engine/types';
  * simply expires (120s TTL) and routing degrades to fee order.
  */
 export async function runGatewayCreditRollup(env: WorkflowEnv, now = new Date()): Promise<number> {
+  // See the file comment: a minute-cadence query pins the test master compute on.
+  if (env.ENVIRONMENT === 'test') return 0;
   if (!env.DATABASE_URL_MASTER) return 0;
 
   // Guards an overrunning run overlapping the next minute's tick. Best-effort:
