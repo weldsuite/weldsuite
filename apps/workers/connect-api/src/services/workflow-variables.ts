@@ -7,6 +7,7 @@
 import { and, desc, eq, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { asText } from '@weldsuite/text';
 
 const { workflowVariables, workflows } = schema;
 
@@ -161,7 +162,7 @@ export async function createVariable(db: Database, data: Record<string, unknown>
     id,
     name: String(data.name),
     description: (data.description as string) ?? null,
-    type: String(data.type ?? 'string'),
+    type: asText(data.type ?? 'string'),
     value: (data.value ?? null) as any,
     isSecret: data.isSecret === true,
     scope,

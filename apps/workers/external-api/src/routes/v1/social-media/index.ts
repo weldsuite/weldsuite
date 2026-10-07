@@ -24,6 +24,7 @@ import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import { stripServerFields } from '../../../lib/sanitize';
+import { asText } from '@weldsuite/text';
 
 const listSocialMediaQuery = z.object({
   cursor: z.string().optional(),
@@ -85,7 +86,7 @@ app.post('/', requireScope('social_posts:write'), zValidator('json', createSocia
   const now = new Date();
   const id = generateId('smed');
 
-  const fileName = String(body.fileName ?? 'asset');
+  const fileName = asText(body.fileName ?? 'asset');
   const url = typeof body.url === 'string' ? body.url : undefined;
   const mediaType = guessMediaType(fileName, typeof body.mediaType === 'string' ? body.mediaType : undefined);
   const mimeType =

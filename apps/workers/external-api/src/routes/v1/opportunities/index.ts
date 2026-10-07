@@ -13,6 +13,7 @@ import {
   updateOpportunitySchema,
   listOpportunitiesQuery,
 } from '@weldsuite/core-api-client/schemas/opportunities';
+import { asText } from '@weldsuite/text';
 
 const table = schema.crmOpportunities;
 const app = new Hono<HonoEnv>();
@@ -25,7 +26,7 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Coerce one PATCH field to the shape its column expects. */
 function coerceUpdateValue(key: string, value: unknown): unknown {
-  if (NUMERIC_FIELDS.has(key)) return value == null ? value : String(value);
+  if (NUMERIC_FIELDS.has(key)) return value == null ? value : asText(value);
   if (DATE_FIELDS.has(key) && typeof value === 'string') return new Date(value);
   return value;
 }

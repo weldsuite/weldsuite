@@ -7,6 +7,7 @@ import { GitBranch, CheckCircle2, X, Plus, ArrowUpRight, XCircle, Repeat } from 
 import { cn } from '../../lib/utils';
 import { SetupRequiredBadge } from './action-node';
 import type { ConditionNodeData, ConditionBranchNodeData, ConditionStepConfig } from './flow-utils';
+import { asText } from '@weldsuite/text';
 
 // Static operator symbols (language-neutral)
 const OPERATOR_SYMBOLS: Record<string, string> = {
@@ -38,7 +39,7 @@ function getConditionSummary(config: ConditionStepConfig, operatorLabels: Record
   if (['isEmpty', 'isNotEmpty'].includes(config.operator ?? '')) {
     return `${shortField} ${op}`;
   }
-  return `${shortField} ${op} ${value || '?'}`;
+  return `${shortField} ${op} ${asText(value || '?')}`;
 }
 
 function ConditionNodeComponent({ data, selected }: NodeProps) {

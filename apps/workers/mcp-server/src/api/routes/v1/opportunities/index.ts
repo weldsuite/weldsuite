@@ -13,6 +13,7 @@ import {
   updateOpportunitySchema,
   listOpportunitiesQuery,
 } from '@weldsuite/core-api-client/schemas/opportunities';
+import { asText } from '@weldsuite/text';
 
 const table = schema.crmOpportunities;
 const app = new Hono<HonoEnv>();
@@ -28,7 +29,7 @@ function buildUpdate(body: Record<string, unknown>): Record<string, unknown> {
   const update: Record<string, unknown> = { updatedAt: new Date() };
   for (const [k, v] of Object.entries(body)) {
     if (v === undefined) continue;
-    if (NUMERIC_FIELDS.has(k)) update[k] = v == null ? v : String(v);
+    if (NUMERIC_FIELDS.has(k)) update[k] = v == null ? v : asText(v);
     else if (DATE_FIELDS.has(k) && typeof v === 'string') update[k] = new Date(v);
     else update[k] = v;
   }

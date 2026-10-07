@@ -140,6 +140,7 @@
   },
   "dependencies": {
     "@weldsuite/api-client": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "zod": "^3.25.76"
   },
   "devDependencies": {

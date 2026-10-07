@@ -31,6 +31,7 @@ import {
   type CustomFieldDefinitionRow,
   type CustomFieldMap,
 } from './custom-field-values';
+import { asText } from '@weldsuite/text';
 
 type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
 
@@ -188,7 +189,7 @@ export function resolveRecordTitle(
     const def = definitions.find((d) => d.id === object.titleFieldId);
     if (def) {
       const raw = fields[def.slug];
-      if (raw !== undefined && raw !== null && raw !== '') return String(raw).slice(0, 500);
+      if (raw !== undefined && raw !== null && raw !== '') return asText(raw).slice(0, 500);
     }
   }
 
@@ -196,7 +197,7 @@ export function resolveRecordTitle(
   for (const def of ordered) {
     if (!TITLE_FALLBACK_TYPES.has(def.fieldType)) continue;
     const raw = fields[def.slug];
-    if (raw !== undefined && raw !== null && raw !== '') return String(raw).slice(0, 500);
+    if (raw !== undefined && raw !== null && raw !== '') return asText(raw).slice(0, 500);
   }
   return null;
 }

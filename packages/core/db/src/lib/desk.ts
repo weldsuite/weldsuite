@@ -23,6 +23,7 @@ import type {
   DeskMessageMetadata,
 } from '../schema/desk-messages';
 import type { DeskVisitor } from '../schema/desk-visitors';
+import { asText } from '@weldsuite/text';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
@@ -43,20 +44,20 @@ export class DeskConversationNotFoundError extends Error {
 export function isDeskSchemaMissing(err: unknown): boolean {
   const code =
     typeof err === 'object' && err !== null && 'code' in err
-      ? String((err as { code: unknown }).code)
+      ? asText((err as { code: unknown }).code)
       : '';
   if (code === '42P01' || code === '42703') return true;
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = err instanceof Error ? err.message : asText(err);
   return /column .+ does not exist/i.test(msg) || /relation .+ does not exist/i.test(msg);
 }
 
 function isUniqueViolation(err: unknown): boolean {
   const code =
     typeof err === 'object' && err !== null && 'code' in err
-      ? String((err as { code: unknown }).code)
+      ? asText((err as { code: unknown }).code)
       : '';
   if (code === '23505') return true;
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = err instanceof Error ? err.message : asText(err);
   return /duplicate key value/i.test(msg);
 }
 

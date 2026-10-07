@@ -6,6 +6,7 @@
  */
 
 import type { ConnectorEntity } from '@weldsuite/connectors';
+import { asText } from '@weldsuite/text';
 
 export interface MappedProductVariant {
   externalId: string;
@@ -148,7 +149,7 @@ function pickString(source: Record<string, unknown>, paths: string[], maxLength?
     const value = readPath(source, path);
     if (value === null || value === undefined) continue;
     if (typeof value === 'object') continue;
-    const str = String(value).trim();
+    const str = asText(value).trim();
     if (str === '' || str === 'null' || str === 'undefined') continue;
     return maxLength !== undefined && str.length > maxLength ? str.slice(0, maxLength) : str;
   }
@@ -206,7 +207,7 @@ function shopifyImages(record: Record<string, unknown>): Array<{ url: string; al
     .map((img) => ({
       url: typeof img.src === 'string' ? img.src : typeof img.url === 'string' ? img.url : '',
       altText: typeof img.alt === 'string' ? img.alt : undefined,
-      id: img.id !== undefined ? String(img.id) : undefined,
+      id: img.id !== undefined ? asText(img.id) : undefined,
     }))
     .filter((img) => img.url);
 }
@@ -257,7 +258,7 @@ function mapProductVariants(record: Record<string, unknown>): MappedProductVaria
   const mapped: MappedProductVariant[] = [];
   for (let i = 0; i < raw.length; i++) {
     const variant = raw[i]!;
-    const externalId = variant.id !== undefined && variant.id !== null ? String(variant.id) : null;
+    const externalId = variant.id !== undefined && variant.id !== null ? asText(variant.id) : null;
     if (!externalId) continue;
     const optionValues = mapProductOptionValues(variant, productOptions);
     const status = PRODUCT_STATUS[pickString(variant, ['status']) ?? ''] ?? 'active';

@@ -19,6 +19,7 @@ import {
   type ExternalProductRef,
   type OutboundCatalogProduct,
 } from '../types';
+import { asText } from '@weldsuite/text';
 
 export const PICQER_USER_AGENT = 'WeldSuite Picqer Connector (weldsuite.com)';
 const DEFAULT_LIMIT = 100;
@@ -78,7 +79,7 @@ export function expandPicqerProductStock(
   return stock.map((row) => {
     const idwarehouse = row.idwarehouse;
     return {
-      id: `${idproduct}:${idwarehouse ?? '0'}`,
+      id: `${asText(idproduct)}:${asText(idwarehouse ?? '0')}`,
       idproduct,
       idwarehouse,
       stock: row.stock ?? 0,
@@ -251,7 +252,7 @@ export class PicqerClient implements ConnectorProviderClient {
         const idshipment = shipment.idshipment ?? shipment.id;
         shipments.push({
           ...shipment,
-          id: idshipment !== undefined && idshipment !== null ? String(idshipment) : undefined,
+          id: idshipment !== undefined && idshipment !== null ? asText(idshipment) : undefined,
           idshipment,
           idpicklist,
         });
@@ -356,7 +357,7 @@ export class PicqerClient implements ConnectorProviderClient {
     });
     const id = data.idhook ?? data.id;
     return {
-      id: id !== undefined && id !== null ? String(id) : '',
+      id: id !== undefined && id !== null ? asText(id) : '',
       topic: event,
       address,
     };
@@ -395,7 +396,7 @@ export class PicqerClient implements ConnectorProviderClient {
     if (!product) return null;
     const id = product.idproduct ?? product.id;
     if (id === undefined || id === null) return null;
-    return { id: String(id), url: null };
+    return { id: asText(id), url: null };
   }
 
   async createProduct(product: OutboundCatalogProduct): Promise<ExternalProductRef> {
@@ -404,7 +405,7 @@ export class PicqerClient implements ConnectorProviderClient {
       body: toPicqerProductBody(product),
     });
     const id = data.idproduct ?? data.id;
-    return { id: id !== undefined && id !== null ? String(id) : '', url: null };
+    return { id: id !== undefined && id !== null ? asText(id) : '', url: null };
   }
 
   async updateProduct(id: string, product: OutboundCatalogProduct): Promise<ExternalProductRef> {
@@ -413,7 +414,7 @@ export class PicqerClient implements ConnectorProviderClient {
       body: toPicqerProductBody(product),
     });
     const remoteId = data.idproduct ?? data.id ?? id;
-    return { id: String(remoteId), url: null };
+    return { id: asText(remoteId), url: null };
   }
 
   async deleteProduct(id: string): Promise<void> {

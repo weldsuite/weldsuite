@@ -60,9 +60,10 @@ import {
   createAccountingDocumentSchema,
   updateAccountingDocumentSchema,
 } from '@weldsuite/core-api-client/schemas/accounting-documents';
+import { asText } from '@weldsuite/text';
 
 function mapAccountingEntity(body: Record<string, unknown>): Record<string, unknown> {
-  const jurisdictionCode = String(body.jurisdictionCode ?? body.jurisdiction ?? 'NL').toUpperCase();
+  const jurisdictionCode = asText(body.jurisdictionCode ?? body.jurisdiction ?? 'NL').toUpperCase();
   const { jurisdiction, vatNumber, registrationNumber, fiscalYearStartMonth, ...rest } = body;
   const taxIdentifiers =
     vatNumber !== undefined || registrationNumber !== undefined
@@ -100,9 +101,9 @@ function mapTaxRate(body: Record<string, unknown>): Record<string, unknown> {
   return {
     ...rest,
     ...(jurisdictionCode !== undefined
-      ? { jurisdictionCode: String(jurisdictionCode).toUpperCase() }
+      ? { jurisdictionCode: asText(jurisdictionCode).toUpperCase() }
       : {}),
-    rate: body.rate !== undefined ? String(body.rate) : body.rate,
+    rate: body.rate !== undefined ? asText(body.rate) : body.rate,
     isActive: body.isActive ?? true,
   };
 }

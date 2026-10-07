@@ -6,6 +6,7 @@
  * perpetual 10-minute "pulse" that re-opens every Neon defeats autosuspend.
  * Re-enter only from write paths (failed webhook delivery, active poll trigger).
  */
+import { asText } from '@weldsuite/text';
 
 export type TenantWorkKind = 'webhook_retry' | 'workflow_poll';
 
@@ -36,8 +37,8 @@ export function triggersIncludeWorkflowPoll(triggers: unknown): boolean {
     >;
     const type = t.type ?? cfg.type;
     if (type !== 'integration_event') continue;
-    const provider = String(t.provider ?? cfg.provider ?? '');
-    const event = String(t.event ?? cfg.event ?? '');
+    const provider = asText(t.provider ?? cfg.provider ?? '');
+    const event = asText(t.event ?? cfg.event ?? '');
     if (
       WORKFLOW_POLL_TRIGGER_EVENTS.some((p) => p.provider === provider && p.event === event)
     ) {

@@ -14,6 +14,7 @@ config.watchFolders = [
   // Metro can only bundle files whose symlink target is inside a watched folder.
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+  path.resolve(monorepoRoot, 'packages/core/text'),
 ];
 
 config.resolver.nodeModulesPaths = [

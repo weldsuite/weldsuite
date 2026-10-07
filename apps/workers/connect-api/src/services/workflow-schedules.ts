@@ -14,6 +14,7 @@ import {
   updateTouchesTiming,
   type ScheduleIndexSync,
 } from '../lib/schedule-index';
+import { asText } from '@weldsuite/text';
 
 const { workflowSchedules, workflows } = schema;
 
@@ -74,10 +75,10 @@ export async function createSchedule(
 
   const id = generateId('sched');
   const now = new Date();
-  const startDate = data.startDate ? new Date(String(data.startDate)) : undefined;
-  const endDate = data.endDate ? new Date(String(data.endDate)) : undefined;
+  const startDate = data.startDate ? new Date(asText(data.startDate)) : undefined;
+  const endDate = data.endDate ? new Date(asText(data.endDate)) : undefined;
   const cronExpression = String(data.cronExpression);
-  const timezone = String(data.timezone || 'UTC');
+  const timezone = asText(data.timezone || 'UTC');
   const isEnabled = data.isEnabled !== false;
 
   await db.insert(workflowSchedules).values({
@@ -119,7 +120,7 @@ function buildScheduleUpdate(data: Record<string, unknown>): Record<string, unkn
     if (data[field] !== undefined) update[field] = data[field];
   }
   for (const field of DATE_UPDATE_FIELDS) {
-    if (data[field] !== undefined) update[field] = data[field] ? new Date(String(data[field])) : null;
+    if (data[field] !== undefined) update[field] = data[field] ? new Date(asText(data[field])) : null;
   }
   return update;
 }

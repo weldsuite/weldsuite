@@ -27,6 +27,7 @@
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "zod": "^3.25.76",
     "docx": "^9.6.1",
     "drizzle-orm": "^0.45.2",

@@ -26,6 +26,7 @@ import {
 import { schema, type Database } from '../lib/db.js';
 import { generateId } from '../lib/id.js';
 import { publishConversationEvent } from '../lib/realtime.js';
+import { asText } from '@weldsuite/text';
 
 // ============================================================================
 // Types
@@ -375,7 +376,7 @@ async function stepSendMessage(
   ctx: ExecutionContext,
   inputs: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const content = String(inputs.message || inputs.content || '');
+  const content = asText(inputs.message || inputs.content || '');
   if (!content) return { success: true, skipped: true };
 
   const messageId = await createBotMessage(ctx.db, ctx.conversationId, content, {
@@ -408,7 +409,7 @@ async function stepSendChoices(
   executionId: string,
   stepId: string,
 ): Promise<Record<string, unknown>> {
-  const content = String(inputs.message || inputs.content || 'Please select an option:');
+  const content = asText(inputs.message || inputs.content || 'Please select an option:');
   const options = (inputs.options as Array<{ id?: string; label: string; value: string }>) || [];
 
   const messageId = await createBotMessage(ctx.db, ctx.conversationId, content, {
@@ -456,7 +457,7 @@ async function stepTriggerCsat(
   executionId: string,
   stepId: string,
 ): Promise<Record<string, unknown>> {
-  const content = String(inputs.message || inputs.question || 'How would you rate your experience?');
+  const content = asText(inputs.message || inputs.question || 'How would you rate your experience?');
 
   const messageId = await createBotMessage(ctx.db, ctx.conversationId, content, {
     interactiveType: 'csat',
@@ -501,7 +502,7 @@ async function stepCollectInput(
   executionId: string,
   stepId: string,
 ): Promise<Record<string, unknown>> {
-  const content = String(inputs.message || inputs.content || 'Please provide the following information:');
+  const content = asText(inputs.message || inputs.content || 'Please provide the following information:');
   const fields = (inputs.fields as Array<{ id: string; label: string; type?: string; required?: boolean; placeholder?: string }>) || [];
 
   const messageId = await createBotMessage(ctx.db, ctx.conversationId, content, {
@@ -573,7 +574,7 @@ async function stepChangeStatus(
   ctx: ExecutionContext,
   inputs: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const status = String(inputs.status || 'active');
+  const status = asText(inputs.status || 'active');
   await ctx.db.update(schema.helpdeskConversations).set({
     status,
     updatedAt: new Date(),
@@ -586,7 +587,7 @@ async function stepChangePriority(
   ctx: ExecutionContext,
   inputs: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const priority = String(inputs.priority || 'medium');
+  const priority = asText(inputs.priority || 'medium');
   await ctx.db.update(schema.helpdeskConversations).set({
     priority,
     updatedAt: new Date(),
@@ -623,7 +624,7 @@ async function stepAddInternalNote(
   ctx: ExecutionContext,
   inputs: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const content = String(inputs.message || inputs.content || '');
+  const content = asText(inputs.message || inputs.content || '');
   if (!content) return { success: true, skipped: true };
 
   const messageId = await createBotMessage(ctx.db, ctx.conversationId, content, {

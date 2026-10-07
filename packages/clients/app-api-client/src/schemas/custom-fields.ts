@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { asText } from '@weldsuite/text';
 
 // ============================================================================
 // Custom Field Definitions — org-wide custom field definitions attached to a
@@ -150,14 +151,14 @@ function validateNumberValue(def: CustomFieldDefinitionLike, raw: unknown): Cust
 }
 
 function validateDateValue(def: CustomFieldDefinitionLike, raw: unknown): CustomFieldValidationResult {
-  const d = raw instanceof Date ? raw : new Date(String(raw));
+  const d = raw instanceof Date ? raw : new Date(asText(raw));
   if (Number.isNaN(d.getTime())) return { ok: false, error: `'${def.slug}' must be a valid date` };
   return { ok: true, value: d.toISOString() };
 }
 
 function validateSingleSelectValue(def: CustomFieldDefinitionLike, raw: unknown): CustomFieldValidationResult {
   const optionValues = new Set((def.options ?? []).map((o) => o.value));
-  const v = String(raw);
+  const v = asText(raw);
   if (optionValues.size > 0 && !optionValues.has(v)) {
     return { ok: false, error: `'${v}' is not a valid option for '${def.slug}'` };
   }
@@ -166,7 +167,7 @@ function validateSingleSelectValue(def: CustomFieldDefinitionLike, raw: unknown)
 
 function validateMultiSelectValue(def: CustomFieldDefinitionLike, raw: unknown): CustomFieldValidationResult {
   const optionValues = new Set((def.options ?? []).map((o) => o.value));
-  const arr = Array.isArray(raw) ? raw.map(String) : [String(raw)];
+  const arr = Array.isArray(raw) ? raw.map(String) : [asText(raw)];
   if (optionValues.size > 0) {
     const bad = arr.find((v) => !optionValues.has(v));
     if (bad) return { ok: false, error: `'${bad}' is not a valid option for '${def.slug}'` };
@@ -205,13 +206,13 @@ export function validateCustomFieldValue(
       return { ok: true, value: raw as Record<string, unknown> };
     case 'user_ref':
     case 'entity_ref':
-      return { ok: true, value: String(raw) };
+      return { ok: true, value: asText(raw) };
     case 'text':
     case 'textarea':
     case 'url':
     case 'email':
     case 'phone':
     default:
-      return { ok: true, value: String(raw) };
+      return { ok: true, value: asText(raw) };
   }
 }

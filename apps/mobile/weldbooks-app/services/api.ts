@@ -62,6 +62,7 @@ import type {
   VatReturn,
   VatReturnDetail,
 } from '@/types/accounting';
+import { asText } from '@weldsuite/text';
 
 /** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
@@ -92,17 +93,17 @@ interface DataEnvelope<T = Json> {
 /** Coerce app-api numeric strings ("123.45") to numbers for display. */
 function num(value: unknown): number {
   if (typeof value === 'number') return value;
-  const parsed = Number.parseFloat(String(value ?? '0'));
+  const parsed = Number.parseFloat(asText(value ?? '0'));
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 function str(value: unknown, fallback = ''): string {
-  return value == null ? fallback : String(value);
+  return value == null ? fallback : asText(value);
 }
 
 function nullableStr(value: unknown): string | null {
   if (value == null || value === '') return null;
-  return String(value);
+  return asText(value);
 }
 
 function toBillPrefill(raw: Json): BillPrefill {
@@ -884,7 +885,7 @@ class WeldBooksApi {
 
   /** Maps a vat_returns row to the fields the VAT screens read. */
   private mapVatReturn(row: Json): VatReturnDetail {
-    const start = row.periodStart ? new Date(String(row.periodStart)) : null;
+    const start = row.periodStart ? new Date(asText(row.periodStart)) : null;
     const rubrieken = (row.rubrieken ?? {}) as Json;
     const salesTax = num(rubrieken.r5a);
     const purchaseTax = num(rubrieken.r5b);

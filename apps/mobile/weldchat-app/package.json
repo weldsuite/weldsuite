@@ -28,6 +28,7 @@
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/mobile-ui": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "date-fns": "^4.1.0",
     "event-target-shim": "6.0.2",
     "expo": "~57.0.20",

@@ -13,6 +13,7 @@ import {
   createProductSchema,
   updateProductSchema,
 } from '@weldsuite/core-api-client/schemas/products';
+import { asText } from '@weldsuite/text';
 
 const listProductsQuery = z.object({
   cursor: z.string().optional(),
@@ -54,7 +55,7 @@ app.post('/', requireScope('products:write'), zValidator('json', createProductSc
   const body = c.req.valid('json') as Record<string, unknown>;
   const now = new Date();
   const id = generateId('prod');
-  const name = String(body.name ?? '');
+  const name = asText(body.name ?? '');
   const slug =
     (typeof body.slug === 'string' && body.slug) ||
     name

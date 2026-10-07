@@ -32,6 +32,7 @@ import {
   resolveUploadBytes,
   storeSocialMediaBytes,
 } from './upload';
+import { asText } from '@weldsuite/text';
 
 const listSocialMediaQuery = z.object({
   cursor: z.string().optional(),
@@ -167,7 +168,7 @@ app.post('/', requireScope('social_posts:write'), zValidator('json', createSocia
   const now = new Date();
   const id = generateId('smed');
 
-  const fileName = String(body.fileName ?? 'asset');
+  const fileName = asText(body.fileName ?? 'asset');
   const url = typeof body.url === 'string' ? body.url : undefined;
   const mediaType = guessMediaType(fileName, typeof body.mimeType === 'string' ? body.mimeType : undefined, typeof body.mediaType === 'string' ? body.mediaType : undefined);
   const mimeType =

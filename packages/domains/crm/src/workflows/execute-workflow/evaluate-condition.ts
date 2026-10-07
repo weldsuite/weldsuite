@@ -8,6 +8,7 @@
  * Resolves field values from steps, trigger data, variables, and contact data,
  * then evaluates using the specified operator.
  */
+import { asText } from '@weldsuite/text';
 
 export function evaluateCondition(
   condition: { field?: string; operator?: string; value?: unknown } | Record<string, unknown>,
@@ -23,7 +24,7 @@ export function evaluateCondition(
 
   // Get the field value
   let fieldValue: unknown;
-  const field = String(condition.field);
+  const field = asText(condition.field);
 
   if (field.startsWith('steps.')) {
     const [, stepId, ...rest] = field.split('.');
@@ -63,11 +64,11 @@ export function evaluateCondition(
     case 'less_than_or_equals':
       return Number(fieldValue) <= Number(condition.value);
     case 'contains':
-      return String(fieldValue).includes(String(condition.value));
+      return asText(fieldValue).includes(asText(condition.value));
     case 'starts_with':
-      return String(fieldValue).startsWith(String(condition.value));
+      return asText(fieldValue).startsWith(asText(condition.value));
     case 'ends_with':
-      return String(fieldValue).endsWith(String(condition.value));
+      return asText(fieldValue).endsWith(asText(condition.value));
     case 'exists':
       return fieldValue !== undefined && fieldValue !== null;
     case 'not_exists':
@@ -77,9 +78,9 @@ export function evaluateCondition(
     case 'not_in':
       return !Array.isArray(condition.value) || !condition.value.includes(fieldValue);
     case 'matches':
-      return new RegExp(String(condition.value)).test(String(fieldValue));
+      return new RegExp(asText(condition.value)).test(asText(fieldValue));
     default:
-      console.warn(`Unknown operator: ${condition.operator}`);
+      console.warn(`Unknown operator: ${asText(condition.operator)}`);
       return false;
   }
 }

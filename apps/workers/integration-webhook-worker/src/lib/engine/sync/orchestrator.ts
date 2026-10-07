@@ -24,6 +24,7 @@ import type {
   IntegrationConnection,
   IntegrationSyncCursor,
 } from '@weldsuite/db/schema';
+import { asText } from '@weldsuite/text';
 
 type TenantDb = Awaited<ReturnType<typeof import('../../../db').getTenantDbForWorkspace>>;
 
@@ -158,7 +159,7 @@ async function resolveBidirectionalConflict(
   if (conflictFields.length === 0) return 'proceed';
 
   const resolution = conflictResolver.resolve(
-    new Date(String(internalData.updatedAt || 0)),
+    new Date(asText(internalData.updatedAt || 0)),
     new Date(entity.updatedAt),
   );
 

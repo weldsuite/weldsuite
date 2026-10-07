@@ -10,6 +10,7 @@
  *  - {{variables.name}}     — workflow variables
  *  - {{contact.field}}      — contact/customer data
  */
+import { asText } from '@weldsuite/text';
 
 interface ResolveSources {
   previousResults: Record<string, unknown>;
@@ -42,7 +43,7 @@ function resolveString(value: string, sources: ResolveSources): unknown {
 
   let resolved: unknown = value.replace(/\{\{([^}]+)\}\}/g, (match, path: string) => {
     const result = lookupReference(path.trim(), sources);
-    if (result !== undefined) return String(result);
+    if (result !== undefined) return asText(result);
     console.warn(`Unresolved template: ${match}`);
     return '';
   });
