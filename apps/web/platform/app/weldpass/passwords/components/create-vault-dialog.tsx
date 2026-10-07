@@ -4,7 +4,6 @@ import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
@@ -24,10 +23,9 @@ export function CreateVaultDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !createVault.isPending && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{tp('vaultForm.createTitle')}</DialogTitle>
-          <DialogDescription>{tp('vaultForm.createDescription')}</DialogDescription>
         </DialogHeader>
 
         <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />

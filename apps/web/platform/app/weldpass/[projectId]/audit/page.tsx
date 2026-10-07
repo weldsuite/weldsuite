@@ -1,6 +1,7 @@
 /** The WeldPass audit trail for one project. */
 
-import { ScrollText } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ScrollText, SearchX } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { WeldPassAuditEvent } from '@weldsuite/app-api-client/domains/weldpass';
@@ -26,6 +27,19 @@ export default function WeldPassAuditPage() {
   const t = useTranslations();
   const { projectId } = useParams() as { projectId: string };
   const { data: events, isLoading, error } = useWeldPassAudit(projectId);
+  const [query, setQuery] = useState('');
+
+  // The toolbar sits above the tabs, outside the list, so the search is
+  // applied here rather than by the list.
+  const visibleEvents = useMemo(() => {
+    const all = events ?? [];
+    const needle = query.trim().toLowerCase();
+    if (!needle) return all;
+    return all.filter((event) =>
+      [event.action, event.targetKey].some((value) => value?.toLowerCase().includes(needle)),
+    );
+  }, [events, query]);
+  const isSearchMiss = visibleEvents.length === 0 && (events?.length ?? 0) > 0;
 
   const columns: ColumnDef<WeldPassAuditEvent>[] = [
     {
@@ -76,23 +90,34 @@ export default function WeldPassAuditPage() {
   ];
 
   return (
-    <ProjectPage projectId={projectId} section="audit">
+    <ProjectPage
+      projectId={projectId}
+      section="audit"
+      toolbar={{
+        search: query,
+        onSearchChange: setQuery,
+        searchPlaceholder: t('weldpass.audit.searchPlaceholder'),
+      }}
+    >
       <PanelEntityList<WeldPassAuditEvent>
-        items={events ?? []}
+        items={visibleEvents}
         isLoading={isLoading}
         error={error}
         columns={columns}
-        searchFields={['action', 'targetKey']}
-        searchPlaceholder={t('weldpass.audit.searchPlaceholder')}
-        emptyState={{
-          icon: emptyIcon(ScrollText),
-          title: t('weldpass.audit.emptyTitle'),
-          description: t('weldpass.audit.subtitle'),
-        }}
-        noResultsState={{
-          title: t('weldpass.audit.noResultsTitle'),
-          description: t('weldpass.audit.noResultsDescription'),
-        }}
+        hideTopBar
+        emptyState={
+          isSearchMiss
+            ? {
+                icon: emptyIcon(SearchX),
+                title: t('weldpass.audit.noResultsTitle'),
+                description: t('weldpass.audit.noResultsDescription'),
+              }
+            : {
+                icon: emptyIcon(ScrollText),
+                title: t('weldpass.audit.emptyTitle'),
+                description: t('weldpass.audit.subtitle'),
+              }
+        }
       />
     </ProjectPage>
   );

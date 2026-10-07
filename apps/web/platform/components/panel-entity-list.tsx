@@ -66,6 +66,11 @@ export interface PanelEntityListProps<T extends { id: string }> {
   actionButtons?: ReactNode;
   /** Rendered on the left of the top bar, next to the filter pills. */
   leftActionButtons?: ReactNode;
+  /**
+   * Drop the built-in top bar (search, filters, buttons), for a page that
+   * renders its own toolbar elsewhere. The page then filters `items` itself.
+   */
+  hideTopBar?: boolean;
 
   hasMore?: boolean;
   isLoadingMore?: boolean;
@@ -100,6 +105,7 @@ export function PanelEntityList<T extends { id: string }>({
   createButton,
   actionButtons,
   leftActionButtons,
+  hideTopBar,
   hasMore,
   isLoadingMore,
   onLoadMore,
@@ -224,6 +230,7 @@ export function PanelEntityList<T extends { id: string }>({
       createButton={createButton}
       actionButtons={actionButtons}
       leftActionButtons={leftActionButtons}
+      hideTopBar={hideTopBar}
       hasMore={hasMore}
       isLoadingMore={isLoadingMore}
       onLoadMore={onLoadMore}

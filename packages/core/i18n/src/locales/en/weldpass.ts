@@ -403,7 +403,6 @@ export const weldpass = {
 
     vaultForm: {
       createTitle: 'New shared vault',
-      createDescription: "You'll be its manager and can add teammates afterwards.",
       create: 'Create vault',
       createFailed: 'Could not create the vault.',
       name: 'Name',
