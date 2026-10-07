@@ -6,6 +6,7 @@
  */
 
 import type { ClientApi, ClientApiOptions } from './types.js';
+import { asText } from '@weldsuite/text';
 
 /**
  * Thrown when a request never reaches the server — the device is offline, the
@@ -213,7 +214,7 @@ export function buildQueryString(params: Record<string, unknown>): string {
   const searchParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      searchParams.set(key, String(value));
+      searchParams.set(key, asText(value));
     }
   }
   const query = searchParams.toString();

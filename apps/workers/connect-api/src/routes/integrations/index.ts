@@ -93,7 +93,7 @@ app.get('/', requirePermission('integrations:read'), async (c) => {
     ]);
     const hasMore = rows.length > limit;
     const data = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
     return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
@@ -445,7 +445,7 @@ async function consumeOAuthState(
     provider: string;
   } | null;
 
-  if (!stateData || stateData.orgId !== orgId || stateData.provider !== provider) return null;
+  if (stateData?.orgId !== orgId || stateData.provider !== provider) return null;
   await env.WORKSPACE_CACHE.delete(stateKey);
   return stateData;
 }

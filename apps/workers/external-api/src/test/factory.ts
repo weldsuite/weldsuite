@@ -216,7 +216,7 @@ function plainStringFieldSample(field: any, key: string): Record<string, unknown
  */
 export function buildUpdateBody(schema: ZodTypeAny): Record<string, unknown> {
   const def = unwrapSchema(schema, 'ZodObject')?._def;
-  if (!def || def.typeName !== 'ZodObject') return {};
+  if (def?.typeName !== 'ZodObject') return {};
   const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
   for (const k of Object.keys(shape)) {
     if (isIdKey(k)) continue;

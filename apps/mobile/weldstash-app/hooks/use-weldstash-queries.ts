@@ -4,7 +4,7 @@ import type { DataResponse, ListResponse } from '@weldsuite/app-api-client/types
 import { appApi } from '@/services/app-api';
 import { weldstashKeys } from '@/lib/query-client';
 
-const OPEN_PICK_STATUSES = ['pending', 'assigned', 'in_progress', 'completed', 'packed'];
+const OPEN_PICK_STATUSES = new Set(['pending', 'assigned', 'in_progress', 'completed', 'packed']);
 
 export function useWeldstashProducts(search: string) {
   return useQuery({
@@ -65,7 +65,7 @@ export function useWeldstashPickLists(assignedTo: string | undefined) {
       });
       return {
         ...response,
-        data: (response.data ?? []).filter((row) => OPEN_PICK_STATUSES.includes(row.status)),
+        data: (response.data ?? []).filter((row) => OPEN_PICK_STATUSES.has(row.status)),
       };
     },
     enabled: Boolean(assignedTo),

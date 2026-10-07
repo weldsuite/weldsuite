@@ -321,6 +321,7 @@ export const weldpass = {
       edit: 'Edit',
       move: 'Move',
       history: 'History',
+      tabDetails: 'Details',
       delete: 'Delete',
       deleteTitle: 'Delete "{title}"?',
       deleteDescription:
@@ -506,6 +507,7 @@ export const weldpass = {
         old: 'Old',
       },
       attentionTitle: 'Needs attention',
+      issuesColumn: 'Issues',
       attentionHint: 'Weakest first. Open a login to change its password.',
     },
 

@@ -110,11 +110,14 @@ export function PanelEntityList<T extends { id: string }>({
   const hasRowMenu = !!onEdit || !!onDelete;
 
   // Header widths mirror the column widths so the sticky header lines up with
-  // the custom rows below, including the trailing menu gutter.
-  const headerColumns: HeaderColumn[] = [
-    ...columns.map((c) => ({ id: c.id, header: c.header, width: c.width, className: c.headerClassName })),
-    ...(hasRowMenu ? [{ id: '__actions', header: '', width: 'w-[40px]' }] : []),
-  ];
+  // the custom rows below. EntityList always appends its own 40px gutter to the
+  // header, so every row ends with the same gutter, menu or not.
+  const headerColumns: HeaderColumn[] = columns.map((c) => ({
+    id: c.id,
+    header: c.header,
+    width: c.width,
+    className: c.headerClassName,
+  }));
 
   const renderRow = (item: T) => (
     <div
@@ -139,7 +142,7 @@ export function PanelEntityList<T extends { id: string }>({
           : undefined
       }
       className={cn(
-        'group flex items-center gap-4 px-4 py-3 border-b border-border/70 transition-colors',
+        'group flex items-center gap-4 px-4 py-3 border-b border-border/70 text-sm transition-colors',
         onRowClick &&
           'cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
       )}
@@ -154,8 +157,9 @@ export function PanelEntityList<T extends { id: string }>({
           })}
         </div>
       ))}
-      {hasRowMenu && (
-        <div className="w-[40px] flex justify-end">
+      {/* h-7 = the menu button's height, so rows without a menu are as tall as rows with one. */}
+      <div className="w-[40px] h-7 flex items-center justify-end">
+        {hasRowMenu && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
               <Button
@@ -196,8 +200,8 @@ export function PanelEntityList<T extends { id: string }>({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 

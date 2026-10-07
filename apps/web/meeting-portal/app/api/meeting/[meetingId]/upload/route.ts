@@ -3,6 +3,7 @@ import { getTenantDb } from '@/lib/db';
 import { uploadToR2, isR2Configured } from '@/lib/storage/r2';
 import { guestUnauthorized, notActiveParticipant, tenantNotFoundResponse } from '@/lib/api-response';
 import { authenticateGuest, verifyGuestParticipant } from '@/lib/guest-session';
+import { asText } from '@weldsuite/text';
 
 interface RouteContext {
   params: Promise<{ meetingId: string }>;
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   }
 
-  const orgId = String(form.get('orgId') ?? '').trim();
+  const orgId = asText(form.get('orgId') ?? '').trim();
   const file = form.get('file');
 
   if (!orgId || !(file instanceof File)) {

@@ -67,7 +67,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
-import { formatTaskNumber } from '@/lib/task-number';
+import { taskNumberMatches } from '@/lib/task-number';
 import { useObjectPanel } from '@/components/object-panel';
 import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
@@ -104,7 +104,7 @@ interface TaskFeature {
   owner?: { id: string; name: string; image?: string };
   owners?: { id: string; name: string; image?: string }[];
   priority?: string;
-  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  /** Workspace-wide sequential number, rendered as the bare number. */
   number?: number | null;
   taskKey?: string;
   commentsCount?: number;
@@ -160,7 +160,7 @@ const stageColors = [
 // Raw task shape as returned by the app-api tasks endpoints
 interface RawPipelineTask {
   id: string;
-  /** Workspace-wide sequential number, displayed as TASK-<number>. */
+  /** Workspace-wide sequential number, displayed as the bare number. */
   number?: number | null;
   title?: string;
   description?: string;
@@ -828,8 +828,8 @@ const PipelinePage = () => {
       result = result.filter(f =>
         f.name.toLowerCase().includes(query) ||
         f.taskKey?.toLowerCase().includes(query) ||
-        // Lets "TASK-1042" / "1042" find the card by its number.
-        formatTaskNumber(f.number)?.toLowerCase().includes(query) ||
+        // Lets "1042" / "#1042" find the card by its number.
+        taskNumberMatches(f.number, query) ||
         f.owner?.name.toLowerCase().includes(query) ||
         f.tags?.some(t => t.name.toLowerCase().includes(query))
       );

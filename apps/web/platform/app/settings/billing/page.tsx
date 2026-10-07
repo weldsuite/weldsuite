@@ -612,7 +612,7 @@ export default function BillingSettingsPage() {
                     {subscription.cancelAtPeriodEnd ? ts.canceling : ts.active}
                   </Badge>
                 )}
-                {subscription && subscription.cycle && (
+                {subscription?.cycle && (
                   <span className="text-xs text-muted-foreground">{subscription.cycle}</span>
                 )}
               </div>
@@ -849,7 +849,7 @@ export default function BillingSettingsPage() {
       </div>
 
       {/* Cancel / Reactivate Subscription */}
-      {canManageBilling && subscription && subscription.status === 'active' && (
+      {canManageBilling && subscription?.status === 'active' && (
         <div>
           {subscription.cancelAtPeriodEnd ? (
             <Button variant="outline" onClick={handleReactivateSubscription}>

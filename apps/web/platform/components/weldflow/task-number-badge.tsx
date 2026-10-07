@@ -12,7 +12,7 @@ interface TaskNumberBadgeProps {
 }
 
 /**
- * Small monospace badge showing the human-friendly task number (TASK-<n>).
+ * Small monospace badge showing the human-friendly task number.
  * Click to copy the reference to the clipboard. Renders nothing when the task
  * has no number yet (pre-backfill rows).
  */

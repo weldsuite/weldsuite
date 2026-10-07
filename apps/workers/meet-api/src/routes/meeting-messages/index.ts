@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { and, desc, eq, isNull, isNotNull, lt, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { createMeetingMessageSchema, updateMeetingMessageSchema } from '@weldsuite/core-api-client/schemas/meeting-messages';
+import { updateMeetingMessageSchema } from '@weldsuite/core-api-client/schemas/meeting-messages';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -111,7 +111,7 @@ async function listMeetingChat(c: AppContext, meetingId: string, before: string 
     return success(c, {
       messages: withHtml,
       hasMore,
-      nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
+      nextCursor: hasMore && data.length > 0 ? data.at(-1)!.id : null,
     });
   } catch (err) {
     console.error('[app-api/meeting-messages] chat list failed:', err);

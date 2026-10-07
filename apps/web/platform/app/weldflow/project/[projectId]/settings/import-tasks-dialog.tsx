@@ -42,6 +42,7 @@ import {
 import { ScrollArea } from "@weldsuite/ui/components/scroll-area";
 import { Dropzone } from "@weldsuite/ui/components/dropzone";
 import { useAppApiClient } from "@/lib/api/use-app-api";
+import { asText } from '@weldsuite/text';
 
 // Task fields that can be mapped to. `key` is the external id used to upsert
 // existing tasks (matches tasks.key in the DB).
@@ -133,7 +134,7 @@ function safeString(value: unknown): string {
   if (typeof value === "boolean") return value ? "true" : "false";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   try {
-    return String(value).trim();
+    return asText(value).trim();
   } catch {
     return "";
   }
@@ -488,7 +489,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
           return;
         }
 
-        const columns = Object.keys(jsonData[0]).filter((col) => col && col.trim());
+        const columns = Object.keys(jsonData[0]).filter((col) => col?.trim());
 
         if (columns.length === 0) {
           setParseError(t.projects.settings.fileNoColumns);

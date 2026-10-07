@@ -59,7 +59,7 @@ export function ChannelHeader({ channel, showMemberPanel, onToggleMemberPanel }:
   // launches the global ChannelPanel (same component as CompanyPanel).
   // People / Bookmarks / Filters live as tabs inside that panel — they no
   // longer get individual icons in this header.
-  const topPanel = objectStack[objectStack.length - 1];
+  const topPanel = objectStack.at(-1);
   const channelPanelOpen =
     !!topPanel && topPanel.type === 'channel' && topPanel.id === channel.id;
 

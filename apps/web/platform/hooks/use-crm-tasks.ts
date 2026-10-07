@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 
 export interface Task {
   id: string;
-  /** Workspace-wide sequential number, displayed as TASK-<number>. Null pre-backfill. */
+  /** Workspace-wide sequential number, displayed as the bare number. Null pre-backfill. */
   number?: number | null;
   title: string;
   description?: string;

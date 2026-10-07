@@ -12,7 +12,7 @@
  *   - 'list' / 'list-member' for list metadata and membership
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import * as schema from '@weldsuite/db/schema';
 import type { MappedCompany, MappedPerson, ExternalNote, ExternalTask } from './integrations/types';

@@ -25,8 +25,8 @@ const STATUS_VARIANTS: Record<PortingOrderStatus, { variant: 'default' | 'second
   completed: { variant: 'default' },
 };
 
-const CANCELLABLE: PortingOrderStatus[] = ['draft', 'preflight_failed', 'awaiting_documents'];
-const RESUMABLE: PortingOrderStatus[] = ['draft', 'awaiting_documents'];
+const CANCELLABLE: Set<PortingOrderStatus> = new Set(['draft', 'preflight_failed', 'awaiting_documents']);
+const RESUMABLE: Set<PortingOrderStatus> = new Set(['draft', 'awaiting_documents']);
 
 export default function PortStatusPage() {
   const { id } = useParams({ from: '/settings/apps/phone-numbers/port/$id/' });
@@ -90,7 +90,7 @@ export default function PortStatusPage() {
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refresh.isPending}>
                 {refresh.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               </Button>
-              {CANCELLABLE.includes(order.status) && (
+              {CANCELLABLE.has(order.status) && (
                 <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancel.isPending}>
                   <X className="h-4 w-4" /> {t.cancel}
                 </Button>
@@ -126,7 +126,7 @@ export default function PortStatusPage() {
           <Detail label={t.actualFoc} value={formatDate(order.actualFocAt)} />
           <Detail label={t.createdAt} value={formatDate(order.createdAt)} />
 
-          {RESUMABLE.includes(order.status) && (
+          {RESUMABLE.has(order.status) && (
             <div className="pt-2">
               <Button asChild>
                 <Link to="/settings/apps/phone-numbers/port">{t.resume}</Link>

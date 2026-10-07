@@ -345,8 +345,7 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
   // ── Toolbar content ──────────────────────────────────────────────────────
 
   const toolbarLeft = (
-    <>
-      <Button
+    <Button
         variant="outline"
         size="sm"
         className="h-8 w-8 p-0"
@@ -354,7 +353,6 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
       >
         <ChevronLeft className="h-4 w-4" />
       </Button>
-    </>
   );
 
   const toolbarRight = (

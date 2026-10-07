@@ -64,7 +64,7 @@ async function request<T>(
       'Content-Type': 'application/json',
       'X-Test-Token': token(),
       'X-Test-Workspace-Id': workspaceId(),
-      ...(init.headers ?? {}),
+      ...init.headers,
     },
   });
   const body = (await res.json().catch(() => ({}))) as

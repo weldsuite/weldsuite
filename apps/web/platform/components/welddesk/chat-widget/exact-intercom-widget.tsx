@@ -207,7 +207,7 @@ function useWidgetChat({
 
   // Check the last assistant message for escalation/ticket markers
   const inspectAssistantReply = (lastMessage: ConversationMessage | undefined) => {
-    if (!lastMessage || lastMessage.role !== 'assistant') return;
+    if (lastMessage?.role !== 'assistant') return;
 
     const aiEscalation = detectEscalation(lastMessage.content, 'assistant');
     if (aiEscalation.shouldEscalate) {

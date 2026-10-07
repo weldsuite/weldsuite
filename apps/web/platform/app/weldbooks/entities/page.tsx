@@ -51,7 +51,7 @@ export default function EntitiesPage() {
   const korMutation = useMutation({
     mutationFn: async ({ entity, enabled }: { entity: EntityRow; enabled: boolean }) => {
       const jurisdictionSettings = {
-        ...(entity.jurisdictionSettings ?? {}),
+        ...entity.jurisdictionSettings,
         kor: enabled
           ? { enabled: true, startDate: new Date().toISOString().slice(0, 10) }
           : { enabled: false },

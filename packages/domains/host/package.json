@@ -19,6 +19,7 @@
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/realtime-registrar": "workspace:*",
     "@weldsuite/stripe": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },

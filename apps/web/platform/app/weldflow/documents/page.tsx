@@ -88,7 +88,7 @@ function forceLtrOnCaretParagraph() {
   if (element.nodeType === Node.TEXT_NODE) {
     element = element.parentElement as HTMLElement;
   }
-  if (element && element.tagName === 'P') {
+  if (element?.tagName === 'P') {
     element.setAttribute('dir', 'ltr');
     element.style.direction = 'ltr';
   }
@@ -445,7 +445,7 @@ export default function DocumentsPage() {
 
   const openLinkDialog = () => {
     const selection = window.getSelection();
-    if (selection && selection.toString()) {
+    if (selection?.toString()) {
       setLinkText(selection.toString());
     }
     setShowCommandMenu(false);
@@ -1091,7 +1091,7 @@ export default function DocumentsPage() {
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style>{`
+      <style>{String.raw`
         [contenteditable]:focus {
           outline: none;
         }
@@ -1104,7 +1104,7 @@ export default function DocumentsPage() {
           text-align: left;
         }
         [contenteditable] p:empty:before {
-          content: '\\200B';
+          content: '\200B';
         }
         [contenteditable] h1 {
           font-size: 2em;

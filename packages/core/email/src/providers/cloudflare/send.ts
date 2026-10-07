@@ -30,6 +30,7 @@ import type {
 } from '../../core/types';
 import { formatEmailAddress } from '../../core/types';
 import type { EmailMessageCtor, SendEmail } from './send-binding';
+import { asText } from '@weldsuite/text';
 
 const PROVIDER = 'cloudflare';
 
@@ -143,8 +144,8 @@ function describeError(err: unknown): string {
     try {
       return JSON.stringify(err);
     } catch {
-      return String(err);
+      return asText(err);
     }
   }
-  return String(err) || 'unknown error';
+  return asText(err) || 'unknown error';
 }

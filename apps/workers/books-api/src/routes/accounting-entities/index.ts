@@ -204,7 +204,7 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
   const adapter = getAdapter(jurisdictionCode);
   const mergedTaxIdentifiers =
     data.vatNumber !== undefined
-      ? { ...(data.taxIdentifiers ?? {}), vatNumber: data.taxIdentifiers?.vatNumber ?? data.vatNumber }
+      ? { ...data.taxIdentifiers, vatNumber: data.taxIdentifiers?.vatNumber ?? data.vatNumber }
       : data.taxIdentifiers;
 
   const india = applyIndiaTaxIdentifiers({
@@ -376,9 +376,9 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
 
     const mergedTaxIdentifiers =
       vatAlias !== undefined
-        ? { ...(existing.taxIdentifiers ?? {}), ...(data.taxIdentifiers ?? {}), vatNumber: vatAlias }
+        ? { ...existing.taxIdentifiers, ...data.taxIdentifiers, vatNumber: vatAlias }
         : data.taxIdentifiers
-          ? { ...(existing.taxIdentifiers ?? {}), ...data.taxIdentifiers }
+          ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
           : existing.taxIdentifiers;
 
     const india = applyIndiaTaxIdentifiers({

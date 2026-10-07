@@ -25,7 +25,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmCustomerStatuses;
 
 // Slugs reserved by the built-in hardcoded statuses on the client.
-const BUILTIN_SLUGS = ['prospect', 'active', 'inactive', 'churned', 'blacklisted'];
+const BUILTIN_SLUGS = new Set(['prospect', 'active', 'inactive', 'churned', 'blacklisted']);
 
 app.get('/', requirePermission('customers:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -93,7 +93,7 @@ app.post('/', requirePermission('settings:manage'), zValidator('json', createCus
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   try {
-    if (BUILTIN_SLUGS.includes(data.slug)) {
+    if (BUILTIN_SLUGS.has(data.slug)) {
       return error.conflict(c, `Slug '${data.slug}' is reserved`);
     }
     const [existing] = await db
@@ -140,7 +140,7 @@ app.patch('/:id', requirePermission('settings:manage'), zValidator('json', updat
       .limit(1);
     if (!existing) return error.notFound(c, 'Customer status', id);
     if (data.slug !== undefined) {
-      if (BUILTIN_SLUGS.includes(data.slug)) {
+      if (BUILTIN_SLUGS.has(data.slug)) {
         return error.conflict(c, `Slug '${data.slug}' is reserved`);
       }
       const [conflict] = await db

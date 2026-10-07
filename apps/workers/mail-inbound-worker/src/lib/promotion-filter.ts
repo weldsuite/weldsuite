@@ -115,8 +115,8 @@ function hasHeader(headers: Record<string, string> | undefined, name: string): b
 /** Word-boundary match so "sale" does not hit "wholesale" or "salesforce". */
 function containsPhrase(text: string, phrase: string): boolean {
   if (/^\W/.test(phrase)) return text.includes(phrase);
-  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`, 'u').test(text);
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  return new RegExp(String.raw`(^|[^\p{L}\p{N}])${escaped}($|[^\p{L}\p{N}])`, 'u').test(text);
 }
 
 export function classifyPromotion(

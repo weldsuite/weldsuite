@@ -1,5 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config');
-const path = require('path');
+const path = require('node:path');
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, '../../..');
@@ -14,6 +14,7 @@ config.watchFolders = [
   // Metro can only bundle files whose symlink target is inside a watched folder.
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+  path.resolve(monorepoRoot, 'packages/core/text'),
 ];
 
 config.resolver.nodeModulesPaths = [
@@ -30,7 +31,7 @@ config.resolver.unstable_enablePackageExports = true;
 // hoist an older react-native (e.g. 0.81) used by other apps, which breaks
 // TurboModules ("PlatformConstants could not be found") against this app's
 // 0.86 native binary.
-const fs = require('fs');
+const fs = require('node:fs');
 const singletons = [
   'react',
   'react-native',

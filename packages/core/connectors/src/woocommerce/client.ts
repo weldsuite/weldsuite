@@ -26,6 +26,7 @@ import {
   type ExternalProductRef,
   type OutboundCatalogProduct,
 } from '../types';
+import { asText } from '@weldsuite/text';
 
 export interface WooCommerceCredentials {
   storeUrl: string;
@@ -473,9 +474,9 @@ export class WooCommerceClient implements ConnectorProviderClient {
       search: { sku: trimmed, per_page: '1' },
     });
     const match = Array.isArray(data) ? data[0] : undefined;
-    if (!match || match.id === undefined || match.id === null) return null;
+    if (match?.id === undefined || match.id === null) return null;
     return {
-      id: String(match.id),
+      id: asText(match.id),
       url: typeof match.permalink === 'string' ? match.permalink : null,
     };
   }
@@ -573,7 +574,7 @@ export class WooCommerceClient implements ConnectorProviderClient {
       const batch = variable.slice(i, i + concurrency);
       await Promise.all(
         batch.map(async (item) => {
-          item._variations = await this.listVariations(String(item.id));
+          item._variations = await this.listVariations(asText(item.id));
         }),
       );
     }
@@ -638,7 +639,7 @@ function toWooProductBody(product: OutboundCatalogProduct): Record<string, unkno
 }
 
 function wooProductRef(data: Record<string, unknown>, storeUrl: string): ExternalProductRef {
-  const id = data.id !== undefined && data.id !== null ? String(data.id) : '';
+  const id = data.id !== undefined && data.id !== null ? asText(data.id) : '';
   const url =
     typeof data.permalink === 'string'
       ? data.permalink

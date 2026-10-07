@@ -1,5 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config');
-const path = require('path');
+const path = require('node:path');
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, '../../..');
@@ -10,6 +10,7 @@ config.watchFolders = [
   path.resolve(monorepoRoot, 'packages/design/mobile-ui'),
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+  path.resolve(monorepoRoot, 'packages/core/text'),
 ];
 
 config.resolver.nodeModulesPaths = [
@@ -19,7 +20,7 @@ config.resolver.nodeModulesPaths = [
 config.resolver.disableHierarchicalLookup = true;
 config.resolver.unstable_enablePackageExports = true;
 
-const fs = require('fs');
+const fs = require('node:fs');
 
 function resolvePackageDir(pkg) {
   const local = path.join(projectRoot, 'node_modules', pkg);

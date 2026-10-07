@@ -198,7 +198,7 @@ export default function VatReturnsPage() {
                 </TableRow>
               ) : (
                 returns.map((vr) => {
-                  const r5f = (vr.rubrieken ?? {}).r5f ?? 0;
+                  const r5f = vr.rubrieken?.r5f ?? 0;
                   return (
                     <TableRow
                       key={vr.id}
@@ -209,8 +209,8 @@ export default function VatReturnsPage() {
                         {vr.periodLabel || `${vr.periodStart?.slice(0, 10)} — ${vr.periodEnd?.slice(0, 10)}`}
                       </TableCell>
                       <TableCell className="capitalize">{vr.periodType}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmt((vr.rubrieken ?? {}).r5a)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmt((vr.rubrieken ?? {}).r5b)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmt(vr.rubrieken?.r5a)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmt(vr.rubrieken?.r5b)}</TableCell>
                       <TableCell className={`text-right tabular-nums font-medium ${r5f >= 0 ? 'text-red-600' : 'text-green-600'}`}>
                         {fmt(r5f)}
                       </TableCell>

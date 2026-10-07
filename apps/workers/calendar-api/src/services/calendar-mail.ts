@@ -240,7 +240,7 @@ export async function sendCalendarEventEmails(env: Env, opts: SendOptions): Prom
     const email = attendee.email;
     // Skip blank addresses and the organizer's own inbox (legacy parity).
     if (!email) continue;
-    if (organizer.email && email.toLowerCase() === organizer.email.toLowerCase()) continue;
+    if (email.toLowerCase() === organizer.email?.toLowerCase()) continue;
 
     // External guests have no account: the authenticated calendar is a dead
     // end for them, so only members get that link.

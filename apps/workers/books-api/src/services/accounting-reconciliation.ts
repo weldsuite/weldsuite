@@ -9,7 +9,7 @@
  * Returns match suggestions with confidence scores.
  */
 
-import { eq, and, isNull, sql, or } from 'drizzle-orm';
+import { eq, and, isNull, or } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 
 // ============================================================================

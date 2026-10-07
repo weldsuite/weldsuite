@@ -93,7 +93,7 @@ function offsetMeta(
   return {
     totalCount,
     hasMore,
-    cursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : null,
+    cursor: hasMore && rows.length > 0 ? rows.at(-1)!.id : null,
     page,
     pageSize,
     totalPages: Math.ceil(totalCount / pageSize),
@@ -149,7 +149,7 @@ app.get('/', requirePermission('articles:read'), async (c) => {
     if (useCursor) {
       const hasMore = rows.length > limit;
       const data = hasMore ? rows.slice(0, limit) : rows;
-      const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+      const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
       return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
     }
 

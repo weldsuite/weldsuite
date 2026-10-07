@@ -1,4 +1,5 @@
 import type { EntityEventMessage } from '../lib/entity-events';
+import { asText } from '@weldsuite/text';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -312,7 +313,7 @@ function applyStringFields(
 ): void {
   for (const field of fields) {
     const value = data[field.source];
-    if (value != null) out[field.target] = String(value);
+    if (value != null) out[field.target] = asText(value);
   }
 }
 
@@ -326,7 +327,7 @@ function applyNumericField(
   if (field.boolean) {
     out[field.target] = value ? 1 : 0;
   } else if (field.statusCheck) {
-    const status = String(data['status'] ?? '').toLowerCase();
+    const status = asText(data['status'] ?? '').toLowerCase();
     out[field.target] = field.statusCheck.includes(status) ? 1 : 0;
   } else if (field.exists) {
     out[field.target] = value != null ? 1 : 0;

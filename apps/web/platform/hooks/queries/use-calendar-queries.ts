@@ -23,6 +23,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
+import { asText } from '@weldsuite/text';
 
 // ── Calendar (per-user calendar container) ──────────────────────────────
 
@@ -221,7 +222,7 @@ function buildQueryString(params: Record<string, unknown>): string {
       if (value instanceof Date) {
         queryParams.set(key, value.toISOString());
       } else {
-        queryParams.set(key, String(value));
+        queryParams.set(key, asText(value));
       }
     }
   }

@@ -690,7 +690,7 @@ export class DatabaseProvisioningService {
 
     // 1. Atomically claim capacity on an active shard (creating one if needed).
     const shard = await this.claimSharedProject(masterDb, region);
-    if (!shard || !shard.mainBranchId) {
+    if (!shard?.mainBranchId) {
       return emptyResult('No shared-project capacity available');
     }
 
@@ -1056,7 +1056,7 @@ export class DatabaseProvisioningService {
    */
   async claimShardForWarmSlot(masterDb: any): Promise<NeonSharedProject | null> {
     const shard = await this.claimSharedProject(masterDb, this.defaultRegion);
-    if (!shard || !shard.mainBranchId) {
+    if (!shard?.mainBranchId) {
       console.warn('[Provisioning] No shared-project capacity available for warm slot');
       return null;
     }
@@ -1429,7 +1429,7 @@ export class DatabaseProvisioningService {
       .from(workspaces)
       .where(eq(workspaces.id, workspaceId));
 
-    if (!workspace || !workspace.neonProjectId) {
+    if (!workspace?.neonProjectId) {
       return { success: true }; // Nothing to delete
     }
 

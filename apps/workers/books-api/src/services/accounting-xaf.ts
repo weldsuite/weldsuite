@@ -13,13 +13,14 @@
  */
 
 import type { Entity } from '@weldsuite/db/schema';
+import { asText } from '@weldsuite/text';
 
 const XAF_NAMESPACE = 'http://www.auditfiles.nl/XAF/4.0';
 const SOFTWARE_DESC = 'WeldBooks (WeldSuite)';
 const SOFTWARE_VERSION = '1.0';
 
 function esc(value: unknown): string {
-  return String(value ?? '')
+  return asText(value ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -28,7 +29,7 @@ function esc(value: unknown): string {
 }
 
 function tag(name: string, value: unknown): string {
-  const str = String(value ?? '').trim();
+  const str = asText(value ?? '').trim();
   return str ? `<${name}>${esc(str)}</${name}>` : '';
 }
 

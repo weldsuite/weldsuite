@@ -118,7 +118,7 @@ export const projectsTools: ToolDefinition[] = [
     scope: 'tasks:read',
     description: 'Get a WeldFlow task, including all fields (description, tags, dependencies, custom fields).',
     inputSchema: {
-      taskId: z.string().describe('The task — its number (TASK-123), its name, or the id from an earlier search'),
+      taskId: z.string().describe('The task — its number (123), its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/tasks/:id',
@@ -137,7 +137,7 @@ export const projectsTools: ToolDefinition[] = [
     scope: 'tasks:write',
     description: 'Update an existing WeldFlow task. Any subset of fields can be updated; unspecified fields are left unchanged.',
     inputSchema: {
-      taskId: z.string().describe('The task to update — its number (TASK-123), its name, or the id from an earlier search'),
+      taskId: z.string().describe('The task to update — its number (123), its name, or the id from an earlier search'),
       ...updateTaskSchema.shape,
     },
     method: 'PATCH',
@@ -149,7 +149,7 @@ export const projectsTools: ToolDefinition[] = [
     scope: 'tasks:write',
     description: 'Delete a WeldFlow task.',
     inputSchema: {
-      taskId: z.string().describe('The task — its number (TASK-123), its name, or the id from an earlier search'),
+      taskId: z.string().describe('The task — its number (123), its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/tasks/:id',

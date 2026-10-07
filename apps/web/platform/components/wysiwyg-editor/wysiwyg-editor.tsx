@@ -260,12 +260,12 @@ function applyExplicitStyleAtCursor(
 /** Keeps the paragraph under the cursor left-to-right. */
 function forceLtrOnAnchorParagraph(): void {
   const selection = window.getSelection();
-  if (!selection || !selection.anchorNode) return;
+  if (!selection?.anchorNode) return;
   let element = selection.anchorNode as HTMLElement;
   if (element.nodeType === Node.TEXT_NODE) {
     element = element.parentElement as HTMLElement;
   }
-  if (element && element.tagName === 'P') {
+  if (element?.tagName === 'P') {
     element.setAttribute('dir', 'ltr');
     element.style.direction = 'ltr';
   }
@@ -850,7 +850,7 @@ export function WysiwygEditor({
 
   const openLinkDialog = useCallback(() => {
     const selection = window.getSelection();
-    if (selection && selection.toString()) {
+    if (selection?.toString()) {
       setLinkText(selection.toString());
     }
     setShowCommandMenu(false);
@@ -1013,7 +1013,7 @@ export function WysiwygEditor({
       )}
 
       {/* Custom Toolbar */}
-      {renderToolbar && renderToolbar(toolbarProps)}
+      {renderToolbar?.(toolbarProps)}
 
       {/* Editor Content */}
       <div className="flex-1 overflow-auto">
@@ -1241,7 +1241,7 @@ export function WysiwygEditor({
         )}
 
         {/* Custom Styles for contenteditable */}
-        <style>{`
+        <style>{String.raw`
           [contenteditable] {
             direction: ltr;
           }
@@ -1260,7 +1260,7 @@ export function WysiwygEditor({
             width: 100%;
           }
           [contenteditable] p:empty:before {
-            content: '\\200B';
+            content: '\200B';
           }
           [contenteditable] h1 {
             font-size: 2em;

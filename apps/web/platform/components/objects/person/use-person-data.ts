@@ -199,7 +199,7 @@ export function useInfinitePeople(filters?: Omit<ListPeopleQuery, 'cursor'>) {
       const client = await getClient();
       return client.get<ListEnvelope<Person>>(
         `/people${buildQueryString({
-          ...(filters ?? {}),
+          ...filters,
           cursor: pageParam as string | undefined,
         } as Record<string, unknown>)}`,
       );

@@ -73,7 +73,7 @@ export async function lookupPhoneNumberRegistry(
     .where(eq(masterSchema.phoneNumberRegistry.phoneNumber, normalizeE164(phoneNumber)))
     .limit(1);
 
-  if (!row || !row.isActive) return null;
+  if (!row?.isActive) return null;
   return {
     phoneNumber: row.phoneNumber,
     clerkOrgId: row.clerkOrgId,

@@ -43,7 +43,7 @@ function defaultLabelFor(pathname: string, fallbackRegistry: Map<string, string>
   if (fromRegistry) return fromRegistry;
   // Last segment, title-cased; skip ID-like segments (UUIDs, prefixed IDs like cont_xxx)
   const parts = pathname.split('/').filter(Boolean);
-  const last = parts[parts.length - 1];
+  const last = parts.at(-1);
   if (!last) return '';
   if (isIdLike(last)) return '';
   return last
@@ -71,7 +71,7 @@ function resolveLabel(
   fallbackRegistry: Map<string, string>,
 ): { label: string; source: BreadcrumbSegment['source'] } | null {
   const loaderLabel = match.loaderData?.breadcrumbLabel;
-  if (loaderLabel && loaderLabel.trim()) {
+  if (loaderLabel?.trim()) {
     return { label: loaderLabel.trim(), source: 'loader' };
   }
   if (descriptor?.label) {
@@ -90,8 +90,8 @@ function resolveLabel(
 function collapseDuplicateLabels(segments: BreadcrumbSegment[]): BreadcrumbSegment[] {
   const collapsed: BreadcrumbSegment[] = [];
   for (const seg of segments) {
-    const prev = collapsed[collapsed.length - 1];
-    if (prev && prev.label === seg.label) continue;
+    const prev = collapsed.at(-1);
+    if (prev?.label === seg.label) continue;
     collapsed.push(seg);
   }
   return collapsed;

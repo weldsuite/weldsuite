@@ -11,6 +11,7 @@ const nextConfig = {
     '@weldsuite/i18n',
     '@weldsuite/emails',
     '@weldsuite/email',
+    '@weldsuite/text',
   ],
   typescript: {
     ignoreBuildErrors: true,

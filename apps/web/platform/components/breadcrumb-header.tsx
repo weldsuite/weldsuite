@@ -193,8 +193,7 @@ export function BreadcrumbHeader({
   }, [calendarOpen, setShowCalendar]);
 
   return (
-    <>
-      <header className="hidden md:flex h-[60px] shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-[var(--shell-panel)] border-b border-border relative">
+    <header className="hidden md:flex h-[60px] shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-[var(--shell-panel)] border-b border-border relative">
         <div className="flex items-center gap-2 px-4 w-full relative z-10">
           <SidebarTrigger className="-ml-1 hidden md:flex" />
           <div className="ml-px mr-[8px] h-[19px] w-px bg-gray-200/70 dark:bg-secondary/70 hidden md:block shrink-0" />
@@ -298,6 +297,5 @@ export function BreadcrumbHeader({
           </div>
         </div>
       </header>
-    </>
   );
 }

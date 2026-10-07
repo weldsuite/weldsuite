@@ -4,6 +4,7 @@ import type { McpSession } from '../lib/api-types';
 import type { Env } from '../types/env';
 import { INTERNAL_ORIGIN, apiApp, internalEnv } from '../api/app';
 import { toolResult, toolError } from './registry';
+import { asText } from '@weldsuite/text';
 
 /**
  * Dynamic agent tools declared by user-created WeldApps.
@@ -196,7 +197,7 @@ export function userAppInputShape(
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
-const API_REQUEST_METHODS: readonly HttpMethod[] = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'];
+const API_REQUEST_METHODS: ReadonlySet<HttpMethod> = new Set(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']);
 
 interface ShapedRequest {
   method: HttpMethod;
@@ -266,7 +267,7 @@ function shapeStorageRequest(
 function shapeApiRequest(tool: UserAppTool, args: Record<string, unknown>): ShapedRequest | string {
   const { action } = tool;
   const method = action.method?.toUpperCase() as HttpMethod | undefined;
-  if (!method || !API_REQUEST_METHODS.includes(method)) {
+  if (!method || !API_REQUEST_METHODS.has(method)) {
     return `Unsupported API request method: ${action.method ?? '(none)'}`;
   }
   const path = action.path ?? '';
@@ -334,7 +335,7 @@ function buildRequestUrl(shaped: ShapedRequest): URL {
     if (Array.isArray(value)) {
       for (const v of value) url.searchParams.append(key, String(v));
     } else {
-      url.searchParams.set(key, String(value));
+      url.searchParams.set(key, asText(value));
     }
   }
   return url;

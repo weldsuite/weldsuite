@@ -2,18 +2,25 @@
 
 import { useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import { Building2 } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrClientAccount } from '@weldsuite/app-api-client/domains/weldhr';
+import type { Company } from '@weldsuite/app-api-client/schemas/companies';
+import { getCompanyAvatar } from '@/app/weldcrm/companies/config/company-grid-config';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useHrClients } from '@/hooks/queries/use-weldhr-queries';
+import { useAppApiClient } from '@/lib/api/use-app-api';
 import { emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
 import { AssignEmployeeDialog } from './components/assign-employee-dialog';
 
 interface ClientRow extends HrClientAccount {
   id: string;
 }
+
+type CompanyLogoSource = Pick<Company, 'avatarUrl' | 'website' | 'email'> & { id: string };
 
 export default function WeldHrClientsPage() {
   const t = useTranslations();
@@ -24,6 +31,22 @@ export default function WeldHrClientsPage() {
   const { data: clients, isLoading, error } = useHrClients();
   const [assigning, setAssigning] = useState(false);
   const [search, setSearch] = useState('');
+
+  // The client-accounts endpoint returns names only; the logo comes from the
+  // CRM company record, the same way the Companies list derives it.
+  const { getClient } = useAppApiClient();
+  const { data: companiesData } = useQuery({
+    queryKey: ['weldhr', 'clients', 'company-logos'],
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: CompanyLogoSource[] }>('/companies?limit=100');
+    },
+    staleTime: 60_000,
+  });
+  const logos = useMemo(
+    () => new Map((companiesData?.data ?? []).map((c) => [c.id, getCompanyAvatar(c)])),
+    [companiesData],
+  );
 
   // The client-accounts endpoint returns the full list in one call — filter
   // client-side rather than round-tripping a search param that doesn't exist.
@@ -39,7 +62,20 @@ export default function WeldHrClientsPage() {
       id: 'company',
       header: t('weldhr.clients.table.company'),
       width: 'flex-1',
-      render: (c) => <span className="font-medium">{c.companyName ?? c.companyId}</span>,
+      render: (c) => {
+        const name = c.companyName ?? c.companyId;
+        return (
+          <span className="flex min-w-0 items-center gap-2">
+            <Avatar className="h-[22px] w-[22px] shrink-0 rounded-md border border-border">
+              <AvatarImage src={logos.get(c.companyId)} alt="" className="rounded-[inherit] object-cover" />
+              <AvatarFallback className="rounded-md bg-muted text-[10px] font-medium">
+                {name.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <span className="truncate font-medium">{name}</span>
+          </span>
+        );
+      },
     },
     {
       id: 'active',

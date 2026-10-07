@@ -61,7 +61,7 @@ export async function resolveGuild(guildId: string): Promise<GuildMapping | null
         )
         .limit(1);
 
-      if (!integration || integration.status !== 'connected') continue;
+      if (integration?.status !== 'connected') continue;
 
       // Guild ID is stored in accountInfo.metadata.guildId (set by OAuth callback)
       const accountInfo = (integration.accountInfo || {}) as { id?: string; metadata?: Record<string, unknown> };

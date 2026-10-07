@@ -47,6 +47,7 @@
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/realtime-registrar": "workspace:*",
     "@weldsuite/stripe": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "@weldsuite/worker-email": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",

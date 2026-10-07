@@ -660,7 +660,7 @@ export function MessageInput({
     if (document.queryCommandState('insertOrderedList')) formats.add('insertOrderedList');
     // Check if cursor is inside a <code> element
     const sel = window.getSelection();
-    if (sel && sel.anchorNode) {
+    if (sel?.anchorNode) {
       const node = sel.anchorNode;
       const codeEl = node instanceof HTMLElement ? node.closest('code') : node.parentElement?.closest('code');
       if (codeEl && editorRef.current?.contains(codeEl)) formats.add('code');
@@ -825,7 +825,7 @@ export function MessageInput({
         parentId?: string | null;
         files: File[];
       }>).detail;
-      if (!detail || detail.channelId !== channelId) return;
+      if (detail?.channelId !== channelId) return;
       const targetParent = detail.parentId ?? null;
       const ownParent = parentId ?? null;
       if (targetParent !== ownParent) return;
@@ -943,8 +943,7 @@ export function MessageInput({
         }}
       >
         {/* ============ Normal Message Input ============ */}
-          <>
-            {editingMessage && (
+          {editingMessage && (
               <div className="mx-1.5 -mt-1 mb-1 rounded-lg bg-gray-100 dark:bg-secondary/60">
                 <div className="flex items-start gap-2 px-3 py-2.5">
                   <Pencil className="h-3.5 w-3.5 text-gray-900 dark:text-foreground mt-0.5 shrink-0" />
@@ -1357,7 +1356,6 @@ export function MessageInput({
                 </Button>
               </div>
             </div>
-          </>
       </div>
 
       {/* Clip Recorder Dialog */}

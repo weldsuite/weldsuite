@@ -157,7 +157,7 @@ export default function SearchScreen() {
 
   const highlightText = (text: string, query: string) => {
     if (!query.trim()) return <Text>{text}</Text>;
-    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)})`, 'gi'));
     let offset = 0;
     return (
       <Text>

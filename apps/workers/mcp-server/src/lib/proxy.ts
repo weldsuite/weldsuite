@@ -5,6 +5,7 @@ import type { ToolDefinition } from '../tools/registry';
 import { toolResult, toolError } from '../tools/registry';
 import { INTERNAL_ORIGIN, apiApp, internalEnv } from '../api/app';
 import { labelFor } from './present';
+import { asText } from '@weldsuite/text';
 
 /**
  * How many candidates to fetch when resolving a name, and how many to offer
@@ -117,7 +118,7 @@ function fillPathParams(
     if (value === undefined || value === null || value === '') {
       return { missing: field };
     }
-    path = path.replace(`:${placeholder}`, encodeURIComponent(String(value)));
+    path = path.replace(`:${placeholder}`, encodeURIComponent(asText(value)));
     consumed.add(field);
   }
   return { path, consumed };

@@ -11,9 +11,10 @@
  * may open.
  */
 
-import { and, desc, eq, getTableColumns, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
+import { asText } from '@weldsuite/text';
 
 const {
   files,
@@ -397,7 +398,7 @@ export function queryArray<T>(items: T[], options: QueryOptions<T>): PaginatedRe
         options.searchFields!.some((field) => {
           const value = (item as Record<string, unknown>)[field as string];
           if (value == null) return false;
-          return String(value).toLowerCase().includes(term);
+          return asText(value).toLowerCase().includes(term);
         }),
       );
     }

@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   // Workspace packages ship raw TS (main = ./src/index.ts, no build step), so
   // Next must transpile them itself. Without this, `next build` fails with
   // "Module not found: Can't resolve '@weldsuite/site-components'".
-  transpilePackages: ["@weldsuite/ui", "@weldsuite/site-components"],
+  transpilePackages: ["@weldsuite/ui", "@weldsuite/site-components", "@weldsuite/text"],
   // Don't fail the production build on pre-existing type/lint errors in the
   // shared @weldsuite/ui + site-components packages (~15 latent errors, mostly
   // React-19 ref nullability + noUncheckedIndexedAccess). This mirrors the

@@ -28,7 +28,7 @@ import {
   listAccessibleAccountIds,
   userAccessCondition,
 } from '@weldsuite/mail-domain/access';
-import { eq, and, inArray, isNull } from 'drizzle-orm';
+import { and, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 
 // Inline rather than importing from `@weldsuite/app-api-client`, which would

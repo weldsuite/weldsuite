@@ -645,7 +645,7 @@ function ChatBubble({
   const senderKind = getSenderKind(message);
   const isInternalNote = senderKind === 'note';
   const lines = toKeyedLines(message.content || '');
-  const lastLine = lines[lines.length - 1].text;
+  const lastLine = lines.at(-1)!.text;
   const shouldPutTimestampBelow = lastLine.length > 60;
   const hasText = Boolean((message.content || '').trim());
   const hasAttachments = Boolean(message.attachments && message.attachments.length > 0);
@@ -1212,8 +1212,8 @@ export default function ConversationDetailClient({
       return;
     }
     if (weldDeskMessages.length > prevMessageCountRef.current) {
-      const lastMsg = weldDeskMessages[weldDeskMessages.length - 1];
-      if (lastMsg && lastMsg.authorType === 'customer' && !lastMsg.isPending) {
+      const lastMsg = weldDeskMessages.at(-1);
+      if (lastMsg?.authorType === 'customer' && !lastMsg.isPending) {
         playMessageReceivedSound();
         refreshConversationData();
       }

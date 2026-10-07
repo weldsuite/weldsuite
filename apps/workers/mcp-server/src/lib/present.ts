@@ -12,6 +12,7 @@
  * read them aloud. Removing them entirely would mean maintaining a name→id map
  * in the proxy, which fails in ways that are hard to debug.
  */
+import { asText } from '@weldsuite/text';
 
 /**
  * Columns that carry no meaning for a human reader. Tenant scoping and
@@ -265,7 +266,7 @@ export function presentList(
       .join(', ');
 
     const id = identifiers.find(([key]) => key === 'id')?.[1];
-    const ref = id ? ` <!--id=${String(id)}-->` : '';
+    const ref = id ? ` <!--id=${asText(id)}-->` : '';
 
     return `${index + 1}. ${heading}${details ? ` — ${details}` : ''}${ref}`;
   });

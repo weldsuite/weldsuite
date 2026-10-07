@@ -181,7 +181,7 @@ async function companyListCondition(db: Database, listId: string): Promise<SQL |
     .from(lists)
     .where(and(eq(lists.id, listId), isNull(lists.deletedAt)))
     .limit(1);
-  if (!listRow || listRow.kind !== 'company') return null;
+  if (listRow?.kind !== 'company') return null;
   const memberRows = await db
     .select({ entityId: listMembers.entityId })
     .from(listMembers)
@@ -377,7 +377,7 @@ export async function listCompanies(
 
   const hasMore = rows.length > limit;
   const data = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore && data.length > 0 ? data[data.length - 1]!.id : null;
+  const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
   return {
     // Phase 3: customFields comes from the typed values table, not the blob.
     data: await hydrateCustomFields(db, 'company', data),
@@ -670,7 +670,7 @@ async function importIntoExisting(
     ? {
         ...rec,
         customFields: {
-          ...((match.customFields as Record<string, unknown> | null) ?? {}),
+          ...(match.customFields as Record<string, unknown> | null),
           ...rec.customFields,
         },
       }

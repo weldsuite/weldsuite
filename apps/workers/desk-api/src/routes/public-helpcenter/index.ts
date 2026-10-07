@@ -47,7 +47,7 @@ app.get('/config', async (c) => {
       .where(isNull(helpcenterSettings.deletedAt))
       .orderBy(asc(helpcenterSettings.createdAt), asc(helpcenterSettings.id))
       .limit(1);
-    if (!config || !config.isEnabled) {
+    if (!config?.isEnabled) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Help center is not enabled' } }, 404);
     }
     return success(c, {

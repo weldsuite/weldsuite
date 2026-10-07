@@ -37,6 +37,7 @@ import {
   MAX_CHECKOUT_DOMAINS,
   toPublicDomain,
 } from '@weldsuite/core-api-client/schemas/domains';
+import { asText } from '@weldsuite/text';
 
 export { toPublicDomain, isHiddenUnpaidDomain };
 
@@ -577,7 +578,7 @@ export async function verifyOwnershipAndCreateZone(
     .from(hostDnsZones)
     .where(and(eq(hostDnsZones.domainId, domainId), isNull(hostDnsZones.deletedAt)))
     .limit(1);
-  if (existingZone && existingZone.provider === 'cloudflare') {
+  if (existingZone?.provider === 'cloudflare') {
     return {
       ok: true,
       idempotent: true,
@@ -685,9 +686,9 @@ export async function refreshZoneStatus(
   params: { domainId: string; apiToken: string | undefined },
 ): Promise<RefreshZoneStatusResult> {
   const got = await getDomainWithZone(db, params.domainId);
-  if (!got || !got.domain) return { ok: false, reason: 'not_found' };
+  if (!got?.domain) return { ok: false, reason: 'not_found' };
   const { domain, zone } = got;
-  if (!zone || zone.provider !== 'cloudflare' || !zone.externalZoneId) {
+  if (zone?.provider !== 'cloudflare' || !zone.externalZoneId) {
     return { ok: false, reason: 'no_cf_zone' };
   }
   if (!params.apiToken) return { ok: false, reason: 'cf_misconfigured' };
@@ -1452,7 +1453,7 @@ export async function renewDomain(
   if (result.status === 'pending') {
     // Keep registration rtrProcessId intact; store renewal process under metadata.
     const metadata = {
-      ...(domain.metadata ?? {}),
+      ...domain.metadata,
       rtrRenewalProcessId: String(result.processId),
     };
     patch.metadata = metadata;
@@ -1461,7 +1462,7 @@ export async function renewDomain(
     patch.expiresAt = result.domain.expiresAt ? new Date(result.domain.expiresAt) : domain.expiresAt;
     patch.registrarStatus = result.domain.status.join(',');
     patch.registrarSyncedAt = new Date();
-    const metadata = { ...(domain.metadata ?? {}) };
+    const metadata = { ...domain.metadata };
     delete metadata.rtrRenewalProcessId;
     patch.metadata = metadata;
   }
@@ -1508,7 +1509,7 @@ export async function pollRenewalProcess(
 
   if (outcome === 'failed') {
     const metadata = {
-      ...(domain.metadata ?? {}),
+      ...domain.metadata,
       error: 'Registrar renewal process failed',
     };
     const [updated] = await db
@@ -1525,7 +1526,7 @@ export async function pollRenewalProcess(
 
   try {
     const remote = await rtr.getDomain(domain.fullDomain);
-    const metadata = { ...(domain.metadata ?? {}) };
+    const metadata = { ...domain.metadata };
     delete metadata.rtrRenewalProcessId;
     const [updated] = await db
       .update(hostDomains)
@@ -1630,7 +1631,7 @@ export function registrationStatusFromDomain(row: RegistrationStatusSource): Reg
 
   const metadataError =
     row.metadata && typeof row.metadata === 'object' && 'error' in row.metadata
-      ? String((row.metadata as { error?: unknown }).error ?? '')
+      ? asText((row.metadata as { error?: unknown }).error ?? '')
       : '';
 
   return {

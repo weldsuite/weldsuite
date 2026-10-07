@@ -4,6 +4,7 @@
  * Ported from `apps/core-api/src/lib/stripe.ts`. Uses form-encoded POSTs
  * directly against the Stripe REST API.
  */
+import { asText } from '@weldsuite/text';
 
 const STRIPE_API_BASE = 'https://api.stripe.com';
 
@@ -35,7 +36,7 @@ async function stripeRequest(
 
 /** HTTP 4xx from Stripe is a definite rejection; 5xx/network/abort are ambiguous. */
 export function isDefiniteStripeFailure(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = err instanceof Error ? err.message : asText(err);
   const match = /Stripe .+ failed \((\d+)\)/.exec(msg);
   if (!match) return false;
   const status = Number(match[1]);

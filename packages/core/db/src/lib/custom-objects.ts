@@ -31,6 +31,7 @@ import {
   type CustomFieldDefinitionRow,
   type CustomFieldMap,
 } from './custom-field-values';
+import { asText } from '@weldsuite/text';
 
 type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
 
@@ -170,7 +171,7 @@ export async function getCustomObjectCounts(
 // ---------------------------------------------------------------------------
 
 /** Field types that can serve as a record's display name. */
-const TITLE_FALLBACK_TYPES = ['text', 'email', 'url', 'phone', 'textarea'];
+const TITLE_FALLBACK_TYPES = new Set(['text', 'email', 'url', 'phone', 'textarea']);
 
 /**
  * A record's display title, from its field values.
@@ -188,15 +189,15 @@ export function resolveRecordTitle(
     const def = definitions.find((d) => d.id === object.titleFieldId);
     if (def) {
       const raw = fields[def.slug];
-      if (raw !== undefined && raw !== null && raw !== '') return String(raw).slice(0, 500);
+      if (raw !== undefined && raw !== null && raw !== '') return asText(raw).slice(0, 500);
     }
   }
 
   const ordered = [...definitions].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   for (const def of ordered) {
-    if (!TITLE_FALLBACK_TYPES.includes(def.fieldType)) continue;
+    if (!TITLE_FALLBACK_TYPES.has(def.fieldType)) continue;
     const raw = fields[def.slug];
-    if (raw !== undefined && raw !== null && raw !== '') return String(raw).slice(0, 500);
+    if (raw !== undefined && raw !== null && raw !== '') return asText(raw).slice(0, 500);
   }
   return null;
 }
@@ -314,7 +315,7 @@ export async function listRecordsSimple(
     data: page.map((r) => ({ ...r, fields: valuesByRecord[r.id] ?? {} })),
     totalCount: Number(countRes[0]?.count ?? 0),
     hasMore,
-    cursor: hasMore && page.length > 0 ? page[page.length - 1]!.id : null,
+    cursor: hasMore && page.length > 0 ? page.at(-1)!.id : null,
   };
 }
 

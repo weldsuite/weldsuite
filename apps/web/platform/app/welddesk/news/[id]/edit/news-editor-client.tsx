@@ -424,7 +424,7 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
 
   const openLinkDialog = () => {
     const selection = window.getSelection();
-    if (selection && selection.toString()) {
+    if (selection?.toString()) {
       setLinkText(selection.toString());
     }
     setShowCommandMenu(false);
@@ -907,7 +907,7 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style>{`
+      <style>{String.raw`
         /* Subtle scrollbar styles */
         * {
           scrollbar-width: thin;
@@ -958,7 +958,7 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
           text-align: left;
         }
         [contenteditable] p:empty:before {
-          content: '\\200B';
+          content: '\200B';
         }
         [contenteditable] h1 {
           font-size: 2em;

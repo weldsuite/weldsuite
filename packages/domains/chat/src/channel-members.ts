@@ -192,7 +192,7 @@ export async function joinPublicChannel(
     .where(and(eq(chatChannels.id, channelId), isNull(chatChannels.deletedAt)))
     .limit(1);
 
-  if (!channel || channel.type !== 'public') {
+  if (channel?.type !== 'public') {
     return { ok: false, message: 'Channel not found or is not public' };
   }
 

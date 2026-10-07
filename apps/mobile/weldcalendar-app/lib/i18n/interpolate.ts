@@ -1,7 +1,8 @@
 /** Replace `{name}` placeholders. Unknown keys are left as-is. */
+import { asText } from '@weldsuite/text';
 export function interpolate(template: string, values: Record<string, unknown> = {}): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string) => {
-    return values[key] !== undefined ? String(values[key]) : match;
+    return values[key] !== undefined ? asText(values[key]) : match;
   });
 }
 

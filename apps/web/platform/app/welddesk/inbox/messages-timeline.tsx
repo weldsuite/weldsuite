@@ -128,7 +128,7 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
 
   // New content: follow along if the agent is at the bottom (or just sent
   // something); otherwise leave their scroll alone and offer a jump button.
-  const last = messages[messages.length - 1];
+  const last = messages.at(-1);
   const lastKey = `${messages.length}:${last?.id ?? ''}:${last?.pending ?? ''}:${typing.length}`;
   useEffect(() => {
     const ownSend = last?.pending === 'sending';

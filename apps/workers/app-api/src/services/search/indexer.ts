@@ -262,7 +262,7 @@ export async function indexDocument(
   const stale: Array<{ index: number; text: string; hash: string }> = [];
   chunks.forEach((text, index) => {
     const prior = existingByIndex.get(index);
-    if (prior && prior.contentHash === hashes[index] && prior.embedModel === EMBED_MODEL) {
+    if (prior?.contentHash === hashes[index] && prior.embedModel === EMBED_MODEL) {
       result.skipped += 1;
       return;
     }

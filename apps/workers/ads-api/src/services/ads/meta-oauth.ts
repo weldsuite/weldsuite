@@ -36,7 +36,7 @@ export async function consumeAdsOAuthState(
   orgId: string,
 ): Promise<AdsOAuthState | null> {
   const stored = (await kv.get(`ads_oauth_state:${state}`, 'json')) as AdsOAuthState | null;
-  if (!stored || stored.orgId !== orgId) return null;
+  if (stored?.orgId !== orgId) return null;
   await kv.delete(`ads_oauth_state:${state}`);
   return stored;
 }

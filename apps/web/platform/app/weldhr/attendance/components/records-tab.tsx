@@ -1,11 +1,11 @@
 /** Attendance → Records: filterable list with per-row and bulk approval. */
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CalendarClock, Check } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrAttendanceRecord, HrAttendanceStatus } from '@weldsuite/app-api-client/domains/weldhr';
@@ -16,11 +16,11 @@ import {
   useDeleteHrAttendance,
   useHrAttendance,
   useHrAttendanceSummary,
+  useHrEmployees,
 } from '@/hooks/queries/use-weldhr-queries';
+import { useAppApiClient } from '@/lib/api/use-app-api';
 import { emptyIcon } from '../../components/page-kit';
 import {
-  CompanyPicker,
-  EmployeePicker,
   StatusBadge,
   errorMessage,
   formatDate,
@@ -34,6 +34,17 @@ import { AttendanceRecordDialog } from './record-dialog';
 const STATUSES: HrAttendanceStatus[] = ['present', 'late', 'absent', 'excused', 'remote', 'half_day'];
 const PAGE_SIZE = 50;
 
+interface CompanyOption {
+  id: string;
+  displayName?: string | null;
+  name?: string | null;
+}
+
+/** The list opens on the last seven days, as a regular (removable) date filter. */
+function defaultFilters(): ActiveFilter[] {
+  return [{ id: 'default-date', field: 'date', operator: 'after', value: shiftIsoDate(todayIso(), -6) }];
+}
+
 export function RecordsTab() {
   const t = useTranslations();
   const { can } = usePermissions();
@@ -41,31 +52,46 @@ export function RecordsTab() {
   const canDelete = can('attendance:delete');
   const canApprove = can('attendance:approve');
 
-  const [from, setFrom] = useState(shiftIsoDate(todayIso(), -6));
-  const [to, setTo] = useState(todayIso());
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
-  const [employeeLabel, setEmployeeLabel] = useState<string | null>(null);
-  const [companyId, setCompanyId] = useState<string | null>(null);
-  const [companyLabel, setCompanyLabel] = useState<string | null>(null);
-  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>(defaultFilters);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [dialogState, setDialogState] = useState<'create' | HrAttendanceRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HrAttendanceRecord | null>(null);
 
-  const status = activeFilters.find((f) => f.field === 'status')?.value;
-  const needsApproval = activeFilters.find((f) => f.field === 'unapproved')?.value === 'true';
+  const { data: employeesData } = useHrEmployees({ limit: 100 });
+  const employeeOptions = employeesData?.data ?? [];
+  const { getClient } = useAppApiClient();
+  const { data: companiesData } = useQuery({
+    queryKey: ['weldhr', 'attendance', 'company-options'],
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: CompanyOption[] }>('/companies?limit=100');
+    },
+    staleTime: 60_000,
+  });
+  const companyOptions = companiesData?.data ?? [];
+
+  const filterValue = (field: string) => activeFilters.find((f) => f.field === field)?.value || undefined;
+  const dateValue = (operator: string) =>
+    activeFilters.find((f) => f.field === 'date' && f.operator === operator)?.value || undefined;
+  const onDate = dateValue('is');
+  const from = onDate ?? dateValue('after');
+  const to = onDate ?? dateValue('before');
+  const employeeId = filterValue('employeeId');
+  const companyId = filterValue('companyId');
+  const status = filterValue('status');
+  const needsApproval = filterValue('unapproved') === 'true';
 
   const filters = {
     from,
     to,
-    employeeId: employeeId ?? undefined,
-    companyId: companyId ?? undefined,
-    status: status || undefined,
+    employeeId,
+    companyId,
+    status,
     unapproved: needsApproval || undefined,
   };
 
   const { data, isLoading, isFetching, error } = useHrAttendance({ ...filters, limit });
-  const { data: summary } = useHrAttendanceSummary({ from, to, employeeId: employeeId ?? undefined, companyId: companyId ?? undefined });
+  const { data: summary } = useHrAttendanceSummary({ from, to, employeeId, companyId });
   const approve = useApproveHrAttendance();
   const deleteRecord = useDeleteHrAttendance();
 
@@ -90,6 +116,24 @@ export function RecordsTab() {
   }
 
   const filterConfigs: FilterConfig[] = [
+    {
+      field: 'date',
+      label: t('weldhr.attendance.records.table.date'),
+      filterType: 'date',
+      options: [],
+    },
+    {
+      field: 'employeeId',
+      label: t('weldhr.attendance.records.filters.employee'),
+      searchable: true,
+      options: employeeOptions.map((e) => ({ value: e.id, label: e.displayName })),
+    },
+    {
+      field: 'companyId',
+      label: t('weldhr.attendance.records.filters.client'),
+      searchable: true,
+      options: companyOptions.map((c) => ({ value: c.id, label: c.displayName || c.name || c.id })),
+    },
     {
       field: 'status',
       label: t('weldhr.attendance.records.filters.status'),
@@ -217,30 +261,6 @@ export function RecordsTab() {
                 </span>
               </div>
             )}
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 w-[135px]" />
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-8 w-[135px]" />
-            <EmployeePicker
-              value={employeeId}
-              valueLabel={employeeLabel}
-              allowClear
-              placeholder={t('weldhr.attendance.records.filters.employee')}
-              onChange={(id, label) => {
-                setEmployeeId(id);
-                setEmployeeLabel(label);
-              }}
-              className="w-36"
-            />
-            <CompanyPicker
-              value={companyId}
-              valueLabel={companyLabel}
-              allowClear
-              placeholder={t('weldhr.attendance.records.filters.client')}
-              onChange={(id, label) => {
-                setCompanyId(id);
-                setCompanyLabel(label);
-              }}
-              className="w-36"
-            />
             {canApprove && unapprovedVisible.length > 0 && (
               <Button size="sm" variant="outline" className="h-8" onClick={() => void approveAllVisible()} disabled={approve.isPending}>
                 <Check className="mr-1.5 h-4 w-4" />

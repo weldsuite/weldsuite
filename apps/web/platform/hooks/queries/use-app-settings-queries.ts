@@ -16,13 +16,13 @@ import type { MailAccountRow } from '@weldsuite/app-api-client/domains/mail-acco
 import type { MailDomainRow } from '@weldsuite/app-api-client/domains/mail-domains';
 import type { EmailAccount } from '@/app/settings/apps/weldmail/accounts/email-accounts-list';
 
-const MAIL_ACCOUNT_STATUSES: EmailAccount['status'][] = [
+const MAIL_ACCOUNT_STATUSES: Set<EmailAccount['status']> = new Set([
   'active',
   'inactive',
   'error',
   'suspended',
   'quota_exceeded',
-];
+]);
 
 function toEmailAccount(row: MailAccountRow): EmailAccount {
   return {
@@ -33,7 +33,7 @@ function toEmailAccount(row: MailAccountRow): EmailAccount {
     isShared: row.isShared,
     assignedUserIds: row.assignedUserIds ?? undefined,
     lastSyncAt: row.lastSyncAt ?? undefined,
-    status: MAIL_ACCOUNT_STATUSES.includes(row.status as EmailAccount['status'])
+    status: MAIL_ACCOUNT_STATUSES.has(row.status as EmailAccount['status'])
       ? (row.status as EmailAccount['status'])
       : undefined,
   };

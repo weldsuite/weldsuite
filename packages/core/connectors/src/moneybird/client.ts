@@ -20,6 +20,7 @@ import {
 } from '../types';
 import type { ConnectorWebhookTopic } from '../webhooks';
 import { MONEYBIRD_API_BASE, type MoneybirdAdministration } from './auth';
+import { asText } from '@weldsuite/text';
 
 export interface MoneybirdCredentials {
   accessToken: string;
@@ -212,8 +213,8 @@ export class MoneybirdClient implements ConnectorProviderClient {
     const rows = Array.isArray(data) ? data : [];
     return rows
       .map((row) => ({
-        id: row.id !== undefined && row.id !== null ? String(row.id) : '',
-        name: typeof row.name === 'string' ? row.name : typeof row.company_name === 'string' ? row.company_name : row.id !== undefined ? String(row.id) : '',
+        id: row.id !== undefined && row.id !== null ? asText(row.id) : '',
+        name: typeof row.name === 'string' ? row.name : typeof row.company_name === 'string' ? row.company_name : row.id !== undefined ? asText(row.id) : '',
         language: typeof row.language === 'string' ? row.language : null,
         currency: typeof row.currency === 'string' ? row.currency : null,
       }))
@@ -311,7 +312,7 @@ export class MoneybirdClient implements ConnectorProviderClient {
     }
 
     const ids = slice
-      .map((row) => (row.id !== undefined && row.id !== null ? String(row.id) : ''))
+      .map((row) => (row.id !== undefined && row.id !== null ? asText(row.id) : ''))
       .filter(Boolean);
     const { data } = await this.request<Array<Record<string, unknown>>>('financial_mutations/synchronization', {
       method: 'POST',
@@ -416,7 +417,7 @@ export class MoneybirdClient implements ConnectorProviderClient {
       method: 'POST',
       body: { url: args.deliveryUrl, enabled_events: events },
     });
-    const id = data?.id !== undefined && data?.id !== null ? String(data.id) : '';
+    const id = data?.id !== undefined && data?.id !== null ? asText(data.id) : '';
     return [
       {
         id,

@@ -127,14 +127,14 @@ function generateBrowserFingerprint(): string {
 }
 
 // Paths that render without an authenticated session.
-const PUBLIC_PATHS = ['/login', '/signup', '/reset-password', '/verify-email', '/'];
+const PUBLIC_PATHS = new Set(['/login', '/signup', '/reset-password', '/verify-email', '/']);
 
 // Get CSRF token from cookie
 function getCsrfToken(): string | null {
   if (typeof document === 'undefined') return null;
   
   const match = document.cookie.match(/csrf-token=([^;]+)/);
-  return match && match[1] ? decodeURIComponent(match[1]) : null;
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
 export function SecureAuthProvider({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -558,7 +558,7 @@ export function SecureAuthProvider({ children }: Readonly<{ children: React.Reac
 
   // Redirect if not authenticated
   useEffect(() => {
-    if (!loading && !user && !PUBLIC_PATHS.includes(pathname)) {
+    if (!loading && !user && !PUBLIC_PATHS.has(pathname)) {
       router.push(`/login?redirect=${encodeURIComponent(pathname)}`);
     }
   }, [loading, user, pathname, router]);

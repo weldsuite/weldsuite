@@ -15,6 +15,7 @@ import type { DeskAuthorType, DeskMessageKind } from '@weldsuite/db/schema/desk-
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { asText } from '@weldsuite/text';
 
 export interface AiTalkTurn {
   role?: string;
@@ -35,7 +36,7 @@ function turnContent(item: AiTalkTurn): string {
       .map((part) => {
         if (typeof part === 'string') return part;
         if (part && typeof part === 'object' && 'text' in part) {
-          return String((part as { text?: unknown }).text ?? '');
+          return asText((part as { text?: unknown }).text ?? '');
         }
         return '';
       })

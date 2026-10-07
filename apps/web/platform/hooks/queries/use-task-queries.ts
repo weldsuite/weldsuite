@@ -2,6 +2,7 @@
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient, useAppApi } from '@/lib/api/use-app-api';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
+import { asText } from '@weldsuite/text';
 
 // =============================================================================
 // Query Keys
@@ -34,7 +35,7 @@ function buildQueryString(params: Record<string, unknown>): string {
       if (Array.isArray(value)) {
         value.forEach((v) => queryParams.append(key, String(v)));
       } else {
-        queryParams.set(key, String(value));
+        queryParams.set(key, asText(value));
       }
     }
   }
@@ -67,7 +68,7 @@ export function useTasks(filters?: {
     queryKey: taskKeys.taskList(filters),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { ...(filters ?? {}) };
+      const qs: Record<string, unknown> = { ...filters };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;
@@ -87,7 +88,7 @@ export function useTaskProjects(params?: { page?: number; pageSize?: number; cur
     queryKey: taskKeys.projectList(params),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { ...(params ?? {}) };
+      const qs: Record<string, unknown> = { ...params };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;

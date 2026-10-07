@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { Button } from '@weldsuite/ui/components/button';
+import { asText } from '@weldsuite/text';
 
 export interface AuditLogEntry {
   id: string;
@@ -41,7 +42,7 @@ const actionColors: Record<string, { icon: string; bg: string }> = {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return 'none';
   if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  return asText(value);
 }
 
 function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: unknown; to: unknown }> }>) {

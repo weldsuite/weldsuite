@@ -1,6 +1,6 @@
 const { getDefaultConfig } = require('expo/metro-config');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, '../../..');
@@ -14,6 +14,7 @@ config.watchFolders = [
   path.resolve(monorepoRoot, 'packages/core/realtime'),
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+  path.resolve(monorepoRoot, 'packages/core/text'),
   path.resolve(monorepoRoot, 'apps/mobile/_shared'),
 ];
 

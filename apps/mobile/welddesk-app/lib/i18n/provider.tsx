@@ -2,7 +2,6 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 
 import { interpolate, plural as pluralFn } from './interpolate';
 import {
-  DEFAULT_LANGUAGE,
   INTL_LOCALES,
   type AppLanguage,
   resolveAppLanguage,

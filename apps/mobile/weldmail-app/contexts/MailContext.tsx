@@ -211,7 +211,7 @@ function buildAccountList(
 
 async function readCachedAccounts(orgId: string | null): Promise<MailAccount[] | null> {
   const cached = orgId ? ((await mailCache.getAccounts(orgId)) as MailAccount[] | null) : null;
-  return cached && cached.length ? cached : null;
+  return cached?.length ? cached : null;
 }
 
 async function readCachedLabels(orgId: string | null, scope: string) {
@@ -434,7 +434,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
     const match = accounts.find((a) => a.id === request.accountId);
     // The account lives in a workspace we're still switching to: wait for the
     // switch (org id change → refetch) instead of consuming the request now.
-    if (match && match.tenantKind === 'workspace' && match.clerkOrgId && organizationId && match.clerkOrgId !== organizationId) {
+    if (match?.tenantKind === 'workspace' && match.clerkOrgId && organizationId && match.clerkOrgId !== organizationId) {
       return;
     }
     pendingAccountIdRef.current = null;

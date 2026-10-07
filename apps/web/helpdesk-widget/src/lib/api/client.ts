@@ -18,7 +18,7 @@ async function request<T>(widgetId: string, path: string, init?: RequestInit): P
     headers: {
       'Content-Type': 'application/json',
       'x-widget-id': widgetId,
-      ...(init?.headers ?? {}),
+      ...init?.headers,
     },
   });
   let json: { success?: boolean; data?: T; error?: { message?: string } } = {};

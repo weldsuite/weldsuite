@@ -85,7 +85,7 @@ export function preloadWeldApp(appCode: string): void {
 /** The page reserved `slot.element` for `slot.appCode`; show that frame there. */
 export function attachFrameSlot(slot: FrameSlot): void {
   const current = state.slot;
-  if (current && current.appCode === slot.appCode && current.element === slot.element && current.path === slot.path) {
+  if (current?.appCode === slot.appCode && current.element === slot.element && current.path === slot.path) {
     return;
   }
   const frames = touch(state.frames, slot.appCode, slot.appCode);

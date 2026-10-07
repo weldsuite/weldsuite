@@ -59,7 +59,7 @@ export default function MonthScreen() {
   const range = useMemo(() => {
     const weeks = buildMonthMatrix(month);
     const first = weeks[0][0];
-    const last = weeks[weeks.length - 1][6];
+    const last = weeks.at(-1)![6];
     return {
       startDate: startOfDay(addDays(first, -1)).toISOString(),
       endDate: endOfDay(addDays(last, 1)).toISOString(),

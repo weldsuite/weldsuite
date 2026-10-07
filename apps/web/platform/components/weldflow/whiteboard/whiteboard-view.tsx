@@ -139,9 +139,9 @@ function nearestZoomIndex(scale: number): number {
 type Tool = 'select' | 'pan' | 'rectangle' | 'circle' | 'text' | 'sticky' | 'pen' | 'eraser' | 'arrow';
 
 // Tools whose options show the stroke-width, fill-mode and font-size controls.
-const STROKE_WIDTH_TOOLS: readonly Tool[] = ['pen', 'rectangle', 'circle', 'arrow'];
-const FILL_MODE_TOOLS: readonly Tool[] = ['rectangle', 'circle'];
-const FONT_SIZE_TOOLS: readonly Tool[] = ['text', 'sticky'];
+const STROKE_WIDTH_TOOLS: ReadonlySet<Tool> = new Set(['pen', 'rectangle', 'circle', 'arrow']);
+const FILL_MODE_TOOLS: ReadonlySet<Tool> = new Set(['rectangle', 'circle']);
+const FONT_SIZE_TOOLS: ReadonlySet<Tool> = new Set(['text', 'sticky']);
 
 interface WhiteboardViewProps {
   projectId: string;
@@ -942,8 +942,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     const headAngle = Math.PI / 6;
     
     return (
-      <>
-        <path
+      <path
           d={`M ${x2 - headLength * Math.cos(angle - headAngle)} ${y2 - headLength * Math.sin(angle - headAngle)} L ${x2} ${y2} L ${x2 - headLength * Math.cos(angle + headAngle)} ${y2 - headLength * Math.sin(angle + headAngle)}`}
           fill="none"
           stroke={color}
@@ -951,7 +950,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-      </>
     );
   };
 
@@ -1328,7 +1326,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   // Drag a rectangle's corner handle to change its border radius
   const dragCornerRadius = (point: Point, handle: CornerHandle, dragStart: CornerRadiusDragStart) => {
     const element = elements.find(el => el.id === selectedElement);
-    if (!element || element.type !== 'rectangle') return;
+    if (element?.type !== 'rectangle') return;
     const newRadius = computeCornerRadius(element, handle, point, dragStart);
     setElements(patchElement(elements, selectedElement, { borderRadius: newRadius }));
   };
@@ -3091,7 +3089,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
               {element.erasedPaths!.map((stroke, strokeIndex) => (
                 <g key={strokeIndex}>
                   {/* Use path only for better performance */}
-                  {stroke && stroke.points && stroke.points.length > 0 && (
+                  {stroke?.points && stroke.points.length > 0 && (
                     <path
                       d={stroke.points.map((p, i) =>
                         i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
@@ -3186,7 +3184,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
           </div>
           
           {/* Tool-specific options */}
-          {STROKE_WIDTH_TOOLS.includes(tool) && (
+          {STROKE_WIDTH_TOOLS.has(tool) && (
             <>
               <div className="w-px h-6 bg-gray-300 dark:bg-accent mx-1" />
               <div className="flex items-center gap-2 px-2 py-1 border border-gray-200 dark:border-border rounded-md bg-white dark:bg-secondary">
@@ -3216,7 +3214,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
           )}
           
           
-          {FILL_MODE_TOOLS.includes(tool) && (
+          {FILL_MODE_TOOLS.has(tool) && (
             <div className="flex items-center gap-2 ml-2">
               <ToggleGroup type="single" value={fillMode} onValueChange={(value) => value && setFillMode(value as 'fill' | 'both' | 'stroke')}>
                 <ToggleGroupItem value="fill" size="sm" className="h-6 px-2">
@@ -3232,7 +3230,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
             </div>
           )}
           
-          {FONT_SIZE_TOOLS.includes(tool) && (
+          {FONT_SIZE_TOOLS.has(tool) && (
             <>
               <div className="w-px h-6 bg-gray-300 dark:bg-accent mx-1" />
               <div className="flex items-center gap-2">
@@ -3423,7 +3421,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       {/* Floating toolbar for selected text element */}
       {canWrite && selectedElement && !isPresentMode && !isPanning && (() => {
         const element = elements.find(el => el.id === selectedElement);
-        if (!element || element.type !== 'text') return null;
+        if (element?.type !== 'text') return null;
 
         // Use cached canvas rect position
         const { left: canvasLeft, top: canvasTop } = canvasRectRef.current;

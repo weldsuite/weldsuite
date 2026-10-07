@@ -2,7 +2,7 @@
 import sharp from 'sharp';
 import pngToIco from 'png-to-ico';
 import png2icons from 'png2icons';
-import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 

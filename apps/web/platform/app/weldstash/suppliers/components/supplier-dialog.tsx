@@ -15,6 +15,7 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
+import { asText } from '@weldsuite/text';
 
 type FormValues = z.input<typeof createWmsSupplierSchema>;
 
@@ -32,7 +33,7 @@ const optionalNumber = {
  */
 function FieldError({ message }: Readonly<{ message?: unknown }>) {
   if (!message) return null;
-  return <p className="text-xs text-destructive">{String(message)}</p>;
+  return <p className="text-xs text-destructive">{asText(message)}</p>;
 }
 
 export function SupplierDialog({

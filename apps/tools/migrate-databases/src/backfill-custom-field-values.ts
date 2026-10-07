@@ -422,7 +422,7 @@ async function sweepEntityType(
       await processSourceRow(sql, state, entityType, row, execute);
     }
 
-    cursor = rows[rows.length - 1]!.id;
+    cursor = rows.at(-1)!.id;
     if (rows.length < READ_BATCH) break;
   }
 

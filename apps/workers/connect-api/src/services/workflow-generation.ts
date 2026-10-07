@@ -33,6 +33,7 @@ import type { Env } from '../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { assertAiCredits, chargeAiUsage, type AiMetering } from '@weldsuite/core-domain/ai-billing';
 import { ACTION_TYPES, TRIGGER_TYPES, ENTITY_EVENTS } from '../routes/workflow-dashboard/static-catalogs';
+import { asText } from '@weldsuite/text';
 
 export class WorkflowGenerationError extends Error {
   constructor(
@@ -271,8 +272,8 @@ export function postValidateDraft(raw: GeneratedWorkflowDraft, catalog: Validati
     if (!TRIGGER_CATEGORIES.has(type)) {
       warnings.push(`Trigger "${name}" uses an unknown trigger type "${type}" — review before publishing.`);
     } else if (type === 'entity_event') {
-      const entityType = String(config.entityType ?? '');
-      const eventType = String(config.eventType ?? '');
+      const entityType = asText(config.entityType ?? '');
+      const eventType = asText(config.eventType ?? '');
       const events = catalog.entityEventsByType.get(entityType);
       if (!events) {
         warnings.push(`Trigger "${name}" references an unknown entity type "${entityType}" — review before publishing.`);

@@ -33,9 +33,9 @@ function toIcsDate(value: string | Date): string {
 function escapeText(value: string): string {
   return value
     .replaceAll('\\', '\\\\')
-    .replaceAll('\n', '\\n')
-    .replaceAll(',', '\\,')
-    .replaceAll(';', '\\;');
+    .replaceAll('\n', String.raw`\n`)
+    .replaceAll(',', String.raw`\,`)
+    .replaceAll(';', String.raw`\;`);
 }
 
 // RFC 5545 §3.1: lines longer than 75 *octets* must be folded.

@@ -55,7 +55,7 @@ export class SecurityManager {
     // Wildcard pattern (e.g., "https://*.example.com")
     if (pattern.includes('*')) {
       const regex = new RegExp(
-        '^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$'
+        '^' + pattern.replace(/\./g, String.raw`\.`).replace(/\*/g, '.*') + '$'
       );
       return regex.test(origin);
     }
@@ -296,7 +296,7 @@ export class TokenValidator {
    */
   public static isExpired(token: string): boolean {
     const payload = this.decodeJWT(token);
-    if (!payload || !payload.exp) {
+    if (!payload?.exp) {
       return true;
     }
 

@@ -14,12 +14,11 @@
  */
 
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
-import { eq, and, isNull, or } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import type { Env } from '../types';
 import { getTenantDbForWorkspace, schema } from '../db';
 import { generateId } from '../lib/id';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
-import { resolveInputs, evaluateCondition, isInteractiveStep } from '../lib/workflow-shared';
 import { executeStepHandler, type StepOutcome } from './step-executor';
 import { dispatchStepToChannel } from '../lib/channel-dispatch';
 import { asText } from '@weldsuite/text';
@@ -456,7 +455,7 @@ export class ConversationWorkflow extends WorkflowEntrypoint<Env, ConversationWo
     // Process resume
     const resumePayload = resumeEvent.payload as Record<string, unknown>;
     stepResults[wfStep.id] = {
-      ...(stepResults[wfStep.id] as Record<string, unknown> || {}),
+      ...stepResults[wfStep.id] as Record<string, unknown>,
       ...resumePayload,
       responded: true,
     };

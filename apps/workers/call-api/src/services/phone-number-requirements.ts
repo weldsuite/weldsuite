@@ -3,6 +3,7 @@
  */
 
 import { telnyxRequest, type TelnyxEnv } from '../lib/telnyx';
+import { asText } from '@weldsuite/text';
 
 export type PhoneRequirementFieldType = 'textual' | 'address' | 'document' | 'action' | 'datetime';
 
@@ -25,7 +26,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function fieldTypeOf(raw: unknown): PhoneRequirementFieldType {
-  const type = String(raw ?? '').toLowerCase();
+  const type = asText(raw ?? '').toLowerCase();
   if (type === 'address' || type === 'document' || type === 'action' || type === 'datetime') return type;
   return 'textual';
 }
@@ -37,7 +38,7 @@ export function flattenOrderingRequirements(raw: unknown[]): PhoneOrderingRequir
   const visit = (node: unknown) => {
     const row = asRecord(node);
     if (!row) return;
-    const recordType = String(row.record_type ?? '');
+    const recordType = asText(row.record_type ?? '');
     const nested =
       (Array.isArray(row.requirement_types) ? row.requirement_types : null) ??
       (Array.isArray(row.requirements) ? row.requirements : null) ??
@@ -52,8 +53,8 @@ export function flattenOrderingRequirements(raw: unknown[]): PhoneOrderingRequir
       seen.add(row.id);
       out.push({
         id: row.id,
-        name: String(row.name ?? row.title ?? 'Requirement'),
-        description: String(row.description ?? row.example ?? ''),
+        name: asText(row.name ?? row.title ?? 'Requirement'),
+        description: asText(row.description ?? row.example ?? ''),
         fieldType: fieldTypeOf(row.type ?? row.field_type),
         example: typeof row.example === 'string' ? row.example : undefined,
       });

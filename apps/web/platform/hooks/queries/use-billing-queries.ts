@@ -7,6 +7,7 @@ import type {
   PhoneSubscriptionResponse,
 } from '@/lib/api/domains/billing';
 import type { Billing } from '@/lib/api/types/apps/billing.types';
+import { asText } from '@weldsuite/text';
 
 // =============================================================================
 // Query Keys

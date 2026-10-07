@@ -262,7 +262,7 @@ export default function AgentDetailPage() {
     try {
       const res = await runAgent.mutateAsync({ id });
       const result = (res as { data?: { success?: boolean; error?: string } })?.data;
-      if (result && result.success === false) {
+      if (result?.success === false) {
         toast.error(fb.runFailed.replace('{error}', result.error ?? ''));
       } else {
         toast.success(fb.runSucceeded);

@@ -59,6 +59,7 @@ import {
 } from '@weldsuite/core-api-client/schemas/domains';
 import type { DnsZone } from '@weldsuite/core-api-client/schemas/dns-zones';
 import { copyText } from '@/lib/clipboard';
+import { asText } from '@weldsuite/text';
 
 type DomainContact = Partial<ContactInput>;
 
@@ -91,11 +92,11 @@ const statusPill: Record<string, { label: string; color: string }> = {
 };
 
 function parseRecordForm(form: FormData, td: ReturnType<typeof useI18n>['t']['host']['domainDetail']): DnsRecordInput | { error: string } {
-  const type = String(form.get('type') ?? '');
-  const name = String(form.get('name') ?? '').trim();
-  const value = String(form.get('value') ?? '').trim();
-  const ttlRaw = String(form.get('ttl') ?? '').trim();
-  const priorityRaw = String(form.get('priority') ?? '').trim();
+  const type = asText(form.get('type') ?? '');
+  const name = asText(form.get('name') ?? '').trim();
+  const value = asText(form.get('value') ?? '').trim();
+  const ttlRaw = asText(form.get('ttl') ?? '').trim();
+  const priorityRaw = asText(form.get('priority') ?? '').trim();
 
   if (!DNS_RECORD_TYPES.includes(type as DnsRecordInput['type'])) return { error: td.pickRecordType };
   if (!name) return { error: td.nameRequired };

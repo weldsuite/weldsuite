@@ -4,6 +4,7 @@ import { useUser } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import type { AuditLogEntry } from '@/components/audit-timeline';
+import { asText } from '@weldsuite/text';
 
 interface HelpcenterSettingsData {
   id?: string;
@@ -78,7 +79,7 @@ const DEFAULT_PAGE_SIZE = 25;
  * page 2+ must switch to cursor traversal (`pagination.cursor`).
  */
 function toAppApiQuery(filters?: Record<string, unknown>): Record<string, unknown> {
-  const qs: Record<string, unknown> = { ...(filters ?? {}) };
+  const qs: Record<string, unknown> = { ...filters };
   const pageSize = qs.pageSize ?? qs.limit;
   delete qs.pageSize;
   delete qs.page;
@@ -213,7 +214,7 @@ function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      queryParams.set(key, String(value));
+      queryParams.set(key, asText(value));
     }
   }
   const query = queryParams.toString();
@@ -242,7 +243,7 @@ export function useTickets(filters?: {
       const client = await getClient();
       // Map legacy `pageSize` → app-api `limit`. `page` is ignored; callers
       // that need to paginate further should switch to cursor-based traversal.
-      const qs: Record<string, unknown> = { ...(filters ?? {}) };
+      const qs: Record<string, unknown> = { ...filters };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;
@@ -562,7 +563,7 @@ export function useHelpdeskReviews(filters?: {
     queryKey: helpdeskKeys.reviewList(filters),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { ...(filters ?? {}) };
+      const qs: Record<string, unknown> = { ...filters };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;

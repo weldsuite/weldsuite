@@ -38,7 +38,7 @@ export async function autoAssignConversation(
     .where(and(eq(helpdeskDepartments.id, departmentId), isNull(helpdeskDepartments.deletedAt)))
     .limit(1);
 
-  if (!department || !department.autoAssignment) return null;
+  if (!department?.autoAssignment) return null;
 
   // 2. Eligible = active, not deleted, in this department (either via the
   //    `departmentId` column or the `teamIds` array), and under their ticket

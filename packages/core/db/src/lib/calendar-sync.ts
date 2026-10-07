@@ -1067,7 +1067,7 @@ export async function rescheduleCalendarEvent(
     )
     .limit(1);
 
-  if (existing && existing.autoScheduled === false) {
+  if (existing?.autoScheduled === false) {
     const update: Record<string, unknown> = {
       updatedAt: new Date(),
       title: params.title,

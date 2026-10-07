@@ -213,7 +213,7 @@ async function dispatchSlack(
     )
     .limit(1);
 
-  if (!integration || integration.status !== 'connected') {
+  if (integration?.status !== 'connected') {
     console.warn(
       `[ChannelDispatch:Slack] No active Slack integration for conversation ${logSafe(conversation.id)}`,
     );

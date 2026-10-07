@@ -19,7 +19,7 @@ export type AdoptSystemInstallResult = 'adopted' | 'already' | 'none';
  * First-party modules that are platform modules again after a stint as hosted
  * WeldApps: never adopted. Keep in sync with app-api's services/user-apps.ts.
  */
-const NATIVE_ONLY_APP_CODES: readonly string[] = ['weldcommerce'];
+const NATIVE_ONLY_APP_CODES: ReadonlySet<string> = new Set(['weldcommerce']);
 
 /** Reserved first-party module codes that count as official even without a `weldsuite` publisher. */
 const RESERVED_FIRST_PARTY_CODES: ReadonlySet<string> = new Set([
@@ -45,7 +45,7 @@ function isOfficialPublisher(app: UserApp): boolean {
 function isAdoptableApp(app: UserApp): boolean {
   if (app.deletedAt || !app.isActive) return false;
   if (app.visibility !== 'public' || app.reviewStatus !== 'approved') return false;
-  if (NATIVE_ONLY_APP_CODES.includes(app.code)) return false;
+  if (NATIVE_ONLY_APP_CODES.has(app.code)) return false;
   return isOfficialPublisher(app);
 }
 
@@ -142,7 +142,7 @@ export async function adoptSystemInstallInTenant(params: {
     .where(and(eq(workspaceInstalledApps.appCode, app.code), isNull(workspaceInstalledApps.deletedAt)))
     .limit(1);
 
-  if (!tenantRow || !tenantRow.isActive) return 'none';
+  if (!tenantRow?.isActive) return 'none';
 
   const link = await checkTenantLink(master, tenantRow, app, workspaceId);
   if (link !== 'proceed') return link;

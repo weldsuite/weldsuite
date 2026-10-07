@@ -195,7 +195,7 @@ export default function DashboardScreen() {
           ))}
         </View>
 
-        {data && data.recentInvoices.length === 0 ? (
+        {data?.recentInvoices.length === 0 ? (
           <EmptyState
             icon={<FileText size={32} color={colors.mutedForeground} />}
             title={t.dashboard.noInvoicesTitle}

@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@weldsuite/cloudflare-zones": "workspace:*",
-    "@weldsuite/email": "workspace:*"
+    "@weldsuite/email": "workspace:*",
+    "@weldsuite/text": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",

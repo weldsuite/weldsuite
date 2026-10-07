@@ -46,8 +46,8 @@ function defaultTooltip({
   if (permission) {
     const parts = permission.split(':');
     if (parts.length >= 2) {
-      const action = parts[parts.length - 1];
-      const obj = parts[parts.length - 2];
+      const action = parts.at(-1);
+      const obj = parts.at(-2);
       return `You need permission to ${action} ${obj}.`;
     }
     return `You need the "${permission}" permission.`;

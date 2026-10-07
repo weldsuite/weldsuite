@@ -583,7 +583,7 @@ const renderTagsCell: CellRenderer = (_field, value) => {
 };
 
 const renderPersonCell: CellRenderer = (_field, value) => {
-  if (!value || !value.name) return "";
+  if (!value?.name) return "";
   return (
     <>
       <div style={{
@@ -1256,7 +1256,7 @@ export default function TablePage() {
         }
 
         // Replace field references in the expression (case-insensitive)
-        const regex = new RegExp(`\\b${field.name}\\b`, 'gi');
+        const regex = new RegExp(String.raw`\b${field.name}\b`, 'gi');
         expression = expression.replace(regex, numericValue.toString());
       });
 

@@ -166,7 +166,7 @@ function NavigationGroup({
   )
 
   const isActiveGroup =
-    group.links.findIndex((link) => link.href === pathname) !== -1
+    group.links.some((link) => link.href === pathname)
 
   return (
     <li className={clsx('relative mt-6', className)}>

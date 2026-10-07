@@ -208,7 +208,7 @@ async function dispatchToSlack(ctx: DispatchContext): Promise<void> {
     )
     .limit(1);
 
-  if (!integration || integration.status !== 'connected') return;
+  if (integration?.status !== 'connected') return;
 
   const config = (integration.config || {}) as Record<string, unknown>;
   const botToken = config.botToken as string | undefined;

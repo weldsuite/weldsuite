@@ -47,7 +47,7 @@ function isEmojiIcon(value: string): boolean {
 export type AgentIconKind = 'empty' | 'image' | 'emoji' | 'lucide' | 'fallback';
 
 export function classifyAgentIcon(icon: string | null | undefined): AgentIconKind {
-  if (!icon || !icon.trim()) return 'empty';
+  if (!icon?.trim()) return 'empty';
   if (isImageUrl(icon)) return 'image';
   if (isEmojiIcon(icon)) return 'emoji';
   if (isKnownLucideIcon(icon)) return 'lucide';

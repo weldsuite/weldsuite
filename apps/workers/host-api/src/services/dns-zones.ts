@@ -5,7 +5,7 @@
  * by other app-api list services.
  */
 
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
@@ -54,7 +54,7 @@ export async function listDnsZones(db: Database, params: ListDnsZonesParams) {
 
   const hasMore = rows.length > limit;
   const data = hasMore ? rows.slice(0, limit) : rows;
-  const cursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+  const cursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
   return { data, totalCount: countRow?.count ?? 0, hasMore, cursor };
 }
 

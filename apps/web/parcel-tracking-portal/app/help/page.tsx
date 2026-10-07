@@ -16,8 +16,6 @@ import {
   Package,
   Truck,
   CreditCard,
-  Clock,
-  Shield,
   Mail,
   Phone,
   MessageCircle,

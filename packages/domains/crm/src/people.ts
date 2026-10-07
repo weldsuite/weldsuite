@@ -9,7 +9,7 @@
  * — see `companies.ts` for the same pattern.
  */
 
-import { eq, and, desc, isNull, like, or, sql, inArray, ilike, type SQL } from 'drizzle-orm';
+import { eq, and, desc, isNull, like, or, sql, inArray, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { computeChanges } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -158,7 +158,7 @@ async function buildPeopleConditions(
       .from(lists)
       .where(and(eq(lists.id, params.listId), isNull(lists.deletedAt)))
       .limit(1);
-    if (!listRow || listRow.kind !== 'person') return null;
+    if (listRow?.kind !== 'person') return null;
     const memberRows = await db
       .select({ entityId: listMembers.entityId })
       .from(listMembers)
@@ -312,7 +312,7 @@ export async function listPeople(
 
   const hasMore = rows.length > limit;
   const data = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore && data.length > 0 ? data[data.length - 1]!.id : null;
+  const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
   return {
     // Phase 3: customFields comes from the typed values table, not the blob.
     data: await hydrateCustomFields(db, 'person', data),
@@ -738,7 +738,7 @@ async function importUpdateMatched(
     ? {
         ...rec,
         customFields: {
-          ...((match.customFields as Record<string, unknown> | null) ?? {}),
+          ...(match.customFields as Record<string, unknown> | null),
           ...rec.customFields,
         },
       }

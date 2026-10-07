@@ -85,7 +85,7 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
     }
 
     // Org list loaded, data is an array, but empty — truly no workspace
-    if (userMemberships?.data && userMemberships.data.length === 0) {
+    if (userMemberships?.data?.length === 0) {
       setOrgReady(true);
     }
   }, [user, isOrgListLoaded, organizationId, userMemberships?.data?.length, setActive, userMemberships.data]);

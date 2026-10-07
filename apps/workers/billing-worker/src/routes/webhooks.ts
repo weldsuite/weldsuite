@@ -17,7 +17,6 @@ import {
   retrieveSubscription,
   createStripeSubscription,
   cancelSubscriptionImmediately,
-  stripeApiRequest,
   retrievePaymentIntent,
   retrieveCustomer,
   setCustomerDefaultPaymentMethod,
@@ -48,6 +47,7 @@ import type {
   StripeCharge,
   StripeConnectAccount,
 } from '../types/stripe';
+import { asText } from '@weldsuite/text';
 
 const {
   workspaces,
@@ -1847,7 +1847,7 @@ async function handleInvoiceUpcoming(
   invoice: StripeInvoice,
 ) {
   console.warn(
-    `[Stripe Webhook] Ignoring invoice.upcoming for subscription ${invoice.subscription} — AI/agent billing is currently unavailable`,
+    `[Stripe Webhook] Ignoring invoice.upcoming for subscription ${asText(invoice.subscription)} — AI/agent billing is currently unavailable`,
   );
 }
 
@@ -2292,7 +2292,7 @@ async function markRegistrationFailed(
 ): Promise<void> {
   const { tenantDb, tenantSchema } = ctx;
   const rtrError = regErr instanceof RealtimeRegistrarError ? regErr : null;
-  const errMsg = rtrError?.message ?? (regErr instanceof Error ? regErr.message : String(regErr));
+  const errMsg = rtrError?.message ?? (regErr instanceof Error ? regErr.message : asText(regErr));
 
   console.error(`[Domain Registration] RTR registration failed for ${domainRow.fullDomain}:`, errMsg);
 
@@ -2413,7 +2413,7 @@ async function submitDomainRenewal(
   }
 
   const metadata = {
-    ...(domainRow.metadata ?? {}),
+    ...domainRow.metadata,
     stripeRenewalInvoiceId: invoiceId,
     ...(billedExpiry ? { stripeRenewalForExpiresAt: billedExpiry } : {}),
     stripeRenewalProcessedInvoiceId: invoiceId,

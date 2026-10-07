@@ -28,7 +28,7 @@ function escapeHtml(value: string): string {
 
 /** JS string literal safe inside an inline <script> (no `</script>` breakout). */
 function escapeJs(value: string): string {
-  return JSON.stringify(value).replaceAll('<', '\\u003c').replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
+  return JSON.stringify(value).replaceAll('<', String.raw`\u003c`).replaceAll('\u2028', String.raw`\u2028`).replaceAll('\u2029', String.raw`\u2029`);
 }
 
 export function renderLocalShellHtml(options: LocalShellPageOptions): string {
@@ -37,7 +37,7 @@ export function renderLocalShellHtml(options: LocalShellPageOptions): string {
   const appName = options.appName;
   const title = `${appName} · WeldSuite local shell`;
 
-  return `<!DOCTYPE html>
+  return String.raw`<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
@@ -351,7 +351,7 @@ export function renderLocalShellHtml(options: LocalShellPageOptions): string {
   function frameUrl(path) {
     try {
       const url = new URL(APP_URL);
-      url.hash = path && path !== '/' ? path.replace(/^\\//, '') : '';
+      url.hash = path && path !== '/' ? path.replace(/^\//, '') : '';
       return url.toString();
     } catch (_) {
       return APP_URL;
@@ -413,7 +413,7 @@ export function renderLocalShellHtml(options: LocalShellPageOptions): string {
     }
     if (method === 'confirm') {
       if (typeof payload.title !== 'string' || !payload.title.trim()) throw new Error('confirm() needs a title');
-      const text = [payload.title, payload.description].filter(Boolean).join('\\n\\n');
+      const text = [payload.title, payload.description].filter(Boolean).join('\n\n');
       return { confirmed: window.confirm(text) };
     }
     if (method === 'openModal') {

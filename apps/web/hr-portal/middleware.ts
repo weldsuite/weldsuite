@@ -14,10 +14,10 @@ import { appApiUrl } from '@/lib/api';
  * portal on its own default hosts.
  */
 
-const DEFAULT_HOSTS = (process.env.HR_PORTAL_DEFAULT_HOSTS || 'team.weldsuite.org,team-test.weldsuite.org,localhost:3022')
+const DEFAULT_HOSTS = new Set((process.env.HR_PORTAL_DEFAULT_HOSTS || 'team.weldsuite.org,team-test.weldsuite.org,localhost:3022')
   .split(',')
   .map((h) => h.trim().toLowerCase())
-  .filter(Boolean);
+  .filter(Boolean));
 
 // Best-effort, per-instance cache. Edge runtimes recycle instances often, so
 // this is purely to avoid a resolve-host round trip on every request within
@@ -49,7 +49,7 @@ async function resolveSlugForHost(host: string): Promise<string | null> {
 
 export async function middleware(req: NextRequest) {
   const host = (req.headers.get('host') || req.nextUrl.host).toLowerCase();
-  if (DEFAULT_HOSTS.includes(host)) return NextResponse.next();
+  if (DEFAULT_HOSTS.has(host)) return NextResponse.next();
 
   const slug = await resolveSlugForHost(host);
   if (!slug) return NextResponse.next();

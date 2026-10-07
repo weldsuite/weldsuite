@@ -43,6 +43,7 @@ import {
   syncMoneybirdDocumentAttachments,
   type MoneybirdAttachmentSyncContext,
 } from './moneybird-attachments';
+import { asText } from '@weldsuite/text';
 
 export interface IngestCounts {
   created: number;
@@ -136,7 +137,7 @@ function applyMappingsToRecord(
 }
 
 export function sanitiseErrorMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
+  const raw = err instanceof Error ? err.message : asText(err);
   return raw
     .replace(/\(([^)]*)\)=\([^)]*\)/g, '($1)=(redacted)')
     .replace(/'[^']*'/g, "'redacted'")
@@ -642,7 +643,7 @@ async function resolvePartyIdentity(
   }
 
   const identityId = generateId(args.mapped.kind === 'company' ? 'company' : 'person');
-  const displayName = String(args.mapped.identity.displayName ?? args.mapped.values.displayName ?? 'Contact');
+  const displayName = asText(args.mapped.identity.displayName ?? args.mapped.values.displayName ?? 'Contact');
   await args.db.insert(identityTable).values({
     id: identityId,
     displayName,
@@ -749,7 +750,7 @@ async function ingestNestedContact(args: {
   contact: Record<string, unknown>;
 }): Promise<string | null> {
   const mapped = mapConnectorRecord('party', args.contact, args.provider);
-  if (!mapped || mapped.entity !== 'party') return null;
+  if (mapped?.entity !== 'party') return null;
   const checksum = await recordChecksum(args.contact);
   const outcome = await upsertParty({
     db: args.db,
@@ -1534,7 +1535,7 @@ async function resolveLinkedIds(args: {
   const picklistId = await linkedInternalId(args, links.picklistExternalId, 'picklist');
   if (picklistId) {
     extra.metadata = {
-      ...((args.mapped.values.metadata as Record<string, unknown> | undefined) ?? {}),
+      ...(args.mapped.values.metadata as Record<string, unknown> | undefined),
       pickListId: picklistId,
     };
   }
@@ -1691,7 +1692,7 @@ async function buildCatalogValues(
 function productPermalink(args: IngestArgs, mapped: MappedProduct, externalId: string): string | null {
   if (mapped.externalUrl != null) return mapped.externalUrl;
   if (!args.storeUrl) return null;
-  if (args.provider === 'shopify') return `${args.storeUrl}/products/${String(mapped.values.slug ?? '')}`;
+  if (args.provider === 'shopify') return `${args.storeUrl}/products/${asText(mapped.values.slug ?? '')}`;
   return `${args.storeUrl}/?p=${externalId}`;
 }
 
@@ -1709,7 +1710,7 @@ async function syncProductListing(
     displayName: args.displayName,
     externalId,
     externalUrl: productPermalink(args, mapped, externalId),
-    price: mapped.values.price != null ? String(mapped.values.price) : null,
+    price: mapped.values.price != null ? asText(mapped.values.price) : null,
     listingStatus: typeof mapped.values.status === 'string' ? mapped.values.status : null,
   });
   if (mapped.variants?.length && outcome.action !== 'skipped') {

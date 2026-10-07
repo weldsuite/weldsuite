@@ -81,7 +81,7 @@ export async function employeeTasks(db: Database, employeeId: string) {
 export async function completeEmployeeTask(db: Database, employeeId: string, taskId: string, done: boolean) {
   const t = schema.hrChecklistTasks;
   const [task] = await db.select().from(t).where(eq(t.id, taskId)).limit(1);
-  if (!task || task.employeeId !== employeeId || !task.visibleToEmployee) throw new HrNotFoundError('Task', taskId);
+  if (task?.employeeId !== employeeId || !task.visibleToEmployee) throw new HrNotFoundError('Task', taskId);
   if (task.assigneeRole !== 'employee') throw new HrValidationError('This task is completed by your team, not by you');
   const now = new Date();
   await db

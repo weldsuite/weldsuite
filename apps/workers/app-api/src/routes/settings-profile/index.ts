@@ -143,7 +143,7 @@ app.put('/avatar', requirePermission('general:read'), zValidator('json', avatarS
     if (!c.env.STORAGE) return error.internal(c, 'Storage is not configured');
 
     const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(file);
-    if (!match || !match[2]) {
+    if (!match?.[2]) {
       return error.badRequest(c, 'Avatar must be a base64 data URL');
     }
     const mime = (match[1] || contentType || '').toLowerCase();

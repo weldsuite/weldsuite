@@ -203,7 +203,7 @@ export function useInfiniteCompanies(filters?: Omit<ListCompaniesQuery, 'cursor'
       const client = await getClient();
       return client.get<ListEnvelope<Company>>(
         `/companies${buildQueryString({
-          ...(filters ?? {}),
+          ...filters,
           cursor: pageParam as string | undefined,
         } as Record<string, unknown>)}`,
       );

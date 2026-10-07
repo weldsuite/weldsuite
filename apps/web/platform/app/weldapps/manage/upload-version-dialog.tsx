@@ -85,7 +85,7 @@ export function UploadVersionDialog({ open, onOpenChange, app }: Readonly<Upload
     const manifestFile = picked.find((f) => {
       const rel = (f as FileWithRelativePath).webkitRelativePath || f.name;
       const segments = rel.split('/').filter(Boolean);
-      return segments.length <= 2 && segments[segments.length - 1] === 'weldapp.json';
+      return segments.length <= 2 && segments.at(-1) === 'weldapp.json';
     });
 
     if (manifestFile) {

@@ -43,7 +43,7 @@ export type CustomObjectLinkRow = typeof links.$inferSelect;
 export class LinkCardinalityError extends Error {}
 export class LinkTargetError extends Error {}
 
-const TO_ONE: readonly string[] = ['one_to_one', 'many_to_one'];
+const TO_ONE: ReadonlySet<string> = new Set(['one_to_one', 'many_to_one']);
 
 // ---------------------------------------------------------------------------
 // Link definitions
@@ -172,7 +172,7 @@ export async function attach(
   // correctness hole in the data model.
   await atomically(db, (handle) => {
     const statements: unknown[] = [];
-    if (TO_ONE.includes(link.cardinality)) {
+    if (TO_ONE.has(link.cardinality)) {
       statements.push(
         handle
           .delete(relations)

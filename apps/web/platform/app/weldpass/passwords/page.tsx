@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { LockKeyhole, Lock, SearchX, ShieldCheck, Upload } from 'lucide-react';
+import { LockKeyhole, Lock, SearchX, ShieldCheck } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import type {
   WeldPassItem,
@@ -33,14 +33,12 @@ import {
   useWeldPassItems,
   useWeldPassVaults,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { TimeAgo } from '../components/shared';
+import { formatDateTime } from '@/lib/utils';
 import { emptyIcon, usePassBreadcrumbs } from '../components/page-kit';
 import { PasswordsGate } from './components/passwords-gate';
 import { ImportDialog } from './components/import-dialog';
 import { ItemDetailDialog } from './components/item-detail-dialog';
 import { ItemFormDialog } from './components/item-form-dialog';
-import { ItemHistoryDialog } from './components/item-history-dialog';
-import { ItemTypeIcon } from './components/item-type-icon';
 import { MoveItemDialog } from './components/move-item-dialog';
 import {
   TYPE_FILTER,
@@ -63,7 +61,6 @@ type Dialog =
   | { kind: 'create' }
   | { kind: 'edit'; item: WeldPassRevealedItem }
   | { kind: 'move'; item: WeldPassItem }
-  | { kind: 'history'; item: WeldPassItem }
   | { kind: 'import' }
   | null;
 
@@ -192,27 +189,14 @@ function PasswordsList() {
       header: tp('table.name'),
       width: 'flex-1',
       render: (item) => (
-        <span className="flex min-w-0 items-center gap-2.5">
-          <span
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
-            title={tp(`types.${item.type}`)}
-          >
-            <ItemTypeIcon type={item.type} />
-          </span>
-          <span className="min-w-0">
-            <span className="flex items-center gap-1.5">
-              <span className="truncate font-medium">{item.title}</span>
-              {item.hasTotp && (
-                <ShieldCheck
-                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                  aria-label={tp('table.hasTotp')}
-                />
-              )}
-            </span>
-            <span className="block truncate text-xs text-muted-foreground">
-              {item.subtitle || '—'}
-            </span>
-          </span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium">{item.title}</span>
+          {item.hasTotp && (
+            <ShieldCheck
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-label={tp('table.hasTotp')}
+            />
+          )}
         </span>
       ),
     },
@@ -234,8 +218,12 @@ function PasswordsList() {
     {
       id: 'updated',
       header: tp('table.updated'),
-      width: 'hidden md:block md:w-[120px]',
-      render: (item) => <TimeAgo value={item.updatedAt} />,
+      width: 'hidden md:block md:w-[200px]',
+      render: (item) => (
+        <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+          {formatDateTime(item.updatedAt)}
+        </span>
+      ),
     },
   ];
 
@@ -301,8 +289,7 @@ function PasswordsList() {
               className="h-8"
               onClick={() => setDialog({ kind: 'import' })}
             >
-              <Upload className="h-4 w-4 md:mr-0.5" />
-              <span className="hidden md:inline">{tp('toolbar.import')}</span>
+              {tp('toolbar.import')}
             </Button>
           ) : undefined
         }
@@ -323,10 +310,7 @@ function PasswordsList() {
             setSearch({ item: undefined });
             setDialog({ kind: 'move', item });
           }}
-          onHistory={(item) => {
-            setSearch({ item: undefined });
-            setDialog({ kind: 'history', item });
-          }}
+          onRestored={() => toast.success(tp('history.restored'))}
         />
       )}
 
@@ -366,17 +350,6 @@ function PasswordsList() {
           onMoved={() => {
             setDialog(null);
             toast.success(tp('move.moved'));
-          }}
-        />
-      )}
-
-      {dialog?.kind === 'history' && (
-        <ItemHistoryDialog
-          item={dialog.item}
-          onClose={() => setDialog(null)}
-          onRestored={() => {
-            setDialog(null);
-            toast.success(tp('history.restored'));
           }}
         />
       )}

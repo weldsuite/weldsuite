@@ -48,7 +48,7 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
 
   // Auto-create default calendar on first load
   useEffect(() => {
-    if (enabled && !isLoading && data?.data && data.data.length === 0 && !ensured) {
+    if (enabled && !isLoading && data?.data?.length === 0 && !ensured) {
       setEnsured(true);
       ensureDefault.mutate();
     }

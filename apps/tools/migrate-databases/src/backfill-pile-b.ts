@@ -454,7 +454,7 @@ async function sweepEntityType(sql: postgres.Sql, target: Target, execute: boole
       await processSourceRow(sql, state, row);
     }
 
-    cursor = rows[rows.length - 1]!.id;
+    cursor = rows.at(-1)!.id;
     if (rows.length < READ_BATCH) break;
   }
 

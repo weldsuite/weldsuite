@@ -84,7 +84,7 @@ app.post(
       redirect_uri: redirectUri(c.env),
       response_type: 'code',
       state,
-      ...(auth.authorizeParams ?? {}),
+      ...auth.authorizeParams,
     });
     // Slack v2 uses `scope` for bot scopes; Google/others use space-delimited `scope`.
     params.set('scope', auth.scopes.join(' '));
@@ -101,7 +101,7 @@ app.post(
   async (c) => {
     const provider = c.req.param('provider');
     const def = getIntegrationDef(provider);
-    if (!def || def.auth.kind !== 'oauth2') return error.notFound(c, 'Integration', provider);
+    if (def?.auth.kind !== 'oauth2') return error.notFound(c, 'Integration', provider);
     const auth = def.auth as OAuthConfig;
 
     const { code, state } = c.req.valid('json');
@@ -217,7 +217,7 @@ app.post(
   async (c) => {
     const provider = c.req.param('provider');
     const def = getIntegrationDef(provider);
-    if (!def || def.auth.kind !== 'api_key') return error.notFound(c, 'Integration', provider);
+    if (def?.auth.kind !== 'api_key') return error.notFound(c, 'Integration', provider);
 
     const db = c.get('tenantDb');
     const userId = c.get('userId');

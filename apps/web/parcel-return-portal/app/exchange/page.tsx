@@ -19,9 +19,6 @@ import {
   ArrowRight,
   Search,
   ShoppingCart,
-  Palette,
-  Ruler,
-  AlertCircle,
   Zap
 } from "lucide-react";
 import { toast } from "sonner";

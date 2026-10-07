@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const { withAndroidManifest } = require('@expo/config-plugins');
 
 const PROJECT_ROOT = __dirname;

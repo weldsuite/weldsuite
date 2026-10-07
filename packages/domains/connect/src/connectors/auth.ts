@@ -563,7 +563,7 @@ export async function selectMoneybirdAdministration(args: {
   waitUntil: (promise: Promise<unknown>) => void;
 }): Promise<{ connection: ReturnType<typeof sanitizeConnection> } | { error: string; status: number }> {
   const row = await getConnectionById(args.db, args.connectionId);
-  if (!row || row.provider !== 'moneybird') {
+  if (row?.provider !== 'moneybird') {
     return { error: 'Connection not found', status: 404 };
   }
 

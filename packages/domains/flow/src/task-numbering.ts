@@ -1,11 +1,11 @@
 /**
- * Task numbering — workspace-wide sequential numbers displayed as TASK-<number>.
+ * Task numbering — workspace-wide sequential numbers shown as plain numbers (e.g. 1042).
  *
  * Allocation is race-free: a single upsert increments `next_value` atomically
  * and RETURNING hands back the post-increment row, so concurrent creates each
  * get a distinct value with no select-then-update window (same technique as
  * accounting's `nextEntityNumber`). Callers store the raw integer; the UI
- * formats it as TASK-<n>.
+ * shows it as is.
  */
 import { sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';

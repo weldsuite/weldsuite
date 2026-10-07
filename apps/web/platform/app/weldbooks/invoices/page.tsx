@@ -52,13 +52,13 @@ export default function InvoicesPage() {
   // Group by lifecycle status, most-urgent first. The trailing "other" group is
   // an explicit catch-all: EntityList drops items matching no group, so any
   // status outside the known set (e.g. cancelled/void) stays visible here.
-  const knownStatuses = ['overdue', 'sent', 'partial', 'draft', 'paid'];
+  const knownStatuses = new Set(['overdue', 'sent', 'partial', 'draft', 'paid']);
   const groups: GroupConfig<InvoiceRow>[] = [
     { id: 'overdue', label: tip.groupOverdue, sortOrder: 1, filter: (i) => i.status === 'overdue' },
     { id: 'sent', label: tip.groupSent, sortOrder: 2, filter: (i) => i.status === 'sent' || i.status === 'partial' },
     { id: 'draft', label: tip.groupDraft, sortOrder: 3, filter: (i) => i.status === 'draft' },
     { id: 'paid', label: tip.groupPaid, sortOrder: 4, filter: (i) => i.status === 'paid' },
-    { id: 'other', label: tip.groupOther, sortOrder: 5, filter: (i) => !knownStatuses.includes(i.status) },
+    { id: 'other', label: tip.groupOther, sortOrder: 5, filter: (i) => !knownStatuses.has(i.status) },
   ];
 
   const columns: ColumnDef<InvoiceRow>[] = [

@@ -52,17 +52,17 @@ export function parseDotenv(input: string): ParsedDotenv {
 function unquote(value: string): string {
   if (value.length >= 2) {
     const first = value[0];
-    const last = value[value.length - 1];
+    const last = value.at(-1);
 
     if (first === '"' && last === '"') {
       // Double quotes are the only form where escapes are expanded, matching
       // dotenv itself. An unterminated escape at the end stays literal.
       return value
         .slice(1, -1)
-        .replaceAll('\\n', '\n')
-        .replaceAll('\\r', '\r')
-        .replaceAll('\\t', '\t')
-        .replaceAll('\\"', '"')
+        .replaceAll(String.raw`\n`, '\n')
+        .replaceAll(String.raw`\r`, '\r')
+        .replaceAll(String.raw`\t`, '\t')
+        .replaceAll(String.raw`\"`, '"')
         .replaceAll('\\\\', '\\');
     }
     if (first === "'" && last === "'") {
@@ -92,7 +92,7 @@ function quoteIfNeeded(value: string): string {
   if (/^[A-Za-z0-9_./:@-]+$/.test(value)) return value;
   return `"${value
     .replaceAll('\\', '\\\\')
-    .replaceAll('"', '\\"')
-    .replaceAll('\n', '\\n')
-    .replaceAll('\r', '\\r')}"`;
+    .replaceAll('"', String.raw`\"`)
+    .replaceAll('\n', String.raw`\n`)
+    .replaceAll('\r', String.raw`\r`)}"`;
 }

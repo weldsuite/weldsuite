@@ -19,6 +19,7 @@
   "dependencies": {
     "@cloudflare/realtimekit": "^2.0.2",
     "@cloudflare/realtimekit-virtual-background": "^0.0.2",
+    "@weldsuite/text": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "lucide-react": "^0.544.0",
     "react": "^19.1.1",

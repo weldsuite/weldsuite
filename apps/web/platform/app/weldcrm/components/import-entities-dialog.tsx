@@ -58,6 +58,7 @@ import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/al
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Dropzone } from '@weldsuite/ui/components/dropzone';
 import { coerceScalar, type ImportValueType } from './import-value';
+import { asText } from '@weldsuite/text';
 
 export interface ImportFieldDef {
   /** Localized label shown in the mapping UI + template header. */
@@ -136,7 +137,7 @@ function safeString(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   try {
-    return String(value).trim();
+    return asText(value).trim();
   } catch {
     return '';
   }
@@ -433,7 +434,7 @@ export function ImportEntitiesDialog({
             setFile(null);
             return;
           }
-          const columns = Object.keys(json[0]!).filter((c) => c && c.trim());
+          const columns = Object.keys(json[0]!).filter((c) => c?.trim());
           if (columns.length === 0) {
             setParseError(t('crm.importExport.fileNoColumns'));
             setFile(null);

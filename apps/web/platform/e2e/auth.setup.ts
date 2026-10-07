@@ -1,6 +1,6 @@
 import { test as setup, expect } from '@playwright/test';
 import { setupClerkTestingToken } from '@clerk/testing/playwright';
-import path from 'path';
+import path from 'node:path';
 
 const authFile = path.join(__dirname, '.auth/user.json');
 

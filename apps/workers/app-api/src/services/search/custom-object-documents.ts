@@ -28,6 +28,7 @@ import type { IndexableDocument, DocumentPage } from './documents';
 import { getValuesForEntities, getDefinitionsForEntityType } from '@weldsuite/core-domain/custom-field-values';
 import { getCustomObjectByEntityKey, type CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
 import { isMissingTable } from '@weldsuite/worker-kit/pg-errors';
+import { asText } from '@weldsuite/text';
 
 const records = schema.customObjectRecords;
 
@@ -66,7 +67,7 @@ function renderContent(
     if (!SEMANTIC_FIELD_TYPES.has(def.fieldType)) continue;
     const raw = fields[def.slug];
     if (raw === undefined || raw === null || raw === '') continue;
-    const value = Array.isArray(raw) ? raw.join(', ') : String(raw);
+    const value = Array.isArray(raw) ? raw.join(', ') : asText(raw);
     if (!value.trim()) continue;
     lines.push(`${def.name}: ${value}`);
   }
@@ -159,7 +160,7 @@ export function buildCustomObjectLoader(object: CustomObjectRow): CustomObjectDo
         // record is dropped from `documents` but must still advance the
         // cursor, or the backfill would stall on it forever.
         rowsRead: rows.length,
-        lastScannedId: rows.length > 0 ? rows[rows.length - 1]!.id : null,
+        lastScannedId: rows.length > 0 ? rows.at(-1)!.id : null,
       };
     },
   };
@@ -194,7 +195,7 @@ export async function getCustomObjectLoader(
 ): Promise<CustomObjectDocumentLoader | null> {
   try {
     const object = await getCustomObjectByEntityKey(db, entityKey);
-    if (!object || !object.enableSearch) return null;
+    if (!object?.enableSearch) return null;
     return buildCustomObjectLoader(object);
   } catch (err) {
     if (isMissingTable(err)) return null;

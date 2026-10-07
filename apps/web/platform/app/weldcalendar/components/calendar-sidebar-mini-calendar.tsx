@@ -86,8 +86,7 @@ export function MiniCalendar({ selectedDate: externalSelectedDate, onDateSelect 
     date.getFullYear() === today.getFullYear();
 
   const isSelected = (date: Date) =>
-    selectedDate &&
-    date.getDate() === selectedDate.getDate() &&
+    date.getDate() === selectedDate?.getDate() &&
     date.getMonth() === selectedDate.getMonth() &&
     date.getFullYear() === selectedDate.getFullYear();
 

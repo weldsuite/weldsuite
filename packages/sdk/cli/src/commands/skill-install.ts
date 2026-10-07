@@ -60,7 +60,7 @@ export async function run(args: ParsedArgs): Promise<void> {
   // 2. CLAUDE.md snippet
   const claudeDest = join(cwd, 'CLAUDE.md');
   const existingClaude = await readIfExists(claudeDest);
-  if (existingClaude !== null && existingClaude.includes(CLAUDE_MARKER)) {
+  if (existingClaude?.includes(CLAUDE_MARKER)) {
     info(`CLAUDE.md already references the weldsuite-app skill.`);
   } else if (existingClaude === null) {
     await writeFile(claudeDest, snippetContent, 'utf8');

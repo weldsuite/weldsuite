@@ -12,7 +12,7 @@ function findActiveWordIndex(
 ): number {
   if (words.length === 0) return -1;
   if (time < words[0].start) return -1;
-  if (time > words[words.length - 1].end) return -1;
+  if (time > words.at(-1)!.end) return -1;
 
   let lo = 0;
   let hi = words.length - 1;

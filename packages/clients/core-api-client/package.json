@@ -212,6 +212,7 @@
     "./domains/person-companies": "./src/domains/person-companies.ts"
   },
   "dependencies": {
+    "@weldsuite/text": "workspace:*",
     "zod": "^3.25.76"
   },
   "devDependencies": {

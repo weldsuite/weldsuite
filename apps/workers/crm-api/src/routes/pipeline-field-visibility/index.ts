@@ -64,7 +64,7 @@ app.patch(
       const next: PipelineSettings = {
         ...existing,
         fieldVisibility: {
-          ...(existing.fieldVisibility ?? {}),
+          ...existing.fieldVisibility,
           ...input,
         },
       };

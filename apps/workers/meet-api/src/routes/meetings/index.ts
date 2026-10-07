@@ -337,7 +337,7 @@ app.get('/', requirePermission('meetings:read'), async (c) => {
     ]);
     const hasMore = rows.length > limit;
     const data = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
     const include = new Set((q.include ?? '').split(',').map((s) => s.trim()).filter(Boolean));
     const items = await decorateMeetings(db, data, include);

@@ -715,7 +715,7 @@ export default function NewHelpArticlePage() {
     // If the parent is not a wrapper, create one
     if (!wrapper || !('imageWrapper' in wrapper.dataset)) {
       // Check if parent has contenteditable="false"
-      if (wrapper && wrapper.getAttribute('contenteditable') === 'false') {
+      if (wrapper?.getAttribute('contenteditable') === 'false') {
         wrapper.dataset.imageWrapper = 'true';
         wrapper.classList.add('image-wrapper');
       } else {
@@ -891,7 +891,7 @@ export default function NewHelpArticlePage() {
 
   const openLinkDialog = () => {
     const selection = window.getSelection();
-    if (selection && selection.toString()) {
+    if (selection?.toString()) {
       setLinkText(selection.toString());
     }
     setShowCommandMenu(false);
@@ -1864,7 +1864,7 @@ export default function NewHelpArticlePage() {
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style>{`
+      <style>{String.raw`
         [contenteditable]:focus {
           outline: none;
         }
@@ -1877,7 +1877,7 @@ export default function NewHelpArticlePage() {
           text-align: left;
         }
         [contenteditable] p:empty:before {
-          content: '\\200B';
+          content: '\200B';
         }
         [contenteditable] h1 {
           font-size: 2em;
