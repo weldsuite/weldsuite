@@ -12,15 +12,15 @@ export interface AwsWebSocketConfig {
 
 export class AwsWebSocketClient {
   private ws: WebSocket | null = null;
-  private config: AwsWebSocketConfig;
+  private readonly config: AwsWebSocketConfig;
   private userId: string | null = null;
   private reconnectAttempt: number = 0;
   private reconnectTimeout: NodeJS.Timeout | null = null;
-  private listeners: Set<NotificationHandler> = new Set();
-  private typedListeners: Map<string, Set<NotificationHandler>> = new Map();
-  private statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
+  private readonly listeners: Set<NotificationHandler> = new Set();
+  private readonly typedListeners: Map<string, Set<NotificationHandler>> = new Map();
+  private readonly statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
   private currentStatus: ConnectionStatus = 'disconnected';
-  private subscribedEmailAccounts: Set<string> = new Set();
+  private readonly subscribedEmailAccounts: Set<string> = new Set();
 
   constructor(config: AwsWebSocketConfig) {
     this.config = {
@@ -84,7 +84,7 @@ export class AwsWebSocketClient {
   /**
    * Disconnect from the WebSocket
    */
-  async disconnect(): Promise<void> {
+  disconnect(): void {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
@@ -101,15 +101,15 @@ export class AwsWebSocketClient {
   /**
    * Subscribe to email account notifications
    */
-  async subscribeToEmailAccount(emailAccountId: string): Promise<void> {
+  subscribeToEmailAccount(emailAccountId: string): void {
     this.subscribedEmailAccounts.add(emailAccountId);
 
     if (this.ws?.readyState === WebSocket.OPEN) {
-      await this.subscribeToEmailAccountInternal(emailAccountId);
+      this.subscribeToEmailAccountInternal(emailAccountId);
     }
   }
 
-  private async subscribeToEmailAccountInternal(emailAccountId: string): Promise<void> {
+  private subscribeToEmailAccountInternal(emailAccountId: string): void {
     try {
       this.ws?.send(JSON.stringify({
         action: 'subscribe',
@@ -123,7 +123,7 @@ export class AwsWebSocketClient {
   /**
    * Unsubscribe from email account notifications
    */
-  async unsubscribeFromEmailAccount(emailAccountId: string): Promise<void> {
+  unsubscribeFromEmailAccount(emailAccountId: string): void {
     this.subscribedEmailAccounts.delete(emailAccountId);
 
     if (this.ws?.readyState === WebSocket.OPEN) {

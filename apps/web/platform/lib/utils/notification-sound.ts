@@ -22,15 +22,21 @@ function getAudioContext(): AudioContext {
 }
 
 /**
+ * Wake an autoplay-suspended context. Best effort: if the browser keeps it
+ * suspended the tones are scheduled but stay silent, which is fine for a chime.
+ */
+function resumeIfSuspended(ctx: AudioContext): void {
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+}
+
+/**
  * Play a gentle two-tone notification chime
  */
 function playNotificationChime(): void {
   try {
     const ctx = getAudioContext();
 
-    if (ctx.state === 'suspended') {
-      ctx.resume();
-    }
+    resumeIfSuspended(ctx);
 
     // Gentle, lower-pitched tones for a more natural sound
     // First tone - soft low note
@@ -119,7 +125,7 @@ export async function showBrowserNotification(
     onlyWhenHidden?: boolean;
   }
 ): Promise<Notification | null> {
-  const { playSound = true, actionUrl, onlyWhenHidden, ...notificationOptions } = options || {};
+  const { playSound = true, actionUrl, onlyWhenHidden, ...notificationOptions } = options ?? {};
 
   const { showOsNotification } = await import('@/lib/desktop-notifications');
   await showOsNotification({
@@ -174,7 +180,7 @@ function cleanTone(ctx: AudioContext, freq: number, start: number, dur: number, 
 export function playCallJoinSound(): void {
   try {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
+    resumeIfSuspended(ctx);
     const now = ctx.currentTime;
     cleanTone(ctx, 659, now, 0.2, 0.11);
     cleanTone(ctx, 784, now + 0.18, 0.28, 0.11);
@@ -185,7 +191,7 @@ export function playCallJoinSound(): void {
 export function playCallLeaveSound(): void {
   try {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
+    resumeIfSuspended(ctx);
     const now = ctx.currentTime;
     cleanTone(ctx, 784, now, 0.18, 0.09);
     cleanTone(ctx, 659, now + 0.16, 0.25, 0.08);
@@ -196,7 +202,7 @@ export function playCallLeaveSound(): void {
 export function playOutgoingRingSound(): void {
   try {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
+    resumeIfSuspended(ctx);
     const now = ctx.currentTime;
     cleanTone(ctx, 440, now, 0.4, 0.06);
     cleanTone(ctx, 480, now + 0.01, 0.4, 0.06);
@@ -207,7 +213,7 @@ export function playOutgoingRingSound(): void {
 export function playMuteSound(): void {
   try {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
+    resumeIfSuspended(ctx);
     cleanTone(ctx, 440, ctx.currentTime, 0.1, 0.09);
   } catch (e) { console.warn('Mute sound failed:', e); }
 }
@@ -216,7 +222,7 @@ export function playMuteSound(): void {
 export function playUnmuteSound(): void {
   try {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
+    resumeIfSuspended(ctx);
     cleanTone(ctx, 587, ctx.currentTime, 0.1, 0.09);
   } catch (e) { console.warn('Unmute sound failed:', e); }
 }
@@ -225,7 +231,7 @@ export function playUnmuteSound(): void {
 export function playCameraToggleSound(): void {
   try {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
+    resumeIfSuspended(ctx);
     cleanTone(ctx, 523, ctx.currentTime, 0.07, 0.07);
   } catch (e) { console.warn('Camera toggle sound failed:', e); }
 }
@@ -234,7 +240,7 @@ export function playCameraToggleSound(): void {
 export function playHandRaiseSound(): void {
   try {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
+    resumeIfSuspended(ctx);
     const now = ctx.currentTime;
     cleanTone(ctx, 587, now, 0.12, 0.09);
     cleanTone(ctx, 784, now + 0.1, 0.15, 0.09);
@@ -245,7 +251,7 @@ export function playHandRaiseSound(): void {
 export function playHandLowerSound(): void {
   try {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
+    resumeIfSuspended(ctx);
     cleanTone(ctx, 587, ctx.currentTime, 0.1, 0.07);
   } catch (e) { console.warn('Hand lower sound failed:', e); }
 }
@@ -254,7 +260,7 @@ export function playHandLowerSound(): void {
 export function playScreenShareSound(): void {
   try {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
+    resumeIfSuspended(ctx);
     const now = ctx.currentTime;
     cleanTone(ctx, 523, now, 0.07, 0.07);
     cleanTone(ctx, 659, now + 0.09, 0.09, 0.07);

@@ -65,8 +65,6 @@ function App() {
   return (
     <ClerkProvider
       publishableKey={clerkPubKey}
-      afterSignInUrl="/"
-      afterSignUpUrl="/onboarding"
       signInForceRedirectUrl="/"
       signUpForceRedirectUrl="/onboarding"
     >
@@ -79,12 +77,15 @@ function App() {
 // Intercept all console.error calls and forward to BetterStack.
 // This captures errors from the 222+ files that call console.error directly.
 const originalConsoleError = console.error;
+const consoleArgText = (a: unknown): string => {
+  if (typeof a === 'string') return a;
+  if (a instanceof Error) return a.message;
+  return JSON.stringify(a);
+};
 console.error = (...args: unknown[]) => {
   originalConsoleError.apply(console, args);
 
-  const message = args
-    .map((a) => (typeof a === 'string' ? a : a instanceof Error ? a.message : JSON.stringify(a)))
-    .join(' ');
+  const message = args.map((a) => consoleArgText(a)).join(' ');
   sendToLogtail(message);
 };
 
@@ -122,7 +123,8 @@ window.addEventListener('unhandledrejection', (event) => {
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    flush();
+    // Best effort: the page may be going away, nothing to do if it fails.
+    flush().catch(() => {});
   }
 });
 
