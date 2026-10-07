@@ -44,6 +44,7 @@ import {
   useIntegrationCatalog,
   useWorkflowIntegrations,
   useConnectWorkflowProvider,
+  useLinkGithubInstallation,
   useDisconnectWorkflowIntegration,
   useTestWorkflowIntegration,
   type IntegrationDef,
@@ -306,6 +307,7 @@ export function IntegrationsClient() {
     useWorkflowIntegrations();
 
   const connectMutation = useConnectWorkflowProvider();
+  const linkGithubMutation = useLinkGithubInstallation();
   const disconnectMutation = useDisconnectWorkflowIntegration();
   const testMutation = useTestWorkflowIntegration();
 
@@ -363,6 +365,29 @@ export function IntegrationsClient() {
   }, [filtered, selectedCategory]);
 
   const handleConnect = (provider: string) => {
+    const def = catalog.find((d) => d.type === provider);
+    // app_installation providers (GitHub) point at a platform-level app
+    // installation that already exists independently of WeldConnect — no
+    // OAuth redirect, so this takes a different mutation than everything else.
+    if (def?.auth.kind === 'app_installation') {
+      setConnectingProvider(provider);
+      linkGithubMutation.mutate(undefined, {
+        onSuccess: (result) => {
+          setConnectingProvider(null);
+          if (result.data.status === 'needs_install') {
+            toast.info(ti.toasts.needsInstall);
+          } else {
+            toast.success(ti.toasts.connected);
+          }
+        },
+        onError: () => {
+          toast.error(ti.toasts.connectFailed);
+          setConnectingProvider(null);
+        },
+      });
+      return;
+    }
+
     setConnectingProvider(provider);
     connectMutation.mutate(
       { provider },
@@ -572,7 +597,8 @@ export function IntegrationsClient() {
                             onDisconnect={handleDisconnect}
                             onTest={handleTest}
                             isConnecting={
-                              connectingProvider === def.type && connectMutation.isPending
+                              connectingProvider === def.type &&
+                              (connectMutation.isPending || linkGithubMutation.isPending)
                             }
                             isDisconnecting={
                               !!connection &&

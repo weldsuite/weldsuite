@@ -75,15 +75,20 @@ Roughly in the recommended order.
    filter, i18n) and unlock `manual_step`. Waiting is only allowed in the main
    flow, not inside branches or loops (engine refuses it there).
 7. **Third-party providers, one PR each** (or a few grouped once the pattern is
-   set): **Slack done** (`feat/weldconnect-slack`), **Google done**
+   set): **Slack done** (`feat/weldconnect-slack` — connect/OAuth, test
+   connection, channel picker, `slack.post_message` with thread replies and
+   mapped errors, gate; see "Provider pattern" above), **Google done**
    (`feat/weldconnect-google` — `google_sheets.append_row`/`update_row`,
-   `gmail.send_email`, `google_calendar.create_event`; see "Provider pattern"
-   below for what it adds to the pattern), then Teams, Notion, Airtable,
-   GitHub, Asana, Twilio. Adapters exist in
+   `gmail.send_email`, `google_calendar.create_event`), **GitHub done**
+   (`feat/weldconnect-github` — `app_installation` auth reusing WeldFlow's
+   existing GitHub App installation, repo picker, `github.create_issue` /
+   `github.create_comment`), then Teams, Notion, Airtable, Asana, Twilio
+   (parked until their apps/keys exist). Adapters exist in
    `workflow-worker/src/engine/actions/providers/`; each needs a working
-   connect/OAuth flow, a connection test, a resource picker where the action
-   needs one, an editor form, gate entries and a test against the real
-   service.
+   connect/OAuth flow (or an app-installation link, if the provider already
+   has a platform-level installation elsewhere — see "Provider pattern"
+   below), a connection test, a resource picker where the action needs one, an
+   editor form, gate entries and a test against the real service.
 8. **Help docs**: guides and screenshots on help.weldsuite.org for the new
    triggers and steps (`.agents/skills/help-docs`).
 9. **Extras**: one-time scheduled runs (needs a tenant migration; the sweep only
@@ -97,10 +102,10 @@ Known limits that phase 1 sets on purpose: 100 items per loop and 250 loop
 iterations per run (`workflow-worker/src/engine/execute-steps.ts`,
 `actions/control.ts`); delays up to 365 days.
 
-## Provider pattern (established by Slack, PR `feat/weldconnect-slack`; extended by Google, PR `feat/weldconnect-google`)
+## Provider pattern (established by Slack `feat/weldconnect-slack`, extended by Google `feat/weldconnect-google` and GitHub `feat/weldconnect-github`)
 
 Slack is the first third-party provider unlocked end to end. Google (Sheets,
-Gmail, Calendar) followed the exact same shape, and GitHub should too — most
+Gmail, Calendar) and GitHub followed the exact same shape — most
 of the scaffolding (catalog entry, engine handler stub, OAuth routes) already
 existed for all ten providers in `@weldsuite/workflow-integrations` before
 Slack's PR; what a provider's PR adds is everything that makes it actually
@@ -144,6 +149,27 @@ the OAuth provider secrets, only connect-api did). A future provider with
 expiring tokens needs the same check: does the ENGINE worker, not just
 connect-api, have the client secret to refresh with?
 
+GitHub follows the same shape but with a different **auth kind**:
+`app_installation` (`AppInstallationConfig` in `@weldsuite/workflow-
+integrations`), not `oauth2` or `api_key`. WeldSuite already runs a GitHub
+App installed per workspace for WeldFlow's issue/PR sync
+(`github_connections`, one row per workspace, `services/github/connections.ts`
+in connect-api); rather than ask the user to authorize a second OAuth app or
+paste a PAT with overlapping repo access, WeldConnect's `github` integration
+just points a `workflow_integrations` row at that existing installation
+(`POST /api/workflow-integrations/github/link`,
+`services/workflow-integrations/github.ts`) and mints a fresh ~1h
+installation token on every call instead of storing a long-lived secret. The
+JWT-signing + token-exchange logic is shared with workflow-worker's engine
+action via `@weldsuite/connect-domain/github/app-auth` (workers never import
+each other's `src/`, so this is the one place it lives — connect-api's
+pre-existing `services/github/auth.ts`, used by the WeldFlow install/sync
+flow, keeps its own copy for now rather than risk touching that unrelated
+feature). A future `app_installation` provider follows the same shape: a
+shared token-minting helper in `packages/domains/connect` (or its own module's
+domain package), a `link` route that points at wherever that platform-level
+installation already lives, and no OAuth redirect.
+
 **Files to touch per provider:**
 
 1. `packages/core/workflow-integrations/src/providers/<provider>.ts` — the
@@ -153,34 +179,46 @@ connect-api, have the client secret to refresh with?
    behaviour — and ships to the builder UI as-is.
 2. **Engine handler** —
    `apps/workers/workflow-worker/src/engine/actions/providers/<provider>.ts`.
-   Resolve the token via `getValidIntegrationToken` (OAuth) or
-   `getIntegrationCredentials` (API key) from `./token.ts` — both already run
-   the owner-membership check (see "Runs as the owner?" below), so a new
-   provider gets it for free. Classify every provider error as retryable
-   (plain `Error`, or `NonRetryableStepError` for anything retrying the exact
-   same request won't fix — bad config, dead auth, not-found). Map the
-   provider's own error codes to clear messages the way Slack's
-   `NON_RETRYABLE_SLACK_ERRORS` does; attach the raw payload as `.details` so
-   it survives into the step row (`errorDetails()` in `engine/errors.ts`).
-   Return a small, stable output shape (`{ ok, ... }`) so the variable picker
-   has something to offer the next step.
+   Resolve the token via `getValidIntegrationToken` from `./token.ts` — it
+   already dispatches on the catalog's `auth.kind` (OAuth refresh, API-key
+   decrypt, or — for `app_installation` — minting a fresh token from
+   `settings.installationId` + the app's private key) and already runs the
+   owner-membership check (see "Runs as the owner?" below), so a new provider
+   gets all of it for free; `getIntegrationCredentials` is the API-key-only
+   path when a handler needs the raw credential bag instead of a bearer
+   token. Classify every provider error as retryable (plain `Error`, or
+   `NonRetryableStepError` for anything retrying the exact same request won't
+   fix — bad config, dead auth, not-found). Map the provider's own error codes
+   to clear messages the way Slack's `NON_RETRYABLE_SLACK_ERRORS` does; attach
+   the raw payload as `.details` so it survives into the step row
+   (`errorDetails()` in `engine/errors.ts`). Return a small, stable output
+   shape (`{ ok, ... }`) so the variable picker has something to offer the
+   next step.
 3. **Connect / test / picker routes** — all live under
    `/api/workflow-integrations/*`
    (`apps/workers/connect-api/src/routes/workflow-integrations/`):
    - `oauth.ts` already handles `:provider/authorize` and `:provider/callback`
      generically from the catalog's `auth` config — nothing to add for a new
      OAuth2 provider unless it needs extra fields stashed on `settings`
-     (Slack's `storeOnSettings: ['team', 'bot_user_id']`).
+     (Slack's `storeOnSettings: ['team', 'bot_user_id']`). `app_installation`
+     providers skip these entirely: `oauth.ts`'s `POST /:provider/link` points
+     the `workflow_integrations` row at whatever platform-level installation
+     already exists (GitHub's `linkGithubAppInstallation` is the example) and
+     returns `needs_install` when there isn't one yet, instead of redirecting
+     anywhere.
    - `index.ts`'s `/:id/test` already has a branch per provider family
-     (`slack`, `google*`); add the new provider's cheap reachability check
-     there, implemented in its own
-     `services/workflow-integrations/<provider>.ts` file (`testSlackAuth` is
-     the example) so the route stays a thin dispatcher.
+     (`slack`, `google*`, `github`); add the new provider's cheap reachability
+     check there, implemented in its own
+     `services/workflow-integrations/<provider>.ts` file (`testSlackAuth` /
+     `testGithubAuth` are the examples) so the route stays a thin dispatcher.
+     An `app_installation` provider has nothing in `oauthTokens` to check —
+     branch on `integration.type` before that check, not after.
    - A **picker** (channel list, spreadsheet list, repo list, …) is its own
      route, `GET /:id/<provider>/<resource>`
-     (`GET /:id/slack/channels` → `conversations.list`), backed by the same
-     per-provider service file (`listSlackChannels`). Keep provider API calls
-     out of the route handler itself.
+     (`GET /:id/slack/channels` → `conversations.list`, `GET
+     /:id/github/repos` → `installation/repositories`), backed by the same
+     per-provider service file (`listSlackChannels` / `listGithubRepos`). Keep
+     provider API calls out of the route handler itself.
 4. **Connection + resource picker in the step form** —
    `apps/web/platform/components/workflow-editor/components/action-config-form.tsx`.
    One form component per action

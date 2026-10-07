@@ -13,7 +13,8 @@
 
 import { and, eq, isNull } from 'drizzle-orm';
 import { encryptField, maybeDecryptField, keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
-import { getIntegrationDef, type OAuthConfig } from '@weldsuite/workflow-integrations';
+import { getIntegrationDef, type AppInstallationConfig, type OAuthConfig } from '@weldsuite/workflow-integrations';
+import { getGithubInstallationToken } from '@weldsuite/connect-domain/github/app-auth';
 import { schema } from '../../../db';
 import { resolveIntegration, integrationBearerToken } from '../../integrations';
 import { NonRetryableStepError } from '../../errors';
@@ -109,6 +110,43 @@ export interface ValidIntegrationToken {
 type ResolvedIntegration = Awaited<ReturnType<typeof resolveIntegration>>;
 
 /**
+ * Mint a fresh token for an `app_installation`-kind integration — currently
+ * only GitHub: its `workflow_integrations` row stores `installationId` in
+ * `settings` and has nothing in `credentials`/`oauthTokens` to decrypt at all
+ * (see `AppInstallationConfig` in `@weldsuite/workflow-integrations` and
+ * "Provider pattern" in docs/plans/weldconnect.md — GitHub reuses WeldFlow's
+ * existing GitHub App installation instead of a second OAuth app). Not
+ * cached here: `getGithubInstallationToken` already caches per-isolate,
+ * keyed by installation id.
+ */
+async function getAppInstallationToken(
+  ctx: ActionContext,
+  integ: ResolvedIntegration,
+  auth: AppInstallationConfig,
+): Promise<string> {
+  const appId = ctx.env[auth.appIdEnv] as string | undefined;
+  const privateKey = ctx.env[auth.privateKeyEnv] as string | undefined;
+  if (!appId || !privateKey) {
+    throw new Error(`Missing app installation env (${auth.appIdEnv}/${auth.privateKeyEnv})`);
+  }
+
+  const installationId = Number((integ.settings as Record<string, unknown> | undefined)?.installationId);
+  if (!Number.isSafeInteger(installationId) || installationId <= 0) {
+    throw new NonRetryableStepError(
+      `The "${integ.type}" connection has no valid installation configured. Reconnect it from WeldConnect → Integrations.`,
+    );
+  }
+
+  // Only GitHub implements this auth kind today; the mint mechanism (App JWT
+  // → per-installation access token) is GitHub's own App model, not a
+  // generic "any app_installation provider" protocol.
+  if (integ.type !== 'github') {
+    throw new Error(`Integration type "${integ.type}" declares app_installation auth but has no token minter wired up`);
+  }
+  return getGithubInstallationToken(appId, privateKey, installationId);
+}
+
+/**
  * Refresh an expiring OAuth access token via the provider's token endpoint and
  * persist the re-encrypted token. Returns the fresh access token, or `null`
  * when the integration isn't an OAuth2 definition (nothing to refresh).
@@ -147,6 +185,14 @@ export async function getValidIntegrationToken(
 ): Promise<ValidIntegrationToken> {
   await assertOwnerStillMember(ctx);
   const integ = await resolveIntegration(ctx.db, params);
+  const def = getIntegrationDef(integ.type);
+
+  // App-installation path (GitHub): no stored secret, mint fresh every time.
+  if (def?.auth.kind === 'app_installation') {
+    const accessToken = await getAppInstallationToken(ctx, integ, def.auth);
+    return { accessToken, integrationId: integ.id };
+  }
+
   const key = keyringFromEnv(ctx.env);
   const tokens = integ.oauthTokens;
 

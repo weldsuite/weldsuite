@@ -58,6 +58,11 @@ export const WELDCONNECT_ACTION_TYPES = [
   // Third-party provider actions (@weldsuite/workflow-integrations). See
   // "Provider pattern" in docs/plans/weldconnect.md.
   'slack.post_message',
+  // GitHub (app_installation auth — reuses WeldFlow's existing GitHub App
+  // installation instead of a second OAuth app or a PAT). See "Provider
+  // pattern" in docs/plans/weldconnect.md.
+  'github.create_issue',
+  'github.create_comment',
   'google_sheets.append_row',
   'google_sheets.update_row',
   'gmail.send_email',
@@ -215,6 +220,8 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   loop: (c) => (isBlank(c.items) ? ['items'] : []),
   delay: (c) => (['seconds', 'minutes', 'hours', 'days'].some((unit) => isPositive(c[unit])) ? [] : ['duration']),
   'slack.post_message': (c) => ['channel', 'text'].filter((field) => isBlank(c[field])),
+  'github.create_issue': (c) => ['repo', 'title'].filter((field) => isBlank(c[field])),
+  'github.create_comment': (c) => ['repo', 'issueNumber', 'body'].filter((field) => isBlank(c[field])),
   'google_sheets.append_row': (c) => ['spreadsheetId', 'columnMapping'].filter((field) => isBlank(c[field])),
   'google_sheets.update_row': (c) => {
     const missing = ['spreadsheetId', 'columnMapping'].filter((field) => isBlank(c[field]));

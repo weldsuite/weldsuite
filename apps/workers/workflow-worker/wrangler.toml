@@ -48,6 +48,14 @@
 #                              named gateway id; omit for the account default) +
 #                              CF_AIG_TOKEN (authenticated gateways only).
 #   AI_DEFAULT_MODEL         — ([vars], optional) overrides the default model.
+#   GITHUB_APP_ID            — (github.create_issue / github.create_comment) numeric
+#                              id of the GitHub App WeldFlow's project sync already
+#                              installs per workspace (connect-api owns the install
+#                              flow). The engine mints its own fresh ~1h installation
+#                              token per call (providers/token.ts, @weldsuite/
+#                              connect-domain/github/app-auth) — MUST be the SAME App
+#                              as connect-api's GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY.
+#   GITHUB_APP_PRIVATE_KEY   — PEM private key for that same GitHub App.
 #
 # Per-env KV ids + queue/service names mirror api-worker; fill the REPLACE_ME
 # ids before deploying each environment.

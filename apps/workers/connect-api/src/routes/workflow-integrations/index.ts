@@ -21,6 +21,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { workflowIntegrationOAuthRoutes } from './oauth';
 import { listSlackChannels, testSlackAuth } from '../../services/workflow-integrations/slack';
+import { listGithubRepos, testGithubAuth } from '../../services/workflow-integrations/github';
 import {
   testGoogleAuth,
   getGoogleSpreadsheet,
@@ -268,6 +269,20 @@ app.post('/:id/test', requirePermission('integrations:create'), async (c) => {
     const [integration] = await db.select().from(wi).where(and(eq(wi.id, id), isNull(wi.deletedAt))).limit(1);
     if (!integration) return error.notFound(c, 'Integration', id);
 
+    // app_installation integrations (GitHub) have nothing in oauthTokens to
+    // check — they mint a fresh installation token from the App's private
+    // key on every call, so they branch before the token-presence check below.
+    if (integration.type === 'github') {
+      const appId = c.env.GITHUB_APP_ID;
+      const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
+      if (!appId || !privateKey) return error.internal(c, 'GitHub App is not configured');
+      const result = await testGithubAuth(
+        { appId, privateKey },
+        integration.settings as Record<string, unknown> | undefined,
+      );
+      return success(c, { success: result.ok, message: result.message });
+    }
+
     const tokens = integration.oauthTokens as { accessToken?: string } | null;
     if (!tokens?.accessToken) {
       return success(c, { success: false, message: 'Integration is not connected (no token)' });
@@ -318,6 +333,33 @@ app.get('/:id/slack/channels', requirePermission('integrations:read'), async (c)
   } catch (err) {
     console.error('[connect-api/workflow-integrations] slack channels failed:', err);
     return error.internal(c, 'Failed to list Slack channels');
+  }
+});
+
+// GitHub repository picker (`installation/repositories`) — same shape as the
+// Slack channel picker above. No oauthTokens to decrypt: the installation
+// token is minted fresh from the App's private key + the installation id
+// stashed in `settings` at connect time (POST /github/link).
+app.get('/:id/github/repos', requirePermission('integrations:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const [integration] = await db.select().from(wi).where(and(eq(wi.id, id), isNull(wi.deletedAt))).limit(1);
+    if (!integration) return error.notFound(c, 'Integration', id);
+    if (integration.type !== 'github') return error.badRequest(c, 'Not a GitHub integration');
+
+    const appId = c.env.GITHUB_APP_ID;
+    const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
+    if (!appId || !privateKey) return error.internal(c, 'GitHub App is not configured');
+
+    const repos = await listGithubRepos(
+      { appId, privateKey },
+      integration.settings as Record<string, unknown> | undefined,
+    );
+    return success(c, repos);
+  } catch (err) {
+    console.error('[connect-api/workflow-integrations] github repos failed:', err);
+    return error.internal(c, 'Failed to list GitHub repositories');
   }
 });
 

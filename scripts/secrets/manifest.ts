@@ -230,6 +230,13 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLOUDFLARE_API_TOKEN",
     // send_sms action (optional — unset leaves it unavailable).
     "TELNYX_API_KEY",
+    // github.create_issue / github.create_comment (app_installation auth,
+    // providers/token.ts + @weldsuite/connect-domain/github/app-auth): mints
+    // its own installation token per call, so it needs the SAME GitHub App
+    // identity as connect-api's GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY — reusing
+    // WeldFlow's existing per-workspace installation rather than a second app.
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY",
     // The WeldConnect workflow-integrations Google OAuth app — same client as
     // connect-api's. Needed here so engine/actions/providers/token.ts can
     // refresh a Google access token in-process (Slack bot tokens never

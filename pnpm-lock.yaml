@@ -5877,6 +5877,9 @@ importers:
       '@weldsuite/ai':
         specifier: workspace:*
         version: link:../../../packages/core/ai
+      '@weldsuite/connect-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/connect
       '@weldsuite/credits':
         specifier: workspace:*
         version: link:../../../packages/core/credits
