@@ -125,7 +125,7 @@ export function PropertyRow({
   readOnly,
   renderValue,
   accessory,
-}: PropertyRowProps) {
+}: Readonly<PropertyRowProps>) {
   const t = useTranslations();
   const editable = !readOnly && !!onSave;
   const [isEditing, setIsEditing] = useState(false);

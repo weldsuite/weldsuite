@@ -15,7 +15,7 @@ interface GridTableProps {
   isFetchingMore?: boolean;
 }
 
-export function GridTable({ onLoadMore, hasMore, isFetchingMore }: GridTableProps) {
+export function GridTable({ onLoadMore, hasMore, isFetchingMore }: Readonly<GridTableProps>) {
   const { config, filteredEntities, calculateTableWidth, getVisibleColumns, actions } = useGridContext();
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);

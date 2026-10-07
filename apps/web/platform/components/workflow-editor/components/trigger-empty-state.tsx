@@ -23,7 +23,7 @@ interface TriggerTileProps {
   iconBgClassName?: string;
 }
 
-function TriggerTile({ icon: Icon, title, description, onClick, iconClassName, iconBgClassName }: TriggerTileProps) {
+function TriggerTile({ icon: Icon, title, description, onClick, iconClassName, iconBgClassName }: Readonly<TriggerTileProps>) {
   return (
     <Button
       type="button"
@@ -55,7 +55,7 @@ interface TriggerEmptyStateProps {
   allowedTypes?: readonly string[];
 }
 
-export function TriggerEmptyState({ onSelectType, allowedTypes }: TriggerEmptyStateProps) {
+export function TriggerEmptyState({ onSelectType, allowedTypes }: Readonly<TriggerEmptyStateProps>) {
   const { t } = useI18n();
   const tes = t.weldconnect.triggerEmptyState;
   const show = (type: TriggerType) => !allowedTypes || allowedTypes.includes(type);

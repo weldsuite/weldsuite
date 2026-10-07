@@ -84,7 +84,7 @@ export function FileListView({
   actionButtons,
   emptyState,
   noResultsState,
-}: FileListViewProps) {
+}: Readonly<FileListViewProps>) {
   const { t } = useI18n();
   const [sortState, setSortState] = useState<SortState | null>(null);
 

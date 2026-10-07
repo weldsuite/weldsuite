@@ -44,7 +44,7 @@ export function AudioPlayer({
   segments,
   onTogglePlayPause,
   onSeek,
-}: AudioPlayerProps) {
+}: Readonly<AudioPlayerProps>) {
   const t = useTranslations();
   const [volume, setVolume] = useState(1);
   const [playbackRate, setPlaybackRate] = useState(1);

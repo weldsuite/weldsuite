@@ -36,7 +36,7 @@ export interface TasksTabProps {
   entityKind: 'company' | 'person';
 }
 
-export function TasksTab({ entityId, entityKind }: TasksTabProps) {
+export function TasksTab({ entityId, entityKind }: Readonly<TasksTabProps>) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [sortState, setSortState] = useState<SortState | null>(null);

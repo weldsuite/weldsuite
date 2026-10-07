@@ -39,7 +39,7 @@ function getCompany(companyId: string): { name: string; color: string } {
   return { name: 'StartupX', color: '#0063E0' };
 }
 
-export function NewTaskModal({ isOpen, onClose, onSave }: NewTaskModalProps) {
+export function NewTaskModal({ isOpen, onClose, onSave }: Readonly<NewTaskModalProps>) {
   const st = useTranslations();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');

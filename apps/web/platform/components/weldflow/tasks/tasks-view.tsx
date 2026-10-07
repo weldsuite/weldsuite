@@ -82,7 +82,7 @@ interface TasksViewProps {
   initialTasks?: RawApiTask[];
 }
 
-export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
+export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewProps>) {
   const st = useTranslations();
   const { getClient } = useAppApiClient();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -250,7 +250,7 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
     return name.charAt(0).toUpperCase();
   };
 
-  const TaskItem = ({ task }: { task: Task }) => {
+  const TaskItem = ({ task }: Readonly<{ task: Task }>) => {
     const isOverdue = task.dueDate && isPast(task.dueDate) && !isToday(task.dueDate);
 
     const getStatusLabel = (status?: string) => {

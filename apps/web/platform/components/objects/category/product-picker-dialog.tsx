@@ -31,13 +31,13 @@ export function ProductPickerDialog({
   existingIds,
   onConfirm,
   isSaving,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingIds: string[];
   onConfirm: (productIds: string[]) => Promise<void> | void;
   isSaving?: boolean;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   const [search, setSearch] = useState('');

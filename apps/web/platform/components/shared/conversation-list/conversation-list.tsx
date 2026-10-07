@@ -31,7 +31,7 @@ export function ConversationList({
   isLoading,
   footer,
   onSearchChange,
-}: ConversationListProps) {
+}: Readonly<ConversationListProps>) {
   const t = useTranslations();
   const resolvedEmptyMessage = emptyMessage ?? t('sweep.shared.noConversationsFound');
   const [searchQuery, setSearchQuery] = useState('');

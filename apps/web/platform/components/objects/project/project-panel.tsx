@@ -29,7 +29,7 @@ interface ProjectRecord {
   createdAt: string;
 }
 
-export function ProjectPanel(props: ObjectPanelComponentProps) {
+export function ProjectPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const { id } = props;
   const { data, isLoading, error } = useProject(id);

@@ -68,7 +68,7 @@ function useLabelDrop(onLabelDrop: LabelDropHandler) {
   };
 }
 
-function ItemAvatar({ item, showUnreadDot }: { item: ConversationItem; showUnreadDot: boolean }) {
+function ItemAvatar({ item, showUnreadDot }: Readonly<{ item: ConversationItem; showUnreadDot: boolean }>) {
   return (
     <div className="relative flex-shrink-0 mt-[3px]">
       {item.avatarUrl ? (
@@ -92,7 +92,7 @@ function ItemAvatar({ item, showUnreadDot }: { item: ConversationItem; showUnrea
   );
 }
 
-function LabelBadges({ item, labels }: { item: ConversationItem; labels: string[] }) {
+function LabelBadges({ item, labels }: Readonly<{ item: ConversationItem; labels: string[] }>) {
   if (labels.length === 0) return null;
   return (
     <div className="flex gap-1 flex-wrap mt-2">
@@ -124,11 +124,11 @@ function ItemHeader({
   item,
   hasUnread,
   isPinned,
-}: {
+}: Readonly<{
   item: ConversationItem;
   hasUnread: boolean;
   isPinned?: boolean;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="flex items-center justify-between gap-2">
@@ -180,7 +180,7 @@ export function ConversationListItem({
   contextMenuContent,
   onLabelDrop,
   compact,
-}: ConversationListItemProps) {
+}: Readonly<ConversationListItemProps>) {
   const t = useTranslations();
   const hasUnread = item.unreadCount > 0;
   const displayLabels = filterDisplayLabels(item.labels);

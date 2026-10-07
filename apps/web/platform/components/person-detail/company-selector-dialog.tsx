@@ -35,7 +35,7 @@ export function CompanySelectorDialog({
   onSelect,
   onCreate,
   isLoading,
-}: CompanySelectorDialogProps) {
+}: Readonly<CompanySelectorDialogProps>) {
   const t = useTranslations();
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);

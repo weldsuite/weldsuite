@@ -25,7 +25,7 @@ export function ProjectToolbar({
   rightContentMargin,
   hideBorder = false,
   className,
-}: ProjectToolbarProps) {
+}: Readonly<ProjectToolbarProps>) {
   return (
     <div
       className={cn(

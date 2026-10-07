@@ -16,7 +16,7 @@ import {
 } from '@/components/objects/_shared/simple-object-panel';
 import { detailsTab } from '@/components/objects/_shared/focused-tabs';
 
-export function PickListPanel(props: ObjectPanelComponentProps) {
+export function PickListPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = getTranslations('common').weldstash.pickLists;
   const { id } = props;
   const { data, isLoading, error } = useWeldstashPickList(id);

@@ -29,7 +29,7 @@ interface ArticleRecord {
   keywords?: string[] | null;
 }
 
-export function ArticlePanel(props: ObjectPanelComponentProps) {
+export function ArticlePanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const { id } = props;
   const { data, isLoading, error } = useArticle(id);

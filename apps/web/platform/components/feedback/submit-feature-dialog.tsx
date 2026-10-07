@@ -32,7 +32,7 @@ export function SubmitFeatureDialog({
   open,
   onOpenChange,
   onSuccess,
-}: SubmitFeatureDialogProps) {
+}: Readonly<SubmitFeatureDialogProps>) {
   const t = useTranslations();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');

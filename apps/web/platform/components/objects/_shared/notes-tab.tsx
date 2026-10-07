@@ -56,7 +56,7 @@ function formatNoteDate(date: Date, todayLabel: string, yesterdayLabel: string):
   return format(date, 'MMM d, yyyy');
 }
 
-export function NotesTab({ entityId, entityKind, entityName }: NotesTabProps) {
+export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTabProps>) {
   const t = useTranslations();
   const filters = useMemo(
     () => (entityKind === 'company' ? { companyId: entityId } : { personId: entityId }),

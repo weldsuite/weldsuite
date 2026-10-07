@@ -176,7 +176,7 @@ function RecordForm({
   submitLabel,
   pendingLabel,
   td,
-}: {
+}: Readonly<{
   title: string;
   defaultValues: RecordFormValues;
   onSubmit: (data: DnsRecordInput) => void | Promise<void>;
@@ -185,7 +185,7 @@ function RecordForm({
   submitLabel: string;
   pendingLabel: string;
   td: DomainDetailTranslations;
-}) {
+}>) {
   const schema = useMemo(() => buildRecordSchema(td), [td]);
   const form = useForm<RecordFormValues>({
     resolver: zodResolver(schema),
@@ -399,7 +399,7 @@ function TypeFilterChips({
   totalCount,
   allLabel,
   onChange,
-}: TypeFilterChipsProps) {
+}: Readonly<TypeFilterChipsProps>) {
   return (
     <div className="flex flex-wrap items-center gap-1">
       <button
@@ -447,7 +447,7 @@ export function DomainDnsTab({
   canDelete,
   readOnlyReason,
   initialShowAddRecord,
-}: DomainDnsTabProps) {
+}: Readonly<DomainDnsTabProps>) {
   const { t } = useI18n();
   const td = t.host.domainDetail;
 

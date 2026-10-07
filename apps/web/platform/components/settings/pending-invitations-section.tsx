@@ -50,7 +50,7 @@ export function PendingInvitationsSection({
   members,
   onResendInvite,
   onCancelInvite,
-}: PendingInvitationsSectionProps) {
+}: Readonly<PendingInvitationsSectionProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const ts = t.settings.team;

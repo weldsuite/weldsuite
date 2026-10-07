@@ -8,7 +8,7 @@ interface WidgetInstallationPanelProps {
   widgetId: string;
 }
 
-export function WidgetInstallationPanel({ widgetId }: WidgetInstallationPanelProps) {
+export function WidgetInstallationPanel({ widgetId }: Readonly<WidgetInstallationPanelProps>) {
   const t = useTranslations();
   const [copied, setCopied] = useState<string | null>(null);
   const [expandedFramework, setExpandedFramework] = useState<string | null>('vanilla');
@@ -27,7 +27,7 @@ export function WidgetInstallationPanel({ widgetId }: WidgetInstallationPanelPro
     setExpandedFramework(expandedFramework === framework ? null : framework);
   };
 
-  const CodeBlock = ({ code, copyKey }: { code: string; copyKey: string }) => (
+  const CodeBlock = ({ code, copyKey }: Readonly<{ code: string; copyKey: string }>) => (
     <div className="relative group">
       <pre className="bg-gray-50 dark:bg-background/50 border border-gray-200 dark:border-border rounded-lg p-3 overflow-x-auto text-xs font-mono">
         <code className="text-gray-900 dark:text-foreground">{code}</code>
@@ -51,11 +51,11 @@ export function WidgetInstallationPanel({ widgetId }: WidgetInstallationPanelPro
     id,
     title,
     children
-  }: {
+  }: Readonly<{
     id: string;
     title: string;
     children: React.ReactNode
-  }) => {
+  }>) => {
     const isExpanded = expandedFramework === id;
 
     return (

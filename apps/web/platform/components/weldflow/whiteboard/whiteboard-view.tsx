@@ -150,7 +150,7 @@ interface WhiteboardViewProps {
   onBack?: () => void;
 }
 
-export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }: WhiteboardViewProps) {
+export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }: Readonly<WhiteboardViewProps>) {
   const st = useTranslations();
   const { canWrite } = useProjectPermissions();
   const { user } = useUser();

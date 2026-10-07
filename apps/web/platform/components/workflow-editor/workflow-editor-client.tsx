@@ -758,7 +758,7 @@ const STATUS_DOT: Record<string, string> = {
 };
 
 /** Draft / Active / Paused pill in the editor's action bar. */
-function WorkflowStatusBadge({ status }: { status: string }) {
+function WorkflowStatusBadge({ status }: Readonly<{ status: string }>) {
   const { t } = useI18n();
   const label = (t.weldconnect.workflows.statuses as Record<string, string>)[status] ?? status;
   return (
@@ -1699,11 +1699,11 @@ function WebhookDetails({
   webhookData,
   workflowId,
   form,
-}: {
+}: Readonly<{
   webhookData: WebhookData;
   workflowId: string;
   form: TriggerFormApi;
-}) {
+}>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const rotateSecret = useRotateWebhookSecret(workflowId);
@@ -1790,11 +1790,11 @@ function WebhookFields({
   webhookData,
   workflowId,
   form,
-}: {
+}: Readonly<{
   webhookData: WebhookData | null | undefined;
   workflowId: string;
   form: TriggerFormApi;
-}) {
+}>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
 
@@ -2265,7 +2265,7 @@ function useFormatIssueMessages(step: WorkflowStepBag): string[] {
 }
 
 /** Non-blocking note: these `{{variables}}` resolve to nothing, so they render empty. */
-function UnknownVariablesNote({ variables }: { variables: string[] }) {
+function UnknownVariablesNote({ variables }: Readonly<{ variables: string[] }>) {
   const { t } = useI18n();
   if (variables.length === 0) return null;
   return (
@@ -2539,7 +2539,7 @@ interface StepChecklistItemProps {
   onSelectStep: (index: number) => void;
 }
 
-function StepChecklistItem({ step, index, unsupported, unknownVariables, actionTypes, categoryLabels, onSelectStep }: StepChecklistItemProps) {
+function StepChecklistItem({ step, index, unsupported, unknownVariables, actionTypes, categoryLabels, onSelectStep }: Readonly<StepChecklistItemProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const missing = getMissingRequiredFields(step.type || '', step.config || {});

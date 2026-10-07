@@ -69,7 +69,7 @@ export function MessagesView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking'],
   hideCloseButton = false
-}: MessagesViewProps) {
+}: Readonly<MessagesViewProps>) {
   const [activeTab] = useState('messages');
   const [showSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');

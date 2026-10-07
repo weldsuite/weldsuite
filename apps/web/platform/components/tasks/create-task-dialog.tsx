@@ -56,7 +56,7 @@ export function CreateTaskDialog({
   defaultTitle = '',
   defaultDescription = '',
   onTaskCreated,
-}: CreateTaskDialogProps) {
+}: Readonly<CreateTaskDialogProps>) {
   const t = useTranslations();
   const [isPending, startTransition] = useTransition();
   const [title, setTitle] = useState(defaultTitle);

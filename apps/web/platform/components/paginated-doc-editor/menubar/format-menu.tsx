@@ -37,7 +37,7 @@ import type { MenuProps } from './menu-kit';
 import { useMenuAlign } from './menu-kit';
 import { useTranslations } from '@weldsuite/i18n/client';
 
-export function FormatMenu({ cmd, menuValue }: MenuProps) {
+export function FormatMenu({ cmd, menuValue }: Readonly<MenuProps>) {
   const t = useTranslations();
   const align = useMenuAlign(menuValue);
 

@@ -41,7 +41,7 @@ const TONE_CSS: Record<Tone, { iconBg: string; iconText: string }> = {
   rose: { iconBg: 'bg-rose-100 dark:bg-rose-500/15', iconText: 'text-rose-600 dark:text-rose-400' },
 };
 
-export function CommonTab({ userId, isSelf }: CommonTabProps) {
+export function CommonTab({ userId, isSelf }: Readonly<CommonTabProps>) {
   const t = useTranslations();
   const query = useCommonConcepts(userId);
   const { open: openEntitySheet } = useEntitySheet();
@@ -169,12 +169,12 @@ function Section({
   title,
   count,
   children,
-}: {
+}: Readonly<{
   title: string;
   count: number;
   tone: Tone;
   children: React.ReactNode;
-}) {
+}>) {
   if (count === 0) return null;
   return (
     <section>
@@ -201,7 +201,7 @@ function Row({
   label,
   hint,
   leading,
-}: {
+}: Readonly<{
   /** Navigate to a route. Mutually exclusive with `onSelect`. */
   to?: string;
   /** Handle the click in-app (e.g. open an entity sheet). Takes precedence over `to`. */
@@ -211,7 +211,7 @@ function Row({
   tone?: Tone;
   /** Optional leading visual (avatar, icon). */
   leading?: React.ReactNode;
-}) {
+}>) {
   const className = cn(
     'group flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/60',
   );
@@ -242,7 +242,7 @@ function Row({
   );
 }
 
-function ChannelAvatar({ type }: { type: 'public' | 'private' | 'dm' }) {
+function ChannelAvatar({ type }: Readonly<{ type: 'public' | 'private' | 'dm' }>) {
   if (type === 'public') {
     return (
       <span className="h-5 w-5 rounded-[6px] bg-muted flex items-center justify-center text-muted-foreground">
@@ -257,7 +257,7 @@ function ChannelAvatar({ type }: { type: 'public' | 'private' | 'dm' }) {
   );
 }
 
-function CategoryIcon({ tone, icon }: { tone: Tone; icon: React.ReactNode }) {
+function CategoryIcon({ tone, icon }: Readonly<{ tone: Tone; icon: React.ReactNode }>) {
   const t = TONE_CSS[tone];
   return (
     <span
@@ -271,7 +271,7 @@ function CategoryIcon({ tone, icon }: { tone: Tone; icon: React.ReactNode }) {
   );
 }
 
-function ProjectAvatar({ color }: { color?: string | null }) {
+function ProjectAvatar({ color }: Readonly<{ color?: string | null }>) {
   return (
     <span
       className={cn(
@@ -284,7 +284,7 @@ function ProjectAvatar({ color }: { color?: string | null }) {
   );
 }
 
-function DmAvatar({ name, picture }: { name: string; picture?: string }) {
+function DmAvatar({ name, picture }: Readonly<{ name: string; picture?: string }>) {
   return (
     <Avatar className="h-5 w-5 !rounded-[6px]">
       {picture && <AvatarImage src={picture} className="!rounded-[6px]" />}
@@ -295,7 +295,7 @@ function DmAvatar({ name, picture }: { name: string; picture?: string }) {
   );
 }
 
-function GroupDmAvatar({ name }: { name: string }) {
+function GroupDmAvatar({ name }: Readonly<{ name: string }>) {
   const parts = name.split(/[,&]+/).map((s) => s.trim()).filter(Boolean);
   const visible = parts.slice(0, 2);
   if (visible.length === 0) visible.push('?', '?');

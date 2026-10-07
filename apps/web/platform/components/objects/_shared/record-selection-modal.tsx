@@ -100,7 +100,7 @@ export function RecordSelectionModal({
   onSelectMultiple,
   existingIds = [],
   confirmLabel,
-}: RecordSelectionModalProps) {
+}: Readonly<RecordSelectionModalProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [searchQuery, setSearchQuery] = useState('');

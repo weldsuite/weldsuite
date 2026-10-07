@@ -51,7 +51,7 @@ interface GenerateWithAiDialogProps {
   onApply: (workflow: GeneratedWorkflowDraft, warnings: string[]) => void;
 }
 
-export function GenerateWithAiDialog({ open, onOpenChange, onApply }: GenerateWithAiDialogProps) {
+export function GenerateWithAiDialog({ open, onOpenChange, onApply }: Readonly<GenerateWithAiDialogProps>) {
   const { t } = useI18n();
   const tg = t.weldconnect.generateWithAi;
   const tbc = t.weldconnect.builderChat;

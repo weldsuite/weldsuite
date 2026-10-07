@@ -155,7 +155,7 @@ export function EntityDataTable<T = unknown>({
   emptyIcon = "Package",
   hideControlsBar = false,
   leftControls,
-}: EntityDataTableProps<T>) {
+}: Readonly<EntityDataTableProps<T>>) {
   const t = useTranslations();
   const resolvedEmptyMessage = emptyMessage ?? t('sweep.entities.noItemsFound');
   // Get icon component from map

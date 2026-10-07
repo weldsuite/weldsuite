@@ -14,7 +14,7 @@ interface UpgradeButtonProps {
   collapsed?: boolean;
 }
 
-export function UpgradeButton({ collapsed = false }: UpgradeButtonProps) {
+export function UpgradeButton({ collapsed = false }: Readonly<UpgradeButtonProps>) {
   const [open, setOpen] = useState(false);
 
   if (collapsed) {

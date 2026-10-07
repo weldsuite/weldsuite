@@ -29,7 +29,7 @@ export function TeamMemberPanel({
   open,
   onOpenChange,
   defaultTab = 'overview',
-}: TeamMemberPanelProps) {
+}: Readonly<TeamMemberPanelProps>) {
   const t = useTranslations();
   const { userId: viewerUserId } = useAuth();
   const profileQuery = useMemberProfile(userId ?? undefined);
@@ -91,7 +91,7 @@ export function TeamMemberPanel({
 
 function TabButton({
   active, onClick, children,
-}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+}: Readonly<{ active: boolean; onClick: () => void; children: React.ReactNode }>) {
   return (
     <Button
       type="button"

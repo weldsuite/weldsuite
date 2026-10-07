@@ -26,7 +26,7 @@ export function useWeldAgentSafe() {
   return useContext(WeldAgentContext);
 }
 
-export function WeldAgentProvider({ children }: { children: ReactNode }) {
+export function WeldAgentProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [isOpen, setIsOpen] = useState(false);
   const [entityContext, setEntityContextState] = useState<EntityContext | null>(null);
 

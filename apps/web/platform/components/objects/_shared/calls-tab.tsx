@@ -22,7 +22,7 @@ interface CallsTabProps {
   defaultDialNumber?: string;
 }
 
-export function CallsTab({ entityId, entityKind }: CallsTabProps) {
+export function CallsTab({ entityId, entityKind }: Readonly<CallsTabProps>) {
   const filter = useMemo(
     () =>
       entityKind === 'company'

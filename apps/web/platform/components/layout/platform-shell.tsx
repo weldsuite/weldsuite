@@ -17,7 +17,7 @@ interface PlatformShellProps {
   embedded?: boolean;
 }
 
-export function PlatformShell({ children, embedded }: PlatformShellProps) {
+export function PlatformShell({ children, embedded }: Readonly<PlatformShellProps>) {
   const { data: installedApps = [] } = useInstalledApps();
   const { user } = useUser();
   const { organization } = useOrganization();

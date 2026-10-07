@@ -136,7 +136,7 @@ export function GlobalTimerWidget() {
 }
 
 /** Icon-only variant for surfaces that already show timer detail nearby. */
-export function RunningTimerBadge({ className }: { className?: string }) {
+export function RunningTimerBadge({ className }: Readonly<{ className?: string }>) {
   const { data: timer } = useRunningTimer();
   const elapsed = useElapsedSeconds(timer?.startedAt);
   if (!timer) return null;

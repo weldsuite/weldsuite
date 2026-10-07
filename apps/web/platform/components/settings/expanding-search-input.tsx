@@ -14,7 +14,7 @@ interface ExpandingSearchInputProps {
  * again on blur while empty. Shared by the settings tables (activity log,
  * roles, custom fields, API keys, shortcuts, ticket settings, ...).
  */
-export function ExpandingSearchInput({ value, onChange, placeholder }: ExpandingSearchInputProps) {
+export function ExpandingSearchInput({ value, onChange, placeholder }: Readonly<ExpandingSearchInputProps>) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 

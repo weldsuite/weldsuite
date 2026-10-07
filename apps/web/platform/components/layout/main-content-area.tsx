@@ -7,7 +7,7 @@ interface MainContentAreaProps {
   embedded?: boolean;
 }
 
-export function MainContentArea({ children, embedded }: MainContentAreaProps) {
+export function MainContentArea({ children, embedded }: Readonly<MainContentAreaProps>) {
   return (
     <div
       className={

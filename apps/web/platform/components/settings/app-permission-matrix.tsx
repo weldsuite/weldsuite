@@ -143,7 +143,7 @@ export function filterSections(sections: PermissionSection[], query: string): Pe
 /** Platform icon code for a canonical app code, where the two differ. */
 const ICON_CODE: Record<string, string> = { weldsocial: 'social' };
 
-export function SectionIcon({ section, className }: { section: PermissionSection; className?: string }) {
+export function SectionIcon({ section, className }: Readonly<{ section: PermissionSection; className?: string }>) {
   if (!section.app) return <Settings className={cn('text-muted-foreground', className)} />;
   return <AppIcon icon={ICON_CODE[section.app] ?? section.app} className={className} />;
 }
@@ -153,13 +153,13 @@ export function PermissionSectionNav({
   selectedId,
   onSelect,
   badge,
-}: {
+}: Readonly<{
   sections: PermissionSection[];
   selectedId: string;
   onSelect: (id: string) => void;
   /** Right-aligned summary per section, e.g. "4/12". */
   badge?: (section: PermissionSection) => React.ReactNode;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <nav
@@ -197,7 +197,7 @@ export function PermissionMatrixTable({
   renderCell,
   renderExtra,
   rowAction,
-}: {
+}: Readonly<{
   objects: MatrixObject[];
   /** Cell for a standard action (View/Create/Edit/Delete/Manage). */
   renderCell: (perm: MatrixPermission, object: MatrixObject, actionLabel: string) => React.ReactNode;
@@ -205,7 +205,7 @@ export function PermissionMatrixTable({
   renderExtra: (perm: MatrixPermission, object: MatrixObject) => React.ReactNode;
   /** Optional control next to the object name (e.g. "Grant all"). */
   rowAction?: (object: MatrixObject) => React.ReactNode;
-}) {
+}>) {
   const t = useTranslations();
   const actionLabels = React.useMemo(() => getActionLabels(t), [t]);
   const hasExtras = objects.some((o) => o.extras.length > 0);

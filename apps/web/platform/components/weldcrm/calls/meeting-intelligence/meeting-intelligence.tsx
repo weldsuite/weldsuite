@@ -61,7 +61,7 @@ export function MeetingIntelligence({
   transcriptionPending = false,
   transcriptionRefreshKey,
   transcriptEmptyHint,
-}: MeetingIntelligenceProps) {
+}: Readonly<MeetingIntelligenceProps>) {
   const t = useTranslations();
   const router = useRouter();
   const floatingVideoCtx = useFloatingVideo();
@@ -957,10 +957,10 @@ ${transcriptionText}
 function AutoScrollSelect({
   autoScroll,
   onAutoScrollChange,
-}: {
+}: Readonly<{
   autoScroll: boolean;
   onAutoScrollChange: (value: boolean) => void;
-}) {
+}>) {
   const t = useTranslations();
 
   return (
@@ -979,10 +979,10 @@ function AutoScrollSelect({
 function TranscriptSearchToolbar({
   searchQuery,
   onSearchQueryChange,
-}: {
+}: Readonly<{
   searchQuery: string;
   onSearchQueryChange: (q: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);

@@ -77,7 +77,7 @@ export function EntityFormLayout({
   showBackButton = false,
   backLink,
   backButtonText,
-}: EntityFormLayoutProps) {
+}: Readonly<EntityFormLayoutProps>) {
   const t = useTranslations();
   const router = useRouter();
   const resolvedSubmitText = submitText ?? t('sweep.entities.save');

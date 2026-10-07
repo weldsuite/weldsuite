@@ -65,7 +65,7 @@ export function MeetingIntelligenceHeader({
   deleteRecordingLabel,
   onExportTranscript,
   headerActions,
-}: MeetingIntelligenceHeaderProps) {
+}: Readonly<MeetingIntelligenceHeaderProps>) {
   const t = useTranslations();
   const _callDate = new Date(call.date);
   const _callDuration = call.duration || 0;

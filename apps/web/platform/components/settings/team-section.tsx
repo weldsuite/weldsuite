@@ -63,7 +63,7 @@ export interface TeamMember {
   }>
 }
 
-function MemberAvatarWithPresence({ user }: { user: TeamMember }) {
+function MemberAvatarWithPresence({ user }: Readonly<{ user: TeamMember }>) {
   const { getStatus } = usePresence();
   const presence = user.userId ? getStatus(user.userId) : undefined;
   return (
@@ -154,10 +154,10 @@ const FALLBACK_ROLE_CLASS = "bg-green-50 text-green-700 dark:bg-green-950/30 dar
 function MemberRoleBadge({
   user,
   customRoleNameById,
-}: {
+}: Readonly<{
   user: TeamMember
   customRoleNameById: Record<string, string>
-}) {
+}>) {
   const t = useTranslations()
   // Custom role wins if assigned (workspaceRoleId is the
   // source of truth — `workspaceRole` is just the system
@@ -217,7 +217,7 @@ export function TeamSection({
   onMemberInvited,
   memberLimit,
   planName,
-}: TeamSectionProps) {
+}: Readonly<TeamSectionProps>) {
   const t = useTranslations()
   const [inviteDialogOpen, setInviteDialogOpen] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)

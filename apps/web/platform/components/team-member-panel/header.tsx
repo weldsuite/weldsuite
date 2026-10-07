@@ -17,7 +17,7 @@ interface TeamMemberPanelHeaderProps {
   isSelf: boolean;
 }
 
-export function TeamMemberPanelHeader({ profile, onClose, isSelf }: TeamMemberPanelHeaderProps) {
+export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<TeamMemberPanelHeaderProps>) {
   const t = useTranslations();
   const { getStatus } = usePresence();
   const { startCall, status: callStatus } = useWeldChatCall();

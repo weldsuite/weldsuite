@@ -23,7 +23,7 @@ const getTagColor = (tagName: string) => {
   return tagColors[Math.abs(hash) % tagColors.length];
 };
 
-export function TagLabel({ tag, className = '' }: TagLabelProps) {
+export function TagLabel({ tag, className = '' }: Readonly<TagLabelProps>) {
   const color = getTagColor(tag);
 
   return (

@@ -61,7 +61,7 @@ export function ParcelTrackingView({
   onNavigateChangelog,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'news', 'appointments', 'announcements', 'events', 'parcel-tracking'],
   companyLogoUrl
-}: ParcelTrackingViewProps) {
+}: Readonly<ParcelTrackingViewProps>) {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [isTracking, setIsTracking] = useState(false);
   const [parcelInfo, setParcelInfo] = useState<ParcelInfo | null>(null);

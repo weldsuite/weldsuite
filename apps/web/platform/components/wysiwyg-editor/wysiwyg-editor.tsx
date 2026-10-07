@@ -354,7 +354,7 @@ export function WysiwygEditor({
   titleRef: externalTitleRef,
   renderToolbar,
   className,
-}: WysiwygEditorProps) {
+}: Readonly<WysiwygEditorProps>) {
   const t = useTranslations();
   const resolvedTitlePlaceholder = titlePlaceholder ?? t('sweep.shared.untitled');
   const resolvedContentPlaceholder = contentPlaceholder ?? t('sweep.shared.pressSlashForCommands');
@@ -1356,7 +1356,7 @@ export function DefaultToolbar({
   formatText,
   clearFormatting,
   openLinkDialog,
-}: ToolbarProps) {
+}: Readonly<ToolbarProps>) {
   const t = useTranslations();
   return (
     <div className="flex items-center gap-1 flex-wrap">

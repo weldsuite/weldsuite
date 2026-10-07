@@ -15,7 +15,7 @@ export function DateEditor({
   value,
   onChange,
   onCommit,
-}: DateEditorProps) {
+}: Readonly<DateEditorProps>) {
   const dateValue = value ? (value instanceof Date ? value : new Date(value)) : undefined;
   const isValidDate = dateValue && !Number.isNaN(dateValue.getTime());
 

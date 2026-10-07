@@ -5,7 +5,7 @@ interface TranscriptionProgressProps {
   progress: number;
 }
 
-export function TranscriptionProgress({ progress }: TranscriptionProgressProps) {
+export function TranscriptionProgress({ progress }: Readonly<TranscriptionProgressProps>) {
   const t = useTranslations();
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">

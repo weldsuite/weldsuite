@@ -19,11 +19,11 @@ export function ColoredSquareIcon({
   icon: Icon,
   color,
   className,
-}: {
+}: Readonly<{
   icon: ColoredSquareIconComponent;
   color?: string | null;
   className?: string;
-}) {
+}>) {
   return (
     <div
       className={cn(

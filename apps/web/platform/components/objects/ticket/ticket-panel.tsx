@@ -10,7 +10,7 @@ import {
   type ObjectPanelComponentProps,
 } from '@/components/objects/_shared/simple-object-panel';
 
-export function TicketPanel(props: ObjectPanelComponentProps) {
+export function TicketPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const { id } = props;
   const { data, isLoading, error } = useTicket(id);

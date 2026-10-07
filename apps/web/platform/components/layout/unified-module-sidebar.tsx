@@ -48,7 +48,7 @@ function readNavigation(manifest: Record<string, unknown> | null | undefined): U
   return items.length > 0 ? items : null;
 }
 
-export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }: UnifiedModuleSidebarProps) {
+export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }: Readonly<UnifiedModuleSidebarProps>) {
   const pathname = usePathname();
   const { t } = useI18n();
   const { switchWorkspace } = useWorkspace();

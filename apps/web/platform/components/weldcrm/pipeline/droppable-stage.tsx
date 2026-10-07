@@ -13,7 +13,7 @@ const DroppableContext = createContext<{ isOver: boolean }>({ isOver: false });
 
 export const useDroppableContext = () => useContext(DroppableContext);
 
-export function DroppableStage({ id, children, containerRef }: DroppableStageProps) {
+export function DroppableStage({ id, children, containerRef }: Readonly<DroppableStageProps>) {
   const { isOver, setNodeRef } = useDroppable({
     id: `stage-${id}`,
   });

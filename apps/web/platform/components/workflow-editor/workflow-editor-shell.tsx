@@ -41,7 +41,7 @@ export interface WorkflowEditorShellProps {
   editor: (props: WorkflowEditorShellRenderProps) => ReactNode;
 }
 
-export function WorkflowEditorShell({ nav, editor }: WorkflowEditorShellProps) {
+export function WorkflowEditorShell({ nav, editor }: Readonly<WorkflowEditorShellProps>) {
   const t = useTranslations();
   const actionsRef = useRef<HTMLDivElement>(null);
   const [isDirty, setDirty] = useState(false);

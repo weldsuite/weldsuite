@@ -23,7 +23,7 @@ interface Integration {
   href?: string
 }
 
-function BrandLogo({ slug, alt, className = 'h-6 w-6' }: { slug: string; alt: string; className?: string }) {
+function BrandLogo({ slug, alt, className = 'h-6 w-6' }: Readonly<{ slug: string; alt: string; className?: string }>) {
   return (
     <img
       src={`https://api.iconify.design/logos:${slug}.svg`}

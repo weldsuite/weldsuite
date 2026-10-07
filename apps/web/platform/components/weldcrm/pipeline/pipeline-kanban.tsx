@@ -314,7 +314,7 @@ export function PipelineKanban({
   initialSettings = DEFAULT_PIPELINE_SETTINGS,
   lockedCustomer,
   hideHeader,
-}: PipelineKanbanProps) {
+}: Readonly<PipelineKanbanProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const createStageMutation = useCreatePipelineStage();
@@ -1401,11 +1401,11 @@ function CustomFormulaModal({
   open,
   onOpenChange,
   onSubmit
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (formula: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const [formula, setFormula] = useState('');
 
@@ -1479,14 +1479,14 @@ function PipelineSettingsModal({
   onCustomFieldsChange,
   viewSettings,
   onSettingsChange,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   customFields: CustomFieldDef[];
   onCustomFieldsChange: (fields: CustomFieldDef[]) => void;
   viewSettings: PipelineViewSettings;
   onSettingsChange: (updates: Partial<PipelineViewSettings>) => Promise<void>;
-}) {
+}>) {
   const t = useTranslations();
   // Initialize local state from viewSettings prop
   const [settings, setSettings] = useState({

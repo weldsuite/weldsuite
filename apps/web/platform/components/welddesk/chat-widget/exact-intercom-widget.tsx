@@ -353,7 +353,7 @@ function WidgetViewHost({
   onClose,
   onNavigate,
   onOpenChat,
-}: WidgetViewHostProps) {
+}: Readonly<WidgetViewHostProps>) {
   if (!view) return null;
 
   const common = { onClose, enabledPages, ...buildNavigateHandlers(view, onNavigate) };
@@ -411,7 +411,7 @@ interface ChatHeaderProps {
   onClose: () => void;
 }
 
-function ChatHeader({ themeSettings, disableBackNavigation, showTalkToHuman, onBack, onTalkToHuman, onClose }: ChatHeaderProps) {
+function ChatHeader({ themeSettings, disableBackNavigation, showTalkToHuman, onBack, onTalkToHuman, onClose }: Readonly<ChatHeaderProps>) {
   return (
     <div className="flex items-center px-3 border-b border-gray-200 dark:border-border" style={{ height: '54px', backgroundColor: themeSettings?.headerColor || undefined }}>
       {/* Left side - Back arrow */}
@@ -473,7 +473,7 @@ function getBubbleStyle(sender: Message['sender'], themeSettings?: WidgetThemeSe
   };
 }
 
-function MessageBubble({ message, themeSettings }: { message: Message; themeSettings?: WidgetThemeSettings }) {
+function MessageBubble({ message, themeSettings }: Readonly<{ message: Message; themeSettings?: WidgetThemeSettings }>) {
   return (
     <div
       className={cn(
@@ -493,7 +493,7 @@ function MessageBubble({ message, themeSettings }: { message: Message; themeSett
   );
 }
 
-function TypingIndicator({ themeSettings }: { themeSettings?: WidgetThemeSettings }) {
+function TypingIndicator({ themeSettings }: Readonly<{ themeSettings?: WidgetThemeSettings }>) {
   return (
     <div className="flex justify-start">
       <div className="px-4 py-4 rounded-2xl" style={{ backgroundColor: themeSettings?.agentBubbleColor || '#F5F5F5', borderBottomLeftRadius: '4px' }}>
@@ -513,7 +513,7 @@ interface EscalationSuggestionProps {
   onDismiss: () => void;
 }
 
-function EscalationSuggestion({ reason, onConnect, onDismiss }: EscalationSuggestionProps) {
+function EscalationSuggestion({ reason, onConnect, onDismiss }: Readonly<EscalationSuggestionProps>) {
   return (
     <div className="flex flex-col gap-1.5 items-start max-w-[85%]">
       <div className="bg-gray-100 dark:bg-secondary text-[13px] text-gray-900 dark:text-foreground px-3.5 py-2.5 rounded-2xl" style={{ borderBottomLeftRadius: '4px' }}>
@@ -539,7 +539,7 @@ function EscalationSuggestion({ reason, onConnect, onDismiss }: EscalationSugges
   );
 }
 
-function TicketSuggestion({ onCreate, onDismiss }: { onCreate: () => void; onDismiss: () => void }) {
+function TicketSuggestion({ onCreate, onDismiss }: Readonly<{ onCreate: () => void; onDismiss: () => void }>) {
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] bg-amber-50 dark:bg-background/30 border border-amber-200 dark:border-border px-4 py-3 rounded-2xl" style={{ borderBottomLeftRadius: '4px' }}>
@@ -570,7 +570,7 @@ function TicketSuggestion({ onCreate, onDismiss }: { onCreate: () => void; onDis
   );
 }
 
-function ChatMessages({ chat, themeSettings }: { chat: WidgetChat; themeSettings?: WidgetThemeSettings }) {
+function ChatMessages({ chat, themeSettings }: Readonly<{ chat: WidgetChat; themeSettings?: WidgetThemeSettings }>) {
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-3 widget-scrollbar" style={{ backgroundColor: themeSettings?.chatBackgroundColor || undefined }}>
       {chat.messages.map((message) => (
@@ -618,7 +618,7 @@ interface SendButtonProps {
   onSend: () => void;
 }
 
-function SendButton({ hasText, buttonColor, buttonTextColor, onSend }: SendButtonProps) {
+function SendButton({ hasText, buttonColor, buttonTextColor, onSend }: Readonly<SendButtonProps>) {
   return (
     <Button
       variant="ghost"
@@ -656,7 +656,7 @@ const SINGLE_LINE_TEXTAREA_STYLE: React.CSSProperties = {
   overflowY: 'hidden',
 };
 
-function ChatInputBar({ chat, themeSettings }: { chat: WidgetChat; themeSettings?: WidgetThemeSettings }) {
+function ChatInputBar({ chat, themeSettings }: Readonly<{ chat: WidgetChat; themeSettings?: WidgetThemeSettings }>) {
   const { inputValue, isMultiLine } = chat;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -733,7 +733,7 @@ interface ChatWindowProps {
 }
 
 // Chat Widget - Positioned above the launcher button
-function ChatWindow({ chat, showTalkToHuman, disableBackNavigation, themeSettings, onBack, onClose }: ChatWindowProps) {
+function ChatWindow({ chat, showTalkToHuman, disableBackNavigation, themeSettings, onBack, onClose }: Readonly<ChatWindowProps>) {
   return (
     <div
       className="fixed bottom-[90px] right-5 shadow-2xl flex flex-col z-[999999] overflow-hidden"
@@ -770,7 +770,7 @@ export function ExactIntercomWidget({
   previewKnowledgePermissions,
   previewWelcomeMessage,
   allowHumanEscalation = true,
-}: ExactIntercomWidgetProps = {}) {
+}: Readonly<ExactIntercomWidgetProps> = {}) {
   const startingPage = themeSettings?.startingPage || 'home';
 
   const chat = useWidgetChat({

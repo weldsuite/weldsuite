@@ -65,7 +65,7 @@ export function FAQView({
   onNavigateEvents,
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
-}: FAQViewProps) {
+}: Readonly<FAQViewProps>) {
   const [activeTab] = useState('help');
   const [searchQuery, setSearchQuery] = useState('');
   const [, setSearchFocused] = useState(false);

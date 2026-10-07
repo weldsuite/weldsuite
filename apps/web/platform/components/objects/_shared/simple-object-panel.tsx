@@ -121,7 +121,7 @@ export interface SimpleObjectPanelProps extends ObjectPanelComponentProps {
   renderTab?: (tabId: string) => ReactNode;
 }
 
-function PanelAvatar({ title }: { title?: string }) {
+function PanelAvatar({ title }: Readonly<{ title?: string }>) {
   const initial = (title?.trim()[0] ?? '#').toUpperCase();
   if (!title) {
     return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
@@ -135,7 +135,7 @@ function PanelAvatar({ title }: { title?: string }) {
   );
 }
 
-function PanelTitle({ title, subtitle }: { title?: string; subtitle?: string }) {
+function PanelTitle({ title, subtitle }: Readonly<{ title?: string; subtitle?: string }>) {
   if (!title) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
     <div className="flex flex-col min-w-0">
@@ -147,7 +147,7 @@ function PanelTitle({ title, subtitle }: { title?: string; subtitle?: string }) 
   );
 }
 
-function PanelActions({ openHref }: { openHref?: string }) {
+function PanelActions({ openHref }: Readonly<{ openHref?: string }>) {
   const t = useTranslations();
   if (!openHref) return null;
   const handleCopyLink = async () => {
@@ -193,13 +193,13 @@ function PanelTabsBar({
   tabs,
   activeTab,
   setActiveTab,
-}: {
+}: Readonly<{
   objectType: string;
   mode: 'panel' | 'fullscreen';
   tabs: SimplePanelTab[];
   activeTab: string;
   setActiveTab: (id: string) => void;
-}) {
+}>) {
   const st = useTranslations();
   const configEntries = useMemo(
     () =>
@@ -251,7 +251,7 @@ function PanelTabsBar({
   );
 }
 
-function FieldGrid({ fields }: { fields: SimplePanelField[] }) {
+function FieldGrid({ fields }: Readonly<{ fields: SimplePanelField[] }>) {
   const filled = fields.filter((f) => f.value !== null && f.value !== undefined && f.value !== '');
   if (filled.length === 0) return null;
   return (
@@ -266,7 +266,7 @@ function FieldGrid({ fields }: { fields: SimplePanelField[] }) {
   );
 }
 
-export function SimpleObjectPanel(props: SimpleObjectPanelProps) {
+export function SimpleObjectPanel(props: Readonly<SimpleObjectPanelProps>) {
   const {
     objectType,
     isLoading,
@@ -382,7 +382,7 @@ export function formatPanelMoney(
 }
 
 /** Helper to render Badge rows for tags. */
-export function BadgeRow({ values, variant }: { values: string[]; variant?: 'secondary' | 'outline' | 'default' }) {
+export function BadgeRow({ values, variant }: Readonly<{ values: string[]; variant?: 'secondary' | 'outline' | 'default' }>) {
   if (values.length === 0) return null;
   return (
     <div className="px-4 py-3 flex flex-wrap gap-1.5">
@@ -394,7 +394,7 @@ export function BadgeRow({ values, variant }: { values: string[]; variant?: 'sec
 }
 
 /** Helper for a labelled section header. */
-export function SectionHeader({ children }: { children: ReactNode }) {
+export function SectionHeader({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-4 pt-3 pb-1">
       {children}
@@ -403,7 +403,7 @@ export function SectionHeader({ children }: { children: ReactNode }) {
 }
 
 /** Helper for a paragraph block (description, notes). */
-export function ProseBlock({ children }: { children: ReactNode }) {
+export function ProseBlock({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <p className="px-4 pb-3 text-sm text-foreground whitespace-pre-wrap">{children}</p>
   );
@@ -415,12 +415,12 @@ export function LineItemList<T>({
   renderLeft,
   renderRight,
   getKey,
-}: {
+}: Readonly<{
   items: T[];
   renderLeft: (item: T) => ReactNode;
   renderRight: (item: T) => ReactNode;
   getKey: (item: T) => string;
-}) {
+}>) {
   if (items.length === 0) return null;
   return (
     <ul className="divide-y divide-border border-y border-border mx-4">

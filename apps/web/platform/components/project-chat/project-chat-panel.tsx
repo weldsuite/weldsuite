@@ -17,7 +17,7 @@ interface ProjectChatPanelProps {
 
 const MAX_VISIBLE_AVATARS = 4;
 
-export function ProjectChatPanel({ projectId, projectName }: ProjectChatPanelProps) {
+export function ProjectChatPanel({ projectId, projectName }: Readonly<ProjectChatPanelProps>) {
   const { data: membersData } = useProjectMembers(projectId);
   const members: Array<{
     userId: string;

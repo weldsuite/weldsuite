@@ -31,7 +31,7 @@ export function PersonDetailContent({
   defaultTab,
   children,
   className,
-}: PersonDetailContentProps) {
+}: Readonly<PersonDetailContentProps>) {
   const [activeTab, setActiveTab] = useState(defaultTab || tabs?.[0]?.id || '');
 
   return (

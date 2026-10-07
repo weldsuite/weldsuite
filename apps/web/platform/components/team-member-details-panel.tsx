@@ -195,7 +195,7 @@ const expandedTabItems: PageTab[] = [
   { id: 'working-hours', label: 'Working Hours', icon: Clock },
 ];
 
-function EmbeddedDmChat({ targetUserId }: { targetUserId: string }) {
+function EmbeddedDmChat({ targetUserId }: Readonly<{ targetUserId: string }>) {
   const { data, isLoading } = useDmByUser(targetUserId);
   const queryClient = useQueryClient();
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
@@ -302,7 +302,7 @@ export function TeamMemberDetailsPanel({
   defaultExpanded = false,
   onExpand,
   onCollapse,
-}: TeamMemberDetailsPanelProps) {
+}: Readonly<TeamMemberDetailsPanelProps>) {
   const width = '480px';
   const widthNum = 480;
   const { getClient } = useAppApiClient();
@@ -988,7 +988,7 @@ function ExpandedMemberContent({
   onToggleChatPanel,
   chatPanelWidth,
   onChatResizeMouseDown,
-}: {
+}: Readonly<{
   member: TeamMemberDetail;
   memberAsCustomer: unknown;
   isPending: boolean;
@@ -1019,7 +1019,7 @@ function ExpandedMemberContent({
   onToggleChatPanel: () => void;
   chatPanelWidth: number;
   onChatResizeMouseDown: (e: React.MouseEvent) => void;
-}) {
+}>) {
   return (
     <>
       {/* Expanded Header */}
@@ -1220,7 +1220,7 @@ function ExpandedMemberContent({
 
 /* ─── Expanded Common Content ─────────────────────────────────────────── */
 
-function ExpandedCommonContent({ userId }: { userId: string | null }) {
+function ExpandedCommonContent({ userId }: Readonly<{ userId: string | null }>) {
   const { userId: viewerUserId } = useAuth();
   if (!userId) {
     return (
@@ -1237,13 +1237,13 @@ function ExpandedCommonContent({ userId }: { userId: string | null }) {
 
 function ExpandedOverviewContent({
   member,
-}: {
+}: Readonly<{
   member: TeamMemberDetail;
   memberAsCustomer: unknown;
   memberStatus: string;
   context: 'settings' | 'projects';
   onMemberUpdated: () => void;
-}) {
+}>) {
   // Render the same Details content the collapsed panel shows, so toggling
   // maximize/minimize doesn't switch the user between two visually different
   // representations of the same tab.
@@ -1306,7 +1306,7 @@ const ROLE_CARDS: {
  * variant when a logo image exists, otherwise falls back to the registered
  * Lucide icon. Sized to fit in a 28x28 cell.
  */
-function MemberAppLogo({ appCode, alt }: { appCode: string; alt: string }) {
+function MemberAppLogo({ appCode, alt }: Readonly<{ appCode: string; alt: string }>) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
   const assets = APP_REGISTRY[appCode];
@@ -1353,7 +1353,7 @@ function PermissionsContent({
   onRoleChange,
   onAppToggle,
   onMemberUpdated,
-}: {
+}: Readonly<{
   member: TeamMemberDetail;
   isOwner: boolean;
   localRole: string;
@@ -1369,7 +1369,7 @@ function PermissionsContent({
   onRoleChange: (role: string) => void;
   onAppToggle: (appCode: string, currentlyAssigned: boolean) => void;
   onMemberUpdated: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const activeRole = isOwner ? 'OWNER' : localRole;
   // Denies and the role's effective grants (system tiers included) come from
@@ -1577,7 +1577,7 @@ function PermissionsContent({
 
 /* ─── Collapsed Header Additions ───────────────────────────────────── */
 
-function MemberHeaderIdentity({ member }: { member: TeamMemberDetail }) {
+function MemberHeaderIdentity({ member }: Readonly<{ member: TeamMemberDetail }>) {
   const { getStatus } = usePresence();
   const profileQuery = useMemberProfile(member.userId || undefined);
 
@@ -1622,7 +1622,7 @@ function MemberHeaderIdentity({ member }: { member: TeamMemberDetail }) {
   );
 }
 
-function MemberCallButtons({ userId }: { userId?: string | null }) {
+function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
   const dmQuery = useDmByUser(userId ?? '');
   const { startCall, status: callStatus } = useWeldChatCall();
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
@@ -1686,12 +1686,12 @@ function buildCollapsedTabs({
 
 function CollapsedTabContent({
   tab, member, hideMessages, canViewActivity,
-}: {
+}: Readonly<{
   tab: MemberTab;
   member: TeamMemberDetail;
   hideMessages?: boolean;
   canViewActivity: boolean;
-}) {
+}>) {
   // With hideMessages, treat 'messages' as 'profile' (tab is filtered out of the bar)
   const effective: MemberTab = hideMessages && tab === 'messages' ? 'profile' : tab;
 
@@ -1725,11 +1725,11 @@ function CollapsedTabContent({
 
 function MemberProfileTabs({
   tab, userId, canViewActivity,
-}: {
+}: Readonly<{
   tab: MemberTab;
   userId: string;
   canViewActivity: boolean;
-}) {
+}>) {
   const { userId: viewerUserId } = useAuth();
   const profileQuery = useMemberProfile(userId);
   const isSelf = !!viewerUserId && viewerUserId === userId;
@@ -1768,7 +1768,7 @@ function MemberProfileTabs({
   );
 }
 
-function MemberWorkingHoursContent({ memberId }: { memberId: string; memberName: string | null }) {
+function MemberWorkingHoursContent({ memberId }: Readonly<{ memberId: string; memberName: string | null }>) {
   const { data: workingHours, isLoading } = useMemberWorkingHours(memberId);
   const updateMemberWorkingHours = useUpdateMemberWorkingHours();
   const [hours, setHours] = useState<WorkingHours>(DEFAULT_HOURS);

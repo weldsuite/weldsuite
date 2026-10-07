@@ -10,7 +10,7 @@ interface GridRowProps<TEntity> {
   rowIndex?: number;
 }
 
-export function GridRow<TEntity>({ entity, rowIndex }: GridRowProps<TEntity>) {
+export function GridRow<TEntity>({ entity, rowIndex }: Readonly<GridRowProps<TEntity>>) {
   const { config, state, getVisibleColumns, getEntityWithOptimisticUpdates } =
     useGridContext<TEntity>();
   // Stable references — these never change identity, so subscribing to them
@@ -202,7 +202,7 @@ const SelectableCell = React.memo(function SelectableCell({
   onMouseDown,
   onMouseEnter,
   children,
-}: SelectableCellProps) {
+}: Readonly<SelectableCellProps>) {
   const state = useCellSelectionState(row, col);
   const isSelected = (state & SEL_SELECTED) !== 0;
   const isAnchor = (state & SEL_ANCHOR) !== 0;

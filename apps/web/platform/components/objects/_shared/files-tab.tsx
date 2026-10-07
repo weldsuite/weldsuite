@@ -45,7 +45,7 @@ interface FilesTabProps {
   entityKind: 'company' | 'person';
 }
 
-export function FilesTab({ entityId, entityKind }: FilesTabProps) {
+export function FilesTab({ entityId, entityKind }: Readonly<FilesTabProps>) {
   const t = useTranslations();
   const entityKindForApi = entityKind === 'company' ? ('Customer' as const) : ('Contact' as const);
   const companyQuery = useCustomerDocuments(entityId, entityKind === 'company');

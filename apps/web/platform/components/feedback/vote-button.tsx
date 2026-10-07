@@ -19,7 +19,7 @@ export function VoteButton({
   voteCount,
   hasVoted,
   onVoteChange,
-}: VoteButtonProps) {
+}: Readonly<VoteButtonProps>) {
   const [optimisticVoteCount, setOptimisticVoteCount] = useState(voteCount);
   const [optimisticHasVoted, setOptimisticHasVoted] = useState(hasVoted);
   const { getClient } = useAppApiClient();

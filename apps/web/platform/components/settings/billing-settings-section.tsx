@@ -235,13 +235,13 @@ const CheckoutDialog = memo(function CheckoutDialog({
   minSeats,
   onConfirmCheckout,
   processing,
-}: {
+}: Readonly<{
   selectedPlan: Billing.BillingPlan | null;
   onClose: () => void;
   minSeats: number;
   onConfirmCheckout: (plan: Billing.BillingPlan, seats: number, billingCycle: 'monthly' | 'annually') => void;
   processing: boolean;
-}) {
+}>) {
   const [seatCount, setSeatCount] = useState(1);
   const [emailCredits, setEmailCredits] = useState(0);
   const [sliderIndex, setSliderIndex] = useState(0);

@@ -58,7 +58,7 @@ export function DealCard({
   onClick,
   onCompanyClick,
   onContactClick,
-}: DealCardProps) {
+}: Readonly<DealCardProps>) {
   const t = useTranslations();
   const {
     attributes,

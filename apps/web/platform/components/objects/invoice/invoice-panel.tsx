@@ -24,7 +24,7 @@ function useInvoice(id: string) {
   });
 }
 
-export function InvoicePanel(props: ObjectPanelComponentProps) {
+export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const { id } = props;
   const { data, isLoading, error } = useInvoice(id);

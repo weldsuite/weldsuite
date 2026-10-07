@@ -15,7 +15,7 @@ interface TaskChatProps {
  * `h-full` ends up resolving to zero in some Safari/Chrome flex edge cases,
  * which leaves the chat invisible despite being mounted.
  */
-export function TaskChat({ taskId, taskTitle }: TaskChatProps) {
+export function TaskChat({ taskId, taskTitle }: Readonly<TaskChatProps>) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex min-h-0 flex-1 flex-col">

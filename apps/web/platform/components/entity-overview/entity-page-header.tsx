@@ -39,7 +39,7 @@ interface EntityPageHeaderProps {
   maxWidth?: string;
 }
 
-export function EntityPageHeader({ title, description, titlePrefix, stats = [], actions = [], extraActions, children, maxWidth = "1600px" }: EntityPageHeaderProps) {
+export function EntityPageHeader({ title, description, titlePrefix, stats = [], actions = [], extraActions, children, maxWidth = "1600px" }: Readonly<EntityPageHeaderProps>) {
   return (
     <div className="min-h-full bg-background">
       <div className="container mx-auto p-4 md:p-8 space-y-4 md:space-y-8" style={{ maxWidth }}>

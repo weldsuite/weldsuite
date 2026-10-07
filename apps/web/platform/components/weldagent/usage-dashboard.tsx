@@ -67,7 +67,7 @@ interface UsageDashboardProps {
   userId?: string;
 }
 
-export function UsageDashboard({ workspaceId, userId }: UsageDashboardProps) {
+export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [isLoading, setIsLoading] = useState(true);

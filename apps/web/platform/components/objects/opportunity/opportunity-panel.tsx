@@ -90,7 +90,7 @@ function opportunityInitial(name: string): string {
   return (trimmed[0] ?? '#').toUpperCase();
 }
 
-function OpportunityAvatar({ opportunity }: { opportunity?: Opportunity }) {
+function OpportunityAvatar({ opportunity }: Readonly<{ opportunity?: Opportunity }>) {
   if (!opportunity) return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
   return (
     <Avatar className="h-7 w-7 rounded-lg border border-border">
@@ -101,7 +101,7 @@ function OpportunityAvatar({ opportunity }: { opportunity?: Opportunity }) {
   );
 }
 
-function OpportunityTitle({ opportunity }: { opportunity?: Opportunity }) {
+function OpportunityTitle({ opportunity }: Readonly<{ opportunity?: Opportunity }>) {
   if (!opportunity) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
     <span className="text-[15px] font-medium text-foreground truncate">
@@ -115,12 +115,12 @@ function OpportunityActions({
   onMarkWon,
   onMarkLost,
   onDelete,
-}: {
+}: Readonly<{
   opportunity?: Opportunity;
   onMarkWon: () => void;
   onMarkLost: () => void;
   onDelete: () => void;
-}) {
+}>) {
   const t = useTranslations();
   if (!opportunity) return null;
 
@@ -173,12 +173,12 @@ function OpportunityPanelTabsBar({
   setActiveTab,
   mode,
   activityCount,
-}: {
+}: Readonly<{
   activeTab: OpportunityTab['id'];
   setActiveTab: (id: OpportunityTab['id']) => void;
   mode: 'panel' | 'fullscreen';
   activityCount: number;
-}) {
+}>) {
   const st = useTranslations();
   const configEntries = useMemo(
     () =>
@@ -267,7 +267,7 @@ function getStatusOptions(
   ];
 }
 
-function StageBadge({ label }: { label: string }) {
+function StageBadge({ label }: Readonly<{ label: string }>) {
   return (
     <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
       {label}
@@ -275,7 +275,7 @@ function StageBadge({ label }: { label: string }) {
   );
 }
 
-function StatusBadge({ value }: { value: string }) {
+function StatusBadge({ value }: Readonly<{ value: string }>) {
   const t = useTranslations();
   const opt = getStatusOptions(t).find((o) => o.value === value);
   return (
@@ -297,14 +297,14 @@ function SelectPropertyRow({
   options,
   onChange,
   renderBadge,
-}: {
+}: Readonly<{
   icon: ComponentType<{ className?: string }>;
   label: string;
   value: string | null | undefined;
   options: { value: string; label: string }[];
   onChange: (next: string) => void;
   renderBadge: (value: string) => React.ReactNode;
-}) {
+}>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   return (
@@ -366,13 +366,13 @@ function MemberPropertyRow({
   value,
   placeholder,
   onChange,
-}: {
+}: Readonly<{
   icon: ComponentType<{ className?: string }>;
   label: string;
   value: string;
   placeholder: string;
   onChange: (next: string) => void;
-}) {
+}>) {
   return (
     <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -424,10 +424,10 @@ function formatDate(iso: string | undefined): string | null {
 export function OpportunityDetailsTab({
   opportunity,
   onUpdateField,
-}: {
+}: Readonly<{
   opportunity: Opportunity;
   onUpdateField: (patch: Partial<Opportunity>) => void;
-}) {
+}>) {
   const t = useTranslations();
   const statusOptions = useMemo(() => getStatusOptions(t), [t]);
 
@@ -592,10 +592,10 @@ export function OpportunityDetailsTab({
 function OpportunityCompanyTab({
   opportunity,
   onOpenCompany,
-}: {
+}: Readonly<{
   opportunity: Opportunity;
   onOpenCompany: (companyId: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   // `customerName` is a denormalized mirror filled in at create/update time;
   // deals created before that existed (or ones where the lookup missed)
@@ -645,10 +645,10 @@ function OpportunityCompanyTab({
 function OpportunityContactsTab({
   opportunity,
   onOpenPerson,
-}: {
+}: Readonly<{
   opportunity: Opportunity;
   onOpenPerson: (personId: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const ids = useMemo(() => {
     const set = new Set<string>();
@@ -706,7 +706,7 @@ interface ActivityItem {
   dueDate?: string;
 }
 
-function OpportunityActivityTab({ opportunityId }: { opportunityId: string }) {
+function OpportunityActivityTab({ opportunityId }: Readonly<{ opportunityId: string }>) {
   const t = useTranslations();
   const { data, isLoading } = useOpportunityActivities(opportunityId);
   const items = (data?.data as ActivityItem[] | undefined) ?? [];
@@ -742,7 +742,7 @@ function OpportunityActivityTab({ opportunityId }: { opportunityId: string }) {
 
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
-export function OpportunityPanel(props: ObjectPanelComponentProps) {
+export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const { id, onClose, initialTab } = props;
   const opportunityQuery = useOpportunity(id);

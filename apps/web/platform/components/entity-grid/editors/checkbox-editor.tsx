@@ -7,7 +7,7 @@ export function CheckboxEditor({
   value,
   onChange,
   onCommit,
-}: EditorProps<boolean>) {
+}: Readonly<EditorProps<boolean>>) {
   const handleChange = (checked: boolean | 'indeterminate') => {
     const newValue = checked === true;
     onChange?.(newValue);

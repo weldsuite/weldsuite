@@ -20,7 +20,7 @@ interface DealsTabProps {
   entityKind: 'company' | 'person';
 }
 
-export function DealsTab({ entityId, entityKind }: DealsTabProps) {
+export function DealsTab({ entityId, entityKind }: Readonly<DealsTabProps>) {
   const t = useTranslations();
   const companyQuery = useCustomerDeals(entityId, entityKind === 'company');
   const personQuery = usePersonDeals(entityId, entityKind === 'person');

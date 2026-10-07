@@ -143,7 +143,7 @@ function toUiComment(row: TaskCommentRow): TaskComment {
   };
 }
 
-function TaskAvatar({ status, onToggle }: { status?: string; onToggle: () => void }) {
+function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: () => void }>) {
   return (
     <Checkbox
       checked={status === 'done'}
@@ -156,7 +156,7 @@ function TaskAvatar({ status, onToggle }: { status?: string; onToggle: () => voi
   );
 }
 
-function TaskTitle({ title, isDone, onSave }: { title: string; isDone: boolean; onSave: (next: string) => void }) {
+function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: boolean; onSave: (next: string) => void }>) {
   const [isEditing, setIsEditing] = useState(false);
   const [local, setLocal] = useState(title);
   const editorRef = React.useRef<HTMLDivElement>(null);
@@ -228,12 +228,12 @@ function TaskActions({
   onEdit,
   onDuplicate,
   onDelete,
-}: {
+}: Readonly<{
   taskNumber?: number | null;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="flex items-center gap-0.5">
@@ -272,7 +272,7 @@ function TaskActions({
   );
 }
 
-export function TaskPanel(props: ObjectPanelComponentProps) {
+export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const { id, isOpen, onClose } = props;
   const { userId } = useAuth();

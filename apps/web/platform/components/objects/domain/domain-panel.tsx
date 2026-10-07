@@ -145,7 +145,7 @@ function useDomainStatusLabel(status: string | null | undefined): string {
   return (t.host.domainsList as unknown as Record<string, string>)[key] ?? status;
 }
 
-function DomainTitle({ domain }: { domain?: Domain }) {
+function DomainTitle({ domain }: Readonly<{ domain?: Domain }>) {
   const status = domain?.status ?? 'active';
   const statusLabel = useDomainStatusLabel(status);
   if (!domain) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
@@ -166,12 +166,12 @@ function DomainActions({
   canDelete,
   onDelete,
   td,
-}: {
+}: Readonly<{
   domain?: Domain;
   canDelete: boolean;
   onDelete: () => void;
   td: DomainDetailTranslations;
-}) {
+}>) {
   const router = useRouter();
   if (!domain) return null;
   const fullDomain = domain.fullDomain || `${domain.name}.${domain.tld}`;
@@ -234,12 +234,12 @@ function DomainPanelTabsBar({
   activeTab,
   setActiveTab,
   mode,
-}: {
+}: Readonly<{
   tabs: DomainTab[];
   activeTab: DomainTab['id'];
   setActiveTab: (id: DomainTab['id']) => void;
   mode: 'panel' | 'fullscreen';
-}) {
+}>) {
   const st = useTranslations();
   const configEntries = useMemo(
     () =>
@@ -300,12 +300,12 @@ function DomainDetailsTab({
   zoneStatus,
   zoneProvider,
   td,
-}: {
+}: Readonly<{
   domain: Domain;
   zoneStatus?: string | null;
   zoneProvider?: string | null;
   td: DomainDetailTranslations;
-}) {
+}>) {
   const days = daysUntil(domain.expiresAt);
   const statusLabel = useDomainStatusLabel(domain.status);
   return (
@@ -427,12 +427,12 @@ function DomainNameserversTab({
   nameservers,
   zoneStatus,
   td,
-}: {
+}: Readonly<{
   domain: Domain;
   nameservers: string[];
   zoneStatus?: string | null;
   td: DomainDetailTranslations;
-}) {
+}>) {
   const isExternal = isExternalDomainRegistrar(domain.registrar);
   const fullDomain = domain.fullDomain || `${domain.name}.${domain.tld}`;
 
@@ -505,11 +505,11 @@ function DomainSettingsTab({
   domain,
   canUpdate,
   td,
-}: {
+}: Readonly<{
   domain: Domain;
   canUpdate: boolean;
   td: DomainDetailTranslations;
-}) {
+}>) {
   const [autoRenew, setAutoRenew] = useState(!!domain.autoRenew);
   const toggleAutoRenew = useToggleAutoRenew();
   const isExternal = isExternalDomainRegistrar(domain.registrar);
@@ -613,12 +613,12 @@ function FlagRow({
   label,
   enabled,
   td,
-}: {
+}: Readonly<{
   icon: typeof ShieldCheck;
   label: string;
   enabled: boolean;
   td: DomainDetailTranslations;
-}) {
+}>) {
   return (
     <PropertyRow
       icon={icon}
@@ -645,7 +645,7 @@ function FlagRow({
 
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
-export function DomainPanel(props: ObjectPanelComponentProps) {
+export function DomainPanel(props: Readonly<ObjectPanelComponentProps>) {
   const { id, onClose, initialTab } = props;
   const { t } = useI18n();
   const td = t.host.domainDetail;

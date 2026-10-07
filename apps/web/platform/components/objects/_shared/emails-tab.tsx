@@ -50,7 +50,7 @@ function formatMailDate(d: Date, yesterdayLabel: string): string {
   return format(d, 'MMM d');
 }
 
-export function EmailsTab({ entityEmail, entityKind }: EmailsTabProps) {
+export function EmailsTab({ entityEmail, entityKind }: Readonly<EmailsTabProps>) {
   const t = useTranslations();
   const compose = useComposeSafe();
   const trimmed = entityEmail?.trim();

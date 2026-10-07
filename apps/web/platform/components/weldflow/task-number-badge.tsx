@@ -16,7 +16,7 @@ interface TaskNumberBadgeProps {
  * Click to copy the reference to the clipboard. Renders nothing when the task
  * has no number yet (pre-backfill rows).
  */
-export function TaskNumberBadge({ number, className }: TaskNumberBadgeProps) {
+export function TaskNumberBadge({ number, className }: Readonly<TaskNumberBadgeProps>) {
   const t = useTranslations();
   const label = formatTaskNumber(number);
 

@@ -81,7 +81,7 @@ export function EntityDetailHeader({
   avatar,
   children,
   centerActions = false,
-}: EntityDetailHeaderProps) {
+}: Readonly<EntityDetailHeaderProps>) {
   const t = useTranslations();
   const [isHoveringTitle, setIsHoveringTitle] = useState(false);
 

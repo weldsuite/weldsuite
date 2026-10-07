@@ -56,7 +56,7 @@ interface ScalarInputControlProps {
   onChange: (value: string) => void;
 }
 
-function ScalarInputControl({ inputType, value, placeholder, hasError, onChange }: ScalarInputControlProps) {
+function ScalarInputControl({ inputType, value, placeholder, hasError, onChange }: Readonly<ScalarInputControlProps>) {
   return (
     <Input
       type={inputType}
@@ -68,10 +68,10 @@ function ScalarInputControl({ inputType, value, placeholder, hasError, onChange 
   );
 }
 
-function SelectControl({ field, value, hasError, onChange }: Omit<FieldControlProps, 'value' | 'onChange'> & {
+function SelectControl({ field, value, hasError, onChange }: Readonly<Omit<FieldControlProps, 'value' | 'onChange'> & {
   value: string;
   onChange: (value: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <Select value={value} onValueChange={onChange}>
@@ -89,7 +89,7 @@ function SelectControl({ field, value, hasError, onChange }: Omit<FieldControlPr
   );
 }
 
-function MultiselectControl({ field, value, onChange }: Pick<FieldControlProps, 'field' | 'value' | 'onChange'>) {
+function MultiselectControl({ field, value, onChange }: Readonly<Pick<FieldControlProps, 'field' | 'value' | 'onChange'>>) {
   const selected: string[] = Array.isArray(value) ? value : [];
   return (
     <div className="space-y-1.5">
@@ -106,7 +106,7 @@ function MultiselectControl({ field, value, onChange }: Pick<FieldControlProps, 
   );
 }
 
-function CheckboxControl({ field, value, onChange }: Pick<FieldControlProps, 'field' | 'value' | 'onChange'>) {
+function CheckboxControl({ field, value, onChange }: Readonly<Pick<FieldControlProps, 'field' | 'value' | 'onChange'>>) {
   return (
     <div className="flex items-center gap-2">
       <Checkbox
@@ -120,7 +120,7 @@ function CheckboxControl({ field, value, onChange }: Pick<FieldControlProps, 'fi
   );
 }
 
-function FieldControl({ field, value, hasError, onChange }: FieldControlProps) {
+function FieldControl({ field, value, hasError, onChange }: Readonly<FieldControlProps>) {
   // Scalar field types (text/number/textarea/select/date) always store a
   // string — only 'multiselect' (string[]) and 'checkbox' (boolean) don't.
   // `field.type` is a runtime discriminant TS can't correlate with
@@ -176,7 +176,7 @@ export function DynamicTicketForm({
   onSuccess,
   conversationId,
   prefillData,
-}: DynamicTicketFormProps) {
+}: Readonly<DynamicTicketFormProps>) {
   const t = useTranslations();
   const createTicket = useCreateTicket();
   const { user } = useUser();

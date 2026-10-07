@@ -56,13 +56,13 @@ function SidebarAppIcon({
   imgSize = 48,
   icon,
   appType,
-}: {
+}: Readonly<{
   appCode: string;
   name: string;
   imgSize?: number;
   icon?: string;
   appType?: 'system' | 'user' | 'object';
-}) {
+}>) {
   if (appType === 'object') {
     // Custom objects carry a lucide icon name picked in the object builder.
     return (
@@ -112,7 +112,7 @@ interface SortableAppItemProps {
   isHomePage?: boolean;
 }
 
-function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverEnd, isHomePage }: SortableAppItemProps) {
+function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverEnd, isHomePage }: Readonly<SortableAppItemProps>) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: app.appCode
   });
@@ -162,7 +162,7 @@ interface AppSidebarClientProps {
   initialAppOrder?: string[];
 }
 
-export function AppSidebarClient({ installedApps, initialAppOrder = [] }: AppSidebarClientProps) {
+export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readonly<AppSidebarClientProps>) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();

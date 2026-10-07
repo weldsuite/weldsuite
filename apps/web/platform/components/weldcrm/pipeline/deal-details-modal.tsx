@@ -88,7 +88,7 @@ export function DealDetailsModal({
   selectedStageId,
   onSubmit,
   lockedCustomer,
-}: DealDetailsModalProps) {
+}: Readonly<DealDetailsModalProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [title, setTitle] = useState('');

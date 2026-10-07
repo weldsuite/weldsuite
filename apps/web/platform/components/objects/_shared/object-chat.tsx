@@ -83,7 +83,7 @@ export function ObjectChatShell({
   hideHeader,
   headerSlot,
   channelQueryKey,
-}: ObjectChatShellProps) {
+}: Readonly<ObjectChatShellProps>) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const { user } = useUser();
@@ -177,11 +177,11 @@ function FirstMessageComposer({
   currentUser,
   onSendFirstMessage,
   onSent,
-}: {
+}: Readonly<{
   currentUser: ReturnType<typeof useUser>['user'];
   onSendFirstMessage: ObjectChatShellProps['onSendFirstMessage'];
   onSent: (channel: ObjectChannel, message: unknown) => void;
-}) {
+}>) {
   const t = useTranslations();
   const { data: membersData } = useWorkspaceMembers();
   const membersMap = useMemo(() => {
@@ -245,7 +245,7 @@ function FirstMessageComposer({
 
 // ---------------------------------------------------------------------------
 
-function EmbeddedChannelChat({ channelId }: { channelId: string }) {
+function EmbeddedChannelChat({ channelId }: Readonly<{ channelId: string }>) {
   const t = useTranslations();
   const queryClient = useQueryClient();
 

@@ -93,7 +93,7 @@ interface MemberLimitNoticesProps {
   isPaidPlan: boolean;
 }
 
-function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: MemberLimitNoticesProps) {
+function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: Readonly<MemberLimitNoticesProps>) {
   return (
     <>
       {/* Show member limit warning when at limit */}
@@ -152,7 +152,7 @@ interface InviteRowProps {
   onRemove: (id: string) => void;
 }
 
-function InviteRow({ invite, roles, isLoading, canRemove, onUpdate, onRemove }: InviteRowProps) {
+function InviteRow({ invite, roles, isLoading, canRemove, onUpdate, onRemove }: Readonly<InviteRowProps>) {
   return (
     <div className="flex gap-2 items-start">
       <div className="flex-1 grid grid-cols-[1fr_1fr_120px] gap-2">
@@ -215,7 +215,7 @@ function sendInvitesLabel(invites: InviteEntry[]): string {
   return `Send ${filled || ''} Invite${plural(filled)}`;
 }
 
-export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogProps) {
+export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMemberDialogProps>) {
   const [invites, setInvites] = useState<InviteEntry[]>([newBlankInvite()]);
   const [isLoading, setIsLoading] = useState(false);
   const [roles, setRoles] = useState<Role[]>([]);
