@@ -101,4 +101,7 @@ async function main() {
   console.log("\nDone. Run `pnpm dev` to start workers with local secrets.\n");
 }
 
-main();
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -790,7 +790,7 @@ export class WorkspaceHub extends DurableObject<Env> {
       const db = await getTenantDbForWorkspace(this.env, workspaceId);
       const updated = await setUserOnlineIfOffline(db, userId);
       if (updated) {
-        this.broadcastStatusChange(userId, 'online');
+        await this.broadcastStatusChange(userId, 'online');
       }
     } catch (err) {
       console.error('[WorkspaceHub] repairOnlineInDb failed:', err);

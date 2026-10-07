@@ -46,7 +46,7 @@ export function useChatRoom(channelId: string, config: UseChatRoomConfig) {
     client.onPresence(setPresence);
     client.onTyping(setTypingUsers);
 
-    client.connect().then(() => {
+    void client.connect().then(() => {
       if (config.presenceData) {
         client.enterPresence(config.presenceData);
       }

@@ -52,6 +52,10 @@ interface MessageCreateData {
  * Maintains a persistent WebSocket connection to the Discord Gateway.
  * Handles heartbeats via alarms, resume/reconnect on disconnect,
  * and forwards MESSAGE_CREATE events to helpdesk-widget-api.
+ *
+ * Storage writes made from the synchronous socket handlers are deliberately
+ * not awaited (`void`): the Durable Object output gate already holds outgoing
+ * messages until they are persisted.
  */
 export class DiscordGateway implements DurableObject {
   private ws: WebSocket | null = null;
@@ -205,7 +209,7 @@ export class DiscordGateway implements DurableObject {
 
     // Schedule first heartbeat with jitter
     const jitter = randomBelow(this.heartbeatInterval);
-    this.state.storage.setAlarm(Date.now() + jitter);
+    void this.state.storage.setAlarm(Date.now() + jitter);
 
     // Send IDENTIFY or RESUME
     if (this.sessionId && this.seq !== null) {
@@ -226,12 +230,12 @@ export class DiscordGateway implements DurableObject {
       this.sessionId = null;
       this.resumeGatewayUrl = null;
       this.seq = null;
-      this.state.storage.delete(['session_id', 'resume_gateway_url', 'seq']);
+      void this.state.storage.delete(['session_id', 'resume_gateway_url', 'seq']);
       this.pendingAction = 'identify';
     }
 
     const delay = 1000 + randomBelow(4000);
-    this.state.storage.setAlarm(Date.now() + delay);
+    void this.state.storage.setAlarm(Date.now() + delay);
   }
 
   private handleDispatch(payload: GatewayPayload): void {
@@ -239,7 +243,7 @@ export class DiscordGateway implements DurableObject {
     if (payload.s !== null) {
       this.seq = payload.s;
       // Persist seq periodically (every dispatch)
-      this.state.storage.put('seq', this.seq);
+      void this.state.storage.put('seq', this.seq);
     }
 
     switch (payload.t) {
@@ -247,23 +251,23 @@ export class DiscordGateway implements DurableObject {
         const data = payload.d as ReadyEventData;
         this.sessionId = data.session_id;
         this.resumeGatewayUrl = data.resume_gateway_url;
-        this.state.storage.put({
+        void this.state.storage.put({
           session_id: this.sessionId,
           resume_gateway_url: this.resumeGatewayUrl,
         });
         // Clear any previous error
-        this.state.storage.delete('error');
+        void this.state.storage.delete('error');
         console.log(`[Gateway] READY — session: ${this.sessionId}`);
         break;
       }
 
       case 'RESUMED':
         console.log('[Gateway] RESUMED successfully');
-        this.state.storage.delete('error');
+        void this.state.storage.delete('error');
         break;
 
       case 'MESSAGE_CREATE':
-        this.forwardMessage(payload.d as MessageCreateData);
+        void this.forwardMessage(payload.d as MessageCreateData);
         break;
     }
   }
@@ -311,7 +315,7 @@ export class DiscordGateway implements DurableObject {
 
     // Schedule next heartbeat
     if (this.heartbeatInterval > 0) {
-      this.state.storage.setAlarm(Date.now() + this.heartbeatInterval);
+      void this.state.storage.setAlarm(Date.now() + this.heartbeatInterval);
     }
   }
 
@@ -412,13 +416,13 @@ export class DiscordGateway implements DurableObject {
     if (NON_RECONNECTABLE_CODES.includes(code)) {
       const errorMsg = `Fatal close code ${code}: ${reason}`;
       console.error(`[Gateway] ${errorMsg} — will NOT auto-reconnect`);
-      this.state.storage.put('error', errorMsg);
-      this.state.storage.deleteAlarm();
+      void this.state.storage.put('error', errorMsg);
+      void this.state.storage.deleteAlarm();
       return;
     }
 
     // Schedule reconnect in 5 seconds
     console.log('[Gateway] Scheduling reconnect in 5s...');
-    this.state.storage.setAlarm(Date.now() + 5000);
+    void this.state.storage.setAlarm(Date.now() + 5000);
   }
 }

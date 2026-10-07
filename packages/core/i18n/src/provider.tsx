@@ -71,9 +71,16 @@ export function I18nProvider({
   useEffect(() => {
     if (isLocaleLoaded(language)) return;
     let cancelled = false;
-    loadLocale(language).then(() => {
-      if (!cancelled) setLocaleVersion((v) => v + 1);
-    });
+    loadLocale(language).then(
+      () => {
+        if (!cancelled) setLocaleVersion((v) => v + 1);
+      },
+      (err) => {
+        // The bundle failed to load (offline, stale chunk): keep rendering
+        // with the fallback strings rather than leaving a rejection unhandled.
+        console.warn(`[i18n] Failed to load locale "${language}":`, err);
+      },
+    );
     return () => {
       cancelled = true;
     };

@@ -34,7 +34,7 @@ export function RealtimeProvider({ url, getToken, cursorStore, children }: Realt
       cursorStore: cursorStoreRef.current,
     });
     setClient(c);
-    c.connect();
+    void c.connect();
 
     return () => {
       c.disconnect();

@@ -113,7 +113,7 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
     const batch = Array.from(keys);
     keys.clear();
     for (const queryKey of batch) {
-      queryClient.invalidateQueries({ queryKey: queryKey as unknown[] });
+      void queryClient.invalidateQueries({ queryKey: queryKey as unknown[] });
     }
   }, [queryClient]);
 
@@ -214,7 +214,7 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
     return client.onConnectionChange((state) => {
       if (state === 'connected') {
         if (hadConnection.current && !client.cursor) {
-          queryClient.invalidateQueries();
+          void queryClient.invalidateQueries();
         }
         hadConnection.current = true;
       }
@@ -232,7 +232,7 @@ export function useRealtimeSync(config: RealtimeSyncConfig): void {
         const entry = map[topic];
         if (!entry) continue;
         for (const key of entry.invalidate) {
-          queryClient.invalidateQueries({ queryKey: key as unknown[] });
+          void queryClient.invalidateQueries({ queryKey: key as unknown[] });
         }
       }
     });
