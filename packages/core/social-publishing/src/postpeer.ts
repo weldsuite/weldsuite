@@ -345,7 +345,7 @@ export async function verifyPostPeerSignature(
   // Constant-time compare.
   let diff = 0;
   for (let i = 0; i < expected.length; i++) {
-    diff |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
+    diff |= expected.codePointAt(i)! ^ provided.codePointAt(i)!;
   }
   return diff === 0;
 }

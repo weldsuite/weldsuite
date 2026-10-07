@@ -40,7 +40,7 @@ function validatedRecipients(value: unknown, field: 'To' | 'Cc' | 'Bcc', require
 function base64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
   let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
+  for (const b of bytes) bin += String.fromCodePoint(b);
   return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 

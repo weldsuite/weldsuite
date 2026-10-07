@@ -105,7 +105,7 @@ function getAvatarColor(name: string): string {
   ];
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    hash = name.codePointAt(i)! + ((hash << 5) - hash);
   }
   return colors[Math.abs(hash) % colors.length];
 }
@@ -193,7 +193,7 @@ function getLabelColor(labelName: string, labelData?: MailTypes.Label): string {
   ];
   let hash = 0;
   for (let i = 0; i < labelName.length; i++) {
-    hash = labelName.charCodeAt(i) + ((hash << 5) - hash);
+    hash = labelName.codePointAt(i)! + ((hash << 5) - hash);
   }
   return colors[Math.abs(hash) % colors.length];
 }

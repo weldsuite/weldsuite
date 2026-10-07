@@ -65,8 +65,8 @@ function timingSafeEqual(a: string, b: string): boolean {
   let result = 0;
 
   for (let i = 0; i < maxLen; i++) {
-    const charA = i < a.length ? a.charCodeAt(i) : 0;
-    const charB = i < b.length ? b.charCodeAt(i) : 0;
+    const charA = i < a.length ? a.codePointAt(i)! : 0;
+    const charB = i < b.length ? b.codePointAt(i)! : 0;
     result |= charA ^ charB;
   }
 

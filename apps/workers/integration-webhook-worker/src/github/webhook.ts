@@ -339,7 +339,7 @@ async function verifyWebhookSignature(
   if (receivedHex.length !== expectedHex.length) return false;
   let mismatch = 0;
   for (let i = 0; i < receivedHex.length; i++) {
-    mismatch |= receivedHex.charCodeAt(i) ^ expectedHex.charCodeAt(i);
+    mismatch |= receivedHex.codePointAt(i)! ^ expectedHex.codePointAt(i)!;
   }
   return mismatch === 0;
 }

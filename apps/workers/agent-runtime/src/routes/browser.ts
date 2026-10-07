@@ -281,6 +281,6 @@ function bufferToBase64(buf: Buffer | ArrayBuffer | Uint8Array): string {
   }
   const bytes = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
   let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCodePoint(bytes[i]!);
   return btoa(binary);
 }

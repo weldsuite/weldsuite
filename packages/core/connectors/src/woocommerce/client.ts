@@ -85,7 +85,7 @@ export function normalizeStoreUrl(url: string): string {
 function basicAuth(key: string, secret: string): string {
   const bytes = new TextEncoder().encode(`${key}:${secret}`);
   let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) binary += String.fromCodePoint(byte);
   return `Basic ${btoa(binary)}`;
 }
 

@@ -121,7 +121,7 @@ export function isSafeRelativePath(path: unknown): path is string {
 /** Drop trailing `/` characters (linear scan; avoids a backtracking regex). */
 function stripTrailingSlashes(value: string): string {
   let end = value.length;
-  while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+  while (end > 0 && value.codePointAt(end - 1) === 47) end--;
   return value.slice(0, end);
 }
 
