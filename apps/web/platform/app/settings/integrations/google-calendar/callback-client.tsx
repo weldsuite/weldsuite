@@ -28,7 +28,7 @@ export default function GoogleCalendarCallbackClient() {
 
     const redirectUri = `${window.location.origin}/settings/integrations/google-calendar/callback`;
 
-    (async () => {
+    void (async () => {
       try {
         await callbackMutation.mutateAsync({ provider: 'google_calendar', code, state, redirectUri });
         toast.success(ts.success);
