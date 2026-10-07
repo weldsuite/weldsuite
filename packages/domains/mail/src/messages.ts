@@ -372,12 +372,19 @@ const EMPTY_STATS: MessageStats = {
  * Folder counters for the mail sidebar. Trash and spam are counted on their
  * own and never towards another folder, the same rule the folder listings
  * follow. Drafts live in `mail_drafts`, so they are counted there.
+ *
+ * Always scoped: one account, or the list of accounts the caller may open
+ * (the unified sidebar). There is no "every mailbox" form, and an empty list
+ * counts nothing.
  */
-export async function getMessageStats(db: Database, accountId?: string): Promise<MessageStats> {
-  const conditions: SQL[] = [isNull(mailMessages.deletedAt)!];
-  if (accountId) conditions.push(eq(mailMessages.accountId, accountId));
-  const draftConditions: SQL[] = [isNull(mailDrafts.deletedAt)!];
-  if (accountId) draftConditions.push(eq(mailDrafts.accountId, accountId));
+export async function getMessageStats(
+  db: Database,
+  accountIds: string | string[],
+): Promise<MessageStats> {
+  const ids = typeof accountIds === 'string' ? [accountIds] : accountIds;
+  if (ids.length === 0) return { ...EMPTY_STATS };
+  const conditions: SQL[] = [isNull(mailMessages.deletedAt)!, inArray(mailMessages.accountId, ids)];
+  const draftConditions: SQL[] = [isNull(mailDrafts.deletedAt)!, inArray(mailDrafts.accountId, ids)];
 
   const labels = sql`COALESCE(${mailMessages.labels}, '[]'::jsonb)`;
   const has = (label: string) => sql`${labels} @> ${JSON.stringify([label])}::jsonb`;
