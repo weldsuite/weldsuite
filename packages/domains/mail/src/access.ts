@@ -58,12 +58,7 @@ export function userAccessCondition(userId: string, isAdmin: boolean): SQL {
  * treat an empty list as "nothing to show", never as "no filter".
  */
 export async function listAccessibleAccountIds(db: Database, userId: string): Promise<string[]> {
-  const admin = await isAdminOrOwner(db, userId);
-  const rows = await db
-    .select({ id: mailAccounts.id })
-    .from(mailAccounts)
-    .where(and(isNull(mailAccounts.deletedAt), userAccessCondition(userId, admin)));
-  return rows.map((r) => r.id);
+  return accessibleAccountIds(db, userId);
 }
 
 /** Whether `userId` may open the mailbox. Mirrors {@link userAccessCondition}. */
