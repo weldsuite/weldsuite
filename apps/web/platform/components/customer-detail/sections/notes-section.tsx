@@ -1,10 +1,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
-import {
-  Star,
-  Pencil,
-} from 'lucide-react';
+import { Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NoteActionsMenu } from '@/components/weldcrm/notes/note-actions-menu';
 import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';

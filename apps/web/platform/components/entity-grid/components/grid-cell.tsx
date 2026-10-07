@@ -517,7 +517,7 @@ interface MemberCellProps {
 }
 
 /** Owner / account-manager column — shows the member's name + a picker, never a raw user id. */
-function MemberCell({ ctx }: MemberCellProps) {
+function MemberCell({ ctx }: Readonly<MemberCellProps>) {
   const members = useTeamMembersForGrid();
   const userId = (ctx.value as string | null | undefined) || undefined;
   const selected = members.find((m) => m.userId === userId);

@@ -16,7 +16,6 @@ import {
   Minus,
   Pin as PinIcon,
   Maximize,
-  Pencil,
   Contact,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -282,7 +281,7 @@ function NoteEditorDialog({
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen && isPinned) return;
     if (!newOpen) {
-      flushSave();
+      void flushSave();
       setIsMinimized(false);
       setIsPinned(false);
     }
@@ -424,7 +423,7 @@ function NoteEditorDialog({
               variant="ghost"
               size="icon"
               onClick={() => {
-                flushSave();
+                void flushSave();
                 setIsPinned(false);
                 onOpenChange(false);
               }}
