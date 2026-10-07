@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import "./timeline.css";
 import { Button } from "@weldsuite/ui/components/button";
 import { Input } from "@weldsuite/ui/components/input";
@@ -222,8 +222,7 @@ const activateOnKey = (activate: () => void) => (e: React.KeyboardEvent<HTMLElem
 
 export default function TimelinePage() {
   const st = useTranslations();
-  const [_tasks, _setTasks] = useState<Task[]>(mockTasks);
-  const [flatTasks, _setFlatTasks] = useState<Task[]>(flattenTasks(mockTasks));
+  const flatTasks = useMemo<Task[]>(() => flattenTasks(mockTasks), []);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set(["1", "2"]));
   const [viewMode, setViewMode] = useState<"day" | "week" | "month" | "quarter">("month");

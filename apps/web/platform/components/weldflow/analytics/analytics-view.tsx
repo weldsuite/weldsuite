@@ -162,7 +162,6 @@ export function AnalyticsView() {
 
   const [isAddWidgetOpen, setIsAddWidgetOpen] = useState(false);
   const [editingWidget, setEditingWidget] = useState<Widget | null>(null);
-  const [_isDragging, setIsDragging] = useState(false);
   const [draggedWidget, setDraggedWidget] = useState<string | null>(null);
   
   // New widget form state
@@ -360,11 +359,9 @@ export function AnalyticsView() {
             )}
             draggable
             onDragStart={() => {
-              setIsDragging(true);
               setDraggedWidget(widget.id);
             }}
             onDragEnd={() => {
-              setIsDragging(false);
               setDraggedWidget(null);
             }}
           >

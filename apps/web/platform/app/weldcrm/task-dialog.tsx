@@ -984,7 +984,6 @@ export function TaskDialog({
   const [repeatInterval, setRepeatInterval] = useState<number>(1);
   const [repeatUnit, setRepeatUnit] = useState<RepeatUnitValue>('days');
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
-  const [, setHasButtonOverflow] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
   const [isSearchingRecords, setIsSearchingRecords] = useState(false);
@@ -1197,13 +1196,6 @@ export function TaskDialog({
       return () => clearTimeout(timer);
     }
   }, [open, editingTask, defaultRecord, defaultAssignee, defaultStatus, syncDescriptionToDiv]);
-
-  useLayoutEffect(() => {
-    if (buttonContainerRef.current) {
-      const hasOverflow = buttonContainerRef.current.scrollWidth > buttonContainerRef.current.clientWidth;
-      setHasButtonOverflow(hasOverflow);
-    }
-  }, [open, status, priority, assigneeList, dueDate, record, repeat, selectedLabels]);
 
   const resetForm = () => {
     setTitle('');

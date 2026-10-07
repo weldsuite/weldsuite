@@ -1334,7 +1334,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [isAutoDraft, setIsAutoDraft] = useState(false);
   const [isAgentInline, setIsAgentInline] = useState(false);
-  const [, setShowInlineAiInput] = useState(false);
   const [inlineAiPrompt, setInlineAiPrompt] = useState('');
   const [isInlineAiGenerating, setIsInlineAiGenerating] = useState(false);
   const inlineAiInputRef = useRef<HTMLTextAreaElement>(null);
@@ -1885,7 +1884,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setComposeData({ to: '', subject: '', body: '' });
     setAttachedFiles([]);
     setIsAutoDraft(false);
-    setShowInlineAiInput(false);
     setInlineAiPrompt('');
     if (editorRef.current) editorRef.current.innerHTML = '';
   };
@@ -1897,21 +1895,18 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const closeInlineAi = () => {
     setIsAutoDraft(false);
     setIsAgentInline(false);
-    setShowInlineAiInput(false);
     setInlineAiPrompt('');
   };
 
   const openInlineAi = () => {
     setIsAutoDraft(true);
     setIsAgentInline(true);
-    setShowInlineAiInput(true);
     setInlineAiPrompt('');
     setTimeout(() => inlineAiInputRef.current?.focus(), 0);
   };
 
   const insertInlineAi = () => {
     setIsAutoDraft(false);
-    setShowInlineAiInput(false);
     setInlineAiPrompt('');
   };
 
@@ -2127,7 +2122,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     });
     setIsAutoDraft(true);
     setIsAgentInline(false);
-    setShowInlineAiInput(true);
     setInlineAiPrompt('');
     // If compose box was already open, update editor immediately
     if (wasAlreadyReplying && editorRef.current) {

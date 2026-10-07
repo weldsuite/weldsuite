@@ -363,8 +363,6 @@ export function WysiwygEditor({
   const titleRef = externalTitleRef || internalTitleRef;
   const contentRef = externalContentRef || internalContentRef;
 
-  const [_title, setTitle] = useState(initialTitle);
-  const [_content, setContent] = useState(initialContent);
   const [coverImage, setCoverImage] = useState<string | undefined>(externalCoverImage);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [commandMenuPosition, setCommandMenuPosition] = useState({ top: 0, left: 0 });
@@ -519,7 +517,6 @@ export function WysiwygEditor({
 
   const handleTitleInput = (e: React.FormEvent<HTMLDivElement>) => {
     const text = e.currentTarget.textContent || '';
-    setTitle(text);
     setShowTitlePlaceholder(!text);
     onTitleChange?.(text);
   };
@@ -555,7 +552,6 @@ export function WysiwygEditor({
     const hasContent = textContent.trim().length > 0;
     setShowContentPlaceholder(!hasContent);
 
-    setContent(htmlContent);
     checkActiveFormats();
     onContentChange?.(htmlContent);
 
@@ -842,7 +838,6 @@ export function WysiwygEditor({
     }
 
     const htmlContent = contentRef.current.innerHTML;
-    setContent(htmlContent);
     onContentChange?.(htmlContent);
     setShowCommandMenu(false);
     setCommandFilter('');
@@ -896,7 +891,6 @@ export function WysiwygEditor({
     selection.addRange(newRange);
 
     const htmlContent = contentRef.current.innerHTML;
-    setContent(htmlContent);
     onContentChange?.(htmlContent);
     setShowLinkDialog(false);
     setLinkUrl('');

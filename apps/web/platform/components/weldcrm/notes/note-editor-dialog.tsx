@@ -278,11 +278,9 @@ export function NoteEditorDialog({
   const t = useTranslations();
   const pinnedNoteContext = usePinnedNote();
   const [title, setTitle] = useState('');
-  const [_content, setContent] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [_lastSaved, setLastSaved] = useState<Date | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
   const [isMinimized, setIsMinimized] = useState(false);
@@ -340,7 +338,6 @@ export function NoteEditorDialog({
     const noteTitle = getNoteTitle(content);
     const notePreview = getNotePreview(content);
     setTitle(noteTitle === 'Untitled' ? '' : noteTitle);
-    setContent(notePreview);
     lastSavedContentRef.current = content;
 
     const populate = () => {
@@ -377,7 +374,6 @@ export function NoteEditorDialog({
       try {
         await onSave(fullContent);
         lastSavedContentRef.current = fullContent;
-        setLastSaved(new Date());
       } catch (error) {
         console.error('Auto-save failed:', error);
       }

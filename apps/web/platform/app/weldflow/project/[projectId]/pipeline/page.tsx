@@ -726,7 +726,6 @@ const PipelinePage = () => {
   }, [selectedFeature?.id, openTaskPanel]);
   // Drag state
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
-  const [, setActiveStageId] = useState<string | null>(null);
   const [draggedFeatureOriginalColumn, setDraggedFeatureOriginalColumn] = useState<{ id: string; column: string } | null>(null);
 
   // Search
@@ -848,11 +847,9 @@ const PipelinePage = () => {
   const handleDragStart = (event: DragStartEvent) => {
     const activeId = event.active.id as string;
     if (activeId.startsWith('sortable-stage-')) {
-      setActiveStageId(activeId.replace('sortable-stage-', ''));
       setActiveDealId(null);
     } else {
       setActiveDealId(activeId);
-      setActiveStageId(null);
       const feature = features.find(f => f.id === activeId);
       if (feature) {
         setDraggedFeatureOriginalColumn({ id: feature.id, column: feature.column });
@@ -863,7 +860,6 @@ const PipelinePage = () => {
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveDealId(null);
-    setActiveStageId(null);
 
     if (!canWrite || !over) { setDraggedFeatureOriginalColumn(null); return; }
 

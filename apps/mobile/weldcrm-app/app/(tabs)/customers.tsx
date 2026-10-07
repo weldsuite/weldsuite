@@ -195,7 +195,6 @@ export default function CustomersScreen() {
   const [columns, setColumns] = useState<Column[]>([]);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [pipelines, setPipelines] = useState<PipelineWithStages[]>([]);
-  const [, setOpportunities] = useState<OpportunityRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -247,7 +246,6 @@ export default function CustomersScreen() {
       }
 
       if (opportunitiesRes.success && opportunitiesRes.data) {
-        setOpportunities(pageItems(opportunitiesRes.data));
       }
 
       // Build pipeline columns from real data (fallback to default columns if no pipelines exist)

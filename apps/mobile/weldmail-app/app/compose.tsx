@@ -440,7 +440,6 @@ function useKeyboardOpen() {
 
 function useContactSuggestions() {
   const [contactSuggestions, setContactSuggestions] = useState<ContactSuggestion[]>([]);
-  const [, setLoadingSuggestions] = useState(false);
   const contactSearchRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   // Load recent contacts on mount
@@ -464,11 +463,9 @@ function useContactSuggestions() {
 
     contactSearchRef.current = setTimeout(async () => {
       try {
-        setLoadingSuggestions(true);
         const { data } = await appApiClient.get<ContactRows>(`/people?search=${encodeURIComponent(text.trim())}&limit=10`);
         setContactSuggestions(mapContactSuggestions(data));
       } catch {} finally {
-        setLoadingSuggestions(false);
       }
     }, 200);
   }, []);
