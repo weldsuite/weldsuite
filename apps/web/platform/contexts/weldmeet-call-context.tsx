@@ -108,13 +108,11 @@ async function applyPreferredDevices(meeting: RealtimeKitClient, ids: PreviewDev
       if (!id || id === currentId) return undefined;
       return all.find((d) => d.kind === kind && d.deviceId === id);
     };
-    const targets = [
-      find('audioinput', ids.audioDeviceId, current?.audio?.deviceId),
-      find('videoinput', ids.videoDeviceId, current?.video?.deviceId),
-    ];
-    for (const device of targets) {
-      if (device) await meeting.self.setDevice(device);
-    }
+    // One switch at a time: RTK re-acquires the track for each device change.
+    const audio = find('audioinput', ids.audioDeviceId, current?.audio?.deviceId);
+    if (audio) await meeting.self.setDevice(audio);
+    const video = find('videoinput', ids.videoDeviceId, current?.video?.deviceId);
+    if (video) await meeting.self.setDevice(video);
   } catch (err) {
     console.warn('[WeldMeet] applying the pre-join device choice failed:', err);
   }
