@@ -1163,7 +1163,7 @@ export const settings = {
         sharedAccount: 'Gedeeld account',
         sharedAccountDescription: 'Zichtbaar voor alle werkruimteleden',
         assignedUsers: 'Toegewezen gebruikers',
-        assignedUsersDescription: 'Alleen deze gebruikers (en admins) hebben toegang tot dit account',
+        assignedUsersDescription: 'Alleen deze gebruikers kunnen deze mailbox openen. Admins kunnen de mailbox beheren, maar de e-mail niet lezen. Is er niemand toegewezen, dan hebben alleen admins toegang.',
         selectUsers: 'Gebruikers selecteren...',
         usersSelected: '{count} gebruiker geselecteerd',
         usersSelectedPlural: '{count} gebruikers geselecteerd',

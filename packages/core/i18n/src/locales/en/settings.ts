@@ -1163,7 +1163,7 @@ export const settings = {
         sharedAccount: 'Shared account',
         sharedAccountDescription: 'Visible to all workspace members',
         assignedUsers: 'Assigned users',
-        assignedUsersDescription: 'Only these users (and admins) can access this account',
+        assignedUsersDescription: "Only these users can open this mailbox. Admins can manage it but can't read its mail. If no one is assigned, only admins have access.",
         selectUsers: 'Select users...',
         usersSelected: '{count} user selected',
         usersSelectedPlural: '{count} users selected',

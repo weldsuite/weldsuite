@@ -70,7 +70,7 @@ app.get('/', requireScope('messages:read'), zValidator('query', listQuery), asyn
 
   const where: (SQL | undefined)[] = [];
   const scope = accountScopeCondition(table.accountId, await accessibleAccountIds(db, userId));
-  if (scope) where.push(scope);
+  where.push(scope);
   if (q.accountId) where.push(eq(table.accountId, q.accountId));
 
   const result = await listWithCursor<typeof table, DraftRow>({

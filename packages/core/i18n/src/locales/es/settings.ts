@@ -1084,7 +1084,7 @@ export const settings = {
         sharedAccount: 'Cuenta compartida',
         sharedAccountDescription: 'Visible para todos los miembros del espacio de trabajo',
         assignedUsers: 'Usuarios asignados',
-        assignedUsersDescription: 'Solo estos usuarios (y admins) pueden acceder a esta cuenta',
+        assignedUsersDescription: 'Solo estos usuarios pueden abrir este buzón. Los admins pueden gestionarlo, pero no leer su correo. Si no hay nadie asignado, solo los admins tienen acceso.',
         selectUsers: 'Seleccionar usuarios...',
         usersSelected: '{count} usuario seleccionado',
         usersSelectedPlural: '{count} usuarios seleccionados',
