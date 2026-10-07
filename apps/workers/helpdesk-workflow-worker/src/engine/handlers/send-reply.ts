@@ -4,6 +4,7 @@ import { schema } from '../../db';
 import { publishMessageToConversation } from '../../lib/realtime-publisher';
 import { resolveConversationId } from '../../lib/workflow-shared';
 import { generateId } from '../../lib/id';
+import { asText } from '@weldsuite/text';
 
 export const sendReplyHandler: StepHandler = {
   type: 'send_reply',
@@ -12,8 +13,8 @@ export const sendReplyHandler: StepHandler = {
     const conversationId = resolveConversationId(ctx.inputs, ctx.state.triggerData) || ctx.state.conversationId;
     const { db, env } = ctx.options;
     const messageId = generateId('msg');
-    const authorType = String(ctx.inputs.authorType || 'system');
-    const content = String(ctx.inputs.message || '');
+    const authorType = asText(ctx.inputs.authorType || 'system');
+    const content = asText(ctx.inputs.message || '');
     const now = new Date();
 
     await db.insert(schema.helpdeskConversationMessages).values({

@@ -1,13 +1,14 @@
 import type { StepHandler, StepContext, StepResult } from '../../types';
 import { createBotMessage } from '../helpers';
 import { publishToRealtimeChannel } from '../../lib/realtime-publisher';
+import { asText } from '@weldsuite/text';
 
 export const manualStepHandler: StepHandler = {
   type: 'manual_step',
 
   async execute(ctx: StepContext): Promise<StepResult> {
-    const instruction = String(ctx.inputs.instruction || 'Manual action required');
-    const assigneeId = ctx.inputs.assigneeId ? String(ctx.inputs.assigneeId) : undefined;
+    const instruction = asText(ctx.inputs.instruction || 'Manual action required');
+    const assigneeId = ctx.inputs.assigneeId ? asText(ctx.inputs.assigneeId) : undefined;
 
     // Create an internal note with the instruction
     const messageId = await createBotMessage(ctx.options.db, {

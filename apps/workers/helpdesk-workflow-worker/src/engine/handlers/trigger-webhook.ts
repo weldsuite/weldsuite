@@ -1,11 +1,12 @@
 import type { StepHandler, StepContext, StepResult } from '../../types';
+import { asText } from '@weldsuite/text';
 
 export const triggerWebhookHandler: StepHandler = {
   type: 'trigger_webhook',
 
   async execute(ctx: StepContext): Promise<StepResult> {
     const url = String(ctx.inputs.url);
-    const method = String(ctx.inputs.method || 'POST').toUpperCase();
+    const method = asText(ctx.inputs.method || 'POST').toUpperCase();
     const inputHeaders = (ctx.inputs.headers as Record<string, string>) ?? {};
     const body = ctx.inputs.body;
 
@@ -19,7 +20,7 @@ export const triggerWebhookHandler: StepHandler = {
           headers['Content-Type'] = 'application/json';
         }
       } else {
-        requestBody = String(body);
+        requestBody = asText(body);
       }
     }
 

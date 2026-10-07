@@ -14,6 +14,7 @@ import { isValidRecipient } from '../communication';
 import { escapeHtml } from '../../resolve-inputs';
 import { getValidIntegrationToken } from './token';
 import { throwGoogleApiError } from './google-errors';
+import { asText } from '@weldsuite/text';
 
 /** Split a resolved recipient field (comma/semicolon list) into trimmed, non-empty entries. */
 function splitRecipients(value: unknown): string[] {
@@ -54,20 +55,20 @@ export const handleGmailSendEmail: ActionHandler = async (inputs, ctx) => {
   const ccRecipients = validatedRecipients(inputs.cc, 'Cc', false);
   const bccRecipients = validatedRecipients(inputs.bcc, 'Bcc', false);
 
-  const subject = sanitizeHeaderValue(String(inputs.subject ?? ''));
+  const subject = sanitizeHeaderValue(asText(inputs.subject ?? ''));
   if (!subject) throw new NonRetryableStepError('Gmail subject is required');
 
   // Mirrors handleSendEmail's convention (actions/communication.ts): off (or
   // unset) is HTML, `isHtml: false` is the editor's "Plain text" tab — escape
   // it and keep its line breaks instead of collapsing them.
-  const rawBody = String(inputs.body ?? '');
+  const rawBody = asText(inputs.body ?? '');
   if (!rawBody.trim()) throw new NonRetryableStepError('Gmail body is required');
   const isPlainText = inputs.isHtml === false;
   const html = isPlainText ? escapeHtml(rawBody).replace(/\r?\n/g, '<br>') : rawBody;
 
   const { accessToken } = await getValidIntegrationToken(ctx, {
     type: 'gmail',
-    integrationId: inputs.integrationId ? String(inputs.integrationId) : undefined,
+    integrationId: inputs.integrationId ? asText(inputs.integrationId) : undefined,
   });
 
   const headers = [

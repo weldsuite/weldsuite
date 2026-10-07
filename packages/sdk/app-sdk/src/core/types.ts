@@ -303,6 +303,157 @@ export interface TicketsClient {
   get(id: string): Promise<SingleResponse<TicketSummary>>;
 }
 
+// ── WeldMail ──────────────────────────────────────────────────────────────────
+// An app token acts as the workspace, so these reach the workspace's SHARED
+// mailboxes only; a private mailbox answers 404.
+
+export interface MailAddress {
+  email: string;
+  name?: string;
+}
+
+/** A `/v1/mail-accounts` row. Never carries credentials. */
+export interface MailAccountSummary {
+  id: string;
+  name: string;
+  email: string;
+  displayName?: string | null;
+  provider: string;
+  status: string;
+  isShared?: boolean | null;
+  /** Whether sending is allowed (the address is on a verified WeldMail domain). */
+  canSendViaApi: boolean;
+}
+
+/** A `/v1/mail-messages` list row (headers only; `get` adds the bodies). */
+export interface MailMessageSummary {
+  id: string;
+  accountId: string;
+  threadId?: string | null;
+  from: MailAddress;
+  to: MailAddress[];
+  subject?: string | null;
+  preview?: string | null;
+  sentDate?: string | null;
+  isRead: boolean;
+  isStarred: boolean;
+  hasAttachments: boolean;
+  labels?: string[] | null;
+}
+
+export interface MailMessage extends MailMessageSummary {
+  textBody?: string | null;
+  htmlBody?: string | null;
+  cc?: MailAddress[] | null;
+  attachments: { id: string; fileName: string; contentType?: string | null; size: number }[];
+}
+
+/** A conversation; pass `threadId` + `accountId` to `threads.get`. */
+export interface MailThreadSummary {
+  threadId: string;
+  accountId: string;
+  subject: string;
+  participants: string[];
+  latestDate: string | null;
+  preview: string;
+  messageCount: number;
+  unreadCount: number;
+  labels: string[];
+}
+
+export interface MailDraftInput {
+  accountId: string;
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  body?: string;
+  htmlBody?: string;
+  /** Upload ids from `POST /v1/mail-attachments`. */
+  attachmentIds?: string[];
+  inReplyTo?: string;
+}
+
+export interface MailDraft extends Omit<MailDraftInput, 'accountId'> {
+  id: string;
+  accountId: string;
+  updatedAt: string;
+}
+
+export interface MailSendInput {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  /** A body or an htmlBody is required. */
+  body?: string;
+  htmlBody?: string;
+  attachmentIds?: string[];
+}
+
+export interface MailSendResult {
+  messageId: string;
+  accountId: string;
+  subject: string;
+  /** True when the Idempotency-Key matched an earlier send: nothing was sent again. */
+  replayed: boolean;
+}
+
+export interface MailMessageListOptions extends ResourceListOptions {
+  accountId?: string;
+  label?: string;
+  threadId?: string;
+  isRead?: boolean;
+}
+
+export interface MailThreadListOptions extends ResourceListOptions {
+  accountId?: string;
+  /** `inbox` (default), `sent`, `starred`, `archive`, `trash`, `spam`, `all`, or a label name. */
+  label?: string;
+}
+
+export interface MailClient {
+  accounts: {
+    list(options?: ResourceListOptions): Promise<ListResponse<MailAccountSummary>>;
+    get(id: string): Promise<SingleResponse<MailAccountSummary>>;
+  };
+  messages: {
+    list(options?: MailMessageListOptions): Promise<ListResponse<MailMessageSummary>>;
+    get(id: string): Promise<SingleResponse<MailMessage>>;
+    /** Requires `mail_messages:write`. */
+    update(
+      id: string,
+      flags: { isRead?: boolean; isStarred?: boolean; isFlagged?: boolean; isImportant?: boolean },
+    ): Promise<SingleResponse<MailMessage>>;
+    /** Requires `mail_messages:write`. */
+    move(id: string, location: 'inbox' | 'archive' | 'trash' | 'spam'): Promise<void>;
+  };
+  threads: {
+    list(options?: MailThreadListOptions): Promise<ListResponse<MailThreadSummary>>;
+    get(threadId: string, accountId: string): Promise<SingleResponse<{ threadId: string; messages: MailMessage[] }>>;
+  };
+  drafts: {
+    list(options?: ResourceListOptions & { accountId?: string }): Promise<ListResponse<MailDraft>>;
+    /** Requires `mail_drafts:write`. */
+    create(input: MailDraftInput): Promise<MailDraft>;
+    /** Requires `mail_drafts:write`. */
+    update(id: string, input: Partial<MailDraftInput>): Promise<MailDraft>;
+    /** Requires `mail_drafts:write`. */
+    remove(id: string): Promise<void>;
+  };
+  /**
+   * Sending — each requires `mail_messages:send`, which must be requested by
+   * name. `idempotencyKey` makes a retry safe.
+   */
+  send(accountId: string, input: MailSendInput, idempotencyKey?: string): Promise<MailSendResult>;
+  reply(
+    messageId: string,
+    input: { body?: string; htmlBody?: string; replyAll?: boolean; attachmentIds?: string[] },
+    idempotencyKey?: string,
+  ): Promise<MailSendResult>;
+  sendDraft(draftId: string, idempotencyKey?: string): Promise<MailSendResult>;
+}
+
 /** Subset of a `/v1/products` row used by commerce WeldApps. */
 export interface ProductSummary {
   id: string;

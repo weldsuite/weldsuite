@@ -70,7 +70,7 @@ A required scope is satisfied if the key holds any of the following:
     `<resource>:*` grants every action on that resource, e.g. `people:*` covers `people:read` and `people:write`.
   </Property>
   <Property name="Global wildcard" type="*">
-    The reserved `*` scope grants access to every endpoint. Use with caution.
+    The reserved `*` scope grants access to every endpoint. Use with caution. The one exception is `mail_messages:send`, which is only granted by name.
   </Property>
 </Properties>
 
@@ -141,6 +141,16 @@ Scopes are `resource:action`. Unless noted, each resource supports `:read` and `
 - `files:read` · `files:write`
 - `folders:read` · `folders:write`
 - `drive:read`, read-only; no write scope
+
+### WeldMail
+
+- `mail_accounts:read`, read-only; no write scope
+- `mail_messages:read` · `mail_messages:write`
+- `mail_messages:send`, named only: `*` and `mail_messages:*` do not grant it. See [Sending mail](/sending-mail)
+- `mail_labels:read` · `mail_labels:write`
+- `mail_folders:read` · `mail_folders:write`
+- `mail_drafts:read` · `mail_drafts:write`
+- `mail_attachments:read` · `mail_attachments:write`
 
 ---
 

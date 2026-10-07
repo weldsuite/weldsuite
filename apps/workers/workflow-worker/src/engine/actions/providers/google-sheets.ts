@@ -11,6 +11,7 @@ import type { ActionHandler } from '../../types';
 import { NonRetryableStepError } from '../../errors';
 import { getValidIntegrationToken } from './token';
 import { throwGoogleApiError } from './google-errors';
+import { asText } from '@weldsuite/text';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -73,15 +74,15 @@ function columnMappingToRow(raw: unknown): unknown[] {
 async function sheetsToken(ctx: Parameters<ActionHandler>[1], integrationId: unknown) {
   return getValidIntegrationToken(ctx, {
     type: 'google_sheets',
-    integrationId: integrationId ? String(integrationId) : undefined,
+    integrationId: integrationId ? asText(integrationId) : undefined,
   });
 }
 
 /** Append a row to the end of a sheet. */
 export const handleSheetsAppendRow: ActionHandler = async (inputs, ctx) => {
-  const spreadsheetId = String(inputs.spreadsheetId || '').trim();
+  const spreadsheetId = asText(inputs.spreadsheetId || '').trim();
   if (!spreadsheetId) throw new NonRetryableStepError('spreadsheetId is required');
-  const sheetName = inputs.sheetName ? String(inputs.sheetName).trim() : 'Sheet1';
+  const sheetName = inputs.sheetName ? asText(inputs.sheetName).trim() : 'Sheet1';
   const row = columnMappingToRow(inputs.columnMapping);
 
   const { accessToken } = await sheetsToken(ctx, inputs.integrationId);
@@ -110,16 +111,16 @@ async function resolveTargetRow(
   inputs: Record<string, unknown>,
 ): Promise<number> {
   const rowNumberRaw = inputs.rowNumber;
-  const hasRowNumber = rowNumberRaw !== undefined && rowNumberRaw !== null && String(rowNumberRaw).trim() !== '';
+  const hasRowNumber = rowNumberRaw !== undefined && rowNumberRaw !== null && asText(rowNumberRaw).trim() !== '';
   if (hasRowNumber) {
     const n = Number(rowNumberRaw);
     if (!Number.isInteger(n) || n < 1) throw new NonRetryableStepError('rowNumber must be a positive integer');
     return n;
   }
 
-  const lookupColumn = inputs.lookupColumn ? String(inputs.lookupColumn).trim() : '';
+  const lookupColumn = inputs.lookupColumn ? asText(inputs.lookupColumn).trim() : '';
   const lookupValueRaw = inputs.lookupValue;
-  const hasLookupValue = lookupValueRaw !== undefined && lookupValueRaw !== null && String(lookupValueRaw).trim() !== '';
+  const hasLookupValue = lookupValueRaw !== undefined && lookupValueRaw !== null && asText(lookupValueRaw).trim() !== '';
   if (!lookupColumn || !hasLookupValue) {
     throw new NonRetryableStepError('Provide either rowNumber, or both lookupColumn and lookupValue');
   }
@@ -132,8 +133,8 @@ async function resolveTargetRow(
   if (!res.ok) await throwGoogleApiError(res, 'Sheets lookup row');
   const json = (await res.json()) as { values?: string[][] };
   const column = json.values ?? [];
-  const target = String(lookupValueRaw).trim();
-  const rowIndex = column.findIndex((cell) => String(cell?.[0] ?? '').trim() === target);
+  const target = asText(lookupValueRaw).trim();
+  const rowIndex = column.findIndex((cell) => asText(cell?.[0] ?? '').trim() === target);
   if (rowIndex === -1) {
     throw new NonRetryableStepError(`No row found where column ${lookupColumn} = "${target}"`);
   }
@@ -147,9 +148,9 @@ async function resolveTargetRow(
  * the columns it didn't mention.
  */
 export const handleSheetsUpdateRow: ActionHandler = async (inputs, ctx) => {
-  const spreadsheetId = String(inputs.spreadsheetId || '').trim();
+  const spreadsheetId = asText(inputs.spreadsheetId || '').trim();
   if (!spreadsheetId) throw new NonRetryableStepError('spreadsheetId is required');
-  const sheetName = inputs.sheetName ? String(inputs.sheetName).trim() : 'Sheet1';
+  const sheetName = inputs.sheetName ? asText(inputs.sheetName).trim() : 'Sheet1';
   const mapping = parseColumnMapping(inputs.columnMapping);
 
   const { accessToken } = await sheetsToken(ctx, inputs.integrationId);

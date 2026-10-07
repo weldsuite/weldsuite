@@ -9,9 +9,10 @@ import { eq, and, isNull } from 'drizzle-orm';
 import type { ActionHandler } from '../types';
 import { getEntityTable, getEntityIdPrefix } from '../entity-tables';
 import { generateId } from '../../lib/id';
+import { asText } from '@weldsuite/text';
 
 export const handleCreateRecord: ActionHandler = async (inputs, ctx) => {
-  const entityType = String(inputs.entity || inputs.entityType || '');
+  const entityType = asText(inputs.entity || inputs.entityType || '');
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
 
@@ -30,8 +31,8 @@ export const handleCreateRecord: ActionHandler = async (inputs, ctx) => {
 };
 
 export const handleUpdateRecord: ActionHandler = async (inputs, ctx) => {
-  const entityType = String(inputs.entity || inputs.entityType || '');
-  const recordId = String(inputs.id || inputs.recordId || '');
+  const entityType = asText(inputs.entity || inputs.entityType || '');
+  const recordId = asText(inputs.id || inputs.recordId || '');
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
@@ -50,8 +51,8 @@ export const handleUpdateRecord: ActionHandler = async (inputs, ctx) => {
 };
 
 export const handleDeleteRecord: ActionHandler = async (inputs, ctx) => {
-  const entityType = String(inputs.entity || inputs.entityType || '');
-  const recordId = String(inputs.id || inputs.recordId || '');
+  const entityType = asText(inputs.entity || inputs.entityType || '');
+  const recordId = asText(inputs.id || inputs.recordId || '');
   const hardDelete = inputs.hardDelete === true;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
@@ -72,7 +73,7 @@ export const handleDeleteRecord: ActionHandler = async (inputs, ctx) => {
 };
 
 export const handleQueryData: ActionHandler = async (inputs, ctx) => {
-  const entityType = String(inputs.entity || inputs.entityType || '');
+  const entityType = asText(inputs.entity || inputs.entityType || '');
   if (!entityType) throw new Error('Entity type is required');
 
   const table = getEntityTable(entityType);
@@ -117,7 +118,7 @@ export const handleQueryData: ActionHandler = async (inputs, ctx) => {
 };
 
 export const handleTransform: ActionHandler = async (inputs, ctx) => {
-  const transform = String(inputs.transform || inputs.operation || 'pick');
+  const transform = asText(inputs.transform || inputs.operation || 'pick');
   const data = inputs.data || ctx.previousResults;
 
   switch (transform) {
@@ -131,13 +132,13 @@ export const handleTransform: ActionHandler = async (inputs, ctx) => {
     case 'map': {
       const sourceArray = inputs.source || data;
       if (!Array.isArray(sourceArray)) throw new Error('Source must be an array for map');
-      return sourceArray.map((item: any) => item[String(inputs.mapField || 'id')]);
+      return sourceArray.map((item: any) => item[asText(inputs.mapField || 'id')]);
     }
     case 'filter': {
       const sourceArray = inputs.source || data;
       if (!Array.isArray(sourceArray)) throw new Error('Source must be an array for filter');
       return sourceArray.filter(
-        (item: any) => item[String(inputs.filterField || '')] === inputs.filterValue,
+        (item: any) => item[asText(inputs.filterField || '')] === inputs.filterValue,
       );
     }
     case 'merge': {

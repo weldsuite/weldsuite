@@ -1,12 +1,13 @@
 import { eq, and, isNull } from 'drizzle-orm';
 import { schema } from '../../db';
 import type { StepHandler, StepContext, StepResult } from '../../types';
+import { asText } from '@weldsuite/text';
 
 export const suggestArticlesHandler: StepHandler = {
   type: 'suggest_articles',
 
   async execute(ctx: StepContext): Promise<StepResult> {
-    const query = String(ctx.inputs.query || ctx.inputs.searchTerm || '');
+    const query = asText(ctx.inputs.query || ctx.inputs.searchTerm || '');
     const limit = Number(ctx.inputs.limit || 3);
 
     try {

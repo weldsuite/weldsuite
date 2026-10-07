@@ -18,8 +18,8 @@
  * their WHERE clause without an extra round trip.
  */
 
-import { eq, and, or, sql, isNull } from 'drizzle-orm';
-import type { SQL } from 'drizzle-orm';
+import { eq, and, inArray, or, sql, isNull } from 'drizzle-orm';
+import type { Column, SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 
@@ -58,12 +58,7 @@ export function userAccessCondition(userId: string, isAdmin: boolean): SQL {
  * treat an empty list as "nothing to show", never as "no filter".
  */
 export async function listAccessibleAccountIds(db: Database, userId: string): Promise<string[]> {
-  const admin = await isAdminOrOwner(db, userId);
-  const rows = await db
-    .select({ id: mailAccounts.id })
-    .from(mailAccounts)
-    .where(and(isNull(mailAccounts.deletedAt), userAccessCondition(userId, admin)));
-  return rows.map((r) => r.id);
+  return accessibleAccountIds(db, userId);
 }
 
 /** Whether `userId` may open the mailbox. Mirrors {@link userAccessCondition}. */
@@ -133,6 +128,90 @@ export async function checkAccountManageAccess(
 
   const admin = await isAdminOrOwner(db, userId);
   return canManageAccount(row, userId, admin);
+}
+
+// ---------------------------------------------------------------------------
+// Principals: who is asking, when it is not always a person
+// ---------------------------------------------------------------------------
+
+/**
+ * The caller behind a mail request.
+ *
+ * The platform and the MCP server always act for a person (`user`). The public
+ * API also accepts workspace keys and WeldApp tokens, which belong to no one:
+ * they act as the `workspace` and may open **shared mailboxes only**. A
+ * private mailbox is someone's mail, and a key that any admin can mint must not
+ * become a way around its assignee list.
+ */
+export type MailPrincipal = { kind: 'user'; userId: string } | { kind: 'workspace'; keyId: string };
+
+/** A principal, or a bare user id (what the platform routes pass). */
+export type MailCaller = MailPrincipal | string;
+
+export function toPrincipal(caller: MailCaller): MailPrincipal {
+  return typeof caller === 'string' ? { kind: 'user', userId: caller } : caller;
+}
+
+/**
+ * The principal for an API session. Only a session that carries a user acts as
+ * one; workspace keys and app tokens act as the workspace.
+ */
+export function principalFromSession(session: { userId: string | null; keyId: string }): MailPrincipal {
+  return session.userId
+    ? { kind: 'user', userId: session.userId }
+    : { kind: 'workspace', keyId: session.keyId };
+}
+
+/** Whether the principal may open the mailbox. Mirrors {@link principalAccessCondition}. */
+export function principalHasAccess(
+  account: AccountAccessFields,
+  principal: MailPrincipal,
+  isAdmin: boolean,
+): boolean {
+  if (principal.kind === 'workspace') return account.isShared === true;
+  return hasAccessToAccount(account, principal.userId, isAdmin);
+}
+
+/** Whether the principal is an admin/owner. Always false for the workspace. */
+export async function principalIsAdmin(db: Database, principal: MailPrincipal): Promise<boolean> {
+  return principal.kind === 'user' ? isAdminOrOwner(db, principal.userId) : false;
+}
+
+/** WHERE fragment on `mail_accounts` selecting the accounts the principal may open. */
+export async function principalAccessCondition(db: Database, caller: MailCaller): Promise<SQL> {
+  const principal = toPrincipal(caller);
+  if (principal.kind === 'workspace') return eq(mailAccounts.isShared, true);
+  return userAccessCondition(principal.userId, await isAdminOrOwner(db, principal.userId));
+}
+
+/** Ids of every live mail account the principal may open. */
+export async function accessibleAccountIds(db: Database, caller: MailCaller): Promise<string[]> {
+  const rows = await db
+    .select({ id: mailAccounts.id })
+    .from(mailAccounts)
+    .where(and(isNull(mailAccounts.deletedAt), await principalAccessCondition(db, caller)));
+  return rows.map((row) => row.id);
+}
+
+/**
+ * Restrict a query to a set of accounts. With no accounts the condition is
+ * deliberately unsatisfiable rather than absent, so an empty scope can never
+ * widen into "every mailbox".
+ */
+export function accountScopeCondition(column: Column, accountIds: string[]): SQL {
+  if (accountIds.length === 0) return sql`false`;
+  return inArray(column, accountIds);
+}
+
+/**
+ * Whether the principal may open the account. `false` covers both "no such
+ * account" and "not yours", so callers can answer 404 without leaking which.
+ */
+export async function canOpenAccount(db: Database, accountId: string, caller: MailCaller): Promise<boolean> {
+  const row = await loadAccessFields(db, accountId);
+  if (!row) return false;
+  const principal = toPrincipal(caller);
+  return principalHasAccess(row, principal, await principalIsAdmin(db, principal));
 }
 
 /** The message content an `email` entity event can carry. */

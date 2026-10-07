@@ -10,7 +10,8 @@
     "deploy:test": "wrangler deploy --env test",
     "deploy:production": "wrangler deploy --env production",
     "type-check": "tsc --noEmit",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test": "vitest run"
   },
   "dependencies": {
     "@clerk/backend": "^2.29.0",
@@ -22,6 +23,7 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/know-domain": "workspace:*",
+    "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/social-publishing": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "drizzle-orm": "^0.45.2",
@@ -33,6 +35,7 @@
     "@cloudflare/workers-types": "^4.20250110.0",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",
+    "vitest": "^3.2.6",
     "wrangler": "^4.0.0"
   }
 }

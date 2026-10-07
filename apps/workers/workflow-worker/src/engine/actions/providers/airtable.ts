@@ -4,6 +4,7 @@
 
 import type { ActionHandler } from '../../types';
 import { getIntegrationCredentials } from './token';
+import { asText } from '@weldsuite/text';
 
 function parseJsonObject(v: unknown): Record<string, unknown> {
   if (v && typeof v === 'object') return v as Record<string, unknown>;
@@ -21,15 +22,15 @@ function parseJsonObject(v: unknown): Record<string, unknown> {
 async function airtableToken(ctx: Parameters<ActionHandler>[1], integrationId: unknown): Promise<string> {
   const { credentials } = await getIntegrationCredentials(ctx, {
     type: 'airtable',
-    integrationId: integrationId ? String(integrationId) : undefined,
+    integrationId: integrationId ? asText(integrationId) : undefined,
   });
   if (!credentials.token) throw new Error('Airtable integration has no token');
   return credentials.token;
 }
 
 export const handleAirtableCreateRecord: ActionHandler = async (inputs, ctx) => {
-  const baseId = String(inputs.baseId || '');
-  const tableId = String(inputs.tableId || '');
+  const baseId = asText(inputs.baseId || '');
+  const tableId = asText(inputs.tableId || '');
   if (!baseId || !tableId) throw new Error('Airtable baseId and tableId are required');
   const fields = parseJsonObject(inputs.fields);
 
@@ -45,9 +46,9 @@ export const handleAirtableCreateRecord: ActionHandler = async (inputs, ctx) => 
 };
 
 export const handleAirtableUpdateRecord: ActionHandler = async (inputs, ctx) => {
-  const baseId = String(inputs.baseId || '');
-  const tableId = String(inputs.tableId || '');
-  const recordId = String(inputs.recordId || '');
+  const baseId = asText(inputs.baseId || '');
+  const tableId = asText(inputs.tableId || '');
+  const recordId = asText(inputs.recordId || '');
   if (!baseId || !tableId || !recordId) throw new Error('Airtable baseId, tableId and recordId are required');
   const fields = parseJsonObject(inputs.fields);
 

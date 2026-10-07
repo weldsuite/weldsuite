@@ -6,11 +6,21 @@
   "private": true,
   "exports": {
     "./access": "./src/access.ts",
+    "./accounts": "./src/accounts.ts",
+    "./attachments": "./src/attachments.ts",
     "./contacts": "./src/contacts.ts",
+    "./drafts": "./src/drafts.ts",
+    "./folders": "./src/folders.ts",
+    "./labels": "./src/labels.ts",
+    "./messages": "./src/messages.ts",
     "./recipient-validation": "./src/recipient-validation.ts",
     "./send": "./src/send.ts",
+    "./snooze": "./src/snooze.ts",
     "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
     "./text": "./src/text.ts",
+    "./thread-ops": "./src/thread-ops.ts",
+    "./threads": "./src/threads.ts",
+    "./uploads": "./src/uploads.ts",
     "./workflows/send-scheduled-email": "./src/workflows/send-scheduled-email.ts"
   },
   "scripts": {

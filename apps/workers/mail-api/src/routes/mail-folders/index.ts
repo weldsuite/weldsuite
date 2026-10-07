@@ -15,8 +15,8 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
-import * as folders from '../../services/mail/folders';
-import { MailFolderError } from '../../services/mail/folders';
+import * as folders from '@weldsuite/mail-domain/folders';
+import { MailFolderError } from '@weldsuite/mail-domain/folders';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

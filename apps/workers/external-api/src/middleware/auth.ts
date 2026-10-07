@@ -35,6 +35,8 @@ interface CachedWorkspaceDetails {
   databaseUrl: string;
   tier: TenantTier;
   hasApiAccess: boolean;
+  /** Absent on entries cached before it was added; callers fall back to a lookup. */
+  clerkOrgId?: string | null;
 }
 
 interface CachedAppToken {
@@ -165,6 +167,7 @@ async function getWorkspaceDetails(
       neonRoleName: masterSchema.workspaces.neonRoleName,
       neonDatabaseName: masterSchema.workspaces.neonDatabaseName,
       databaseUrl: masterSchema.workspaces.databaseUrl,
+      clerkOrgId: masterSchema.workspaces.clerkOrgId,
       planSlug: masterSchema.plans.slug,
       hasApiAccess: masterSchema.plans.hasApiAccess,
     })
@@ -187,6 +190,7 @@ async function getWorkspaceDetails(
     databaseUrl,
     tier: getTierFromPlan(row.planSlug),
     hasApiAccess: row.hasApiAccess ?? false,
+    clerkOrgId: row.clerkOrgId ?? null,
   };
   await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
 
@@ -273,6 +277,7 @@ async function validateApiKey(
         tier: workspace.tier,
         hasApiAccess: workspace.hasApiAccess,
         databaseUrl: workspace.databaseUrl,
+        clerkOrgId: workspace.clerkOrgId,
       };
     } else {
       // Personal key
@@ -309,6 +314,7 @@ async function validateApiKey(
         tier: workspace.tier,
         hasApiAccess: workspace.hasApiAccess,
         databaseUrl: workspace.databaseUrl,
+        clerkOrgId: workspace.clerkOrgId,
       };
     }
   } catch (error) {
@@ -435,6 +441,7 @@ async function validateAppToken(
       // work regardless of whether the workspace's plan includes API access.
       hasApiAccess: true,
       databaseUrl: workspace.databaseUrl,
+      clerkOrgId: workspace.clerkOrgId,
       appId: cached.appId,
       appCode: cached.appCode,
       installId: cached.installId,

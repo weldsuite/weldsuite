@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 
 import { mailMessagesRoutes } from './index';
-import { getMessageStats } from '../../services/mail/messages';
+import { getMessageStats } from '@weldsuite/mail-domain/messages';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';

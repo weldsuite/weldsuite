@@ -47,6 +47,11 @@ import { secureRandom } from "@/lib/random"
 const rw = (object: string) => [{ id: `${object}:read`, label: 'Read' }, { id: `${object}:write`, label: 'Write' }];
 const ro = (object: string) => [{ id: `${object}:read`, label: 'Read' }];
 
+// Scopes the external API only grants by name: `*` and `<object>:*` never
+// include them (external-api `NAMED_ONLY_SCOPES`). The bulk "All" buttons skip
+// them too, so a key can only send mail when someone ticked Send on purpose.
+const NAMED_ONLY_SCOPES = ['mail_messages:send'];
+
 const PERMISSION_ENTITIES = [
   // CRM
   { entity: 'People', group: 'CRM', description: 'CRM contacts', scopes: rw('people') },
@@ -87,6 +92,18 @@ const PERMISSION_ENTITIES = [
   // Calendar
   { entity: 'Calendars', group: 'Calendar', description: 'Calendars', scopes: rw('calendars') },
   { entity: 'Calendar Events', group: 'Calendar', description: 'Calendar events', scopes: rw('calendar_events') },
+  // WeldMail — workspace keys reach shared mailboxes only; personal keys follow their owner's access.
+  { entity: 'Mail Accounts', group: 'WeldMail', description: 'Mailboxes (no credentials)', scopes: ro('mail_accounts') },
+  {
+    entity: 'Messages',
+    group: 'WeldMail',
+    description: 'Emails and threads; Send covers send, reply, forward and draft-send',
+    scopes: [...rw('mail_messages'), { id: 'mail_messages:send', label: 'Send' }],
+  },
+  { entity: 'Drafts', group: 'WeldMail', description: 'Unsent emails', scopes: rw('mail_drafts') },
+  { entity: 'Labels', group: 'WeldMail', description: 'Mailbox labels', scopes: rw('mail_labels') },
+  { entity: 'Folders', group: 'WeldMail', description: 'Mailbox folders', scopes: rw('mail_folders') },
+  { entity: 'Attachments', group: 'WeldMail', description: 'Download files; write uploads files to send', scopes: rw('mail_attachments') },
   // Chat
   { entity: 'Channels', group: 'Chat', description: 'Chat channels', scopes: rw('channels') },
   { entity: 'Channel Members', group: 'Chat', description: 'Chat channel members', scopes: rw('channel_members') },
@@ -123,8 +140,12 @@ const PERMISSION_ENTITIES = [
   { entity: 'Members', group: 'Settings', description: 'Workspace members', scopes: ro('members') },
 ] as const;
 
-// Get all scope IDs
-const ALL_SCOPES = PERMISSION_ENTITIES.flatMap(e => e.scopes.map(s => s.id));
+// Get all scope IDs the bulk buttons may select (named-only scopes excluded)
+const ALL_SCOPES = PERMISSION_ENTITIES.flatMap(e => e.scopes.map(s => s.id)).filter(
+  (id) => !NAMED_ONLY_SCOPES.includes(id),
+);
+
+type ScopeAction = 'read' | 'write' | 'send';
 
 // Module logo per permission group
 const GROUP_LOGOS: Record<string, string> = {
@@ -134,10 +155,11 @@ const GROUP_LOGOS: Record<string, string> = {
   Helpdesk: '/assets/images/welddesk/icon.svg',
   Files: '/assets/images/welddrive/icon.svg',
   Calendar: '/assets/images/weldcalendar/icon.svg',
+  WeldMail: '/assets/images/weldmail/icon.svg',
   Chat: '/assets/images/weldchat/icon.svg',
   Host: '/assets/images/weldhost/icon.svg',
   Automation: '/assets/images/weldconnect/icon.svg',
-  WeldBooks: '/assets/images/weldbooks/icon.svg',
+  WeldBooks: '/assets/images/weldbooks/icon.svg?v=2',
   Settings: '/assets/images/weldsuite/icon.svg',
 };
 
@@ -182,6 +204,9 @@ function PermissionGroupTable({
 }>) {
   const t = useTranslations();
   const groupLogo = GROUP_LOGOS[group];
+  // A Send column only for groups that have a send scope (WeldMail).
+  const hasSend = entities.some((e) => e.scopes.some((s) => s.id.endsWith(':send')));
+  const actions: ScopeAction[] = hasSend ? ['read', 'write', 'send'] : ['read', 'write'];
   return (
     <div className="border rounded-md overflow-hidden">
       <div className="bg-muted/40 px-3 py-1.5 text-[13px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40">
@@ -196,6 +221,9 @@ function PermissionGroupTable({
             <th className="text-left px-3 py-2 font-medium border-b border-border/40">{t('sweep.settings.apiKeys.table.entity')}</th>
             <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.read')}</th>
             <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.write')}</th>
+            {hasSend && (
+              <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.send')}</th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -208,7 +236,7 @@ function PermissionGroupTable({
                   <div className="font-medium">{entity.entity}</div>
                   <div className="text-xs text-muted-foreground">{entity.description}</div>
                 </td>
-                {(['read', 'write'] as const).map((action) => (
+                {actions.map((action) => (
                   <PermissionScopeCell
                     key={action}
                     entity={entity}
@@ -223,11 +251,16 @@ function PermissionGroupTable({
           })}
         </tbody>
       </table>
+      {hasSend && (
+        <p className="border-t border-border/40 bg-background px-3 py-2 text-xs text-muted-foreground">
+          {t('sweep.settings.apiKeys.sendScopeHint')}
+        </p>
+      )}
     </div>
   );
 }
 
-// Read or write scope checkbox cell for an entity ("—" when the scope does not exist).
+// Read, write or send scope checkbox cell for an entity ("—" when the scope does not exist).
 function PermissionScopeCell({
   entity,
   action,
@@ -236,7 +269,7 @@ function PermissionScopeCell({
   onToggleScope,
 }: Readonly<{
   entity: PermissionEntity;
-  action: 'read' | 'write';
+  action: ScopeAction;
   cellBorder: string;
   selectedScopes: string[];
   onToggleScope: (scopeId: string) => void;
@@ -621,9 +654,9 @@ export function ApiKeysSection() {
     setScopeList([...withoutWrite, ...writeScopes])
   }
 
-  // Select all scopes
-  const selectAll = (setScopeList: (scopes: string[]) => void) => {
-    setScopeList([...ALL_SCOPES])
+  // Select all scopes, keeping any named-only scope (Send) that was ticked by hand
+  const selectAll = (setScopeList: (scopes: string[]) => void, currentScopes: string[]) => {
+    setScopeList([...ALL_SCOPES, ...currentScopes.filter(s => NAMED_ONLY_SCOPES.includes(s))])
   }
 
   // Clear all scopes
@@ -954,7 +987,7 @@ export function ApiKeysSection() {
                   onToggleScope={(id) => toggleScope(id, selectedScopes, setSelectedScopes)}
                   onSelectAllRead={() => selectAllRead(setSelectedScopes, selectedScopes)}
                   onSelectAllWrite={() => selectAllWrite(setSelectedScopes, selectedScopes)}
-                  onSelectAll={() => selectAll(setSelectedScopes)}
+                  onSelectAll={() => selectAll(setSelectedScopes, selectedScopes)}
                   onClearAll={() => clearAll(setSelectedScopes)}
                 />
               </div>
@@ -1016,7 +1049,7 @@ export function ApiKeysSection() {
                 onToggleScope={(id) => toggleScope(id, editScopes, setEditScopes)}
                 onSelectAllRead={() => selectAllRead(setEditScopes, editScopes)}
                 onSelectAllWrite={() => selectAllWrite(setEditScopes, editScopes)}
-                onSelectAll={() => selectAll(setEditScopes)}
+                onSelectAll={() => selectAll(setEditScopes, editScopes)}
                 onClearAll={() => clearAll(setEditScopes)}
               />
             </div>

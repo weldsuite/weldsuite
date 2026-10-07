@@ -170,6 +170,8 @@ Format: `resource:action`, `resource:*`, or `*` (avoid `*`). App storage needs n
 - `tasks:read`, `tasks:write`, WeldFlow tasks
 - `tickets:read`, `tickets:write`, WeldDesk tickets
 - `commerce:*`, all commerce actions
+- `mail_messages:read`, `mail_messages:write`, `mail_drafts:write`, WeldMail (shared mailboxes only, via `api.mail`)
+- `mail_messages:send`, send email. Never granted by `*` or `mail_messages:*`: request it by name, and only if the app really sends
 
 Request the **narrowest** scopes that work; the workspace admin sees and consents to the list at install time, and new scopes on an update require re-consent.
 

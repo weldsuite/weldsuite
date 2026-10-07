@@ -1,5 +1,6 @@
 import type { StepHandler, StepContext, StepResult } from '../../types';
 import { evaluateCondition } from '../../lib/workflow-shared';
+import { asText } from '@weldsuite/text';
 
 export const conditionHandler: StepHandler = {
   type: 'condition',
@@ -9,8 +10,8 @@ export const conditionHandler: StepHandler = {
       ? ctx.inputs
       : (ctx.stepDef.condition as Record<string, unknown>) || {};
 
-    const field = String(condition.field || '');
-    const operator = String(condition.operator || '');
+    const field = asText(condition.field || '');
+    const operator = asText(condition.operator || '');
     const value = condition.value;
 
     if (!field || !operator) {

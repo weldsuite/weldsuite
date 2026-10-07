@@ -13,6 +13,7 @@
 import type { ActionHandler } from '../../types';
 import { NonRetryableStepError } from '../../errors';
 import { getValidIntegrationToken } from './token';
+import { asText } from '@weldsuite/text';
 
 /** A retryable failure that keeps the provider's raw payload for the step row. */
 class RetryableProviderError extends Error {
@@ -113,14 +114,14 @@ async function mapGithubError(res: Response): Promise<never> {
 async function resolveGithubToken(ctx: Parameters<ActionHandler>[1], integrationId: unknown): Promise<string> {
   const { accessToken } = await getValidIntegrationToken(ctx, {
     type: 'github',
-    integrationId: integrationId ? String(integrationId) : undefined,
+    integrationId: integrationId ? asText(integrationId) : undefined,
   });
   return accessToken;
 }
 
 export const handleGithubCreateIssue: ActionHandler = async (inputs, ctx) => {
-  const repo = parseRepo(String(inputs.repo || ''));
-  const title = String(inputs.title || '').trim();
+  const repo = parseRepo(asText(inputs.repo || ''));
+  const title = asText(inputs.title || '').trim();
   if (!repo) throw new NonRetryableStepError('GitHub repository is required, as "owner/repo"');
   if (!title) throw new NonRetryableStepError('GitHub issue title is required');
 
@@ -131,7 +132,7 @@ export const handleGithubCreateIssue: ActionHandler = async (inputs, ctx) => {
     headers: ghHeaders(accessToken),
     body: JSON.stringify({
       title,
-      body: inputs.body ? String(inputs.body) : undefined,
+      body: inputs.body ? asText(inputs.body) : undefined,
       labels: parseList(inputs.labels),
       assignees: parseList(inputs.assignees),
     }),
@@ -143,9 +144,9 @@ export const handleGithubCreateIssue: ActionHandler = async (inputs, ctx) => {
 };
 
 export const handleGithubCreateComment: ActionHandler = async (inputs, ctx) => {
-  const repo = parseRepo(String(inputs.repo || ''));
+  const repo = parseRepo(asText(inputs.repo || ''));
   const issueNumber = Number(inputs.issueNumber);
-  const body = String(inputs.body || '').trim();
+  const body = asText(inputs.body || '').trim();
   if (!repo) throw new NonRetryableStepError('GitHub repository is required, as "owner/repo"');
   if (!Number.isFinite(issueNumber) || issueNumber <= 0) {
     throw new NonRetryableStepError('GitHub issue/PR number is required');

@@ -2,6 +2,7 @@ import type { StepHandler, StepContext, StepResult } from '../../types';
 import { eq } from 'drizzle-orm';
 import { schema } from '../../db';
 import { resolveConversationId } from '../../lib/workflow-shared';
+import { asText } from '@weldsuite/text';
 
 export const snoozeConversationHandler: StepHandler = {
   type: 'snooze_conversation',
@@ -11,7 +12,7 @@ export const snoozeConversationHandler: StepHandler = {
     const { db } = ctx.options;
 
     const duration = Number(ctx.inputs.duration);
-    const durationUnit = String(ctx.inputs.durationUnit || 'minutes') as 'minutes' | 'hours' | 'days';
+    const durationUnit = asText(ctx.inputs.durationUnit || 'minutes') as 'minutes' | 'hours' | 'days';
 
     let durationMs: number;
     switch (durationUnit) {

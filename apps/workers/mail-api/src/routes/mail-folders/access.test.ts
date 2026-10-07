@@ -13,7 +13,7 @@ vi.mock('@weldsuite/mail-domain/access', () => ({
   checkAccountAccess: vi.fn(),
 }));
 
-vi.mock('../../services/mail/folders', () => ({
+vi.mock('@weldsuite/mail-domain/folders', () => ({
   listFolders: vi.fn(),
   getFolder: vi.fn(),
   createFolder: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock('../../services/mail/folders', () => ({
 }));
 
 import * as access from '@weldsuite/mail-domain/access';
-import * as folders from '../../services/mail/folders';
+import * as folders from '@weldsuite/mail-domain/folders';
 
 const checkAccountAccess = access.checkAccountAccess as MockedFunction<typeof access.checkAccountAccess>;
 const listFolders = folders.listFolders as MockedFunction<typeof folders.listFolders>;

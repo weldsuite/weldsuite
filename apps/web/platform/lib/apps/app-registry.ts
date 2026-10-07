@@ -196,13 +196,15 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
   },
   // WeldBooks. Icon-only logo like weldcommerce/weldknow — wordmark variants
   // need the brand typeface and can be added later.
+  // `?v=2`: public/_headers serves /assets/* as immutable for a year, so the
+  // redrawn mark needs a new URL or browsers keep the old calculator.
   weldbooks: {
     lucideIcon: Calculator,
     shortName: 'Accounting',
-    icon: '/assets/images/weldbooks/icon.svg',
+    icon: '/assets/images/weldbooks/icon.svg?v=2',
     logo: {
-      iconLight: '/assets/images/weldbooks/logo-light.svg',
-      iconDark: '/assets/images/weldbooks/logo-dark.svg',
+      iconLight: '/assets/images/weldbooks/logo-light.svg?v=2',
+      iconDark: '/assets/images/weldbooks/logo-dark.svg?v=2',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

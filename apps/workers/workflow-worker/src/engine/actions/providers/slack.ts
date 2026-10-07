@@ -7,6 +7,7 @@
 import type { ActionHandler } from '../../types';
 import { NonRetryableStepError } from '../../errors';
 import { getValidIntegrationToken } from './token';
+import { asText } from '@weldsuite/text';
 
 interface SlackPostMessageResponse {
   ok: boolean;
@@ -62,15 +63,15 @@ async function fetchPermalink(accessToken: string, channel: string, ts: string):
 
 /** Post a message to a Slack channel via chat.postMessage. */
 export const handleSlackPostMessage: ActionHandler = async (inputs, ctx) => {
-  const channel = String(inputs.channel || '').trim();
-  const text = String(inputs.text || '');
+  const channel = asText(inputs.channel || '').trim();
+  const text = asText(inputs.text || '');
   const threadTs = inputs.threadTs ? String(inputs.threadTs).trim() : undefined;
   if (!channel) throw new NonRetryableStepError('Slack channel is required');
   if (!text.trim()) throw new NonRetryableStepError('Slack message text is required');
 
   const { accessToken } = await getValidIntegrationToken(ctx, {
     type: 'slack',
-    integrationId: inputs.integrationId ? String(inputs.integrationId) : undefined,
+    integrationId: inputs.integrationId ? asText(inputs.integrationId) : undefined,
   });
 
   const response = await fetch('https://slack.com/api/chat.postMessage', {

@@ -7,6 +7,7 @@
 
 import type { StepHandler, StepContext, StepResult } from '../../types';
 import { publishToRealtimeChannel } from '../../lib/realtime-publisher';
+import { asText } from '@weldsuite/text';
 
 export const sendNotificationHandler: StepHandler = {
   type: 'send_notification',
@@ -14,9 +15,9 @@ export const sendNotificationHandler: StepHandler = {
   async execute(ctx: StepContext): Promise<StepResult> {
     const { env, conversationId, workspaceId } = ctx.options;
 
-    const recipientId = String(ctx.inputs.recipientId || '');
-    const departmentId = String(ctx.inputs.departmentId || '');
-    const message = String(ctx.inputs.message || '');
+    const recipientId = asText(ctx.inputs.recipientId || '');
+    const departmentId = asText(ctx.inputs.departmentId || '');
+    const message = asText(ctx.inputs.message || '');
 
     if (!message) {
       return { success: false, error: 'Missing required field: message' };

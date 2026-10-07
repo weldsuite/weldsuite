@@ -1,0 +1,566 @@
+# Mail messages
+
+A mail message is one email in a WeldMail mailbox, received or sent. Lists return headers only; the body comes with the single-message read. Reads require the `mail_messages:read` scope; flags, labels, moves and deletes require `mail_messages:write`; reply and forward require `mail_messages:send`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  Organizing a message (read, starred, labels, moving, deleting) changes WeldSuite's copy only. Nothing is written back to Gmail, Outlook or the IMAP server. Messages are scoped to the mailboxes the key can open; a message in any other mailbox returns `404`. See [Sending mail](/sending-mail).
+</Note>
+
+---
+
+## The message model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `msg_abc123`).</Property>
+  <Property name="accountId" type="string">ID of the [mail account](/mail-accounts) the message belongs to.</Property>
+  <Property name="messageId" type="string">The RFC 5322 `Message-ID` header.</Property>
+  <Property name="threadId" type="string">Shared thread id, or `null` for a message nobody replied to. See [Mail threads](/mail-threads).</Property>
+  <Property name="from" type="object">Sender: `{ email, name? }`. List responses may add `avatarUrl` and the matching contact's name.</Property>
+  <Property name="to" type="object[]">Recipients: `[{ email, name? }]`.</Property>
+  <Property name="cc" type="object[]">Cc recipients, or `null`.</Property>
+  <Property name="bcc" type="object[]">Bcc recipients (single read only), or `null`.</Property>
+  <Property name="replyTo" type="object">Reply-To address, or `null` (single read only).</Property>
+  <Property name="subject" type="string">Subject, or `null`.</Property>
+  <Property name="preview" type="string">The first part of the body as plain text.</Property>
+  <Property name="textBody" type="string">Plain-text body. Single read only.</Property>
+  <Property name="htmlBody" type="string">Sanitized HTML body. Single read only.</Property>
+  <Property name="sentDate" type="timestamp">When the message was sent. Lists are ordered by this field, newest first.</Property>
+  <Property name="receivedDate" type="timestamp">When the mailbox received it, or `null`.</Property>
+  <Property name="isRead" type="boolean">Read in WeldMail.</Property>
+  <Property name="isStarred" type="boolean">Starred.</Property>
+  <Property name="isFlagged" type="boolean">Flagged.</Property>
+  <Property name="isImportant" type="boolean">Marked important.</Property>
+  <Property name="isDraft" type="boolean">Whether the message is a draft copy.</Property>
+  <Property name="hasAttachments" type="boolean">Whether the message has attachments.</Property>
+  <Property name="attachmentCount" type="integer">Number of attachments.</Property>
+  <Property name="labels" type="string[]">System labels (`INBOX`, `SENT`, `STARRED`, `ARCHIVE`, `TRASH`, `SPAM`, …) and user label names.</Property>
+  <Property name="priority" type="string">Message priority.</Property>
+  <Property name="sizeBytes" type="integer">Size of the message in bytes, or `null`.</Property>
+  <Property name="scheduledFor" type="timestamp">Scheduled send time, or `null`.</Property>
+  <Property name="sendStatus" type="string">For scheduled mail: `scheduled`, `sent`, `cancelled` or `failed`. Otherwise `null`.</Property>
+  <Property name="attachments" type="object[]">Single read only. Attachment metadata, see [Mail attachments](/mail-attachments).</Property>
+  <Property name="createdAt" type="timestamp">When WeldSuite stored the message. On a backfilled mailbox this is not when the mail arrived; use `sentDate`.</Property>
+</Properties>
+
+The single read returns the other stored fields of the message too (`inReplyTo`, `references`, `isReply`, `isForwarded`, `isSpam`, `isTrash`, `snoozedUntil`, `spfStatus`, `dkimStatus`, `dmarcStatus`, `updatedAt` and so on). The raw RFC 822 source and the full header map are never returned.
+
+---
+
+## List messages {{ tag: 'GET', label: '/v1/mail-messages' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of messages, newest `sentDate` first. Without `accountId`, the list covers every mailbox the key can open. Trash and spam are left out unless you ask for them.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 50, max 100.</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="accountId" type="string">Only messages in this mailbox. Returns `404` if the key cannot open it.</Property>
+      <Property name="search" type="string">Space-separated terms. Every term must match the subject, preview, body, sender or a recipient.</Property>
+      <Property name="from" type="string">The sender's name or address contains this text.</Property>
+      <Property name="label" type="string">A system label (`inbox`, `sent`, `starred`, `archive`, `trash`, `spam`, …, case-insensitive) or a user label name.</Property>
+      <Property name="threadId" type="string">Only messages in this thread.</Property>
+      <Property name="isRead" type="string">`true` or `false`.</Property>
+      <Property name="isStarred" type="string">`true` or `false`.</Property>
+      <Property name="isFlagged" type="string">`true` or `false`.</Property>
+      <Property name="hasAttachments" type="string">`true` or `false`.</Property>
+      <Property name="includeTrash" type="string">`true` to include trashed messages. Implied when `label` is `trash`.</Property>
+      <Property name="includeSpam" type="string">`true` to include spam. Implied when `label` is `spam`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-messages">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/mail-messages \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d accountId=mail_abc123 \
+      -d label=inbox \
+      -d isRead=false
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "msg_abc123",
+          "accountId": "mail_abc123",
+          "messageId": "<CAF7x9q@mail.example.com>",
+          "threadId": "<CAF7x9q@mail.example.com>",
+          "from": { "email": "jane@example.com", "name": "Jane Doe", "avatarUrl": null },
+          "to": [{ "email": "support@acme.com" }],
+          "cc": null,
+          "subject": "Question about my invoice",
+          "preview": "Hi, I was charged twice for order #1042...",
+          "sentDate": "2026-10-07T08:41:00Z",
+          "receivedDate": "2026-10-07T08:41:03Z",
+          "isRead": false,
+          "isStarred": false,
+          "isFlagged": false,
+          "isImportant": false,
+          "isDraft": false,
+          "hasAttachments": true,
+          "attachmentCount": 1,
+          "priority": "normal",
+          "labels": ["INBOX"],
+          "sizeBytes": 48210,
+          "scheduledFor": null,
+          "sendStatus": null,
+          "createdAt": "2026-10-07T08:41:05Z"
+        }
+      ],
+      "pagination": { "totalCount": 12, "hasMore": true, "cursor": "msg_abc123" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a message {{ tag: 'GET', label: '/v1/mail-messages/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single message with its body and attachment metadata.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="includeHtml" type="string">`false` returns `htmlBody: null` when the message has a plain-text body. A message with no text body keeps its HTML. Default `true`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-messages/msg_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-messages/msg_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "msg_abc123",
+        "accountId": "mail_abc123",
+        "from": { "email": "jane@example.com", "name": "Jane Doe" },
+        "to": [{ "email": "support@acme.com" }],
+        "subject": "Question about my invoice",
+        "textBody": "Hi, I was charged twice for order #1042. Can you check?",
+        "htmlBody": "<p>Hi, I was charged twice for order #1042. Can you check?</p>",
+        "sentDate": "2026-10-07T08:41:00Z",
+        "isRead": false,
+        "labels": ["INBOX"],
+        "attachments": [
+          {
+            "id": "attach_x7k2m9",
+            "messageId": "msg_abc123",
+            "fileName": "invoice-1042.pdf",
+            "contentType": "application/pdf",
+            "size": 40211,
+            "isInline": false,
+            "contentId": null,
+            "createdAt": "2026-10-07T08:41:05Z"
+          }
+        ]
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a message {{ tag: 'PATCH', label: '/v1/mail-messages/:id' }}
+
+<Row>
+  <Col>
+
+    Change a message's flags. Send at least one attribute. Returns the updated message.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="isRead" type="boolean">Mark read or unread.</Property>
+      <Property name="isStarred" type="boolean">Star or unstar.</Property>
+      <Property name="isFlagged" type="boolean">Flag or unflag.</Property>
+      <Property name="isImportant" type="boolean">Mark important or not.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/mail-messages/msg_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/mail-messages/msg_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "isRead": true, "isStarred": true }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "msg_abc123",
+        "isRead": true,
+        "isStarred": true,
+        "labels": ["INBOX", "STARRED"],
+        "updatedAt": "2026-10-07T09:02:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Add or remove labels {{ tag: 'POST', label: '/v1/mail-messages/:id/labels' }}
+
+<Row>
+  <Col>
+
+    Add labels to a message, remove them, or both. Give at least one name. User labels are matched by name; system label names such as `starred` are case-insensitive. Returns the message's labels after the change.
+
+    `inbox`, `archive`, `trash` and `spam` are locations, not labels, and return `400` here. Use [Move a message](#move-a-message) for those.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="add" type="string[]">Label names to add, up to 50.</Property>
+      <Property name="remove" type="string[]">Label names to remove, up to 50.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-messages/msg_abc123/labels">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-messages/msg_abc123/labels \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "add": ["Billing"], "remove": ["Follow up"] }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "msg_abc123",
+        "labels": ["INBOX", "Billing"]
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Move a message {{ tag: 'POST', label: '/v1/mail-messages/:id/move' }}
+
+<Row>
+  <Col>
+
+    Move a message to the inbox, the archive, the trash or spam. A message sits in one location at a time: moving it clears the other locations, the promotions tab and any pending snooze. Moving sent or draft mail to `inbox` takes it out of the trash without putting it in the inbox.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="location" type="string">`inbox`, `archive`, `trash` or `spam`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-messages/msg_abc123/move">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-messages/msg_abc123/move \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "location": "archive" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": { "id": "msg_abc123", "location": "archive" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Bulk update messages {{ tag: 'POST', label: '/v1/mail-messages/bulk' }}
+
+<Row>
+  <Col>
+
+    Apply one action to up to 100 messages. Every id must be a message in a mailbox the key can open; if one is not, the whole request returns `404` naming that id and nothing changes.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="ids" type="string[]">Message ids, 1 to 100.</Property>
+      <Property name="action" type="string">One of `markRead`, `markUnread`, `star`, `unstar`, `flag`, `unflag`, `archive`, `trash`, `spam`, `restore` (back to the inbox) or `delete`.</Property>
+    </Properties>
+
+    <Note>
+      `delete` removes the messages from WeldSuite, like [Delete a message](#delete-a-message). Use `trash` if you want them recoverable in WeldMail.
+    </Note>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-messages/bulk">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-messages/bulk \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "ids": ["msg_abc123", "msg_def456"], "action": "markRead" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": { "affected": 2, "action": "markRead" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a message {{ tag: 'DELETE', label: '/v1/mail-messages/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a message from WeldSuite. The copy at the mail provider is not touched. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/mail-messages/msg_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/mail-messages/msg_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## List a message's attachments {{ tag: 'GET', label: '/v1/mail-messages/:id/attachments' }}
+
+<Row>
+  <Col>
+
+    Retrieve the attachment metadata of one message. Requires the `mail_attachments:read` scope. All attachments come back in one page. Download the files with [Download an attachment](/mail-attachments#download-an-attachment).
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-messages/msg_abc123/attachments">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-messages/msg_abc123/attachments \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "attach_x7k2m9",
+          "messageId": "msg_abc123",
+          "fileName": "invoice-1042.pdf",
+          "contentType": "application/pdf",
+          "size": 40211,
+          "isInline": false,
+          "contentId": null,
+          "createdAt": "2026-10-07T08:41:05Z"
+        }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Reply to a message {{ tag: 'POST', label: '/v1/mail-messages/:id/reply' }}
+
+<Row>
+  <Col>
+
+    Reply from the message's own mailbox. Requires the `mail_messages:send` scope, which `*` and `mail_messages:*` do not include. The mailbox must have `canSendViaApi: true`, and the reply counts toward its daily limit. See [Sending mail](/sending-mail).
+
+    The reply goes to the original sender, with the subject `Re: <original subject>` and the threading headers that keep it in the same conversation. With `replyAll`, everyone on the original To line is added (minus this mailbox), and the original Cc recipients stay on Cc.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="body" type="string">Plain-text body, up to 1,000,000 characters. Give `body`, `htmlBody` or both.</Property>
+      <Property name="htmlBody" type="string">HTML body, up to 2,000,000 characters. It is sanitized before sending.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="replyAll" type="boolean">Reply to all original recipients. Default `false`.</Property>
+      <Property name="attachmentIds" type="string[]">Up to 20 upload ids from [Upload an attachment](/mail-attachments#upload-an-attachment).</Property>
+    </Properties>
+
+    ### Optional headers
+
+    <Properties>
+      <Property name="Idempotency-Key" type="string">Up to 64 characters. A repeat with the same key returns the first result with `replayed: true`.</Property>
+    </Properties>
+
+    The response has the same fields as [Send a message](/mail-accounts#send-a-message), plus `repliedTo`: the id of the message you replied to.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-messages/msg_abc123/reply">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-messages/msg_abc123/reply \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -H "Idempotency-Key: ticket-881-reply-1" \
+      -d '{
+        "body": "Hi Jane, we refunded the duplicate charge.",
+        "replyAll": false
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "messageId": "msg_q2w4e6r8t0",
+        "accountId": "mail_abc123",
+        "subject": "Re: Question about my invoice",
+        "smtpMessageId": "<0102019a2b3d-7f8a@acme.com>",
+        "pendingVerification": false,
+        "replayed": false,
+        "repliedTo": "msg_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Forward a message {{ tag: 'POST', label: '/v1/mail-messages/:id/forward' }}
+
+<Row>
+  <Col>
+
+    Forward a message from its own mailbox to new recipients. Requires the `mail_messages:send` scope. The mailbox must have `canSendViaApi: true`, and the forward counts toward its daily limit. See [Sending mail](/sending-mail).
+
+    The subject gets a `Fwd:` prefix unless it already has one. Your note comes first, followed by the quoted original. The original's attachments travel with it, except inline images (which stay in the quoted HTML) and any you exclude. With `asAttachment`, the original is attached as an `.eml` file instead of being quoted. A note is optional.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="to" type="string[]">Recipient addresses, 1 to 100.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="body" type="string">Plain-text note, up to 1,000,000 characters.</Property>
+      <Property name="htmlBody" type="string">HTML note, up to 2,000,000 characters.</Property>
+      <Property name="attachmentIds" type="string[]">Up to 20 extra files, as upload ids from [Upload an attachment](/mail-attachments#upload-an-attachment).</Property>
+      <Property name="excludeAttachmentIds" type="string[]">Ids of the original's attachments (`attach_...`) to leave out, up to 100.</Property>
+      <Property name="asAttachment" type="boolean">Attach the original as an `.eml` file instead of quoting it.</Property>
+    </Properties>
+
+    ### Optional headers
+
+    <Properties>
+      <Property name="Idempotency-Key" type="string">Up to 64 characters. A repeat with the same key returns the first result with `replayed: true`.</Property>
+    </Properties>
+
+    The response has the same fields as [Send a message](/mail-accounts#send-a-message), plus `forwardedFrom`: the id of the forwarded message.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-messages/msg_abc123/forward">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-messages/msg_abc123/forward \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "to": ["billing@acme.com"],
+        "body": "Can you check this duplicate charge?"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "messageId": "msg_z9x8c7v6b5",
+        "accountId": "mail_abc123",
+        "subject": "Fwd: Question about my invoice",
+        "smtpMessageId": "<0102019a2b3e-1c2d@acme.com>",
+        "pendingVerification": false,
+        "replayed": false,
+        "forwardedFrom": "msg_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>

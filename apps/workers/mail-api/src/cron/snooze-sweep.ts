@@ -19,7 +19,7 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 import type { Env } from '../types';
 import { getMasterDb, getTenantDbForWorkspace, masterSchema } from '@weldsuite/worker-kit/db';
-import { wakeDueSnoozedMessages } from '../services/mail/snooze';
+import { wakeDueSnoozedMessages } from '@weldsuite/mail-domain/snooze';
 
 /**
  * Cron expressions that run this sweep. Production and local dev use the

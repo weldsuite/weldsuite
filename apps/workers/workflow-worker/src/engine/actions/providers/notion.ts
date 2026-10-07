@@ -4,6 +4,7 @@
 
 import type { ActionHandler } from '../../types';
 import { getIntegrationCredentials } from './token';
+import { asText } from '@weldsuite/text';
 
 const NOTION_VERSION = '2022-06-28';
 
@@ -24,15 +25,15 @@ function parseJsonObject(v: unknown): Record<string, unknown> {
 async function notionToken(ctx: Parameters<ActionHandler>[1], integrationId: unknown): Promise<string> {
   const { credentials } = await getIntegrationCredentials(ctx, {
     type: 'notion',
-    integrationId: integrationId ? String(integrationId) : undefined,
+    integrationId: integrationId ? asText(integrationId) : undefined,
   });
   if (!credentials.token) throw new Error('Notion integration has no token');
   return credentials.token;
 }
 
 export const handleNotionCreatePage: ActionHandler = async (inputs, ctx) => {
-  const databaseId = String(inputs.databaseId || '');
-  const title = String(inputs.title || '');
+  const databaseId = asText(inputs.databaseId || '');
+  const title = asText(inputs.title || '');
   if (!databaseId) throw new Error('Notion databaseId is required');
   if (!title) throw new Error('Notion page title is required');
 
@@ -53,7 +54,7 @@ export const handleNotionCreatePage: ActionHandler = async (inputs, ctx) => {
 };
 
 export const handleNotionUpdatePage: ActionHandler = async (inputs, ctx) => {
-  const pageId = String(inputs.pageId || '');
+  const pageId = asText(inputs.pageId || '');
   if (!pageId) throw new Error('Notion pageId is required');
   const properties = parseJsonObject(inputs.properties);
 

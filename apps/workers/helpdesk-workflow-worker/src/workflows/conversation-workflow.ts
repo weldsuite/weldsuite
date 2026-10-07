@@ -22,6 +22,7 @@ import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { resolveInputs, evaluateCondition, isInteractiveStep } from '../lib/workflow-shared';
 import { executeStepHandler, type StepOutcome } from './step-executor';
 import { dispatchStepToChannel } from '../lib/channel-dispatch';
+import { asText } from '@weldsuite/text';
 
 // ============================================================================
 // Types
@@ -469,7 +470,7 @@ export class ConversationWorkflow extends WorkflowEntrypoint<Env, ConversationWo
 
     // Execute branch children if send_choices
     if (wfStep.type === 'send_choices' && resumePayload.selectedValue) {
-      await this.runBranchChildren(ec, wfStep, i, String(resumePayload.selectedValue));
+      await this.runBranchChildren(ec, wfStep, i, asText(resumePayload.selectedValue));
     }
   }
 

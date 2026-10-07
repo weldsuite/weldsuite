@@ -1,0 +1,273 @@
+# Mail folders
+
+Mail folders are a mailbox's folder tree: the system folders (inbox, sent, drafts, spam, trash, archive) and any custom folders. Each folder belongs to one [mail account](/mail-accounts), and custom folders can be nested. Reads require the `mail_folders:read` scope; creating, updating and deleting require `mail_folders:write`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  System folders can be recoloured and repositioned, but not renamed, moved or deleted: provider sync matches on them. Folders you create through the API are always `custom`. Changes stay in WeldSuite and are not written back to Gmail, Outlook or IMAP.
+</Note>
+
+---
+
+## The folder model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `mfld_abc123`).</Property>
+  <Property name="accountId" type="string">ID of the mail account the folder belongs to.</Property>
+  <Property name="name" type="string">Folder name.</Property>
+  <Property name="type" type="string">`inbox`, `sent`, `drafts`, `spam`, `trash`, `archive` or `custom`.</Property>
+  <Property name="parentId" type="string">ID of the parent folder, or `null` for a top-level folder.</Property>
+  <Property name="path" type="string">Full folder path, or `null`.</Property>
+  <Property name="totalCount" type="integer">Number of messages in the folder.</Property>
+  <Property name="unreadCount" type="integer">Number of unread messages.</Property>
+  <Property name="color" type="string">Hex color such as `#16A34A`, or `null`.</Property>
+  <Property name="icon" type="string">Icon name, or `null`.</Property>
+  <Property name="position" type="integer">Sort position. Lists are ordered by `position`, then `name`.</Property>
+  <Property name="isSystem" type="boolean">Whether this is a system folder.</Property>
+  <Property name="isSelectable" type="boolean">Whether the folder can hold messages.</Property>
+  <Property name="syncStatus" type="string">One of `idle`, `syncing`, `completed`, `error`, `paused`.</Property>
+  <Property name="lastSyncAt" type="timestamp">When the folder last synced, or `null`.</Property>
+  <Property name="createdAt" type="timestamp">When the folder was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the folder was last updated.</Property>
+</Properties>
+
+Folder records also carry provider sync fields (`uidValidity`, `uidNext`, `specialUse`, `externalFolderId`, …). Treat them as read-only.
+
+---
+
+## List folders {{ tag: 'GET', label: '/v1/mail-folders' }}
+
+<Row>
+  <Col>
+
+    Retrieve the folders of the mailboxes the key can open. The list is not paged: every folder comes back in one response, with `hasMore: false`.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="accountId" type="string">Only folders of this mailbox. Returns `404` if the key cannot open it.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-folders">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/mail-folders \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d accountId=mail_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "mfld_inbox01",
+          "accountId": "mail_abc123",
+          "name": "Inbox",
+          "type": "inbox",
+          "parentId": null,
+          "path": "INBOX",
+          "totalCount": 1204,
+          "unreadCount": 12,
+          "color": null,
+          "icon": null,
+          "position": 0,
+          "isSystem": true,
+          "isSelectable": true,
+          "syncStatus": "completed",
+          "lastSyncAt": "2026-10-07T08:55:00Z",
+          "createdAt": "2026-03-02T10:00:00Z",
+          "updatedAt": "2026-10-07T08:55:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 7, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a folder {{ tag: 'POST', label: '/v1/mail-folders' }}
+
+<Row>
+  <Col>
+
+    Create a custom folder on a mailbox. A `parentId` must be a folder of the same mailbox, otherwise the request returns `400`.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="accountId" type="string">The mailbox the folder belongs to.</Property>
+      <Property name="name" type="string">Folder name, 1 to 255 characters.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="parentId" type="string">Parent folder ID.</Property>
+      <Property name="path" type="string">Full folder path, up to 1,000 characters.</Property>
+      <Property name="color" type="string">Hex color such as `#16A34A`.</Property>
+      <Property name="icon" type="string">Icon name, up to 50 characters.</Property>
+      <Property name="position" type="integer">Sort position. Default 0.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-folders">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-folders \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "accountId": "mail_abc123",
+        "name": "Suppliers",
+        "color": "#16A34A"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "mfld_k8j7h6g5",
+        "accountId": "mail_abc123",
+        "name": "Suppliers",
+        "type": "custom",
+        "parentId": null,
+        "color": "#16A34A",
+        "position": 0,
+        "isSystem": false,
+        "isSelectable": true,
+        "createdAt": "2026-10-07T10:30:00Z",
+        "updatedAt": "2026-10-07T10:30:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a folder {{ tag: 'GET', label: '/v1/mail-folders/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single folder by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-folders/mfld_k8j7h6g5">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-folders/mfld_k8j7h6g5 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "mfld_k8j7h6g5",
+        "accountId": "mail_abc123",
+        "name": "Suppliers",
+        "type": "custom",
+        "totalCount": 0,
+        "unreadCount": 0
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a folder {{ tag: 'PATCH', label: '/v1/mail-folders/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a folder. Send at least one attribute. On a system folder, changing `name`, `parentId` or `path` returns `409`; `color`, `icon` and `position` can change.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="name" type="string">New name, 1 to 255 characters.</Property>
+      <Property name="parentId" type="string">New parent folder, in the same mailbox.</Property>
+      <Property name="path" type="string">Full folder path.</Property>
+      <Property name="color" type="string">Hex color.</Property>
+      <Property name="icon" type="string">Icon name.</Property>
+      <Property name="position" type="integer">Sort position.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/mail-folders/mfld_k8j7h6g5">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/mail-folders/mfld_k8j7h6g5 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "name": "Vendors", "position": 3 }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "mfld_k8j7h6g5",
+        "name": "Vendors",
+        "position": 3,
+        "updatedAt": "2026-10-07T10:40:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a folder {{ tag: 'DELETE', label: '/v1/mail-folders/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a custom folder. System folders cannot be deleted (`409`). Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/mail-folders/mfld_k8j7h6g5">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/mail-folders/mfld_k8j7h6g5 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

@@ -18,6 +18,7 @@
 import type { ActionHandler, ActionContext } from '../types';
 import { resolveIntegration, integrationBearerToken } from '../integrations';
 import { NonRetryableStepError } from '../errors';
+import { asText } from '@weldsuite/text';
 
 /** Merge integration-derived auth into the caller's headers (explicit wins). */
 async function withIntegrationAuth(
@@ -25,8 +26,8 @@ async function withIntegrationAuth(
   ctx: ActionContext,
   headers: Record<string, string>,
 ): Promise<Record<string, string>> {
-  const integrationId = inputs.integrationId ? String(inputs.integrationId) : undefined;
-  const integrationType = inputs.integrationType ? String(inputs.integrationType) : undefined;
+  const integrationId = inputs.integrationId ? asText(inputs.integrationId) : undefined;
+  const integrationType = inputs.integrationType ? asText(inputs.integrationType) : undefined;
   if (!integrationId && !integrationType) return headers;
 
   const hasExplicitAuth = Object.keys(headers).some((k) => k.toLowerCase() === 'authorization');
@@ -127,7 +128,7 @@ export const handleHttpRequest: ActionHandler = async (inputs, ctx) => {
   if (!rawUrl) throw new NonRetryableStepError('URL is required');
   const url = parseRequestUrl(rawUrl);
 
-  const method = String(inputs.method || 'GET').toUpperCase();
+  const method = asText(inputs.method || 'GET').toUpperCase();
   const baseHeaders = (inputs.headers as Record<string, string>) || {};
   const body = inputs.body;
   const timeout = Math.min(Number(inputs.timeout) || DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
@@ -186,7 +187,7 @@ export const handleWebhook: ActionHandler = async (inputs, ctx) => {
   if (!rawUrl) throw new Error('Webhook URL is required');
   const url = parseRequestUrl(rawUrl);
 
-  const method = String(inputs.method || 'POST').toUpperCase();
+  const method = asText(inputs.method || 'POST').toUpperCase();
   const baseHeaders = (inputs.headers || {}) as Record<string, string>;
   const body = inputs.body || inputs.payload || inputs.data;
 

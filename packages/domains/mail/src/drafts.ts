@@ -11,11 +11,14 @@ import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { accountScopeCondition } from './access';
 
 const { mailDrafts } = schema;
 
 export interface ListDraftsFilters {
   accountId?: string;
+  /** Restricts results to these accounts (the caller's reachable mailboxes). */
+  accessibleAccountIds?: string[];
   limit?: number;
   cursor?: string;
 }
@@ -24,6 +27,9 @@ export async function listDrafts(db: Database, filters: ListDraftsFilters) {
   const limit = Math.min(filters.limit ?? 50, 100);
   const conditions: SQL[] = [isNull(mailDrafts.deletedAt)!];
   if (filters.accountId) conditions.push(eq(mailDrafts.accountId, filters.accountId));
+  if (filters.accessibleAccountIds) {
+    conditions.push(accountScopeCondition(mailDrafts.accountId, filters.accessibleAccountIds));
+  }
 
   if (filters.cursor) {
     const [cur] = await db

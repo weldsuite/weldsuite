@@ -8,15 +8,15 @@
  * `replyToMessageId` vs `in_reply_to`). Handing those names to a model would
  * produce drafts whose body and recipients silently land nowhere.
  *
- * These mirror the request bodies of the canonical routes in
- * `apps/workers/app-api/src/routes/mail-drafts` and `.../mail-labels`, which do
- * match the columns. Keep them in sync with those two files.
+ * These mirror the request bodies of the shared v1 routes
+ * (`src/api/routes/v1/mail-drafts`, `.../mail-labels`, kept identical to
+ * external-api's), which match the columns. Keep them in sync with those files.
  */
 
 import { z } from 'zod';
 
-/** A recipient list, accepting either a bare address or `Name <addr>`. */
-const emailList = z.array(z.string().min(1)).max(100);
+/** A recipient list of bare addresses (the routes reject `Name <addr>`). */
+const emailList = z.array(z.string().email()).max(100);
 
 export const createMailDraftSchema = z.object({
   accountId: z
@@ -27,12 +27,20 @@ export const createMailDraftSchema = z.object({
   to: emailList.optional().describe('Recipient email addresses'),
   cc: emailList.optional().describe('CC email addresses'),
   bcc: emailList.optional().describe('BCC email addresses'),
-  replyTo: emailList.optional().describe('Reply-To addresses, when it differs from the sender'),
+  replyTo: z
+    .array(z.string().email())
+    .max(5)
+    .optional()
+    .describe('Reply-To addresses, when it differs from the sender'),
   body: z.string().optional().describe('Plain-text body'),
   htmlBody: z.string().optional().describe('HTML body; omit for a plain-text draft'),
   importance: z.enum(['low', 'normal', 'high']).optional().describe('Priority flag (default normal)'),
   labels: z.array(z.string()).optional().describe('Label names to attach to the draft'),
-  attachmentIds: z.array(z.string()).optional().describe('Ids of already-uploaded attachments'),
+  attachmentIds: z
+    .array(z.string())
+    .max(20)
+    .optional()
+    .describe('Upload ids of files to attach (uploads happen outside MCP)'),
   inReplyTo: z
     .string()
     .max(500)
@@ -52,7 +60,11 @@ export const createMailLabelSchema = z.object({
     .min(1)
     .describe('Mail account the label belongs to — from search_mail_accounts'),
   name: z.string().min(1).max(100).describe('Label name, unique per account (case-insensitive)'),
-  color: z.string().max(20).optional().describe('Hex colour such as #FF5733'),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional()
+    .describe('Hex colour such as #FF5733'),
   aiEnabled: z
     .boolean()
     .optional()
@@ -73,6 +85,20 @@ export const createMailLabelSchema = z.object({
     .optional()
     .describe('Minimum confidence (0-100) before auto-labelling applies it; default 70'),
 });
+
+/** Every draft field is optional on an update; `id` names the draft. */
+export const updateMailDraftSchema = createMailDraftSchema
+  .partial()
+  .extend({ id: z.string().describe('The draft — the id from search_mail_drafts or create_mail_draft') });
+
+/** A label update: rename, recolour, reorder, or change auto-labelling. */
+export const updateMailLabelSchema = createMailLabelSchema
+  .omit({ accountId: true })
+  .partial()
+  .extend({
+    id: z.string().describe('The label — its name, or the id from an earlier search'),
+    position: z.number().int().optional().describe('Sort position among the labels of the account'),
+  });
 
 export type CreateMailDraftInput = z.infer<typeof createMailDraftSchema>;
 export type CreateMailLabelInput = z.infer<typeof createMailLabelSchema>;

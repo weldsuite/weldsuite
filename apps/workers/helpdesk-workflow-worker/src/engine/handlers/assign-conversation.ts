@@ -5,6 +5,7 @@ import { schema } from '../../db';
 import { publishMessageToConversation, publishToRealtimeChannel } from '../../lib/realtime-publisher';
 import { resolveConversationId } from '../../lib/workflow-shared';
 import { generateId } from '../../lib/id';
+import { asText } from '@weldsuite/text';
 
 type AssignOptions = StepContext['options'];
 type AssignmentFields = Record<string, unknown>;
@@ -57,8 +58,8 @@ async function resolveAssignmentFields(
   departmentId: string | undefined,
 ): Promise<AgentPick> {
   if (strategy === 'specific_agent' && inputs.agentId) {
-    const fields: AssignmentFields = { assigneeId: String(inputs.agentId) };
-    if (inputs.agentName) fields.assigneeName = String(inputs.agentName);
+    const fields: AssignmentFields = { assigneeId: asText(inputs.agentId) };
+    if (inputs.agentName) fields.assigneeName = asText(inputs.agentName);
     return { fields };
   }
   if (strategy === 'department' && departmentId) {
@@ -78,7 +79,7 @@ async function announceHandoff(
   newAssigneeId: string,
   updateData: AssignmentFields,
 ): Promise<void> {
-  const agentName = updateData.assigneeName ? String(updateData.assigneeName) : 'an agent';
+  const agentName = updateData.assigneeName ? asText(updateData.assigneeName) : 'an agent';
   const handoffContent = `${agentName} has joined the conversation.`;
   const handoffMsgId = generateId('msg');
   const now = new Date();
@@ -122,8 +123,8 @@ export const assignConversationHandler: StepHandler = {
     const conversationId = resolveConversationId(ctx.inputs, ctx.state.triggerData) || ctx.state.conversationId;
     const { db, env, workspaceId } = ctx.options;
 
-    const strategy = String(ctx.inputs.strategy || 'specific_agent');
-    const departmentId = ctx.inputs.departmentId ? String(ctx.inputs.departmentId) : undefined;
+    const strategy = asText(ctx.inputs.strategy || 'specific_agent');
+    const departmentId = ctx.inputs.departmentId ? asText(ctx.inputs.departmentId) : undefined;
 
     const pick = await resolveAssignmentFields(db, strategy, ctx.inputs, departmentId);
     if ('error' in pick) return { success: false, error: pick.error };
@@ -137,7 +138,7 @@ export const assignConversationHandler: StepHandler = {
       .limit(1);
 
     const previousAssigneeId = current?.assigneeId;
-    const newAssigneeId = updateData.assigneeId ? String(updateData.assigneeId) : null;
+    const newAssigneeId = updateData.assigneeId ? asText(updateData.assigneeId) : null;
 
     await db
       .update(schema.helpdeskConversations)
