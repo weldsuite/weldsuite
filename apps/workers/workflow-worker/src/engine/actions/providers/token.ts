@@ -57,6 +57,14 @@ async function maybeDecrypt(value: string, keyring: EncryptionKeyring): Promise<
   return maybeDecryptField(value, keyring);
 }
 
+/**
+ * Refresh failures the OAuth2 spec (and Google in particular) reports as
+ * `invalid_grant` mean the refresh token itself is dead — revoked by the
+ * user, expired from inactivity, or the app's consent was pulled. No amount
+ * of retrying fixes that; the connection needs to be reconnected. Anything
+ * else (network blip, a provider's 5xx, a missing client secret while infra
+ * is mid-rollout) is left retryable, since it might resolve on its own.
+ */
 async function refreshOAuthToken(
   auth: OAuthConfig,
   refreshToken: string,
@@ -79,6 +87,12 @@ async function refreshOAuthToken(
   });
   const json = (await res.json()) as { access_token?: string; expires_in?: number; error?: string };
   if (!res.ok || !json.access_token) {
+    if (json.error === 'invalid_grant') {
+      throw new NonRetryableStepError(
+        'The connection is no longer valid (its refresh token was revoked or expired). Reconnect it from WeldConnect → Integrations.',
+        { error: json.error },
+      );
+    }
     throw new Error(`Token refresh failed: ${json.error || res.status}`);
   }
   return {

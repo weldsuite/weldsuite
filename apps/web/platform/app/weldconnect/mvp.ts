@@ -31,9 +31,13 @@ export const WELDCONNECT_ACTION_TYPES = [
   'condition',
   'loop',
   'delay',
-  // First third-party provider action — see "Provider pattern" in
-  // docs/plans/weldconnect.md for what Google/GitHub add alongside this.
+  // Third-party provider actions — see "Provider pattern" in
+  // docs/plans/weldconnect.md.
   'slack.post_message',
+  'google_sheets.append_row',
+  'google_sheets.update_row',
+  'gmail.send_email',
+  'google_calendar.create_event',
 ] as const;
 
 /**

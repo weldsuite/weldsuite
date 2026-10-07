@@ -211,6 +211,12 @@ export const manifest: Record<string, SecretEntry[]> = {
   // and on its own /internal/schedule-index/rebuild. Same value as app-api.
   "workflow-worker": [
     "INTERNAL_API_SECRET",
+    // The WeldConnect workflow-integrations Google OAuth app — same client as
+    // connect-api's. Needed here so engine/actions/providers/token.ts can
+    // refresh a Google access token in-process (Slack bot tokens never
+    // expire, so Slack needed no client secret here; Google's do, hourly).
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
   ],
 
   // pass-api: the pass module's API worker (split from app-api). Base

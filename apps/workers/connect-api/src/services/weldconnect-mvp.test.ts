@@ -283,6 +283,110 @@ describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
       { code: 'missing_field', stepId: 'a', type: 'slack.post_message', field: 'text' },
     ]);
   });
+
+  it('accepts a configured google_sheets.append_row step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_sheets.append_row', config: { spreadsheetId: 'sheet1', columnMapping: { A: 'x' } } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a google_sheets.append_row step missing its spreadsheet or column mapping', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_sheets.append_row', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'google_sheets.append_row', field: 'spreadsheetId' },
+      { code: 'missing_field', stepId: 'a', type: 'google_sheets.append_row', field: 'columnMapping' },
+    ]);
+  });
+
+  it('accepts a google_sheets.update_row step targeted by rowNumber', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_sheets.update_row', config: { spreadsheetId: 'sheet1', rowNumber: 2, columnMapping: { A: 'x' } } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('accepts a google_sheets.update_row step targeted by lookupColumn/lookupValue', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          {
+            id: 'a',
+            type: 'google_sheets.update_row',
+            config: { spreadsheetId: 'sheet1', lookupColumn: 'B', lookupValue: 'x', columnMapping: { A: 'x' } },
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a google_sheets.update_row step with neither rowNumber nor a lookup', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_sheets.update_row', config: { spreadsheetId: 'sheet1', columnMapping: { A: 'x' } } }],
+      }),
+    ).toEqual([{ code: 'missing_field', stepId: 'a', type: 'google_sheets.update_row', field: 'rowNumber' }]);
+  });
+
+  it('accepts a configured gmail.send_email step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'gmail.send_email', config: { to: 'jane@acme.com', subject: 'Hi', body: 'Hi' } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a gmail.send_email step missing to/subject/body', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'gmail.send_email', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'gmail.send_email', field: 'to' },
+      { code: 'missing_field', stepId: 'a', type: 'gmail.send_email', field: 'subject' },
+      { code: 'missing_field', stepId: 'a', type: 'gmail.send_email', field: 'body' },
+    ]);
+  });
+
+  it('accepts a configured google_calendar.create_event step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          {
+            id: 'a',
+            type: 'google_calendar.create_event',
+            config: { summary: 'Sync', startDateTime: '2026-07-01T09:00:00Z', endDateTime: '2026-07-01T10:00:00Z' },
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a google_calendar.create_event step missing summary/start/end', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_calendar.create_event', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'google_calendar.create_event', field: 'summary' },
+      { code: 'missing_field', stepId: 'a', type: 'google_calendar.create_event', field: 'startDateTime' },
+      { code: 'missing_field', stepId: 'a', type: 'google_calendar.create_event', field: 'endDateTime' },
+    ]);
+  });
 });
 
 describe('validateWeldConnectIntegrations', () => {
@@ -336,6 +440,23 @@ describe('validateWeldConnectIntegrations', () => {
         [connectedSlack, disconnectedSlack],
       ),
     ).toEqual([]);
+  });
+
+  it('walks every <provider>.<action> generically, including the Google providers', () => {
+    const connectedGmail = { id: 'win_3', type: 'gmail', status: 'connected' };
+    expect(
+      validateWeldConnectIntegrations(
+        [
+          { id: 'a', type: 'gmail.send_email', config: {} }, // gmail is connected below
+          { id: 'b', type: 'google_sheets.append_row', config: {} }, // no google_sheets integration at all
+          { id: 'c', type: 'google_calendar.create_event', config: {} }, // ditto
+        ],
+        [connectedGmail],
+      ),
+    ).toEqual([
+      { code: 'integration_not_connected', stepId: 'b', type: 'google_sheets.append_row' },
+      { code: 'integration_not_connected', stepId: 'c', type: 'google_calendar.create_event' },
+    ]);
   });
 });
 
