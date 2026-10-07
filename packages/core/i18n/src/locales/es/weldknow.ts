@@ -85,6 +85,7 @@ export const weldknow = {
     empty: 'Aún no hay espacios de equipo.',
     noOthers: 'Estás en todos los espacios de equipo que puedes ver.',
     memberCount: '{count} miembros',
+    memberCountOne: '1 miembro',
     roleLabel: 'Eres {role}',
     defaultBadge: 'Predeterminado',
     join: 'Unirse',

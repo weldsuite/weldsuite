@@ -238,4 +238,19 @@ describe('default teamspaces', () => {
     });
     expect((await spacesOf(as('user_erin'))).find((s) => s.id === space.id)).toMatchObject({ role: 'editor' });
   });
+
+  it('does not pull in external or suspended members', async () => {
+    const space = await createSpace(admin(), { name: 'Staff only', visibility: 'closed', isDefault: true });
+
+    await db.insert(schema.workspaceMembers).values([
+      { id: 'wm_user_guest', userId: 'user_guest', name: 'guest', email: 'guest@example.com', memberType: 'EXTERNAL' },
+      { id: 'wm_user_gone', userId: 'user_gone', name: 'gone', email: 'gone@example.com', status: 'SUSPENDED' },
+    ]);
+    for (const userId of ['user_guest', 'user_gone']) {
+      expect((await spacesOf(as(userId))).find((s) => s.id === space.id)).toMatchObject({
+        isMember: false,
+        canRead: false,
+      });
+    }
+  });
 });

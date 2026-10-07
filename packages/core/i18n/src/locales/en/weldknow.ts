@@ -85,6 +85,7 @@ export const weldknow = {
     empty: 'There are no teamspaces yet.',
     noOthers: 'You are in every teamspace you can see.',
     memberCount: '{count} members',
+    memberCountOne: '1 member',
     roleLabel: 'You are {role}',
     defaultBadge: 'Default',
     join: 'Join',

@@ -85,6 +85,7 @@ export const weldknow = {
     empty: 'Er zijn nog geen teamruimtes.',
     noOthers: 'Je zit in elke teamruimte die je kunt zien.',
     memberCount: '{count} leden',
+    memberCountOne: '1 lid',
     roleLabel: 'Je bent {role}',
     defaultBadge: 'Standaard',
     join: 'Deelnemen',

@@ -70,7 +70,9 @@ export default function TeamspacesPage() {
               <VisibilityIcon className="h-3 w-3" />
               {visibilityLabel(space)}
               <span>·</span>
-              {t.teamspaces.memberCount.replace('{count}', String(space.memberCount))}
+              {space.memberCount === 1
+                ? t.teamspaces.memberCountOne
+                : t.teamspaces.memberCount.replace('{count}', String(space.memberCount))}
               {space.role && (
                 <>
                   <span>·</span>

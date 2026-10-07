@@ -273,11 +273,29 @@ export async function ensurePersonalSpace(db: Database, userId: string): Promise
     .onConflictDoNothing();
 }
 
+/** Workspace members a teamspace can be shared with: active, internal people. */
+const shareable = and(
+  eq(workspaceMembers.status, 'ACTIVE'),
+  eq(workspaceMembers.memberType, 'INTERNAL'),
+  isNull(workspaceMembers.deletedAt),
+);
+
 /**
  * Add the caller to every default teamspace they have never been in. Someone
  * who left (or was removed) keeps their `leftAt` row and is not pulled back.
+ *
+ * Only active, internal workspace members are added — the same people
+ * `addEveryoneToSpace` adds when a teamspace is made default — so an external
+ * or suspended member who reaches WeldKnow does not become an editor here.
  */
 export async function joinDefaultSpaces(db: Database, userId: string): Promise<void> {
+  const [eligible] = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.userId, userId), shareable))
+    .limit(1);
+  if (!eligible) return;
+
   const missing = await db
     .select({ id: spaces.id })
     .from(spaces)
@@ -312,13 +330,6 @@ export async function joinDefaultSpaces(db: Database, userId: string): Promise<v
     )
     .onConflictDoNothing();
 }
-
-/** Workspace members a teamspace can be shared with: active, internal people. */
-const shareable = and(
-  eq(workspaceMembers.status, 'ACTIVE'),
-  eq(workspaceMembers.memberType, 'INTERNAL'),
-  isNull(workspaceMembers.deletedAt),
-);
 
 /** Add every shareable workspace member who has never been in the space. */
 export async function addEveryoneToSpace(db: Database, spaceId: string, addedBy: string): Promise<void> {
