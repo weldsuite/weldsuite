@@ -11,14 +11,46 @@
  * for back-compat.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { encryptField, maybeDecryptField, keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import { getIntegrationDef, type OAuthConfig } from '@weldsuite/workflow-integrations';
 import { schema } from '../../../db';
 import { resolveIntegration, integrationBearerToken } from '../../integrations';
+import { NonRetryableStepError } from '../../errors';
 import type { ActionContext } from '../../types';
 
 const REFRESH_WINDOW_MS = 5 * 60_000;
+
+/**
+ * Owner check for third-party provider actions (`<provider>.<action>`, the
+ * namespaced ids in `@weldsuite/workflow-integrations`). Unlike WeldSuite-typed
+ * actions (create_contact, create_task, …), these act on the WORKSPACE's own
+ * integration connection, not on data scoped to the owner — the connection was
+ * already gated by `integrations:create` at connect time, and nothing about
+ * posting a Slack message depends on the owner's CRM/task permissions. So
+ * there is no per-object permission to check here, only membership: a run
+ * must still refuse once the member who owns the workflow is gone, same as
+ * every other action (docs/plans/weldconnect.md, "Phase 1 decisions"). Runs
+ * started before owners were carried have no `ownerUserId` (see
+ * `WorkflowTenant`) and are let through unchanged.
+ *
+ * Called once, here, so every current and future provider action gets it for
+ * free through `getValidIntegrationToken` / `getIntegrationCredentials`.
+ */
+async function assertOwnerStillMember(ctx: ActionContext): Promise<void> {
+  const ownerUserId = ctx.tenant.ownerUserId;
+  if (!ownerUserId) return;
+  const [member] = await ctx.db
+    .select({ id: schema.workspaceMembers.id })
+    .from(schema.workspaceMembers)
+    .where(and(eq(schema.workspaceMembers.userId, ownerUserId), isNull(schema.workspaceMembers.deletedAt)))
+    .limit(1);
+  if (!member) {
+    throw new NonRetryableStepError(
+      "The workflow's owner is no longer a member of this workspace, so it can't use its connected integrations",
+    );
+  }
+}
 
 async function maybeDecrypt(value: string, keyring: EncryptionKeyring): Promise<string> {
   // Handles v1 + v2 formats; pre-encryption (plaintext) values pass through.
@@ -99,6 +131,7 @@ export async function getValidIntegrationToken(
   ctx: ActionContext,
   params: { type?: string; integrationId?: string },
 ): Promise<ValidIntegrationToken> {
+  await assertOwnerStillMember(ctx);
   const integ = await resolveIntegration(ctx.db, params);
   const key = keyringFromEnv(ctx.env);
   const tokens = integ.oauthTokens;
@@ -138,6 +171,7 @@ export async function getIntegrationCredentials(
   ctx: ActionContext,
   params: { type?: string; integrationId?: string },
 ): Promise<ResolvedCredentials> {
+  await assertOwnerStillMember(ctx);
   const integ = await resolveIntegration(ctx.db, params);
   const key = keyringFromEnv(ctx.env);
   const out: Record<string, string> = {};

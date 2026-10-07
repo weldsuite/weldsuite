@@ -1460,6 +1460,7 @@ export const weldconnect = {
       delay: { name: 'Delay', description: 'Wait for a specified time' },
       manual_step: { name: 'Approval', description: 'Pause until someone approves or rejects' },
       http_request: { name: 'HTTP Request', description: 'Make an API request' },
+      'slack.post_message': { name: 'Slack: Post Message', description: 'Post a message to a Slack channel' },
       run_script: { name: 'Run Script', description: 'Execute custom JavaScript' },
       ai_generate: { name: 'AI Generate', description: 'Generate content with AI' },
       ai_classify: { name: 'AI Classify', description: 'Classify text into categories with AI' },
@@ -2072,6 +2073,7 @@ export const weldconnect = {
       move_deal_stage: 'Move Deal Stage',
       log_activity: 'Log Activity',
       post_chat_message: 'Post Chat Message',
+      'slack.post_message': 'Slack: Post Message',
       create_task: 'Create Task',
       send_notification: 'Send Notification',
       run_script: 'Run Script',
@@ -2276,6 +2278,27 @@ export const weldconnect = {
       mentionsPlaceholder: '{{trigger.record.ownerId}}',
       ownerPermissionHint:
         "The workflow acts as its owner: it can only post where the owner could — a channel the owner can't see is refused.",
+    },
+    // SlackPostMessageForm — first third-party provider step
+    slackPostMessage: {
+      connection: 'Slack connection',
+      connectionDesc: 'Which connected Slack workspace to post as.',
+      selectConnection: 'Select a connection',
+      noConnection: 'No Slack workspace is connected yet. Connect one from WeldConnect → Integrations first.',
+      channel: 'Channel',
+      channelDesc: 'The Slack channel to post to.',
+      selectChannel: 'Select a channel',
+      loadingChannels: 'Loading channels…',
+      noChannels: 'No channels found for this connection.',
+      privateChannelHint: "Posting to a private channel needs WeldSuite's Slack app invited to it first (/invite @WeldSuite in Slack).",
+      message: 'Message',
+      messageDesc: 'Supports {{variables}} and Slack mrkdwn (*bold*, _italic_, <url|text>).',
+      messagePlaceholder: 'The weekly report is ready: {{steps.<step>.url}}',
+      threadTs: 'Reply to thread (optional)',
+      threadTsDesc: "A previous message's ts to reply in its thread, e.g. {{steps.<step>.ts}} from an earlier Slack step.",
+      threadTsPlaceholder: '{{steps.<step>.ts}}',
+      ownerHint:
+        "Posts with the workspace's own Slack connection, not as the owner — it only refuses once the owner has left the workspace.",
     },
     // CreateTaskForm
     taskProject: 'Project',

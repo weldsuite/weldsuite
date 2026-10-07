@@ -55,6 +55,10 @@ export const WELDCONNECT_ACTION_TYPES = [
   'condition',
   'loop',
   'delay',
+  // First third-party provider action (@weldsuite/workflow-integrations). See
+  // "Provider pattern" in docs/plans/weldconnect.md for what a future
+  // provider (Google, GitHub, …) adds alongside this entry.
+  'slack.post_message',
   'manual_step',
 ] as const;
 
@@ -74,6 +78,7 @@ export type WorkflowIssueCode =
   | 'missing_field'
   | 'orphan_step'
   | 'empty_loop'
+  | 'integration_not_connected'
   | 'missing_source_workflow'
   | 'self_chained_workflow'
   | 'unknown_source_workflow'
@@ -206,6 +211,7 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   },
   loop: (c) => (isBlank(c.items) ? ['items'] : []),
   delay: (c) => (['seconds', 'minutes', 'hours', 'days'].some((unit) => isPositive(c[unit])) ? [] : ['duration']),
+  'slack.post_message': (c) => ['channel', 'text'].filter((field) => isBlank(c[field])),
   manual_step: (c) => (isBlank(c.title) ? ['title'] : []),
 };
 
@@ -365,6 +371,62 @@ export function validateWeldConnectWorkflow(
   if (steps.length === 0) issues.push({ code: 'no_steps' });
   for (const step of steps) issues.push(...validateStep(step));
   issues.push(...validateBranches(steps));
+  return issues;
+}
+
+/**
+ * A `<provider>.<action>` step id, split into the owning provider — e.g.
+ * `slack.post_message` → `slack`. `undefined` for a plain (non-namespaced)
+ * action id.
+ */
+function providerIdOf(type: string): string | undefined {
+  const dot = type.indexOf('.');
+  return dot > 0 ? type.slice(0, dot) : undefined;
+}
+
+export interface IntegrationConnectionLookup {
+  id: string;
+  type: string;
+  status: string;
+}
+
+/**
+ * Third-party provider steps (`slack.post_message`, and whatever Google/
+ * GitHub add after it) point at a `workflow_integrations` row — directly via
+ * `config.integrationId`, or implicitly at "the first connected integration of
+ * this provider" when left blank (same default `resolveIntegration` uses at
+ * run time, services/integrations.ts in workflow-worker). Activating a
+ * workflow that points at nothing connected would only fail once it actually
+ * runs, so this is checked up front too, same as a missing required field.
+ * Needs a DB read (the gate's other checks are pure), so it is run separately
+ * from `validateWeldConnectWorkflow` — see `rejectUnsupportedActivation` in
+ * routes/workflows/index.ts.
+ */
+export function validateWeldConnectIntegrations(
+  steps: unknown,
+  integrations: IntegrationConnectionLookup[],
+): WorkflowIssue[] {
+  if (!Array.isArray(steps)) return [];
+  const issues: WorkflowIssue[] = [];
+  for (const raw of steps) {
+    const step = asBag(raw);
+    const type = String(step.type ?? '');
+    const providerId = providerIdOf(type);
+    if (!providerId) continue;
+
+    const config = asBag(step.config ?? step.inputs);
+    const integrationId = typeof config.integrationId === 'string' ? config.integrationId : undefined;
+    const candidates = integrations.filter((i) => i.type === providerId);
+    const match = integrationId ? candidates.find((i) => i.id === integrationId) : candidates[0];
+
+    if (!match || match.status !== 'connected') {
+      issues.push({
+        code: 'integration_not_connected',
+        stepId: typeof step.id === 'string' ? step.id : undefined,
+        type,
+      });
+    }
+  }
   return issues;
 }
 
