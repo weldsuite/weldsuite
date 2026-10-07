@@ -2,10 +2,10 @@
  * WeldPass vaults — every vault the caller is in, plus (for a workspace admin
  * holding `passwords:manage`) the shared vaults they are not a member of.
  *
- * Opening a vault shows its items on the Passwords page. The row menu's Edit
- * opens the vault settings: members, details, activity, leave and delete. A
- * vault the caller can manage but is not a member of has no items to show, so
- * its row opens the settings straight away.
+ * Opening a vault goes inside it: its own page listing its items. The row
+ * menu's Edit opens the vault settings: members, details, activity, leave and
+ * delete. A vault the caller can manage but is not a member of has no items to
+ * show, so its row opens the settings straight away.
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -67,7 +67,7 @@ function VaultsList() {
     : undefined;
 
   function openItems(vault: WeldPassVault) {
-    void navigate({ to: '/weldpass/passwords', search: { vault: vault.id } });
+    void navigate({ to: '/weldpass/passwords/vaults/$vaultId', params: { vaultId: vault.id } });
   }
 
   const columns: ColumnDef<WeldPassVault>[] = [

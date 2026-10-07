@@ -408,7 +408,6 @@ export const weldpass = {
 
     vaultForm: {
       createTitle: 'Nieuwe gedeelde kluis',
-      createDescription: 'Je wordt de beheerder en kunt daarna teamgenoten toevoegen.',
       create: 'Kluis aanmaken',
       createFailed: 'De kluis kon niet worden aangemaakt.',
       name: 'Naam',

@@ -26,7 +26,7 @@ export function UpgradeButton({ collapsed = false }: Readonly<UpgradeButtonProps
               variant="outline"
               size="icon"
               onClick={() => setOpen(true)}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 transition-colors"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 transition-colors"
             >
               <Sparkles className="h-4 w-4" />
               <span className="sr-only">Upgrade</span>
@@ -44,7 +44,7 @@ export function UpgradeButton({ collapsed = false }: Readonly<UpgradeButtonProps
       <Button
         variant="outline"
         onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-[7px] text-sm font-medium text-blue-600 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 transition-colors"
+        className="flex w-full items-center justify-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-[7px] text-sm font-medium text-blue-600 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 transition-colors"
       >
         <span>Upgrade</span>
       </Button>
