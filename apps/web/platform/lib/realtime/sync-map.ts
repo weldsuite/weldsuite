@@ -472,6 +472,9 @@ export const platformSyncMap: EntitySyncMap = {
   // WeldKnow — Workspace knowledge base / wiki
   // =========================================================================
   knowledge_space: inv(knowledgeKeys.spaces(), knowledgeKeys.tree()),
+  // Joining, leaving or a role change alters which spaces (and so which pages
+  // and favorites) a person can reach; `spaces` also covers the members lists.
+  knowledge_space_member: inv(knowledgeKeys.spaces(), knowledgeKeys.tree(), knowledgeKeys.favorites()),
   knowledge_page: {
     // Structural changes (created/deleted/moved/restored) all reshuffle the
     // sidebar tree and trash list; `updated` (title/icon/content) also needs

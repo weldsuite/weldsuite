@@ -445,6 +445,14 @@ describe('platformSyncMap — WeldKnow', () => {
     ]);
   });
 
+  it('knowledge_space_member invalidates spaces + tree + favorites', () => {
+    expect(platformSyncMap.knowledge_space_member?.invalidate).toEqual([
+      ['knowledge', 'spaces'],
+      ['knowledge', 'tree'],
+      ['knowledge', 'favorites'],
+    ]);
+  });
+
   it('knowledge_page invalidates tree/trash/favorites/pages with detail helpers', () => {
     expect(platformSyncMap.knowledge_page?.invalidate).toEqual([
       ['knowledge', 'tree'],
