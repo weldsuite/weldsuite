@@ -13,6 +13,7 @@ import type {
 
 const revealItem = vi.fn();
 const deleteItem = vi.fn();
+const restoreItem = vi.fn();
 
 vi.mock('@weldsuite/i18n/client', () => ({
   // Keys echo back, with params appended so interpolation is visible.
@@ -23,6 +24,15 @@ vi.mock('@/hooks/queries/use-weldpass-passwords-queries', () => ({
   useRevealWeldPassItem: () => ({ mutateAsync: revealItem, isPending: false }),
   useDeleteWeldPassItem: () => ({ mutateAsync: deleteItem, isPending: false }),
   useWeldPassTotp: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRestoreWeldPassItem: () => ({ mutateAsync: restoreItem, isPending: false }),
+  useWeldPassItemVersions: () => ({
+    data: [
+      { id: 'wpiv_3', version: 3, action: 'updated', createdAt: '2026-01-02T00:00:00.000Z' },
+      { id: 'wpiv_2', version: 2, action: 'updated', createdAt: '2026-01-01T12:00:00.000Z' },
+    ],
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 import { ItemDetailDialog } from './item-detail-dialog';
@@ -57,7 +67,7 @@ function renderDialog(overrides: Partial<Parameters<typeof ItemDetailDialog>[0]>
     onClose: vi.fn(),
     onEdit: vi.fn(),
     onMove: vi.fn(),
-    onHistory: vi.fn(),
+    onRestored: vi.fn(),
     ...overrides,
   };
   render(<ItemDetailDialog {...props} />);
@@ -81,8 +91,8 @@ describe('ItemDetailDialog', () => {
     renderDialog();
 
     expect(screen.getByText('GitHub')).toBeInTheDocument();
-    expect(screen.getAllByText('dev@acme.com').length).toBeGreaterThan(0);
-    expect(screen.queryByText('hunter2-hunter2')).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue('dev@acme.com')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('hunter2-hunter2')).not.toBeInTheDocument();
     expect(revealItem).not.toHaveBeenCalled();
   });
 
@@ -91,14 +101,14 @@ describe('ItemDetailDialog', () => {
     renderDialog();
 
     await user.click(screen.getByRole('button', { name: 'weldpass.passwords.detail.reveal' }));
-    expect(await screen.findByText('hunter2-hunter2')).toBeInTheDocument();
-    expect(screen.getByText('backup code 42')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('hunter2-hunter2')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('backup code 42')).toBeInTheDocument();
     expect(revealItem).toHaveBeenCalledTimes(1);
     expect(revealItem).toHaveBeenCalledWith({ vaultId: 'wpv_1', itemId: 'wpi_1' });
 
     await user.click(screen.getByRole('button', { name: 'weldpass.passwords.detail.hide' }));
-    expect(screen.queryByText('hunter2-hunter2')).not.toBeInTheDocument();
-    expect(screen.queryByText('backup code 42')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('hunter2-hunter2')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('backup code 42')).not.toBeInTheDocument();
     expect(revealItem).toHaveBeenCalledTimes(1);
   });
 
@@ -120,7 +130,7 @@ describe('ItemDetailDialog', () => {
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('hunter2-hunter2'));
     expect(revealItem).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText('hunter2-hunter2')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('hunter2-hunter2')).not.toBeInTheDocument();
   });
 
   it('copies from the already revealed value without another request', async () => {
@@ -128,7 +138,7 @@ describe('ItemDetailDialog', () => {
     renderDialog();
 
     await user.click(screen.getByRole('button', { name: 'weldpass.passwords.detail.reveal' }));
-    await screen.findByText('hunter2-hunter2');
+    await screen.findByDisplayValue('hunter2-hunter2');
     await user.click(screen.getByRole('button', { name: 'weldpass.passwords.detail.copyPassword' }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('hunter2-hunter2'));
@@ -148,11 +158,31 @@ describe('ItemDetailDialog', () => {
   it('offers no write actions to a viewer', () => {
     renderDialog({ canEdit: false });
 
-    for (const action of ['edit', 'move', 'history', 'delete']) {
+    for (const action of ['edit', 'move', 'delete']) {
       expect(
         screen.queryByRole('button', { name: new RegExp(`detail\\.${action}$`) }),
       ).not.toBeInTheDocument();
     }
+    expect(
+      screen.queryByRole('tab', { name: 'weldpass.passwords.detail.history' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('restores an earlier version from the History tab and drops the revealed copy', async () => {
+    restoreItem.mockResolvedValue({});
+    const user = userEvent.setup();
+    const { onRestored } = renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'weldpass.passwords.detail.reveal' }));
+    await screen.findByDisplayValue('hunter2-hunter2');
+
+    await user.click(screen.getByRole('tab', { name: 'weldpass.passwords.detail.history' }));
+    // Only the older version can be restored; the current one has no button.
+    await user.click(screen.getByRole('button', { name: 'weldpass.passwords.history.restore' }));
+
+    await waitFor(() => expect(onRestored).toHaveBeenCalled());
+    expect(restoreItem).toHaveBeenCalledWith({ vaultId: 'wpv_1', itemId: 'wpi_1', version: 2 });
+    expect(screen.queryByDisplayValue('hunter2-hunter2')).not.toBeInTheDocument();
   });
 
   it('shows the API message when a reveal fails', async () => {
@@ -163,6 +193,6 @@ describe('ItemDetailDialog', () => {
     await user.click(screen.getByRole('button', { name: 'weldpass.passwords.detail.reveal' }));
 
     expect(await screen.findByText('This needs the viewer role on the vault.')).toBeInTheDocument();
-    expect(screen.queryByText('hunter2-hunter2')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('hunter2-hunter2')).not.toBeInTheDocument();
   });
 });

@@ -9,7 +9,7 @@
  *   is the title. Empty states use `emptyIcon()`.
  * - Pages split into sections use `TabsPage`: an underline `PageTabs` strip,
  *   then either a full-bleed list or content padded with `TabBody`.
- * - Overview pages use `DashboardPage` + `KpiGrid` / `KpiCard`.
+ * - Overview pages use `DashboardPage`.
  * - Loading is `<PageLoader fullScreen={false} />`; confirmations use
  *   `ConfirmDialog` from `@/components/confirm-dialog`.
  */
@@ -157,46 +157,5 @@ export function DashboardPage({
         {children}
       </div>
     </div>
-  );
-}
-
-export function KpiGrid({ children }: Readonly<{ children: ReactNode }>) {
-  return <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">{children}</div>;
-}
-
-/** Same markup as the KPI cards in WeldStash / WeldBooks / WeldHR. */
-export function KpiCard({
-  label,
-  value,
-  icon: Icon,
-  hint,
-  tone,
-}: Readonly<{
-  label: string;
-  value: ReactNode;
-  icon?: ComponentType<{ className?: string }>;
-  hint?: ReactNode;
-  tone?: 'default' | 'warning' | 'danger' | 'success';
-}>) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-        {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
-      </CardHeader>
-      <CardContent>
-        <div
-          className={cn(
-            'text-2xl font-bold tabular-nums',
-            tone === 'warning' && 'text-amber-600 dark:text-amber-400',
-            tone === 'danger' && 'text-destructive',
-            tone === 'success' && 'text-emerald-600 dark:text-emerald-400',
-          )}
-        >
-          {value}
-        </div>
-        {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
   );
 }

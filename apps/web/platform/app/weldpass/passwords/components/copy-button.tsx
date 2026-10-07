@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { cn } from '@/lib/utils';
 
 export function CopyButton({
   resolve,
   label,
   onError,
+  compact,
 }: Readonly<{
   /**
    * The text to copy. May be async: copying a password reveals it first, and
@@ -16,6 +18,8 @@ export function CopyButton({
   resolve: () => string | Promise<string>;
   label: string;
   onError?: (err: unknown) => void;
+  /** Small enough to sit inside an input. */
+  compact?: boolean;
 }>) {
   const [state, setState] = useState<'idle' | 'busy' | 'copied'>('idle');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -39,19 +43,21 @@ export function CopyButton({
     }
   }
 
+  const icon = compact ? 'size-3.5' : 'h-4 w-4';
+
   return (
     <Button
       type="button"
       variant="ghost"
-      size="sm"
+      size={compact ? 'icon-xs' : 'sm'}
       disabled={state === 'busy'}
       onClick={() => void copy()}
       aria-label={label}
       title={label}
     >
-      {state === 'busy' && <Loader2 className="h-4 w-4 animate-spin" />}
-      {state === 'copied' && <Check className="h-4 w-4 text-emerald-500" />}
-      {state === 'idle' && <Copy className="h-4 w-4" />}
+      {state === 'busy' && <Loader2 className={cn(icon, 'animate-spin')} />}
+      {state === 'copied' && <Check className={cn(icon, 'text-emerald-500')} />}
+      {state === 'idle' && <Copy className={icon} />}
     </Button>
   );
 }

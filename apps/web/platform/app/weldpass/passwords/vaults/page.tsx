@@ -12,13 +12,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
-import { Lock, LockKeyhole, SearchX, User, Users } from 'lucide-react';
+import { LockKeyhole, SearchX } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { WeldPassVault } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useWeldPassVaults } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { TimeAgo } from '../../components/shared';
+import { formatDateTime } from '@/lib/utils';
 import { emptyIcon, usePassBreadcrumbs } from '../../components/page-kit';
 import { CreateVaultDialog } from '../components/create-vault-dialog';
 import { PasswordsGate } from '../components/passwords-gate';
@@ -76,24 +76,13 @@ function VaultsList() {
       header: tp('vaults.columns.name'),
       width: 'flex-1',
       render: (vault) => (
-        <span className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-            {vault.kind === 'personal' ? (
-              <User className="h-4 w-4" aria-hidden />
-            ) : vault.role === null ? (
-              <Lock className="h-4 w-4" aria-hidden />
-            ) : (
-              <Users className="h-4 w-4" aria-hidden />
-            )}
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate font-medium">{vaultLabel(vault)}</span>
-            {vault.description && (
-              <span className="block truncate text-xs text-muted-foreground">
-                {vault.description}
-              </span>
-            )}
-          </span>
+        <span className="block min-w-0">
+          <span className="block truncate font-medium">{vaultLabel(vault)}</span>
+          {vault.description && (
+            <span className="block truncate text-xs text-muted-foreground">
+              {vault.description}
+            </span>
+          )}
         </span>
       ),
     },
@@ -131,8 +120,12 @@ function VaultsList() {
     {
       id: 'updated',
       header: tp('vaults.columns.updated'),
-      width: 'hidden md:block md:w-[120px]',
-      render: (vault) => <TimeAgo value={vault.updatedAt} />,
+      width: 'hidden md:block md:w-[200px]',
+      render: (vault) => (
+        <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+          {formatDateTime(vault.updatedAt)}
+        </span>
+      ),
     },
   ];
 
