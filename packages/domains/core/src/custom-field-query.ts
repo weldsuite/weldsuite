@@ -137,8 +137,10 @@ function valuePredicate(
     case 'ref':
       return sql`v.${column} = ${String(rawValue)}`;
     case 'text':
-    default:
-      return sql`v.${column} ILIKE ${`%${String(rawValue)}%`}`;
+    default: {
+      const pattern = `%${String(rawValue)}%`;
+      return sql`v.${column} ILIKE ${pattern}`;
+    }
   }
 }
 

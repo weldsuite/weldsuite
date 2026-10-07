@@ -1,3 +1,9 @@
+/** "7 Oct", or "7 Oct 2025" when the date falls in a different year than `now`. */
+function formatDayMonth(date: Date, now: Date): string {
+  const dayMonth = `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })}`;
+  return date.getFullYear() === now.getFullYear() ? dayMonth : `${dayMonth} ${date.getFullYear()}`;
+}
+
 export function formatEmailTime(utcDateString: string): string {
   const date = new Date(utcDateString);
   const now = new Date();
@@ -8,7 +14,7 @@ export function formatEmailTime(utcDateString: string): string {
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
-  return `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })}${date.getFullYear() !== now.getFullYear() ? ` ${date.getFullYear()}` : ''}`;
+  return formatDayMonth(date, now);
 }
 
 export function formatEmailDate(utcDateString: string): string {
@@ -22,7 +28,7 @@ export function formatEmailDate(utcDateString: string): string {
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
 
-  return `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })}${date.getFullYear() !== now.getFullYear() ? ` ${date.getFullYear()}` : ''}`;
+  return formatDayMonth(date, now);
 }
 
 export function formatShortTime(utcDateString: string): string {
@@ -35,7 +41,7 @@ export function formatShortTime(utcDateString: string): string {
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
-  return `${date.getDate()} ${date.toLocaleDateString('en-US', { month: 'short' })}${date.getFullYear() !== now.getFullYear() ? ` ${date.getFullYear()}` : ''}`;
+  return formatDayMonth(date, now);
 }
 
 export function formatFullDateTime(utcDateString: string): string {

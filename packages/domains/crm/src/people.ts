@@ -1435,8 +1435,9 @@ export async function bulkUpdatePeople(
   if (setFields.status !== undefined) updates.status = setFields.status;
   if (setFields.lifecycleStage !== undefined) updates.lifecycleStage = setFields.lifecycleStage;
 
+  const idList = sql.join(ids.map((id) => sql`${id}`), sql`, `);
   const bulkUpdateConditions: SQL[] = [
-    sql`${people.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`,
+    sql`${people.id} IN (${idList})`,
     isNull(people.deletedAt),
   ];
   if (ownerScope) bulkUpdateConditions.push(eq(people.ownerId, ownerScope));

@@ -101,7 +101,7 @@ export async function apiRequest<T>(
         401,
       );
     }
-    throw new ApiError(`${message} ${`(${code}, HTTP ${response.status})`}`, code, response.status);
+    throw new ApiError(`${message} (${code}, HTTP ${response.status})`, code, response.status);
   }
 
   if (response.status === 204 || json === undefined) {

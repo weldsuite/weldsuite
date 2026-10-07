@@ -268,7 +268,8 @@ export function presentList(
     const id = identifiers.find(([key]) => key === 'id')?.[1];
     const ref = id ? ` <!--id=${asText(id)}-->` : '';
 
-    return `${index + 1}. ${heading}${details ? ` — ${details}` : ''}${ref}`;
+    const detailNote = details ? ` — ${details}` : '';
+    return `${index + 1}. ${heading}${detailNote}${ref}`;
   });
 
   const total = pagination?.totalCount;

@@ -1284,8 +1284,9 @@ export async function bulkUpdateCompanies(
   if (setFields.status !== undefined) updates.status = setFields.status;
   if (setFields.lifecycleStage !== undefined) updates.lifecycleStage = setFields.lifecycleStage;
 
+  const idList = sql.join(ids.map((id) => sql`${id}`), sql`, `);
   const bulkUpdateConditions: SQL[] = [
-    sql`${companies.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`,
+    sql`${companies.id} IN (${idList})`,
     isNull(companies.deletedAt),
   ];
   if (ownerScope) bulkUpdateConditions.push(eq(companies.ownerId, ownerScope));

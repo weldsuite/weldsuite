@@ -12,6 +12,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { withQuery } from '@/lib/with-query';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -357,7 +358,7 @@ export function useCustomObjectRecords(slug: string | undefined, params: RecordL
       }
       const qs = query.toString();
       return client.get<RecordListResult>(
-        `/objects/${slug}/records${qs ? `?${qs}` : ''}`,
+        withQuery(`/objects/${slug}/records`, qs),
       );
     },
   });

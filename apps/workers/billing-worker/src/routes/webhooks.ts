@@ -1975,9 +1975,10 @@ async function handleDomainRegistrationCheckout(
   // need a human look — a live registration can still complete after the
   // webhook errors, and a refund then cannot be clawed back.
   if (counts.failed > 0 || counts.lostToDelete > 0) {
+    const paymentNote = paymentIntentId ? ` payment ${paymentIntentId}` : '';
     console.error(
       `[Domain Registration] ${counts.failed} failed, ${counts.lostToDelete} lost to delete, ${counts.registered} registered for session ${sessionId}` +
-        `${paymentIntentId ? ` payment ${paymentIntentId}` : ''} — payment not refunded, manual review required`,
+        `${paymentNote} — payment not refunded, manual review required`,
     );
   }
 }

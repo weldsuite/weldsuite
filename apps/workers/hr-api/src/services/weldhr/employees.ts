@@ -131,7 +131,8 @@ export async function listEmployees(db: Database, filters: ListEmployeesFilters)
   const conditions: SQL[] = [isNull(t.deletedAt)];
 
   if (filters.search?.trim()) {
-    const q = `%${filters.search.trim().replace(/[%_]/g, (m) => `\\${m}`)}%`;
+    const escaped = filters.search.trim().replace(/[%_]/g, (m) => `\\${m}`);
+    const q = `%${escaped}%`;
     const match = or(
       ilike(t.firstName, q),
       ilike(t.lastName, q),

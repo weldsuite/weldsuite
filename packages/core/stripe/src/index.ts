@@ -17,7 +17,8 @@ async function stripeRequest(
   body?: Record<string, string>,
   extraHeaders?: Record<string, string>,
 ): Promise<unknown> {
-  const auth = `Basic ${btoa(`${secretKey}:`)}`;
+  const credentials = `${secretKey}:`;
+  const auth = `Basic ${btoa(credentials)}`;
   const options: RequestInit = {
     method,
     headers: {

@@ -32,7 +32,8 @@ function addMenuGroups(map: Map<string, string>, groups: MenuGroups): void {
 
 function hostedAppHref(code: string, path: string): string {
   if (path === '/') return `/apps/${code}`;
-  return `/apps/${code}${path.startsWith('/') ? path : `/${path}`}`;
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  return `/apps/${code}${suffix}`;
 }
 
 export function useFallbackLabelRegistry(): Map<string, string> {

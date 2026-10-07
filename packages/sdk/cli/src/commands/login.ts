@@ -146,7 +146,7 @@ export async function run(args: ParsedArgs): Promise<void> {
     };
     writeCredentials(stored);
 
-    success(`Logged in${token.email ? ` as ${token.email}` : ''}`);
+    success(token.email ? `Logged in as ${token.email}` : 'Logged in');
     if (token.orgName) info(`Workspace: ${token.orgName}`);
     info(`Credentials saved to ${cyan(credentialsPath())} (mode 0600)`);
     info(`Key ${token.keyPrefix}… with scope user-apps:manage`);

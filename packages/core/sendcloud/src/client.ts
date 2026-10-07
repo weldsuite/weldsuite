@@ -116,7 +116,8 @@ export function createSendcloudClient(
 ): SendcloudClient {
   const fetchImpl = options?.fetch ?? fetch;
   const baseUrl = (options?.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
-  const auth = `Basic ${btoa(`${credentials.publicKey}:${credentials.secretKey}`)}`;
+  const userPass = `${credentials.publicKey}:${credentials.secretKey}`;
+  const auth = `Basic ${btoa(userPass)}`;
 
   async function request(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);

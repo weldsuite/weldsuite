@@ -38,6 +38,7 @@ import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfi
 import { BlockEditor, StaticFormattingToolbar, type BlockNoteEditorInstance } from '@/components/block-editor/block-editor';
 import type { Block } from '@blocknote/core';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { withQuery } from '@/lib/with-query';
 
 interface Note {
   id: string;
@@ -464,7 +465,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete('new');
       const query = params.toString();
-      router.replace(`/weldcrm/notes${query ? `?${query}` : ''}`);
+      router.replace(withQuery('/weldcrm/notes', query));
     }
   }, [searchParams, router]);
 

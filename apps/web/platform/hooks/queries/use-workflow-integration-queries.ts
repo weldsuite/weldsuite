@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { withQuery } from '@/lib/with-query';
 
 // =============================================================================
 // Query Keys
@@ -115,7 +116,7 @@ export function useWorkflowIntegrations(filters?: WorkflowIntegrationFilters) {
       if (filters?.limit) params.set('limit', String(filters.limit));
       const qs = params.toString();
       return client.get<WorkflowIntegrationListResponse>(
-        `/workflow-integrations${qs ? `?${qs}` : ''}`,
+        withQuery('/workflow-integrations', qs),
       );
     },
   });

@@ -74,7 +74,8 @@ for (const file of files) {
       const normalized = key === 'db' ? 'db/index' : key;
       if (normalized === 'types') {
         const toTypes = path.relative(path.dirname(file), path.join(src, 'types')).split(path.sep).join('/');
-        return `${lead}${quote}${toTypes.startsWith('.') ? toTypes : `./${toTypes}`}${quote}`;
+        const typesPath = toTypes.startsWith('.') ? toTypes : `./${toTypes}`;
+        return `${lead}${quote}${typesPath}${quote}`;
       }
       const target = MAP.get(normalized);
       if (target) return `${lead}${quote}${target}${quote}`;

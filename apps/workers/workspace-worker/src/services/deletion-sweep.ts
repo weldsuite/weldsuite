@@ -56,11 +56,12 @@ export interface DeletionSweepResult {
  */
 async function cancelLingeringStripeSubscription(env: Env, stripeSubscriptionId: string): Promise<void> {
   if (!env.STRIPE_SECRET_KEY) return;
+  const credentials = `${env.STRIPE_SECRET_KEY}:`;
   try {
     const res = await fetch(`https://api.stripe.com/v1/subscriptions/${stripeSubscriptionId}`, {
       method: 'DELETE',
       headers: {
-        Authorization: `Basic ${btoa(`${env.STRIPE_SECRET_KEY}:`)}`,
+        Authorization: `Basic ${btoa(credentials)}`,
       },
     });
     if (!res.ok && res.status !== 404) {

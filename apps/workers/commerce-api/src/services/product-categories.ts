@@ -11,7 +11,7 @@
  * pagination every other list endpoint uses.
  */
 
-import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, not, or, sql, type SQL } from 'drizzle-orm';
 import type {
   CategoryRuleColumn,
   CategorySortOrder,
@@ -154,6 +154,7 @@ export async function reparentDescendants(
 ): Promise<void> {
   if (oldPath === newPath) return;
   const depthShift = newPath.split('/').length - oldPath.split('/').length;
+  const descendantPattern = `${oldPath}/%`;
 
   await db
     .update(categories)
@@ -168,7 +169,7 @@ export async function reparentDescendants(
     })
     .where(
       and(
-        sql`${categories.path} LIKE ${`${oldPath}/%`}`,
+        sql`${categories.path} LIKE ${descendantPattern}`,
         sql`${categories.id} <> ${categoryId}`,
         isNull(categories.deletedAt),
       ),
@@ -227,6 +228,11 @@ function ruleToPredicate(rule: StoredCategoryRule): SQL {
   if (!entry) return sql`FALSE`;
   const { col, kind } = entry;
   const value = rule.condition;
+  // ILIKE patterns for the text relations; wildcards in the condition match literally.
+  const escaped = likeLiteral(value);
+  const containsPattern = `%${escaped}%`;
+  const prefixPattern = `${escaped}%`;
+  const suffixPattern = `%${escaped}`;
 
   if (kind === 'tags') {
     // `tags` is a jsonb array of strings; membership is an existence test over
@@ -237,18 +243,18 @@ function ruleToPredicate(rule: StoredCategoryRule): SQL {
       case 'equals':
         return exists(sql`tag_value = ${value}`);
       case 'not_equals':
-        return sql`NOT ${exists(sql`tag_value = ${value}`)}`;
+        return not(exists(sql`tag_value = ${value}`));
       // `not_contains` has to negate the substring test, not the equality one:
       // a product tagged `summer` does contain "sum" even though no tag equals
       // it. Folding the two together made the pair non-inverse.
       case 'not_contains':
-        return sql`NOT ${exists(sql`tag_value ILIKE ${`%${likeLiteral(value)}%`}`)}`;
+        return not(exists(sql`tag_value ILIKE ${containsPattern}`));
       case 'contains':
-        return exists(sql`tag_value ILIKE ${`%${likeLiteral(value)}%`}`);
+        return exists(sql`tag_value ILIKE ${containsPattern}`);
       case 'starts_with':
-        return exists(sql`tag_value ILIKE ${`${likeLiteral(value)}%`}`);
+        return exists(sql`tag_value ILIKE ${prefixPattern}`);
       case 'ends_with':
-        return exists(sql`tag_value ILIKE ${`%${likeLiteral(value)}`}`);
+        return exists(sql`tag_value ILIKE ${suffixPattern}`);
       default:
         return sql`FALSE`;
     }
@@ -277,13 +283,13 @@ function ruleToPredicate(rule: StoredCategoryRule): SQL {
     case 'not_equals':
       return sql`(${col} IS DISTINCT FROM ${value})`;
     case 'contains':
-      return sql`${col} ILIKE ${`%${likeLiteral(value)}%`}`;
+      return sql`${col} ILIKE ${containsPattern}`;
     case 'not_contains':
-      return sql`(${col} IS NULL OR ${col} NOT ILIKE ${`%${likeLiteral(value)}%`})`;
+      return sql`(${col} IS NULL OR ${col} NOT ILIKE ${containsPattern})`;
     case 'starts_with':
-      return sql`${col} ILIKE ${`${likeLiteral(value)}%`}`;
+      return sql`${col} ILIKE ${prefixPattern}`;
     case 'ends_with':
-      return sql`${col} ILIKE ${`%${likeLiteral(value)}`}`;
+      return sql`${col} ILIKE ${suffixPattern}`;
     default:
       return sql`FALSE`;
   }

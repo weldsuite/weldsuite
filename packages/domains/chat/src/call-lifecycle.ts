@@ -142,10 +142,8 @@ export async function endChatCall(
 
   // Post system message
   const msgId = generateId('msg');
-  const content =
-    unanswered
-      ? 'Missed call'
-      : `Call ended${duration > 0 ? ` — ${formatDuration(duration)}` : ''}`;
+  const endedLabel = duration > 0 ? `Call ended — ${formatDuration(duration)}` : 'Call ended';
+  const content = unanswered ? 'Missed call' : endedLabel;
   await db.insert(chatMessages).values({
     id: msgId,
     channelId: call.channelId,

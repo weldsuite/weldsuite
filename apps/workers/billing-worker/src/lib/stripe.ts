@@ -139,7 +139,8 @@ export async function stripeApiRequest(
   path: string,
   body?: Record<string, string>
 ): Promise<any> {
-  const auth = `Basic ${btoa(`${key}:`)}`;
+  const credentials = `${key}:`;
+  const auth = `Basic ${btoa(credentials)}`;
 
   const options: RequestInit = {
     method,

@@ -48,7 +48,7 @@ export async function middleware(request: NextRequest) {
   
   // Route to subdomain-specific content
   const searchParams = request.nextUrl.searchParams.toString();
-  const path = `${request.nextUrl.pathname}${searchParams ? `?${searchParams}` : ''}`;
+  const path = searchParams ? `${request.nextUrl.pathname}?${searchParams}` : request.nextUrl.pathname;
   
   // Rewrite to /[domain]/... path structure
   const rewritePath = `/${subdomain}${path === '/' ? '' : path}`;
