@@ -26,7 +26,7 @@ type DataEventType =
 type DataEventListener = () => void;
 
 class DataEventEmitter {
-  private listeners: Map<DataEventType, Set<DataEventListener>> = new Map();
+  private readonly listeners: Map<DataEventType, Set<DataEventListener>> = new Map();
 
   on(event: DataEventType, listener: DataEventListener): () => void {
     if (!this.listeners.has(event)) {

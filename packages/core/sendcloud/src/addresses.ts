@@ -38,7 +38,7 @@ export function toCountryCode(value?: string | null): string | null {
 export function splitStreet(line1?: string | null): { addressLine1: string; houseNumber: string } {
   const value = (line1 ?? '').trim();
   if (!value) return { addressLine1: '', houseNumber: '1' };
-  const match = value.match(/^(.*?)[\s,]+(\d+\s*[a-zA-Z]?)$/);
+  const match = /^(.*?)[\s,]+(\d+\s*[a-zA-Z]?)$/.exec(value);
   if (match) return { addressLine1: match[1]!.trim(), houseNumber: match[2]!.trim() };
   return { addressLine1: value, houseNumber: '1' };
 }

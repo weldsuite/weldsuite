@@ -150,6 +150,6 @@ export function userAppRelativePath(pathname: string, appCode: string): string {
 
 /** True when pathname is under `/apps/{code}` (with optional subpaths). */
 export function isUserAppPath(pathname: string): string | null {
-  const match = pathname.match(/^\/apps\/([a-z][a-z0-9-]*)(?:\/|$)/);
+  const match = /^\/apps\/([a-z][a-z0-9-]*)(?:\/|$)/.exec(pathname);
   return match?.[1] ?? null;
 }

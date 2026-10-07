@@ -26,7 +26,7 @@ import {
  */
 function channelIdFromActionUrl(actionUrl: unknown): string | null {
   if (typeof actionUrl !== 'string') return null;
-  const match = actionUrl.match(/\/weldchat\/(?:dm\/)?([^/?#]+)/);
+  const match = /\/weldchat\/(?:dm\/)?([^/?#]+)/.exec(actionUrl);
   return match?.[1] ?? null;
 }
 

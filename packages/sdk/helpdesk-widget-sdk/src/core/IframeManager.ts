@@ -63,9 +63,9 @@ interface MessageBrokerInterface {
  * Orchestrates multiple iframes for the widget system
  */
 export class IframeManager {
-  private config: ResolvedConfig;
-  private logger: Logger;
-  private iframes: Map<IframeType, IframeMetadata> = new Map();
+  private readonly config: ResolvedConfig;
+  private readonly logger: Logger;
+  private readonly iframes: Map<IframeType, IframeMetadata> = new Map();
   private rootContainer: HTMLDivElement | null = null;
   private appContainer: HTMLDivElement | null = null;
   private modalContainer: HTMLDivElement | null = null;
@@ -74,9 +74,9 @@ export class IframeManager {
   private messageBroker: MessageBrokerInterface | null = null;
 
   // Bound handlers for proper cleanup
-  private boundHandleResize: () => void;
-  private boundHandleOrientationChange: () => void;
-  private boundHandleVisualViewportResize: () => void;
+  private readonly boundHandleResize: () => void;
+  private readonly boundHandleOrientationChange: () => void;
+  private readonly boundHandleVisualViewportResize: () => void;
 
   // Guard flag to prevent double-binding event listeners
   private eventListenersBound = false;

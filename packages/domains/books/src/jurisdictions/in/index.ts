@@ -13,8 +13,8 @@ import { getInInvoiceRequirements } from './invoice-format';
 import { buildInGstReturn } from './gst-return';
 
 /** GSTIN: 2-digit state + PAN(10) + entity + Z + check digit. */
-const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/;
 
 export function normalizeGstin(value: string): string {
   return value.replace(/[\s-]/g, '').toUpperCase();
@@ -22,7 +22,7 @@ export function normalizeGstin(value: string): string {
 
 export function extractStateCodeFromGstin(gstin: string): string | undefined {
   const normalized = normalizeGstin(gstin);
-  const match = normalized.match(/^[0-9]{2}/);
+  const match = /^\d{2}/.exec(normalized);
   return match?.[0];
 }
 
@@ -211,7 +211,7 @@ export const inAdapter: JurisdictionAdapter = {
 function normalizeStateCode(value?: string): string | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();
-  if (!/^[0-9]{2}$/.test(trimmed)) return undefined;
+  if (!/^\d{2}$/.test(trimmed)) return undefined;
   return trimmed;
 }
 

@@ -26,11 +26,11 @@ import { randomIdSuffix } from '../utils/random-id';
  */
 export class StateCoordinator {
   private state: WeldState;
-  private logger: Logger;
-  private messageBroker: MessageBroker;
-  private subscriptions: Map<string, StateSubscription> = new Map();
+  private readonly logger: Logger;
+  private readonly messageBroker: MessageBroker;
+  private readonly subscriptions: Map<string, StateSubscription> = new Map();
   private stateHistory: StateAction[] = [];
-  private maxHistorySize = 50;
+  private readonly maxHistorySize = 50;
 
   constructor(messageBroker: MessageBroker, logger: Logger) {
     this.messageBroker = messageBroker;

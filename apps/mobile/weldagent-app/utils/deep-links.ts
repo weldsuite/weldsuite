@@ -21,7 +21,7 @@ function pickId(
   const explicit = data[key];
   if (typeof explicit === 'string' && ID.test(explicit)) return explicit;
   const actionUrl = data.actionUrl;
-  return typeof actionUrl === 'string' ? actionUrl.match(actionUrlPattern)?.[1] : undefined;
+  return typeof actionUrl === 'string' ? actionUrlPattern.exec(actionUrl)?.[1] : undefined;
 }
 
 function onlyValidId(value: string | undefined): string | undefined {

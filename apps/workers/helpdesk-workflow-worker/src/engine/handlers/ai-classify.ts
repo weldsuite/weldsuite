@@ -88,13 +88,13 @@ export const aiClassifyHandler: StepHandler = {
         : String(response);
 
       // Parse category from response
-      const categoryMatch = responseText.match(/Category:\s*(.+)/i);
+      const categoryMatch = /Category:\s*(.+)/i.exec(responseText);
       if (categoryMatch) {
         category = categoryMatch[1].trim().toLowerCase().replaceAll(/[^a-z0-9_\s-]/g, '').replaceAll(/\s+/g, '_');
       }
 
       // Parse confidence from response
-      const confidenceMatch = responseText.match(/Confidence:\s*(\d+)/i);
+      const confidenceMatch = /Confidence:\s*(\d+)/i.exec(responseText);
       if (confidenceMatch) {
         confidence = Math.min(100, Math.max(0, parseInt(confidenceMatch[1], 10)));
       }

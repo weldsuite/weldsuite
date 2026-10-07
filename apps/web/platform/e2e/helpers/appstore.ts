@@ -245,13 +245,13 @@ export async function mockAppStore(
     }
 
     // --- install ---
-    let m = p.match(/^\/settings\/apps\/([^/]+)\/install$/);
+    let m = /^\/settings\/apps\/([^/]+)\/install$/.exec(p);
     if (m && method === 'POST') {
       return handleInstall(route, m[1]);
     }
 
     // --- uninstall ---
-    m = p.match(/^\/settings\/apps\/([^/]+)$/);
+    m = /^\/settings\/apps\/([^/]+)$/.exec(p);
     if (m && method === 'DELETE') {
       return handleUninstall(route, m[1]);
     }

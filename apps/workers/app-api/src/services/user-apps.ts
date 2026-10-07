@@ -145,7 +145,7 @@ export function hasFileExtension(path: string): boolean {
 /** Vite-style content-hashed filename (index-abc12345.js) → immutable cache. */
 export function isHashedAsset(path: string): boolean {
   const segment = path.split('/').pop() ?? '';
-  return /-[a-zA-Z0-9_]{8,}\./.test(segment);
+  return /-\w{8,}\./.test(segment);
 }
 
 /** Reject traversal / absolute / backslash paths in uploaded bundle entries. */

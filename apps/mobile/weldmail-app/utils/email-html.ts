@@ -158,8 +158,8 @@ export function buildResponsiveEmailCss(opts: {
  * Returns the wrapper's open/close tags, or empty strings when there are none.
  */
 function bodyAttrWrapper(attrs: string): [string, string] {
-  const styleAttr = attrs.match(/\sstyle\s*=\s*("[^"]*"|'[^']*')/i);
-  const bgAttr = attrs.match(/\sbgcolor\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i);
+  const styleAttr = /\sstyle\s*=\s*("[^"]*"|'[^']*')/i.exec(attrs);
+  const bgAttr = /\sbgcolor\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i.exec(attrs);
   if (!styleAttr && !bgAttr) return ['', ''];
   const open =
     `<div` +
@@ -176,8 +176,8 @@ function bodyAttrWrapper(attrs: string): [string, string] {
  */
 export function unwrapEmailHtml(html: string): string {
   if (!html) return '';
-  const headMatch = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i);
-  const bodyMatch = html.match(/<body\b([^>]*)>([\s\S]*?)<\/body>/i);
+  const headMatch = /<head\b[^>]*>([\s\S]*?)<\/head>/i.exec(html);
+  const bodyMatch = /<body\b([^>]*)>([\s\S]*?)<\/body>/i.exec(html);
   if (!headMatch && !bodyMatch) return html;
 
   const styles: string[] = [];

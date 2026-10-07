@@ -31,7 +31,7 @@ function resolveEventDeepLink(data: Record<string, unknown> | undefined): string
       ? data.entityId
       : undefined) ||
     (typeof data.actionUrl === 'string'
-      ? data.actionUrl.match(/[?&]event=([^&#]+)/)?.[1]
+      ? /[?&]event=([^&#]+)/.exec(data.actionUrl)?.[1]
       : undefined);
 
   if (!candidate || !/^[A-Za-z0-9_-]+$/.test(candidate)) return null;

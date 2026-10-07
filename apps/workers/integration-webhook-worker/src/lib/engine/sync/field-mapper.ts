@@ -101,8 +101,8 @@ function reverseTransform(
 }
 
 export class FieldMapper {
-  private inboundMappings: FieldMappingDefinition[];
-  private outboundMappings: FieldMappingDefinition[];
+  private readonly inboundMappings: FieldMappingDefinition[];
+  private readonly outboundMappings: FieldMappingDefinition[];
 
   constructor(mappings: FieldMappingDefinition[]) {
     this.inboundMappings = mappings.filter(

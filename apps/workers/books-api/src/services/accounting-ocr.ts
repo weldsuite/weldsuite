@@ -348,7 +348,7 @@ function asIsoDate(value: unknown): string | null {
   if (typeof value !== 'string' || !value.trim()) return null;
   const trimmed = value.trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
-  const dutch = trimmed.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  const dutch = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(trimmed);
   if (dutch) {
     const [, d, m, y] = dutch;
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
@@ -385,7 +385,7 @@ export function looksLikeImage(bytes: Uint8Array): boolean {
 /** Pull a JSON object out of a model reply that may wrap it in markdown fences. */
 export function parseOcrJson(text: string): Record<string, unknown> {
   const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
   const raw = (fenced ? fenced[1] : trimmed).trim();
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');

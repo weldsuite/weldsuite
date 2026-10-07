@@ -10,9 +10,9 @@ import { Logger } from './logger';
  * SecurityManager class
  */
 export class SecurityManager {
-  private config: SecurityConfig;
-  private logger: Logger;
-  private allowedOrigins: Set<string>;
+  private readonly config: SecurityConfig;
+  private readonly logger: Logger;
+  private readonly allowedOrigins: Set<string>;
 
   constructor(config: SecurityConfig, logger: Logger) {
     this.config = config;
@@ -214,9 +214,9 @@ export class SecurityManager {
  * Rate limiting utility
  */
 export class RateLimiter {
-  private requests: Map<string, number[]> = new Map();
-  private maxRequests: number;
-  private windowMs: number;
+  private readonly requests: Map<string, number[]> = new Map();
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
 
   constructor(maxRequests: number = 100, windowMs: number = 60000) {
     this.maxRequests = maxRequests;

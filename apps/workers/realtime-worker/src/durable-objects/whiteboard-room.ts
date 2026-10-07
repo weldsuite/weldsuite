@@ -37,7 +37,7 @@ function colorForUser(userId: string): string {
  * Broadcasts use sessionId exclusion so the sender doesn't echo.
  */
 export class WhiteboardRoom extends DurableObject<Env> {
-  private presence = new Map<string, WhiteboardPresenceMember>();
+  private readonly presence = new Map<string, WhiteboardPresenceMember>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);

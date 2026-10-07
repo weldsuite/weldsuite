@@ -57,7 +57,7 @@ function isIdLike(seg: string): boolean {
   // Drizzle-style IDs: shortprefix_xxxxx, or a UUID
   if (/^[a-z]{2,8}_[a-z0-9]{6,}$/i.test(seg)) return true;
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)) return true;
-  if (/^[0-9]{6,}$/.test(seg)) return true;
+  if (/^\d{6,}$/.test(seg)) return true;
   return false;
 }
 

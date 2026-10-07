@@ -13,8 +13,8 @@ import type { PresenceMember } from '@weldsuite/realtime/types';
  * Uses the WebSocket Hibernation API for efficient idle handling.
  */
 export class ConversationRoom extends DurableObject<Env> {
-  private presence = new Map<string, PresenceMember>();
-  private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly presence = new Map<string, PresenceMember>();
+  private readonly typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);

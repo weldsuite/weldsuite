@@ -23,7 +23,7 @@
  * in `@weldsuite/db/lib/crypto` so the two are recognisable side by side.
  */
 
-const FORMAT = /^(v[0-9]+):([0-9a-f]+):([0-9a-f]+)$/i;
+const FORMAT = /^(v\d+):([0-9a-f]+):([0-9a-f]+)$/i;
 
 export type RootKeyVersion = 'v1' | 'v2';
 

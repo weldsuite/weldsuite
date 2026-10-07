@@ -583,7 +583,7 @@ function decimalString(value: string | null, fallback = '0'): string {
 
 function quantityString(value: string | null): string {
   if (!value) return '1';
-  const match = value.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+  const match = /-?\d+(?:\.\d+)?/.exec(value.replace(',', '.'));
   if (!match) return '1';
   const parsed = Number(match[0]);
   return Number.isFinite(parsed) && parsed !== 0 ? String(parsed) : '1';

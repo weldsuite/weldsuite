@@ -164,8 +164,8 @@ export default function ActivityTab() {
       }
 
       if (item.actionUrl) {
-        const channelMatch = item.actionUrl.match(/\/weldchat\/([^?/]+)/);
-        const dmMatch = item.actionUrl.match(/\/weldchat\/dm\/([^?/]+)/);
+        const channelMatch = /\/weldchat\/([^?/]+)/.exec(item.actionUrl);
+        const dmMatch = /\/weldchat\/dm\/([^?/]+)/.exec(item.actionUrl);
         if (dmMatch) {
           router.push(`/dm/${dmMatch[1]}` as any);
         } else if (channelMatch) {

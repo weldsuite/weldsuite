@@ -116,7 +116,7 @@ let colorProbe: CanvasRenderingContext2D | null = null;
  * painting one pixel on a canvas.
  */
 function parseColor(value: string): Rgba | null {
-  const m = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/);
+  const m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/.exec(value);
   if (m) {
     const alphaDivisor = m[5] ? 100 : 1;
     const alpha = m[4] === undefined ? 1 : Number(m[4]) / alphaDivisor;

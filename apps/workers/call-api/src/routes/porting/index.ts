@@ -64,7 +64,7 @@ const phoneNumberSchema = z
   .string()
   .min(8)
   .max(20)
-  .regex(/^\+[0-9]+$/, 'Phone number must be E.164 (start with + followed by digits)');
+  .regex(/^\+\d+$/, 'Phone number must be E.164 (start with + followed by digits)');
 
 const preflightSchema = z.object({
   phoneNumber: phoneNumberSchema,
