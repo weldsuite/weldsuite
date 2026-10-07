@@ -94,7 +94,7 @@ async function verifyClerkJwt(token: string, pemKey: string): Promise<JwtPayload
   const [headerB64, payloadB64, signatureB64] = parts;
 
   // Parse header to get algorithm
-  const header = JSON.parse(atob(headerB64.replace(/-/g, '+').replace(/_/g, '/')));
+  const header = JSON.parse(atob(headerB64.replaceAll('-', '+').replaceAll('_', '/')));
   if (header.alg !== 'RS256') {
     throw new Error(`Unsupported algorithm: ${header.alg}`);
   }
@@ -126,7 +126,7 @@ async function verifyClerkJwt(token: string, pemKey: string): Promise<JwtPayload
 
   // Decode payload
   const payload: JwtPayload = JSON.parse(
-    atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'))
+    atob(payloadB64.replaceAll('-', '+').replaceAll('_', '/'))
   );
 
   // Check expiration

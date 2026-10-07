@@ -11,8 +11,7 @@
  * a separate object.
  */
 
-import { Hono } from 'hono';
-import { Context } from 'hono';
+import { Hono, Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission, hasContextPermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';

@@ -54,7 +54,7 @@ export async function findMatches(
     endToEndId: string | null;
   },
 ): Promise<ReconciliationSuggestion[]> {
-  const amount = parseFloat(transaction.amount || '0');
+  const amount = Number.parseFloat(transaction.amount || '0');
   const absAmount = Math.abs(amount);
   const suggestions: ReconciliationSuggestion[] = [];
 
@@ -215,7 +215,7 @@ async function matchInvoices(
     .limit(100);
 
   for (const inv of openInvoices) {
-    const balanceDue = parseFloat(inv.balanceDue || '0');
+    const balanceDue = Number.parseFloat(inv.balanceDue || '0');
 
     // Amount match
     const amountScore = scoreAmountMatch(balanceDue, absAmount);
@@ -292,7 +292,7 @@ async function matchBills(
     .limit(100);
 
   for (const bill of openBills) {
-    const balanceDue = parseFloat(bill.balanceDue || '0');
+    const balanceDue = Number.parseFloat(bill.balanceDue || '0');
 
     // Amount match
     const amountScore = scoreAmountMatch(balanceDue, absAmount);

@@ -20,9 +20,8 @@ import {
   Shield,
   Smile,
   StickyNote,
-} from 'lucide-react';
+ Copy, Check } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { Copy, Check } from 'lucide-react';
 import { useUpdateMemberProfile } from '@/hooks/queries/use-team-queries';
 import { toast } from 'sonner';
 import type { MemberProfile, UpdateMemberProfileInput } from '@weldsuite/core-api-client/schemas/member-profile';

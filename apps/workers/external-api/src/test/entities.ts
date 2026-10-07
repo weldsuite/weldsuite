@@ -127,7 +127,7 @@ export interface CrudEntity {
 }
 
 function e(seg: string, create: ZodTypeAny | null, update: ZodTypeAny | null): CrudEntity {
-  return { seg, scope: seg.replace(/-/g, '_'), create, update };
+  return { seg, scope: seg.replaceAll('-', '_'), create, update };
 }
 
 /** All entities exposing the standard CRUD routes (List/Get/Create/Update/Delete). */

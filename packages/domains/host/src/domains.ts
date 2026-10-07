@@ -495,7 +495,7 @@ export async function addExternalDomain(
   const name = parts[0] || domainName;
   const tld = parts.slice(1).join('.') || 'com';
   const id = generateId('dom');
-  const token = crypto.randomUUID().replace(/-/g, '');
+  const token = crypto.randomUUID().replaceAll('-', '');
   const verificationValue = `weldhost-verify=${token}`;
   const verificationName = `_weldhost-verify.${domainName}`;
 

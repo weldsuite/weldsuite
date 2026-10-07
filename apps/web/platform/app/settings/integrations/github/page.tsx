@@ -35,8 +35,7 @@ import {
   useRecoverInstallation,
 } from '@/hooks/queries/use-github-queries';
 import { getTranslations } from '@/lib/i18n';
-import type { GithubConnection, GithubRepoLink } from '@weldsuite/core-api-client/schemas/github';
-import type { DiscoverableInstallation } from '@weldsuite/core-api-client/schemas/github';
+import type { GithubConnection, GithubRepoLink, DiscoverableInstallation } from '@weldsuite/core-api-client/schemas/github';
 import {
   Dialog,
   DialogContent,

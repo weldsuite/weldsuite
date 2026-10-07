@@ -15,9 +15,8 @@ import {
   GithubAuthProvider,
   TwitterAuthProvider,
   OAuthProvider
-} from 'firebase/auth';
+, getAuth } from 'firebase/auth';
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
 import { getErrorMessage } from '../lib/errors';
 
 const firebaseConfig = {

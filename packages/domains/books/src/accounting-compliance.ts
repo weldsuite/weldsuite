@@ -184,7 +184,7 @@ export async function validateInvoiceForFinalize(
   }
 
   // KOR entities may not charge VAT on any invoice.
-  if (isKorActive(entity) && parseFloat(invoice.taxTotal || '0') > 0) {
+  if (isKorActive(entity) && Number.parseFloat(invoice.taxTotal || '0') > 0) {
     errors.push(
       'This entity uses the kleineondernemersregeling (KOR) — invoices must not charge BTW. Use the exempt tax rate on all lines.',
     );

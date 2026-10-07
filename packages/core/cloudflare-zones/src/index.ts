@@ -268,7 +268,7 @@ function parseCaaContent(content: string) {
   return {
     flags: Number(flags),
     tag,
-    value: value.join(' ').replace(/^"|"$/g, '') || undefined,
+    value: value.join(' ').replaceAll(/^"|"$/g, '') || undefined,
   };
 }
 
@@ -294,7 +294,7 @@ function quoteTxtContent(content: string): string {
   // strip spaces that are themselves the record value.
   const trimmed = content.trim();
   if (isQuotedTxtContent(trimmed)) return trimmed;
-  return `"${content.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return `"${content.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 }
 
 /**
@@ -307,7 +307,7 @@ function unwrapTxtContent(content: string): string {
   const trimmed = content.trim();
   if (!isQuotedTxtContent(trimmed)) return content;
   return [...trimmed.matchAll(/"((?:[^"\\]|\\.)*)"/g)]
-    .map((m) => m[1]!.replace(/\\"/g, '"').replace(/\\\\/g, '\\'))
+    .map((m) => m[1]!.replaceAll('\\"', '"').replaceAll('\\\\', '\\'))
     .join('');
 }
 

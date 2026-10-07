@@ -14,7 +14,7 @@ export interface SeedCombo {
 }
 
 export function catalogNumberTypeFromTelnyx(raw: string): PhoneNumberType | null {
-  const normalized = raw.trim().toLowerCase().replace(/-/g, '_');
+  const normalized = raw.trim().toLowerCase().replaceAll('-', '_');
   if (normalized === 'local') return 'local';
   if (normalized === 'toll_free') return 'toll-free';
   if (normalized === 'mobile') return 'mobile';

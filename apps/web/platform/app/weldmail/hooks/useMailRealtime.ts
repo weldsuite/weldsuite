@@ -3,8 +3,7 @@ import { useEffect, useCallback, useState, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
-import { useRealtimeConnection } from '@weldsuite/realtime/react';
+import { useWorkspaceClientMaybe, useRealtimeConnection } from '@weldsuite/realtime/react';
 import { topics } from '@weldsuite/realtime/topics';
 import type { ConnectionState, WorkspaceEvent } from '@weldsuite/realtime/types';
 import type {

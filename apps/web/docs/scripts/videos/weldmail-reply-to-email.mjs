@@ -84,7 +84,7 @@ const account = {
   deletedAt: null,
 }
 
-const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+const escapeHtml = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
 
 const message = {
   id: 'msg_1',
@@ -99,7 +99,7 @@ const message = {
   subject: INCOMING.subject,
   preview: INCOMING.paragraphs[1],
   textBody: INCOMING.paragraphs.join('\n\n'),
-  htmlBody: INCOMING.paragraphs.map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join(''),
+  htmlBody: INCOMING.paragraphs.map((p) => `<p>${escapeHtml(p).replaceAll('\n', '<br>')}</p>`).join(''),
   sentDate: minutesAgo(12),
   receivedDate: minutesAgo(12),
   isRead: false,

@@ -33,7 +33,7 @@ export function StatsBlock({
   const blockRef = useRef<HTMLDivElement>(null);
 
   const animateNumber = useCallback(() => {
-    const targetNumber = parseFloat(number.replace(/,/g, ''));
+    const targetNumber = Number.parseFloat(number.replaceAll(',', ''));
     const startTime = Date.now();
     const isDecimal = number.includes('.');
 

@@ -106,7 +106,7 @@ app.get('/categories', requirePermission('integrations:read'), async (c) => {
     }
     const data = Object.entries(counts).map(([id, count]) => ({
       id,
-      name: id.charAt(0).toUpperCase() + id.slice(1).replace(/_/g, ' '),
+      name: id.charAt(0).toUpperCase() + id.slice(1).replaceAll('_', ' '),
       count,
     }));
     return success(c, data);

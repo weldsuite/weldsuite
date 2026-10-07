@@ -3,7 +3,7 @@ import path from 'node:path';
 
 // Absolute, forward-slash globs for coverage: with `allowExternal` a relative
 // pattern no longer matches, and a backslash is an escape inside a glob.
-const glob = (dir: string) => path.resolve(__dirname, dir).replace(/\\/g, '/');
+const glob = (dir: string) => path.resolve(__dirname, dir).replaceAll('\\', '/');
 const APP_SRC = glob('src');
 const PERMISSIONS_SRC = glob('../../../packages/core/permissions/src');
 

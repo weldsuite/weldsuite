@@ -2,14 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Target } from 'lucide-react';
+import { Target, Loader2 } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Loader2 } from 'lucide-react';
 import {
   Select,
   SelectContent,

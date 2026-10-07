@@ -11,8 +11,7 @@ import {
   Image,
   Text,
   type TextInputProps,
-} from 'react-native';
-import type { ImageSourcePropType } from 'react-native';
+ ImageSourcePropType } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useClerk, useAuth, useSSO, useOrganizationList } from '@clerk/expo';
 import * as WebBrowser from 'expo-web-browser';

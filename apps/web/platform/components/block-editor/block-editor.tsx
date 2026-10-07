@@ -7,10 +7,7 @@ import {
   FloatingComposerController,
   FloatingThreadController,
 } from '@blocknote/react';
-import { filterSuggestionItems } from '@blocknote/core';
-import { CommentsExtension } from '@blocknote/core/comments';
-import { undoDepth, redoDepth } from 'prosemirror-history';
-import {
+import { filterSuggestionItems ,
   Block,
   BlockNoteSchema,
   createStyleSpec,
@@ -19,6 +16,8 @@ import {
   defaultStyleSpecs,
   PartialBlock,
 } from '@blocknote/core';
+import { CommentsExtension } from '@blocknote/core/comments';
+import { undoDepth, redoDepth } from 'prosemirror-history';
 import '@blocknote/shadcn/style.css';
 import { cn } from '@/lib/utils';
 import { useFileUpload } from '@/hooks/use-file-upload';

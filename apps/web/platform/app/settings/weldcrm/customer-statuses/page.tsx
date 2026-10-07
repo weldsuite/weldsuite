@@ -32,8 +32,7 @@ import {
   useReorderCustomerStatusesMutation,
   STATUS_STYLE_MAP,
 } from '@/hooks/queries/use-weldcrm-customer-statuses';
-import type { CustomerStatus } from '@weldsuite/core-api-client/schemas/customer-statuses';
-import type { CreateCustomerStatusInput } from '@weldsuite/core-api-client/schemas/customer-statuses';
+import type { CustomerStatus, CreateCustomerStatusInput } from '@weldsuite/core-api-client/schemas/customer-statuses';
 import { StatusRow } from './status-row';
 import { StatusFormDialog } from './status-form-dialog';
 

@@ -45,7 +45,7 @@ function ChartContainer({
   children: React.ReactNode
 }) {
   const uniqueId = React.useId()
-  const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`
+  const chartId = `chart-${id || uniqueId.replaceAll(':', "")}`
 
   return (
     <ChartContext.Provider value={{ config }}>

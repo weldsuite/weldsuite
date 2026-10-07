@@ -34,7 +34,7 @@ if (!worker || !['test', 'production'].includes(env ?? '')) {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workerDir = path.join(repoRoot, 'apps/workers', worker);
-const toml = readFileSync(path.join(workerDir, 'wrangler.toml'), 'utf8').replace(/\r\n/g, '\n');
+const toml = readFileSync(path.join(workerDir, 'wrangler.toml'), 'utf8').replaceAll('\r\n', '\n');
 
 // Queues this worker consumes in the target env: `queue = "…"` inside
 // `[[env.<env>.queues.consumers]]` blocks.

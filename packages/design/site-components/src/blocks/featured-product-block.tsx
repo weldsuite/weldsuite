@@ -208,7 +208,7 @@ export function FeaturedProductBlock({
                   €110
                   {hasCompareAtPrice && (
                     <span className="text-sm line-through opacity-50 ml-2">
-                      €{parseFloat(compareAtPrice).toFixed(0)}
+                      €{Number.parseFloat(compareAtPrice).toFixed(0)}
                     </span>
                   )}
                 </div>

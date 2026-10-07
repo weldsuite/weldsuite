@@ -3,14 +3,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useBlocker } from '@tanstack/react-router';
 import { useI18n } from '@/lib/i18n/provider';
 import { Trans } from '@/lib/i18n/trans';
-import { ChevronLeft, X, Clock, Link2, Globe, CalendarClock, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, X, Clock, Link2, Globe, CalendarClock, AlertTriangle, Settings2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
-import { Settings2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@weldsuite/ui/components/dialog';
 import {
@@ -86,9 +85,9 @@ const parseOptions = (raw: string): string[] =>
 const sanitizeSlug = (raw: string) =>
   raw
     .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
+    .replaceAll(/[^a-z0-9-]+/g, '-')
+    .replaceAll(/-+/g, '-')
+    .replaceAll(/^-|-$/g, '')
     .slice(0, 100);
 
 const isSameValue = (current: string, stored: string | null | undefined, fallback = '') =>

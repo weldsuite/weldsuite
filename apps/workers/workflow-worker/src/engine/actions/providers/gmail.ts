@@ -40,7 +40,7 @@ function base64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
   let bin = '';
   for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 /** RFC 2047-ish escaping is unnecessary for ASCII headers; this only guards

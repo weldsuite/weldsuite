@@ -40,7 +40,7 @@ export interface SeedPhonePricingResult {
 }
 
 function rowKey(countryCode: string, numberType: string): string {
-  return `${countryCode.trim().toUpperCase()}:${numberType.trim().toLowerCase().replace(/_/g, '-')}`;
+  return `${countryCode.trim().toUpperCase()}:${numberType.trim().toLowerCase().replaceAll('_', '-')}`;
 }
 
 async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {

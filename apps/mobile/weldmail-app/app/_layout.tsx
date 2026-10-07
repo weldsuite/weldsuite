@@ -25,7 +25,7 @@ import { appApi, appApiClient, setAppApiTokenGetter } from '@/services/app-api';
 import { personalApi, setPersonalApiTokenGetter } from '@/services/personal-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { PermissionProvider } from '@/contexts/PermissionContext';
-import { MailProvider } from '@/contexts/MailContext';
+import { MailProvider, useMail } from '@/contexts/MailContext';
 import { PinnedMessagesProvider } from '@/contexts/PinnedMessagesContext';
 import { ComposeOverlayProvider } from '@/contexts/ComposeOverlayContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
@@ -35,7 +35,6 @@ import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
 import { usePersonalMailRealtime } from '@/hooks/usePersonalMailRealtime';
 import { useMailEntityRealtime } from '@/hooks/useMailEntityRealtime';
-import { useMail } from '@/contexts/MailContext';
 import { BRAND } from '@/lib/brand';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.

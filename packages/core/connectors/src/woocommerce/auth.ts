@@ -121,11 +121,11 @@ export interface WooCommerceAuthState {
 function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 function fromBase64Url(value: string): Uint8Array {
-  const padded = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = value.replaceAll('-', '+').replaceAll('_', '/');
   const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
   const binary = atob(padded + pad);
   const bytes = new Uint8Array(binary.length);

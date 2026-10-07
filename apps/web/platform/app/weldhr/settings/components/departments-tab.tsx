@@ -1,7 +1,7 @@
 /** WeldHR settings — departments tab. */
 
 import { useMemo, useState } from 'react';
-import { Building2 } from 'lucide-react';
+import { Building2, Loader2 } from 'lucide-react';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -20,7 +20,6 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
-import { Loader2 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrDepartment } from '@weldsuite/app-api-client/domains/weldhr';

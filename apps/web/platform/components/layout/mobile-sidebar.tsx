@@ -9,7 +9,7 @@ import {
   ArrowLeftRight,
   LogOut,
   Check,
-} from 'lucide-react';
+ Box, Puzzle } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -36,7 +36,6 @@ import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { Button } from '@weldsuite/ui/components/button';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
-import { Box, Puzzle } from 'lucide-react';
 import { ColoredSquareIcon } from '@/components/layout/colored-square-icon';
 
 const iconMap: Record<string, React.ReactNode> = {

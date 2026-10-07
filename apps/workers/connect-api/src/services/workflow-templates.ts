@@ -242,7 +242,7 @@ export async function getTemplateCategories(db: Database) {
   }
   return Object.entries(counts).map(([id, count]) => ({
     id,
-    name: id.charAt(0).toUpperCase() + id.slice(1).replace(/_/g, ' '),
+    name: id.charAt(0).toUpperCase() + id.slice(1).replaceAll('_', ' '),
     count,
   }));
 }

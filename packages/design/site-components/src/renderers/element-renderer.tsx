@@ -69,7 +69,7 @@ export function ElementRenderer({
     const customStyles = settings.customStyles.split(';').reduce<Record<string, string>>((acc, style) => {
       const [key, value] = style.split(':').map(s => s.trim());
       if (key && value) {
-        const camelKey = key.replace(/-([a-z])/g, g => g[1]?.toUpperCase() || '');
+        const camelKey = key.replaceAll(/-([a-z])/g, g => g[1]?.toUpperCase() || '');
         acc[camelKey] = value;
       }
       return acc;

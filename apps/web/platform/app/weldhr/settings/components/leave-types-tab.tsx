@@ -2,12 +2,11 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarDays } from 'lucide-react';
+import { CalendarDays, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
-import { Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,

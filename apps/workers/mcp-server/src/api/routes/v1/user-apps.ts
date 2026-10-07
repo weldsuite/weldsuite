@@ -10,8 +10,7 @@
  * cross-workspace); bundles are static files in R2.
  */
 
-import { Hono, type Context } from 'hono';
-import type { MiddlewareHandler } from 'hono';
+import { Hono, type Context, MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import {

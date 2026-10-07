@@ -211,8 +211,8 @@ export function FeaturedCollectionBlock({
                           return product.price.toFixed(2);
                         }
                         // Handle string
-                        const parsed = parseFloat(product.price);
-                        return isNaN(parsed) ? '0.00' : parsed.toFixed(2);
+                        const parsed = Number.parseFloat(product.price);
+                        return Number.isNaN(parsed) ? '0.00' : parsed.toFixed(2);
                       })()}
                     </span>
                   </div>

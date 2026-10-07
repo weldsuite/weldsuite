@@ -695,7 +695,7 @@ export class DatabaseProvisioningService {
     }
 
     // Postgres identifiers: lowercase, alnum + underscore only.
-    const sanitize = (v: string) => v.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const sanitize = (v: string) => v.toLowerCase().replaceAll(/[^a-z0-9_]/g, '_');
     const dbName = sanitize(`ws_${workspaceId}`);
     const roleName = sanitize(`role_${workspaceId}`);
 
@@ -1092,7 +1092,7 @@ export class DatabaseProvisioningService {
   async createWarmSharedSlotResourcesOnShard(shard: NeonSharedProject): Promise<WarmSlotResources | null> {
     if (!shard.mainBranchId) return null;
     const poolId = generateId('dbp');
-    const sanitize = (v: string) => v.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const sanitize = (v: string) => v.toLowerCase().replaceAll(/[^a-z0-9_]/g, '_');
     const dbName = sanitize(`ws_pool_${poolId}`);
     const roleName = sanitize(`role_pool_${poolId}`);
 
@@ -1240,7 +1240,7 @@ export class DatabaseProvisioningService {
       await neon(swapDatabase(adminUrl, GOLDEN_TEMPLATE_DB)).query(TRANSFER_GOLDEN_OWNERSHIP_SQL);
 
       const admin = neon(adminUrl);
-      await admin.query(`COMMENT ON DATABASE ${GOLDEN_TEMPLATE_DB} IS '${schemaVersion.replace(/'/g, "''")}'`);
+      await admin.query(`COMMENT ON DATABASE ${GOLDEN_TEMPLATE_DB} IS '${schemaVersion.replaceAll('\'', "''")}'`);
       await admin.query(`ALTER DATABASE ${GOLDEN_TEMPLATE_DB} IS_TEMPLATE true`);
       await admin.query(`ALTER DATABASE ${GOLDEN_TEMPLATE_DB} ALLOW_CONNECTIONS false`);
 
@@ -1267,7 +1267,7 @@ export class DatabaseProvisioningService {
     if (!adminUrl) return null;
 
     const poolId = generateId('dbp');
-    const sanitize = (v: string) => v.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const sanitize = (v: string) => v.toLowerCase().replaceAll(/[^a-z0-9_]/g, '_');
     const dbName = sanitize(`ws_pool_${poolId}`);
     const roleName = sanitize(`role_pool_${poolId}`);
     const admin = neon(adminUrl);

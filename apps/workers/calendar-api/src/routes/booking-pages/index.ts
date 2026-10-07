@@ -11,8 +11,7 @@
  * see services/calendar-slots.ts.
  */
 
-import { Hono } from 'hono';
-import { Context } from 'hono';
+import { Hono, Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, isNull, like, ne, or, sql } from 'drizzle-orm';

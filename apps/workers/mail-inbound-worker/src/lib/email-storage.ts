@@ -649,7 +649,7 @@ async function findThreadBySubject(
   email: ParsedEmail,
 ): Promise<ThreadMatch | null> {
   const normalizedSubject = email.subject
-    .replace(/^(Re|Fwd|Fw):\s*/gi, '')
+    .replaceAll(/^(Re|Fwd|Fw):\s*/gi, '')
     .trim();
   if (!normalizedSubject) return null;
 
@@ -1568,9 +1568,9 @@ function evalRuleCondition(
     case 'ends_with':
       return typeof fieldValue === 'string' && fieldValue.toLowerCase().endsWith(v.toLowerCase());
     case 'greater_than':
-      return !isNaN(Number(fieldValue)) && !isNaN(Number(v)) && Number(fieldValue) > Number(v);
+      return !Number.isNaN(Number(fieldValue)) && !Number.isNaN(Number(v)) && Number(fieldValue) > Number(v);
     case 'less_than':
-      return !isNaN(Number(fieldValue)) && !isNaN(Number(v)) && Number(fieldValue) < Number(v);
+      return !Number.isNaN(Number(fieldValue)) && !Number.isNaN(Number(v)) && Number(fieldValue) < Number(v);
     case 'is_true':
       return fieldValue === true || fieldValue === 'true';
     case 'is_false':
@@ -1669,7 +1669,7 @@ async function storeInboundAttachments(
       const contentType = att.contentType || 'application/octet-stream';
 
       // Build R2 key: workspaces/{workspaceId}/mail/attachments/{messageId}/{filename}
-      const sanitizedName = att.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const sanitizedName = att.fileName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
       const r2Key = `workspaces/${workspaceId}/mail/attachments/${dbMessageId}/${i + 1}_${sanitizedName}`;
 
       // Upload to R2
@@ -1730,7 +1730,7 @@ async function storePersonalAttachments(
 
     try {
       const contentType = att.contentType || 'application/octet-stream';
-      const sanitizedName = att.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const sanitizedName = att.fileName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
       const r2Key = `personal/${personalAccountId}/mail/attachments/${dbMessageId}/${i + 1}_${sanitizedName}`;
 
       await env.STORAGE.put(r2Key, att.content, {

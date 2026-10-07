@@ -89,7 +89,7 @@ async function collectFiles(root: string, dir = root): Promise<BundleFile[]> {
       files.push(...(await collectFiles(root, fullPath)));
     } else if (entry.isFile()) {
       files.push({
-        path: relative(root, fullPath).split('\\').join('/'),
+        path: relative(root, fullPath).replaceAll('\\', '/'),
         bytes: await readFile(fullPath),
       });
     }

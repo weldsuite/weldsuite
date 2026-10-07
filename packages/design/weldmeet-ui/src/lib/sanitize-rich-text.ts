@@ -23,9 +23,9 @@ const ALLOWED_TAGS = new Set([
 
 function escapeText(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 /** Tags that actually represent user-applied formatting (vs. layout from typing). */
@@ -41,7 +41,7 @@ export function sanitizeRichText(html: string | null | undefined): string {
 
   // Non-browser (SSR / worker): strip all tags, return escaped text.
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
-    return escapeText(html.replace(/<[^>]*>/g, ''));
+    return escapeText(html.replaceAll(/<[^>]*>/g, ''));
   }
 
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');

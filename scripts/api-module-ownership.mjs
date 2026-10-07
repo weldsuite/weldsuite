@@ -23,12 +23,12 @@ const { findModuleForPath } = await import(pathToFileURL(path.join(repo, 'packag
 
 const files = readdirSync(src, { recursive: true, encoding: 'utf8' })
   .filter((f) => f.endsWith('.ts'))
-  .map((f) => path.join(src, f).replace(/\\/g, '/'));
+  .map((f) => path.join(src, f).replaceAll('\\', '/'));
 const fileSet = new Set(files);
 
 function resolveImport(from, spec) {
   if (!spec.startsWith('.')) return null;
-  const base = path.resolve(path.dirname(from), spec).replace(/\\/g, '/');
+  const base = path.resolve(path.dirname(from), spec).replaceAll('\\', '/');
   for (const c of [base, `${base}.ts`, `${base}/index.ts`]) if (fileSet.has(c)) return c;
   return null;
 }
@@ -56,7 +56,7 @@ for (const f of files) {
 const index = readFileSync(path.join(src, 'index.ts'), 'utf8');
 const importVar = new Map(); // var -> file
 for (const m of index.matchAll(/import\s*\{([^}]+)\}\s*from\s*'(\.\/[^']+)'/g)) {
-  const file = resolveImport(path.join(src, 'index.ts').replace(/\\/g, '/'), m[2]);
+  const file = resolveImport(path.join(src, 'index.ts').replaceAll('\\', '/'), m[2]);
   for (const v of m[1].split(',').map((x) => x.trim().split(' as ').pop().trim())) if (file) importVar.set(v, file);
 }
 const seeds = new Map(); // file -> module
@@ -89,7 +89,7 @@ const manual = {
   'workflows/import-tasks.ts': 'flow',
 };
 for (const [rel, mod] of Object.entries(manual)) {
-  const f = path.join(src, rel).replace(/\\/g, '/');
+  const f = path.join(src, rel).replaceAll('\\', '/');
   if (fileSet.has(f)) seeds.set(f, mod);
 }
 
@@ -108,7 +108,7 @@ for (const [seed, mod] of seeds) {
   }
 }
 
-const rel = (f) => path.relative(src, f).replace(/\\/g, '/');
+const rel = (f) => path.relative(src, f).replaceAll('\\', '/');
 const owner = new Map();
 for (const f of files) {
   if (f.endsWith('/index.ts') && path.dirname(f) === src) continue;

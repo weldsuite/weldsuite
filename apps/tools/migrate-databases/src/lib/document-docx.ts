@@ -203,7 +203,7 @@ function looksLikeHtml(s: string): boolean {
 function plainTextToHtml(s: string): string {
   return s
     .split(/\n{2,}/)
-    .map((para) => `<p>${escapeHtml(para).replace(/\n/g, '<br>')}</p>`)
+    .map((para) => `<p>${escapeHtml(para).replaceAll('\n', '<br>')}</p>`)
     .join('');
 }
 
@@ -498,7 +498,7 @@ function tableToBlocks(node: DomNode, ctx: Ctx): BlockRun[] {
 
 function preToParagraph(node: DomNode): Paragraph {
   const text = textContent(node);
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const lines = text.replaceAll('\r\n', '\n').split('\n');
   const runs: TextRun[] = [];
   lines.forEach((line, idx) => {
     runs.push(new TextRun({ text: line, font: 'Courier New' }));
@@ -570,7 +570,7 @@ function inlineRuns(nodes: DomNode[], fmt: InlineStyles): InlineRun[] {
   const out: InlineRun[] = [];
   for (const node of nodes) {
     if (node.type === 'text') {
-      const t = (node.data ?? '').replace(/\s+/g, ' ');
+      const t = (node.data ?? '').replaceAll(/\s+/g, ' ');
       if (t.length) out.push(makeRun(t, fmt));
     } else if (node.type === 'tag') {
       out.push(...tagRuns(node, fmt));
@@ -803,11 +803,11 @@ function normalizeHex(v: string): string {
 
 function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 function escapeAttr(s: string): string {
-  return escapeHtml(s).replace(/"/g, '&quot;');
+  return escapeHtml(s).replaceAll('"', '&quot;');
 }

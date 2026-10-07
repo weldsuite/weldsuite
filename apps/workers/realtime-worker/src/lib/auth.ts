@@ -14,7 +14,7 @@ export function pemToBuffer(pem: string): ArrayBuffer {
   const lines = pem
     .replace(/-----BEGIN PUBLIC KEY-----/, '')
     .replace(/-----END PUBLIC KEY-----/, '')
-    .replace(/\s/g, '');
+    .replaceAll(/\s/g, '');
   const binary = atob(lines);
   const buffer = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
@@ -27,7 +27,7 @@ export function pemToBuffer(pem: string): ArrayBuffer {
  * Decode a base64url-encoded string into an ArrayBuffer.
  */
 export function base64UrlToBuffer(base64url: string): ArrayBuffer {
-  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const base64 = base64url.replaceAll('-', '+').replaceAll('_', '/');
   const pad = base64.length % 4;
   const padded = pad ? base64 + '='.repeat(4 - pad) : base64;
   const binary = atob(padded);
@@ -130,7 +130,7 @@ async function verifyClerkPayload(
   await verifyRs256Signature(c.env.CLERK_JWT_KEY, jwtParts);
 
   // Decode payload only after signature is confirmed.
-  const payload = JSON.parse(atob(jwtParts[1].replace(/-/g, '+').replace(/_/g, '/')));
+  const payload = JSON.parse(atob(jwtParts[1].replaceAll('-', '+').replaceAll('_', '/')));
 
   // Check expiration.
   if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {

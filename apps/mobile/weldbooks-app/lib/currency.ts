@@ -53,16 +53,16 @@ export function formatCompactCurrency(
 
 /** Parse user input in either European (1.234,56) or US (1,234.56) format. */
 export function parseAmount(value: string): number {
-  const cleaned = value.replace(/[^\d.,-]/g, '');
+  const cleaned = value.replaceAll(/[^\d.,-]/g, '');
   // Comma acts as the decimal separator when it is the last separator present.
   if (
     cleaned.includes(',') &&
     (!cleaned.includes('.') || cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.'))
   ) {
-    const parsed = Number.parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
+    const parsed = Number.parseFloat(cleaned.replaceAll('.', '').replace(',', '.'));
     return Number.isNaN(parsed) ? 0 : parsed;
   }
-  const parsed = Number.parseFloat(cleaned.replace(/,/g, ''));
+  const parsed = Number.parseFloat(cleaned.replaceAll(',', ''));
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
