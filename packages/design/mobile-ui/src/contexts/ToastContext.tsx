@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Toast, ToastType } from '../components/Toast';
 
@@ -48,8 +48,19 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
     setToasts(prev => prev.filter(toast => toast.id !== id));
   }, []);
 
+  const value = useMemo(
+    () => ({
+      showToast,
+      success,
+      error,
+      info,
+      warning,
+    }),
+    [showToast, success, error, info, warning]
+  );
+
   return (
-    <ToastContext.Provider value={{ showToast, success, error, info, warning }}>
+    <ToastContext.Provider value={value}>
       {children}
       <View style={styles.toastContainer} pointerEvents="box-none">
         {toasts.map(toast => (

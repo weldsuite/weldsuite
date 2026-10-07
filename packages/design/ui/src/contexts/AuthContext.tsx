@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { getErrorMessage } from '../lib/errors';
 
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
   }, [fetchSession]);
 
   // Login
-  const login = async (email: string, password: string, rememberMe = false) => {
+  const login = useCallback(async (email: string, password: string, rememberMe = false) => {
     setError(null);
     setLoading(true);
 
@@ -101,10 +101,10 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
   // Register
-  const register = async (
+  const register = useCallback(async (
     email: string,
     password: string,
     name?: string,
@@ -135,10 +135,10 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
   // Social login
-  const socialLogin = async (
+  const socialLogin = useCallback(async (
     provider: 'google' | 'facebook' | 'twitter' | 'github' | 'apple'
   ) => {
     setError(null);
@@ -165,10 +165,10 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
   // Logout
-  const logout = async () => {
+  const logout = useCallback(async () => {
     setError(null);
     setLoading(true);
 
@@ -190,7 +190,7 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
   // Refresh session
   const refreshSession = useCallback(async () => {
@@ -215,7 +215,7 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
   }, [router]);
 
   // Reset password
-  const resetPassword = async (email: string) => {
+  const resetPassword = useCallback(async (email: string) => {
     setError(null);
     setLoading(true);
 
@@ -237,10 +237,10 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Check store access
-  const checkStoreAccess = (storeId: string, requiredRole?: string): boolean => {
+  const checkStoreAccess = useCallback((storeId: string, requiredRole?: string): boolean => {
     if (!user) return false;
 
     const access = user.storeAccess.find(sa => sa.storeId === storeId);
@@ -265,10 +265,10 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     }
 
     return true;
-  };
+  }, [user]);
 
   // Check permission
-  const hasPermission = (storeId: string, permission: string): boolean => {
+  const hasPermission = useCallback((storeId: string, permission: string): boolean => {
     if (!user) return false;
 
     const access = user.storeAccess.find(sa => sa.storeId === storeId);
@@ -283,7 +283,7 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
       }
       return false;
     });
-  };
+  }, [user]);
 
   // Auto-refresh session before expiry
   useEffect(() => {
@@ -298,21 +298,29 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     return () => clearTimeout(timer);
   }, [user, refreshSession]);
 
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      error,
+      login,
+      register,
+      socialLogin,
+      logout,
+      refreshSession,
+      resetPassword,
+      checkStoreAccess,
+      hasPermission,
+    }),
+    [
+      user, loading, error, login, register, socialLogin, logout, refreshSession, resetPassword,
+      checkStoreAccess, hasPermission,
+    ]
+  );
+
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        error,
-        login,
-        register,
-        socialLogin,
-        logout,
-        refreshSession,
-        resetPassword,
-        checkStoreAccess,
-        hasPermission,
-      }}
+      value={value}
     >
       {children}
     </AuthContext.Provider>

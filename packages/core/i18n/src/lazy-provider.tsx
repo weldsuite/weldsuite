@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { defaultLanguage, languages, type Language } from './locales';
 import type { LocaleAdapter } from './adapter';
 import { cookieAdapter } from './adapters/cookie';
@@ -49,8 +49,10 @@ export function LazyI18nProvider({
     adapter.write(lang);
   };
 
+  const value = useMemo(() => ({ language, setLanguage }), [language, setLanguage]);
+
   return (
-    <LazyI18nContext.Provider value={{ language, setLanguage }}>
+    <LazyI18nContext.Provider value={value}>
       {children}
     </LazyI18nContext.Provider>
   );

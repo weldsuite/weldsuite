@@ -1579,21 +1579,29 @@ export const GanttProvider: FC<GanttProviderProps> = ({
     });
   }, [timelineData, zoom, range, columnWidth, sidebarWidth, headerHeight, rowHeight, onAddItem]);
 
+  const contextValue = useMemo(
+    () => ({
+      zoom,
+      range,
+      headerHeight,
+      columnWidth,
+      sidebarWidth,
+      rowHeight,
+      onAddItem,
+      timelineData,
+      placeholderLength: 2,
+      ref: scrollRef,
+      scrollToFeature,
+    }),
+    [
+      zoom, range, headerHeight, columnWidth, sidebarWidth, rowHeight, onAddItem, timelineData,
+      scrollRef, scrollToFeature,
+    ]
+  );
+
   return (
     <GanttContext.Provider
-      value={{
-        zoom,
-        range,
-        headerHeight,
-        columnWidth,
-        sidebarWidth,
-        rowHeight,
-        onAddItem,
-        timelineData,
-        placeholderLength: 2,
-        ref: scrollRef,
-        scrollToFeature,
-      }}
+      value={contextValue}
     >
       <div
         className={cn(

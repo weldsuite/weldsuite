@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
 
 interface Note {
   id: string;
@@ -88,29 +88,38 @@ export function PinnedNoteProvider({ children }: Readonly<{ children: ReactNode 
     }
   }, [pinnedNote, onUnpin, onSave, onDelete]);
 
+  const value = useMemo<PinnedNoteContextType>(
+    () => ({
+      pinnedNote,
+      setPinnedNote,
+      isOpen,
+      setIsOpen,
+      onSave,
+      setOnSave: (fn) => setOnSave(() => fn),
+      onDelete,
+      setOnDelete: (fn) => setOnDelete(() => fn),
+      onUnpin,
+      setOnUnpin,
+      startMinimized,
+      setStartMinimized,
+      closePinnedNote,
+      unpinToDialog,
+      unpinnedNote,
+      unpinnedNoteSave,
+      unpinnedNoteDelete,
+      setUnpinnedNote,
+      clearUnpinnedNote,
+    }),
+    [
+      pinnedNote, setPinnedNote, isOpen, setIsOpen, onSave, setOnSave, onDelete, setOnDelete,
+      onUnpin, setOnUnpin, startMinimized, setStartMinimized, closePinnedNote, unpinToDialog,
+      unpinnedNote, unpinnedNoteSave, unpinnedNoteDelete, setUnpinnedNote, clearUnpinnedNote,
+    ]
+  );
+
   return (
     <PinnedNoteContext.Provider
-      value={{
-        pinnedNote,
-        setPinnedNote,
-        isOpen,
-        setIsOpen,
-        onSave,
-        setOnSave: (fn) => setOnSave(() => fn),
-        onDelete,
-        setOnDelete: (fn) => setOnDelete(() => fn),
-        onUnpin,
-        setOnUnpin,
-        startMinimized,
-        setStartMinimized,
-        closePinnedNote,
-        unpinToDialog,
-        unpinnedNote,
-        unpinnedNoteSave,
-        unpinnedNoteDelete,
-        setUnpinnedNote,
-        clearUnpinnedNote,
-      }}
+      value={value}
     >
       {children}
     </PinnedNoteContext.Provider>

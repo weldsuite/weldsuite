@@ -571,7 +571,7 @@ export function GridProvider<TEntity>({
 
   // Build state object. editingCell is kept on the type for compat but always null
   // here — consumers must use useIsCellEditing() from editing-store to check.
-  const state: GridState<TEntity> = {
+  const state = useMemo((): GridState<TEntity> => ({
     columns,
     columnWidths,
     selectedRows,
@@ -585,10 +585,13 @@ export function GridProvider<TEntity>({
     optimisticUpdates,
     isExporting,
     isDeleting,
-  };
+  }), [
+    columns, columnWidths, selectedRows, editValue, openPopover, sortConfig, filters,
+    fieldCalculations, customFieldData, optimisticUpdates, isExporting, isDeleting,
+  ]);
 
   // Build context value
-  const contextValue: GridContextValue<TEntity> = {
+  const contextValue = useMemo((): GridContextValue<TEntity> => ({
     config,
     actions,
     state,
@@ -623,7 +626,15 @@ export function GridProvider<TEntity>({
     handleColumnResize,
     calculateTableWidth,
     getCalculationResult,
-  };
+  }), [
+    config, actions, state, entities, filteredEntities, pagination, setColumns, setColumnWidths,
+    setSelectedRows, setEditingCell, setEditValue, setOpenPopover, setSortConfig, setFilters,
+    setFieldCalculations, setCustomFieldData, setOptimisticUpdates, setIsExporting, setIsDeleting,
+    getVisibleColumns, getEntityWithOptimisticUpdates, updateEntityField, updateCustomFieldValue,
+    getCustomFieldValue, addColumn, showColumn, deleteColumn, handleSort, clearSort,
+    handleHideColumn, handleMoveColumn, handleColumnResize, calculateTableWidth,
+    getCalculationResult,
+  ]);
 
   return (
     <GridContext.Provider value={contextValue as unknown as GridContextValue<unknown>}>

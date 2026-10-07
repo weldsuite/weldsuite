@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, ReactNode, useCallback, useRef, useEffect } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback, useRef, useEffect, useMemo } from 'react';
 
 // Telnyx WebRTC types (dynamically imported)
 interface TelnyxNotification {
@@ -423,32 +423,42 @@ export function CallProvider({ children }: Readonly<{ children: ReactNode }>) {
     }
   }, []);
 
+  const value = useMemo(
+    () => ({
+      isDialerOpen,
+      setIsDialerOpen,
+      callState,
+      startCall,
+      endCall,
+      dismissCall,
+      toggleMute,
+      toggleHold,
+      sendDigits,
+      isMinimized,
+      setIsMinimized,
+      phoneNumbers,
+      setPhoneNumbers,
+      voipConfigured,
+      setVoipConfigured,
+      voiceToken,
+      setVoiceToken,
+      initializeVoip,
+      resetVoip,
+      isVoipReady,
+      initialDialerNumber,
+      setInitialDialerNumber,
+    }),
+    [
+      isDialerOpen, setIsDialerOpen, callState, startCall, endCall, dismissCall, toggleMute,
+      toggleHold, sendDigits, isMinimized, setIsMinimized, phoneNumbers, setPhoneNumbers,
+      voipConfigured, setVoipConfigured, voiceToken, setVoiceToken, initializeVoip, resetVoip,
+      isVoipReady, initialDialerNumber, setInitialDialerNumber,
+    ]
+  );
+
   return (
     <CallContext.Provider
-      value={{
-        isDialerOpen,
-        setIsDialerOpen,
-        callState,
-        startCall,
-        endCall,
-        dismissCall,
-        toggleMute,
-        toggleHold,
-        sendDigits,
-        isMinimized,
-        setIsMinimized,
-        phoneNumbers,
-        setPhoneNumbers,
-        voipConfigured,
-        setVoipConfigured,
-        voiceToken,
-        setVoiceToken,
-        initializeVoip,
-        resetVoip,
-        isVoipReady,
-        initialDialerNumber,
-        setInitialDialerNumber,
-      }}
+      value={value}
     >
       {children}
     </CallContext.Provider>

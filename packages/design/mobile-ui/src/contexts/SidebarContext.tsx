@@ -1,4 +1,4 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 
 interface SidebarContextType {
   isCollapsed: boolean;
@@ -16,8 +16,10 @@ export function SidebarProvider({
   isCollapsed: boolean;
   expand: () => void;
 }>) {
+  const value = useMemo(() => ({ isCollapsed, expand }), [isCollapsed, expand]);
+
   return (
-    <SidebarContext.Provider value={{ isCollapsed, expand }}>
+    <SidebarContext.Provider value={value}>
       {children}
     </SidebarContext.Provider>
   );

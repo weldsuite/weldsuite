@@ -1,5 +1,5 @@
 
-import { useCallback, createContext, useContext } from 'react';
+import { useCallback, useMemo, createContext, useContext } from 'react';
 import { useRouter, usePathname } from '@/lib/router';
 import { useSettingsHotkey } from '@/hooks/use-settings-hotkey';
 interface SettingsContextType {
@@ -60,8 +60,10 @@ export function SettingsProvider({ children }: Readonly<SettingsProviderProps>) 
   // Setup keyboard shortcut for settings (Cmd/Ctrl + ,)
   useSettingsHotkey(openSettings);
 
+  const value = useMemo(() => ({ openSettings, closeSettings }), [openSettings, closeSettings]);
+
   return (
-    <SettingsContext.Provider value={{ openSettings, closeSettings }}>
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

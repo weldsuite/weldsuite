@@ -12,6 +12,7 @@ import React, {
   useState,
   useCallback,
   useRef,
+  useMemo,
 } from 'react';
 import { useUser, useOrganization } from '@clerk/clerk-react';
 import { useNotificationStore } from '@/lib/notifications/notification-store';
@@ -383,7 +384,7 @@ export function UnifiedNotificationProvider({ children }: Readonly<UnifiedNotifi
     await loadNotificationsFromServer(false);
   }, [organization?.id, user?.id, loadNotificationsFromServer]);
 
-  const value: UnifiedNotificationContextValue = {
+  const value = useMemo((): UnifiedNotificationContextValue => ({
     status,
     isConnected: status === 'connected',
     notifications,
@@ -400,7 +401,11 @@ export function UnifiedNotificationProvider({ children }: Readonly<UnifiedNotifi
     loadMore,
     refresh,
     clearNotifications,
-  };
+  }), [
+    status, notifications, unreadCount, isLoading, hasMore, subscribe, subscribeToCategory,
+    subscribeToEmailAccount, unsubscribeFromEmailAccount, markAsRead, markAllAsRead,
+    deleteNotification, loadMore, refresh, clearNotifications,
+  ]);
 
   return (
     <UnifiedNotificationContext.Provider value={value}>
