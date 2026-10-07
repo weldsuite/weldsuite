@@ -122,7 +122,8 @@ window.addEventListener('unhandledrejection', (event) => {
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    flush();
+    // Best effort: the page may be going away, nothing to do if it fails.
+    flush().catch(() => {});
   }
 });
 

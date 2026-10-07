@@ -330,7 +330,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
         if (!cancelled) authTokenRef.current = t;
       } catch { /* ignore */ }
     };
-    refresh();
+    void refresh();
     // Refresh every 30s to keep the token valid for beforeunload
     const iv = setInterval(refresh, 30_000);
     return () => { cancelled = true; clearInterval(iv); };

@@ -95,12 +95,12 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       }
     };
 
-    connectWebSocket();
+    void connectWebSocket();
 
     // Cleanup on unmount or user change
     return () => {
       if (clientRef.current) {
-        clientRef.current.disconnect();
+        void clientRef.current.disconnect();
       }
     };
   }, [user?.id]);

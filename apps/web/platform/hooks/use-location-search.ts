@@ -42,6 +42,13 @@ export function useLocationSearch(options?: UseLocationSearchOptions) {
           setIsSearching(false);
         }
       },
+      () => {
+        // Network failure: show no suggestions rather than a stuck spinner.
+        if (!cancelled) {
+          setSuggestions([]);
+          setIsSearching(false);
+        }
+      },
     );
 
     return () => {

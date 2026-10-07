@@ -53,7 +53,7 @@ export class AwsWebSocketClient {
 
           // Re-subscribe to email accounts after reconnection
           for (const accountId of this.subscribedEmailAccounts) {
-            this.subscribeToEmailAccountInternal(accountId);
+            void this.subscribeToEmailAccountInternal(accountId);
           }
 
           resolve();
@@ -251,7 +251,7 @@ export class AwsWebSocketClient {
    * Cleanup resources
    */
   destroy(): void {
-    this.disconnect();
+    void this.disconnect();
     this.listeners.clear();
     this.typedListeners.clear();
     this.statusListeners.clear();

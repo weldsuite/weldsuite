@@ -129,7 +129,8 @@ export function useClipRecorder(): UseClipRecorderReturn {
       analyser.smoothingTimeConstant = 0.8;
       const data = new Uint8Array(analyser.frequencyBinCount);
       ctx.createMediaStreamSource(mediaStream).connect(analyser);
-      ctx.resume();
+      // Best effort: if the context stays suspended the level meter just reads 0.
+      ctx.resume().catch(() => {});
 
       audioContextRef.current = ctx;
       analyserRef.current = analyser;

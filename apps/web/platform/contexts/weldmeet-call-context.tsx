@@ -450,7 +450,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
         if (!cancelled) authTokenRef.current = t;
       } catch { /* ignore */ }
     };
-    refresh();
+    void refresh();
     const iv = setInterval(refresh, 30_000);
     return () => { cancelled = true; clearInterval(iv); };
   }, [status, getToken]);
@@ -1274,8 +1274,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       await client.post(`/meeting-sessions/${sId}/leave`);
     } catch { /* best effort */ }
     cleanup();
-    queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
-    queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
+    void queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
+    void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
   }, [meetingId, sessionId, meeting, getClient, cleanup, queryClient]);
 
   const endMeetingAction = useCallback(async () => {
@@ -1296,15 +1296,17 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     meetingIdRef.current = null;
     sessionIdRef.current = null;
     cleanup();
-    queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
-    queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
+    void queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
+    void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
   }, [meetingId, sessionId, getClient, cleanup, queryClient, fireLeaveRequest]);
 
   const toggleMute = useCallback(async () => {
     if (!meeting) return;
     if (meeting.self.audioEnabled) {
       micWantedRef.current = false;
-      meeting.self.disableAudio();
+      meeting.self.disableAudio().catch((err) => {
+        console.error('[WeldMeet] disableAudio failed:', err);
+      });
       setIsMuted(true);
       playMuteSound();
       return;
@@ -1456,7 +1458,9 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
 
   const stopScreenShare = useCallback(() => {
     if (!meeting) return;
-    meeting.self.disableScreenShare();
+    meeting.self.disableScreenShare().catch((err) => {
+      console.error('[WeldMeet] stopScreenShare failed:', err);
+    });
     setIsScreenSharing(false);
     playScreenShareSound();
   }, [meeting]);

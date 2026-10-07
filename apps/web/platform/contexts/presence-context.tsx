@@ -118,7 +118,7 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    fetchStatuses();
+    void fetchStatuses();
     return () => { cancelled = true; };
   }, [workspaceId, getClient]);
 
@@ -185,7 +185,7 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    setOnline();
+    void setOnline();
   }, [userId, workspaceId, getClient, fetchEpoch]);
 
   // Re-assert our current status whenever the realtime connection comes

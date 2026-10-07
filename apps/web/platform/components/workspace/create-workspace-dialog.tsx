@@ -168,7 +168,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     if (!dbStatus?.provisioned || !dbStatus?.migrated || finalizationTriggered.current) return;
     finalizationTriggered.current = true;
 
-    (async () => {
+    void (async () => {
       try {
         await finalizeMutation.mutateAsync();
       } catch (err) {
@@ -337,7 +337,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                   onChange={(e) => setWorkspaceName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && workspaceName.trim() && !isCreating) {
-                      handleCreate();
+                      void handleCreate();
                     }
                   }}
                   disabled={isCreating}
