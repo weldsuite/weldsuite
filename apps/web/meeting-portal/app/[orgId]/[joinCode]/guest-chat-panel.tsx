@@ -111,7 +111,7 @@ function toIncomingMessage(msg: RealtimeChatFrame): ChatMessage {
     type: 'message',
     createdAt: new Date(msg.ts ?? Date.now()).toISOString(),
     attachments: Array.isArray(msg.attachments)
-      ? msg.attachments.map(toChatAttachment)
+      ? msg.attachments.map((a) => toChatAttachment(a))
       : undefined,
   };
 }
@@ -149,7 +149,7 @@ export function GuestChatPanel({
     let cancelled = false;
     setIsLoading(true);
 
-    (async () => {
+    void (async () => {
       try {
         const params = new URLSearchParams({ orgId });
         const res = await fetch(`/api/meeting/${meetingId}/messages?${params.toString()}`, {

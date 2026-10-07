@@ -222,7 +222,7 @@ export default function GuestJoinClient() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const info = await getGuestMeetingInfo(orgId, joinCode);
         if (cancelled) return;
@@ -374,7 +374,7 @@ export default function GuestJoinClient() {
 
     // Query permission state (Chromium/Firefox; Safari support varies).
     const queriedPermissions: PermissionStatus[] = [];
-    (async () => {
+    void (async () => {
       const q = navigator.permissions?.query?.bind(navigator.permissions);
       if (!q) return;
       for (const [name, setter] of [
@@ -391,7 +391,7 @@ export default function GuestJoinClient() {
       }
     })();
 
-    (async () => {
+    void (async () => {
       // Request audio and video SEPARATELY. A combined { video: true, audio: true }
       // call fails wholesale with NotFoundError if either device is missing —
       // so a guest on a laptop with no camera (or no mic) ends up with neither
