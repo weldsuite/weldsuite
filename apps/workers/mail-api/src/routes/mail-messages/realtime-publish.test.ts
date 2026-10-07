@@ -14,7 +14,7 @@ vi.mock('@weldsuite/mail-domain/access', () => ({
   emailEventData: vi.fn(async (_db: unknown, data: unknown) => data),
 }));
 
-vi.mock('../../services/mail/messages', () => ({
+vi.mock('@weldsuite/mail-domain/messages', () => ({
   getMessageAccountId: vi.fn(),
   getMessage: vi.fn(),
   getThread: vi.fn(),
@@ -65,7 +65,7 @@ vi.mock('@weldsuite/entity-events', async () => {
 });
 
 import * as access from '@weldsuite/mail-domain/access';
-import * as msgs from '../../services/mail/messages';
+import * as msgs from '@weldsuite/mail-domain/messages';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 
 const checkAccountAccess = access.checkAccountAccess as MockedFunction<

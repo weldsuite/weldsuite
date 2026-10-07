@@ -18,13 +18,14 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
-import * as messages from '../../services/mail/messages';
+import * as messages from '@weldsuite/mail-domain/messages';
 import { forwardAndPersist, MailSendError, replyAndPersist } from '@weldsuite/mail-domain/send';
 import {
   emailEventData,
   checkAccountAccess,
   hasAccessToAccount,
   isAdminOrOwner,
+  listAccessibleAccountIds,
   userAccessCondition,
 } from '@weldsuite/mail-domain/access';
 import { and, inArray, isNull } from 'drizzle-orm';
@@ -153,8 +154,12 @@ app.get('/stats', requirePermission('messages:read'), async (c) => {
     if (accountId) {
       const allowed = await checkAccountAccess(db, accountId, userId);
       if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+      return success(c, await messages.getMessageStats(db, accountId));
     }
-    const stats = await messages.getMessageStats(db, accountId);
+    // Unified counters cover the mailboxes the caller may open, like the
+    // unified list above — never every mailbox in the workspace.
+    const accessibleAccountIds = await listAccessibleAccountIds(db, userId);
+    const stats = await messages.getMessageStats(db, accessibleAccountIds);
     return success(c, stats);
   } catch (err) {
     console.error('[app-api/mail-messages] stats failed:', err);

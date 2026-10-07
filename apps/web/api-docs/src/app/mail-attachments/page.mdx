@@ -1,0 +1,176 @@
+# Mail attachments
+
+Mail attachments are the files of a message. You can read an attachment's metadata and download the file; an attachment is reachable when its message's mailbox is. To attach files to mail you send, upload them first and pass the returned ids as `attachmentIds`. Reads require the `mail_attachments:read` scope; uploads require `mail_attachments:write`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  A message's attachments are also listed by [List a message's attachments](/mail-messages#list-a-messages-attachments) and included in [Retrieve a message](/mail-messages#retrieve-a-message).
+</Note>
+
+---
+
+## The attachment model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `attach_abc123`).</Property>
+  <Property name="messageId" type="string">ID of the message the file belongs to.</Property>
+  <Property name="fileName" type="string">File name.</Property>
+  <Property name="contentType" type="string">MIME type, or `null`.</Property>
+  <Property name="size" type="integer">Size in bytes.</Property>
+  <Property name="isInline" type="boolean">Whether the file is an inline image referenced from the HTML body.</Property>
+  <Property name="contentId" type="string">The `Content-ID` an inline image is referenced by (`cid:`), or `null`.</Property>
+  <Property name="createdAt" type="timestamp">When the attachment was stored.</Property>
+</Properties>
+
+The storage location and download URL are never returned. Use [Download an attachment](#download-an-attachment).
+
+---
+
+## Retrieve an attachment {{ tag: 'GET', label: '/v1/mail-attachments/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve an attachment's metadata.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-attachments/attach_x7k2m9">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-attachments/attach_x7k2m9 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "attach_x7k2m9",
+        "messageId": "msg_abc123",
+        "fileName": "invoice-1042.pdf",
+        "contentType": "application/pdf",
+        "size": 40211,
+        "isInline": false,
+        "contentId": null,
+        "createdAt": "2026-10-07T08:41:05Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Download an attachment {{ tag: 'GET', label: '/v1/mail-attachments/:id/download' }}
+
+<Row>
+  <Col>
+
+    Download the file. The response body is the raw file, not JSON, with these headers:
+
+    - `Content-Type`, the attachment's MIME type (`application/octet-stream` when unknown)
+    - `Content-Length`, the size in bytes
+    - `Content-Disposition: attachment`, with the file name
+    - `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff`
+
+    Returns `404` when the file is not in storage. Returns `503` with code `STORAGE_UNAVAILABLE` when file storage is not configured.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-attachments/attach_x7k2m9/download">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-attachments/attach_x7k2m9/download \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -o invoice-1042.pdf
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    200 OK
+    Content-Type: application/pdf
+    Content-Disposition: attachment; filename="invoice-1042.pdf"; filename*=UTF-8''invoice-1042.pdf
+
+    <file bytes>
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Upload an attachment {{ tag: 'POST', label: '/v1/mail-attachments' }}
+
+<Row>
+  <Col>
+
+    Upload a file to attach to mail you send. Requires the `mail_attachments:write` scope. The response's `id` (`mupl_...`) goes in `attachmentIds` on [Send a message](/mail-accounts#send-a-message), [Reply](/mail-messages#reply-to-a-message), [Forward](/mail-messages#forward-a-message), a [draft](/mail-drafts) or [Send a draft](/mail-drafts#send-a-draft).
+
+    Send the file in one of two ways:
+
+    - **Raw body.** The request body is the file, `Content-Type` is its MIME type, and the `filename` query parameter names it.
+    - **Multipart form.** `multipart/form-data` with the file in a field named `file`. The part's own name and type are used.
+
+    A file may be up to 5 MB, which is also the limit for a whole email (body and every attachment together), so an upload that size leaves no room for anything else. Larger files return `413` `FILE_TOO_LARGE`; an empty file returns `400`.
+
+    An upload belongs to the workspace, not to one mailbox, and is not tied to a message until it is sent. Upload ids from another workspace are rejected at send time.
+
+    ### Query parameters
+
+    <Properties>
+      <Property name="filename" type="string">Required for a raw-body upload. The file name recipients see.</Property>
+    </Properties>
+
+    ### Response
+
+    <Properties>
+      <Property name="id" type="string">Upload id, e.g. `mupl_k3j9x2m1q8w7`.</Property>
+      <Property name="filename" type="string">The stored file name.</Property>
+      <Property name="contentType" type="string">MIME type (`application/octet-stream` when none was given).</Property>
+      <Property name="size" type="integer">Size in bytes.</Property>
+      <Property name="createdAt" type="timestamp">When the file was uploaded.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-attachments">
+
+    ```bash {{ title: 'Raw body' }}
+    curl "https://api.weldsuite.org/v1/mail-attachments?filename=quote-october.pdf" \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/pdf" \
+      --data-binary @quote-october.pdf
+    ```
+
+    ```bash {{ title: 'Multipart' }}
+    curl https://api.weldsuite.org/v1/mail-attachments \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -F "file=@quote-october.pdf;type=application/pdf"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response (201)' }}
+    {
+      "data": {
+        "id": "mupl_k3j9x2m1q8w7",
+        "filename": "quote-october.pdf",
+        "contentType": "application/pdf",
+        "size": 182344,
+        "createdAt": "2026-10-07T10:58:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>

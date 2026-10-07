@@ -1883,6 +1883,7 @@ export const sweep = {
         "entity": "Entiteit",
         "read": "Lezen",
         "write": "Schrijven",
+        "send": "Verzenden",
         "name": "Naam",
         "keyPrefix": "Sleutelprefix",
         "permissions": "Rechten",
@@ -1891,6 +1892,7 @@ export const sweep = {
         "noMatch": "Geen sleutels komen overeen met uw filters"
       },
       "notAvailable": "Niet beschikbaar",
+      "sendScopeHint": "Mail verzenden valt nooit onder Alles. Vink Verzenden aan als de sleutel e-mail moet kunnen versturen.",
       "selectedCount": "{count} recht(en) geselecteerd",
       "filters": {
         "usage": "Gebruik",

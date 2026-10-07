@@ -13,7 +13,7 @@ vi.mock('@weldsuite/mail-domain/access', () => ({
   checkAccountAccess: vi.fn(),
 }));
 
-vi.mock('../../services/mail/snooze', () => ({
+vi.mock('@weldsuite/mail-domain/snooze', () => ({
   listSnoozedMessages: vi.fn(),
   snoozeMessage: vi.fn(),
   unsnoozeMessage: vi.fn(),
@@ -24,7 +24,7 @@ vi.mock('../../services/mail/snooze', () => ({
 }));
 
 import * as access from '@weldsuite/mail-domain/access';
-import * as snooze from '../../services/mail/snooze';
+import * as snooze from '@weldsuite/mail-domain/snooze';
 
 const checkAccountAccess = access.checkAccountAccess as MockedFunction<typeof access.checkAccountAccess>;
 const snoozeMessage = snooze.snoozeMessage as MockedFunction<typeof snooze.snoozeMessage>;

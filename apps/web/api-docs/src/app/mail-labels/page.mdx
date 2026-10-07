@@ -1,0 +1,265 @@
+# Mail labels
+
+A label is a tag on the messages of one mailbox, such as `Billing` or `Follow up`. Each label belongs to one [mail account](/mail-accounts). To put a label on a message or thread, use [Mail messages](/mail-messages#add-or-remove-labels) or [Mail threads](/mail-threads#add-or-remove-thread-labels). Reads require the `mail_labels:read` scope; creating, updating and deleting require `mail_labels:write`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  System labels (`INBOX`, `SENT`, `STARRED`, `ARCHIVE`, `TRASH`, `SPAM`, …) are fixed names that every message filter accepts. Where a mailbox stores them as label records they have `isSystem: true`, and only their `position` can change.
+</Note>
+
+---
+
+## The label model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `label_abc123`).</Property>
+  <Property name="accountId" type="string">ID of the mail account the label belongs to.</Property>
+  <Property name="name" type="string">The label's name, unique per account (case-insensitive).</Property>
+  <Property name="color" type="string">Hex color such as `#4F46E5`, or `null`.</Property>
+  <Property name="isSystem" type="boolean">Whether this is a system label.</Property>
+  <Property name="slug" type="string">For system labels, the fixed name (`INBOX`, `SENT`, …). Otherwise `null`.</Property>
+  <Property name="messageCount" type="integer">Number of messages with this label.</Property>
+  <Property name="position" type="integer">Sort position in the WeldMail sidebar.</Property>
+  <Property name="aiEnabled" type="boolean">Whether WeldMail applies the label automatically to incoming mail that matches.</Property>
+  <Property name="aiKeywords" type="string[]">Keywords for automatic labelling, or `null`.</Property>
+  <Property name="aiDescription" type="string">Description of what the label is for, used for automatic labelling, or `null`.</Property>
+  <Property name="aiConfidence" type="integer">Minimum confidence (0–100) before the label is applied automatically. Default 70.</Property>
+  <Property name="createdAt" type="timestamp">When the label was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the label was last updated.</Property>
+</Properties>
+
+---
+
+## List labels {{ tag: 'GET', label: '/v1/mail-labels' }}
+
+<Row>
+  <Col>
+
+    Retrieve the labels of the mailboxes the key can open. A mailbox has tens of labels, so the list is not paged: every match comes back in one response, with `hasMore: false`.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="accountId" type="string">Only labels of this mailbox. Returns `404` if the key cannot open it.</Property>
+      <Property name="search" type="string">The label name contains this text (case-insensitive).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-labels">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/mail-labels \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d accountId=mail_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "label_abc123",
+          "accountId": "mail_abc123",
+          "name": "Billing",
+          "color": "#4F46E5",
+          "isSystem": false,
+          "slug": null,
+          "messageCount": 37,
+          "position": 0,
+          "aiEnabled": false,
+          "aiKeywords": null,
+          "aiDescription": null,
+          "aiConfidence": 70,
+          "createdAt": "2026-05-12T10:00:00Z",
+          "updatedAt": "2026-05-12T10:00:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a label {{ tag: 'POST', label: '/v1/mail-labels' }}
+
+<Row>
+  <Col>
+
+    Create a label on a mailbox. The name may not repeat another label of the same account in any casing, and may not be a system label name such as `Starred`; both return `409`.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="accountId" type="string">The mailbox the label belongs to.</Property>
+      <Property name="name" type="string">Label name, 1 to 100 characters.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="color" type="string">Hex color such as `#4F46E5`.</Property>
+      <Property name="aiEnabled" type="boolean">Apply the label automatically to incoming mail that matches.</Property>
+      <Property name="aiKeywords" type="string[]">Up to 50 keywords, each up to 100 characters.</Property>
+      <Property name="aiDescription" type="string">What the label is for, up to 1,000 characters.</Property>
+      <Property name="aiConfidence" type="integer">Minimum confidence, 0 to 100.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-labels">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-labels \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "accountId": "mail_abc123",
+        "name": "Billing",
+        "color": "#4F46E5"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "label_abc123",
+        "accountId": "mail_abc123",
+        "name": "Billing",
+        "color": "#4F46E5",
+        "isSystem": false,
+        "messageCount": 0,
+        "aiEnabled": false,
+        "aiConfidence": 70,
+        "createdAt": "2026-10-07T10:00:00Z",
+        "updatedAt": "2026-10-07T10:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a label {{ tag: 'GET', label: '/v1/mail-labels/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single label by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-labels/label_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-labels/label_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "label_abc123",
+        "accountId": "mail_abc123",
+        "name": "Billing",
+        "color": "#4F46E5",
+        "messageCount": 37
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a label {{ tag: 'PATCH', label: '/v1/mail-labels/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a label. Send at least one attribute. Renaming a label also renames it on every message that carries it. A system label accepts `position` only; any other change returns `409`.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="name" type="string">New name, 1 to 100 characters. Same uniqueness rules as on create.</Property>
+      <Property name="color" type="string">Hex color.</Property>
+      <Property name="position" type="integer">Sort position.</Property>
+      <Property name="aiEnabled" type="boolean">Automatic labelling on or off.</Property>
+      <Property name="aiKeywords" type="string[]">Up to 50 keywords.</Property>
+      <Property name="aiDescription" type="string">Up to 1,000 characters.</Property>
+      <Property name="aiConfidence" type="integer">0 to 100.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/mail-labels/label_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/mail-labels/label_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "name": "Invoices" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "label_abc123",
+        "accountId": "mail_abc123",
+        "name": "Invoices",
+        "updatedAt": "2026-10-07T10:15:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a label {{ tag: 'DELETE', label: '/v1/mail-labels/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a label. System labels cannot be deleted (`409`). Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/mail-labels/label_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/mail-labels/label_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

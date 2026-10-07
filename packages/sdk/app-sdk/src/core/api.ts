@@ -4,6 +4,9 @@ import type {
   CreateProductInput,
   KvClient,
   ListResponse,
+  MailClient,
+  MailDraft,
+  MailSendResult,
   PeopleClient,
   PersonSummary,
   ProductListOptions,
@@ -47,15 +50,19 @@ function joinUrl(base: string, path: string): string {
   return `${trimmedBase}${trimmedPath}`;
 }
 
-function withQuery(path: string, options: ResourceListOptions & { status?: string }): string {
+function withQuery(
+  path: string,
+  options: ResourceListOptions & Record<string, string | number | boolean | undefined>,
+): string {
   const params = new URLSearchParams();
-  if (options.limit !== undefined) params.set('limit', String(options.limit));
-  if (options.cursor !== undefined) params.set('cursor', options.cursor);
-  if (options.search !== undefined) params.set('search', options.search);
-  if (options.status !== undefined) params.set('status', options.status);
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }
+
+const enc = encodeURIComponent;
 
 async function toApiError(response: Response): Promise<WeldApiError> {
   let body: ApiErrorBody | null = null;
@@ -262,6 +269,54 @@ export class WeldApi {
       this.get<ListResponse<TicketSummary>>(withQuery('/v1/tickets', options)),
     get: (id: string) => this.get<SingleResponse<TicketSummary>>(`/v1/tickets/${encodeURIComponent(id)}`),
   };
+
+  /**
+   * WeldMail (`/v1/mail-*`). An app acts as the workspace, so it reaches the
+   * workspace's shared mailboxes only. Scopes: `mail_accounts:read`,
+   * `mail_messages:read|write`, `mail_drafts:read|write`, and
+   * `mail_messages:send` for the send methods (requested by name; a wildcard
+   * does not include it). Uploading attachments is `fetch('/v1/mail-attachments?filename=…', { method: 'POST', body: blob })`.
+   */
+  readonly mail: MailClient = {
+    accounts: {
+      list: (options = {}) => this.get(withQuery('/v1/mail-accounts', { ...options })),
+      get: (id) => this.get(`/v1/mail-accounts/${enc(id)}`),
+    },
+    messages: {
+      list: (options = {}) => this.get(withQuery('/v1/mail-messages', { ...options })),
+      get: (id) => this.get(`/v1/mail-messages/${enc(id)}`),
+      update: (id, flags) => this.patch(`/v1/mail-messages/${enc(id)}`, flags),
+      move: async (id, location) => {
+        await this.post(`/v1/mail-messages/${enc(id)}/move`, { location });
+      },
+    },
+    threads: {
+      list: (options = {}) => this.get(withQuery('/v1/mail-threads', { ...options })),
+      get: (threadId, accountId) => this.get(withQuery(`/v1/mail-threads/${enc(threadId)}`, { accountId })),
+    },
+    drafts: {
+      list: (options = {}) => this.get(withQuery('/v1/mail-drafts', { ...options })),
+      create: async (input) => (await this.post<SingleResponse<MailDraft>>('/v1/mail-drafts', input)).data,
+      update: async (id, input) => (await this.patch<SingleResponse<MailDraft>>(`/v1/mail-drafts/${enc(id)}`, input)).data,
+      remove: async (id) => {
+        await this.delete(`/v1/mail-drafts/${enc(id)}`);
+      },
+    },
+    send: (accountId, input, idempotencyKey) =>
+      this.sendMail(`/v1/mail-accounts/${enc(accountId)}/send`, input, idempotencyKey),
+    reply: (messageId, input, idempotencyKey) =>
+      this.sendMail(`/v1/mail-messages/${enc(messageId)}/reply`, input, idempotencyKey),
+    sendDraft: (draftId, idempotencyKey) => this.sendMail(`/v1/mail-drafts/${enc(draftId)}/send`, {}, idempotencyKey),
+  };
+
+  /** POST a send with an optional `Idempotency-Key`, unwrapping `{ data }`. */
+  private async sendMail(path: string, body: unknown, idempotencyKey?: string): Promise<MailSendResult> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    const response = await this.fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!response.ok) throw await toApiError(response);
+    return ((await response.json()) as SingleResponse<MailSendResult>).data;
+  }
 
   /**
    * `/v1/products` — requires `products:read` / `products:write`.

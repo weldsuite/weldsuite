@@ -24,12 +24,13 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 vi.mock('@weldsuite/mail-domain/access', () => ({
   checkAccountAccess: vi.fn(),
   isAdminOrOwner: vi.fn(),
+  listAccessibleAccountIds: vi.fn(),
   userAccessCondition: vi.fn(() => ({ _tag: 'sql' })),
   hasAccessToAccount: vi.fn(),
   emailEventData: vi.fn(async (_db: unknown, data: unknown) => data),
 }));
 
-vi.mock('../../services/mail/messages', () => ({
+vi.mock('@weldsuite/mail-domain/messages', () => ({
   getMessageAccountId: vi.fn(),
   getMessage: vi.fn(),
   getThread: vi.fn(),
@@ -73,7 +74,7 @@ vi.mock('@weldsuite/worker-kit/db', () => ({
 }));
 
 import * as access from '@weldsuite/mail-domain/access';
-import * as msgs from '../../services/mail/messages';
+import * as msgs from '@weldsuite/mail-domain/messages';
 
 const checkAccountAccess = access.checkAccountAccess as MockedFunction<typeof access.checkAccountAccess>;
 const isAdminOrOwner = access.isAdminOrOwner as MockedFunction<typeof access.isAdminOrOwner>;
@@ -345,5 +346,24 @@ describe('GET /api/mail-messages/stats · access control', () => {
     const { request } = makeApp(USER_ASSIGNED);
     const res = await request(`/api/mail-messages/stats?accountId=${ACCOUNT_ID}`);
     expect(res.status).toBe(200);
+  });
+
+  it('scopes the unified counters to the accounts the caller can open', async () => {
+    const listAccessibleAccountIds = access.listAccessibleAccountIds as MockedFunction<
+      typeof access.listAccessibleAccountIds
+    >;
+    listAccessibleAccountIds.mockResolvedValueOnce(['acc_shared']);
+    getMessageStats.mockClear();
+    getMessageStats.mockResolvedValueOnce({
+      total: 0, unread: 0, inboxUnread: 0, starred: 0, importantUnread: 0, sentUnread: 0,
+      archiveUnread: 0, trashUnread: 0, spam: 0, snoozed: 0, scheduled: 0, drafts: 0,
+    });
+
+    const { request } = makeApp(USER_STRANGER, ['messages:read']);
+    const res = await request('/api/mail-messages/stats');
+    expect(res.status).toBe(200);
+    // Never the unscoped form: the service is handed the caller's account ids.
+    expect(listAccessibleAccountIds).toHaveBeenCalledWith(expect.anything(), USER_STRANGER);
+    expect(getMessageStats).toHaveBeenCalledWith(expect.anything(), ['acc_shared']);
   });
 });

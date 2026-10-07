@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 
 import { getMailAccount, listMailAccounts } from './accounts';
-import { listThreadsByLabel } from './threads';
+import { listThreadsByLabel } from '@weldsuite/mail-domain/threads';
 import {
   checkAccountAccess,
   checkAccountManageAccess,

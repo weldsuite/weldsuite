@@ -17,8 +17,8 @@ import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
-import * as snooze from '../../services/mail/snooze';
-import { MailSnoozeError } from '../../services/mail/snooze';
+import * as snooze from '@weldsuite/mail-domain/snooze';
+import { MailSnoozeError } from '@weldsuite/mail-domain/snooze';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

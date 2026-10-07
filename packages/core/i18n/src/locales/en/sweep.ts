@@ -1883,6 +1883,7 @@ export const sweep = {
         "entity": "Entity",
         "read": "Read",
         "write": "Write",
+        "send": "Send",
         "name": "Name",
         "keyPrefix": "Key Prefix",
         "permissions": "Permissions",
@@ -1891,6 +1892,7 @@ export const sweep = {
         "noMatch": "No keys match your filters"
       },
       "notAvailable": "Not available",
+      "sendScopeHint": "Sending mail is never included in All. Tick Send for the key to send email.",
       "selectedCount": "{count} permission(s) selected",
       "filters": {
         "usage": "Usage",

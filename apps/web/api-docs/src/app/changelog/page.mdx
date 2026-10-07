@@ -14,6 +14,14 @@ A history of notable changes to the WeldSuite External API. The API is served un
 
 The current stable version. All endpoints live under `https://api.weldsuite.org/v1`.
 
+### 2026-10-07: WeldMail
+
+- **New resources**, [Mail Accounts](/mail-accounts) (read-only), [Messages](/mail-messages), [Threads](/mail-threads), [Labels](/mail-labels), [Folders](/mail-folders), [Drafts](/mail-drafts) and [Attachments](/mail-attachments).
+- **Sending**, compose (`POST /v1/mail-accounts/:id/send`), reply, forward and draft-send, with file uploads at `POST /v1/mail-attachments`. Sends support an `Idempotency-Key` header, need a verified WeldMail sender domain (`canSendViaApi`), and count toward the account's daily send limit. See [Sending mail](/sending-mail).
+- **New scopes**, `mail_accounts:read`, `mail_messages:read|write`, `mail_labels:read|write`, `mail_folders:read|write`, `mail_drafts:read|write`, `mail_attachments:read|write`, and `mail_messages:send`. `mail_messages:send` is the first named-only scope: `*` and `mail_messages:*` do not grant it.
+- **Mailbox access**, personal keys reach the mailboxes their owner can open in WeldMail; workspace keys and app tokens reach shared mailboxes only. Other mailboxes return `404`.
+- Organizing mail (read, star, labels, move, delete) changes WeldSuite's copy only and is not written back to Gmail, Outlook or IMAP.
+
 ### Conventions
 
 - **Authentication**, API keys (`wsk_` prefix) sent as `Authorization: Bearer` or `X-Api-Key`, with `resource:action` permission scopes.
@@ -29,6 +37,7 @@ The current stable version. All endpoints live under `https://api.weldsuite.org/
 - **WeldChat**, Channels, Channel Members, Messages, Drafts, Bookmarks, Sections
 - **WeldCalendar**, Calendars, Events (with recurrence support)
 - **WeldDrive**, Files (soft delete), Folders (soft delete), Drive (unified feed + storage stats, read-only)
+- **WeldMail**, Mail Accounts (read-only), Messages, Threads, Labels, Folders, Drafts, Attachments
 - **WeldBooks**, Accounting Entities, GL Accounts, Invoices, Bills, Journal Entries, Payments, Bank Accounts, Bank Transactions, Accounting Contacts, Tax Rates, Recurring Invoices, Reconciliation Rules, Fiscal Periods, FX Rates, VAT Returns, Accounting Documents, ICP Declarations, Accounting Settings (singleton)
 
 ### Notes

@@ -30,7 +30,13 @@ import {
 } from './labels';
 import { anyRecipientMatches, containsPattern, messageSearchCondition, senderMatches } from './messages';
 import { wakeDueSnoozedMessages } from './snooze';
-import { hasAccessToAccount, isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
+import {
+  principalAccessCondition,
+  principalHasAccess,
+  principalIsAdmin,
+  toPrincipal,
+  type MailCaller,
+} from './access';
 
 const { mailAccounts, mailMessages, people: contacts } = schema;
 
@@ -41,6 +47,11 @@ export interface ListThreadsByLabelInput {
   accountId?: string;
   page?: number;
   pageSize?: number;
+  /**
+   * Row offset; overrides `page` when set. The public API pages with an opaque
+   * cursor that carries the offset, so a caller can change `limit` mid-walk.
+   */
+  offset?: number;
   /**
    * Free-text search over subject, body and participants. A search looks
    * through the whole mailbox (everything but trash and spam) rather than the
@@ -86,9 +97,10 @@ type MessageRow = typeof mailMessages.$inferSelect;
  */
 async function resolveAccountScope(
   db: Database,
-  userId: string,
+  caller: MailCaller,
   accountId: string | undefined,
 ): Promise<SQL | null> {
+  const principal = toPrincipal(caller);
   if (accountId) {
     // Single-account variant — verify access first.
     const [account] = await db
@@ -97,17 +109,15 @@ async function resolveAccountScope(
       .where(and(eq(mailAccounts.id, accountId), isNull(mailAccounts.deletedAt)))
       .limit(1);
     if (!account) return null;
-    const admin = await isAdminOrOwner(db, userId);
-    if (!hasAccessToAccount(account, userId, admin)) return null;
+    if (!principalHasAccess(account, principal, await principalIsAdmin(db, principal))) return null;
     return eq(mailMessages.accountId, accountId);
   }
 
   // Unified variant — every account the caller can read.
-  const admin = await isAdminOrOwner(db, userId);
   const accessibleAccounts = await db
     .select({ id: mailAccounts.id })
     .from(mailAccounts)
-    .where(and(isNull(mailAccounts.deletedAt), userAccessCondition(userId, admin)));
+    .where(and(isNull(mailAccounts.deletedAt), await principalAccessCondition(db, principal)));
   if (accessibleAccounts.length === 0) return null;
   return inArray(
     mailMessages.accountId,
@@ -220,16 +230,16 @@ function buildThreadSummary(
 
 export async function listThreadsByLabel(
   db: Database,
-  userId: string,
+  caller: MailCaller,
   input: ListThreadsByLabelInput,
 ): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
   const page = Math.max(1, input.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, input.pageSize ?? 25));
-  const offset = (page - 1) * pageSize;
+  const offset = input.offset !== undefined ? Math.max(0, input.offset) : (page - 1) * pageSize;
 
   const baseConditions: SQL[] = [isNull(mailMessages.deletedAt)!];
 
-  const accountScope = await resolveAccountScope(db, userId, input.accountId);
+  const accountScope = await resolveAccountScope(db, caller, input.accountId);
   if (!accountScope) return { threads: [], totalCount: 0 };
   baseConditions.push(accountScope);
 
@@ -322,6 +332,32 @@ export async function listThreadsByLabel(
   await enrichThreadContacts(db, summaries);
 
   return { threads: summaries, totalCount };
+}
+
+/**
+ * One thread by its key: `COALESCE(threadId, id)`, the same key the listing
+ * returns as `threadId`, within one account. Messages oldest first. Null when
+ * the account has no live message under that key. The caller checks access to
+ * `accountId` first.
+ */
+export async function getThreadByKey(
+  db: Database,
+  accountId: string,
+  threadKey: string,
+): Promise<{ threadId: string; accountId: string; messages: MessageRow[] } | null> {
+  const messages = await db
+    .select()
+    .from(mailMessages)
+    .where(
+      and(
+        eq(mailMessages.accountId, accountId),
+        sql`COALESCE(${mailMessages.threadId}, ${mailMessages.id}) = ${threadKey}`,
+        isNull(mailMessages.deletedAt),
+      ),
+    )
+    .orderBy(asc(mailMessages.sentDate), asc(mailMessages.id));
+  if (messages.length === 0) return null;
+  return { threadId: threadKey, accountId, messages };
 }
 
 function dateOf(...candidates: (Date | null | undefined)[]): number {

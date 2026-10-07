@@ -87,6 +87,23 @@ service = "weldsuite-realtime"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
+# WeldMail sending (POST /v1/mail-accounts/:id/send, reply, forward, draft
+# send). Same Cloudflare Email Sending binding as mail-api: the sending domain
+# must be verified on the account once per environment. Locally there is no
+# MTA, so `wrangler dev` fails any actual send; the routes answer 503 when the
+# binding is missing.
+[[send_email]]
+name = "SEND_EMAIL"
+
+# MX lookup cache for recipient validation — mail-api's WORKSPACE_CACHE
+# namespace, so both workers share one cache.
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[vars]
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
 # Master Postgres over Hyperdrive (local dev). Test/production override below.
 [[hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
@@ -97,11 +114,19 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 [env.test]
 name = "weldsuite-external-api-test"
 routes = [{ pattern = "api-test.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "test", WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = "" }
+vars = { ENVIRONMENT = "test", WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = "", R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org" }
 
 [[env.test.kv_namespaces]]
 binding = "API_CACHE"
 id = "6ffe3c8ea4e041398d84f9f670e93f88"
+
+# WeldMail: mail-api's MX cache namespace (test).
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
 
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
@@ -157,7 +182,7 @@ head_sampling_rate = 1
 [env.production]
 name = "weldsuite-external-api"
 routes = [{ pattern = "api.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "production", WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = "" }
+vars = { ENVIRONMENT = "production", WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = "", R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org" }
 
 [[env.production.migrations]]
 tag = "v1"
@@ -205,6 +230,14 @@ id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 [[env.production.kv_namespaces]]
 binding = "API_CACHE"
 id = "f27cfb0a77a24936911ebd762adf3410"
+
+# WeldMail: mail-api's MX cache namespace (production).
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
 
 # Entity-event sinks (production)
 [[env.production.queues.producers]]

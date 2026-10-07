@@ -16,6 +16,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { accountScopeCondition } from './access';
 
 const { mailMessages, mailLabels } = schema;
 
@@ -214,11 +215,16 @@ export class MailLabelError extends Error {
 
 export interface ListLabelsFilters {
   accountId?: string;
+  /** Restricts results to these accounts (the caller's reachable mailboxes). */
+  accessibleAccountIds?: string[];
 }
 
 export async function listMailLabels(db: Database, filters: ListLabelsFilters) {
   const conditions: SQL[] = [isNull(mailLabels.deletedAt)!];
   if (filters.accountId) conditions.push(eq(mailLabels.accountId, filters.accountId));
+  if (filters.accessibleAccountIds) {
+    conditions.push(accountScopeCondition(mailLabels.accountId, filters.accessibleAccountIds));
+  }
   return db.select().from(mailLabels).where(and(...conditions));
 }
 

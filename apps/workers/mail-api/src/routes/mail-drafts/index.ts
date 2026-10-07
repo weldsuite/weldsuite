@@ -15,7 +15,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
-import * as drafts from '../../services/mail/drafts';
+import * as drafts from '@weldsuite/mail-domain/drafts';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

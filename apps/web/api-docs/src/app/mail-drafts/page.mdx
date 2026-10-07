@@ -1,0 +1,336 @@
+# Mail drafts
+
+A draft is an unsent message on one [mail account](/mail-accounts). It shows up in that mailbox's Drafts in WeldMail, where a person can review and send it, or you can send it through the API. Reads require the `mail_drafts:read` scope; creating, updating and deleting require `mail_drafts:write`; sending requires `mail_messages:send`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  Saving a draft sends nothing, so `mail_drafts:write` is a safe scope for an integration that prepares mail for a person to check. `attachmentIds` are not checked when a draft is saved, only when it is sent.
+</Note>
+
+---
+
+## The draft model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `draft_abc123`).</Property>
+  <Property name="accountId" type="string">ID of the mailbox the draft will be sent from.</Property>
+  <Property name="subject" type="string">Subject, or `null`.</Property>
+  <Property name="to" type="string[]">Recipient addresses, or `null`.</Property>
+  <Property name="cc" type="string[]">Cc addresses, or `null`.</Property>
+  <Property name="bcc" type="string[]">Bcc addresses, or `null`.</Property>
+  <Property name="replyTo" type="string[]">Reply-To addresses, or `null`. Only the first is used when the draft is sent.</Property>
+  <Property name="body" type="string">Plain-text body, or `null`.</Property>
+  <Property name="htmlBody" type="string">HTML body, or `null`.</Property>
+  <Property name="importance" type="string">`low`, `normal` or `high`.</Property>
+  <Property name="labels" type="string[]">Labels, or `null`.</Property>
+  <Property name="attachmentIds" type="string[]">Upload ids (`mupl_...`) to attach when the draft is sent, or `null`.</Property>
+  <Property name="hasAttachments" type="boolean">Whether `attachmentIds` is non-empty.</Property>
+  <Property name="attachmentCount" type="integer">Number of `attachmentIds`.</Property>
+  <Property name="inReplyTo" type="string">RFC 5322 `Message-ID` of the mail this draft answers, or `null`. Keeps the sent message in that thread.</Property>
+  <Property name="originalMessageId" type="string">ID of the message (`msg_...`) this draft replies to or forwards, or `null`.</Property>
+  <Property name="isReply" type="boolean">Whether the draft is a reply.</Property>
+  <Property name="isForward" type="boolean">Whether the draft is a forward.</Property>
+  <Property name="lastAutoSavedAt" type="timestamp">When the draft was last saved.</Property>
+  <Property name="createdAt" type="timestamp">When the draft was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the draft was last updated. Lists are ordered by this field, newest first.</Property>
+</Properties>
+
+---
+
+## List drafts {{ tag: 'GET', label: '/v1/mail-drafts' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of drafts, most recently updated first. Without `accountId`, the list covers every mailbox the key can open.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 50, max 100.</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="accountId" type="string">Only drafts of this mailbox. Returns `404` if the key cannot open it.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-drafts">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/mail-drafts \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d accountId=mail_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "draft_abc123",
+          "accountId": "mail_abc123",
+          "subject": "Your quote for October",
+          "to": ["jane@example.com"],
+          "cc": null,
+          "bcc": null,
+          "replyTo": null,
+          "body": "Hi Jane,\n\nAttached is the quote we discussed.",
+          "htmlBody": null,
+          "importance": "normal",
+          "labels": null,
+          "attachmentIds": ["mupl_k3j9x2m1q8w7"],
+          "hasAttachments": true,
+          "attachmentCount": 1,
+          "inReplyTo": null,
+          "originalMessageId": null,
+          "isReply": false,
+          "isForward": false,
+          "lastAutoSavedAt": "2026-10-07T11:00:00Z",
+          "createdAt": "2026-10-07T11:00:00Z",
+          "updatedAt": "2026-10-07T11:00:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 4, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a draft {{ tag: 'POST', label: '/v1/mail-drafts' }}
+
+<Row>
+  <Col>
+
+    Save a new draft on a mailbox. Every field except `accountId` is optional, so a draft can be saved half-written. When you give `inReplyTo` and leave `isReply` out, the draft is marked as a reply.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="accountId" type="string">The mailbox the draft belongs to.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="to" type="string[]">Recipient addresses, up to 100.</Property>
+      <Property name="cc" type="string[]">Cc addresses, up to 100.</Property>
+      <Property name="bcc" type="string[]">Bcc addresses, up to 100.</Property>
+      <Property name="replyTo" type="string[]">Reply-To addresses, up to 5.</Property>
+      <Property name="subject" type="string">Up to 998 characters.</Property>
+      <Property name="body" type="string">Plain-text body, up to 1,000,000 characters.</Property>
+      <Property name="htmlBody" type="string">HTML body, up to 2,000,000 characters.</Property>
+      <Property name="importance" type="string">`low`, `normal` or `high`.</Property>
+      <Property name="attachmentIds" type="string[]">Up to 20 upload ids from [Upload an attachment](/mail-attachments#upload-an-attachment).</Property>
+      <Property name="labels" type="string[]">Up to 50 labels.</Property>
+      <Property name="inReplyTo" type="string">RFC 5322 `Message-ID` of the mail this draft answers.</Property>
+      <Property name="originalMessageId" type="string">ID of the message this draft replies to or forwards.</Property>
+      <Property name="isReply" type="boolean">Mark the draft as a reply.</Property>
+      <Property name="isForward" type="boolean">Mark the draft as a forward.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-drafts">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-drafts \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "accountId": "mail_abc123",
+        "to": ["jane@example.com"],
+        "subject": "Your quote for October",
+        "body": "Hi Jane,\n\nAttached is the quote we discussed.",
+        "attachmentIds": ["mupl_k3j9x2m1q8w7"]
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "draft_abc123",
+        "accountId": "mail_abc123",
+        "subject": "Your quote for October",
+        "to": ["jane@example.com"],
+        "attachmentIds": ["mupl_k3j9x2m1q8w7"],
+        "hasAttachments": true,
+        "attachmentCount": 1,
+        "createdAt": "2026-10-07T11:00:00Z",
+        "updatedAt": "2026-10-07T11:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a draft {{ tag: 'GET', label: '/v1/mail-drafts/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single draft by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-drafts/draft_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/mail-drafts/draft_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "draft_abc123",
+        "accountId": "mail_abc123",
+        "subject": "Your quote for October",
+        "to": ["jane@example.com"],
+        "body": "Hi Jane,\n\nAttached is the quote we discussed."
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a draft {{ tag: 'PATCH', label: '/v1/mail-drafts/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a draft. Send at least one attribute. Takes the same attributes as [Create a draft](#create-a-draft). Changing `accountId` moves the draft to another mailbox, which the key must also be able to open.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/mail-drafts/draft_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/mail-drafts/draft_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "cc": ["accounts@example.com"] }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "draft_abc123",
+        "cc": ["accounts@example.com"],
+        "updatedAt": "2026-10-07T11:10:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a draft {{ tag: 'DELETE', label: '/v1/mail-drafts/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a draft. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/mail-drafts/draft_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/mail-drafts/draft_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Send a draft {{ tag: 'POST', label: '/v1/mail-drafts/:id/send' }}
+
+<Row>
+  <Col>
+
+    Send a saved draft from its mailbox, then delete the draft. Requires the `mail_messages:send` scope, which `*` and `mail_messages:*` do not include. The mailbox must have `canSendViaApi: true`, and the send counts toward its daily limit. See [Sending mail](/sending-mail).
+
+    The draft needs at least one `to` address and a `body` or `htmlBody`. A draft with no recipients returns `422` `INVALID_RECIPIENTS`; one with no body returns `422` `EMPTY_BODY`. When the send fails for any reason, the draft stays.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="attachmentIds" type="string[]">Up to 20 upload ids. When given, they replace the draft's own `attachmentIds` for this send.</Property>
+    </Properties>
+
+    ### Optional headers
+
+    <Properties>
+      <Property name="Idempotency-Key" type="string">Up to 64 characters. Stored on the sent copy like any other send.</Property>
+    </Properties>
+
+    The response has the same fields as [Send a message](/mail-accounts#send-a-message), plus `draftId`.
+
+    <Note>
+      A successful send deletes the draft. Retrying with the same `Idempotency-Key` still returns the first result with `replayed: true`; without a key, a retry returns `404` because the draft is gone. Send drafts with a key whenever a response might be lost.
+    </Note>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-drafts/draft_abc123/send">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X POST https://api.weldsuite.org/v1/mail-drafts/draft_abc123/send \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "messageId": "msg_h5j6k7l8m9",
+        "accountId": "mail_abc123",
+        "subject": "Your quote for October",
+        "smtpMessageId": "<0102019a2b3f-9e0f@acme.com>",
+        "pendingVerification": false,
+        "replayed": false,
+        "draftId": "draft_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>

@@ -306,6 +306,19 @@ export const navigation: Array<NavGroup> = [
     ],
   },
   {
+    title: 'WeldMail',
+    links: [
+      { title: 'Sending Mail', href: '/sending-mail' },
+      { title: 'Mail Accounts', href: '/mail-accounts' },
+      { title: 'Messages', href: '/mail-messages' },
+      { title: 'Threads', href: '/mail-threads' },
+      { title: 'Labels', href: '/mail-labels' },
+      { title: 'Folders', href: '/mail-folders' },
+      { title: 'Drafts', href: '/mail-drafts' },
+      { title: 'Attachments', href: '/mail-attachments' },
+    ],
+  },
+  {
     title: 'WeldBooks',
     links: WELDBOOKS_NAV_LINKS,
   },

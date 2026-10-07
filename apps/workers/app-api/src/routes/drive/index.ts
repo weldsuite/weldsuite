@@ -39,7 +39,11 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.get('/all', requirePermission('files:read'), zValidator('query', listAllFilesQuery), async (c) => {
   const q = c.req.valid('query');
   try {
-    const allFiles = await aggregateAllFiles(c.get('tenantDb'), { source: q.source, r2PublicUrl: c.env.R2_PUBLIC_URL });
+    const allFiles = await aggregateAllFiles(c.get('tenantDb'), {
+      userId: c.get('userId'),
+      source: q.source,
+      r2PublicUrl: c.env.R2_PUBLIC_URL,
+    });
 
     const filters: Record<string, unknown> = {};
     if (q.type) filters.fileType = q.type;
@@ -79,7 +83,7 @@ app.get('/all', requirePermission('files:read'), zValidator('query', listAllFile
 
 app.get('/stats', requirePermission('files:read'), async (c) => {
   try {
-    const stats = await aggregateStats(c.get('tenantDb'));
+    const stats = await aggregateStats(c.get('tenantDb'), c.get('userId'));
     return success(c, stats);
   } catch (err) {
     console.error('[app-api/drive] /stats failed:', err);

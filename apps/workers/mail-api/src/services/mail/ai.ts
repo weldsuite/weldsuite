@@ -10,9 +10,14 @@
  * smart-replies / classification* defaults to a free Workers AI model. A
  * per-account `aiSettings.modelPreference` (or an explicit `modelId`) always
  * wins. No per-call credit metering — billing is handled by Cloudflare.
+ *
+ * Per-account access: the route permission says the caller may use mail AI,
+ * not which mailboxes they may read. Every account context, message body and
+ * inbox digest is therefore loaded behind `accountGate` (the rule in
+ * `@weldsuite/mail-domain/access`), before any model call or credit charge.
  */
 
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import {
   assertGatewayConfigured,
   createWeldAI,
@@ -27,6 +32,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { assertAiCredits, chargeAiUsage, type AiMetering } from '@weldsuite/core-domain/ai-billing';
+import { checkAccountAccess, listAccessibleAccountIds } from '@weldsuite/mail-domain/access';
 
 const { mailAccounts, mailMessages } = schema;
 
@@ -35,6 +41,7 @@ export class MailAiError extends Error {
     public readonly code:
       | 'ACCOUNT_NOT_FOUND'
       | 'MESSAGE_NOT_FOUND'
+      | 'FORBIDDEN'
       | 'AI_NOT_CONFIGURED'
       | 'AI_REQUEST_FAILED',
     message: string,
@@ -107,6 +114,33 @@ const classifySchema = jsonSchema<{ category: string; priority: string }>({
 });
 
 // ---------------------------------------------------------------------------
+// Per-account access
+// ---------------------------------------------------------------------------
+
+type AccountGate = (accountId: string) => Promise<void>;
+
+/**
+ * Access check for one request, memoised by account so a batch of messages
+ * from the same mailbox costs a single lookup. Throws a 403 `MailAiError` for
+ * a mailbox the caller may not open (or that no longer exists).
+ */
+function accountGate(
+  db: Database,
+  userId: string,
+  message = 'Access to this mail account is not allowed',
+): AccountGate {
+  const checked = new Map<string, Promise<boolean>>();
+  return async (accountId) => {
+    let allowed = checked.get(accountId);
+    if (!allowed) {
+      allowed = checkAccountAccess(db, accountId, userId);
+      checked.set(accountId, allowed);
+    }
+    if (!(await allowed)) throw new MailAiError('FORBIDDEN', message, 403);
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Context loaders
 // ---------------------------------------------------------------------------
 
@@ -150,13 +184,25 @@ async function loadMessage(db: Database, messageId: string) {
 
 type LoadedMessage = NonNullable<Awaited<ReturnType<typeof loadMessage>>>;
 
-async function loadRecentMessages(
-  db: Database,
-  accountId: string | undefined,
-  limit = 15,
-) {
-  const conds = [isNull(mailMessages.deletedAt), eq(mailMessages.isTrash, false)];
-  if (accountId) conds.push(eq(mailMessages.accountId, accountId));
+/** Load a message from a mailbox the caller may open; null when it does not exist. */
+async function loadAccessibleMessage(db: Database, gate: AccountGate, messageId: string) {
+  const message = await loadMessage(db, messageId);
+  if (!message) return null;
+  await gate(message.accountId);
+  return message;
+}
+
+/**
+ * Recent messages of the given accounts. The caller passes the accounts it has
+ * already checked; an empty list reads nothing rather than every mailbox.
+ */
+async function loadRecentMessages(db: Database, accountIds: string[], limit = 15) {
+  if (accountIds.length === 0) return [];
+  const conds = [
+    isNull(mailMessages.deletedAt),
+    eq(mailMessages.isTrash, false),
+    inArray(mailMessages.accountId, accountIds),
+  ];
   return db
     .select({
       id: mailMessages.id,
@@ -289,11 +335,16 @@ export interface DraftInput {
 export async function draftEmail(
   env: Env,
   db: Database,
+  userId: string,
   input: DraftInput,
   metering: AiMetering | null,
 ) {
+  const gate = accountGate(db, userId);
+  if (input.accountId) await gate(input.accountId);
   const accountCtx = input.accountId ? await loadAccountContext(db, input.accountId) : null;
-  const replyTo = input.replyToMessageId ? await loadMessage(db, input.replyToMessageId) : null;
+  const replyTo = input.replyToMessageId
+    ? await loadAccessibleMessage(db, gate, input.replyToMessageId)
+    : null;
   if (input.replyToMessageId && !replyTo) {
     throw new MailAiError('MESSAGE_NOT_FOUND', 'Original message not found', 404);
   }
@@ -345,9 +396,11 @@ const IMPROVE_INSTRUCTIONS: Record<ImproveTextInput['action'], string> = {
 export async function improveText(
   env: Env,
   db: Database,
+  userId: string,
   input: ImproveTextInput,
   metering: AiMetering | null,
 ) {
+  if (input.accountId) await accountGate(db, userId)(input.accountId);
   const accountCtx = input.accountId ? await loadAccountContext(db, input.accountId) : null;
   const ai = getAi(env);
   await assertAiCredits(metering);
@@ -375,21 +428,28 @@ export interface AutoDraftInput {
 export async function autoDraft(
   env: Env,
   db: Database,
+  userId: string,
   input: AutoDraftInput,
   metering: AiMetering | null,
 ) {
   const accountCtx = await loadAccountContext(db, input.accountId);
   if (!accountCtx) throw new MailAiError('ACCOUNT_NOT_FOUND', 'Mail account not found', 404);
+  const gate = accountGate(db, userId);
+  await gate(input.accountId);
 
   // Primary context: an explicit message to reply to, else recent inbox.
-  const replyTo = input.messageId ? await loadMessage(db, input.messageId) : null;
+  // Caller-supplied message ids are checked one by one: they need not belong
+  // to `accountId`.
+  const replyTo = input.messageId ? await loadAccessibleMessage(db, gate, input.messageId) : null;
   const recent = replyTo
     ? []
     : input.recentMessageIds && input.recentMessageIds.length > 0
       ? (
-          await Promise.all(input.recentMessageIds.slice(0, 20).map((id) => loadMessage(db, id)))
+          await Promise.all(
+            input.recentMessageIds.slice(0, 20).map((id) => loadAccessibleMessage(db, gate, id)),
+          )
         ).filter((m): m is LoadedMessage => Boolean(m))
-      : await loadRecentMessages(db, input.accountId, 8);
+      : await loadRecentMessages(db, [input.accountId], 8);
 
   const digest = recent
     .map((m) => `- ${m.from?.email ?? ''}: ${m.subject ?? '(no subject)'} — ${m.preview ?? ''}`)
@@ -439,12 +499,15 @@ export interface ReplyInput {
 export async function replySuggestion(
   env: Env,
   db: Database,
+  userId: string,
   input: ReplyInput,
   metering: AiMetering | null,
 ) {
+  const gate = accountGate(db, userId);
+  if (input.accountId) await gate(input.accountId);
   let message: LoadedMessage | null = null;
   if (input.messageId) {
-    message = await loadMessage(db, input.messageId);
+    message = await loadAccessibleMessage(db, gate, input.messageId);
     if (!message) throw new MailAiError('MESSAGE_NOT_FOUND', 'Message not found', 404);
   }
   const accountIdForCtx = input.accountId ?? message?.accountId;
@@ -478,11 +541,21 @@ export interface InboxSummaryInput {
 export async function inboxSummary(
   env: Env,
   db: Database,
+  userId: string,
   input: InboxSummaryInput,
   metering: AiMetering | null,
 ) {
+  // One mailbox when asked for, otherwise the unified inbox: the mailboxes the
+  // caller may open, never the whole workspace.
+  let accountIds: string[];
+  if (input.accountId) {
+    await accountGate(db, userId)(input.accountId);
+    accountIds = [input.accountId];
+  } else {
+    accountIds = await listAccessibleAccountIds(db, userId);
+  }
   const accountCtx = input.accountId ? await loadAccountContext(db, input.accountId) : null;
-  const recent = await loadRecentMessages(db, input.accountId ?? undefined, 20);
+  const recent = await loadRecentMessages(db, accountIds, 20);
   if (recent.length === 0) return { summary: 'No recent messages to summarise.' };
 
   const digest = recent
@@ -514,10 +587,11 @@ export interface SmartRepliesInput {
 export async function smartReplies(
   env: Env,
   db: Database,
+  userId: string,
   input: SmartRepliesInput,
   metering: AiMetering | null,
 ) {
-  const message = await loadMessage(db, input.messageId);
+  const message = await loadAccessibleMessage(db, accountGate(db, userId), input.messageId);
   if (!message) throw new MailAiError('MESSAGE_NOT_FOUND', 'Message not found', 404);
   const accountCtx = message.accountId ? await loadAccountContext(db, message.accountId) : null;
 
@@ -590,10 +664,11 @@ async function persistClassification(
 export async function classifyMessage(
   env: Env,
   db: Database,
+  userId: string,
   input: ClassifyInput,
   metering: AiMetering | null,
 ): Promise<ClassificationResult> {
-  const message = await loadMessage(db, input.messageId);
+  const message = await loadAccessibleMessage(db, accountGate(db, userId), input.messageId);
   if (!message) throw new MailAiError('MESSAGE_NOT_FOUND', 'Message not found', 404);
   const accountCtx = message.accountId ? await loadAccountContext(db, message.accountId) : null;
   const ai = getAi(env);
@@ -618,15 +693,24 @@ export interface ClassifyBatchInput {
 export async function classifyMessagesBatch(
   env: Env,
   db: Database,
+  userId: string,
   input: ClassifyBatchInput,
   metering: AiMetering | null,
 ): Promise<ClassificationResult[]> {
+  // Resolve and check the whole batch up front, like `/mail-messages/bulk`: one
+  // inaccessible message refuses the request before anything is classified,
+  // written back or charged. Ids that no longer exist are skipped.
+  const gate = accountGate(db, userId, 'Access to one or more mail accounts is not allowed');
+  const batch: LoadedMessage[] = [];
+  for (const id of input.messageIds) {
+    const message = await loadAccessibleMessage(db, gate, id);
+    if (message) batch.push(message);
+  }
+
   const ai = getAi(env);
   await assertAiCredits(metering);
   const results: ClassificationResult[] = [];
-  for (const id of input.messageIds) {
-    const message = await loadMessage(db, id);
-    if (!message) continue;
+  for (const message of batch) {
     const accountCtx = message.accountId ? await loadAccountContext(db, message.accountId) : null;
     const model = pickModel('label-batch', accountCtx, input.modelId);
     const { category, priority } = await classifyOne(metering, ai, model, message);

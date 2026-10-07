@@ -4,10 +4,16 @@
  * The "drive view" pulls files from 8 sources (drive, projects, documents,
  * whiteboards, mail, voip, meetings, social) and normalises them into a
  * single `UnifiedFile` shape so the frontend can render one feed.
+ *
+ * Mail attachments are the one source with per-record access: a mailbox is
+ * open to its assigned users only (`@weldsuite/mail-domain/access`), so the
+ * feed and its counters only include attachments from mailboxes the caller
+ * may open.
  */
 
-import { and, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
 import { asText } from '@weldsuite/text';
 
 const {
@@ -17,6 +23,8 @@ const {
   projectDocuments,
   projectWhiteboards,
   mailAttachments,
+  mailMessages,
+  mailAccounts,
   voipCalls,
   meetingBotSessions,
   socialMedia,
@@ -261,14 +269,35 @@ function normalizeSocialMedia(rows: (typeof schema.socialMedia.$inferSelect)[]):
 }
 
 // ============================================================================
+// Mail attachment access
+// ============================================================================
+
+/**
+ * WHERE clause for the mail attachments `userId` may see: live attachments
+ * whose mailbox they may open. It refers to `mailAccounts`, so the query has
+ * to join attachment → message → account.
+ */
+async function accessibleMailAttachments(db: Database, userId: string): Promise<SQL> {
+  const admin = await isAdminOrOwner(db, userId);
+  return and(
+    isNull(mailAttachments.deletedAt),
+    isNull(mailAccounts.deletedAt),
+    userAccessCondition(userId, admin),
+  )!;
+}
+
+// ============================================================================
 // /all aggregator
 // ============================================================================
 
 export async function aggregateAllFiles(
   db: Database,
-  params: { source?: string; r2PublicUrl?: string },
+  params: { userId: string; source?: string; r2PublicUrl?: string },
 ): Promise<UnifiedFile[]> {
   const shouldQuery = (s: string) => !params.source || params.source === s;
+  const mailAttachmentsWhere = shouldQuery('mail')
+    ? await accessibleMailAttachments(db, params.userId)
+    : null;
 
   const [
     genericFiles,
@@ -292,8 +321,13 @@ export async function aggregateAllFiles(
     shouldQuery('whiteboards')
       ? db.select().from(projectWhiteboards).where(isNull(projectWhiteboards.deletedAt))
       : Promise.resolve([] as (typeof schema.projectWhiteboards.$inferSelect)[]),
-    shouldQuery('mail')
-      ? db.select().from(mailAttachments).where(isNull(mailAttachments.deletedAt))
+    mailAttachmentsWhere
+      ? db
+          .select(getTableColumns(mailAttachments))
+          .from(mailAttachments)
+          .innerJoin(mailMessages, eq(mailMessages.id, mailAttachments.messageId))
+          .innerJoin(mailAccounts, eq(mailAccounts.id, mailMessages.accountId))
+          .where(mailAttachmentsWhere)
       : Promise.resolve([] as (typeof schema.mailAttachments.$inferSelect)[]),
     shouldQuery('voip')
       ? db.select().from(voipCalls).where(eq(voipCalls.isRecorded, true))
@@ -412,7 +446,8 @@ export interface DriveStats {
   bySource: Record<string, number>;
 }
 
-export async function aggregateStats(db: Database): Promise<DriveStats> {
+export async function aggregateStats(db: Database, userId: string): Promise<DriveStats> {
+  const mailAttachmentsWhere = await accessibleMailAttachments(db, userId);
   const [
     genericCount,
     projectFilesCount,
@@ -428,7 +463,12 @@ export async function aggregateStats(db: Database): Promise<DriveStats> {
     db.select({ count: sql<number>`count(*)::int` }).from(projectFiles).where(and(isNull(projectFiles.deletedAt), eq(projectFiles.isFolder, false))),
     db.select({ count: sql<number>`count(*)::int` }).from(projectDocuments).where(isNull(projectDocuments.deletedAt)),
     db.select({ count: sql<number>`count(*)::int` }).from(projectWhiteboards).where(isNull(projectWhiteboards.deletedAt)),
-    db.select({ count: sql<number>`count(*)::int` }).from(mailAttachments).where(isNull(mailAttachments.deletedAt)),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(mailAttachments)
+      .innerJoin(mailMessages, eq(mailMessages.id, mailAttachments.messageId))
+      .innerJoin(mailAccounts, eq(mailAccounts.id, mailMessages.accountId))
+      .where(mailAttachmentsWhere),
     db.select({ count: sql<number>`count(*)::int` }).from(voipCalls).where(eq(voipCalls.isRecorded, true)),
     db.select({ count: sql<number>`count(*)::int` }).from(meetingBotSessions).where(isNotNull(meetingBotSessions.recordingStorageUrl)),
     db.select({ count: sql<number>`count(*)::int` }).from(socialMedia).where(ne(socialMedia.status, 'deleted')),

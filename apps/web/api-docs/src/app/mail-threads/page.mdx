@@ -1,0 +1,263 @@
+# Mail threads
+
+A thread is a conversation: the messages of one mailbox that share a thread id, grouped the way the WeldMail inbox shows them. Threads have no record of their own. A thread is identified by its `threadId` together with its `accountId`, and you pass both to read or change the conversation. Reads require the `mail_messages:read` scope; changes require `mail_messages:write`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  The `threadId` of a thread is the shared thread id of its messages, or the message id for a message nobody replied to. Marking a thread read or moving it changes WeldSuite's copy only, nothing is written back to Gmail, Outlook or IMAP.
+</Note>
+
+---
+
+## The thread model
+
+### Properties
+
+<Properties>
+  <Property name="threadId" type="string">The thread's key within its mailbox.</Property>
+  <Property name="accountId" type="string">ID of the [mail account](/mail-accounts) the thread belongs to.</Property>
+  <Property name="subject" type="string">Subject of the first message without a leading `Re:` or `Fwd:`, or `(No subject)`.</Property>
+  <Property name="participants" type="string[]">The senders in the conversation, by name (or address when there is no name).</Property>
+  <Property name="latestMessageId" type="string">ID of the newest message.</Property>
+  <Property name="latestSender" type="string">Name of the newest message's sender.</Property>
+  <Property name="latestSenderEmail" type="string">Address of the newest message's sender.</Property>
+  <Property name="latestSenderAvatarUrl" type="string">Avatar of that sender's contact, or `null`.</Property>
+  <Property name="latestDate" type="timestamp">Date of the newest message. Lists are ordered by this field, newest first.</Property>
+  <Property name="preview" type="string">Preview text of the newest message.</Property>
+  <Property name="messageCount" type="integer">Number of messages in the thread.</Property>
+  <Property name="unreadCount" type="integer">Number of unread messages.</Property>
+  <Property name="hasAttachments" type="boolean">Whether any message has attachments.</Property>
+  <Property name="isStarred" type="boolean">Whether any message is starred.</Property>
+  <Property name="labels" type="string[]">Labels across the thread's messages.</Property>
+  <Property name="scheduledFor" type="timestamp">Scheduled send time of the newest message, or `null`.</Property>
+  <Property name="sendStatus" type="string">Send status of the newest message when it is scheduled mail, or `null`.</Property>
+</Properties>
+
+---
+
+## List threads {{ tag: 'GET', label: '/v1/mail-threads' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of thread summaries for one folder or label, newest first. Without `accountId`, the list covers every mailbox the key can open. Trashed and spam conversations only appear under `trash` and `spam`.
+
+    The `cursor` is opaque; pass back the `pagination.cursor` you received. Like the WeldMail inbox, reading this list returns snoozed mail whose time has come to the inbox.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 25, max 100.</Property>
+      <Property name="cursor" type="string">Pagination cursor. An invalid cursor returns `400`.</Property>
+      <Property name="accountId" type="string">Only threads in this mailbox. Returns `404` if the key cannot open it.</Property>
+      <Property name="label" type="string">`inbox` (default), `sent`, `starred`, `archive`, `trash`, `spam`, `all`, or a user label name.</Property>
+      <Property name="search" type="string">Space-separated terms matched against the subject, preview, body, sender and recipients. A search covers the whole mailbox and ignores `label`.</Property>
+      <Property name="from" type="string">The sender's name or address contains this text.</Property>
+      <Property name="to" type="string">A recipient's name or address contains this text.</Property>
+      <Property name="subject" type="string">The subject contains this text.</Property>
+      <Property name="hasAttachments" type="string">`true` to return only threads with attachments.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-threads">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/mail-threads \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d accountId=mail_abc123 \
+      -d label=inbox \
+      -d limit=25
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "threadId": "<CAF7x9q@mail.example.com>",
+          "accountId": "mail_abc123",
+          "subject": "Question about my invoice",
+          "participants": ["Jane Doe", "Acme Support"],
+          "latestMessageId": "msg_def456",
+          "latestSender": "Jane Doe",
+          "latestSenderEmail": "jane@example.com",
+          "latestSenderAvatarUrl": null,
+          "latestDate": "2026-10-07T09:20:00Z",
+          "preview": "Thanks, that solved it.",
+          "messageCount": 3,
+          "unreadCount": 1,
+          "hasAttachments": true,
+          "isStarred": false,
+          "labels": ["INBOX"],
+          "scheduledFor": null,
+          "sendStatus": null
+        }
+      ],
+      "pagination": { "totalCount": 48, "hasMore": true, "cursor": "bzoyNQ" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a thread {{ tag: 'GET', label: '/v1/mail-threads/:threadId' }}
+
+<Row>
+  <Col>
+
+    Retrieve every message in a thread, oldest first, with their bodies. URL-encode the `threadId`: it often contains `<`, `>` and `@`.
+
+    ### Required query parameters
+
+    <Properties>
+      <Property name="accountId" type="string">The thread's mailbox.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/mail-threads/:threadId">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G "https://api.weldsuite.org/v1/mail-threads/%3CCAF7x9q%40mail.example.com%3E" \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d accountId=mail_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "threadId": "<CAF7x9q@mail.example.com>",
+        "accountId": "mail_abc123",
+        "messages": [
+          {
+            "id": "msg_abc123",
+            "from": { "email": "jane@example.com", "name": "Jane Doe" },
+            "subject": "Question about my invoice",
+            "textBody": "Hi, I was charged twice for order #1042.",
+            "sentDate": "2026-10-07T08:41:00Z",
+            "isRead": true
+          },
+          {
+            "id": "msg_q2w4e6r8t0",
+            "from": { "email": "support@acme.com", "name": "Acme Support" },
+            "subject": "Re: Question about my invoice",
+            "textBody": "Hi Jane, we refunded the duplicate charge.",
+            "sentDate": "2026-10-07T09:05:00Z",
+            "isRead": true
+          }
+        ]
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Mark a thread read {{ tag: 'POST', label: '/v1/mail-threads/:threadId/read' }}
+
+<Row>
+  <Col>
+
+    Mark every message in a thread read or unread. `updatedCount` is the number of messages that changed.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="accountId" type="string">The thread's mailbox.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="isRead" type="boolean">`false` marks the thread unread. Default `true`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-threads/:threadId/read">
+
+    ```bash {{ title: 'cURL' }}
+    curl "https://api.weldsuite.org/v1/mail-threads/%3CCAF7x9q%40mail.example.com%3E/read" \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "accountId": "mail_abc123", "isRead": true }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "threadId": "<CAF7x9q@mail.example.com>",
+        "accountId": "mail_abc123",
+        "isRead": true,
+        "updatedCount": 1
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Add or remove thread labels {{ tag: 'POST', label: '/v1/mail-threads/:threadId/labels' }}
+
+<Row>
+  <Col>
+
+    Add labels to every message in a thread, remove them, or both. Give at least one name.
+
+    Unlike a single message, a thread can be moved through its labels: adding `inbox`, `archive`, `trash` or `spam` moves every message in it there. Removing one of those returns `400`; add the location you want instead. A thread with no matching messages returns `404`.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="accountId" type="string">The thread's mailbox.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="add" type="string[]">Label names to add, up to 50.</Property>
+      <Property name="remove" type="string[]">Label names to remove, up to 50.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/mail-threads/:threadId/labels">
+
+    ```bash {{ title: 'cURL' }}
+    curl "https://api.weldsuite.org/v1/mail-threads/%3CCAF7x9q%40mail.example.com%3E/labels" \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "accountId": "mail_abc123", "add": ["archive", "Billing"] }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "threadId": "<CAF7x9q@mail.example.com>",
+        "accountId": "mail_abc123",
+        "affected": 3
+      }
+    }
+    ```
+
+  </Col>
+</Row>

@@ -23,7 +23,9 @@ import { buildRfc5322 } from '@weldsuite/email/core/mime';
 import { escapeHtml, htmlToText, looksLikeHtml, plainTextBody } from './text';
 import { validateRecipients, type RecipientValidationEnv } from './recipient-validation';
 import { upsertMailContacts, type MailContactsEnv } from './contacts';
-import { hasAccessToAccount, isAdminOrOwner } from './access';
+import { principalHasAccess, principalIsAdmin, toPrincipal, type MailCaller } from './access';
+import { isSenderDomainVerified } from './accounts';
+import { getDraft, softDeleteDraft } from './drafts';
 
 /**
  * The bindings the send helpers read: the Cloudflare send binding
@@ -47,7 +49,10 @@ export class MailSendError extends Error {
       | 'ATTACHMENT_NOT_IN_STORAGE'
       | 'EMAIL_TOO_LARGE'
       | 'STORAGE_BINDING_MISSING'
-      | 'SEND_BINDING_MISSING',
+      | 'SEND_BINDING_MISSING'
+      | 'DAILY_LIMIT_REACHED'
+      | 'SENDER_DOMAIN_NOT_VERIFIED'
+      | 'DRAFT_NOT_FOUND',
     message: string,
     public readonly details?: unknown,
   ) {
@@ -124,6 +129,20 @@ export interface SendOptions {
    * count towards the size cap, and are stored as the sent copy's own objects.
    */
   extraAttachments?: InlineAttachment[];
+  /**
+   * Refuse the send once the account has sent `dailySendLimit` messages since
+   * UTC midnight (`DAILY_LIMIT_REACHED`). The public API sets it; the WeldMail
+   * UI does not. Counted live from the SENT copies, because `sentToday` has no
+   * daily reset job. Deleting a sent message does not give the send back.
+   */
+  enforceDailyLimit?: boolean;
+  /**
+   * Refuse to send from an address whose domain is not a verified WeldMail
+   * domain of the workspace (`SENDER_DOMAIN_NOT_VERIFIED`). Cloudflare sends as
+   * `account.email` whatever the provider, so mail "from" `@gmail.com` or an
+   * unverified domain fails SPF/DMARC. The public API sets it.
+   */
+  requireVerifiedDomain?: boolean;
 }
 
 export interface InlineAttachment {
@@ -137,7 +156,7 @@ export interface InlineAttachment {
  * the SendResult from it, so a replayed send returns the original outcome
  * without re-transmitting. Returns null when the key hasn't been seen.
  */
-async function findSentByIdempotencyKey(
+export async function findSentByIdempotencyKey(
   db: Database,
   accountId: string,
   idempotencyKey: string,
@@ -168,7 +187,7 @@ type MailAccountRow = typeof mailAccounts.$inferSelect;
 type TransmitResult = Awaited<ReturnType<typeof cfEmail.sendEmail>>;
 
 /** Load the account and make sure the caller may send from it (otherwise it looks like it doesn't exist). */
-async function loadSendableAccount(db: Database, userId: string, accountId: string): Promise<MailAccountRow> {
+async function loadSendableAccount(db: Database, caller: MailCaller, accountId: string): Promise<MailAccountRow> {
   const [account] = await db
     .select()
     .from(mailAccounts)
@@ -176,11 +195,58 @@ async function loadSendableAccount(db: Database, userId: string, accountId: stri
     .limit(1);
   if (!account) throw new MailSendError('ACCOUNT_NOT_FOUND', 'Mail account not found');
 
-  const admin = await isAdminOrOwner(db, userId);
-  if (!hasAccessToAccount(account, userId, admin)) {
+  const principal = toPrincipal(caller);
+  if (!principalHasAccess(account, principal, await principalIsAdmin(db, principal))) {
     throw new MailSendError('ACCOUNT_NOT_FOUND', 'Mail account not found');
   }
   return account;
+}
+
+/** Start of the current UTC day: the window the daily send limit counts over. */
+export function utcDayStart(now = new Date()): Date {
+  const start = new Date(now);
+  start.setUTCHours(0, 0, 0, 0);
+  return start;
+}
+
+/** Messages the account sent since UTC midnight, deleted ones included. */
+export async function countSentToday(db: Database, accountId: string, now = new Date()): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(mailMessages)
+    .where(
+      and(
+        eq(mailMessages.accountId, accountId),
+        eq(mailMessages.source, 'sent'),
+        sql`${mailMessages.sentDate} >= ${utcDayStart(now)}`,
+      ),
+    );
+  return Number(row?.count ?? 0);
+}
+
+/**
+ * The opt-in send policies (see {@link SendOptions}). Runs after the
+ * idempotency short-circuit, so replaying a send that already went out never
+ * fails on the limit.
+ */
+async function assertSendPolicy(db: Database, account: MailAccountRow, opts: SendOptions | undefined): Promise<void> {
+  if (opts?.requireVerifiedDomain && !(await isSenderDomainVerified(db, account.email))) {
+    throw new MailSendError(
+      'SENDER_DOMAIN_NOT_VERIFIED',
+      `This account's address (${account.email}) is not on a verified WeldMail domain, so it can't send through the API.`,
+    );
+  }
+  if (opts?.enforceDailyLimit) {
+    const limit = account.dailySendLimit ?? 500;
+    const sent = await countSentToday(db, account.id);
+    if (sent >= limit) {
+      throw new MailSendError('DAILY_LIMIT_REACHED', `This account reached its daily send limit of ${limit}.`, {
+        limit,
+        sent,
+        resetsAt: new Date(utcDayStart().getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+  }
 }
 
 function buildExtraHeaders(data: SendComposeInput): Record<string, string> | undefined {
@@ -403,7 +469,7 @@ export async function sendAndPersist(
   env: MailSendEnv,
   db: Database,
   orgId: string,
-  userId: string,
+  caller: MailCaller,
   accountId: string,
   data: SendComposeInput,
   waitUntil?: ExecutionContext['waitUntil'],
@@ -417,7 +483,7 @@ export async function sendAndPersist(
   }
 
   // ---- Account + access check ------------------------------------------
-  const account = await loadSendableAccount(db, userId, accountId);
+  const account = await loadSendableAccount(db, caller, accountId);
 
   // ---- Idempotency: short-circuit a replayed send ----------------------
   // If this key already produced a SENT message, return it without sending
@@ -427,6 +493,9 @@ export async function sendAndPersist(
     const existing = await findSentByIdempotencyKey(db, accountId, data.idempotencyKey);
     if (existing) return existing;
   }
+
+  // ---- Opt-in policies (public API): verified sender, daily limit ------
+  await assertSendPolicy(db, account, opts);
 
   // Sanitize the HTML once for both the transmitted and stored copies. Covers
   // reply/forward too (they funnel through here), so a forwarded message can't
@@ -581,6 +650,17 @@ export interface ForwardInput {
   /** The sender's IANA time zone and locale, for the quoted `Date:` line. */
   timeZone?: string;
   locale?: string;
+  /** Same replay guard as {@link SendComposeInput.idempotencyKey}. */
+  idempotencyKey?: string;
+}
+
+export interface ReplyInput {
+  body?: string;
+  htmlBody?: string;
+  replyAll?: boolean;
+  attachments?: SendAttachmentInput[];
+  /** Same replay guard as {@link SendComposeInput.idempotencyKey}. */
+  idempotencyKey?: string;
 }
 
 type OriginalMessage = typeof mailMessages.$inferSelect;
@@ -698,7 +778,7 @@ export async function forwardAndPersist(
   env: MailSendEnv,
   db: Database,
   orgId: string,
-  userId: string,
+  caller: MailCaller,
   originalMessageId: string,
   data: ForwardInput,
   waitUntil?: ExecutionContext['waitUntil'],
@@ -775,7 +855,7 @@ export async function forwardAndPersist(
     env,
     db,
     orgId,
-    userId,
+    caller,
     original.accountId,
     {
       to: data.to,
@@ -783,6 +863,7 @@ export async function forwardAndPersist(
       body: composedBody,
       htmlBody: composedHtml,
       attachments: data.attachments,
+      idempotencyKey: data.idempotencyKey,
     },
     waitUntil,
     { ...opts, extraAttachments },
@@ -798,9 +879,9 @@ export async function replyAndPersist(
   env: MailSendEnv,
   db: Database,
   orgId: string,
-  userId: string,
+  caller: MailCaller,
   originalMessageId: string,
-  data: { body?: string; htmlBody?: string; replyAll?: boolean; attachments?: SendAttachmentInput[] },
+  data: ReplyInput,
   waitUntil?: ExecutionContext['waitUntil'],
   opts?: SendOptions,
 ): Promise<SendResult & { repliedTo: string }> {
@@ -845,7 +926,7 @@ export async function replyAndPersist(
     env,
     db,
     orgId,
-    userId,
+    caller,
     original.accountId,
     {
       to: toAddresses,
@@ -856,9 +937,68 @@ export async function replyAndPersist(
       inReplyTo: originalSmtpId,
       references,
       attachments: data.attachments,
+      idempotencyKey: data.idempotencyKey,
     },
     waitUntil,
     opts,
   );
   return { ...result, repliedTo: originalMessageId };
+}
+
+/**
+ * Send a saved draft from its account, then delete the draft.
+ *
+ * The draft's own `attachmentIds` are not resolved here: they are ids in
+ * whatever upload flow created the draft, so the caller resolves them and
+ * passes the files in `extra.attachments`. When the send fails the draft
+ * stays, so nothing the user wrote is lost. A draft that was a reply keeps its
+ * thread through `inReplyTo`.
+ */
+export async function sendDraftAndPersist(
+  env: MailSendEnv,
+  db: Database,
+  orgId: string,
+  caller: MailCaller,
+  draftId: string,
+  extra: { attachments?: SendAttachmentInput[]; idempotencyKey?: string },
+  waitUntil?: ExecutionContext['waitUntil'],
+  opts?: SendOptions,
+): Promise<SendResult & { draftId: string }> {
+  const draft = await getDraft(db, draftId);
+  if (!draft) throw new MailSendError('DRAFT_NOT_FOUND', 'Draft not found');
+
+  const to = (draft.to as string[] | null) ?? [];
+  if (to.length === 0) {
+    throw new MailSendError('INVALID_RECIPIENTS', 'The draft has no recipients', {
+      invalidFormat: [],
+      unreachableDomains: [],
+    });
+  }
+
+  const result = await sendAndPersist(
+    env,
+    db,
+    orgId,
+    caller,
+    draft.accountId,
+    {
+      to,
+      cc: (draft.cc as string[] | null) ?? undefined,
+      bcc: (draft.bcc as string[] | null) ?? undefined,
+      replyTo: ((draft.replyTo as string[] | null) ?? [])[0],
+      subject: draft.subject ?? undefined,
+      body: draft.body ?? undefined,
+      htmlBody: draft.htmlBody ?? undefined,
+      importance: (draft.importance as SendComposeInput['importance']) ?? undefined,
+      inReplyTo: draft.inReplyTo ?? undefined,
+      references: draft.inReplyTo ? [draft.inReplyTo] : undefined,
+      attachments: extra.attachments,
+      idempotencyKey: extra.idempotencyKey,
+    },
+    waitUntil,
+    opts,
+  );
+
+  await softDeleteDraft(db, draftId);
+  return { ...result, draftId };
 }

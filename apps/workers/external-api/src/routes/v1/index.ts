@@ -45,6 +45,14 @@ import goals from './goals';
 import knowledgePages from './knowledge-pages';
 import knowledgeSpaces from './knowledge-spaces';
 import leads from './leads';
+import mailAccounts from './mail-accounts';
+import mailAttachments from './mail-attachments';
+import mailDrafts from './mail-drafts';
+import mailFolders from './mail-folders';
+import mailLabels from './mail-labels';
+import mailMessages from './mail-messages';
+import mailSending from './mail-sending';
+import mailThreads from './mail-threads';
 import milestones from './milestones';
 import opportunities from './opportunities';
 import orders from './orders';
@@ -123,6 +131,13 @@ v1.get('/', async (c) => {
       '/v1/knowledge-pages',
       '/v1/knowledge-spaces',
       '/v1/leads',
+      '/v1/mail-accounts',
+      '/v1/mail-attachments',
+      '/v1/mail-drafts',
+      '/v1/mail-folders',
+      '/v1/mail-labels',
+      '/v1/mail-messages',
+      '/v1/mail-threads',
       '/v1/milestones',
       '/v1/opportunities',
       '/v1/orders',
@@ -218,6 +233,16 @@ v1.route('/goals', goals);
 v1.route('/knowledge-pages', knowledgePages);
 v1.route('/knowledge-spaces', knowledgeSpaces);
 v1.route('/leads', leads);
+// WeldMail. `mailSending` carries absolute paths under several of these
+// resources (send, reply, forward, draft-send, upload) and is public-API only.
+v1.route('/', mailSending);
+v1.route('/mail-accounts', mailAccounts);
+v1.route('/mail-attachments', mailAttachments);
+v1.route('/mail-drafts', mailDrafts);
+v1.route('/mail-folders', mailFolders);
+v1.route('/mail-labels', mailLabels);
+v1.route('/mail-messages', mailMessages);
+v1.route('/mail-threads', mailThreads);
 v1.route('/milestones', milestones);
 v1.route('/opportunities', opportunities);
 v1.route('/orders', orders);

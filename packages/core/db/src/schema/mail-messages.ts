@@ -123,7 +123,7 @@ export const mailMessages = pgTable('mail_messages', {
   providerMessageId: varchar('provider_message_id', { length: 255 }),
   mailgunMessageId: varchar('mailgun_message_id', { length: 255 }),
 
-  // Snooze state — extracted from custom_fields blob (see apps/workers/mail-api/src/services/mail/snooze.ts)
+  // Snooze state — extracted from custom_fields blob (see packages/domains/mail/src/snooze.ts)
   snoozedUntil: timestamp('snoozed_until'),
   snoozedAt: timestamp('snoozed_at'),
   unsnoozedAt: timestamp('unsnoozed_at'),
