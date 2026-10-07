@@ -133,7 +133,7 @@ function ContactDetailProvider({
   return (
     <ContactDetailContext.Provider value={{
       data, isLoading, activeTab, setActiveTab, sidebarTab, setSidebarTab,
-      refresh: () => { refetch(); },
+      refresh: () => { void refetch(); },
       contactId, onClose, onToggleExpand, isExpanded, mode, visitorLocation,
     }}>
       {children}
@@ -184,7 +184,7 @@ function ContactDetailHeader() {
 
   const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) uploadFile(file);
+    if (file) void uploadFile(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
