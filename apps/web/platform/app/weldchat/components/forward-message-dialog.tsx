@@ -263,8 +263,10 @@ export function ForwardMessageDialog({
       return;
     }
     const url = `${window.location.origin}/weldchat/${sourceChannelId}?msg=${messageId}`;
-    void navigator.clipboard.writeText(url);
-    toast.success(t.weldchat.forwardMessage.messageLinkCopied);
+    navigator.clipboard.writeText(url).then(
+      () => toast.success(t.weldchat.forwardMessage.messageLinkCopied),
+      () => toast.error(t.sweep.entities.copyLinkFailed),
+    );
   };
 
   return (

@@ -148,13 +148,17 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
 
   const handleCopyLink = () => {
     const url = `${window.location.origin}/weldchat/${channelId}?msg=${message.id}`;
-    void navigator.clipboard.writeText(url);
-    toast.success(t.weldchat.messageActionsBar.messageLinkCopied);
+    navigator.clipboard.writeText(url).then(
+      () => toast.success(t.weldchat.messageActionsBar.messageLinkCopied),
+      () => toast.error(t.sweep.entities.copyLinkFailed),
+    );
   };
 
   const handleCopyText = () => {
-    void navigator.clipboard.writeText(message.content ?? '');
-    toast.success(t.weldchat.messageActionsBar.messageTextCopied);
+    navigator.clipboard.writeText(message.content ?? '').then(
+      () => toast.success(t.weldchat.messageActionsBar.messageTextCopied),
+      () => toast.error(t.sweep.shared.failedToCopy),
+    );
   };
 
   const handleMarkUnread = () => {
