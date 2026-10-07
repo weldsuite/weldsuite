@@ -6,29 +6,28 @@
  */
 
 import { useMemo } from 'react';
-import { Link } from '@tanstack/react-router';
-import { CheckCircle2, Clock, Copy, ListChecks, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { SearchX, ShieldCheck } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import type {
+  WeldPassHealthEntry,
   WeldPassPasswordIssue,
   WeldPassVault,
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { PageLoader } from '@/components/page-loader';
 import {
+  PanelEntityList,
+  type ColumnDef,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
+import {
   useWeldPassHealth,
   useWeldPassVaults,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
-import { ErrorBanner, TimeAgo, errorMessage } from '../../components/shared';
-import {
-  DashboardPage,
-  EmptyText,
-  KpiCard,
-  KpiGrid,
-  SectionCard,
-  usePassBreadcrumbs,
-} from '../../components/page-kit';
-import { ItemTypeIcon } from '../components/item-type-icon';
+import { formatDateTime } from '@/lib/utils';
+import { ErrorBanner, errorMessage } from '../../components/shared';
+import { emptyIcon, usePassBreadcrumbs } from '../../components/page-kit';
 import { PasswordsGate } from '../components/passwords-gate';
 import { usePasswordsT } from '../lib/use-passwords-t';
 
@@ -37,6 +36,13 @@ const ISSUE_VARIANT: Record<WeldPassPasswordIssue, 'destructive' | 'warning' | '
   reused: 'warning',
   old: 'secondary',
 };
+
+/** Worst first. A login with several issues is listed under its worst one. */
+const ISSUE_ORDER: WeldPassPasswordIssue[] = ['weak', 'reused', 'old'];
+
+function worstIssue(entry: WeldPassHealthEntry): WeldPassPasswordIssue | undefined {
+  return ISSUE_ORDER.find((issue) => entry.issues.includes(issue));
+}
 
 export default function WeldPassPasswordHealthPage() {
   return (
@@ -53,6 +59,7 @@ function HealthReport() {
     { label: tp('health.title') },
   );
 
+  const navigate = useNavigate();
   const { data: report, isLoading, error, refetch } = useWeldPassHealth();
   const { data: vaults } = useWeldPassVaults();
 
@@ -67,104 +74,117 @@ function HealthReport() {
     return vault.kind === 'personal' ? tp('vaults.personal') : vault.name;
   }
 
+  const columns: ColumnDef<WeldPassHealthEntry>[] = [
+    {
+      id: 'title',
+      header: tp('table.name'),
+      width: 'flex-1',
+      render: (entry) => <span className="block truncate font-medium">{entry.title}</span>,
+    },
+    {
+      id: 'issues',
+      header: tp('health.issuesColumn'),
+      width: 'w-[240px]',
+      render: (entry) => (
+        <span className="flex flex-wrap items-center gap-1.5">
+          {entry.issues.map((issue) => (
+            <Badge key={issue} variant={ISSUE_VARIANT[issue]}>
+              {issue === 'reused'
+                ? tp('health.issues.reused', { count: entry.reuseCount })
+                : tp(`health.issues.${issue}`)}
+            </Badge>
+          ))}
+        </span>
+      ),
+    },
+    {
+      id: 'site',
+      header: tp('table.site'),
+      width: 'hidden md:block md:w-[200px]',
+      render: (entry) => (
+        <span className="block truncate text-muted-foreground">{entry.host ?? '—'}</span>
+      ),
+    },
+    {
+      id: 'vault',
+      header: tp('table.vault'),
+      width: 'hidden lg:block lg:w-[160px]',
+      render: (entry) => (
+        <span className="block truncate text-muted-foreground">
+          {vaultName(entry.vaultId) || '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'changed',
+      header: tp('health.changed'),
+      width: 'hidden md:block md:w-[200px]',
+      render: (entry) => (
+        <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+          {entry.passwordChangedAt ? formatDateTime(entry.passwordChangedAt) : '—'}
+        </span>
+      ),
+    },
+  ];
+
+  // One section per issue, each with its count, in place of summary cards.
+  const groups: GroupConfig<WeldPassHealthEntry>[] = ISSUE_ORDER.map((issue, index) => ({
+    id: issue,
+    label: tp(`health.${issue}`),
+    filter: (entry) => worstIssue(entry) === issue,
+    sortOrder: index,
+  }));
+
   if (isLoading) return <PageLoader fullScreen={false} />;
 
+  // Nothing checked yet reads differently from everything checked and fine.
+  const emptyState =
+    report && report.checked > 0
+      ? {
+          icon: emptyIcon(ShieldCheck),
+          title: tp('health.attentionTitle'),
+          description: tp('health.allHealthy'),
+        }
+      : {
+          icon: emptyIcon(ShieldCheck),
+          title: tp('health.attentionTitle'),
+          description: tp('health.emptyDescription'),
+        };
+
+  if (error || !report) {
+    return (
+      <div className="space-y-3 p-6">
+        <ErrorBanner error={errorMessage(error, tp('health.loadFailed'))} />
+        <Button variant="outline" size="sm" onClick={() => void refetch()}>
+          {tp('retry')}
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <DashboardPage title={tp('health.title')} description={tp('health.subtitle')}>
-      {(error || !report) && (
-        <div className="space-y-3">
-          <ErrorBanner error={errorMessage(error, tp('health.loadFailed'))} />
-          <Button variant="outline" size="sm" onClick={() => void refetch()}>
-            {tp('retry')}
-          </Button>
-        </div>
-      )}
-
-      {report && (
-        <>
-          <KpiGrid>
-            <KpiCard label={tp('health.checked')} value={report.checked} icon={ListChecks} />
-            <KpiCard
-              label={tp('health.healthy')}
-              value={report.healthy}
-              icon={ShieldCheck}
-              tone={report.healthy > 0 ? 'success' : 'default'}
-            />
-            <KpiCard
-              label={tp('health.weak')}
-              value={report.weak}
-              icon={ShieldAlert}
-              tone={report.weak > 0 ? 'danger' : 'default'}
-            />
-            <KpiCard
-              label={tp('health.reused')}
-              value={report.reused}
-              icon={Copy}
-              tone={report.reused > 0 ? 'warning' : 'default'}
-            />
-            <KpiCard label={tp('health.old')} value={report.old} icon={Clock} />
-          </KpiGrid>
-
-          <SectionCard
-            title={tp('health.attentionTitle')}
-            description={report.items.length > 0 ? tp('health.attentionHint') : undefined}
-            action={
-              <Button asChild variant="ghost" size="sm">
-                <Link to="/weldpass/passwords">{tp('health.goToPasswords')}</Link>
-              </Button>
-            }
-          >
-            {report.checked === 0 && <EmptyText>{tp('health.emptyDescription')}</EmptyText>}
-
-            {report.checked > 0 && report.items.length === 0 && (
-              <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                {tp('health.allHealthy')}
-              </div>
-            )}
-
-            {report.items.length > 0 && (
-              <ul className="space-y-2">
-                {report.items.map((entry) => (
-                  <li key={entry.id}>
-                    <Link
-                      to="/weldpass/passwords"
-                      search={{ item: entry.id }}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted/40"
-                    >
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                        <ItemTypeIcon type={entry.type} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{entry.title}</span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {[entry.subtitle || entry.host, vaultName(entry.vaultId)]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </span>
-                      </span>
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        {entry.issues.map((issue) => (
-                          <Badge key={issue} variant={ISSUE_VARIANT[issue]}>
-                            {issue === 'reused'
-                              ? tp('health.issues.reused', { count: entry.reuseCount })
-                              : tp(`health.issues.${issue}`)}
-                          </Badge>
-                        ))}
-                      </span>
-                      {entry.passwordChangedAt && (
-                        <span className="w-full text-xs text-muted-foreground sm:w-auto">
-                          {tp('health.changed')} <TimeAgo value={entry.passwordChangedAt} />
-                        </span>
-                      )}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-        </>
-      )}
-    </DashboardPage>
+    <PanelEntityList<WeldPassHealthEntry>
+      items={report.items}
+      isLoading={false}
+      columns={columns}
+      groups={groups}
+      onRowClick={(entry) =>
+        void navigate({ to: '/weldpass/passwords', search: { item: entry.id } })
+      }
+      searchFields={['title']}
+      searchPlaceholder={tp('toolbar.search')}
+      leftActionButtons={<span className="text-sm font-medium">{tp('health.attentionTitle')}</span>}
+      actionButtons={
+        <Button asChild variant="outline" size="sm" className="h-8">
+          <Link to="/weldpass/passwords">{tp('health.goToPasswords')}</Link>
+        </Button>
+      }
+      emptyState={emptyState}
+      noResultsState={{
+        icon: emptyIcon(SearchX),
+        title: tp('empty.noResultsTitle'),
+        description: tp('empty.noResultsDescription'),
+      }}
+    />
   );
 }
