@@ -71,7 +71,7 @@ function seekWithKeyboard(
 function generateWaveform(seed: string, count: number): number[] {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
-    hash = toInt32((hash << 5) - hash + seed.charCodeAt(i));
+    hash = toInt32((hash << 5) - hash + seed.codePointAt(i)!);
   }
   const bars: number[] = [];
   for (let i = 0; i < count; i++) {
@@ -312,9 +312,7 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
   const [duration, setDuration] = useState(attachment.durationSeconds || 0);
   const [rateIndex, setRateIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
-  const [, setShowOverlay] = useState(true);
   const [isLightbox, setIsLightbox] = useState(false);
-  const [, setVideoLoaded] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -324,20 +322,15 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
     const onDurationChange = () => {
       if (video.duration && Number.isFinite(video.duration)) setDuration(video.duration);
     };
-    const onEnded = () => { setIsPlaying(false); setShowOverlay(true); };
-    const onPlay = () => { setIsPlaying(true); setShowOverlay(false); };
+    const onEnded = () => setIsPlaying(false);
+    const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
-    const onLoaded = () => setVideoLoaded(true);
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('durationchange', onDurationChange);
     video.addEventListener('ended', onEnded);
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
-    video.addEventListener('loadeddata', onLoaded);
-
-    // Already loaded (cached)
-    if (video.readyState >= 2) setVideoLoaded(true);
 
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate);
@@ -345,7 +338,6 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
-      video.removeEventListener('loadeddata', onLoaded);
     };
   }, []);
 

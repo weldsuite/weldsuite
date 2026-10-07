@@ -274,7 +274,7 @@ export default function DocumentInboxPage() {
   // status filter is active — otherwise the lone group header is redundant.
   // The trailing "other" group is an explicit catch-all: EntityList drops
   // items matching no group, so any status outside the known set stays visible here.
-  const knownDocStatuses = ['pending', 'processing', 'review', 'processed', 'linked', 'rejected', 'failed'];
+  const knownDocStatuses = new Set(['pending', 'processing', 'review', 'processed', 'linked', 'rejected', 'failed']);
   const groups: GroupConfig<DocumentRow>[] | undefined =
     statusFilter === 'all'
       ? [
@@ -284,7 +284,7 @@ export default function DocumentInboxPage() {
           { id: 'processed', label: td.groupProcessed, sortOrder: 4, filter: (d) => d.status === 'processed' },
           { id: 'linked', label: td.groupLinked, sortOrder: 5, filter: (d) => d.status === 'linked' },
           { id: 'rejected', label: td.groupRejected, sortOrder: 6, filter: (d) => d.status === 'rejected' || d.status === 'failed' },
-          { id: 'other', label: td.groupOther, sortOrder: 7, filter: (d) => !knownDocStatuses.includes(d.status) },
+          { id: 'other', label: td.groupOther, sortOrder: 7, filter: (d) => !knownDocStatuses.has(d.status) },
         ]
       : undefined;
 
