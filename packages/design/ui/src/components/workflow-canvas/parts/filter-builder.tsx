@@ -54,7 +54,7 @@ export function FilterBuilder({
   workflowVariables = [],
   className,
   labels = {},
-}: FilterBuilderProps) {
+}: Readonly<FilterBuilderProps>) {
   const OPERATORS = useMemo(() => {
     const opLabels = labels.operators || {};
     return Object.keys(OPERATOR_SYMBOLS).map((value) => ({

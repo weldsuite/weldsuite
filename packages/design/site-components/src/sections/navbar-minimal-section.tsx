@@ -53,7 +53,7 @@ export function NavbarMinimalSection({
   showBorder = false,
   borderColor = '#333333',
   store
-}: NavbarMinimalSectionProps) {
+}: Readonly<NavbarMinimalSectionProps>) {
   const [searchOpen, setSearchOpen] = React.useState(false);
 
   const displayLogo = logo || store?.logo;

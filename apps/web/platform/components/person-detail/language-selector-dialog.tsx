@@ -13,7 +13,7 @@ import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 // Flag component that renders country flags as SVGs
-function Flag({ countryCode, className = "w-5 h-4" }: { countryCode: string; className?: string }) {
+function Flag({ countryCode, className = "w-5 h-4" }: Readonly<{ countryCode: string; className?: string }>) {
   const flags: Record<string, JSX.Element> = {
     gb: (
       <svg className={className} viewBox="0 0 60 30">
@@ -694,7 +694,7 @@ export function LanguageSelectorDialog({
   onOpenChange,
   selectedLanguage,
   onSelect,
-}: LanguageSelectorDialogProps) {
+}: Readonly<LanguageSelectorDialogProps>) {
   const t = useTranslations();
   const [searchQuery, setSearchQuery] = useState('');
 

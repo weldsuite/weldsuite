@@ -17,7 +17,7 @@ export interface CheckboxProps {
   size?: number;
 }
 
-export function Checkbox({ checked, onChange, disabled, label, size = 22 }: CheckboxProps) {
+export function Checkbox({ checked, onChange, disabled, label, size = 22 }: Readonly<CheckboxProps>) {
   const { colors } = useTheme();
 
   const box = (

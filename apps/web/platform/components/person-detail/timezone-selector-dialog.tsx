@@ -107,7 +107,7 @@ export function TimezoneSelectorDialog({
   onOpenChange,
   selectedTimezone,
   onSelect,
-}: TimezoneSelectorDialogProps) {
+}: Readonly<TimezoneSelectorDialogProps>) {
   const t = useTranslations();
   const [searchQuery, setSearchQuery] = useState('');
   const regionLabels: Record<string, string> = {

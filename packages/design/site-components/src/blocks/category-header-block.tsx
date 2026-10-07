@@ -35,7 +35,7 @@ export function CategoryHeaderBlock({
   overlayOpacity = 50,
   textColor = '#ffffff',
   mode = 'live',
-}: CategoryHeaderBlockProps) {
+}: Readonly<CategoryHeaderBlockProps>) {
   return (
     <section className="relative min-h-[300px] md:min-h-[400px] flex items-center">
       {/* Background Image */}

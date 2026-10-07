@@ -21,6 +21,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import * as messages from '../../services/mail/messages';
 import { forwardAndPersist, MailSendError, replyAndPersist } from '@weldsuite/mail-domain/send';
 import {
+  emailEventData,
   checkAccountAccess,
   hasAccessToAccount,
   isAdminOrOwner,
@@ -220,13 +221,13 @@ const patchHandler = async (
     entityType: 'email',
     entityId: id,
     action: 'updated',
-    data: {
+    data: await emailEventData(db, {
       id,
       accountId: after.accountId,
       subject: after.subject ?? null,
       from: (after.from as { email?: string } | null)?.email ?? null,
       to: (after.to as { email?: string }[] | null)?.map((t) => t.email ?? '').filter(Boolean) ?? null,
-    },
+    }),
   });
   return success(c, { id, ...data });
 };
@@ -323,13 +324,13 @@ app.delete('/:id', requirePermission('messages:delete'), async (c) => {
       entityType: 'email',
       entityId: id,
       action: 'deleted',
-      data: {
+      data: await emailEventData(db, {
         id,
         accountId: deleted.accountId,
         subject: deleted.subject,
         from: null,
         to: null,
-      },
+      }),
     });
     return noContent(c);
   } catch (err) {
@@ -432,14 +433,14 @@ app.post(
         entityType: 'email',
         entityId: result.messageId,
         action: 'reply_sent',
-        data: {
+        data: await emailEventData(db, {
           id: result.messageId,
           accountId: result.accountId,
           subject: result.subject,
           from: null,
           to: null,
           conversationId: result.repliedTo,
-        },
+        }),
       });
       return success(c, {
         messageId: result.messageId,
@@ -503,14 +504,14 @@ app.post(
         entityType: 'email',
         entityId: result.messageId,
         action: 'email_sent',
-        data: {
+        data: await emailEventData(db, {
           id: result.messageId,
           accountId: result.accountId,
           subject: result.subject,
           from: null,
           to: data.to,
           conversationId: result.forwardedFrom,
-        },
+        }),
       });
       return success(c, {
         messageId: result.messageId,

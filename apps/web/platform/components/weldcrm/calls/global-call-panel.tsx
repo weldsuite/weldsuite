@@ -45,7 +45,7 @@ function formatPhoneDisplay(number: string): string {
 
   // If starts with +, format internationally
   if (number.startsWith('+')) {
-    const digits = number.slice(1).replace(/\D/g, '');
+    const digits = number.slice(1).replaceAll(/\D/g, '');
     if (digits.length <= 2) return `+${digits}`;
     if (digits.length <= 5) return `+${digits.slice(0, 2)} ${digits.slice(2)}`;
     if (digits.length <= 8) return `+${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
@@ -54,7 +54,7 @@ function formatPhoneDisplay(number: string): string {
   }
 
   // Local format - group digits for readability
-  const cleaned = number.replace(/\D/g, '');
+  const cleaned = number.replaceAll(/\D/g, '');
   if (cleaned.length <= 3) return cleaned;
   if (cleaned.length <= 6) return `${cleaned.slice(0, 3)} ${cleaned.slice(3)}`;
   if (cleaned.length <= 9) return `${cleaned.slice(0, 3)} ${cleaned.slice(3, 6)} ${cleaned.slice(6)}`;
@@ -127,16 +127,16 @@ function pickDefaultNumber(phoneNumbers: PhoneNumberOption[]): string | undefine
 
 // Format the destination number - use country code from fromNumber if not specified
 function formatDestinationNumber(toNumber: string, fromNumber: string): string {
-  const digits = toNumber.replace(/\D/g, '');
+  const digits = toNumber.replaceAll(/\D/g, '');
   return toNumber.startsWith('+') ? `+${digits}` : `${getCountryPrefix(fromNumber)}${digits}`;
 }
 
 // Preserve + at the start, allow digits, * and #. Returns null when the value has too many digits.
 function sanitizePhoneInput(val: string): string | null {
   const cleaned = val.startsWith('+')
-    ? '+' + val.slice(1).replace(/[^\d*#]/g, '')
-    : val.replace(/[^\d*#]/g, '');
-  return cleaned.replace(/\D/g, '').length > MAX_PHONE_DIGITS ? null : cleaned;
+    ? '+' + val.slice(1).replaceAll(/[^\d*#]/g, '')
+    : val.replaceAll(/[^\d*#]/g, '');
+  return cleaned.replaceAll(/\D/g, '').length > MAX_PHONE_DIGITS ? null : cleaned;
 }
 
 function callRecordErrorMessage(err: unknown, t: TranslateFn): string {
@@ -252,7 +252,7 @@ function useVoipInitialization({
         setIsInitializing(false);
       }
     };
-    initTwilio();
+    void initTwilio();
   }, [isDialerOpen, voipConfigured, isVoipReady, initializeVoip, fetchVoiceToken, t]);
 
   // Clears the error and allows the effect above to reinitialize on next render
@@ -316,7 +316,7 @@ function MinimizedBar({
   onExpand,
   onEndCall,
   onDismiss,
-}: MinimizedBarProps) {
+}: Readonly<MinimizedBarProps>) {
   const t = useTranslations();
   const isEnded = callState?.status === 'ended';
 
@@ -390,7 +390,7 @@ interface PanelHeaderProps {
   onClose: () => void;
 }
 
-function PanelHeader({ hasCall, onMinimize, onClose }: PanelHeaderProps) {
+function PanelHeader({ hasCall, onMinimize, onClose }: Readonly<PanelHeaderProps>) {
   const t = useTranslations();
 
   return (
@@ -442,7 +442,7 @@ function ConnectedControls({
   onToggleMute,
   onToggleHold,
   onToggleDtmfPad,
-}: ConnectedControlsProps) {
+}: Readonly<ConnectedControlsProps>) {
   const t = useTranslations();
 
   return (
@@ -512,7 +512,7 @@ function ActiveCallView({
   onToggleDtmfPad,
   onEndCall,
   onDigit,
-}: ActiveCallViewProps) {
+}: Readonly<ActiveCallViewProps>) {
   const t = useTranslations();
   const isConnected = callState.status === 'connected';
 
@@ -588,7 +588,7 @@ function ActiveCallView({
   );
 }
 
-function NoPhoneNumbersView({ onConfigure }: { onConfigure: () => void }) {
+function NoPhoneNumbersView({ onConfigure }: Readonly<{ onConfigure: () => void }>) {
   const t = useTranslations();
 
   return (
@@ -615,7 +615,7 @@ interface ZeroKeyProps {
 }
 
 // Long-press on 0 types +
-function ZeroKey({ onTap, onLongPress }: ZeroKeyProps) {
+function ZeroKey({ onTap, onLongPress }: Readonly<ZeroKeyProps>) {
   const zeroLongPress = useRef(false);
   const zeroPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -657,7 +657,7 @@ interface DialPadProps {
   onLongPressZero: () => void;
 }
 
-function DialPad({ onDigit, onLongPressZero }: DialPadProps) {
+function DialPad({ onDigit, onLongPressZero }: Readonly<DialPadProps>) {
   return (
     <div className="grid grid-cols-3 gap-2">
       {DIAL_PAD_DIGITS.map((digit) => {
@@ -718,7 +718,7 @@ function DialerView({
   onDigit,
   onLongPressZero,
   onCall,
-}: DialerViewProps) {
+}: Readonly<DialerViewProps>) {
   const t = useTranslations();
 
   return (
@@ -971,7 +971,7 @@ export function GlobalCallPanel() {
       return;
     }
     setToNumber(prev => {
-      const digits = prev.replace(/\D/g, '');
+      const digits = prev.replaceAll(/\D/g, '');
       if (digits.length >= MAX_PHONE_DIGITS) return prev;
       return prev + digit;
     });

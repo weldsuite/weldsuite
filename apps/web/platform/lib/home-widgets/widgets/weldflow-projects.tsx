@@ -75,7 +75,7 @@ function mapProject(api: ApiProject): ProjectRow {
   };
 }
 
-function Render({ settings }: { settings: WeldflowProjectsSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldflowProjectsSettings }>) {
   const projectsRes = useTaskProjects({ pageSize: settings.maxCount });
   const { open: openObjectPanel } = useObjectPanel();
   const apiRows = ((projectsRes.data as { data?: ApiProject[] } | undefined)?.data ?? []) as ApiProject[];
@@ -95,7 +95,7 @@ function Render({ settings }: { settings: WeldflowProjectsSettings }) {
   );
 }
 
-function SettingsForm({ value, onChange }: { value: WeldflowProjectsSettings; onChange: (next: WeldflowProjectsSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldflowProjectsSettings; onChange: (next: WeldflowProjectsSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

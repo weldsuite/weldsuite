@@ -116,7 +116,7 @@ interface AppShellClientProps {
   children: React.ReactNode;
 }
 
-export function AppShellClient({ children }: AppShellClientProps) {
+export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
   const pathname = usePathname();
   const { isLoaded, isSignedIn, orgId } = useAuth();
   const {

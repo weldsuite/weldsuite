@@ -182,7 +182,7 @@ function buildCopyText<TEntity>(
  * of cells, Cmd/Ctrl+C copies the selected values as TSV (tab-separated, one
  * row per line) so it pastes cleanly into Sheets / Excel.
  */
-export function CellSelectionProvider<TEntity>({ entities, children }: CellSelectionProviderProps<TEntity>) {
+export function CellSelectionProvider<TEntity>({ entities, children }: Readonly<CellSelectionProviderProps<TEntity>>) {
   const { getVisibleColumns, getEntityWithOptimisticUpdates, state } = useGridContext<TEntity>();
   const { customFieldData } = state;
   // The store outlives renders. Stable identity lets cells subscribe once

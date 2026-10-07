@@ -9,7 +9,7 @@ import {
   ArrowLeftRight,
   LogOut,
   Check,
-} from 'lucide-react';
+ Box, Puzzle } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -36,7 +36,6 @@ import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { Button } from '@weldsuite/ui/components/button';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
-import { Box, Puzzle } from 'lucide-react';
 import { ColoredSquareIcon } from '@/components/layout/colored-square-icon';
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -64,7 +63,7 @@ interface RailIconProps {
   appType?: 'system' | 'user' | 'object';
 }
 
-function RailAppIcon({ appCode, name, icon, appType }: RailIconProps) {
+function RailAppIcon({ appCode, name, icon, appType }: Readonly<RailIconProps>) {
   if (appType === 'object') {
     return (
       <LucideDynamicIcon
@@ -101,7 +100,7 @@ function RailAppIcon({ appCode, name, icon, appType }: RailIconProps) {
   return <Icon className="h-6 w-6" />;
 }
 
-export function MobileSidebar({ installedApps }: MobileSidebarProps) {
+export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();

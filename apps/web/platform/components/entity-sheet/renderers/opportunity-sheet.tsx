@@ -7,6 +7,6 @@ import type { EntitySheetRendererProps } from '../types';
  * opens). The panel fetches its own data, so this file is just a thin adapter
  * between the entity-sheet host props and the panel's `ObjectPanelComponentProps`.
  */
-export function OpportunitySheet({ entityId, onClose }: EntitySheetRendererProps) {
+export function OpportunitySheet({ entityId, onClose }: Readonly<EntitySheetRendererProps>) {
   return <OpportunityPanel id={entityId} isOpen onClose={onClose} />;
 }

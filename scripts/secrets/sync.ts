@@ -226,4 +226,7 @@ async function main() {
   console.log("All secrets synced successfully.\n");
 }
 
-main();
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exit(1);
+});

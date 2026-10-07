@@ -11,8 +11,7 @@ import {
   Image,
   Text,
   type TextInputProps,
-} from 'react-native';
-import type { ImageSourcePropType } from 'react-native';
+ ImageSourcePropType } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useClerk, useAuth, useSSO, useOrganizationList } from '@clerk/expo';
 import * as WebBrowser from 'expo-web-browser';
@@ -136,13 +135,13 @@ function PasswordToggle({
   hideLabel,
   showLabel,
   color,
-}: {
+}: Readonly<{
   show: boolean;
   onToggle: () => void;
   hideLabel: string;
   showLabel: string;
   color: string;
-}) {
+}>) {
   return (
     <TouchableOpacity
       style={styles.passwordToggle}
@@ -168,7 +167,7 @@ function GoogleSignInButton({
   googleFailed,
   continueGoogle,
   colors,
-}: {
+}: Readonly<{
   onOrgSelect: () => Promise<void>;
   disabled: boolean;
   isLoading: boolean;
@@ -178,7 +177,7 @@ function GoogleSignInButton({
   googleFailed: string;
   continueGoogle: string;
   colors: ThemeColors;
-}) {
+}>) {
   const { startSSOFlow } = useSSO();
   const toast = useToast();
 
@@ -247,7 +246,7 @@ function AppleSignInButton({
   appleFailed,
   continueApple,
   colors,
-}: {
+}: Readonly<{
   onOrgSelect: () => Promise<void>;
   disabled: boolean;
   isLoading: boolean;
@@ -257,7 +256,7 @@ function AppleSignInButton({
   appleFailed: string;
   continueApple: string;
   colors: ThemeColors;
-}) {
+}>) {
   const { startSSOFlow } = useSSO();
   const toast = useToast();
 
@@ -482,7 +481,7 @@ interface LoginLogoProps {
   colors: ThemeColors;
 }
 
-function LoginLogo({ logoElement, logo, appName, iconW, iconH, accentColor, colors }: LoginLogoProps) {
+function LoginLogo({ logoElement, logo, appName, iconW, iconH, accentColor, colors }: Readonly<LoginLogoProps>) {
   if (logoElement) return <View style={styles.logoElement}>{logoElement}</View>;
   if (logo) {
     return (
@@ -494,7 +493,7 @@ function LoginLogo({ logoElement, logo, appName, iconW, iconH, accentColor, colo
   return <Text style={[styles.appNameTitle, { color: colors.text }]}>{appName}</Text>;
 }
 
-function FormErrorBox({ message, colors }: { message: string | null; colors: ThemeColors }) {
+function FormErrorBox({ message, colors }: Readonly<{ message: string | null; colors: ThemeColors }>) {
   if (!message) return null;
   return (
     <View style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
@@ -510,7 +509,7 @@ interface SubmitButtonProps {
   label: string;
 }
 
-function SubmitButton({ accentColor, loading, onPress, label }: SubmitButtonProps) {
+function SubmitButton({ accentColor, loading, onPress, label }: Readonly<SubmitButtonProps>) {
   return (
     <TouchableOpacity
       style={[styles.signInButton, { backgroundColor: accentColor }, loading && styles.buttonDisabled]}
@@ -542,7 +541,7 @@ export function LoginScreen({
   showGoogleLogin = true,
   showAppleLogin = true,
   accentColor = '#3B82F6',
-}: LoginScreenProps) {
+}: Readonly<LoginScreenProps>) {
   useWarmUpBrowser();
   const { colors } = useTheme();
   const clerk = useClerk();

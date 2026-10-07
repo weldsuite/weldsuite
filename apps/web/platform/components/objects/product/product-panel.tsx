@@ -33,7 +33,7 @@ import { getProductTabs } from './product-tabs';
 import { CategoryPickerDialog } from './category-picker-dialog';
 import { ProductSalesChannelsEditor } from '@/app/weldcommerce/products/components/product-sales-channels-editor';
 
-export function ProductPanel(props: ObjectPanelComponentProps) {
+export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = getTranslations('commerce').module;
   const { id } = props;
   const { open } = useObjectPanel();

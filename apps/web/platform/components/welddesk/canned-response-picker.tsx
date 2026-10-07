@@ -46,7 +46,7 @@ export function CannedResponsePicker({
   variables = {},
   className,
   disabled,
-}: CannedResponsePickerProps) {
+}: Readonly<CannedResponsePickerProps>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');

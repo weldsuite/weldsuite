@@ -82,7 +82,7 @@ interface UnifiedNotificationProviderProps {
   children: React.ReactNode;
 }
 
-export function UnifiedNotificationProvider({ children }: UnifiedNotificationProviderProps) {
+export function UnifiedNotificationProvider({ children }: Readonly<UnifiedNotificationProviderProps>) {
   const { user, isLoaded: userLoaded } = useUser();
   const { organization, isLoaded: orgLoaded } = useOrganization();
   const { notifications: notificationsApi } = useAppApi();

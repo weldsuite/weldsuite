@@ -16,7 +16,7 @@ interface InviteMemberButtonProps {
   collapsed?: boolean;
 }
 
-export function InviteMemberButton({ collapsed = false }: InviteMemberButtonProps) {
+export function InviteMemberButton({ collapsed = false }: Readonly<InviteMemberButtonProps>) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const { can } = usePermissions();
   const { organization } = useOrganization();

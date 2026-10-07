@@ -19,7 +19,7 @@ export interface ShareLinkCardProps {
  * The "Your meeting's ready" floating card shown in the bottom-left of the
  * meeting room when a join code is present.
  */
-export function ShareLinkCard({ shareUrl, addPeopleDialogContent }: ShareLinkCardProps) {
+export function ShareLinkCard({ shareUrl, addPeopleDialogContent }: Readonly<ShareLinkCardProps>) {
   const [copied, setCopied] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 

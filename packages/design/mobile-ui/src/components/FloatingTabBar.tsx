@@ -109,7 +109,7 @@ export function FloatingTabBar({
   renderRouteAccessory,
   renderAccentFallbackIcon,
   badgeColor = '#EF4444',
-}: FloatingTabBarProps) {
+}: Readonly<FloatingTabBarProps>) {
   const { colors, theme } = useTheme();
   const insets = useSafeAreaInsets();
 

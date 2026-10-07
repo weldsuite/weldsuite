@@ -35,7 +35,7 @@ function targetLabel(account: SocialAccount | undefined, accountId: string): str
   return `${account.name}${handle}`;
 }
 
-function TargetsList({ post, accountsById }: TargetsListProps) {
+function TargetsList({ post, accountsById }: Readonly<TargetsListProps>) {
   const { colors } = useTheme();
   if (!(post.targetAccountIds ?? []).length) {
     return <Text style={{ color: colors.mutedForeground }}>No target accounts selected.</Text>;
@@ -248,7 +248,7 @@ export default function PostDetailScreen() {
         variant="destructive"
         onConfirm={() => {
           setConfirm(null);
-          runAction('cancel', () => appApi.social.posts.cancel(postId), 'Post cancelled');
+          void runAction('cancel', () => appApi.social.posts.cancel(postId), 'Post cancelled');
         }}
         onCancel={() => setConfirm(null)}
       />
@@ -260,7 +260,7 @@ export default function PostDetailScreen() {
         variant="destructive"
         onConfirm={() => {
           setConfirm(null);
-          handleDelete();
+          void handleDelete();
         }}
         onCancel={() => setConfirm(null)}
       />

@@ -98,7 +98,7 @@ function getKindLabels(
   };
 }
 
-export function ChannelAttachmentsTab({ channelId, messages }: ChannelAttachmentsTabProps) {
+export function ChannelAttachmentsTab({ channelId, messages }: Readonly<ChannelAttachmentsTabProps>) {
   const t = useTranslations();
   const navigate = useNavigate();
   const kindLabels = useMemo(() => getKindLabels(t), [t]);

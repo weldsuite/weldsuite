@@ -25,8 +25,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { cn } from '@/lib/utils';
 import { formatTaskNumber } from '@/lib/task-number';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
-import { format, formatDistance } from 'date-fns';
-import {
+import { format, formatDistance ,
   startOfDay,
   addDays,
   isWithinInterval,
@@ -143,12 +142,12 @@ const TaskSidebarItem = memo(({
   rowHeight,
   isSelected,
   onClick,
-}: {
+}: Readonly<{
   task: Task;
   rowHeight: number;
   isSelected?: boolean;
   onClick?: () => void;
-}) => {
+}>) => {
   const tempEndAt =
     task.endAt && isSameDay(task.startAt, task.endAt)
       ? addDays(task.endAt, 1)
@@ -190,13 +189,13 @@ const TeamMemberSidebarItem = memo(({
   rowHeight,
   isExpanded,
   onToggle,
-}: {
+}: Readonly<{
   member: TeamMember;
   tasks: Task[];
   rowHeight: number;
   isExpanded: boolean;
   onToggle: () => void;
-}) => {
+}>) => {
   const avgWorkload = useMemo(() => {
     const today = new Date();
     const workload = calculateDailyWorkload(member.id, tasks, today);
@@ -248,11 +247,11 @@ const WorkloadAreaChart = memo(({
   member,
   tasks,
   rowHeight,
-}: {
+}: Readonly<{
   member: TeamMember;
   tasks: Task[];
   rowHeight: number;
-}) => {
+}>) => {
   const gantt = useGantt();
   const { columnWidth, zoom, range, timelineData } = gantt;
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
@@ -577,10 +576,10 @@ WorkloadAreaChart.displayName = 'WorkloadAreaChart';
 const TaskTimelineRow = memo(({
   task,
   rowHeight,
-}: {
+}: Readonly<{
   task: Task;
   rowHeight: number;
-}) => {
+}>) => {
   // Convert task to GanttFeature format
   const feature: GanttFeature = useMemo(() => ({
     id: task.id,
@@ -670,7 +669,7 @@ const TaskDetailPanel = memo(({
   commentInput,
   onCommentInputChange,
   onSendComment,
-}: {
+}: Readonly<{
   task: Task | null;
   member: TeamMember | null;
   onClose: () => void;
@@ -678,7 +677,7 @@ const TaskDetailPanel = memo(({
   commentInput: string;
   onCommentInputChange: (value: string) => void;
   onSendComment: () => void;
-}) => {
+}>) => {
   if (!task || !member) return null;
 
   const _tempEndAt =
@@ -773,7 +772,7 @@ export interface WorkloadViewProps {
   projectId?: string;
 }
 
-export function WorkloadView({ initialData, error, projectId }: WorkloadViewProps) {
+export function WorkloadView({ initialData, error, projectId }: Readonly<WorkloadViewProps>) {
   const st = useTranslations();
   const { canWrite } = useProjectPermissions();
   // Milestones only exist on the project-scoped page, and viewers can read them but not change them.

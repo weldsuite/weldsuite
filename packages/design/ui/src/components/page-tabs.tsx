@@ -53,11 +53,11 @@ function TabInner({
   tab,
   isActive,
   isFirst,
-}: {
+}: Readonly<{
   tab: PageTab;
   isActive: boolean;
   isFirst: boolean;
-}) {
+}>) {
   const Icon = tab.icon;
   return (
     <>
@@ -104,13 +104,13 @@ function TabButton({
   isFirst,
   onTabChange,
   linkComponent,
-}: {
+}: Readonly<{
   tab: PageTab;
   isActive: boolean;
   isFirst: boolean;
   onTabChange?: (tabId: string) => void;
   linkComponent?: React.ElementType;
-}) {
+}>) {
   if (tab.href) {
     const LinkComponent = linkComponent ?? 'a';
     return (
@@ -153,10 +153,10 @@ function OverflowTabs({
   linkComponent,
   innerClassName,
   children,
-}: Pick<
+}: Readonly<Pick<
   PageTabsProps,
   'tabs' | 'activeTab' | 'onTabChange' | 'linkComponent' | 'innerClassName' | 'children'
->) {
+>>) {
   const rowRef = React.useRef<HTMLDivElement>(null);
   const measureRef = React.useRef<HTMLDivElement>(null);
   const moreRef = React.useRef<HTMLDivElement>(null);
@@ -357,7 +357,7 @@ export function PageTabs({
   innerClassName,
   children,
   overflow = 'scroll',
-}: PageTabsProps) {
+}: Readonly<PageTabsProps>) {
   // Dropdown overflow mode (Attio-style "+N more"). Only supported when no
   // custom tab wrapper is provided — wrappers imply bespoke per-tab markup.
   if (overflow === 'dropdown' && !renderTabWrapper) {

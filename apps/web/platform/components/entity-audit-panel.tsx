@@ -7,7 +7,7 @@ interface EntityAuditPanelProps {
   entityId: string;
 }
 
-export function EntityAuditPanel({ entityType, entityId }: EntityAuditPanelProps) {
+export function EntityAuditPanel({ entityType, entityId }: Readonly<EntityAuditPanelProps>) {
   const { data, isLoading } = useEntityAuditLogs(entityType, entityId);
 
   if (isLoading) {

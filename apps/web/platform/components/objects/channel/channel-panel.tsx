@@ -29,12 +29,12 @@ import { ChannelAttachmentsTab } from './channel-attachments-tab';
 
 const CHANNEL_PANEL_WIDTH = 400;
 
-function ChannelAvatar({ channelType }: { channelType?: string }) {
+function ChannelAvatar({ channelType }: Readonly<{ channelType?: string }>) {
   const Icon = channelType === 'private' ? Lock : Hash;
   return <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />;
 }
 
-function ChannelTitle({ name }: { name?: string }) {
+function ChannelTitle({ name }: Readonly<{ name?: string }>) {
   if (!name) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return <span className="text-[15px] font-medium text-foreground truncate">{name}</span>;
 }
@@ -47,7 +47,7 @@ function ChannelPanelTabsBar({
   threadsCount,
   attachmentsCount,
   bookmarksCount,
-}: {
+}: Readonly<{
   activeTab: ChannelTab['id'];
   setActiveTab: (id: ChannelTab['id']) => void;
   mode: 'panel' | 'fullscreen';
@@ -55,7 +55,7 @@ function ChannelPanelTabsBar({
   threadsCount: number;
   attachmentsCount: number;
   bookmarksCount: number;
-}) {
+}>) {
   const configEntries = useMemo(
     () =>
       CHANNEL_TABS.map((t) => ({
@@ -106,7 +106,7 @@ function ChannelPanelTabsBar({
   );
 }
 
-export function ChannelPanel(props: ObjectPanelComponentProps) {
+export function ChannelPanel(props: Readonly<ObjectPanelComponentProps>) {
   const { id, initialTab, onClose } = props;
   const { data: channelData } = useChannel(id);
   const channel = channelData?.data;

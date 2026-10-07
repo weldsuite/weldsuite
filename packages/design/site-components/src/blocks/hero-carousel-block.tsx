@@ -95,7 +95,7 @@ export function HeroCarouselBlock({
   paddingTop = 128,
   paddingBottom = 128,
   className,
-}: HeroCarouselBlockProps) {
+}: Readonly<HeroCarouselBlockProps>) {
   // Position classes mapping
   const positionClasses = {
     'top-left': 'items-start justify-start',

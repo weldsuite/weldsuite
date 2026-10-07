@@ -80,7 +80,7 @@ export function CustomStatusDialog({
   cancelLabel = "Cancel",
   saveLabel = "Save",
   savingLabel = "Saving...",
-}: CustomStatusDialogProps) {
+}: Readonly<CustomStatusDialogProps>) {
   const [statusText, setStatusText] = useState(value?.statusText || "");
   const [statusEmoji, setStatusEmoji] = useState(value?.statusEmoji || "");
   const [saving, setSaving] = useState(false);

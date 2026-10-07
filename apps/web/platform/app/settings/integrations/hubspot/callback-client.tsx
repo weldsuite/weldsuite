@@ -27,7 +27,7 @@ export default function HubSpotCallbackClient() {
 
     const redirectUri = `${window.location.origin}/settings/integrations/hubspot/callback`;
 
-    (async () => {
+    void (async () => {
       try {
         await callbackMutation.mutateAsync({ provider: 'hubspot', code, state, redirectUri });
         toast.success(t('sweep.settings.oauthCallback.connectedSuccessfully', { provider: 'HubSpot' }));

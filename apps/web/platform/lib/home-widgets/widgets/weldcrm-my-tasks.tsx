@@ -62,7 +62,7 @@ function mapActivity(api: ApiActivity): CrmTaskRow {
   };
 }
 
-function Render({ settings }: { settings: WeldcrmMyTasksSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldcrmMyTasksSettings }>) {
   const { user } = useUser();
   const res = useActivities({
     type: 'task',
@@ -74,7 +74,7 @@ function Render({ settings }: { settings: WeldcrmMyTasksSettings }) {
   return <CrmCard rows={rows} isLoading={res.isLoading} />;
 }
 
-function SettingsForm({ value, onChange }: { value: WeldcrmMyTasksSettings; onChange: (next: WeldcrmMyTasksSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldcrmMyTasksSettings; onChange: (next: WeldcrmMyTasksSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

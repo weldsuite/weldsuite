@@ -50,6 +50,12 @@ import {
   Search,
   Settings,
   Trash2,
+  Calculator,
+  TrendingUp,
+  Percent,
+  DollarSign,
+  BarChart3,
+  PieChart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@weldsuite/ui/components/input';
@@ -80,14 +86,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import {
-  Calculator,
-  TrendingUp,
-  Percent,
-  DollarSign,
-  BarChart3,
-  PieChart
-} from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { secureRandom } from '@/lib/random';
 import { toast } from 'sonner';
@@ -316,7 +314,7 @@ export function PipelineKanban({
   initialSettings = DEFAULT_PIPELINE_SETTINGS,
   lockedCustomer,
   hideHeader,
-}: PipelineKanbanProps) {
+}: Readonly<PipelineKanbanProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const createStageMutation = useCreatePipelineStage();
@@ -362,7 +360,7 @@ export function PipelineKanban({
     const next = new Set(confettiStages);
     if (enabled) next.add(stageId); else next.delete(stageId);
     setConfettiStages(next);
-    updateViewSettings({ confettiStageIds: Array.from(next) });
+    void updateViewSettings({ confettiStageIds: Array.from(next) });
   };
 
   // Per-stage "track time in stage" toggle — used to be a bare `useState`
@@ -375,7 +373,7 @@ export function PipelineKanban({
     const next = new Set(trackTimeInStageIds);
     if (enabled) next.add(stageId); else next.delete(stageId);
     setTrackTimeInStageIds(next);
-    updateViewSettings({ trackTimeInStageIds: Array.from(next) });
+    void updateViewSettings({ trackTimeInStageIds: Array.from(next) });
   };
 
   // Stages hidden from the board (persisted in the pipeline's own settings —
@@ -387,13 +385,13 @@ export function PipelineKanban({
     const next = new Set(hiddenStageIds);
     next.add(stageId);
     setHiddenStageIds(next);
-    updateViewSettings({ hiddenStageIds: Array.from(next) });
+    void updateViewSettings({ hiddenStageIds: Array.from(next) });
   };
   const handleUnhideStage = (stageId: string) => {
     const next = new Set(hiddenStageIds);
     next.delete(stageId);
     setHiddenStageIds(next);
-    updateViewSettings({ hiddenStageIds: Array.from(next) });
+    void updateViewSettings({ hiddenStageIds: Array.from(next) });
   };
 
   const fireConfetti = async () => {
@@ -404,7 +402,7 @@ export function PipelineKanban({
     // Instant big burst — wall of confetti raining down from the entire top
     // angle: 270 = downward (0=right, 90=up, 180=left, 270=down)
     for (let x = 0; x <= 1; x += 0.07) {
-      confetti({
+      void confetti({
         particleCount: 35,
         spread: 130,
         angle: 270,
@@ -636,7 +634,8 @@ export function PipelineKanban({
 
     // Fire confetti if target stage has it enabled
     if (confettiStages.has(toStageId)) {
-      fireConfetti();
+      // Decorative: a failed canvas-confetti chunk load just skips the effect.
+      fireConfetti().catch(() => {});
     }
 
     // Call server action to persist the change
@@ -711,14 +710,14 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
       [stageId]: { type: calculationType, value: calculatedValue },
     };
     setStageCalculations(nextCalculations);
-    updateViewSettings({ stageCalculations: nextCalculations });
+    void updateViewSettings({ stageCalculations: nextCalculations });
   };
 
   const removeCalculation = (stageId: string) => {
     const nextCalculations = { ...stageCalculations };
     delete nextCalculations[stageId];
     setStageCalculations(nextCalculations);
-    updateViewSettings({ stageCalculations: nextCalculations });
+    void updateViewSettings({ stageCalculations: nextCalculations });
   };
 
   const handleCustomFormulaSubmit = (formula: string) => {
@@ -731,7 +730,7 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
       [selectedStageForFormula]: { type: 'custom', value: formula || t('sweep.weldcrm.pipelineKanban.customFormula') },
     };
     setStageCalculations(nextCalculations);
-    updateViewSettings({ stageCalculations: nextCalculations });
+    void updateViewSettings({ stageCalculations: nextCalculations });
 
     setShowCustomFormulaModal(false);
     setSelectedStageForFormula(null);
@@ -931,13 +930,13 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
         const nextCalculations = { ...stageCalculations };
         delete nextCalculations[stageId];
         setStageCalculations(nextCalculations);
-        updateViewSettings({ stageCalculations: nextCalculations });
+        void updateViewSettings({ stageCalculations: nextCalculations });
       }
       if (confettiStages.has(stageId)) {
         const next = new Set(confettiStages);
         next.delete(stageId);
         setConfettiStages(next);
-        updateViewSettings({ confettiStageIds: Array.from(next) });
+        void updateViewSettings({ confettiStageIds: Array.from(next) });
       }
       toast.success(t('sweep.weldcrm.pipelineKanban.stageDeleted'));
     } catch (error) {
@@ -1371,7 +1370,7 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
             autoFocus
             onKeyDown={(e) => {
               if (e.key === 'Enter' && stageToRename) {
-                handleRenameStage(stageToRename.id, renameValue);
+                void handleRenameStage(stageToRename.id, renameValue);
                 setStageToRename(null);
               }
             }}
@@ -1382,7 +1381,7 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
             </Button>
             <Button
               onClick={() => {
-                if (stageToRename) handleRenameStage(stageToRename.id, renameValue);
+                if (stageToRename) void handleRenameStage(stageToRename.id, renameValue);
                 setStageToRename(null);
               }}
             >
@@ -1402,11 +1401,11 @@ function CustomFormulaModal({
   open,
   onOpenChange,
   onSubmit
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (formula: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const [formula, setFormula] = useState('');
 
@@ -1480,14 +1479,14 @@ function PipelineSettingsModal({
   onCustomFieldsChange,
   viewSettings,
   onSettingsChange,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   customFields: CustomFieldDef[];
   onCustomFieldsChange: (fields: CustomFieldDef[]) => void;
   viewSettings: PipelineViewSettings;
   onSettingsChange: (updates: Partial<PipelineViewSettings>) => Promise<void>;
-}) {
+}>) {
   const t = useTranslations();
   // Initialize local state from viewSettings prop
   const [settings, setSettings] = useState({

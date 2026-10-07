@@ -63,7 +63,7 @@ function main() {
 
     journalEntries.push(`  { idx: ${entry.idx}, tag: ${JSON.stringify(entry.tag)}, when: ${entry.when} }`);
     // Use backtick-escaped template literal for SQL (escape backticks and ${)
-    const escapedSql = sql.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+    const escapedSql = sql.replaceAll('\\', '\\\\').replaceAll('`', '\\`').replaceAll('${', '\\${');
     sqlEntries.push(`  ${JSON.stringify(entry.tag)}: \`${escapedSql}\``);
     hashEntries.push(`  ${JSON.stringify(entry.tag)}: ${JSON.stringify(hash)}`);
   }

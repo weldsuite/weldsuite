@@ -15,7 +15,7 @@ export interface EntityInfoCardProps {
   children?: ReactNode;
 }
 
-export function EntityInfoCard({ title, description, items, children }: EntityInfoCardProps) {
+export function EntityInfoCard({ title, description, items, children }: Readonly<EntityInfoCardProps>) {
   return (
     <div className="space-y-4">
       <div>

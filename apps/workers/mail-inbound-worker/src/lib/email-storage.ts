@@ -100,6 +100,11 @@ function computeThreadId(message: {
 export interface RecipientAccount {
   accountId: string;
   accountEmail: string;
+  /**
+   * Whether every workspace member may open the mailbox. Only then may the
+   * workspace-wide `email:created` event carry message content.
+   */
+  isShared: boolean;
   tenantKind: 'workspace' | 'personal';
   /** Internal workspace id — required when tenantKind = workspace. */
   workspaceId: string | null;
@@ -236,6 +241,7 @@ async function resolvePersonalRecipient(
   return {
     accountId: reg.accountId,
     accountEmail: reg.email,
+    isShared: false,
     tenantKind: 'personal',
     workspaceId: null,
     clerkOrgId: null,
@@ -334,6 +340,7 @@ async function resolveWorkspaceRecipient(
     accountId: reg.accountId,
     accountEmail,
     tenantKind: 'workspace',
+    isShared: accountAccess.isShared === true,
     workspaceId: reg.workspaceId,
     clerkOrgId: workspace.clerkOrgId,
     personalAccountId: null,
@@ -657,7 +664,7 @@ async function findThreadBySubject(
   email: ParsedEmail,
 ): Promise<ThreadMatch | null> {
   const normalizedSubject = email.subject
-    .replace(/^(Re|Fwd|Fw):\s*/gi, '')
+    .replaceAll(/^(Re|Fwd|Fw):\s*/gi, '')
     .trim();
   if (!normalizedSubject) return null;
 
@@ -997,10 +1004,13 @@ async function finishWorkspaceDelivery(
 
   // Hub entity event once per stored message (not per member) so shared
   // mailboxes + platformSyncMap.email refresh. Personal mail:new loop below
-  // stays for toast / useMailRealtime — intentional dual-path.
+  // stays for toast / useMailRealtime — intentional dual-path. The hub event
+  // reaches the whole workspace, so it carries content for a shared mailbox
+  // only; for a private one, subject + preview travel on the per-member
+  // mail:new below and nowhere else.
   const inboundPayload = buildInboundPayload(account, email, result, preview);
   try {
-    await publishInboundEmailCreated(env, clerkOrgId, inboundPayload);
+    await publishInboundEmailCreated(env, clerkOrgId, inboundPayload, account.isShared);
   } catch (hubErr) {
     console.error(`[Mail] Failed to publish hub email:created for ${result.messageId}:`, hubErr);
   }
@@ -1576,9 +1586,9 @@ function evalRuleCondition(
     case 'ends_with':
       return typeof fieldValue === 'string' && fieldValue.toLowerCase().endsWith(v.toLowerCase());
     case 'greater_than':
-      return !isNaN(Number(fieldValue)) && !isNaN(Number(v)) && Number(fieldValue) > Number(v);
+      return !Number.isNaN(Number(fieldValue)) && !Number.isNaN(Number(v)) && Number(fieldValue) > Number(v);
     case 'less_than':
-      return !isNaN(Number(fieldValue)) && !isNaN(Number(v)) && Number(fieldValue) < Number(v);
+      return !Number.isNaN(Number(fieldValue)) && !Number.isNaN(Number(v)) && Number(fieldValue) < Number(v);
     case 'is_true':
       return fieldValue === true || fieldValue === 'true';
     case 'is_false':
@@ -1677,7 +1687,7 @@ async function storeInboundAttachments(
       const contentType = att.contentType || 'application/octet-stream';
 
       // Build R2 key: workspaces/{workspaceId}/mail/attachments/{messageId}/{filename}
-      const sanitizedName = att.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const sanitizedName = att.fileName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
       const r2Key = `workspaces/${workspaceId}/mail/attachments/${dbMessageId}/${i + 1}_${sanitizedName}`;
 
       // Upload to R2
@@ -1738,7 +1748,7 @@ async function storePersonalAttachments(
 
     try {
       const contentType = att.contentType || 'application/octet-stream';
-      const sanitizedName = att.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const sanitizedName = att.fileName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
       const r2Key = `personal/${personalAccountId}/mail/attachments/${dbMessageId}/${i + 1}_${sanitizedName}`;
 
       await env.STORAGE.put(r2Key, att.content, {

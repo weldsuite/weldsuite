@@ -21,7 +21,7 @@ interface NotificationsSectionProps {
 export function NotificationsSection({
   notifications,
   onNotificationChange,
-}: NotificationsSectionProps) {
+}: Readonly<NotificationsSectionProps>) {
   const t = useTranslations()
   return (
     <div className="space-y-8">

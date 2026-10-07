@@ -13,7 +13,7 @@ export function parseMT940(content: string): BankFileParseResult {
 
   try {
     // Normalise line endings
-    const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const normalized = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
     // Split into individual statements (separated by :20: tags or -)
     const statements = splitStatements(normalized);
@@ -24,8 +24,9 @@ export function parseMT940(content: string): BankFileParseResult {
 
     // Compute date range
     if (result.transactions.length > 0) {
-      const dates = result.transactions.map((t) => t.date).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-      result.dateRange = { from: dates[0], to: dates[dates.length - 1] };
+      // ISO dates: string order is date order.
+      const dates = result.transactions.map((t) => t.date).sort((a, b) => a.localeCompare(b));
+      result.dateRange = { from: dates[0], to: dates.at(-1)! };
     }
   } catch (err) {
     result.errors.push({
@@ -52,7 +53,7 @@ function collectTags(lines: string[]): Mt940Tag[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const tagMatch = line.match(/^:(\d{2}[A-Z]?):(.*)$/);
+    const tagMatch = /^:(\d{2}[A-Z]?):(.*)$/.exec(line);
 
     if (tagMatch) {
       if (currentTag) {
@@ -121,7 +122,7 @@ function parseTransaction(
   tag86: { value: string; lineNum: number } | null,
   errors: BankFileParseResult['errors'],
 ): ParsedBankTransaction | null {
-  const line = tag61.value.replace(/\n/g, '');
+  const line = tag61.value.replaceAll('\n', '');
 
   // Match the :61: line format
   // Date: 6 digits YYMMDD, optional entry date 4 digits MMDD
@@ -129,8 +130,8 @@ function parseTransaction(
   // Amount: digits with comma as decimal separator
   // Transaction type: S/N/F + 3 chars
   // Reference and bank reference
-  const match = line.match(
-    /^(\d{6})(\d{4})?(R?[CD])([A-Z]?)(\d+,\d*)(S|N|F)(\d{3})(.*)$/,
+  const match = /^(\d{6})(\d{4})?(R?[CD])([A-Z]?)(\d+,\d*)([SNF])(\d{3})(.*)$/.exec(
+    line,
   );
 
   if (!match) {
@@ -155,7 +156,7 @@ function parseTransaction(
   }
 
   // Parse amount
-  const amount = parseFloat(amountStr.replace(',', '.'));
+  const amount = Number.parseFloat(amountStr.replace(',', '.'));
   const signedAmount = cdIndicator === 'D' || cdIndicator === 'RD' ? -amount : amount;
 
   // Parse reference from remainder
@@ -233,7 +234,7 @@ function parseTag86(value: string): {
   const result: ReturnType<typeof parseTag86> = { description: '' };
 
   // Normalise multiline to single string
-  const text = value.replace(/\n/g, '');
+  const text = value.replaceAll('\n', '');
 
   // Try structured format with /XXX/ sub-fields (ABN AMRO, Rabobank style)
   if (text.includes('/CNTP/') || text.includes('/REMI/') || text.includes('/EREF/')) {
@@ -241,7 +242,7 @@ function parseTag86(value: string): {
   }
 
   // Try ING format with >nn sub-fields
-  if (text.match(/>(\d{2})/)) {
+  if (/>(\d{2})/.test(text)) {
     return parseINGTag86(text);
   }
 
@@ -249,7 +250,7 @@ function parseTag86(value: string): {
   result.description = text.trim();
 
   // Try to extract IBAN from description
-  const ibanMatch = text.match(/\b([A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,})\b/);
+  const ibanMatch = /\b([A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,})\b/.exec(text);
   if (ibanMatch) {
     result.counterpartyIban = ibanMatch[1];
   }
@@ -261,7 +262,7 @@ function parseStructuredTag86(text: string): ReturnType<typeof parseTag86> {
   const result: ReturnType<typeof parseTag86> = { description: '' };
 
   // Extract /CNTP/ counterparty block: /CNTP/iban/bic/name/city/
-  const cntpMatch = text.match(/\/CNTP\/([^/]*)\/([^/]*)\/([^/]*)\/([^/]*)\//);
+  const cntpMatch = /\/CNTP\/([^/]*)\/([^/]*)\/([^/]*)\/([^/]*)\//.exec(text);
   if (cntpMatch) {
     if (cntpMatch[1]) result.counterpartyIban = cntpMatch[1].trim();
     if (cntpMatch[2]) result.counterpartyBic = cntpMatch[2].trim();
@@ -269,25 +270,25 @@ function parseStructuredTag86(text: string): ReturnType<typeof parseTag86> {
   }
 
   // Extract /REMI/ remittance info
-  const remiMatch = text.match(/\/REMI\/(?:USTD\/\/)?([^/]*(?:\/[^/]*)*?)(?=\/[A-Z]{4}\/|$)/);
+  const remiMatch = /\/REMI\/(?:USTD\/\/)?([^/]*(?:\/[^/]*)*?)(?=\/[A-Z]{4}\/|$)/.exec(text);
   if (remiMatch) {
     result.description = remiMatch[1].trim();
   }
 
   // Extract /EREF/ end-to-end reference
-  const erefMatch = text.match(/\/EREF\/([^/]+)/);
+  const erefMatch = /\/EREF\/([^/]+)/.exec(text);
   if (erefMatch) {
     result.endToEndId = erefMatch[1].trim();
   }
 
   // Extract /MARF/ mandate reference
-  const marfMatch = text.match(/\/MARF\/([^/]+)/);
+  const marfMatch = /\/MARF\/([^/]+)/.exec(text);
   if (marfMatch) {
     result.mandateId = marfMatch[1].trim();
   }
 
   // Extract /PREF/ or /KREF/ payment reference
-  const prefMatch = text.match(/\/(?:PREF|KREF)\/([^/]+)/);
+  const prefMatch = /\/(?:PREF|KREF)\/([^/]+)/.exec(text);
   if (prefMatch) {
     result.reference = prefMatch[1].trim();
   }
@@ -295,7 +296,7 @@ function parseStructuredTag86(text: string): ReturnType<typeof parseTag86> {
   // If no description from REMI, use the full text minus structured fields
   if (!result.description) {
     result.description = text
-      .replace(/\/[A-Z]{4}\/[^/]*/g, '')
+      .replaceAll(/\/[A-Z]{4}\/[^/]*/g, '')
       .trim() || text.trim();
   }
 
@@ -335,7 +336,7 @@ function parseINGTag86(text: string): ReturnType<typeof parseTag86> {
   result.description = descParts.join(' ').trim();
 
   // Counterparty
-  if (fields['31']) result.counterpartyIban = fields['31'].replace(/\s/g, '');
+  if (fields['31']) result.counterpartyIban = fields['31'].replaceAll(/\s/g, '');
   if (fields['30']) result.counterpartyBic = fields['30'];
   const nameParts: string[] = [];
   if (fields['32']) nameParts.push(fields['32']);
@@ -354,11 +355,11 @@ function parseINGTag86(text: string): ReturnType<typeof parseTag86> {
  * Example: C230115EUR1234,56
  */
 function parseBalanceTag(value: string): number | null {
-  const match = value.match(/^(C|D)(\d{6})([A-Z]{3})(\d+,\d*)$/);
+  const match = /^([CD])(\d{6})([A-Z]{3})(\d+,\d*)$/.exec(value);
   if (!match) return null;
 
   const [, cd, , , amountStr] = match;
-  const amount = parseFloat(amountStr.replace(',', '.'));
+  const amount = Number.parseFloat(amountStr.replace(',', '.'));
   return cd === 'D' ? -amount : amount;
 }
 
@@ -380,7 +381,7 @@ function parseMT940Date(yymmdd: string): string | null {
 
 function extractIban(value: string): string | null {
   // :25: may contain IBAN directly or in format BANKCODE/ACCOUNTNUMBER
-  const cleaned = value.replace(/\s/g, '').replace(/\n/g, '');
-  const ibanMatch = cleaned.match(/([A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,})/);
+  const cleaned = value.replaceAll(/\s/g, '').replaceAll('\n', '');
+  const ibanMatch = /([A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,})/.exec(cleaned);
   return ibanMatch ? ibanMatch[1] : null;
 }

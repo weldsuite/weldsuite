@@ -34,7 +34,7 @@ export function PricingCardBlock({
   backgroundColor = '#ffffff',
   textColor = '#000000',
   accentColor = '#3b82f6'
-}: PricingCardBlockProps) {
+}: Readonly<PricingCardBlockProps>) {
   return (
     <div
       className={`rounded-lg shadow-lg p-8 max-w-sm ${highlighted ? 'ring-4' : ''}`}

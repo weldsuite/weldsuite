@@ -182,7 +182,7 @@ export function ProvisioningScreen({ skipRetry = false }: Readonly<ProvisioningS
     if (!dbStatus?.provisioned || !dbStatus?.migrated || finalizationTriggered.current) return;
     finalizationTriggered.current = true;
 
-    (async () => {
+    void (async () => {
       // Finalize onboarding (mark complete, install apps)
       try {
         await finalizeMutation.mutateAsync();

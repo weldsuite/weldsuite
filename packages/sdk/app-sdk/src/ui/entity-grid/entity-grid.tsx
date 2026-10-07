@@ -61,7 +61,7 @@ export function EntityGrid<TEntity>({
   onLoadMore,
   hasMore,
   isFetchingMore,
-}: EntityGridProps<TEntity>) {
+}: Readonly<EntityGridProps<TEntity>>) {
   const mergedLabels = { ...DEFAULT_LABELS, ...labels };
   const [internalSearch, setInternalSearch] = useState('');
   const searchValue = controlledSearch ?? internalSearch;
@@ -262,7 +262,7 @@ function computeColumnSpan<TEntity>(
   return columns.length + (config.enableRowSelection ? 1 : 0) + (config.showRowNumbers ? 1 : 0);
 }
 
-function GridEmptyRow({ colSpan, label }: { colSpan: number; label: string }) {
+function GridEmptyRow({ colSpan, label }: Readonly<{ colSpan: number; label: string }>) {
   return (
     <tr>
       <td className="wui-egrid-empty" colSpan={colSpan}>
@@ -306,7 +306,7 @@ function GridToolbar<TEntity>({
   searchPlaceholder,
   toolbarActions,
   onExport,
-}: {
+}: Readonly<{
   config: EntityGridConfig<TEntity>;
   actions: EntityGridActions<TEntity>;
   labels: EntityGridLabels | undefined;
@@ -316,7 +316,7 @@ function GridToolbar<TEntity>({
   searchPlaceholder: string | undefined;
   toolbarActions: ReactNode;
   onExport: () => void;
-}) {
+}>) {
   return (
     <div className="wui-egrid-toolbar">
       <div className="wui-egrid-toolbar__left">
@@ -356,13 +356,13 @@ function GridSelectionBar({
   canBulkDelete,
   onBulkDelete,
   onClear,
-}: {
+}: Readonly<{
   count: number;
   mergedLabels: ResolvedLabels;
   canBulkDelete: boolean;
   onBulkDelete: () => void;
   onClear: () => void;
-}) {
+}>) {
   return (
     <div className="wui-egrid-selection">
       <span>
@@ -391,14 +391,14 @@ function GridTableHead<TEntity>({
   onSort,
   allSelected,
   onToggleAll,
-}: {
+}: Readonly<{
   config: EntityGridConfig<TEntity>;
   columns: GridColumnDef<TEntity>[];
   sort: GridSortConfig;
   onSort: (fieldId: string) => void;
   allSelected: boolean;
   onToggleAll: () => void;
-}) {
+}>) {
   return (
     <thead>
       <tr>
@@ -431,11 +431,11 @@ function GridHeaderCell<TEntity>({
   column,
   sort,
   onSort,
-}: {
+}: Readonly<{
   column: GridColumnDef<TEntity>;
   sort: GridSortConfig;
   onSort: (fieldId: string) => void;
-}) {
+}>) {
   const active = sort.field === column.id;
   const SortIcon = sortIconFor(active, sort.direction);
   return (
@@ -481,7 +481,7 @@ function GridRow<TEntity>({
   onStartEdit,
   onStopEdit,
   onCommit,
-}: {
+}: Readonly<{
   entity: TEntity;
   id: string;
   index: number;
@@ -494,7 +494,7 @@ function GridRow<TEntity>({
   onStartEdit: (cell: EditingCell) => void;
   onStopEdit: () => void;
   onCommit: (column: GridColumnDef<TEntity>, value: unknown) => void;
-}) {
+}>) {
   return (
     <tr
       className={cn('wui-egrid-row', selected && 'wui-egrid-row--selected')}
@@ -551,14 +551,14 @@ function GridCellContent<TEntity>({
   isEditing,
   onCommit,
   onCancel,
-}: {
+}: Readonly<{
   entity: TEntity;
   column: GridColumnDef<TEntity>;
   editable: boolean;
   isEditing: boolean;
   onCommit: (value: unknown) => void;
   onCancel: () => void;
-}) {
+}>) {
   const value = column.getValue(entity);
   if (isEditing) {
     return (
@@ -579,10 +579,10 @@ function GridCellContent<TEntity>({
 function DefaultCell<TEntity>({
   column,
   value,
-}: {
+}: Readonly<{
   column: GridColumnDef<TEntity>;
   value: unknown;
-}) {
+}>) {
   if (column.type === 'single-select' && typeof value === 'string' && column.selectConfig?.[value]) {
     const style = column.selectConfig[value];
     return (
@@ -621,12 +621,12 @@ function CellEditor<TEntity>({
   value,
   onCommit,
   onCancel,
-}: {
+}: Readonly<{
   column: GridColumnDef<TEntity>;
   value: unknown;
   onCommit: (value: unknown) => void;
   onCancel: () => void;
-}) {
+}>) {
   if (column.type === 'number' || column.type === 'currency' || column.type === 'percent') {
     return (
       <NumberEditor

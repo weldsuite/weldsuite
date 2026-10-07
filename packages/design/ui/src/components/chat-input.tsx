@@ -536,7 +536,7 @@ export const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
   },
 );
 
-function ActionButton({ icon: Icon, label, onClick, disabled, active }: ChatInputAction) {
+function ActionButton({ icon: Icon, label, onClick, disabled, active }: Readonly<ChatInputAction>) {
   return (
     <Button
       type="button"

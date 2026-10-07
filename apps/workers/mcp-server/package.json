@@ -21,6 +21,7 @@
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/know-domain": "workspace:*",
     "@weldsuite/social-publishing": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "drizzle-orm": "^0.45.2",

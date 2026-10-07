@@ -25,19 +25,19 @@ function renderTabBar(props: TabBarRenderProps) {
   return <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />;
 }
 
-function HomeTabIcon({ color, size }: TabIconProps) {
+function HomeTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <LayoutDashboard size={size} color={color} strokeWidth={2.2} />;
 }
 
-function ProjectsTabIcon({ color, size }: TabIconProps) {
+function ProjectsTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <FolderKanban size={size} color={color} strokeWidth={2.2} />;
 }
 
-function MyTasksTabIcon({ color, size }: TabIconProps) {
+function MyTasksTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <CheckSquare size={size} color={color} strokeWidth={2.2} />;
 }
 
-function MoreTabIcon({ color, size }: TabIconProps) {
+function MoreTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <MoreHorizontal size={size} color={color} strokeWidth={2.2} />;
 }
 

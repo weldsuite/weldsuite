@@ -63,7 +63,7 @@ export function ImageWithTextBlock({
   buttonStyle = 'primary',
   blocks = [],
   selectedBlockId,
-}: ImageWithTextBlockProps) {
+}: Readonly<ImageWithTextBlockProps>) {
 
   // Extract settings from blocks if they exist
   const imageBlock = blocks?.find(b => b.type === 'imageWithTextImage');

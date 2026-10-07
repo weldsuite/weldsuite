@@ -45,7 +45,7 @@ export async function handleTypingStart(typing: Typing): Promise<void> {
     if (!conv) return;
 
     // Publish typing event to ConversationRoom
-    publishConversationEvent(conv.id, {
+    void publishConversationEvent(conv.id, {
       type: 'typing',
       userId: `discord_${typing.user?.id || 'unknown'}`,
       userName: typing.user?.displayName || typing.user?.username || 'Someone',

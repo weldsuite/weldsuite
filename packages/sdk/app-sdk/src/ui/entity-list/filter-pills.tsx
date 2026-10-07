@@ -49,7 +49,7 @@ export function FilterPills({
   filterConfigs,
   maxFilters = 5,
   onFiltersChange,
-}: FilterPillsBarProps) {
+}: Readonly<FilterPillsBarProps>) {
   const filterIdCounterRef = useRef(0);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [editingFilterIndex, setEditingFilterIndex] = useState<number | null>(null);

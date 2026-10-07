@@ -89,7 +89,7 @@ export const aiClassifyHandler: StepHandler = {
       // Parse category from response
       const categoryMatch = responseText.match(/Category:\s*(.+)/i);
       if (categoryMatch) {
-        category = categoryMatch[1].trim().toLowerCase().replace(/[^a-z0-9_\s-]/g, '').replace(/\s+/g, '_');
+        category = categoryMatch[1].trim().toLowerCase().replaceAll(/[^a-z0-9_\s-]/g, '').replaceAll(/\s+/g, '_');
       }
 
       // Parse confidence from response

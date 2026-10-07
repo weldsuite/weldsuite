@@ -134,3 +134,37 @@ export async function checkAccountManageAccess(
   const admin = await isAdminOrOwner(db, userId);
   return canManageAccount(row, userId, admin);
 }
+
+/** The message content an `email` entity event can carry. */
+type EmailEventContent = {
+  accountId: string;
+  subject?: string | null;
+  from?: string | null;
+  to?: string[] | null;
+};
+
+/**
+ * Payload for an `email` entity event, cleared of message content unless the
+ * mailbox is shared.
+ *
+ * Entity events are workspace-wide, not mailbox-scoped: the realtime hub
+ * pushes the payload to every connected member, the audit log keeps it for
+ * anyone with `general:read`, and webhooks, workflows and agents receive it as
+ * trigger data. So only a shared mailbox, which every member may open anyway,
+ * may put subject, sender or recipients on one. For a private mailbox the
+ * event keeps its ids, which is all the cache refresh needs.
+ *
+ * Never throws, and fails closed: an account that cannot be resolved is
+ * treated as private.
+ */
+export async function emailEventData<T extends EmailEventContent>(db: Database, data: T): Promise<T> {
+  let shared = false;
+  try {
+    if (data.accountId) {
+      shared = (await loadAccessFields(db, data.accountId))?.isShared === true;
+    }
+  } catch (err) {
+    console.error('[mail/access] Could not resolve account for email event, dropping content:', err);
+  }
+  return shared ? data : { ...data, subject: null, from: null, to: null };
+}

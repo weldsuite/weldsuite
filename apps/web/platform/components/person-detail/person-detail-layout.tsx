@@ -12,7 +12,7 @@ export interface PersonDetailLayoutProps {
   content: PersonDetailContentProps;
 }
 
-export function PersonDetailLayout({ header, sidebar, content }: PersonDetailLayoutProps) {
+export function PersonDetailLayout({ header, sidebar, content }: Readonly<PersonDetailLayoutProps>) {
   return (
     <div className="h-full overflow-auto">
       {/* Header */}

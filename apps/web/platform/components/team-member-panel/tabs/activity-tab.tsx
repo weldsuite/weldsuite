@@ -194,7 +194,7 @@ function getEntityStyle(entityType?: string) {
   return { icon: Tag, tone: 'slate', labelKey: null as string | null, fallbackLabel: humanEntity(entityType), classes: ENTITY_TONE.slate };
 }
 
-function EntityChip({ name, entityType }: { name: string; entityType?: string }) {
+function EntityChip({ name, entityType }: Readonly<{ name: string; entityType?: string }>) {
   const t = useTranslations();
   const style = getEntityStyle(entityType);
   const styleLabel = style.labelKey ? t(style.labelKey) : style.fallbackLabel;
@@ -343,7 +343,7 @@ function smartTime(date: Date, t: Translator, now: Date = new Date()): string {
 
 // ────────────────────────────────────────────────────────────────────
 
-export function ActivityTab({ userId, canView }: ActivityTabProps) {
+export function ActivityTab({ userId, canView }: Readonly<ActivityTabProps>) {
   const t = useTranslations();
   const query = useMemberActivity(userId, { limit: 50 }, { enabled: canView });
   const items = React.useMemo(
@@ -407,7 +407,7 @@ export function ActivityTab({ userId, canView }: ActivityTabProps) {
 // ────────────────────────────────────────────────────────────────────
 // Day section
 
-function DaySection({ bucket, isFirst }: { bucket: DayBucket; isFirst: boolean }) {
+function DaySection({ bucket, isFirst }: Readonly<{ bucket: DayBucket; isFirst: boolean }>) {
   const showSeparator = !bucket.isToday;
 
   return (
@@ -438,7 +438,7 @@ function DaySection({ bucket, isFirst }: { bucket: DayBucket; isFirst: boolean }
 // ────────────────────────────────────────────────────────────────────
 // Activity row — minimalist timeline, no card border
 
-function ActivityRow({ entry }: { entry: MemberActivityItem }) {
+function ActivityRow({ entry }: Readonly<{ entry: MemberActivityItem }>) {
   const t = useTranslations();
   const [expanded, setExpanded] = React.useState(false);
   const meta = getMeta(entry.action);

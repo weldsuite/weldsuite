@@ -7,9 +7,8 @@ import {
   User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatSegmentTime } from './utils';
+import { formatSegmentTime, parseSpeakerId } from './utils';
 import { getSpeakerColor } from './speaker-colors';
-import { parseSpeakerId } from './utils';
 import { TranscriptionProgress } from './transcription-progress';
 import type { TranscriptionSegment, WordTiming } from './types';
 import { useTranslations } from '@weldsuite/i18n/client';

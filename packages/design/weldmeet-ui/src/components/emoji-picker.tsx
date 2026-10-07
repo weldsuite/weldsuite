@@ -207,7 +207,7 @@ const EMOJI_KEYWORDS: Record<string, string> = {
   '🇫🇷':'france french flag','🇧🇪':'belgium belgian flag',
 };
 
-export function EmojiPicker({ onSelect }: EmojiPickerProps) {
+export function EmojiPicker({ onSelect }: Readonly<EmojiPickerProps>) {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState(0);
   const [recentEmojis, setRecentEmojis] = useState<string[]>(getRecentEmojis);

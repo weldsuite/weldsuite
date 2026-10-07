@@ -31,6 +31,7 @@ export * from './workflow-trigger-index';
 /** @deprecated Dual CRUD table — use embedded workflows.triggers + workflow_trigger_index */
 export * from './workflow-triggers';
 export * from './workflow-schedules';
+export * from './workflow-versions';
 export * from './workflow-webhooks';
 export * from './workflow-variables';
 export * from './workflow-integrations';
@@ -142,6 +143,7 @@ export * from './welddesk-blocks';
 export * from './helpdesk-article-folders';
 export * from './helpdesk-articles';
 export * from './knowledge-spaces';
+export * from './knowledge-space-members';
 export * from './knowledge-pages';
 export * from './knowledge-page-versions';
 export * from './knowledge-favorites';

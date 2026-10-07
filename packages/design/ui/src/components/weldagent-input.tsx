@@ -85,7 +85,7 @@ export function WeldAgentInput({
   extraLeftActions,
   onPlusClick,
   onMicClick,
-}: WeldAgentInputProps) {
+}: Readonly<WeldAgentInputProps>) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);
@@ -171,7 +171,7 @@ export function WeldAgentInput({
 
   const handleSend = () => {
     if ((!value.trim() && attachments.length === 0) || disabled) return;
-    onSend(attachments.length > 0 ? attachments : undefined);
+    void onSend(attachments.length > 0 ? attachments : undefined);
     // Reset attachments after sending
     setAttachments([]);
   };

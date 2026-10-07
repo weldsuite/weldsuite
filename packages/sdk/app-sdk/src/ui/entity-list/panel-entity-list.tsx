@@ -47,7 +47,7 @@ export function PanelEntityList<T extends { id: string }>({
   isLoadingMore,
   onLoadMore,
   emptyState,
-}: PanelEntityListProps<T>) {
+}: Readonly<PanelEntityListProps<T>>) {
   const mergedLabels = { ...DEFAULT_LABELS, ...labels };
   const hasRowMenu = !!onEdit || !!onDelete;
 

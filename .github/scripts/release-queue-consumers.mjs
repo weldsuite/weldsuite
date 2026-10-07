@@ -34,7 +34,7 @@ if (!worker || !['test', 'production'].includes(env ?? '')) {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workerDir = path.join(repoRoot, 'apps/workers', worker);
-const toml = readFileSync(path.join(workerDir, 'wrangler.toml'), 'utf8').replace(/\r\n/g, '\n');
+const toml = readFileSync(path.join(workerDir, 'wrangler.toml'), 'utf8').replaceAll('\r\n', '\n');
 
 // Queues this worker consumes in the target env: `queue = "…"` inside
 // `[[env.<env>.queues.consumers]]` blocks.
@@ -64,7 +64,7 @@ function wrangler(args) {
 for (const queue of queues) {
   const info = wrangler(['queues', 'info', queue]);
   // `wrangler queues info` prints "Number of Consumers: N" and "Consumers: worker:<script>, …".
-  const consumers = /^Consumers:\s*(.*)$/m.exec(info)?.[1] ?? '';
+  const consumers = /^Consumers:(.*)$/m.exec(info)?.[1]?.trim() ?? '';
   if (!consumers.split(/[,\s]+/).includes(`worker:${appApiScript}`)) {
     console.log(`${queue}: not consumed by ${appApiScript} (${consumers.trim() || 'no consumer'}), nothing to release`);
     continue;

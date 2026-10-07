@@ -53,7 +53,7 @@ export default function ThreadScreen() {
   const styles = useMemo(() => makeStyles(colors, insets.top, insets.bottom), [colors, insets.top, insets.bottom]);
 
   useEffect(() => {
-    loadThread();
+    void loadThread();
   }, [messageId, channelId]);
 
   // Workspace roster, to show `<@userId>` mention tokens as names.
@@ -94,7 +94,7 @@ export default function ThreadScreen() {
     setMentionQuery(null);
     try {
       await appApi.chatMessages.create({ channelId, parentId: messageId, body });
-      loadThread();
+      void loadThread();
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (err) {
       console.error(err);

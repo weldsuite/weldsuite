@@ -48,7 +48,7 @@ export function HeroGalleryBlock({
   textColor = '#ffffff',
   animationSpeed = 30,
   mode = 'live',
-}: HeroGalleryBlockProps) {
+}: Readonly<HeroGalleryBlockProps>) {
   // Convert newlines to <br> for display
   const titleLines = title.split('\n');
 

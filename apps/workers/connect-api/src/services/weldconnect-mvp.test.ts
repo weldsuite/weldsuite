@@ -2,11 +2,17 @@ import { describe, it, expect } from 'vitest';
 import {
   isSequenceWorkflow,
   isValidCronExpression,
+  oneTimeScheduleTriggers,
   recurringScheduleTriggers,
+  validateWeldConnectIntegrations,
   validateWeldConnectWorkflow,
   webhookTriggerIds,
   webhookTriggers,
+  workflowCompleteSourceIds,
 } from './weldconnect-mvp';
+
+/** Always-future ISO-local datetime for one-time schedule fixtures. */
+const FUTURE_EXECUTE_AT = `${new Date().getUTCFullYear() + 1}-01-15T09:00`;
 
 const entityTrigger = { id: 'trigger-1', type: 'entity_event', entityType: 'person', eventType: 'created' };
 const scheduleTrigger = {
@@ -39,6 +45,52 @@ describe('validateWeldConnectWorkflow', () => {
         steps: [{ id: 's', type: 'http_request', config: {} }],
       }),
     ).toEqual([{ code: 'missing_field', stepId: 's', type: 'http_request', field: 'url' }]);
+  });
+
+  it('accepts configured ai_generate / ai_classify steps', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [webhookTrigger],
+        steps: [
+          { id: 'g', type: 'ai_generate', config: { prompt: 'Summarize {{trigger.record.notes}}' } },
+          { id: 'c', type: 'ai_classify', config: { text: '{{trigger.record.message}}', categories: ['billing', 'support'] } },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('accepts ai_classify with the input/labels aliases', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [webhookTrigger],
+        steps: [{ id: 'c', type: 'ai_classify', config: { input: 'hello', labels: ['a', 'b'] } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('flags ai_generate / ai_classify missing required fields', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [webhookTrigger],
+        steps: [
+          { id: 'g', type: 'ai_generate', config: {} },
+          { id: 'c', type: 'ai_classify', config: {} },
+        ],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'g', type: 'ai_generate', field: 'prompt' },
+      { code: 'missing_field', stepId: 'c', type: 'ai_classify', field: 'text' },
+      { code: 'missing_field', stepId: 'c', type: 'ai_classify', field: 'categories' },
+    ]);
+  });
+
+  it('still rejects ai_agent (removed in the platform-wide AI teardown, never re-enabled)', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [webhookTrigger],
+        steps: [{ id: 's', type: 'ai_agent', config: {} }],
+      }),
+    ).toEqual([{ code: 'unsupported_action', stepId: 's', type: 'ai_agent' }]);
   });
 
   it('reads schedule fields nested under config and treats a missing scheduleType as recurring', () => {
@@ -77,16 +129,37 @@ describe('validateWeldConnectWorkflow', () => {
     ).toEqual([{ code: 'unknown_entity_event', triggerId: 't' }]);
   });
 
-  it('rejects one-time schedules, bad cron and bad timezones', () => {
+  it('rejects an unsupported schedule type, bad cron and bad timezones', () => {
     const codes = (trigger: Record<string, unknown>) =>
       validateWeldConnectWorkflow({ triggers: [trigger], steps: [emailStep] }).map((i) => i.code);
-    expect(codes({ id: 't', type: 'schedule', scheduleType: 'one_time', executeAt: '2026-10-01T09:00' })).toEqual([
+    expect(codes({ id: 't', type: 'schedule', scheduleType: 'hourly', cronExpression: '0 * * * *' })).toEqual([
       'schedule_not_recurring',
     ]);
     expect(codes({ id: 't', type: 'schedule', cronExpression: '0 9 * *' })).toEqual(['invalid_cron']);
     expect(codes({ id: 't', type: 'schedule', cronExpression: '0 9 * * *', timezone: 'Mars/Olympus' })).toEqual([
       'invalid_timezone',
     ]);
+  });
+
+  it('accepts a one-time schedule with a future executeAt', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [{ id: 't', type: 'schedule', scheduleType: 'one_time', executeAt: FUTURE_EXECUTE_AT, timezone: 'Europe/Amsterdam' }],
+        steps: [emailStep],
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects a one-time schedule in the past, missing executeAt, or a bad timezone', () => {
+    const codes = (trigger: Record<string, unknown>) =>
+      validateWeldConnectWorkflow({ triggers: [trigger], steps: [emailStep] }).map((i) => i.code);
+    expect(codes({ id: 't', type: 'schedule', scheduleType: 'one_time', executeAt: '2026-01-01T09:00' })).toEqual([
+      'schedule_run_at_past',
+    ]);
+    expect(codes({ id: 't', type: 'schedule', scheduleType: 'one_time' })).toEqual(['invalid_execute_at']);
+    expect(
+      codes({ id: 't', type: 'schedule', scheduleType: 'one_time', executeAt: FUTURE_EXECUTE_AT, timezone: 'Mars/Olympus' }),
+    ).toEqual(['invalid_timezone']);
   });
 
   it('reports each missing required field', () => {
@@ -261,6 +334,264 @@ describe('validateWeldConnectWorkflow: WeldSuite actions', () => {
       }),
     ).toEqual([{ code: 'missing_field', stepId: 'a', type: 'create_task', field: 'title' }]);
   });
+
+  it('accepts a configured slack.post_message step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'slack.post_message', config: { channel: 'C1', text: 'Hi' } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a slack.post_message step missing its channel or text', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'slack.post_message', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'slack.post_message', field: 'channel' },
+      { code: 'missing_field', stepId: 'a', type: 'slack.post_message', field: 'text' },
+    ]);
+  });
+
+  it('accepts a configured github.create_issue step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'github.create_issue', config: { repo: 'acme/widgets', title: 'Bug' } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a github.create_issue step missing its repo or title', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'github.create_issue', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'github.create_issue', field: 'repo' },
+      { code: 'missing_field', stepId: 'a', type: 'github.create_issue', field: 'title' },
+    ]);
+  });
+
+  it('accepts a configured github.create_comment step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'github.create_comment', config: { repo: 'acme/widgets', issueNumber: 5, body: 'Thanks' } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a github.create_comment step missing its repo, issue number or body', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'github.create_comment', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'github.create_comment', field: 'repo' },
+      { code: 'missing_field', stepId: 'a', type: 'github.create_comment', field: 'issueNumber' },
+      { code: 'missing_field', stepId: 'a', type: 'github.create_comment', field: 'body' },
+    ]);
+  });
+
+  it('accepts a configured google_sheets.append_row step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_sheets.append_row', config: { spreadsheetId: 'sheet1', columnMapping: { A: 'x' } } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a google_sheets.append_row step missing its spreadsheet or column mapping', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_sheets.append_row', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'google_sheets.append_row', field: 'spreadsheetId' },
+      { code: 'missing_field', stepId: 'a', type: 'google_sheets.append_row', field: 'columnMapping' },
+    ]);
+  });
+
+  it('accepts a google_sheets.update_row step targeted by rowNumber', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_sheets.update_row', config: { spreadsheetId: 'sheet1', rowNumber: 2, columnMapping: { A: 'x' } } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('accepts a google_sheets.update_row step targeted by lookupColumn/lookupValue', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          {
+            id: 'a',
+            type: 'google_sheets.update_row',
+            config: { spreadsheetId: 'sheet1', lookupColumn: 'B', lookupValue: 'x', columnMapping: { A: 'x' } },
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a google_sheets.update_row step with neither rowNumber nor a lookup', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_sheets.update_row', config: { spreadsheetId: 'sheet1', columnMapping: { A: 'x' } } }],
+      }),
+    ).toEqual([{ code: 'missing_field', stepId: 'a', type: 'google_sheets.update_row', field: 'rowNumber' }]);
+  });
+
+  it('accepts a configured gmail.send_email step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'gmail.send_email', config: { to: 'jane@acme.com', subject: 'Hi', body: 'Hi' } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a gmail.send_email step missing to/subject/body', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'gmail.send_email', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'gmail.send_email', field: 'to' },
+      { code: 'missing_field', stepId: 'a', type: 'gmail.send_email', field: 'subject' },
+      { code: 'missing_field', stepId: 'a', type: 'gmail.send_email', field: 'body' },
+    ]);
+  });
+
+  it('accepts a configured google_calendar.create_event step', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          {
+            id: 'a',
+            type: 'google_calendar.create_event',
+            config: { summary: 'Sync', startDateTime: '2026-07-01T09:00:00Z', endDateTime: '2026-07-01T10:00:00Z' },
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a google_calendar.create_event step missing summary/start/end', () => {
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [{ id: 'a', type: 'google_calendar.create_event', config: {} }],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'google_calendar.create_event', field: 'summary' },
+      { code: 'missing_field', stepId: 'a', type: 'google_calendar.create_event', field: 'startDateTime' },
+      { code: 'missing_field', stepId: 'a', type: 'google_calendar.create_event', field: 'endDateTime' },
+    ]);
+  });
+});
+
+describe('validateWeldConnectIntegrations', () => {
+  const connectedSlack = { id: 'win_1', type: 'slack', status: 'connected' };
+  const disconnectedSlack = { id: 'win_2', type: 'slack', status: 'disconnected' };
+
+  it('ignores steps that are not namespaced provider actions', () => {
+    expect(validateWeldConnectIntegrations([{ id: 'a', type: 'send_email', config: {} }], [])).toEqual([]);
+  });
+
+  it('accepts a slack.post_message step with no integrationId when a connected Slack integration exists', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: { channel: 'C1', text: 'hi' } }],
+        [connectedSlack],
+      ),
+    ).toEqual([]);
+  });
+
+  it('flags a slack.post_message step when no Slack integration is connected at all', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: {} }],
+        [],
+      ),
+    ).toEqual([{ code: 'integration_not_connected', stepId: 'a', type: 'slack.post_message' }]);
+  });
+
+  it('flags a step whose explicit integrationId points at a disconnected integration', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: { integrationId: 'win_2' } }],
+        [connectedSlack, disconnectedSlack],
+      ),
+    ).toEqual([{ code: 'integration_not_connected', stepId: 'a', type: 'slack.post_message' }]);
+  });
+
+  it('flags a step whose explicit integrationId does not exist', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: { integrationId: 'win_missing' } }],
+        [connectedSlack],
+      ),
+    ).toEqual([{ code: 'integration_not_connected', stepId: 'a', type: 'slack.post_message' }]);
+  });
+
+  it('accepts an explicit integrationId that is connected', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'slack.post_message', config: { integrationId: 'win_1' } }],
+        [connectedSlack, disconnectedSlack],
+      ),
+    ).toEqual([]);
+  });
+
+  it('flags a github.create_issue step when no GitHub integration is connected', () => {
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'github.create_issue', config: { repo: 'acme/widgets', title: 'Bug' } }],
+        [connectedSlack],
+      ),
+    ).toEqual([{ code: 'integration_not_connected', stepId: 'a', type: 'github.create_issue' }]);
+  });
+
+  it('accepts a github.create_comment step once a GitHub integration is connected', () => {
+    const connectedGithub = { id: 'int_1', type: 'github', status: 'connected' };
+    expect(
+      validateWeldConnectIntegrations(
+        [{ id: 'a', type: 'github.create_comment', config: { repo: 'acme/widgets', issueNumber: 1, body: 'hi' } }],
+        [connectedSlack, connectedGithub],
+      ),
+    ).toEqual([]);
+  });
+
+  it('walks every <provider>.<action> generically, including the Google providers', () => {
+    const connectedGmail = { id: 'win_3', type: 'gmail', status: 'connected' };
+    expect(
+      validateWeldConnectIntegrations(
+        [
+          { id: 'a', type: 'gmail.send_email', config: {} }, // gmail is connected below
+          { id: 'b', type: 'google_sheets.append_row', config: {} }, // no google_sheets integration at all
+          { id: 'c', type: 'google_calendar.create_event', config: {} }, // ditto
+        ],
+        [connectedGmail],
+      ),
+    ).toEqual([
+      { code: 'integration_not_connected', stepId: 'b', type: 'google_sheets.append_row' },
+      { code: 'integration_not_connected', stepId: 'c', type: 'google_calendar.create_event' },
+    ]);
+  });
 });
 
 describe('isValidCronExpression', () => {
@@ -293,6 +624,43 @@ describe('recurringScheduleTriggers', () => {
   });
 });
 
+describe('oneTimeScheduleTriggers', () => {
+  it('normalizes one-time schedule triggers and skips everything else', () => {
+    const result = oneTimeScheduleTriggers([
+      { id: 'once', type: 'schedule', scheduleType: 'one_time', executeAt: '2026-10-01T09:00', timezone: 'Etc/GMT+5' },
+      {
+        id: 'no-tz',
+        type: 'schedule',
+        scheduleType: 'one_time',
+        executeAt: '2026-10-01T09:00',
+        isEnabled: false,
+        name: 'Launch',
+      },
+      scheduleTrigger,
+      { id: 'bad', type: 'schedule', scheduleType: 'one_time', executeAt: 'nonsense' },
+      { id: 'missing', type: 'schedule', scheduleType: 'one_time' },
+      entityTrigger,
+    ]);
+
+    expect(result).toEqual([
+      {
+        triggerId: 'once',
+        name: null,
+        executeAt: new Date('2026-10-01T14:00:00.000Z'),
+        timezone: 'Etc/GMT+5',
+        isEnabled: true,
+      },
+      {
+        triggerId: 'no-tz',
+        name: 'Launch',
+        executeAt: new Date('2026-10-01T09:00:00.000Z'),
+        timezone: 'UTC',
+        isEnabled: false,
+      },
+    ]);
+  });
+});
+
 describe('webhookTriggers', () => {
   it('normalizes webhook triggers (enabled or not) and skips everything else', () => {
     expect(
@@ -316,6 +684,60 @@ describe('webhookTriggerIds', () => {
     expect(
       webhookTriggerIds([webhookTrigger, { ...webhookTrigger, id: 'trigger-4', isEnabled: false }, scheduleTrigger]),
     ).toEqual(['trigger-3', 'trigger-4']);
+  });
+});
+
+describe('validateWeldConnectWorkflow: after another workflow, approvals', () => {
+  const email = { id: 's', type: 'send_email', config: { to: 'a@b.co', subject: 's', body: 'b' } };
+  const chained = (extra: Record<string, unknown>) => ({ id: 't', type: 'workflow_complete', ...extra });
+
+  it('accepts a workflow_complete trigger flat (editor) or nested under config', () => {
+    expect(validateWeldConnectWorkflow({ triggers: [chained({ sourceWorkflowId: 'wf_a', triggerOn: 'failure' })], steps: [email] })).toEqual([]);
+    expect(validateWeldConnectWorkflow({ triggers: [chained({ config: { sourceWorkflowId: 'wf_a' } })], steps: [email] })).toEqual([]);
+  });
+
+  it('needs a source workflow that is not itself, and a known outcome', () => {
+    const codes = (trigger: Record<string, unknown>) =>
+      validateWeldConnectWorkflow({ triggers: [trigger], steps: [email] }, { workflowId: 'wf_self' }).map((i) => i.code);
+    expect(codes(chained({}))).toEqual(['missing_source_workflow']);
+    expect(codes(chained({ sourceWorkflowId: 'wf_self' }))).toEqual(['self_chained_workflow']);
+    expect(codes(chained({ sourceWorkflowId: 'wf_a', triggerOn: 'sometimes' }))).toEqual(['invalid_trigger_on']);
+  });
+
+  it('accepts an approval in the main flow and flags one inside a branch or loop', () => {
+    const trigger = { id: 't', type: 'webhook' };
+    expect(
+      validateWeldConnectWorkflow({ triggers: [trigger], steps: [{ id: 'a', type: 'manual_step', config: { title: 'Approve' } }] }),
+    ).toEqual([]);
+    expect(
+      validateWeldConnectWorkflow({
+        triggers: [trigger],
+        steps: [
+          { id: 'l', type: 'loop', config: { items: '{{trigger.body.items}}' } },
+          { id: 'a', type: 'manual_step', parentBranchId: 'l_each', config: {} },
+        ],
+      }),
+    ).toEqual([
+      { code: 'missing_field', stepId: 'a', type: 'manual_step', field: 'title' },
+      { code: 'nested_waiting_step', stepId: 'a', type: 'manual_step' },
+    ]);
+  });
+});
+
+describe('workflowCompleteSourceIds', () => {
+  it('lists the sources of the enabled workflow_complete triggers', () => {
+    expect(
+      workflowCompleteSourceIds([
+        { id: 't1', type: 'workflow_complete', sourceWorkflowId: 'wf_a' },
+        { id: 't2', type: 'workflow_complete', config: { sourceWorkflowId: 'wf_b' } },
+        { id: 't3', type: 'workflow_complete', sourceWorkflowId: 'wf_c', isEnabled: false },
+        { id: 't4', type: 'workflow_complete', sourceWorkflowId: '' },
+        { id: 't5', type: 'schedule' },
+      ]),
+    ).toEqual([
+      { triggerId: 't1', sourceWorkflowId: 'wf_a' },
+      { triggerId: 't2', sourceWorkflowId: 'wf_b' },
+    ]);
   });
 });
 

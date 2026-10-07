@@ -22,7 +22,7 @@ export interface RadioProps {
   onSelect: (value: string) => void;
 }
 
-export function Radio({ option, selected, onSelect }: RadioProps) {
+export function Radio({ option, selected, onSelect }: Readonly<RadioProps>) {
   const { colors } = useTheme();
   const isDisabled = option.disabled ?? false;
 
@@ -58,7 +58,7 @@ export interface RadioGroupProps {
   style?: StyleProp<ViewStyle>;
 }
 
-export function RadioGroup({ value, onValueChange, options, style }: RadioGroupProps) {
+export function RadioGroup({ value, onValueChange, options, style }: Readonly<RadioGroupProps>) {
   return (
     <View style={[styles.group, style]}>
       {options.map((option) => (

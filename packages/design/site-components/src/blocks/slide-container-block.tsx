@@ -15,7 +15,7 @@ export function SlideContainerBlock({
   overlayOpacity = 0.4,
   contentAlignment = 'center',
   children,
-}: SlideContainerBlockProps) {
+}: Readonly<SlideContainerBlockProps>) {
   const getAlignmentClasses = () => {
     switch (contentAlignment) {
       case 'left':

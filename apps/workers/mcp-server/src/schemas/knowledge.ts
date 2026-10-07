@@ -6,19 +6,21 @@ import { z } from 'zod';
 
 // `/v1/knowledge-spaces` + `/v1/knowledge-pages` — WeldKnow workspace wiki.
 
-/** Space visibility: workspace-wide or private to the creator. */
-export const KNOWLEDGE_SPACE_VISIBILITIES = ['workspace', 'private'] as const;
+/** Teamspace visibility: open (everyone reads), closed (listed, members read), private (members only). */
+export const KNOWLEDGE_SPACE_VISIBILITIES = ['open', 'closed', 'private'] as const;
 export type KnowledgeSpaceVisibility = (typeof KNOWLEDGE_SPACE_VISIBILITIES)[number];
 
 export const createKnowledgeSpaceSchema = z.object({
-  name: z.string().min(1).max(255).describe('Space name'),
-  description: z.string().optional().describe('What this space is for'),
+  name: z.string().min(1).max(255).describe('Teamspace name'),
+  description: z.string().optional().describe('What this teamspace is for'),
   icon: z.string().max(100).nullish().describe('Emoji or icon identifier'),
   color: z.string().max(50).nullish().describe('Accent color'),
   visibility: z
     .enum(KNOWLEDGE_SPACE_VISIBILITIES)
     .optional()
-    .describe("'workspace' (everyone with knowledge access) or 'private' (creator only)"),
+    .describe(
+      "'open' (everyone can read; default), 'closed' (listed for everyone, only members read) or 'private' (only members see it). Workspace API keys can only use 'open'.",
+    ),
   sortOrder: z.number().int().optional().describe('Sidebar sort order'),
 });
 

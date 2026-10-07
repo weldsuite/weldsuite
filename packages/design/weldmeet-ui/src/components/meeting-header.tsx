@@ -56,7 +56,7 @@ export function MeetingHeader({
   showPeopleButton = true,
   showChatButton = true,
   showToolsButton = true,
-}: MeetingHeaderProps) {
+}: Readonly<MeetingHeaderProps>) {
   const [editingTitle, setEditingTitle] = useState(false);
   const titleInputRef = useRef<HTMLSpanElement>(null);
   const [localTitle, setLocalTitle] = useState(meetingTitle);

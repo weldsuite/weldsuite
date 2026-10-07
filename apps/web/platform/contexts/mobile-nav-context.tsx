@@ -46,7 +46,7 @@ const MobileNavActionsContext = createContext<MobileNavActionsContextType | null
 
 const DEFAULT_WELDAGENT_WIDTH = 400;
 
-export function MobileNavProvider({ children }: { children: React.ReactNode }) {
+export function MobileNavProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [isOpen, setIsOpenState] = useState(false);
   const [moduleMenuItems, setModuleMenuItemsState] = useState<MenuGroupProps[]>([]);
   const [moduleInfo, setModuleInfoState] = useState<ModuleInfo | null>(null);

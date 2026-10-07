@@ -30,7 +30,7 @@ export function HeroVideoTextOverlayBlock({
   paddingTop = 128,
   paddingBottom = 128,
   className,
-}: HeroVideoTextOverlayBlockProps) {
+}: Readonly<HeroVideoTextOverlayBlockProps>) {
   return (
     <section
       className={cn(

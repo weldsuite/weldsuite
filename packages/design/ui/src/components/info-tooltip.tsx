@@ -54,7 +54,7 @@ export function InfoTooltip({
   side = 'top',
   align = 'center',
   delayDuration = 0,
-}: InfoTooltipProps) {
+}: Readonly<InfoTooltipProps>) {
   return (
     <TooltipProvider delayDuration={delayDuration}>
       <Tooltip>

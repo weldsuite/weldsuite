@@ -11,6 +11,7 @@ vi.mock('@weldsuite/mail-domain/access', () => ({
   isAdminOrOwner: vi.fn(),
   userAccessCondition: vi.fn(() => ({ _tag: 'sql' })),
   hasAccessToAccount: vi.fn(),
+  emailEventData: vi.fn(async (_db: unknown, data: unknown) => data),
 }));
 
 vi.mock('../../services/mail/messages', () => ({
@@ -71,9 +72,12 @@ const checkAccountAccess = access.checkAccountAccess as MockedFunction<
   typeof access.checkAccountAccess
 >;
 const isAdminOrOwner = access.isAdminOrOwner as MockedFunction<typeof access.isAdminOrOwner>;
+const emailEventData = access.emailEventData as MockedFunction<typeof access.emailEventData>;
 const getMessageAccountId = msgs.getMessageAccountId as MockedFunction<
   typeof msgs.getMessageAccountId
 >;
+const updateMessage = msgs.updateMessage as MockedFunction<typeof msgs.updateMessage>;
+const softDeleteMessage = msgs.softDeleteMessage as MockedFunction<typeof msgs.softDeleteMessage>;
 const bulkUpdateMessages = msgs.bulkUpdateMessages as MockedFunction<
   typeof msgs.bulkUpdateMessages
 >;
@@ -188,5 +192,87 @@ describe('mail-messages realtime publish', () => {
         action: 'updated',
       }),
     );
+  });
+});
+
+// The event is workspace-wide, so whatever a route knows about the message has
+// to pass through `emailEventData` (which clears it for a private mailbox)
+// before it is published. These pin that the routes publish the gate's output,
+// never the raw row.
+describe('mail-messages event payload for a private mailbox', () => {
+  const SECRETS = ['Offer letter', 'hr@example.com', 'candidate@example.com'];
+
+  /** Stand-in for the real gate's verdict on a private mailbox. */
+  function gateAsPrivate() {
+    emailEventData.mockImplementationOnce(async (_db, data) => ({
+      ...data,
+      subject: null,
+      from: null,
+      to: null,
+    }));
+  }
+
+  function publishedPayloads(): string {
+    return JSON.stringify(mockedPublish.mock.calls.map(([params]) => (params as { data: unknown }).data));
+  }
+
+  it('publishes no subject, sender or recipients on update', async () => {
+    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
+    checkAccountAccess.mockResolvedValueOnce(true);
+    updateMessage.mockResolvedValueOnce({
+      id: MESSAGE_ID,
+      accountId: ACCOUNT_ID,
+      subject: 'Offer letter',
+      from: { email: 'hr@example.com' },
+      to: [{ email: 'candidate@example.com' }],
+    } as never);
+    gateAsPrivate();
+
+    const { request } = makeApp();
+    const res = await request(`/api/mail-messages/${MESSAGE_ID}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isRead: true }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(emailEventData).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: MESSAGE_ID, accountId: ACCOUNT_ID, subject: 'Offer letter' }),
+    );
+    expect(mockedPublish).toHaveBeenCalledTimes(1);
+    expect(mockedPublish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'email',
+        action: 'updated',
+        data: { id: MESSAGE_ID, accountId: ACCOUNT_ID, subject: null, from: null, to: null },
+      }),
+    );
+    for (const secret of SECRETS) expect(publishedPayloads()).not.toContain(secret);
+  });
+
+  it('publishes no subject on delete', async () => {
+    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
+    checkAccountAccess.mockResolvedValueOnce(true);
+    softDeleteMessage.mockResolvedValueOnce({
+      id: MESSAGE_ID,
+      accountId: ACCOUNT_ID,
+      subject: 'Offer letter',
+    } as never);
+    gateAsPrivate();
+
+    const { request } = makeApp();
+    const res = await request(`/api/mail-messages/${MESSAGE_ID}`, { method: 'DELETE' });
+
+    expect(res.status).toBe(204);
+    expect(mockedPublish).toHaveBeenCalledTimes(1);
+    expect(mockedPublish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'email',
+        action: 'deleted',
+        data: { id: MESSAGE_ID, accountId: ACCOUNT_ID, subject: null, from: null, to: null },
+      }),
+    );
+    for (const secret of SECRETS) expect(publishedPayloads()).not.toContain(secret);
   });
 });

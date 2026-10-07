@@ -88,7 +88,7 @@ export function DealDetailsModal({
   selectedStageId,
   onSubmit,
   lockedCustomer,
-}: DealDetailsModalProps) {
+}: Readonly<DealDetailsModalProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [title, setTitle] = useState('');
@@ -229,7 +229,7 @@ export function DealDetailsModal({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (title.trim() && !loading && !isSubmittingRef.current) {
-        handleSubmit();
+        void handleSubmit();
       }
     }
   };
@@ -402,7 +402,7 @@ export function DealDetailsModal({
                   mode="single"
                   selected={closeDate}
                   onSelect={setCloseDate}
-                  initialFocus
+                  autoFocus
                 />
                 {closeDate && (
                   <div className="p-1 border-t border-gray-200 dark:border-border">

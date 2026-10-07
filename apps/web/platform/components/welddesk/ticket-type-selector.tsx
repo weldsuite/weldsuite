@@ -57,7 +57,7 @@ interface TicketTypeSelectorInlineProps {
 }
 
 /** Inline version — renders Command content without its own Dialog */
-export function TicketTypeSelectorInline({ onSelect }: TicketTypeSelectorInlineProps) {
+export function TicketTypeSelectorInline({ onSelect }: Readonly<TicketTypeSelectorInlineProps>) {
   const t = useTranslations();
   const { data: ticketTypes, isLoading } = useTicketTypes();
   const activeTypes = (ticketTypes || []).filter((t) => t.isActive);

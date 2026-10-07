@@ -51,7 +51,7 @@ export function ChangelogView({
   onNavigateEvents,
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
-}: ChangelogViewProps) {
+}: Readonly<ChangelogViewProps>) {
   const [activeTab] = useState('changelog');
 
   const changelogItems: ChangelogItem[] = [

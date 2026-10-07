@@ -102,7 +102,7 @@ export function WeldAppProvider({
   localDev,
   local,
   hideLocalBanner = false,
-}: WeldAppProviderProps) {
+}: Readonly<WeldAppProviderProps>) {
   const bridgeRef = useRef<WeldAppBridge | null>(null);
   if (bridgeRef.current === null) {
     if (bridgeProp) {
@@ -278,7 +278,7 @@ export interface WeldAppGateProps {
 }
 
 /** Renders children only once the bridge handshake completed. */
-export function WeldAppGate({ children, fallback = null, errorFallback }: WeldAppGateProps) {
+export function WeldAppGate({ children, fallback = null, errorFallback }: Readonly<WeldAppGateProps>) {
   const { status, error } = useWeldApp();
   if (status === 'ready') {
     return <>{children}</>;

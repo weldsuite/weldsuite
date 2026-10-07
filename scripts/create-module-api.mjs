@@ -372,7 +372,7 @@ for (const [rel, content] of Object.entries(files)) {
 // Secrets manifest entry.
 const secretsPath = path.join(repoRoot, 'scripts', 'secrets', 'manifest.ts');
 // Normalise line endings: a Windows checkout (core.autocrlf) has CRLF here.
-const secrets = (await fs.readFile(secretsPath, 'utf8')).replace(/\r\n/g, '\n');
+const secrets = (await fs.readFile(secretsPath, 'utf8')).replaceAll('\r\n', '\n');
 if (!secrets.includes(`"${mod.worker}":`)) {
   const marker = '\n};\n\n// ── Helpers';
   const idx = secrets.indexOf(marker);

@@ -61,20 +61,20 @@ export class DocumentClient {
 
   // Presence
   private _presence: DocumentPresenceMember[] = [];
-  private presenceHandlers = new Set<(members: DocumentPresenceMember[]) => void>();
+  private readonly presenceHandlers = new Set<(members: DocumentPresenceMember[]) => void>();
 
   // Content broadcast debouncing
   private pendingContent: string | null = null;
   private contentTimeout: ReturnType<typeof setTimeout> | null = null;
-  private contentDebounceMs = 300;
+  private readonly contentDebounceMs = 300;
 
   // Event handlers
-  private eventHandlers = new Map<string, Set<AnyHandler>>();
-  private connectionHandlers = new Set<(state: ConnectionState) => void>();
+  private readonly eventHandlers = new Map<string, Set<AnyHandler>>();
+  private readonly connectionHandlers = new Set<(state: ConnectionState) => void>();
 
   constructor(
-    private documentId: string,
-    private config: DocumentClientConfig,
+    private readonly documentId: string,
+    private readonly config: DocumentClientConfig,
   ) {
     this.userColor = colorForUser(config.userId);
   }

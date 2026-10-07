@@ -45,7 +45,7 @@ export function Dropzone({
   children,
   onDrop,
   ...rest
-}: DropzoneProps) {
+}: Readonly<DropzoneProps>) {
   const state = useDropzone({
     accept,
     maxFiles,
@@ -82,7 +82,7 @@ export function Dropzone({
   );
 }
 
-export function DropzoneEmptyState({ className }: { className?: string }) {
+export function DropzoneEmptyState({ className }: Readonly<{ className?: string }>) {
   const { src, accept, maxSize, maxFiles } = useDropzoneContext();
 
   if (src && src.length > 0) return null;
@@ -116,10 +116,10 @@ export function DropzoneEmptyState({ className }: { className?: string }) {
 export function DropzoneContent({
   className,
   children,
-}: {
+}: Readonly<{
   className?: string;
   children?: ReactNode;
-}) {
+}>) {
   const { src } = useDropzoneContext();
   if (!src || src.length === 0) return null;
   return <div className={cn('flex flex-col items-center gap-2', className)}>{children}</div>;

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useTransition, useMemo } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Link } from '@/lib/router';
-import { Plus, TrendingUp, Edit2, GripVertical, MoreVertical, Trash2, Copy, Unlock } from 'lucide-react';
+import { Plus, TrendingUp, Edit2, GripVertical, MoreVertical, Trash2, Copy, Unlock, Check, ChevronDown } from 'lucide-react';
 import GridLayout, { Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -28,7 +28,6 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Area,
@@ -226,7 +225,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
       }
     }
 
-    loadData();
+    void loadData();
   }, [charts, widgetPeriods, projectId, report.id]);
 
   // Handle layout changes

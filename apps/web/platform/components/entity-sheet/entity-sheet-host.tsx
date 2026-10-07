@@ -17,7 +17,7 @@ interface EntitySheetHostProps {
  */
 export function EntitySheetHost({
   registry = DEFAULT_ENTITY_SHEET_REGISTRY,
-}: EntitySheetHostProps) {
+}: Readonly<EntitySheetHostProps>) {
   const { target, view, close, toggleView } = useEntitySheet();
   const router = useRouter();
   const fallbackNavigatedRef = useRef<string | null>(null);

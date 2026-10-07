@@ -66,7 +66,7 @@ export function ListToolbar({
   actionButtons,
   createButton,
   className,
-}: ListToolbarProps) {
+}: Readonly<ListToolbarProps>) {
   const [searchOpen, setSearchOpen] = React.useState(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 

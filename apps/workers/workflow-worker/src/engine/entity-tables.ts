@@ -85,6 +85,6 @@ export function getEntityTable(entityType: string): any {
 }
 
 export function getEntityIdPrefix(entityType: string): string {
-  const normalizedType = entityType.toLowerCase().replace(/-/g, '_');
+  const normalizedType = entityType.toLowerCase().replaceAll('-', '_');
   return entityIdPrefixMap[normalizedType] || normalizedType.slice(0, 3);
 }

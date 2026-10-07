@@ -67,7 +67,7 @@ function AddToListPopover({
   onTriggerClick,
   availableLists,
   onSelectList,
-}: AddToListPopoverProps) {
+}: Readonly<AddToListPopoverProps>) {
   const t = useTranslations();
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -122,7 +122,7 @@ function BulkDeleteDialog({
   listName,
   isDeleting,
   onConfirm,
-}: BulkDeleteDialogProps) {
+}: Readonly<BulkDeleteDialogProps>) {
   const t = useTranslations();
   const isSingular = selectedCount === 1;
   return (
@@ -185,7 +185,7 @@ export function GridSelectionBar({
   isDeleting = false,
   listName,
   customActions = [],
-}: GridSelectionBarProps) {
+}: Readonly<GridSelectionBarProps>) {
   const t = useTranslations();
   const { state, setSelectedRows } = useGridContext();
   const { selectedRows } = state;

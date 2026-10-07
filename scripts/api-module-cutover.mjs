@@ -34,13 +34,13 @@ function edit(rel, fn) {
   const p = path.join(repo, rel);
   const raw = readFileSync(p, 'utf8');
   const crlf = raw.includes('\r\n');
-  const next = fn(raw.replace(/\r\n/g, '\n'));
-  writeFileSync(p, crlf ? next.replace(/\n/g, '\r\n') : next);
+  const next = fn(raw.replaceAll('\r\n', '\n'));
+  writeFileSync(p, crlf ? next.replaceAll('\n', '\r\n') : next);
 }
 
 edit('apps/workers/app-api/wrangler.toml', (s) => {
   // 1. API_FORWARD_MODULES in every [vars] block.
-  s = s.replace(/^API_FORWARD_MODULES = "([^"]*)"$/gm, (line, list) => {
+  s = s.replaceAll(/^API_FORWARD_MODULES = "([^"]*)"$/gm, (line, list) => {
     const ids = list.split(',').map((x) => x.trim()).filter(Boolean);
     if (!ids.includes(mod.id)) ids.push(mod.id);
     return `API_FORWARD_MODULES = "${ids.join(',')}"`;

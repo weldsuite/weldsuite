@@ -29,7 +29,7 @@ import {
   Smile,
   AtSign,
   Baseline,
-} from 'lucide-react';
+ Hash, Lock, Users as UsersIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Input } from '@weldsuite/ui/components/input';
@@ -63,7 +63,6 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useChannels, useCreateDm, useSendMessage, useDmChannels } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
-import { Hash, Lock, Users as UsersIcon } from 'lucide-react';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -225,7 +224,7 @@ export function CustomerDetailHeader({
           await updateCompanyMutation.mutateAsync({ id: customerId, data: { avatarUrl: file.url } });
         }
         toast.success(t('sweep.weldcrm.contactDetailView.avatarUpdated'));
-        silentRefresh();
+        void silentRefresh();
       } catch {
         toast.error(t('sweep.weldcrm.contactDetailView.failedToSaveAvatar'));
       }
@@ -242,7 +241,7 @@ export function CustomerDetailHeader({
   const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      uploadFile(file);
+      void uploadFile(file);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -381,7 +380,7 @@ export function CustomerDetailHeader({
         customerName: customerName || undefined,
       });
       setShowFloatingNoteEditor(true);
-      silentRefresh();
+      void silentRefresh();
     } catch {
       toast.error(t('sweep.weldcrm.customerDetailHeader.failedToCreateNote'));
     }
@@ -481,8 +480,8 @@ export function CustomerDetailHeader({
         customerId;
       const slug = String(nameBase)
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)+/g, '') || 'record';
+        .replaceAll(/[^a-z0-9]+/g, '-')
+        .replaceAll(/(^-|-$)+/g, '') || 'record';
       const stamp = new Date().toISOString().slice(0, 10);
       a.href = url;
       a.download = `${slug}-${stamp}.json`;

@@ -26,7 +26,7 @@ export function Badge({
   variant = 'default',
   size = 'md',
   style,
-}: BadgeProps) {
+}: Readonly<BadgeProps>) {
   const { colors } = useTheme();
 
   const bg: Record<BadgeVariant, string> = {

@@ -39,10 +39,10 @@ export function TableCell({ className, ...props }: TdHTMLAttributes<HTMLTableCel
   return <td className={className} {...props} />;
 }
 
-export function TablePrimary({ children, className }: { children?: ReactNode; className?: string }) {
+export function TablePrimary({ children, className }: Readonly<{ children?: ReactNode; className?: string }>) {
   return <div className={cn('wui-table__primary', className)}>{children}</div>;
 }
 
-export function TableMuted({ children, className }: { children?: ReactNode; className?: string }) {
+export function TableMuted({ children, className }: Readonly<{ children?: ReactNode; className?: string }>) {
   return <div className={cn('wui-table__muted', className)}>{children}</div>;
 }

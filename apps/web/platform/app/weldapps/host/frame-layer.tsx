@@ -126,13 +126,13 @@ function PooledFrame({
   active,
   rect,
   path,
-}: {
+}: Readonly<{
   appCode: string;
   active: boolean;
   rect: SlotRect | null;
   /** Current app-relative path while shown; null keeps the last one. */
   path: string | null;
-}) {
+}>) {
   const source = useWeldAppSource(appCode);
   const status = useWeldAppFrameStatus(appCode);
   const { resolvedTheme } = useTheme();

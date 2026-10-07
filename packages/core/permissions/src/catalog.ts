@@ -213,7 +213,11 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('settings',      'Module Settings',      ['read', 'update', 'manage']),
 
   // ── Knowledge Base (WeldKnow) ─────────────────────────────────────────
-  objectPermissions('knowledge',     'Knowledge Base'),
+  // Inside WeldKnow, teamspace membership decides who reads and writes which
+  // pages. `knowledge:manage` lets an admin see every teamspace (private ones
+  // too) and fix its settings and members; reading a closed or private
+  // teamspace still takes joining it. Personal spaces stay sealed.
+  objectPermissions('knowledge',     'Knowledge Base',       ['read', 'create', 'update', 'delete', 'manage']),
 
   // ── Parcel ────────────────────────────────────────────────────────────
   objectPermissions('parcels',       'Parcels'),

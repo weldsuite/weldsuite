@@ -43,7 +43,7 @@ import { cn } from '../../lib/utils';
 import type { ActionNodeData } from './flow-utils';
 
 // Amber "Setup required" badge shown on nodes missing required configuration.
-export function SetupRequiredBadge({ label }: { label?: string }) {
+export function SetupRequiredBadge({ label }: Readonly<{ label?: string }>) {
   return (
     <div className="absolute -top-2.5 left-3 z-20 flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 shadow-sm dark:border-amber-800 dark:bg-amber-950">
       <AlertCircle className="h-3 w-3 text-amber-600 dark:text-amber-400" />

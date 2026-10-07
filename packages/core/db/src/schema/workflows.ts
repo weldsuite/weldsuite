@@ -137,6 +137,10 @@ export interface WorkflowSettings {
   timezone?: string;
   // Per-workflow execution limit (credits/cost per run)
   maxCreditsPerRun?: number;
+  // Max concurrent runs (queued/running/waiting_for_input) this workflow may have
+  // at once; undefined/unset = unlimited. Enforced best-effort by every dispatcher
+  // (see @weldsuite/db/lib/workflow-concurrency).
+  maxConcurrentRuns?: number;
 }
 
 export const workflows = pgTable('workflows', {

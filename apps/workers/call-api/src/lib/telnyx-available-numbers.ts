@@ -96,7 +96,7 @@ export function mapTelnyxAvailableNumber(
 }
 
 export function normalizeNumberType(type: string): string {
-  return type.trim().toLowerCase().replace(/_/g, '-');
+  return type.trim().toLowerCase().replaceAll('_', '-');
 }
 
 export function pricingLookupKey(countryCode: string, numberType: string): string {

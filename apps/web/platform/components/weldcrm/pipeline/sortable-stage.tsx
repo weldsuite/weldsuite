@@ -24,7 +24,7 @@ interface SortableStageProps {
   isDragging?: boolean;
 }
 
-export function SortableStage({ id, children, isDragging }: SortableStageProps) {
+export function SortableStage({ id, children, isDragging }: Readonly<SortableStageProps>) {
   const {
     attributes,
     listeners,

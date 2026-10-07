@@ -7,7 +7,7 @@ interface PageProps {
   searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export default async function DomainPage({ params, searchParams }: PageProps) {
+export default async function DomainPage({ params, searchParams }: Readonly<PageProps>) {
   const { domain } = await params;
 
   // Fetch website data server-side using Server Action

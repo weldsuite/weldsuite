@@ -16,6 +16,7 @@ import {
   listExecutions,
   resolveTestTriggerType,
   retryExecution,
+  startRun,
   startTestRun,
   trendBucket,
 } from './workflow-executions';
@@ -169,6 +170,95 @@ describe('retryExecution', () => {
     expect((await retryExecution(db, await seedRun('wf_gone', { status: 'failed' }), 'o', 'u', binding)).kind).toBe(
       'workflow_missing',
     );
+  });
+});
+
+describe('startRun — concurrency gate (settings.maxConcurrentRuns)', () => {
+  async function loadWorkflow(id: string) {
+    const [row] = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id));
+    return row;
+  }
+
+  it('skips with a `skipped` execution row when the workflow is already at its limit', async () => {
+    const wfId = await seedWorkflow({ settings: { maxConcurrentRuns: 1 } });
+    await seedRun(wfId, { status: 'running' });
+    const { binding, create } = fakeExecuteWorkflow();
+
+    const result = await startRun(db, binding, {
+      workspaceId: 'org_1',
+      userId: 'user_9',
+      workflow: await loadWorkflow(wfId),
+      triggerType: 'manual',
+      triggerData: { foo: 'bar' },
+    });
+
+    expect(result.skipped).toBe(true);
+    if (!result.skipped) return;
+    expect(result.instanceId).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+
+    const row = await runRow(result.executionId);
+    expect(row.status).toBe('skipped');
+    expect(row.error?.code).toBe('concurrency_limit');
+    expect(row.triggerData).toEqual({ foo: 'bar' });
+  });
+
+  it('starts normally once a slot frees up (queued/running count drops below the limit)', async () => {
+    const wfId = await seedWorkflow({ settings: { maxConcurrentRuns: 1 } });
+    await seedRun(wfId, { status: 'completed' }); // not active, does not occupy a slot
+    const { binding, create } = fakeExecuteWorkflow();
+
+    const result = await startRun(db, binding, {
+      workspaceId: 'org_1',
+      userId: 'user_9',
+      workflow: await loadWorkflow(wfId),
+      triggerType: 'manual',
+      triggerData: {},
+    });
+
+    expect(result.skipped).toBe(false);
+    expect(create).toHaveBeenCalledOnce();
+  });
+
+  it('is unlimited when maxConcurrentRuns is unset', async () => {
+    const wfId = await seedWorkflow();
+    await seedRun(wfId, { status: 'running' });
+    await seedRun(wfId, { status: 'running' });
+    const { binding, create } = fakeExecuteWorkflow();
+
+    const result = await startRun(db, binding, {
+      workspaceId: 'org_1',
+      userId: 'user_9',
+      workflow: await loadWorkflow(wfId),
+      triggerType: 'manual',
+      triggerData: {},
+    });
+
+    expect(result.skipped).toBe(false);
+    expect(create).toHaveBeenCalledOnce();
+  });
+
+  it('exempts Test runs from the concurrency gate', async () => {
+    const wfId = await seedWorkflow({ status: 'draft', settings: { maxConcurrentRuns: 1 } });
+    await seedRun(wfId, { status: 'running' });
+    const { binding, create } = fakeExecuteWorkflow();
+
+    const result = await startTestRun(db, binding, { workspaceId: 'org_1', userId: 'user_9', workflowId: wfId });
+
+    expect(result.kind).toBe('ok');
+    expect(create).toHaveBeenCalledOnce();
+  });
+
+  it('a retry of a failed run is still gated by the limit (not exempt like a Test run)', async () => {
+    const wfId = await seedWorkflow({ settings: { maxConcurrentRuns: 1 } });
+    await seedRun(wfId, { status: 'running' });
+    const original = await seedRun(wfId, { status: 'failed' });
+    const { binding, create } = fakeExecuteWorkflow();
+
+    const result = await retryExecution(db, original, 'org_1', 'user_9', binding);
+
+    expect(result.kind).toBe('skipped');
+    expect(create).not.toHaveBeenCalled();
   });
 });
 

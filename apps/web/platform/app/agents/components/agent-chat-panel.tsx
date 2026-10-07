@@ -77,12 +77,12 @@ function ToolActivity({
   pendingIds,
   onDecide,
   deciding,
-}: {
+}: Readonly<{
   invocations: ToolInvocationView[];
   pendingIds: Set<string>;
   onDecide: (approvalId: string, decision: 'approved' | 'rejected') => void;
   deciding: boolean;
-}) {
+}>) {
   const t = getTranslations('common').agents.detail.chat;
   if (invocations.length === 0) return null;
   return (
@@ -147,7 +147,7 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function TypingDots({ className }: { className?: string }) {
+function TypingDots({ className }: Readonly<{ className?: string }>) {
   return (
     <span className={cn('inline-flex items-center gap-1.5 px-1', className)} aria-hidden>
       <span className="h-1.5 w-1.5 rounded-full bg-foreground/35 animate-bounce [animation-delay:-0.3s]" />
@@ -165,7 +165,7 @@ function formatTodayStamp() {
   return `Today ${time}`;
 }
 
-function AssistantBubble({ children, className }: { children: React.ReactNode; className?: string }) {
+function AssistantBubble({ children, className }: Readonly<{ children: React.ReactNode; className?: string }>) {
   return (
     <div
       className={cn(
@@ -179,7 +179,7 @@ function AssistantBubble({ children, className }: { children: React.ReactNode; c
   );
 }
 
-function UserBubble({ children }: { children: React.ReactNode }) {
+function UserBubble({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="flex justify-end">
       <div className="inline-block max-w-[min(100%,420px)] rounded-[22px] bg-[#ececf1] dark:bg-muted px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap">
@@ -189,7 +189,7 @@ function UserBubble({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function AgentChatPanel({ agentId, agentName, needsSetup = false }: AgentChatPanelProps) {
+export function AgentChatPanel({ agentId, agentName, needsSetup = false }: Readonly<AgentChatPanelProps>) {
   const t = getTranslations('common').agents.detail.chat;
   const setupT = getTranslations('common').agents.detail.setup;
   const { user, isLoaded: userLoaded } = useUser();

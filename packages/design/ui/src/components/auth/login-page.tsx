@@ -20,7 +20,7 @@ interface LoginPageProps {
 export function LoginPage({
   appName = 'WeldSuite',
   showSocialLogin = true
-}: LoginPageProps) {
+}: Readonly<LoginPageProps>) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);

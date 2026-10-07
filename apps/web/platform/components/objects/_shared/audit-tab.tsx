@@ -16,6 +16,6 @@ interface AuditTabProps {
   entityKind: 'company' | 'person';
 }
 
-export function AuditTab({ entityId, entityKind }: AuditTabProps) {
+export function AuditTab({ entityId, entityKind }: Readonly<AuditTabProps>) {
   return <EntityAuditPanel entityType={entityKind} entityId={entityId} />;
 }

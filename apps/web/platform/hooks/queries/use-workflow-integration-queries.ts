@@ -11,6 +11,14 @@ const workflowIntegrationKeys = {
   list: (filters?: WorkflowIntegrationFilters) =>
     [...workflowIntegrationKeys.all, 'list', filters] as const,
   detail: (id: string) => [...workflowIntegrationKeys.all, 'detail', id] as const,
+  slackChannels: (id: string | undefined) =>
+    [...workflowIntegrationKeys.all, 'slack-channels', id] as const,
+  githubRepos: (id: string | undefined) =>
+    [...workflowIntegrationKeys.all, 'github-repos', id] as const,
+  googleSpreadsheet: (id: string | undefined, spreadsheetIdOrUrl: string | undefined) =>
+    [...workflowIntegrationKeys.all, 'google-spreadsheet', id, spreadsheetIdOrUrl] as const,
+  googleCalendars: (id: string | undefined) =>
+    [...workflowIntegrationKeys.all, 'google-calendars', id] as const,
 };
 
 // =============================================================================
@@ -30,7 +38,7 @@ interface TriggerDef {
 }
 
 interface IntegrationAuth {
-  kind: 'oauth2' | 'api_key';
+  kind: 'oauth2' | 'api_key' | 'app_installation';
   [key: string]: unknown;
 }
 
@@ -113,6 +121,110 @@ export function useWorkflowIntegrations(filters?: WorkflowIntegrationFilters) {
   });
 }
 
+export interface SlackChannelOption {
+  id: string;
+  name: string;
+  isPrivate: boolean;
+  isMember: boolean;
+}
+
+/** Channels the connected Slack app can see — the `slack.post_message` step
+ *  form's channel picker (`conversations.list`, via connect-api). */
+export function useSlackChannels(integrationId: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: workflowIntegrationKeys.slackChannels(integrationId),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: SlackChannelOption[] }>(
+        `/workflow-integrations/${integrationId}/slack/channels`,
+      );
+    },
+    enabled: !!integrationId,
+  });
+}
+
+export interface GithubRepoOption {
+  id: number;
+  fullName: string;
+  defaultBranch: string;
+  private: boolean;
+}
+
+/** Repositories the connected GitHub App installation can see — the
+ *  `github.create_issue` / `github.create_comment` step forms' repo picker
+ *  (`installation/repositories`, via connect-api). */
+export function useGithubRepos(integrationId: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: workflowIntegrationKeys.githubRepos(integrationId),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: GithubRepoOption[] }>(
+        `/workflow-integrations/${integrationId}/github/repos`,
+      );
+    },
+    enabled: !!integrationId,
+  });
+}
+
+export interface GoogleSheetTab {
+  sheetId: number;
+  title: string;
+}
+
+export interface GoogleSpreadsheetInfo {
+  spreadsheetId: string;
+  title: string;
+  url: string;
+  sheets: GoogleSheetTab[];
+}
+
+/**
+ * Resolves a pasted spreadsheet id/URL to its title + sheet tabs — backs both
+ * the spreadsheet field (validation) and the sheet-tab picker in the
+ * google_sheets.append_row / update_row step forms. No Drive scope is
+ * requested (see connect-api's services/workflow-integrations/google.ts), so
+ * there is no "browse my Drive" picker — the id/URL is pasted, not selected.
+ */
+export function useGoogleSpreadsheet(integrationId: string | undefined, spreadsheetIdOrUrl: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: workflowIntegrationKeys.googleSpreadsheet(integrationId, spreadsheetIdOrUrl),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: GoogleSpreadsheetInfo }>(
+        `/workflow-integrations/${integrationId}/google_sheets/spreadsheet?spreadsheetId=${encodeURIComponent(spreadsheetIdOrUrl ?? '')}`,
+      );
+    },
+    enabled: !!integrationId && !!spreadsheetIdOrUrl,
+    retry: false,
+  });
+}
+
+export interface GoogleCalendarOption {
+  id: string;
+  summary: string;
+  primary: boolean;
+  accessRole: string;
+}
+
+/** Calendars the connected Google account can write to — the
+ *  google_calendar.create_event step form's calendar picker. */
+export function useGoogleCalendars(integrationId: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: workflowIntegrationKeys.googleCalendars(integrationId),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: GoogleCalendarOption[] }>(
+        `/workflow-integrations/${integrationId}/google_calendar/calendars`,
+      );
+    },
+    enabled: !!integrationId,
+  });
+}
+
 // =============================================================================
 // Mutations
 // =============================================================================
@@ -138,6 +250,32 @@ export function useConnectWorkflowProvider() {
       // Redirect to OAuth authorisation URL
       window.location.href = result.data.authorizeUrl;
       return result;
+    },
+  });
+}
+
+/**
+ * Point WeldConnect's `github` integration at the workspace's existing
+ * GitHub App installation (WeldFlow's project sync, Settings → Integrations
+ * → GitHub) — no OAuth redirect, unlike `useConnectWorkflowProvider`. When no
+ * installation exists yet, the response comes back `status: 'needs_install'`
+ * instead of `'connected'`; the caller is responsible for sending the member
+ * to Settings → Integrations → GitHub to install the App first.
+ */
+export function useLinkGithubInstallation() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const client = await getClient();
+      return client.post<{
+        data: { status: 'connected' | 'needs_install'; id?: string; provider: 'github' };
+      }>('/workflow-integrations/github/link', {});
+    },
+    onSuccess: (result) => {
+      if (result.data.status === 'connected') {
+        qc.invalidateQueries({ queryKey: workflowIntegrationKeys.list() });
+      }
     },
   });
 }

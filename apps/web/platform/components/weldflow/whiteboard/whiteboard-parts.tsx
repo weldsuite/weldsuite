@@ -27,7 +27,7 @@ export function ToolButton({
   icon: Icon,
   buttonClassName = 'h-8 w-8 p-0',
   iconClassName = 'h-4 w-4',
-}: ToolButtonProps) {
+}: Readonly<ToolButtonProps>) {
   return (
     <Button
       variant={active ? 'default' : 'ghost'}
@@ -78,7 +78,7 @@ interface EraserPreviewProps {
 }
 
 /** Ring showing the eraser's size and position on the canvas. */
-export function EraserPreview({ x, y, size, isErasing }: EraserPreviewProps) {
+export function EraserPreview({ x, y, size, isErasing }: Readonly<EraserPreviewProps>) {
   return (
     <g pointerEvents="none">
       <circle
@@ -133,7 +133,7 @@ interface ConnectionHoverPointsProps {
 }
 
 /** Connection points shown on an element while an arrow is being dragged over it. */
-export function ConnectionHoverPoints({ points, snappedPoint }: ConnectionHoverPointsProps) {
+export function ConnectionHoverPoints({ points, snappedPoint }: Readonly<ConnectionHoverPointsProps>) {
   return (
     <>
       {CONNECTION_POINT_NAMES.map(name => (
@@ -165,7 +165,7 @@ interface ConnectionHandlesProps {
 }
 
 /** Draggable connection points of a selected element. */
-export function ConnectionHandles({ points, onStart, isTextElement = false }: ConnectionHandlesProps) {
+export function ConnectionHandles({ points, onStart, isTextElement = false }: Readonly<ConnectionHandlesProps>) {
   return (
     <>
       {CONNECTION_POINT_NAMES.map(name => (
@@ -213,7 +213,7 @@ const RESIZE_HANDLE_CURSORS = {
 } as const;
 
 /** Corner resize handles around a selected element's bounds. */
-export function ResizeHandles({ left, top, right, bottom, tagged = true }: ResizeHandlesProps) {
+export function ResizeHandles({ left, top, right, bottom, tagged = true }: Readonly<ResizeHandlesProps>) {
   const corners: { handle: ResizeHandle; cx: number; cy: number }[] = [
     { handle: 'nw', cx: left, cy: top },
     { handle: 'ne', cx: right, cy: top },
@@ -250,7 +250,7 @@ interface CornerRadiusHandlesProps {
 }
 
 /** Handles just inside a rectangle's corners that drag its border radius. */
-export function CornerRadiusHandles({ x, y, width, height, radius, onDragStart }: CornerRadiusHandlesProps) {
+export function CornerRadiusHandles({ x, y, width, height, radius, onDragStart }: Readonly<CornerRadiusHandlesProps>) {
   const offset = Math.max(12, radius + 6); // Position based on current radius
   const corners: { corner: CornerHandle; cx: number; cy: number }[] = [
     { corner: 'tl', cx: x + offset, cy: y + offset },

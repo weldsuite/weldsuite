@@ -14,7 +14,7 @@ export default function TextSection({
   align = 'center',
   store,
   settings
-}: TextSectionProps) {
+}: Readonly<TextSectionProps>) {
   const textAlign = align === 'left' ? 'text-left' : align === 'right' ? 'text-right' : 'text-center';
   
   return (

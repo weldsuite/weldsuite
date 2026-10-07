@@ -71,7 +71,7 @@ export function GridToolbar({
   searchPlaceholder,
   hideFilter = false,
   extraActions,
-}: GridToolbarProps) {
+}: Readonly<GridToolbarProps>) {
   const t = useTranslations();
   const resolvedCreateButtonLabel = createButtonLabel ?? t('sweep.entities.newLabel');
   const resolvedSearchPlaceholder = searchPlaceholder ?? t('sweep.entities.searchEllipsisPlaceholder');
@@ -354,12 +354,12 @@ function GridFilterPills<TEntity>({
   columns,
   onFiltersChange,
   maxFilters = 5,
-}: {
+}: Readonly<{
   filters: GridFilter[];
   columns: GridColumnDef<TEntity>[];
   onFiltersChange: (filters: GridFilter[]) => void;
   maxFilters?: number;
-}) {
+}>) {
   const t = useTranslations();
   const FILTER_OPERATORS = useMemo(() => getFilterOperators(t), [t]);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
@@ -609,7 +609,7 @@ export function SearchIconButton({
   isOpen,
   onOpenChange,
   onSubmit,
-}: {
+}: Readonly<{
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
@@ -617,7 +617,7 @@ export function SearchIconButton({
   onOpenChange?: (open: boolean) => void;
   /** Called when Enter is pressed — used by server-submit searches. */
   onSubmit?: () => void;
-}) {
+}>) {
   const [internalOpen, setInternalOpen] = useState(!!value);
   const searchOpen = isOpen ?? internalOpen;
   const setSearchOpen = onOpenChange ?? setInternalOpen;

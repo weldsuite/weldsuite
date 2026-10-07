@@ -3,7 +3,7 @@ export const DEFAULT_PHONE_PRICING_TYPE = '*';
 
 export function isDefaultTelephonyPricing(countryCode: string, numberType: string): boolean {
   return countryCode.trim() === DEFAULT_PHONE_PRICING_COUNTRY
-    && numberType.trim().toLowerCase().replace(/_/g, '-') === DEFAULT_PHONE_PRICING_TYPE;
+    && numberType.trim().toLowerCase().replaceAll('_', '-') === DEFAULT_PHONE_PRICING_TYPE;
 }
 
 export function parseCountryCode(
@@ -25,7 +25,7 @@ export const PHONE_PRICING_SEED_COUNTRIES = [
 export function parseNumberType(
   raw: string,
 ): { ok: true; numberType: PhoneNumberType } | { ok: false } {
-  const type = raw.trim().toLowerCase().replace(/_/g, '-');
+  const type = raw.trim().toLowerCase().replaceAll('_', '-');
   if (!PHONE_NUMBER_TYPES.includes(type as PhoneNumberType)) return { ok: false };
   return { ok: true, numberType: type as PhoneNumberType };
 }

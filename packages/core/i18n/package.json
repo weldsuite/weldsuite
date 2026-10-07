@@ -21,7 +21,9 @@
     "./locales/en": "./src/locales/en/index.ts",
     "./locales/nl": "./src/locales/nl/index.ts",
     "./locales/en/emails": "./src/locales/en/emails.ts",
-    "./locales/nl/emails": "./src/locales/nl/emails.ts"
+    "./locales/nl/emails": "./src/locales/nl/emails.ts",
+    "./locales/en/weldconnect-templates": "./src/locales/en/weldconnect-templates.ts",
+    "./locales/nl/weldconnect-templates": "./src/locales/nl/weldconnect-templates.ts"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"

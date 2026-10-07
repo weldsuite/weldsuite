@@ -14,7 +14,11 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { checkAccountAccess, checkAccountManageAccess } from '@weldsuite/mail-domain/access';
+import {
+  checkAccountAccess,
+  checkAccountManageAccess,
+  emailEventData,
+} from '@weldsuite/mail-domain/access';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -375,13 +379,13 @@ app.post(
         entityType: 'email',
         entityId: result.messageId,
         action: 'email_sent',
-        data: {
+        data: await emailEventData(c.get('tenantDb'), {
           id: result.messageId,
           accountId: result.accountId,
           subject: result.subject,
           from: null,
           to: data.to,
-        },
+        }),
       });
       return success(c, {
         messageId: result.messageId,

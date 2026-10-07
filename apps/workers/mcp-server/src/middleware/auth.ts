@@ -1,9 +1,8 @@
 import type { MiddlewareHandler } from 'hono';
 import { createClerkClient } from '@clerk/backend';
-import { eq } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
-import { and, isNull } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import * as tenantSchema from '@weldsuite/db/schema';
@@ -103,7 +102,7 @@ function decodeVerifiedJwtPayload(token: string): Record<string, unknown> | null
   if (parts.length !== 3 || !parts[1]) return null;
 
   try {
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const base64 = parts[1].replaceAll('-', '+').replaceAll('_', '/');
     const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
     return JSON.parse(atob(padded)) as Record<string, unknown>;
   } catch {

@@ -85,7 +85,7 @@ export function ParticipantContextMenu({
   onLocalMutedChange,
   canManageParticipants = false,
   onRemoveParticipant,
-}: ParticipantContextMenuProps) {
+}: Readonly<ParticipantContextMenuProps>) {
   const name = participant?.name || 'Participant';
   const showLocalPlayback =
     !isSelf && typeof volume === 'number' && !!onVolumeChange && !!onLocalMutedChange;
@@ -342,10 +342,10 @@ function DestructiveActions({
   meeting,
   onClose,
   onRemoveParticipant,
-}: Pick<
+}: Readonly<Pick<
   ParticipantContextMenuProps,
   'participant' | 'isSelf' | 'meeting' | 'onClose' | 'onRemoveParticipant'
->) {
+>>) {
   return (
     <>
       <div className="-mx-px h-px bg-border" />

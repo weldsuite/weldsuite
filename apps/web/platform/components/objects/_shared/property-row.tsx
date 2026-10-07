@@ -125,7 +125,7 @@ export function PropertyRow({
   readOnly,
   renderValue,
   accessory,
-}: PropertyRowProps) {
+}: Readonly<PropertyRowProps>) {
   const t = useTranslations();
   const editable = !readOnly && !!onSave;
   const [isEditing, setIsEditing] = useState(false);
@@ -252,7 +252,7 @@ export interface MemberPropertyRowProps {
   onChange: (next: string) => void;
 }
 
-export function MemberPropertyRow({ icon: Icon, label, value, placeholder, onChange }: MemberPropertyRowProps) {
+export function MemberPropertyRow({ icon: Icon, label, value, placeholder, onChange }: Readonly<MemberPropertyRowProps>) {
   return (
     <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -280,7 +280,7 @@ export interface StatusOption {
   color?: string;
 }
 
-function StatusBadge({ value, options }: { value: string; options: StatusOption[] }) {
+function StatusBadge({ value, options }: Readonly<{ value: string; options: StatusOption[] }>) {
   const opt = options.find((o) => o.value === value);
   const style = opt?.color ? STATUS_STYLE_MAP[opt.color] : undefined;
   const label = opt?.label ?? value;
@@ -303,7 +303,7 @@ export interface StatusPropertyRowProps {
   options: StatusOption[];
 }
 
-export function StatusPropertyRow({ value, onChange, options }: StatusPropertyRowProps) {
+export function StatusPropertyRow({ value, onChange, options }: Readonly<StatusPropertyRowProps>) {
   const st = useTranslations();
   const [open, setOpen] = useState(false);
   return (
@@ -370,7 +370,7 @@ export interface TagsPropertyRowProps {
   onChange: (next: string[]) => void;
 }
 
-export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChange }: TagsPropertyRowProps) {
+export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChange }: Readonly<TagsPropertyRowProps>) {
   const t = useTranslations();
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState('');

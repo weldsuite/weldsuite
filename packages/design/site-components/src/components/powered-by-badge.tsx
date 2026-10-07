@@ -8,7 +8,7 @@ interface PoweredByBadgeProps {
   variant?: 'simple' | 'badge' | 'footer';
 }
 
-export function PoweredByBadge({ className, variant = 'simple' }: PoweredByBadgeProps) {
+export function PoweredByBadge({ className, variant = 'simple' }: Readonly<PoweredByBadgeProps>) {
   if (variant === 'badge') {
     return (
       <div className={cn("inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 border", className)}>

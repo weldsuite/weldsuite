@@ -10,7 +10,7 @@ import {
   Sparkles,
   Users,
   Video,
-} from 'lucide-react';
+ Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -61,7 +61,7 @@ export function MeetingIntelligence({
   transcriptionPending = false,
   transcriptionRefreshKey,
   transcriptEmptyHint,
-}: MeetingIntelligenceProps) {
+}: Readonly<MeetingIntelligenceProps>) {
   const t = useTranslations();
   const router = useRouter();
   const floatingVideoCtx = useFloatingVideo();
@@ -953,15 +953,14 @@ ${transcriptionText}
 
 // Inline small toolbar components to keep them co-located with the orchestrator
 
-import { Search } from 'lucide-react';
 
 function AutoScrollSelect({
   autoScroll,
   onAutoScrollChange,
-}: {
+}: Readonly<{
   autoScroll: boolean;
   onAutoScrollChange: (value: boolean) => void;
-}) {
+}>) {
   const t = useTranslations();
 
   return (
@@ -980,10 +979,10 @@ function AutoScrollSelect({
 function TranscriptSearchToolbar({
   searchQuery,
   onSearchQueryChange,
-}: {
+}: Readonly<{
   searchQuery: string;
   onSearchQueryChange: (q: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);

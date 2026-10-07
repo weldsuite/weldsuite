@@ -256,7 +256,7 @@ interface GoalTypeTabProps {
   onSelect: () => void;
 }
 
-function GoalTypeTab({ active, icon, label, onSelect }: GoalTypeTabProps) {
+function GoalTypeTab({ active, icon, label, onSelect }: Readonly<GoalTypeTabProps>) {
   return (
     <Button
       type="button"
@@ -284,7 +284,7 @@ interface GoalsCanvasViewProps {
   initialTasks?: ExistingTask[];
 }
 
-export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = [] }: GoalsCanvasViewProps) {
+export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = [] }: Readonly<GoalsCanvasViewProps>) {
   const st = useTranslations();
   const { canWrite } = useProjectPermissions();
   const { getClient } = useAppApiClient();

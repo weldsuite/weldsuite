@@ -28,7 +28,7 @@ type ThreadItem = {
   replyCount: number;
 };
 
-export function ChannelThreadsTab({ channelId, messages }: ChannelThreadsTabProps) {
+export function ChannelThreadsTab({ channelId, messages }: Readonly<ChannelThreadsTabProps>) {
   const st = useTranslations();
   const navigate = useNavigate();
   const { data: membersData } = useWorkspaceMembers();

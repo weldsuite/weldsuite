@@ -114,7 +114,7 @@ function buildDescription(
   userName: string | null,
   changedFields: string[] | null,
 ): string {
-  const displayType = stripModulePrefix(entityType).replace(/_/g, ' ');
+  const displayType = stripModulePrefix(entityType).replaceAll('_', ' ');
   const subject = entityName ? `'${entityName}'` : capitalise(displayType);
   const actor = userName || 'System';
 
@@ -135,9 +135,9 @@ function buildDescription(
 /** "camelCase" / "snake_case" → "Camel Case" / "Snake Case" */
 function humaniseFieldName(field: string): string {
   return field
-    .replace(/_/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+    .replaceAll('_', ' ')
+    .replaceAll(/([a-z])([A-Z])/g, '$1 $2')
+    .replaceAll(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** ["status", "priority", "assignee"] → "Status, Priority, and Assignee" */

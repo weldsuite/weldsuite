@@ -3,7 +3,7 @@ import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useOrganizationList } from '@clerk/expo';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useRouter } from 'expo-router';
@@ -66,7 +66,7 @@ const PLACEHOLDER_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
 const hasProjectId = !!EAS_PROJECT_ID && EAS_PROJECT_ID !== PLACEHOLDER_PROJECT_ID;
 
 // Push notifications are not supported in Expo Go (SDK 53+).
-const isExpoGo = Constants.appOwnership === 'expo';
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 let Notifications: typeof import('expo-notifications') | null = null;
 let notifUtils: {
   registerForPushNotificationsAsync: (id: string) => Promise<string | undefined>;
@@ -272,12 +272,12 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
             const data = notification.request.content.data;
             if (data?.unreadCount !== undefined) {
               setUnreadCount(data.unreadCount);
-              notifUtils!.setBadgeCount(data.unreadCount);
+              void notifUtils!.setBadgeCount(data.unreadCount);
             } else {
               // Bump local unread when a new push arrives without an explicit count.
               setUnreadCount((c) => {
                 const next = c + 1;
-                notifUtils!.setBadgeCount(next);
+                void notifUtils!.setBadgeCount(next);
                 return next;
               });
             }
@@ -321,7 +321,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
     };
 
-    init();
+    void init();
     return () => {
       if (cleanupRef.current) {
         cleanupRef.current();

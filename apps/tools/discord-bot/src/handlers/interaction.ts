@@ -366,7 +366,7 @@ async function handleOpenTicket(button: ButtonInteraction): Promise<void> {
       console.log(`[Discord] Ticket ${conversationId} created for thread ${thread.id}`);
 
       // Notify platform UI
-      publishHelpdeskEvent(guildMapping.clerkOrgId, 'conversation_new', {
+      void publishHelpdeskEvent(guildMapping.clerkOrgId, 'conversation_new', {
         conversationId,
         subject: 'Discord Ticket',
         customerName,

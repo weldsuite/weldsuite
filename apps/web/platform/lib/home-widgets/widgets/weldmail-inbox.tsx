@@ -87,7 +87,7 @@ function applyClientFilters(rows: MailRow[], _s: WeldmailInboxSettings): MailRow
   return rows;
 }
 
-function Render({ settings }: { settings: WeldmailInboxSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldmailInboxSettings }>) {
   const accountsRes = useMailAccounts();
   const accounts = ((accountsRes.data as { data?: ApiMailAccount[] } | undefined)?.data ?? []) as ApiMailAccount[];
   const activeAccountIds = settings.accountIds.length > 0 ? settings.accountIds : accounts.map((a) => a.id);
@@ -110,10 +110,10 @@ function Render({ settings }: { settings: WeldmailInboxSettings }) {
 function SettingsForm({
   value,
   onChange,
-}: {
+}: Readonly<{
   value: WeldmailInboxSettings;
   onChange: (next: WeldmailInboxSettings) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   const accountsRes = useMailAccounts();
@@ -204,7 +204,7 @@ function SettingsForm({
   );
 }
 
-function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function ToggleRow({ label, checked, onChange }: Readonly<{ label: string; checked: boolean; onChange: (v: boolean) => void }>) {
   return (
     <label className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
       <span>{label}</span>

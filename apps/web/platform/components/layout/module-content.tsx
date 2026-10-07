@@ -44,7 +44,7 @@ const ON_BACKGROUND_STYLE = {
   '--background': 'var(--shell-panel)',
 } as React.CSSProperties;
 
-export function ModuleContent({ children, className, aside }: ModuleContentProps) {
+export function ModuleContent({ children, className, aside }: Readonly<ModuleContentProps>) {
   return (
     <div className="flex min-h-0 flex-1" style={ON_BACKGROUND_STYLE}>
       <div className="flex min-w-0 flex-1">

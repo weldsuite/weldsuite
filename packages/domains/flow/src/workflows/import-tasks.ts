@@ -80,7 +80,7 @@ const VALID_TYPES = ['task', 'bug', 'story', 'epic', 'feature', 'improvement', '
 function parseDate(value: unknown): Date | null {
   if (!value) return null;
   const d = new Date(String(value).trim());
-  return isNaN(d.getTime()) ? null : d;
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function normalizeListField(value: string[] | string | undefined): string[] | null {
@@ -123,7 +123,7 @@ function normalizeTask(
 } {
   const title = row.title ? String(row.title).trim() : '';
 
-  let status = normalizeEnum(row.status, VALID_STATUSES, 'todo', (v) => v.replace(/[\s-]/g, '_'));
+  let status = normalizeEnum(row.status, VALID_STATUSES, 'todo', (v) => v.replaceAll(/[\s-]/g, '_'));
   const priority = normalizeEnum(row.priority, VALID_PRIORITIES, 'medium');
   const type = normalizeEnum(row.type, VALID_TYPES, 'task');
 

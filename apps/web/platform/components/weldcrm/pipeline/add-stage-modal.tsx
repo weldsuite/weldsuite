@@ -33,7 +33,7 @@ const STAGE_COLOR_META = [
   { key: 'fuchsia', value: 'bg-fuchsia-500', hex: '#d946ef' },
 ];
 
-export function AddStagePopover({ open, onOpenChange, onAddStage, children }: AddStagePopoverProps) {
+export function AddStagePopover({ open, onOpenChange, onAddStage, children }: Readonly<AddStagePopoverProps>) {
   const t = useTranslations();
   const STAGE_COLORS = STAGE_COLOR_META.map((c) => ({
     ...c,

@@ -57,7 +57,7 @@ interface ChangelogEditorClientProps {
 }
 
 // TODO: wire up real fetch/save by `changelogId`; editor still runs on mock data below.
-export function ChangelogEditorClient(_props: ChangelogEditorClientProps) {
+export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const tc = t.helpdesk.changelog;

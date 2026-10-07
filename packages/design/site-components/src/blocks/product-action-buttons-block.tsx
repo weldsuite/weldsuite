@@ -24,7 +24,7 @@ export function ProductActionButtonsBlock({
   showAddToCart = true,
   showOrderNow = true,
   borderRadius = 8,
-}: ProductActionButtonsBlockProps) {
+}: Readonly<ProductActionButtonsBlockProps>) {
   const getDarkerColor = (color: string) => {
     // Simple color darkening - could be improved
     if (color === '#0070FF') return '#0059CC';

@@ -12,7 +12,7 @@
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { clerkMiddleware } from '@weldsuite/worker-kit/middleware/clerk';
-import { runSnoozeSweep, SNOOZE_SWEEP_CRON } from './cron/snooze-sweep';
+import { isSnoozeSweepCron, runSnoozeSweep } from './cron/snooze-sweep';
 import { mailAccountsRoutes } from './routes/mail-accounts';
 import { mailAiRoutes } from './routes/mail-ai';
 import { mailAttachmentsRoutes } from './routes/mail-attachments';
@@ -75,8 +75,9 @@ export default {
   fetch: app.fetch,
 
   scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
-    // Every 5 minutes: bring snoozed mail whose time has come back to the inbox.
-    if (event.cron === SNOOZE_SWEEP_CRON) {
+    // Bring snoozed mail whose time has come back to the inbox.
+    // */5 in production and local dev; hourly on test (see wrangler.toml).
+    if (isSnoozeSweepCron(event.cron)) {
       ctx.waitUntil(
         runSnoozeSweep(env).catch((err) => {
           console.error('[SnoozeSweep] Failed:', err);

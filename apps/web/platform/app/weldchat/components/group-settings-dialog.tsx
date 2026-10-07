@@ -83,7 +83,7 @@ import {
   ChevronsUpDown,
   Zap,
   Copy,
-} from 'lucide-react';
+ Pencil } from 'lucide-react';
 import {
   useUserPreferences,
   useUpdateUserPreferences,
@@ -91,7 +91,6 @@ import {
 import type { UserPreferences } from '@/hooks/queries/use-settings-queries';
 import { useMuteChannel, useUpdateChannel } from '@/hooks/queries/use-weldchat-queries';
 import type { UpdateChannelRequest } from '@/lib/api/domains/weldchat';
-import { Pencil } from 'lucide-react';
 import {
   DEFAULT_GROUP_FILTER,
   type ActivityThreshold,

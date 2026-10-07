@@ -73,7 +73,7 @@ export function FeaturedProductBlock({
   showColorSelector = true,
   showShippingPolicy = true,
   showRefundPolicy = true,
-}: FeaturedProductBlockProps) {
+}: Readonly<FeaturedProductBlockProps>) {
   const [quantity, setQuantity] = React.useState(1);
   const [activeImage, setActiveImage] = useState(0);
   const [selectedSize, setSelectedSize] = useState('XS');
@@ -208,7 +208,7 @@ export function FeaturedProductBlock({
                   €110
                   {hasCompareAtPrice && (
                     <span className="text-sm line-through opacity-50 ml-2">
-                      €{parseFloat(compareAtPrice).toFixed(0)}
+                      €{Number.parseFloat(compareAtPrice).toFixed(0)}
                     </span>
                   )}
                 </div>

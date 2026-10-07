@@ -54,7 +54,7 @@ export function InfoPopover({
   side = 'top',
   align = 'center',
   contentClassName,
-}: InfoPopoverProps) {
+}: Readonly<InfoPopoverProps>) {
   return (
     <Popover>
       <PopoverTrigger asChild>

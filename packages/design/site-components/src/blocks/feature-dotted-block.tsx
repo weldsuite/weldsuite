@@ -54,7 +54,7 @@ export function FeatureDottedBlock({
   textColor,
   className,
   mode = 'live',
-}: FeatureDottedBlockProps) {
+}: Readonly<FeatureDottedBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
 
   // Split heading into lines for line breaks

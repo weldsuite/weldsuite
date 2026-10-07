@@ -15,12 +15,12 @@ export function ProductPriceDisplayElement({
   compareAtPrice,
   showShipping = true,
   shippingText = '🚚 Verzendkosten worden berekend bij de checkout',
-}: ProductPriceDisplayElementProps) {
+}: Readonly<ProductPriceDisplayElementProps>) {
   return (
     <>
       {/* Price */}
       <div style={{ fontSize: '1.875rem', fontWeight: 'bold', lineHeight: '2.25rem' }}>
-        US$ {typeof price === 'number' ? price.toFixed(2) : parseFloat(String(price)).toFixed(2)}
+        US$ {typeof price === 'number' ? price.toFixed(2) : Number.parseFloat(String(price)).toFixed(2)}
         {compareAtPrice && (
           <span style={{
             fontSize: '1.125rem',
@@ -28,7 +28,7 @@ export function ProductPriceDisplayElement({
             opacity: 0.5,
             marginLeft: '0.5rem'
           }}>
-            US$ {parseFloat(String(compareAtPrice)).toFixed(2)}
+            US$ {Number.parseFloat(String(compareAtPrice)).toFixed(2)}
           </span>
         )}
       </div>

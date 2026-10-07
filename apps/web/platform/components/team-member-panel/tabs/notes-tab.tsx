@@ -9,7 +9,7 @@ interface NotesTabProps {
   embedded?: boolean;
 }
 
-export function NotesTab({ userId, embedded = false }: NotesTabProps) {
+export function NotesTab({ userId, embedded = false }: Readonly<NotesTabProps>) {
   const t = useTranslations();
   const noteQuery = useMemberNote(userId);
   const upsert = useUpsertMemberNote(userId);

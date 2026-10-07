@@ -59,11 +59,11 @@ function unquote(value: string): string {
       // dotenv itself. An unterminated escape at the end stays literal.
       return value
         .slice(1, -1)
-        .replace(/\\n/g, '\n')
-        .replace(/\\r/g, '\r')
-        .replace(/\\t/g, '\t')
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, '\\');
+        .replaceAll('\\n', '\n')
+        .replaceAll('\\r', '\r')
+        .replaceAll('\\t', '\t')
+        .replaceAll('\\"', '"')
+        .replaceAll('\\\\', '\\');
     }
     if (first === "'" && last === "'") {
       return value.slice(1, -1);
@@ -91,8 +91,8 @@ function quoteIfNeeded(value: string): string {
   if (value === '') return '""';
   if (/^[A-Za-z0-9_./:@-]+$/.test(value)) return value;
   return `"${value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')}"`;
+    .replaceAll('\\', '\\\\')
+    .replaceAll('"', '\\"')
+    .replaceAll('\n', '\\n')
+    .replaceAll('\r', '\\r')}"`;
 }

@@ -59,11 +59,11 @@ function Section({
   icon: Icon,
   title,
   children,
-}: {
+}: Readonly<{
   icon: typeof BookOpen;
   title: string;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <section className="space-y-3 rounded-xl border p-4">
       <div className="flex items-center gap-2">
@@ -75,12 +75,12 @@ function Section({
   );
 }
 
-function StateLine({ loading, error, empty, emptyText }: {
+function StateLine({ loading, error, empty, emptyText }: Readonly<{
   loading: boolean;
   error: boolean;
   empty: boolean;
   emptyText: string;
-}) {
+}>) {
   const t = getTranslations('common').agents.detail;
   if (loading) return <p className="text-xs text-muted-foreground">{t.feedback.loading}</p>;
   if (error) return <p className="text-xs text-destructive">{t.parity.loadFailed}</p>;
@@ -99,7 +99,7 @@ function routineScheduleLabel(routine: AgentRoutine): string {
   return routine.cronExpr ?? routine.scheduleKind;
 }
 
-function SkillsSection({ agentId }: { agentId: string }) {
+function SkillsSection({ agentId }: Readonly<{ agentId: string }>) {
   const t = getTranslations('common').agents.detail.parity;
   const skills = useAgentSkills(agentId);
   const createSkill = useCreateAgentSkill(agentId);
@@ -167,7 +167,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
   );
 }
 
-function RoutinesSection({ agentId }: { agentId: string }) {
+function RoutinesSection({ agentId }: Readonly<{ agentId: string }>) {
   const t = getTranslations('common').agents.detail.parity;
   const routines = useAgentRoutines(agentId);
   const createRoutine = useCreateAgentRoutine(agentId);
@@ -315,7 +315,7 @@ function RoutinesSection({ agentId }: { agentId: string }) {
   );
 }
 
-function ApprovalsSection({ agentId }: { agentId: string }) {
+function ApprovalsSection({ agentId }: Readonly<{ agentId: string }>) {
   const t = getTranslations('common').agents.detail.parity;
   const approvals = useAgentApprovals(agentId);
   const decide = useDecideAgentApproval(agentId);
@@ -371,7 +371,7 @@ function ApprovalsSection({ agentId }: { agentId: string }) {
   );
 }
 
-function MemorySection({ agentId }: { agentId: string }) {
+function MemorySection({ agentId }: Readonly<{ agentId: string }>) {
   const t = getTranslations('common').agents.detail.parity;
   const memories = useAgentMemories(agentId);
   const createMemory = useCreateAgentMemory(agentId);
@@ -425,7 +425,7 @@ function MemorySection({ agentId }: { agentId: string }) {
   );
 }
 
-function TemplateSection({ agentId }: { agentId: string }) {
+function TemplateSection({ agentId }: Readonly<{ agentId: string }>) {
   const t = getTranslations('common').agents.detail.parity;
   const { weldAgentParity } = useAppApi();
   const [shareToken, setShareToken] = useState<string | null>(null);
@@ -456,7 +456,7 @@ function TemplateSection({ agentId }: { agentId: string }) {
   );
 }
 
-function ComputerSection({ agentId }: { agentId: string }) {
+function ComputerSection({ agentId }: Readonly<{ agentId: string }>) {
   const t = getTranslations('common').agents.detail.parity;
   const { weldAgentParity } = useAppApi();
   const [liveViewUrl, setLiveViewUrl] = useState<string | null>(null);
@@ -506,7 +506,7 @@ function ComputerSection({ agentId }: { agentId: string }) {
   );
 }
 
-export function AgentParityPanels({ agentId }: AgentParityPanelsProps) {
+export function AgentParityPanels({ agentId }: Readonly<AgentParityPanelsProps>) {
   return (
     <div className="space-y-6">
       <ApprovalsSection agentId={agentId} />

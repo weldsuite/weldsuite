@@ -45,7 +45,7 @@ export function TextEditor({
   );
 }
 
-export function NumberEditor({ value, onCommit, onCancel, className }: BaseEditorProps<number | null>) {
+export function NumberEditor({ value, onCommit, onCancel, className }: Readonly<BaseEditorProps<number | null>>) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     ref.current?.focus();
@@ -125,10 +125,10 @@ export function SelectEditor({
 export function CheckboxEditor({
   value,
   onCommit,
-}: {
+}: Readonly<{
   value: boolean;
   onCommit: (value: boolean) => void;
-}) {
+}>) {
   return (
     <input
       type="checkbox"

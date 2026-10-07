@@ -57,7 +57,7 @@ const variantConfig = {
  *   Changing this setting will affect all existing entries.
  * </InfoHelpText>
  */
-export function InfoHelpText({ children, variant = 'info', title, className }: InfoHelpTextProps) {
+export function InfoHelpText({ children, variant = 'info', title, className }: Readonly<InfoHelpTextProps>) {
   const config = variantConfig[variant];
   const Icon = config.icon;
 

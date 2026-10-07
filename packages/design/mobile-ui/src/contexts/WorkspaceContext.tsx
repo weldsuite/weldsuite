@@ -27,7 +27,7 @@ interface WorkspaceProviderProps {
   api: WorkspaceApi;
 }
 
-export function WorkspaceProvider({ children, api }: WorkspaceProviderProps) {
+export function WorkspaceProvider({ children, api }: Readonly<WorkspaceProviderProps>) {
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceWithMembership[]>([]);
   const [isLoading, setIsLoading] = useState(true);

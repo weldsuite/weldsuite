@@ -186,7 +186,7 @@ async function verifySupportJwt(
 
       const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', cryptoKey, signature, signedData);
       if (valid) {
-        const payload = JSON.parse(atob(jwtParts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        const payload = JSON.parse(atob(jwtParts[1].replaceAll('-', '+').replaceAll('_', '/')));
         return payload ? { payload, verifiedByAdminKey: isAdmin } : null;
       }
     } catch {

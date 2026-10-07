@@ -9,7 +9,7 @@ import {
   type ObjectPanelComponentProps,
 } from '@/components/objects/_shared/simple-object-panel';
 
-export function LeadPanel(props: ObjectPanelComponentProps) {
+export function LeadPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const { id } = props;
   const { data, isLoading, error } = useLead(id);

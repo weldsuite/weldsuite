@@ -54,7 +54,7 @@ function mapTask(api: ApiTask): FlowRow {
   };
 }
 
-function Render({ settings }: { settings: WeldflowMyTasksSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldflowMyTasksSettings }>) {
   const { user } = useUser();
   const { open: openObjectPanel } = useObjectPanel();
   const tasksRes = useTasks({
@@ -77,7 +77,7 @@ function Render({ settings }: { settings: WeldflowMyTasksSettings }) {
   );
 }
 
-function SettingsForm({ value, onChange }: { value: WeldflowMyTasksSettings; onChange: (next: WeldflowMyTasksSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldflowMyTasksSettings; onChange: (next: WeldflowMyTasksSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

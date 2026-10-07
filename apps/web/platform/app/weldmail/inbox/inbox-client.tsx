@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -92,6 +92,7 @@ import {
   useArchiveMailMessage,
 } from '@/hooks/queries/use-mail-queries';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
+import { copyText } from '@/lib/clipboard';
 
 type EmailMessage = MailTypes.Email;
 
@@ -1149,8 +1150,7 @@ function EmailCard({ hoverTimeoutRef, hoverTimeoutRefCollapsed, hoveredWeldMailT
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => {
-                navigator.clipboard.writeText(selectedEmail?.id || '');
-                toast.success(t.mail.inboxPage.messageIdCopied);
+                copyText(selectedEmail?.id || '', () => toast.success(t.mail.inboxPage.messageIdCopied));
               }}>
                 <Copy className="mr-0.5 h-4 w-4" />
                 <span>{t.mail.inboxPage.copyMessageId}</span>
@@ -2045,7 +2045,7 @@ export function InboxClient({
   const [isComposeMinimized, setIsComposeMinimized] = useState(false);
   const [showCompletedEmails, setShowCompletedEmails] = useState(false);
   const [completedEmails, setCompletedEmails] = useState<Set<string>>(new Set());
-  const [setAsideEmails] = useState<Set<string>>(new Set());
+  const setAsideEmails = useMemo(() => new Set<string>(), []);
   const [pinnedEmails, setPinnedEmails] = useState<Set<string>>(new Set());
   const [snoozedEmails, setSnoozedEmails] = useState<Set<string>>(new Set());
   const [snoozeCalendarOpen, setSnoozeCalendarOpen] = useState(false);
@@ -2073,7 +2073,7 @@ export function InboxClient({
   const [selectedApp, setSelectedApp] = useState<{ name: string; icon: LucideIcon } | null>(null);
   const [isEmailCollapsed, setIsEmailCollapsed] = useState(false);
   const [isLoadingEmail, setIsLoadingEmail] = useState(false);
-  const [collapsedPreviews] = useState<Set<string>>(new Set());
+  const collapsedPreviews = useMemo(() => new Set<string>(), []);
   const [showAllRecipients, setShowAllRecipients] = useState(false);
   const [hoveredWeldMailTeam, setHoveredWeldMailTeam] = useState(false);
   const [hoveredWeldMailTeamList, setHoveredWeldMailTeamList] = useState(false);
@@ -2412,7 +2412,7 @@ export function InboxClient({
     }
 
     if (!email.isRead) {
-      handleMarkAsRead(email.id);
+      void handleMarkAsRead(email.id);
     }
   };
 
@@ -2498,7 +2498,7 @@ export function InboxClient({
     const bccAddresses = bccRecipients ? parseRecipients(bccRecipients) : undefined;
 
     // Simple HTML conversion (newlines to <br>)
-    const htmlBody = composeData.body.replace(/\n/g, '<br>');
+    const htmlBody = composeData.body.replaceAll('\n', '<br>');
 
     // Handle scheduled emails
     if (scheduledTime) {
@@ -2877,7 +2877,7 @@ export function InboxClient({
                                   "text-sm truncate flex-1",
                                   !email.isRead ? "font-semibold text-gray-900 dark:text-foreground" : "font-normal text-gray-500 dark:text-muted-foreground"
                                 )}>
-                                  {email.fromEmail || `${fromDisplayString(email.from).toLowerCase().replace(/\s+/g, '.')}@gmail.com`}
+                                  {email.fromEmail || `${fromDisplayString(email.from).toLowerCase().replaceAll(/\s+/g, '.')}@gmail.com`}
                                 </div>
                                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                                   {email.isStarred && (
@@ -3452,7 +3452,7 @@ export function InboxClient({
                             to: [selectedEmail?.fromEmail || fromDisplayString(selectedEmail?.from)],
                             subject: composeData.subject || `Re: ${selectedEmail?.subject || ''}`,
                             body: composeData.body.trim(),
-                            htmlBody: composeData.body.trim().replace(/\n/g, '<br>'),
+                            htmlBody: composeData.body.trim().replaceAll('\n', '<br>'),
                           });
                           if (result.success) {
                             toast.success(t.mail.inboxPage.replySentSuccessfully);
@@ -4036,7 +4036,7 @@ export function InboxClient({
                         to: toAddresses.length > 0 ? toAddresses : [selectedEmail?.fromEmail || fromDisplayString(selectedEmail?.from)],
                         subject: popupComposeData.subject || `Re: ${selectedEmail?.subject || ''}`,
                         body: popupComposeData.body.trim(),
-                        htmlBody: popupComposeData.body.trim().replace(/\n/g, '<br>'),
+                        htmlBody: popupComposeData.body.trim().replaceAll('\n', '<br>'),
                       });
                       if (result.success) {
                         toast.success(t.mail.inboxPage.emailSent);

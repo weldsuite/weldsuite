@@ -36,7 +36,7 @@ export function AccordionGalleryBlock({
       code: "#0034",
     },
   ],
-}: AccordionGalleryBlockProps) {
+}: Readonly<AccordionGalleryBlockProps>) {
   const [activeImage, setActiveImage] = useState<number>(0);
 
   return (

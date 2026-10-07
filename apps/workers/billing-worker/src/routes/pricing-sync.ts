@@ -47,7 +47,7 @@ async function syncSinglePrice(
   params: SyncPriceParams
 ): Promise<SyncPriceResult> {
   const productName = `Phone Number - ${params.countryCode} ${params.numberType}`;
-  const unitAmount = Math.round(parseFloat(params.monthlyPrice) * 100);
+  const unitAmount = Math.round(Number.parseFloat(params.monthlyPrice) * 100);
 
   // 1. Create or update the Stripe Product
   let productId: string;

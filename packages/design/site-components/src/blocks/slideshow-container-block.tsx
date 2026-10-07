@@ -27,7 +27,7 @@ export function SlideshowContainerBlock({
   transitionStyle = 'fade',
   mode = 'live',
   children,
-}: SlideshowContainerBlockProps) {
+}: Readonly<SlideshowContainerBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
 
   // Get slides from children (each slide is a container block with children)

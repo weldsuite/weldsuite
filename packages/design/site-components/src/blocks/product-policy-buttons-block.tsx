@@ -20,7 +20,7 @@ export function ProductPolicyButtonsBlock({
   shippingPolicyText = 'Shipping Policy',
   refundPolicyText = 'Refund Policy',
   borderRadius = 8,
-}: ProductPolicyButtonsBlockProps) {
+}: Readonly<ProductPolicyButtonsBlockProps>) {
   if (!showShippingPolicy && !showRefundPolicy) {
     return null;
   }

@@ -31,7 +31,7 @@ export function VariableFontAndCursor({
     x: { name: "slnt", min: 0, max: -10 },
   },
   containerRef,
-}: VariableFontAndCursorProps) {
+}: Readonly<VariableFontAndCursorProps>) {
   const [fontVariationSettings, setFontVariationSettings] = useState<string>(
     `"wght" 400, "slnt" 0`
   );

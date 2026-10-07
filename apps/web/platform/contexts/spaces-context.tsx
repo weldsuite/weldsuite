@@ -88,7 +88,7 @@ const moduleTemplates: Record<ModuleType, { name: string; icon: string }> = {
   calendar: { name: 'Calendar', icon: 'Calendar' },
 };
 
-function PipelinesProvider({ children }: { children: React.ReactNode }) {
+function PipelinesProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [activePipelineId, setActivePipelineId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -197,7 +197,7 @@ function PipelinesProvider({ children }: { children: React.ReactNode }) {
 }
 
 // Spaces Provider
-export function SpacesProvider({ children }: { children: React.ReactNode }) {
+export function SpacesProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);

@@ -36,7 +36,9 @@ export function useMailOutbox() {
   const cache = useMailCache();
 
   const flush = useCallback(() => {
-    flushMailOutbox(orgId);
+    flushMailOutbox(orgId).catch((err) => {
+      console.warn('[outbox] Flush failed, will retry on the next trigger:', err);
+    });
   }, [orgId]);
 
   return useMemo(() => {
@@ -60,7 +62,7 @@ export function useMailOutbox() {
       update: async (messageId: string, patch: MessagePatch) => {
         // Patch the detail cache so re-opening this message reflects the change.
         const cached = await cache.getMessage(messageId);
-        if (cached) cache.setMessage(messageId, { ...cached, ...patch });
+        if (cached) void cache.setMessage(messageId, { ...cached, ...patch });
         await enqueueAndFlush({ id: newId(), kind: 'update', messageId, patch, attempts: 0, createdAt: Date.now(), personal: isPersonalMessage(messageId) || undefined });
       },
 

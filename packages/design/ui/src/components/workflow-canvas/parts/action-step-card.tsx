@@ -182,7 +182,7 @@ export function ActionStepCard({
   renderConfigForm,
   onSaved,
   labels = {},
-}: ActionStepCardProps) {
+}: Readonly<ActionStepCardProps>) {
   const [showConfig, setShowConfig] = useState(false);
   const [config, setConfig] = useState(step.config || {});
   const [name, setName] = useState(step.name || '');
@@ -228,7 +228,7 @@ export function ActionStepCard({
                   )}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground capitalize mt-0.5">
-                  {actionType?.name || step.type?.replace(/_/g, ' ')}
+                  {actionType?.name || step.type?.replaceAll('_', ' ')}
                 </p>
               </div>
             </div>

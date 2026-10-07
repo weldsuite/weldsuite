@@ -116,7 +116,7 @@ export function FilterPills({
   onFiltersChange,
   operatorLabels,
   labels,
-}: FilterPillsProps) {
+}: Readonly<FilterPillsProps>) {
   const filterIdCounterRef = useRef(0);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [editingFilterIndex, setEditingFilterIndex] = useState<number | null>(null);

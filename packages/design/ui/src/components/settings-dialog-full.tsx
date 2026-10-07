@@ -180,7 +180,7 @@ const tabs = [
 export function SettingsDialogFull({
   open = false,
   onOpenChange,
-}: SettingsDialogFullProps) {
+}: Readonly<SettingsDialogFullProps>) {
   const [activeTab, setActiveTab] = React.useState("users")
   const [searchQuery, setSearchQuery] = React.useState("")
   const [hasChanges, setHasChanges] = React.useState(false)

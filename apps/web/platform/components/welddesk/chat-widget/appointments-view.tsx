@@ -46,7 +46,7 @@ export function AppointmentsView({
   onNavigateEvents,
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
-}: AppointmentsViewProps) {
+}: Readonly<AppointmentsViewProps>) {
   const [activeTab] = useState('appointments');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState('');

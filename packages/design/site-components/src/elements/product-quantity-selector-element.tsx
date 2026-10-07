@@ -17,7 +17,7 @@ export function ProductQuantitySelectorElement({
   minQuantity = 1,
   maxQuantity = 99,
   label = 'Aantal',
-}: ProductQuantitySelectorElementProps) {
+}: Readonly<ProductQuantitySelectorElementProps>) {
   return (
     <div>
       <p style={{ fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.5rem' }}>

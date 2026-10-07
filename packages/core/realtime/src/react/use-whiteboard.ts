@@ -72,7 +72,7 @@ export function useWhiteboardRoom(
     client.onConnectionChange(setState);
     client.onPresence(setPresence);
     client.onCursors(setCursors);
-    client.connect();
+    void client.connect();
 
     return () => {
       client.disconnect();

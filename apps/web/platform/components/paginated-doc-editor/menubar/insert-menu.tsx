@@ -26,7 +26,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 const formatToday = () =>
   new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 
-export function InsertMenu({ cmd, menuValue }: MenuProps) {
+export function InsertMenu({ cmd, menuValue }: Readonly<MenuProps>) {
   const t = useTranslations();
   const stub = useStub();
   const align = useMenuAlign(menuValue);

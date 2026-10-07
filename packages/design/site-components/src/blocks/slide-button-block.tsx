@@ -21,7 +21,7 @@ export function SlideButtonBlock({
   fontSize = 18,
   showIcon = true,
   mode = 'live',
-}: SlideButtonBlockProps) {
+}: Readonly<SlideButtonBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
 
   return (

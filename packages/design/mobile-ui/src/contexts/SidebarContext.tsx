@@ -11,11 +11,11 @@ export function SidebarProvider({
   children,
   isCollapsed,
   expand
-}: {
+}: Readonly<{
   children: React.ReactNode;
   isCollapsed: boolean;
   expand: () => void;
-}) {
+}>) {
   return (
     <SidebarContext.Provider value={{ isCollapsed, expand }}>
       {children}

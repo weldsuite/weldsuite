@@ -44,7 +44,7 @@ export function useFloatingCall() {
   return useContext(FloatingCallContext);
 }
 
-export function FloatingCallProvider({ children }: { children: ReactNode }) {
+export function FloatingCallProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [floatingCall, setFloatingCall] = useState<FloatingCallState | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const rafRef = useRef<number>(0);

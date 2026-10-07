@@ -46,7 +46,7 @@ export function ProductInfoAccordionBlock({
   textColor = '#171717',
   borderColor = '#e5e5e5',
   store,
-}: ProductInfoAccordionBlockProps) {
+}: Readonly<ProductInfoAccordionBlockProps>) {
   const [openItem, setOpenItem] = useState<string | null>(null);
 
   // Use product info from store if available

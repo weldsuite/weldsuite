@@ -32,7 +32,7 @@ export function SubscriptionCard({
   onUpgrade,
   onManage,
   onCancel,
-}: SubscriptionCardProps) {
+}: Readonly<SubscriptionCardProps>) {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
 
   const formatDate = (dateString: string) => {

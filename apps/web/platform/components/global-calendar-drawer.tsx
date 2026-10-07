@@ -76,7 +76,7 @@ interface EventListItemProps {
   onClick: (event: CalendarEvent) => void;
 }
 
-function EventListItem({ event, calendar, timeFormat, onClick }: EventListItemProps) {
+function EventListItem({ event, calendar, timeFormat, onClick }: Readonly<EventListItemProps>) {
   const TypeIcon = eventTypeIcons[event.type] || Calendar;
   const eventColor = event.color || EVENT_TYPE_COLORS[event.type] || EVENT_TYPE_COLORS.other;
 
@@ -127,7 +127,7 @@ function EventListItem({ event, calendar, timeFormat, onClick }: EventListItemPr
   );
 }
 
-function EmptyEventsState({ hasSearch }: { hasSearch: boolean }) {
+function EmptyEventsState({ hasSearch }: Readonly<{ hasSearch: boolean }>) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center px-6 bg-white dark:bg-background/30">
       <EmptyStateIllustration width={210} height={150}>
@@ -169,7 +169,7 @@ function EmptyEventsState({ hasSearch }: { hasSearch: boolean }) {
   );
 }
 
-export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimation }: GlobalCalendarDrawerProps) {
+export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimation }: Readonly<GlobalCalendarDrawerProps>) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -365,7 +365,7 @@ interface PanelDayViewProps {
   onEventClick: (event: CalendarEvent) => void;
 }
 
-function PanelDayView({ events, timeFormat, onEventClick }: PanelDayViewProps) {
+function PanelDayView({ events, timeFormat, onEventClick }: Readonly<PanelDayViewProps>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());

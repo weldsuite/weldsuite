@@ -51,12 +51,12 @@ const ColorInput = React.memo(function ColorInput({
   description,
   value,
   onChange
-}: {
+}: Readonly<{
   label: string;
   description?: string;
   value: string;
   onChange: (value: string) => void;
-}) {
+}>) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
@@ -98,13 +98,13 @@ const PropertySection = React.memo(function PropertySection({
   isExpanded,
   onToggle,
   children
-}: {
+}: Readonly<{
   id: string;
   title: string;
   isExpanded: boolean;
   onToggle: (id: string) => void;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <div className="border-b border-gray-200 dark:border-border">
       <Button
@@ -139,7 +139,7 @@ const DEFAULT_COLORS = {
   agentBubbleTextColor: '#000000',
 };
 
-export function WidgetCustomizationPanel({ settings, onSettingsChange }: WidgetCustomizationPanelProps) {
+export function WidgetCustomizationPanel({ settings, onSettingsChange }: Readonly<WidgetCustomizationPanelProps>) {
   const t = useTranslations();
   const [expandedSections, setExpandedSections] = useState<string[]>(['styling', 'typography', 'behavior']);
 

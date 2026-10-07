@@ -450,7 +450,7 @@ function WeldAppModal({
   usesPlatformSession,
   request,
   onClose,
-}: {
+}: Readonly<{
   appCode: string;
   appName: string;
   frameSrc: string;
@@ -459,7 +459,7 @@ function WeldAppModal({
   usesPlatformSession: boolean;
   request: OpenModalRequest;
   onClose: (outcome: { dismissed: boolean; result?: unknown }) => void;
-}) {
+}>) {
   const { resolvedTheme } = useTheme();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [mounted, setMounted] = useState(false);

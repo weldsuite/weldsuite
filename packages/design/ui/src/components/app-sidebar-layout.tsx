@@ -69,7 +69,7 @@ export function AppSidebarLayout({
   footer,
   userMenu,
   ...props
-}: AppSidebarLayoutProps) {
+}: Readonly<AppSidebarLayoutProps>) {
   const pathname = usePathname()
   const { state } = useSidebar()
 

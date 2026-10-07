@@ -6,7 +6,7 @@ export interface EntityFormSectionProps {
   children: ReactNode;
 }
 
-export function EntityFormSection({ title, description, children }: EntityFormSectionProps) {
+export function EntityFormSection({ title, description, children }: Readonly<EntityFormSectionProps>) {
   return (
     <div className="space-y-4">
       <div>

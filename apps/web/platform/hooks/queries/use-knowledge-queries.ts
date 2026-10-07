@@ -1,5 +1,7 @@
 /**
- * WeldKnow (knowledge base / wiki) query hooks — apps/workers/app-api `/api/knowledge/*`.
+ * WeldKnow (knowledge base / wiki) query hooks — apps/workers/know-api `/api/knowledge/*`.
+ * Spaces come back with the caller's teamspace role and abilities
+ * (canRead / canWrite / canManage); the UI gates actions on those.
  *
  * Mirrors the shape of use-helpdesk-queries.ts: useAppApiClient() + getClient(),
  * a `knowledgeKeys` factory, and one hook per endpoint. Structural mutations
@@ -16,20 +18,53 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 // Types — mirror packages/core/db/src/schema/knowledge-* + packages/clients/core-api-client/src/schemas/knowledge.ts
 // =============================================================================
 
-export type KnowledgeSpaceVisibility = 'workspace' | 'private';
+/** open: everyone reads · closed: listed, members read · private: members only. */
+export type KnowledgeSpaceVisibility = 'open' | 'closed' | 'private';
+/** `personal` is the caller's own Private section; `team` is a teamspace. */
+export type KnowledgeSpaceKind = 'personal' | 'team';
+export type KnowledgeSpaceRole = 'owner' | 'editor' | 'viewer';
 
+/** A space as GET /knowledge/spaces returns it: the row plus what the caller may do in it. */
 export interface KnowledgeSpace {
   id: string;
   name: string;
   description: string | null;
   icon: string | null;
   color: string | null;
+  kind: KnowledgeSpaceKind;
+  ownerId: string | null;
   visibility: KnowledgeSpaceVisibility;
+  isDefault: boolean;
   sortOrder: number;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /** The caller's role; null when they are not a member. */
+  role: KnowledgeSpaceRole | null;
+  isMember: boolean;
+  canRead: boolean;
+  canWrite: boolean;
+  /** Edit settings, manage members, delete. */
+  canManage: boolean;
+  memberCount: number;
+}
+
+export interface KnowledgeSpaceMember {
+  userId: string;
+  role: KnowledgeSpaceRole;
+  name: string | null;
+  email: string | null;
+  picture: string | null;
+  addedBy: string | null;
+  createdAt: string;
+}
+
+export interface KnowledgeTeammate {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  picture: string | null;
 }
 
 export interface KnowledgePageTreeNode {
@@ -98,6 +133,8 @@ const knowledgeKeys = {
   all: ['knowledge'] as const,
 
   spaces: () => [...knowledgeKeys.all, 'spaces'] as const,
+  members: (spaceId: string) => [...knowledgeKeys.spaces(), 'members', spaceId] as const,
+  teammates: () => [...knowledgeKeys.all, 'teammates'] as const,
 
   tree: (spaceId?: string) => [...knowledgeKeys.all, 'tree', spaceId ?? 'all'] as const,
 
@@ -123,6 +160,31 @@ export function useKnowledgeSpaces(enabled = true) {
     queryFn: async () => {
       const client = await getClient();
       return client.get<{ data: KnowledgeSpace[] }>('/knowledge/spaces');
+    },
+    enabled,
+  });
+}
+
+export function useKnowledgeSpaceMembers(spaceId: string | null, enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: knowledgeKeys.members(spaceId ?? ''),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: KnowledgeSpaceMember[] }>(`/knowledge/spaces/${spaceId}/members`);
+    },
+    enabled: !!spaceId && enabled,
+  });
+}
+
+/** People a teamspace can be shared with. */
+export function useKnowledgeTeammates(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: knowledgeKeys.teammates(),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: KnowledgeTeammate[] }>('/knowledge/teammates');
     },
     enabled,
   });
@@ -209,6 +271,8 @@ export interface CreateKnowledgeSpaceInput {
   icon?: string | null;
   color?: string | null;
   visibility?: KnowledgeSpaceVisibility;
+  /** Add every workspace member. Needs knowledge:manage. */
+  isDefault?: boolean;
 }
 
 export function useCreateKnowledgeSpace() {
@@ -231,6 +295,7 @@ export interface UpdateKnowledgeSpaceInput {
   icon?: string | null;
   color?: string | null;
   visibility?: KnowledgeSpaceVisibility;
+  isDefault?: boolean;
 }
 
 export function useUpdateKnowledgeSpace() {
@@ -260,6 +325,81 @@ export function useDeleteKnowledgeSpace() {
       qc.invalidateQueries({ queryKey: knowledgeKeys.spaces() });
       qc.invalidateQueries({ queryKey: knowledgeKeys.all });
     },
+  });
+}
+
+// =============================================================================
+// Mutations — Teamspace membership
+// =============================================================================
+
+/** Joining or leaving changes which pages (and favorites) the caller can reach. */
+function invalidateMembership(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: knowledgeKeys.all });
+}
+
+export function useAddKnowledgeSpaceMember() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ spaceId, userId, role }: { spaceId: string; userId: string; role: KnowledgeSpaceRole }) => {
+      const client = await getClient();
+      return client.post<{ data: { spaceId: string; userId: string; role: KnowledgeSpaceRole } }>(
+        `/knowledge/spaces/${spaceId}/members`,
+        { userId, role },
+      );
+    },
+    onSuccess: () => invalidateMembership(qc),
+  });
+}
+
+export function useUpdateKnowledgeSpaceMember() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ spaceId, userId, role }: { spaceId: string; userId: string; role: KnowledgeSpaceRole }) => {
+      const client = await getClient();
+      return client.patch<{ data: { spaceId: string; userId: string; role: KnowledgeSpaceRole } }>(
+        `/knowledge/spaces/${spaceId}/members/${userId}`,
+        { role },
+      );
+    },
+    onSuccess: () => invalidateMembership(qc),
+  });
+}
+
+export function useRemoveKnowledgeSpaceMember() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ spaceId, userId }: { spaceId: string; userId: string }) => {
+      const client = await getClient();
+      return client.delete<void>(`/knowledge/spaces/${spaceId}/members/${userId}`);
+    },
+    onSuccess: () => invalidateMembership(qc),
+  });
+}
+
+export function useJoinKnowledgeSpace() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (spaceId: string) => {
+      const client = await getClient();
+      return client.post<{ data: { spaceId: string; role: KnowledgeSpaceRole } }>(`/knowledge/spaces/${spaceId}/join`, {});
+    },
+    onSuccess: () => invalidateMembership(qc),
+  });
+}
+
+export function useLeaveKnowledgeSpace() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (spaceId: string) => {
+      const client = await getClient();
+      return client.post<void>(`/knowledge/spaces/${spaceId}/leave`, {});
+    },
+    onSuccess: () => invalidateMembership(qc),
   });
 }
 

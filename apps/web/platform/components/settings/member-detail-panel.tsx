@@ -30,7 +30,7 @@ export function MemberDetailPanel({
   onCollapse,
   defaultExpanded,
   skipAnimation,
-}: MemberDetailPanelProps) {
+}: Readonly<MemberDetailPanelProps>) {
   return (
     <TeamMemberDetailsPanel
       member={member ? fromTeamMember(member) : null}

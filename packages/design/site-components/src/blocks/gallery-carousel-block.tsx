@@ -42,7 +42,7 @@ export function GalleryCarouselBlock({
   autoplay = true,
   autoplayDelay = 3000,
   mode = 'live',
-}: GalleryCarouselBlockProps) {
+}: Readonly<GalleryCarouselBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
   const scrollRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);

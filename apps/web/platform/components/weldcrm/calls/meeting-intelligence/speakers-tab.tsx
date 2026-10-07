@@ -28,7 +28,7 @@ export function SpeakersTabContent({
   isTranscribing,
   onSeekToSegment,
   onTranscribe,
-}: SpeakersTabProps) {
+}: Readonly<SpeakersTabProps>) {
   const t = useTranslations();
   const [searchQuery, _setSearchQuery] = useState('');
 

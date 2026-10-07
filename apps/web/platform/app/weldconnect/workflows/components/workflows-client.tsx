@@ -305,7 +305,7 @@ export function WorkflowsClient({
   createTriggerOptions,
   createTriggerCategories,
   takenTriggers,
-}: WorkflowsClientProps) {
+}: Readonly<WorkflowsClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const resolvedParentLabel = parentLabel ?? t.weldconnect.breadcrumbs.connect;

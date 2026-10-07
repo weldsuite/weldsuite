@@ -73,9 +73,9 @@ export async function getInstallationToken(
 
 async function importRsaPrivateKey(pem: string): Promise<CryptoKey> {
   const body = pem
-    .replace(/-----BEGIN [^-]+-----/g, '')
-    .replace(/-----END [^-]+-----/g, '')
-    .replace(/\s/g, '');
+    .replaceAll(/-----BEGIN [^-]+-----/g, '')
+    .replaceAll(/-----END [^-]+-----/g, '')
+    .replaceAll(/\s/g, '');
 
   const raw = new Uint8Array(base64ToBuffer(body));
   const algo = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
@@ -137,7 +137,7 @@ function base64urlFromBuffer(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 function base64ToBuffer(base64: string): ArrayBuffer {

@@ -60,7 +60,7 @@ export function GalleryHorizontalAccordionBlock({
   buttonText = "Contact Us",
   buttonLink = "#",
   mode = 'live',
-}: GalleryHorizontalAccordionBlockProps) {
+}: Readonly<GalleryHorizontalAccordionBlockProps>) {
   const isEditing = mode === 'edit' || mode === 'preview';
   const [activeImage, setActiveImage] = useState<number>(0);
 

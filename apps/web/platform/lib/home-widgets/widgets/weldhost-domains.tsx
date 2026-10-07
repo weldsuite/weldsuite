@@ -51,7 +51,7 @@ function mapDomain(api: ApiDomain): DomainRow {
   };
 }
 
-function Render({ settings }: { settings: WeldhostDomainsSettings }) {
+function Render({ settings }: Readonly<{ settings: WeldhostDomainsSettings }>) {
   const res = useDomains({ pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: ApiDomain[] } | undefined)?.data ?? []) as ApiDomain[];
   const rows = apiRows.map(mapDomain).slice(0, settings.maxCount);

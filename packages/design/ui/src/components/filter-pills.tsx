@@ -88,7 +88,7 @@ export function FilterPills({
   filterConfigs,
   maxFilters = 5,
   onFiltersChange,
-}: FilterPillsProps) {
+}: Readonly<FilterPillsProps>) {
   const filterIdCounter = React.useRef(0);
   const [filterMenuOpen, setFilterMenuOpen] = React.useState(false);
   const [editingFilterIndex, setEditingFilterIndex] = React.useState<number | null>(null);

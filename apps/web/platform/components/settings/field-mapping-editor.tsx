@@ -142,7 +142,7 @@ interface EditableMapping {
   isRequired?: boolean;
 }
 
-export function FieldMappingEditor({ connectionId }: { connectionId: string }) {
+export function FieldMappingEditor({ connectionId }: Readonly<{ connectionId: string }>) {
   const t = useTranslations();
   const ENTITY_TYPES = React.useMemo(() => getEntityTypes(t), [t]);
   const DIRECTION_LABELS = React.useMemo(() => getDirectionLabels(t), [t]);

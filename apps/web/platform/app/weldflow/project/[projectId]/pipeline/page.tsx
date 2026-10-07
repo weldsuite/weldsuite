@@ -69,6 +69,7 @@ import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { formatTaskNumber } from '@/lib/task-number';
 import { useObjectPanel } from '@/components/object-panel';
+import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { FilterPills } from '@/components/entity-list';
@@ -237,7 +238,7 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', da
 
 function DroppableStage({ id, children, containerRef }: Readonly<{ id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }>) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage-${id}` });
-  const stageRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const [overlayStyle, setOverlayStyle] = useState<React.CSSProperties>({});
 
   useEffect(() => {
@@ -259,7 +260,7 @@ function DroppableStage({ id, children, containerRef }: Readonly<{ id: string; c
     <div
       ref={(node) => {
         setNodeRef(node);
-        (stageRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        stageRef.current = node;
       }}
       className={cn(
         "group flex flex-col w-full h-full rounded-t-lg rounded-b-md relative transition-colors duration-200",
@@ -688,18 +689,7 @@ const PipelinePage = () => {
   const [editingCrmTask, setEditingCrmTask] = useState<CrmTask | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
-  const [availableLabels, setAvailableLabels] = useState<ProjectLabel[]>([]);
-
-  // Fetch this project's labels (plus legacy workspace-wide labels)
-  useEffect(() => {
-    async function loadLabels() {
-      const result = await labelsApi.list(projectId);
-      if (result.success && result.data) {
-        setAvailableLabels(result.data);
-      }
-    }
-    loadLabels();
-  }, [projectId]);
+  const [availableLabels, setAvailableLabels] = useProjectLabels(projectId);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
     if (!canWrite) return null;
@@ -770,10 +760,10 @@ const PipelinePage = () => {
 
   const customCollisionDetection: CollisionDetection = (args) => {
     const pointerCollisions = pointerWithin(args);
-    const stageCollisions = pointerCollisions.filter(isStageCollision);
+    const stageCollisions = pointerCollisions.filter((c) => isStageCollision(c));
     if (stageCollisions.length > 0) return stageCollisions;
     const rectCollisions = rectIntersection(args);
-    const rectStageCollisions = rectCollisions.filter(isStageCollision);
+    const rectStageCollisions = rectCollisions.filter((c) => isStageCollision(c));
     if (rectStageCollisions.length > 0) return rectStageCollisions;
     return rectCollisions;
   };
@@ -818,7 +808,7 @@ const PipelinePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const statusToStageId = useMemo(() => {
     const m = new Map<string, string>();
@@ -889,7 +879,7 @@ const PipelinePage = () => {
         setColumns(prev => {
           const next = reorderStages(prev, fromId, toId);
           if (!next) return prev;
-          persistStageOrder(next);
+          void persistStageOrder(next);
           return next;
         });
       }
@@ -917,7 +907,7 @@ const PipelinePage = () => {
         toast.success(t.projects.pipeline.taskMoved);
       } else {
         toast.error(t.projects.pipeline.taskUpdateFailed);
-        loadData();
+        void loadData();
       }
     }
 
@@ -1048,7 +1038,7 @@ const PipelinePage = () => {
     const next = [...columns];
     [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
     setColumns(next);
-    persistStageOrder(next);
+    void persistStageOrder(next);
   };
 
   const handleMoveStageRight = async (stageId: string) => {
@@ -1058,7 +1048,7 @@ const PipelinePage = () => {
     const next = [...columns];
     [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
     setColumns(next);
-    persistStageOrder(next);
+    void persistStageOrder(next);
   };
 
 
@@ -1332,7 +1322,7 @@ const PipelinePage = () => {
           if (data.duration !== undefined) updateData.duration = data.duration;
           if (data.labels !== undefined) updateData.labels = data.labels;
 
-          (async () => {
+          void (async () => {
             const result = await tasksApi.update(projectId, taskId, updateData);
             if (result.success) {
               setFeatures(prev => prev.map(f => f.id === taskId ? {

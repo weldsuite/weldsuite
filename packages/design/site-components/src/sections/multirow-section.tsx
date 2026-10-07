@@ -26,7 +26,7 @@ export function MultirowSection({
   paddingTop = 60,
   paddingBottom = 60,
   rowSpacing = 16,
-}: MultirowSectionProps) {
+}: Readonly<MultirowSectionProps>) {
   return (
     <section
       className="px-4 md:px-8"

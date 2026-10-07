@@ -7,7 +7,7 @@ interface AnalyticsProps {
   website: Website;
 }
 
-export default function Analytics({ website }: AnalyticsProps) {
+export default function Analytics({ website }: Readonly<AnalyticsProps>) {
   return (
     <>
       {/* Google Analytics */}

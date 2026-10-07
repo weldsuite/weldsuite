@@ -15,9 +15,8 @@ import {
   GithubAuthProvider,
   TwitterAuthProvider,
   OAuthProvider
-} from 'firebase/auth';
+, getAuth } from 'firebase/auth';
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
 import { getErrorMessage } from '../lib/errors';
 
 const firebaseConfig = {
@@ -138,7 +137,7 @@ function getCsrfToken(): string | null {
   return match && match[1] ? decodeURIComponent(match[1]) : null;
 }
 
-export function SecureAuthProvider({ children }: { children: React.ReactNode }) {
+export function SecureAuthProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

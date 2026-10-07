@@ -1,4 +1,4 @@
-import type { ConnectionState, PresenceMember } from '../types';
+import type { ConnectionState } from '../types';
 
 export interface WhiteboardPresenceMember {
   userId: string;
@@ -74,25 +74,25 @@ export class WhiteboardClient {
 
   // Presence
   private _presence: WhiteboardPresenceMember[] = [];
-  private presenceHandlers = new Set<(members: WhiteboardPresenceMember[]) => void>();
+  private readonly presenceHandlers = new Set<(members: WhiteboardPresenceMember[]) => void>();
 
   // Cursors
-  private _cursors = new Map<string, WhiteboardCursor>();
-  private cursorHandlers = new Set<(cursors: WhiteboardCursor[]) => void>();
+  private readonly _cursors = new Map<string, WhiteboardCursor>();
+  private readonly cursorHandlers = new Set<(cursors: WhiteboardCursor[]) => void>();
 
   // Cursor throttling
   private lastCursorSend = 0;
-  private cursorThrottleMs = 50;
+  private readonly cursorThrottleMs = 50;
   private pendingCursor: { x: number; y: number; tool?: string } | null = null;
   private cursorTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Event handlers
-  private eventHandlers = new Map<string, Set<AnyHandler>>();
-  private connectionHandlers = new Set<(state: ConnectionState) => void>();
+  private readonly eventHandlers = new Map<string, Set<AnyHandler>>();
+  private readonly connectionHandlers = new Set<(state: ConnectionState) => void>();
 
   constructor(
-    private whiteboardId: string,
-    private config: WhiteboardClientConfig,
+    private readonly whiteboardId: string,
+    private readonly config: WhiteboardClientConfig,
   ) {
     this.userColor = colorForUser(config.userId);
   }

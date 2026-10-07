@@ -20,9 +20,8 @@ import {
   Shield,
   Smile,
   StickyNote,
-} from 'lucide-react';
+ Copy, Check } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { Copy, Check } from 'lucide-react';
 import { useUpdateMemberProfile } from '@/hooks/queries/use-team-queries';
 import { toast } from 'sonner';
 import type { MemberProfile, UpdateMemberProfileInput } from '@weldsuite/core-api-client/schemas/member-profile';
@@ -36,7 +35,7 @@ interface OverviewTabProps {
   profile: MemberProfile;
 }
 
-export function OverviewTab({ profile }: OverviewTabProps) {
+export function OverviewTab({ profile }: Readonly<OverviewTabProps>) {
   const t = useTranslations();
   const update = useUpdateMemberProfile(profile.userId);
   const now = useNow(30_000);
@@ -233,7 +232,7 @@ export function OverviewTab({ profile }: OverviewTabProps) {
   );
 }
 
-function CopyableEmail({ email }: { email: string }) {
+function CopyableEmail({ email }: Readonly<{ email: string }>) {
   const t = useTranslations();
   const [copied, setCopied] = React.useState(false);
   const composeContext = useComposeSafe();

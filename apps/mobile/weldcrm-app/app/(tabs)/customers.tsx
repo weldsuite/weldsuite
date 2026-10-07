@@ -160,6 +160,34 @@ const buildColumns = (pipeline: PipelineWithStages, opportunities: OpportunityRe
       })),
   }));
 
+function ViewModeToggleButton({
+  label,
+  Icon,
+  active,
+  onPress,
+}: Readonly<{
+  label: string;
+  Icon: typeof List;
+  active: boolean;
+  onPress: () => void;
+}>) {
+  const { colors } = useTheme();
+  const color = active ? colors.text : colors.muted;
+  return (
+    <TouchableOpacity
+      style={[
+        styles.toggleButton,
+        active && styles.toggleButtonActive,
+        active && { backgroundColor: colors.background },
+      ]}
+      onPress={onPress}
+    >
+      <Icon size={16} color={color} />
+      <Text style={[styles.toggleText, { color }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function CustomersScreen() {
   const { colors } = useTheme();
   const toast = useToast();
@@ -571,34 +599,18 @@ export default function CustomersScreen() {
       <View style={[styles.header, { borderBottomColor: colors.divider }]}>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Customers</Text>
         <View style={[styles.viewToggle, { backgroundColor: colors.background }]}>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              viewMode === 'table' && styles.toggleButtonActive,
-              viewMode === 'table' && { backgroundColor: colors.background }
-            ]}
+          <ViewModeToggleButton
+            label="Table"
+            Icon={List}
+            active={viewMode === 'table'}
             onPress={() => setViewMode('table')}
-          >
-            <List size={16} color={viewMode === 'table' ? colors.text : colors.muted} />
-            <Text style={[
-              styles.toggleText,
-              { color: viewMode === 'table' ? colors.text : colors.muted }
-            ]}>Table</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              viewMode === 'pipeline' && styles.toggleButtonActive,
-              viewMode === 'pipeline' && { backgroundColor: colors.background }
-            ]}
+          />
+          <ViewModeToggleButton
+            label="Pipeline"
+            Icon={Columns}
+            active={viewMode === 'pipeline'}
             onPress={() => setViewMode('pipeline')}
-          >
-            <Columns size={16} color={viewMode === 'pipeline' ? colors.text : colors.muted} />
-            <Text style={[
-              styles.toggleText,
-              { color: viewMode === 'pipeline' ? colors.text : colors.muted }
-            ]}>Pipeline</Text>
-          </TouchableOpacity>
+          />
         </View>
       </View>
 

@@ -177,7 +177,7 @@ export interface IMailAccountProvider {
 
 export function formatEmailAddress(addr: EmailAddress): string {
   if (addr.name) {
-    const escaped = addr.name.replace(/"/g, '\\"');
+    const escaped = addr.name.replaceAll('"', '\\"');
     return `"${escaped}" <${addr.email}>`;
   }
   return addr.email;

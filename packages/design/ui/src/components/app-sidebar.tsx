@@ -73,7 +73,7 @@ export interface AppSidebarProps {
   className?: string
 }
 
-export function AppSidebar({ routes = defaultRoutes, currentPath = "/", className }: AppSidebarProps) {
+export function AppSidebar({ routes = defaultRoutes, currentPath = "/", className }: Readonly<AppSidebarProps>) {
   const isActive = (path: string) => {
     if (path === '/') {
       return currentPath === '/'

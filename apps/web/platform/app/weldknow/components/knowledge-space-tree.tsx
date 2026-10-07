@@ -1,4 +1,4 @@
-import { ChevronRight, FileText, MoreVertical, Plus, Star, SquarePen, Move, Trash2, Folder } from 'lucide-react';
+import { ChevronRight, FileText, MoreVertical, Plus, Star, SquarePen, Move, Trash2, Folder, Settings, Users, LogOut, Lock } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import {
@@ -67,13 +67,23 @@ export interface KnowledgeSpaceTreeProps {
   favoritePageIds: Set<string>;
   expandedSpaces: Set<string>;
   expandedPages: Set<string>;
+  /** Workspace permissions; each space's own `canWrite`/`canManage` narrows them further. */
   canCreate: boolean;
   canDelete: boolean;
+  /**
+   * Render the pages of the single given space without its header row — the
+   * personal "Private" section, which is its own sidebar group.
+   */
+  flat?: boolean;
+  /** Shown when there is nothing to list. */
+  emptyLabel?: string;
   onToggleSpace: (id: string) => void;
   onTogglePage: (id: string) => void;
   onCreateSpace: () => void;
   onCreatePage: (spaceId: string, parentId: string | null) => void;
   onEditSpace: (space: KnowledgeSpace) => void;
+  onShowMembers: (space: KnowledgeSpace) => void;
+  onLeaveSpace: (space: KnowledgeSpace) => void;
   onDeleteSpace: (space: KnowledgeSpace) => void;
   onToggleFavorite: (pageId: string, isFavorite: boolean) => void;
   onRenamePage: (page: { id: string; title: string }) => void;
@@ -83,8 +93,9 @@ export interface KnowledgeSpaceTreeProps {
 
 /**
  * The WeldKnow spaces → pages tree, rendered as `customContent` of the
- * "Spaces" group inside the shared module sidebar. Rows reuse the sidebar's
- * `SidebarMenuButton` so they match every other app's nav items.
+ * "Private" and "Teamspaces" groups inside the shared module sidebar. Rows
+ * reuse the sidebar's `SidebarMenuButton` so they match every other app's nav
+ * items. Write actions only show where the caller's teamspace role allows them.
  */
 export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
   const t = getTranslations('weldknow');
@@ -98,11 +109,15 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
     expandedPages,
     canCreate,
     canDelete,
+    flat = false,
+    emptyLabel,
     onToggleSpace,
     onTogglePage,
     onCreateSpace,
     onCreatePage,
     onEditSpace,
+    onShowMembers,
+    onLeaveSpace,
     onDeleteSpace,
     onToggleFavorite,
     onRenamePage,
@@ -124,7 +139,9 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
     return (
       <SidebarMenu>
         <SidebarMenuItem>
-          {canCreate ? (
+          {emptyLabel ? (
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">{emptyLabel}</p>
+          ) : canCreate ? (
             <Button
               variant="ghost"
               onClick={onCreateSpace}
@@ -146,6 +163,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
     const isExpanded = expandedPages.has(node.id);
     const isActive = activePageId === node.id;
     const isFavorite = favoritePageIds.has(node.id);
+    const canWrite = space.canWrite;
 
     return (
       <SidebarMenuItem key={node.id}>
@@ -179,7 +197,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
           </SidebarMenuButton>
 
           <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/item:opacity-100 group-has-[[data-state=open]]/item:opacity-100">
-            {canCreate && (
+            {canCreate && canWrite && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -201,15 +219,19 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
                   <Star className={cn('h-4 w-4', isFavorite && 'fill-yellow-400 text-yellow-400')} />
                   {isFavorite ? t.sidebar.removeFromFavorites : t.sidebar.addToFavorites}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onRenamePage({ id: node.id, title: node.title })} className="gap-2">
-                  <SquarePen className="h-4 w-4" />
-                  {t.sidebar.rename}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onMovePage(node.id)} className="gap-2">
-                  <Move className="h-4 w-4" />
-                  {t.sidebar.moveTo}
-                </DropdownMenuItem>
-                {canDelete && (
+                {canWrite && (
+                  <>
+                    <DropdownMenuItem onClick={() => onRenamePage({ id: node.id, title: node.title })} className="gap-2">
+                      <SquarePen className="h-4 w-4" />
+                      {t.sidebar.rename}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onMovePage(node.id)} className="gap-2">
+                      <Move className="h-4 w-4" />
+                      {t.sidebar.moveTo}
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {canDelete && canWrite && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem variant="destructive" onClick={() => onDeletePage(node.id)} className="gap-2">
@@ -229,11 +251,21 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
     );
   };
 
+  if (flat) {
+    const space = spaces[0]!;
+    const tree = treesBySpace.get(space.id) ?? [];
+    if (tree.length === 0) {
+      return <p className="px-2 py-1.5 text-xs text-muted-foreground">{emptyLabel ?? t.sidebar.noPagesInSpace}</p>;
+    }
+    return <SidebarMenu>{tree.map((node) => renderPage(node, space, 0))}</SidebarMenu>;
+  }
+
   return (
     <SidebarMenu>
       {spaces.map((space) => {
         const isExpanded = expandedSpaces.has(space.id);
         const tree = treesBySpace.get(space.id) ?? [];
+        const canAddPage = canCreate && space.canWrite;
         return (
           <SidebarMenuItem key={space.id}>
             <div className="group/item relative flex items-center rounded-md transition-colors hover:bg-accent">
@@ -247,10 +279,11 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
                 </span>
                 <NodeIcon emoji={space.icon} fallback={Folder} />
                 <span className="truncate min-w-0 text-foreground">{space.name}</span>
+                {space.visibility !== 'open' && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
               </SidebarMenuButton>
 
               <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/item:opacity-100 group-has-[[data-state=open]]/item:opacity-100">
-                {canCreate && (
+                {canAddPage && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -268,17 +301,29 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    {canCreate && (
+                    {canAddPage && (
                       <DropdownMenuItem onClick={() => onCreatePage(space.id, null)} className="gap-2">
                         <Plus className="h-4 w-4" />
                         {t.sidebar.newPage}
                       </DropdownMenuItem>
                     )}
-                    <DropdownMenuItem onClick={() => onEditSpace(space)} className="gap-2">
-                      <SquarePen className="h-4 w-4" />
-                      {t.sidebar.rename}
+                    {space.canManage && (
+                      <DropdownMenuItem onClick={() => onEditSpace(space)} className="gap-2">
+                        <Settings className="h-4 w-4" />
+                        {t.sidebar.settings}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => onShowMembers(space)} className="gap-2">
+                      <Users className="h-4 w-4" />
+                      {t.sidebar.members}
                     </DropdownMenuItem>
-                    {canDelete && (
+                    {space.isMember && (
+                      <DropdownMenuItem onClick={() => onLeaveSpace(space)} className="gap-2">
+                        <LogOut className="h-4 w-4" />
+                        {t.sidebar.leave}
+                      </DropdownMenuItem>
+                    )}
+                    {canDelete && space.canManage && (
                       <>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem variant="destructive" onClick={() => onDeleteSpace(space)} className="gap-2">

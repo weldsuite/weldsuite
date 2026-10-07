@@ -47,7 +47,7 @@ export function MulticolumnSection({
   paddingTop = 60,
   paddingBottom = 60,
   columnCount = 3,
-}: MulticolumnSectionProps) {
+}: Readonly<MulticolumnSectionProps>) {
   const gridCols = {
     2: 'md:grid-cols-2',
     3: 'md:grid-cols-3',

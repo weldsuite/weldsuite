@@ -25,6 +25,11 @@ def main() -> None:
     p.add_argument("--dark", action="store_true")
     p.add_argument("--out", required=True, type=Path)
     args = p.parse_args()
+    # Bound the duration before it reaches the ffmpeg command line: it is the
+    # only other caller-supplied value there, and nan/inf or a huge number
+    # would make ffmpeg fail or run forever.
+    if not 1.0 <= args.seconds <= 90.0:
+        p.error("--seconds must be between 1 and 90")
 
     # Absolute path: ffmpeg can never read it as an option (no leading "-"),
     # so a caller-supplied --out cannot inject extra ffmpeg arguments.

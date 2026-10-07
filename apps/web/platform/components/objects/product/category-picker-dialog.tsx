@@ -32,13 +32,13 @@ export function CategoryPickerDialog({
   existingIds,
   onConfirm,
   isSaving,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingIds: string[];
   onConfirm: (categoryIds: string[]) => Promise<void> | void;
   isSaving?: boolean;
-}) {
+}>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   const [search, setSearch] = useState('');

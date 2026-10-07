@@ -17,23 +17,23 @@ function renderTabBar(props: unknown) {
   return <FloatingTabBar {...(props as FloatingTabBarProps)} />;
 }
 
-function HomeTabIcon({ color, size }: TabIconProps) {
+function HomeTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <LayoutDashboard size={size} color={color} strokeWidth={2.2} />;
 }
 
-function InvoicesTabIcon({ color, size }: TabIconProps) {
+function InvoicesTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <FileText size={size} color={color} strokeWidth={2.2} />;
 }
 
-function ScanTabIcon({ color, size }: TabIconProps) {
+function ScanTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <Camera size={size} color={color} strokeWidth={2.2} />;
 }
 
-function ExpensesTabIcon({ color, size }: TabIconProps) {
+function ExpensesTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <Receipt size={size} color={color} strokeWidth={2.2} />;
 }
 
-function MoreTabIcon({ color, size }: TabIconProps) {
+function MoreTabIcon({ color, size }: Readonly<TabIconProps>) {
   return <MoreHorizontal size={size} color={color} strokeWidth={2.2} />;
 }
 

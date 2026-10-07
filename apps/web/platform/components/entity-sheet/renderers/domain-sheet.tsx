@@ -1,7 +1,7 @@
 import { DomainPanel } from '@/components/objects/domain';
 import type { EntitySheetRendererProps } from '../types';
 
-export function DomainSheet({ entityId, view, onClose, onToggleView }: EntitySheetRendererProps) {
+export function DomainSheet({ entityId, view, onClose, onToggleView }: Readonly<EntitySheetRendererProps>) {
   return (
     <DomainPanel
       id={entityId}

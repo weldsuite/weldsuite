@@ -30,6 +30,7 @@ import {
   ChevronDown,
   Radio,
   Bot,
+  Hourglass,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -50,6 +51,7 @@ import {
   type ExecutionErrorInfo,
 } from '../execution-utils';
 import { useNow } from '../use-now';
+import { ApprovalPanel } from './approval-panel';
 
 export interface ExecutionStepView {
   id: string;
@@ -137,6 +139,8 @@ const getStepStatusIcon = (status: string) => {
     case 'pending':
     case 'queued':
       return <Clock className="h-4 w-4 text-yellow-500" />;
+    case 'waiting_for_input':
+      return <Hourglass className="h-4 w-4 text-amber-500" />;
     case 'cancelled':
     case 'skipped':
       return <Pause className="h-4 w-4 text-gray-500" />;
@@ -154,6 +158,7 @@ const stepStatusClassConfig: Record<string, { className: string }> = {
   queued: { className: 'border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-400' },
   cancelled: { className: 'border-gray-200 bg-gray-50 text-gray-700 dark:border-border dark:bg-background dark:text-muted-foreground' },
   skipped: { className: 'border-gray-200 bg-gray-50 text-gray-700 dark:border-border dark:bg-background dark:text-muted-foreground' },
+  waiting_for_input: { className: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400' },
 };
 
 const getStepStatusBadge = (status: string, labels: Record<string, string>) => {
@@ -405,7 +410,8 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
     ? t.weldconnect.executionDetail.executionInProgress
     : t.weldconnect.executionDetail.noOutputData;
 
-  const now = useNow(liveStatus === 'running');
+  const isWaiting = liveStatus === 'waiting_for_input';
+  const now = useNow(liveStatus === 'running' || isWaiting);
   const duration = getExecutionDuration({ ...execution, status: liveStatus }, now);
 
   // Status badge configuration
@@ -444,6 +450,11 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
       label: t.weldconnect.executionDetail.statuses.cancelled,
       icon: Pause,
       className: 'border-gray-200 bg-gray-50 text-gray-700 dark:border-border dark:bg-background dark:text-muted-foreground',
+    },
+    waiting_for_input: {
+      label: t.weldconnect.executionDetail.statuses.waiting_for_input,
+      icon: Hourglass,
+      className: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400',
     },
     timeout: {
       label: t.weldconnect.executionDetail.statuses.timeout,
@@ -659,6 +670,9 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
                 </Button>
               ))}
             </div>
+
+            {/* Waiting for an approval: who may decide, and Approve / Reject */}
+            {isWaiting && <ApprovalPanel executionId={execution.id} />}
 
             {/* Error Banner */}
             {execution.error && (

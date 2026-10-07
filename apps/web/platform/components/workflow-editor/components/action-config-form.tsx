@@ -1,5 +1,5 @@
 
-import { useState, useRef, useCallback, useId } from 'react';
+import { useState, useRef, useCallback, useId, type ReactNode } from 'react';
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
 import { useProjects } from '@/hooks/queries/use-projects-queries';
@@ -42,6 +42,7 @@ import {
   Check,
   Hash,
   Lock,
+  Github,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -59,6 +60,13 @@ import { FilterBuilder, type FilterCondition } from '@weldsuite/ui/components/wo
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useChannels } from '@/hooks/queries/use-weldchat-queries';
+import {
+  useWorkflowIntegrations,
+  useSlackChannels,
+  useGithubRepos,
+  useGoogleSpreadsheet,
+  useGoogleCalendars,
+} from '@/hooks/queries/use-workflow-integration-queries';
 
 // Types for context data
 interface EmailAccountOption {
@@ -85,6 +93,21 @@ interface WorkspaceMember {
   avatar?: string;
 }
 
+/** Props shared by the step forms that offer workflow variables. */
+type StepFormProps = Readonly<{
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+}>;
+
+type VariableStepFormProps = StepFormProps &
+  Readonly<{
+    extraVariableGroups?: VariableGroup[];
+    excludeGroups?: string[];
+  }>;
+
 interface ActionConfigFormProps {
   actionType: string;
   config: Record<string, unknown>;
@@ -106,12 +129,12 @@ function FormField({
   description,
   required,
   children,
-}: {
+}: Readonly<{
   label: string;
   description?: string;
   required?: boolean;
   children: React.ReactNode;
-}) {
+}>) {
   // Handed to the field's control through context (see localized-variable-input),
   // so clicking the label focuses it and screen readers announce a named field.
   const fieldId = useId();
@@ -158,7 +181,7 @@ function SetAttributeForm({
   onChange,
   entityType,
   acf,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   entityType: 'person' | 'conversation';
@@ -174,7 +197,7 @@ function SetAttributeForm({
     selectAttribute: string;
     selectValue: string;
   };
-}) {
+}>) {
   const { data: definitions = [], isLoading } = useCustomFields(entityType);
   const current: string = (config.attribute as string | undefined) ?? '';
 
@@ -187,6 +210,50 @@ function SetAttributeForm({
   const legacy = current && !known.has(current) ? [current] : [];
 
   const selectedDef = definitions.find((d) => d.slug === current);
+
+  let valueInput: ReactNode;
+  if (selectedDef?.fieldType === 'boolean') {
+    valueInput = (
+      <Select
+        value={String((config.value as string | undefined) ?? '')}
+        onValueChange={(value) => onChange({ ...config, value: value === 'true' })}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder={acf.selectValue} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="true">true</SelectItem>
+          <SelectItem value="false">false</SelectItem>
+        </SelectContent>
+      </Select>
+    );
+  } else if (selectedDef?.fieldType === 'single_select' && (selectedDef.options?.length ?? 0) > 0) {
+    valueInput = (
+      <Select
+        value={(config.value as string | undefined) ?? undefined}
+        onValueChange={(value) => onChange({ ...config, value })}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder={acf.selectValue} />
+        </SelectTrigger>
+        <SelectContent>
+          {selectedDef.options!.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  } else {
+    valueInput = (
+      <Input
+        value={(config.value as string | undefined) ?? ''}
+        onChange={(e) => onChange({ ...config, value: e.target.value })}
+        placeholder={acf.attributeValuePlaceholder}
+      />
+    );
+  }
 
   return (
     <>
@@ -223,42 +290,7 @@ function SetAttributeForm({
       </FormField>
 
       <FormField label={acf.attributeValue} description={acf.attributeValueDesc}>
-        {selectedDef?.fieldType === 'boolean' ? (
-          <Select
-            value={String((config.value as string | undefined) ?? '')}
-            onValueChange={(value) => onChange({ ...config, value: value === 'true' })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={acf.selectValue} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="true">true</SelectItem>
-              <SelectItem value="false">false</SelectItem>
-            </SelectContent>
-          </Select>
-        ) : selectedDef?.fieldType === 'single_select' && (selectedDef.options?.length ?? 0) > 0 ? (
-          <Select
-            value={(config.value as string | undefined) ?? undefined}
-            onValueChange={(value) => onChange({ ...config, value })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={acf.selectValue} />
-            </SelectTrigger>
-            <SelectContent>
-              {selectedDef.options!.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <Input
-            value={(config.value as string | undefined) ?? ''}
-            onChange={(e) => onChange({ ...config, value: e.target.value })}
-            placeholder={acf.attributeValuePlaceholder}
-          />
-        )}
+        {valueInput}
       </FormField>
     </>
   );
@@ -276,7 +308,7 @@ function SendEmailForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   emailAccounts?: EmailAccountOption[];
@@ -285,7 +317,7 @@ function SendEmailForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -543,13 +575,7 @@ function HttpRequestForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -694,14 +720,14 @@ function ConditionForm({
   currentStepIndex = 0,
   triggerType,
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   workflowSteps?: WorkflowStep[];
   currentStepIndex?: number;
   triggerType?: string;
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -783,15 +809,7 @@ function CreateCustomerForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
@@ -867,7 +885,7 @@ function ContactForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   isUpdate?: boolean;
@@ -876,7 +894,7 @@ function ContactForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const cf = acf.contactFields;
@@ -947,15 +965,7 @@ function LeadForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const lf = acf.leadFields;
@@ -1018,13 +1028,13 @@ function PipelineStagePicker({
   onPipelineChange,
   onStageChange,
   labels,
-}: {
+}: Readonly<{
   pipeline: string | undefined;
   stageId: string | undefined;
   onPipelineChange: (pipeline: string | undefined) => void;
   onStageChange: (stageId: string | undefined) => void;
   labels: { pipeline: string; stage: string; selectPipeline: string; selectStage: string; noStages: string };
-}) {
+}>) {
   const { data: pipelinesRes, isLoading: loadingPipelines } = usePipelines();
   const pipelines = pipelinesRes?.data ?? [];
   const { data: stagesRes, isLoading: loadingStages } = usePipelineStages(pipeline);
@@ -1084,15 +1094,7 @@ function DealForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const df = acf.dealFields;
@@ -1179,15 +1181,7 @@ function MoveDealStageForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const mf = acf.moveDealStageFields;
@@ -1243,15 +1237,7 @@ function LogActivityForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const af = acf.activityFields;
@@ -1335,15 +1321,7 @@ function PostChatMessageForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const cf = acf.postChatMessage;
@@ -1408,6 +1386,956 @@ function PostChatMessageForm({
   );
 }
 
+/**
+ * slack.post_message — the first third-party provider step (reference for
+ * Google/GitHub; see "Provider pattern" in docs/plans/weldconnect.md).
+ * Connection picker only shown when more than one Slack workspace is
+ * connected; the channel picker loads from the chosen connection
+ * (conversations.list via connect-api) and is disabled until one is chosen.
+ */
+function SlackPostMessageForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: VariableStepFormProps) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.slackPostMessage;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'slack',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  // Nothing chosen yet: fall back to the only (or first) connection so the
+  // channel picker can load immediately, without writing it into config —
+  // the engine applies the exact same default at run time when omitted
+  // (resolveIntegration, workflow-worker/src/engine/integrations.ts).
+  const effectiveIntegrationId = configuredIntegrationId || connections[0]?.id || '';
+
+  const { data: channelsData, isLoading: channelsLoading } = useSlackChannels(
+    effectiveIntegrationId || undefined,
+  );
+  const channels = channelsData?.data ?? [];
+  const channelId = (config.channel as string | undefined) || '';
+
+  return (
+    <div className="space-y-4">
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value, channel: '' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.channel} required description={cf.channelDesc}>
+        <Select
+          value={channelId}
+          onValueChange={(value) => onChange({ ...config, channel: value })}
+          disabled={channelsLoading || !effectiveIntegrationId}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={channelsLoading ? cf.loadingChannels : cf.selectChannel} />
+          </SelectTrigger>
+          <SelectContent>
+            {channels.map((channel) => (
+              <SelectItem key={channel.id} value={channel.id}>
+                <span className="inline-flex items-center gap-1.5">
+                  {channel.isPrivate ? (
+                    <Lock className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <Hash className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  {channel.name}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!channelsLoading && effectiveIntegrationId && channels.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{cf.noChannels}</p>
+        )}
+        <p className="text-xs text-muted-foreground mt-1">{cf.privateChannelHint}</p>
+      </FormField>
+
+      <FormField label={cf.message} required description={cf.messageDesc}>
+        <VariableInput
+          value={(config.text as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, text: v })}
+          placeholder={cf.messagePlaceholder}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.threadTs} description={cf.threadTsDesc}>
+        <VariableInput
+          value={(config.threadTs as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, threadTs: v })}
+          placeholder={cf.threadTsPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+/**
+ * Shared repo picker + connection picker for the two `github.*` steps
+ * (`app_installation` auth — reuses WeldFlow's existing GitHub App
+ * installation, no OAuth connection picker in the usual sense, but the
+ * workspace can still have more than one `workflow_integrations` row of type
+ * `github` in principle, so the same "only shown when > 1" rule applies).
+ */
+function useGithubConnectionAndRepos(config: Record<string, unknown>) {
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'github',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  const effectiveIntegrationId = configuredIntegrationId || connections[0]?.id || '';
+
+  const { data: reposData, isLoading: reposLoading } = useGithubRepos(effectiveIntegrationId || undefined);
+  const repos = reposData?.data ?? [];
+
+  return { connections, connectionsLoading, configuredIntegrationId, effectiveIntegrationId, repos, reposLoading };
+}
+
+function GithubRepoField({
+  cf,
+  config,
+  onChange,
+  connections,
+  connectionsLoading,
+  configuredIntegrationId,
+  effectiveIntegrationId,
+  repos,
+  reposLoading,
+}: {
+  cf: {
+    noConnection: string;
+    connection: string;
+    connectionDesc: string;
+    selectConnection: string;
+    repo: string;
+    repoDesc: string;
+    selectRepo: string;
+    loadingRepos: string;
+    noRepos: string;
+  };
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  connections: Array<{ id: string; name: string }>;
+  connectionsLoading: boolean;
+  configuredIntegrationId: string;
+  effectiveIntegrationId: string;
+  repos: Array<{ id: number; fullName: string; private: boolean }>;
+  reposLoading: boolean;
+}) {
+  const repoValue = (config.repo as string | undefined) || '';
+
+  return (
+    <>
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value, repo: '' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.repo} required description={cf.repoDesc}>
+        <Select
+          value={repoValue}
+          onValueChange={(value) => onChange({ ...config, repo: value })}
+          disabled={reposLoading || !effectiveIntegrationId}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={reposLoading ? cf.loadingRepos : cf.selectRepo} />
+          </SelectTrigger>
+          <SelectContent>
+            {repos.map((repo) => (
+              <SelectItem key={repo.id} value={repo.fullName}>
+                <span className="inline-flex items-center gap-1.5">
+                  {repo.private ? (
+                    <Lock className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <Github className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  {repo.fullName}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!reposLoading && effectiveIntegrationId && repos.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{cf.noRepos}</p>
+        )}
+      </FormField>
+    </>
+  );
+}
+
+/** `github.create_issue` — repo picker + title/body/labels/assignees. */
+function GithubCreateIssueForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.githubCreateIssue;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const gh = useGithubConnectionAndRepos(config);
+
+  return (
+    <div className="space-y-4">
+      <GithubRepoField cf={cf} config={config} onChange={onChange} {...gh} />
+
+      <FormField label={cf.title} required description={cf.titleDesc}>
+        <VariableInput
+          value={(config.title as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, title: v })}
+          placeholder={cf.titlePlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.body} description={cf.bodyDesc}>
+        <VariableInput
+          value={(config.body as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, body: v })}
+          placeholder={cf.bodyPlaceholder}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.labels} description={cf.labelsDesc}>
+        <VariableInput
+          value={(config.labels as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, labels: v })}
+          placeholder={cf.labelsPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.assignees} description={cf.assigneesDesc}>
+        <VariableInput
+          value={(config.assignees as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, assignees: v })}
+          placeholder={cf.assigneesPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+/** `github.create_comment` — repo picker + issue/PR number + body. */
+function GithubCreateCommentForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const acf = t.weldconnect.actionConfigForm;
+  const cf = acf.githubCreateComment;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const gh = useGithubConnectionAndRepos(config);
+
+  return (
+    <div className="space-y-4">
+      <GithubRepoField cf={cf} config={config} onChange={onChange} {...gh} />
+
+      <FormField label={cf.issueNumber} required description={cf.issueNumberDesc}>
+        <VariableInput
+          value={(config.issueNumber as string | undefined) ?? (config.issueNumber != null ? String(config.issueNumber) : '')}
+          onChange={(v) => onChange({ ...config, issueNumber: v })}
+          placeholder={cf.issueNumberPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.body} required description={cf.bodyDesc}>
+        <VariableInput
+          value={(config.body as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, body: v })}
+          placeholder={cf.bodyPlaceholder}
+          multiline
+          rows={4}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+// ============================================================================
+// Google provider forms — google_sheets.append_row / update_row,
+// gmail.send_email, google_calendar.create_event. Same shape as Slack's
+// (SlackPostMessageForm above); see "Provider pattern" in
+// docs/plans/weldconnect.md. All three Google products share one OAuth app
+// but connect as separate workflow_integrations rows, so each form queries
+// `useWorkflowIntegrations({ type: '<product>', status: 'connected' })`
+// independently.
+// ============================================================================
+
+/** A `{ "A": "...", "B": "..." }` column mapping, edited as a list of rows. */
+function ColumnMappingEditor({
+  value,
+  onChange,
+  labels,
+  variableProps,
+}: {
+  value: Record<string, unknown>;
+  onChange: (next: Record<string, unknown>) => void;
+  labels: {
+    column: string;
+    columnPlaceholder: string;
+    valuePlaceholder: string;
+    addColumn: string;
+    removeColumn: string;
+  };
+  variableProps: {
+    triggerType?: string;
+    steps?: WorkflowStep[];
+    workflowVariables?: WorkflowVariable[];
+    extraVariableGroups?: VariableGroup[];
+    excludeGroups?: string[];
+  };
+}) {
+  const rows = Object.entries(value);
+
+  function setRow(index: number, column: string, cellValue: string) {
+    const next = [...rows];
+    next[index] = [column, cellValue];
+    onChange(Object.fromEntries(next.filter(([c]) => c.trim() !== '')));
+  }
+
+  function removeRow(index: number) {
+    onChange(Object.fromEntries(rows.filter((_, i) => i !== index)));
+  }
+
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 && (
+        <div className="flex items-center gap-2">
+          <Input
+            className="w-16 uppercase"
+            maxLength={2}
+            placeholder={labels.columnPlaceholder}
+            value=""
+            onChange={(e) => setRow(0, e.target.value.toUpperCase(), '')}
+          />
+        </div>
+      )}
+      {rows.map(([column, cellValue], index) => (
+        <div key={index} className="flex items-start gap-2">
+          <Input
+            className="w-16 uppercase"
+            maxLength={2}
+            placeholder={labels.columnPlaceholder}
+            value={column}
+            onChange={(e) => setRow(index, e.target.value.toUpperCase(), String(cellValue ?? ''))}
+          />
+          <div className="flex-1">
+            <VariableInput
+              value={String(cellValue ?? '')}
+              onChange={(v) => setRow(index, column, v)}
+              placeholder={labels.valuePlaceholder}
+              {...variableProps}
+            />
+          </div>
+          <Button type="button" variant="ghost" size="icon" onClick={() => removeRow(index)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => onChange({ ...value, '': '' })}
+      >
+        <Plus className="h-3.5 w-3.5 mr-1" />
+        {labels.addColumn}
+      </Button>
+    </div>
+  );
+}
+
+interface GoogleSheetsRowLabels {
+  connection: string;
+  connectionDesc: string;
+  selectConnection: string;
+  noConnection: string;
+  spreadsheet: string;
+  spreadsheetDesc: string;
+  spreadsheetPlaceholder: string;
+  spreadsheetLoading: string;
+  spreadsheetError: string;
+  sheet: string;
+  sheetDesc: string;
+  selectSheet: string;
+  columnMapping: string;
+  columnMappingDesc: string;
+  column: string;
+  columnPlaceholder: string;
+  valuePlaceholder: string;
+  addColumn: string;
+  removeColumn: string;
+  targetMode: string;
+  targetByRow: string;
+  targetByLookup: string;
+  rowNumber: string;
+  rowNumberDesc: string;
+  lookupColumn: string;
+  lookupColumnDesc: string;
+  lookupValue: string;
+  lookupValueDesc: string;
+  ownerHint: string;
+}
+
+/** Shared connection + spreadsheet + sheet-tab picker for both Sheets actions. */
+function GoogleSheetsLocationFields({
+  config,
+  onChange,
+  cf,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  cf: GoogleSheetsRowLabels;
+}) {
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'google_sheets',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  const effectiveIntegrationId = configuredIntegrationId || connections[0]?.id || '';
+
+  // Resolved only once a value is present — no Drive scope is requested, so
+  // the "picker" is paste-the-link-or-id, validated + turned into sheet tabs
+  // by one connect-api call (services/workflow-integrations/google.ts).
+  const spreadsheetInput = (config.spreadsheetId as string | undefined) || '';
+  const { data: spreadsheetData, isLoading: spreadsheetLoading, isError: spreadsheetErrored } = useGoogleSpreadsheet(
+    effectiveIntegrationId || undefined,
+    spreadsheetInput || undefined,
+  );
+  const sheets = spreadsheetData?.data.sheets ?? [];
+  const sheetName = (config.sheetName as string | undefined) || '';
+
+  return (
+    <>
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value, spreadsheetId: '', sheetName: '' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.spreadsheet} required description={cf.spreadsheetDesc}>
+        <Input
+          value={spreadsheetInput}
+          onChange={(e) => onChange({ ...config, spreadsheetId: e.target.value, sheetName: '' })}
+          placeholder={cf.spreadsheetPlaceholder}
+        />
+        {spreadsheetLoading && <p className="text-xs text-muted-foreground mt-1">{cf.spreadsheetLoading}</p>}
+        {spreadsheetErrored && <p className="text-xs text-destructive mt-1">{cf.spreadsheetError}</p>}
+        {spreadsheetData && <p className="text-xs text-muted-foreground mt-1">{spreadsheetData.data.title}</p>}
+      </FormField>
+
+      <FormField label={cf.sheet} description={cf.sheetDesc}>
+        {sheets.length > 0 ? (
+          <Select value={sheetName || sheets[0]?.title} onValueChange={(value) => onChange({ ...config, sheetName: value })}>
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectSheet} />
+            </SelectTrigger>
+            <SelectContent>
+              {sheets.map((s) => (
+                <SelectItem key={s.sheetId} value={s.title}>
+                  {s.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input
+            value={sheetName}
+            onChange={(e) => onChange({ ...config, sheetName: e.target.value })}
+            placeholder="Sheet1"
+          />
+        )}
+      </FormField>
+    </>
+  );
+}
+
+function GoogleSheetsAppendRowForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const cf = t.weldconnect.actionConfigForm.googleSheetsRow;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const columnMapping = (config.columnMapping as Record<string, unknown> | undefined) || {};
+
+  return (
+    <div className="space-y-4">
+      <GoogleSheetsLocationFields config={config} onChange={onChange} cf={cf} />
+      <FormField label={cf.columnMapping} required description={cf.columnMappingDesc}>
+        <ColumnMappingEditor
+          value={columnMapping}
+          onChange={(next) => onChange({ ...config, columnMapping: next })}
+          labels={cf}
+          variableProps={variableProps}
+        />
+      </FormField>
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+function GoogleSheetsUpdateRowForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const cf = t.weldconnect.actionConfigForm.googleSheetsRow;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const columnMapping = (config.columnMapping as Record<string, unknown> | undefined) || {};
+  const targetMode = config.lookupColumn || config.lookupValue ? 'lookup' : 'row';
+
+  return (
+    <div className="space-y-4">
+      <GoogleSheetsLocationFields config={config} onChange={onChange} cf={cf} />
+
+      <FormField label={cf.targetMode}>
+        <Select
+          value={targetMode}
+          onValueChange={(value) =>
+            onChange(
+              value === 'row'
+                ? { ...config, lookupColumn: '', lookupValue: '' }
+                : { ...config, rowNumber: '' },
+            )
+          }
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="row">{cf.targetByRow}</SelectItem>
+            <SelectItem value="lookup">{cf.targetByLookup}</SelectItem>
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      {targetMode === 'row' ? (
+        <FormField label={cf.rowNumber} required description={cf.rowNumberDesc}>
+          <Input
+            type="number"
+            min={1}
+            value={(config.rowNumber as string | number | undefined) ?? ''}
+            onChange={(e) => onChange({ ...config, rowNumber: e.target.value })}
+          />
+        </FormField>
+      ) : (
+        <>
+          <FormField label={cf.lookupColumn} required description={cf.lookupColumnDesc}>
+            <Input
+              className="w-20 uppercase"
+              maxLength={2}
+              value={(config.lookupColumn as string | undefined) || ''}
+              onChange={(e) => onChange({ ...config, lookupColumn: e.target.value.toUpperCase() })}
+              placeholder="A"
+            />
+          </FormField>
+          <FormField label={cf.lookupValue} required description={cf.lookupValueDesc}>
+            <VariableInput
+              value={(config.lookupValue as string | undefined) || ''}
+              onChange={(v) => onChange({ ...config, lookupValue: v })}
+              {...variableProps}
+            />
+          </FormField>
+        </>
+      )}
+
+      <FormField label={cf.columnMapping} required description={cf.columnMappingDesc}>
+        <ColumnMappingEditor
+          value={columnMapping}
+          onChange={(next) => onChange({ ...config, columnMapping: next })}
+          labels={cf}
+          variableProps={variableProps}
+        />
+      </FormField>
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+function GmailSendEmailForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const cf = t.weldconnect.actionConfigForm.gmailSendEmail;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'gmail',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  const isHtml = config.isHtml !== false;
+
+  return (
+    <div className="space-y-4">
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.to} required description={cf.toDesc}>
+        <VariableInput
+          value={(config.to as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, to: v })}
+          placeholder={cf.toPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={cf.cc}>
+        <VariableInput
+          value={(config.cc as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, cc: v })}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={cf.bcc}>
+        <VariableInput
+          value={(config.bcc as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, bcc: v })}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={cf.subject} required>
+        <VariableInput
+          value={(config.subject as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, subject: v })}
+          {...variableProps}
+        />
+      </FormField>
+      <FormField label={cf.body} required description={cf.bodyDesc}>
+        <VariableInput
+          value={(config.body as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, body: v })}
+          multiline
+          rows={6}
+          {...variableProps}
+        />
+      </FormField>
+      <div className="flex items-center gap-2">
+        <Switch id="gmail-is-html" checked={isHtml} onCheckedChange={(checked) => onChange({ ...config, isHtml: checked })} />
+        <Label htmlFor="gmail-is-html" className="text-sm">
+          {cf.isHtml}
+        </Label>
+      </div>
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
+function GoogleCalendarCreateEventForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: {
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}) {
+  const { t } = useI18n();
+  const cf = t.weldconnect.actionConfigForm.googleCalendarCreateEvent;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
+    type: 'google_calendar',
+    status: 'connected',
+    limit: 100,
+  });
+  const connections = connectionsData?.data ?? [];
+  const configuredIntegrationId = (config.integrationId as string | undefined) || '';
+  const effectiveIntegrationId = configuredIntegrationId || connections[0]?.id || '';
+
+  const { data: calendarsData, isLoading: calendarsLoading } = useGoogleCalendars(effectiveIntegrationId || undefined);
+  const calendars = calendarsData?.data ?? [];
+  const calendarId = (config.calendarId as string | undefined) || '';
+
+  return (
+    <div className="space-y-4">
+      {!connectionsLoading && connections.length === 0 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+      )}
+      {connections.length > 1 && (
+        <FormField label={cf.connection} required description={cf.connectionDesc}>
+          <Select
+            value={configuredIntegrationId || connections[0]?.id || ''}
+            onValueChange={(value) => onChange({ ...config, integrationId: value, calendarId: '' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={cf.selectConnection} />
+            </SelectTrigger>
+            <SelectContent>
+              {connections.map((conn) => (
+                <SelectItem key={conn.id} value={conn.id}>
+                  {conn.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
+
+      <FormField label={cf.calendar} description={cf.calendarDesc}>
+        <Select
+          value={calendarId || calendars.find((c) => c.primary)?.id || ''}
+          onValueChange={(value) => onChange({ ...config, calendarId: value })}
+          disabled={calendarsLoading || !effectiveIntegrationId}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={calendarsLoading ? cf.loadingCalendars : cf.selectCalendar} />
+          </SelectTrigger>
+          <SelectContent>
+            {calendars.map((cal) => (
+              <SelectItem key={cal.id} value={cal.id}>
+                {cal.summary}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!calendarsLoading && effectiveIntegrationId && calendars.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">{cf.noCalendars}</p>
+        )}
+      </FormField>
+
+      <FormField label={cf.title} required>
+        <VariableInput
+          value={(config.summary as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, summary: v })}
+          {...variableProps}
+        />
+      </FormField>
+
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label={cf.start} required description={cf.startDesc}>
+          <VariableInput
+            value={(config.startDateTime as string | undefined) || ''}
+            onChange={(v) => onChange({ ...config, startDateTime: v })}
+            placeholder={cf.startPlaceholder}
+            {...variableProps}
+          />
+        </FormField>
+        <FormField label={cf.end} required>
+          <VariableInput
+            value={(config.endDateTime as string | undefined) || ''}
+            onChange={(v) => onChange({ ...config, endDateTime: v })}
+            {...variableProps}
+          />
+        </FormField>
+      </div>
+
+      <FormField label={cf.timeZone} description={cf.timeZoneDesc}>
+        <VariableInput
+          value={(config.timeZone as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, timeZone: v })}
+          placeholder={cf.timeZonePlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.description}>
+        <VariableInput
+          value={(config.description as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, description: v })}
+          multiline
+          rows={3}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={cf.attendees} description={cf.attendeesDesc}>
+        <VariableInput
+          value={(config.attendees as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, attendees: v })}
+          placeholder={cf.attendeesPlaceholder}
+          {...variableProps}
+        />
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{cf.ownerHint}</p>
+    </div>
+  );
+}
+
 const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low', 'none'] as const;
 const TASK_DUE_DATE_QUICK_PICKS = ['today', 'tomorrow', 'in 3 days', 'in 1 week'] as const;
 
@@ -1425,7 +2353,7 @@ function CreateTaskForm({
   workspaceMembers = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -1434,7 +2362,7 @@ function CreateTaskForm({
   workspaceMembers?: WorkspaceMember[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const tf = acf.taskFields;
@@ -1623,15 +2551,23 @@ function CreateTaskForm({
   );
 }
 
-function DelayForm({ config, onChange }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+type DelayUnit = 'seconds' | 'minutes' | 'hours' | 'days';
+
+/** The largest unit the saved config uses, so an existing delay reopens as entered. */
+function initialDelayUnit(config: Record<string, unknown>): DelayUnit {
+  if (config.days) return 'days';
+  if (config.hours) return 'hours';
+  if (config.minutes) return 'minutes';
+  return 'seconds';
+}
+
+function DelayForm({ config, onChange }: Readonly<{ config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
-  const [unit, setUnit] = useState<'seconds' | 'minutes' | 'hours' | 'days'>(
-    config.days ? 'days' : config.hours ? 'hours' : config.minutes ? 'minutes' : 'seconds'
-  );
+  const [unit, setUnit] = useState<DelayUnit>(() => initialDelayUnit(config));
   const currentValue = (config[unit] as number | undefined) || (config.seconds as number | undefined) || 0;
 
-  const handleChange = (value: number, newUnit: 'seconds' | 'minutes' | 'hours' | 'days') => {
+  const handleChange = (value: number, newUnit: DelayUnit) => {
     const newConfig = { ...config };
     delete newConfig.seconds;
     delete newConfig.minutes;
@@ -1653,7 +2589,7 @@ function DelayForm({ config, onChange }: { config: Record<string, unknown>; onCh
             onChange={(e) => handleChange(Number.parseInt(e.target.value) || 0, unit)}
             className="flex-1"
           />
-          <Select value={unit} onValueChange={(v) => handleChange(currentValue, v as 'seconds' | 'minutes' | 'hours' | 'days')}>
+          <Select value={unit} onValueChange={(v) => handleChange(currentValue, v as DelayUnit)}>
             <SelectTrigger className="w-32">
               <SelectValue />
             </SelectTrigger>
@@ -1679,13 +2615,7 @@ function LogMessageForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -1753,13 +2683,7 @@ function TransformDataForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -1812,14 +2736,7 @@ function RecordForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  isUpdate?: boolean;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}) {
+}: StepFormProps & Readonly<{ isUpdate?: boolean }>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -1881,13 +2798,7 @@ function DeleteRecordForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -1943,13 +2854,7 @@ function QueryDataForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2018,14 +2923,14 @@ function LoopForm({
   currentStepIndex = 0,
   triggerType,
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   workflowSteps?: WorkflowStep[];
   currentStepIndex?: number;
   triggerType?: string;
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const previousSteps = workflowSteps.slice(0, currentStepIndex);
@@ -2066,13 +2971,7 @@ function SetVariableForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-}) {
+}: StepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2132,14 +3031,14 @@ function SendNotificationForm({
   steps = [],
   workflowVariables = [],
   workspaceMembers = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
   steps?: WorkflowStep[];
   workflowVariables?: WorkflowVariable[];
   workspaceMembers?: WorkspaceMember[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -2461,11 +3360,11 @@ function SendNotificationForm({
 // Helpdesk Action Forms
 // ============================================================================
 
-function AssignConversationForm({ config, onChange, workspaceMembers = [] }: {
+function AssignConversationForm({ config, onChange, workspaceMembers = [] }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
   workspaceMembers?: WorkspaceMember[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2517,10 +3416,10 @@ function AssignConversationForm({ config, onChange, workspaceMembers = [] }: {
   );
 }
 
-function TagConversationForm({ config, onChange }: {
+function TagConversationForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const [tagInput, setTagInput] = useState('');
@@ -2586,10 +3485,10 @@ function TagConversationForm({ config, onChange }: {
   );
 }
 
-function ChangeConversationStatusForm({ config, onChange }: {
+function ChangeConversationStatusForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2625,10 +3524,10 @@ function ChangeConversationStatusForm({ config, onChange }: {
   );
 }
 
-function ChangePriorityForm({ config, onChange }: {
+function ChangePriorityForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2650,10 +3549,10 @@ function ChangePriorityForm({ config, onChange }: {
   );
 }
 
-function SendReplyForm({ config, onChange }: {
+function SendReplyForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -2683,10 +3582,10 @@ function SendReplyForm({ config, onChange }: {
   );
 }
 
-function AddInternalNoteForm({ config, onChange }: {
+function AddInternalNoteForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -2704,10 +3603,10 @@ function AddInternalNoteForm({ config, onChange }: {
   );
 }
 
-function CreateTicketFromConversationForm({ config, onChange }: {
+function CreateTicketFromConversationForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2750,10 +3649,10 @@ function CreateTicketFromConversationForm({ config, onChange }: {
   );
 }
 
-function ApplySlaForm({ config, onChange }: {
+function ApplySlaForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2769,10 +3668,10 @@ function ApplySlaForm({ config, onChange }: {
   );
 }
 
-function TriggerCsatForm({ config, onChange }: {
+function TriggerCsatForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2790,10 +3689,10 @@ function TriggerCsatForm({ config, onChange }: {
   );
 }
 
-function SendBotMessageForm({ config, onChange }: {
+function SendBotMessageForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -2809,10 +3708,10 @@ function SendBotMessageForm({ config, onChange }: {
   );
 }
 
-function SendChoicesForm({ config, onChange }: {
+function SendChoicesForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -2881,10 +3780,10 @@ function SendChoicesForm({ config, onChange }: {
   );
 }
 
-function CollectInputForm({ config, onChange }: {
+function CollectInputForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -3017,18 +3916,18 @@ function parseFieldsConfig(raw: unknown): CustomerFieldConfig[] {
   return (raw as Array<{ id: string; required?: boolean }>).map((f) => ({ id: f.id, required: f.required ?? f.id === 'email' }));
 }
 
-function CollectCustomerInfoForm({ config, onChange }: {
+function CollectCustomerInfoForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
   const fieldConfigs = parseFieldsConfig(config.fields);
-  const selectedIds = fieldConfigs.map((f) => f.id);
+  const selectedIds = new Set(fieldConfigs.map((f) => f.id));
 
   const toggleField = (fieldId: string) => {
-    const isSelected = selectedIds.includes(fieldId);
+    const isSelected = selectedIds.has(fieldId);
     const next = isSelected
       ? fieldConfigs.filter((f) => f.id !== fieldId)
       : [...fieldConfigs, { id: fieldId, required: false }];
@@ -3057,7 +3956,7 @@ function CollectCustomerInfoForm({ config, onChange }: {
       <FormField label={acf.fieldsToCollect} required description={acf.fieldsToCollectDesc}>
         <div className="space-y-2">
           {CUSTOMER_INFO_FIELDS.map((field) => {
-            const isSelected = selectedIds.includes(field.id);
+            const isSelected = selectedIds.has(field.id);
             const fc = fieldConfigs.find((f) => f.id === field.id);
             return (
               <div
@@ -3119,15 +4018,7 @@ function AiGenerateForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -3207,15 +4098,7 @@ function AiClassifyForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -3293,217 +4176,145 @@ function AiClassifyForm({
 
 
 // ============================================================================
-// Manual Step Form
+// Approval step (manual_step)
 // ============================================================================
 
-function ManualStepForm({ config, onChange, workspaceMembers }: {
+/**
+ * The approvers an approval step lists. Older steps stored one reviewer as
+ * `assignTo: 'specific_user'` + `assigneeId`; the engine still reads that.
+ */
+function approverIdsOf(config: Record<string, unknown>): string[] {
+  if (Array.isArray(config.approverIds)) return config.approverIds.filter((id): id is string => typeof id === 'string');
+  return config.assignTo === 'specific_user' && typeof config.assigneeId === 'string' && config.assigneeId
+    ? [config.assigneeId]
+    : [];
+}
+
+/**
+ * manual_step — an approval. The run pauses until one of the approvers (or,
+ * with none listed, a member who may manage runs) approves or rejects it on
+ * the run page; the next steps read the decision as {{steps.<id>.approved}}.
+ * Executed by workflow-worker engine/actions/interactive.ts.
+ */
+function ManualStepForm({
+  config,
+  onChange,
+  workspaceMembers = [],
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
   workspaceMembers?: WorkspaceMember[];
-}) {
+  triggerType?: string;
+  steps?: WorkflowStep[];
+  workflowVariables?: WorkflowVariable[];
+  extraVariableGroups?: VariableGroup[];
+  excludeGroups?: string[];
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
-  const st = useTranslations();
-  const fields: Array<{ id: string; label: string; type: string; required?: boolean }> = (config.fields as Array<{ id: string; label: string; type: string; required?: boolean }> | undefined) || [];
+  const ta = acf.approvalStep;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+  const [approversOpen, setApproversOpen] = useState(false);
+  const approverIds = approverIdsOf(config);
 
-  const addField = () => {
-    const newField = {
-      id: `field_${Date.now()}`,
-      label: '',
-      type: 'text',
-      required: false,
-    };
-    onChange({ ...config, fields: [...fields, newField] });
-  };
+  const getInitials = (name: string) =>
+    name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 
-  const updateField = (index: number, updates: Record<string, unknown>) => {
-    const newFields = [...fields];
-    newFields[index] = { ...newFields[index], ...updates };
-    onChange({ ...config, fields: newFields });
-  };
-
-  const removeField = (index: number) => {
-    onChange({ ...config, fields: fields.filter((_, i) => i !== index) });
+  const toggleApprover = (userId: string) => {
+    const next = approverIds.includes(userId)
+      ? approverIds.filter((id) => id !== userId)
+      : [...approverIds, userId];
+    // Writing the list retires the legacy single-reviewer fields.
+    const rest = Object.fromEntries(
+      Object.entries(config).filter(([key]) => key !== 'assignTo' && key !== 'assigneeId'),
+    );
+    onChange({ ...rest, approverIds: next });
   };
 
   return (
     <div className="space-y-4">
-      <FormField label={acf.manualTitle} description={acf.manualTitleDesc} required>
-        <Input
+      <FormField label={acf.manualTitle} description={ta.titleDesc} required>
+        <VariableInput
           value={(config.title as string | undefined) || ''}
-          onChange={(e) => onChange({ ...config, title: e.target.value })}
-          placeholder={st('sweep.weldflow.actionConfig.manualStepTitlePlaceholder')}
+          onChange={(v) => onChange({ ...config, title: v })}
+          placeholder={ta.titlePlaceholder}
+          {...variableProps}
         />
       </FormField>
 
-      <FormField label={acf.description} description={acf.descriptionDesc}>
-        <Textarea
+      <FormField label={ta.instructions} description={ta.instructionsDesc}>
+        <VariableInput
           value={(config.description as string | undefined) || ''}
-          onChange={(e) => onChange({ ...config, description: e.target.value })}
-          placeholder={st('sweep.weldflow.actionConfig.manualStepDescriptionPlaceholder')}
+          onChange={(v) => onChange({ ...config, description: v })}
+          placeholder={ta.instructionsPlaceholder}
+          multiline
           rows={3}
+          {...variableProps}
         />
       </FormField>
 
-      <FormField label={acf.assignTo} description={acf.assignToDesc}>
-        <Select
-          value={(config.assignTo as string | undefined) || 'workflow_creator'}
-          onValueChange={(v) => onChange({ ...config, assignTo: v })}
-        >
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="workflow_creator">{acf.assignToOptions.workflow_creator}</SelectItem>
-            <SelectItem value="specific_user">{acf.assignToOptions.specific_user}</SelectItem>
-          </SelectContent>
-        </Select>
-      </FormField>
-
-      {config.assignTo === 'specific_user' && workspaceMembers && (
-        <FormField label={acf.user}>
-          <Select
-            value={(config.assigneeId as string | undefined) || ''}
-            onValueChange={(v) => onChange({ ...config, assigneeId: v })}
-          >
-            <SelectTrigger><SelectValue placeholder={acf.selectUser} /></SelectTrigger>
-            <SelectContent>
-              {workspaceMembers.map((m) => (
-                <SelectItem key={m.id} value={m.id}>{m.name} ({m.email})</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FormField>
-      )}
-
-      <FormField label={acf.actions} description={acf.actionsDesc}>
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              checked={((config.actions as string[] | undefined) || ['approve', 'reject']).includes('approve')}
-              onCheckedChange={(checked) => {
-                const actions = (config.actions as string[] | undefined) || ['approve', 'reject'];
-                onChange({
-                  ...config,
-                  actions: checked
-                    ? [...new Set([...actions, 'approve'])]
-                    : actions.filter((a: string) => a !== 'approve'),
-                });
-              }}
-            />
-            <span className="text-sm">{acf.approve}</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              checked={((config.actions as string[] | undefined) || ['approve', 'reject']).includes('reject')}
-              onCheckedChange={(checked) => {
-                const actions = (config.actions as string[] | undefined) || ['approve', 'reject'];
-                onChange({
-                  ...config,
-                  actions: checked
-                    ? [...new Set([...actions, 'reject'])]
-                    : actions.filter((a: string) => a !== 'reject'),
-                });
-              }}
-            />
-            <span className="text-sm">{acf.reject}</span>
-          </label>
-        </div>
-      </FormField>
-
-      <div className="grid grid-cols-2 gap-4">
-        <FormField label={acf.approveButtonLabel}>
-          <Input
-            value={(config.approveLabel as string | undefined) || ''}
-            onChange={(e) => onChange({ ...config, approveLabel: e.target.value })}
-            placeholder={acf.approve}
-          />
-        </FormField>
-        <FormField label={acf.rejectButtonLabel}>
-          <Input
-            value={(config.rejectLabel as string | undefined) || ''}
-            onChange={(e) => onChange({ ...config, rejectLabel: e.target.value })}
-            placeholder={acf.reject}
-          />
-        </FormField>
-      </div>
-
-      <FormField label={acf.formFields} description={acf.formFieldsDesc}>
-        <div className="space-y-3">
-          {fields.map((field, index) => (
-            <div key={field.id} className="flex items-start gap-2 p-3 rounded-lg border">
-              <div className="flex-1 space-y-2">
-                <Input
-                  value={field.label}
-                  onChange={(e) => updateField(index, { label: e.target.value })}
-                  placeholder={acf.fieldLabel}
-                />
-                <div className="flex gap-2">
-                  <Select
-                    value={field.type}
-                    onValueChange={(v) => updateField(index, { type: v })}
-                  >
-                    <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="text">{acf.fieldTypes.text}</SelectItem>
-                      <SelectItem value="textarea">{acf.fieldTypes.textarea}</SelectItem>
-                      <SelectItem value="number">{acf.fieldTypes.number}</SelectItem>
-                      <SelectItem value="select">{acf.fieldTypes.select}</SelectItem>
-                      <SelectItem value="checkbox">{acf.fieldTypes.checkbox}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <Checkbox
-                      checked={field.required || false}
-                      onCheckedChange={(checked) => updateField(index, { required: !!checked })}
-                    />
-                    <span className="text-xs text-muted-foreground">{acf.required}</span>
-                  </label>
+      <FormField label={ta.approvers} description={ta.approversDesc}>
+        <Popover open={approversOpen} onOpenChange={setApproversOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" role="combobox" aria-expanded={approversOpen} className="w-full justify-between h-auto min-h-10">
+              {approverIds.length === 0 ? (
+                <span className="text-muted-foreground">{ta.selectApprovers}</span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {approverIds.map((userId) => {
+                    const member = workspaceMembers.find((m) => m.id === userId);
+                    return (
+                      <Badge key={userId} variant="secondary" className="text-xs">
+                        {member?.name || userId}
+                      </Badge>
+                    );
+                  })}
                 </div>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => removeField(index)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
-          <Button variant="outline" size="sm" onClick={addField} className="w-full">
-            <Plus className="h-4 w-4 mr-1" /> {acf.addField}
-          </Button>
-        </div>
+              )}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[350px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder={acf.searchUsers} />
+              <CommandList>
+                <CommandEmpty>{acf.noUsersFound}</CommandEmpty>
+                <CommandGroup>
+                  {workspaceMembers.map((member) => {
+                    const isSelected = approverIds.includes(member.id);
+                    return (
+                      <CommandItem key={member.id} value={`${member.name} ${member.email}`} onSelect={() => toggleApprover(member.id)}>
+                        <div className="flex items-center gap-3 w-full">
+                          <Checkbox checked={isSelected} />
+                          <Avatar className="h-6 w-6">
+                            <AvatarImage src={member.avatar} alt={member.name} />
+                            <AvatarFallback className="text-xs">{getInitials(member.name)}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="text-sm font-medium truncate">{member.name}</span>
+                            <span className="text-xs text-muted-foreground truncate">{member.email}</span>
+                          </div>
+                          {isSelected && <Check className="h-4 w-4 text-primary" />}
+                        </div>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </FormField>
 
-      <FormField label={acf.notification} description={acf.notificationDesc}>
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              checked={((config.notifyVia as string[] | undefined) || ['in_app']).includes('in_app')}
-              onCheckedChange={(checked) => {
-                const channels = (config.notifyVia as string[] | undefined) || ['in_app'];
-                onChange({
-                  ...config,
-                  notifyVia: checked
-                    ? [...new Set([...channels, 'in_app'])]
-                    : channels.filter((c: string) => c !== 'in_app'),
-                });
-              }}
-            />
-            <span className="text-sm">{acf.inAppNotification}</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              checked={((config.notifyVia as string[] | undefined) || []).includes('email')}
-              onCheckedChange={(checked) => {
-                const channels = (config.notifyVia as string[] | undefined) || ['in_app'];
-                onChange({
-                  ...config,
-                  notifyVia: checked
-                    ? [...new Set([...channels, 'email'])]
-                    : channels.filter((c: string) => c !== 'email'),
-                });
-              }}
-            />
-            <span className="text-sm">{acf.emailNotification}</span>
-          </label>
-        </div>
-      </FormField>
+      <div className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+        <p>{ta.waitNote}</p>
+        <p>{ta.decisionNote}</p>
+      </div>
     </div>
   );
 }
@@ -3520,7 +4331,7 @@ export function ActionConfigForm({
   triggerType,
   extraVariableGroups,
   excludeGroups,
-}: ActionConfigFormProps) {
+}: Readonly<ActionConfigFormProps>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   // Get previous steps for variable context
@@ -3683,6 +4494,97 @@ export function ActionConfigForm({
       case 'post_chat_message':
         return (
           <PostChatMessageForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'slack.post_message':
+        return (
+          <SlackPostMessageForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'github.create_issue':
+        return (
+          <GithubCreateIssueForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'github.create_comment':
+        return (
+          <GithubCreateCommentForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'google_sheets.append_row':
+        return (
+          <GoogleSheetsAppendRowForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'google_sheets.update_row':
+        return (
+          <GoogleSheetsUpdateRowForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'gmail.send_email':
+        return (
+          <GmailSendEmailForm
+            config={config}
+            onChange={onChange}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
+
+      case 'google_calendar.create_event':
+        return (
+          <GoogleCalendarCreateEventForm
             config={config}
             onChange={onChange}
             triggerType={triggerType}
@@ -3857,9 +4759,20 @@ export function ActionConfigForm({
       case 'ai_agent':
         return <AiUnavailable variant="inline" />;
 
-      // Human-in-the-loop
+      // Human-in-the-loop: an approval
       case 'manual_step':
-        return <ManualStepForm config={config} onChange={onChange} workspaceMembers={workspaceMembers} />;
+        return (
+          <ManualStepForm
+            config={config}
+            onChange={onChange}
+            workspaceMembers={workspaceMembers}
+            triggerType={triggerType}
+            steps={previousSteps}
+            workflowVariables={workflowVariables}
+            extraVariableGroups={extraVariableGroups}
+            excludeGroups={excludeGroups}
+          />
+        );
 
       // Attribute setters — pick a definition instead of hand-editing JSON.
       case 'set_contact_attribute':

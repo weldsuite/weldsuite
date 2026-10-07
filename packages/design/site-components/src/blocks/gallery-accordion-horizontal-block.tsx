@@ -89,7 +89,7 @@ export function GalleryAccordionHorizontalBlock({
   textColor,
   className,
   mode = 'live',
-}: GalleryAccordionHorizontalBlockProps) {
+}: Readonly<GalleryAccordionHorizontalBlockProps>) {
   const [activeImage, setActiveImage] = useState<number | null>(1);
   const isEditing = mode === 'edit' || mode === 'preview';
 

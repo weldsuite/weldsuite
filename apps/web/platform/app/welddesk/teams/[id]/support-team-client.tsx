@@ -118,7 +118,7 @@ export function SupportTeamClient({
   teamName,
   initialMembers,
   users,
-}: SupportTeamClientProps) {
+}: Readonly<SupportTeamClientProps>) {
   const { t } = useI18n();
   const tm = t.helpdesk.teams;
   const router = useRouter();

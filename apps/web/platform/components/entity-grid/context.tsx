@@ -172,7 +172,7 @@ export function GridProvider<TEntity>({
   initialSort,
   onSortChange,
   children,
-}: GridProviderProps<TEntity>) {
+}: Readonly<GridProviderProps<TEntity>>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const gridName = config.gridViewName || config.entityName.toLowerCase();

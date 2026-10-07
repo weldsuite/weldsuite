@@ -27,7 +27,7 @@ function base64Url(input: string | ArrayBuffer): string {
     typeof input === 'string'
       ? btoa(unescape(encodeURIComponent(input)))
       : btoa(String.fromCharCode(...new Uint8Array(input)));
-  return raw.replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return raw.replaceAll('=', '').replaceAll('+', '-').replaceAll('/', '_');
 }
 
 async function signToken(secret: string, payload: Record<string, unknown>): Promise<string> {

@@ -25,7 +25,7 @@ export function FormRadioBlock({
   required = false,
   labelColor = '#374151',
   radioColor = '#3b82f6'
-}: FormRadioBlockProps) {
+}: Readonly<FormRadioBlockProps>) {
   const [selectedValue, setSelectedValue] = React.useState(defaultValue || '');
 
   return (

@@ -52,7 +52,8 @@ export function MovePageDialog({ pageId, open, onOpenChange }: Readonly<MovePage
   const { data: treeData } = useKnowledgePageTree();
   const movePage = useMoveKnowledgePage();
 
-  const spaces = useMemo(() => spacesData?.data ?? [], [spacesData]);
+  // Only spaces the caller can write pages in are valid destinations.
+  const spaces = useMemo(() => (spacesData?.data ?? []).filter((s) => s.canWrite), [spacesData]);
   const allNodes = useMemo(() => treeData?.data ?? [], [treeData]);
   const currentNode = allNodes.find((n) => n.id === pageId);
 
@@ -113,7 +114,7 @@ export function MovePageDialog({ pageId, open, onOpenChange }: Readonly<MovePage
               <SelectContent>
                 {spaces.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
-                    {s.name}
+                    {s.kind === 'personal' ? t.space.privateSpaceName : s.name}
                   </SelectItem>
                 ))}
               </SelectContent>

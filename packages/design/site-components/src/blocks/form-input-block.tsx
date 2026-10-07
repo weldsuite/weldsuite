@@ -27,7 +27,7 @@ export function FormInputBlock({
   labelColor = '#374151',
   inputBorderColor = '#d1d5db',
   inputBackgroundColor = '#ffffff'
-}: FormInputBlockProps) {
+}: Readonly<FormInputBlockProps>) {
   const [inputValue, setInputValue] = React.useState(value || '');
   const [showError, setShowError] = React.useState(false);
 

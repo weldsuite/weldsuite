@@ -52,7 +52,32 @@ export interface ApiKeyConfig {
   fields: ApiKeyField[];
 }
 
-export type AuthConfig = OAuthConfig | ApiKeyConfig;
+/**
+ * "Already installed" auth: no OAuth redirect, no stored secret. The
+ * connection points at a platform-level app installation that exists
+ * independently of WeldConnect (GitHub's App model — one installation per
+ * workspace, managed wherever that app's own settings page lives) and a
+ * short-lived, scoped token is minted on demand from the app's private key.
+ * `workflow_integrations.settings` carries whatever identifies the
+ * installation (GitHub: `installationId`); there is nothing in `credentials`
+ * or `oauthTokens` to decrypt. See "Provider pattern" in
+ * docs/plans/weldconnect.md for why GitHub reuses WeldFlow's existing GitHub
+ * App install instead of adding a second, separate OAuth app.
+ */
+export interface AppInstallationConfig {
+  kind: 'app_installation';
+  /** Env var name holding the app's numeric id (resolved in the worker that
+   *  mints tokens — connect-api for the connect/test/picker routes,
+   *  workflow-worker for the engine action). */
+  appIdEnv: string;
+  /** Env var name holding the app's PEM private key. */
+  privateKeyEnv: string;
+  /** Env var name holding the app's slug — used to link to its own "connect
+   *  this app" settings page when no installation exists yet. */
+  appSlugEnv: string;
+}
+
+export type AuthConfig = OAuthConfig | ApiKeyConfig | AppInstallationConfig;
 
 /** How an inbound trigger is delivered. `webhook` arrives at
  *  integration-webhook-worker; `poll` is driven by a Trigger.dev schedule. */

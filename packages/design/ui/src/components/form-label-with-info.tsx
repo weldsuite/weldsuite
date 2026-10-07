@@ -45,7 +45,7 @@ export function FormLabelWithInfo({
   infoTooltip,
   infoPopover,
   ...labelProps
-}: FormLabelWithInfoProps) {
+}: Readonly<FormLabelWithInfoProps>) {
   return (
     <div className="flex items-center gap-1.5">
       <Label {...labelProps}>

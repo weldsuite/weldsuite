@@ -54,11 +54,11 @@ function RecentChatsSection({
   loading,
   chats,
   onOpen,
-}: {
+}: Readonly<{
   loading: boolean;
   chats: ConversationSummary[];
   onOpen: (id: string) => void;
-}) {
+}>) {
   const { t, format } = useI18n();
   if (loading) return <ListSkeleton count={4} />;
   if (chats.length === 0) {
@@ -83,11 +83,11 @@ function RecentRunsSection({
   loading,
   runs,
   onOpen,
-}: {
+}: Readonly<{
   loading: boolean;
   runs: HomeRun[];
   onOpen: (agentId: string) => void;
-}) {
+}>) {
   const { t, format } = useI18n();
   if (loading) return <ListSkeleton count={3} />;
   if (runs.length === 0) {

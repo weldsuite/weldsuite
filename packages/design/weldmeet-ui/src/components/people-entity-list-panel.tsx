@@ -71,11 +71,11 @@ function MediaStateBadge({
   enabled,
   onIcon,
   offIcon,
-}: {
+}: Readonly<{
   enabled: boolean;
   onIcon: ReactNode;
   offIcon: ReactNode;
-}) {
+}>) {
   return (
     <div
       className={cn(
@@ -111,7 +111,7 @@ interface PersonListRowProps {
   onReject: (id: string) => void;
 }
 
-function PersonListRow({ row, onClickPerson, onOpenMenu, onAdmit, onReject }: PersonListRowProps) {
+function PersonListRow({ row, onClickPerson, onOpenMenu, onAdmit, onReject }: Readonly<PersonListRowProps>) {
   const initials = (row.name || '?').charAt(0).toUpperCase();
   const isWaiting = row.status === 'waiting';
   const clickable = !!onClickPerson && !isWaiting && !row.isSelf;
@@ -160,12 +160,12 @@ function RowTrailing({
   isWaiting,
   onAdmit,
   onReject,
-}: {
+}: Readonly<{
   row: PersonRow;
   isWaiting: boolean;
   onAdmit: (id: string) => void;
   onReject: (id: string) => void;
-}) {
+}>) {
   if (isWaiting) {
     return (
       <div className="flex items-center gap-1.5">
@@ -206,7 +206,7 @@ export function PeopleEntityListPanel({
   addPeopleDialogContent,
   onClickPerson,
   onRemoveParticipant,
-}: PeopleEntityListPanelProps) {
+}: Readonly<PeopleEntityListPanelProps>) {
   const [waitlisted, setWaitlisted] = useState<WaitlistedPeer[]>([]);
   const [groupBy, setGroupBy] = useState<'status' | 'audio' | 'video' | 'none'>('status');
   const [showAddDialog, setShowAddDialog] = useState(false);

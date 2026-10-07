@@ -55,6 +55,6 @@ export interface NavbarLuxuryBlockProps {
   mode?: string;
 }
 
-export function NavbarLuxuryBlock(props: NavbarLuxuryBlockProps) {
+export function NavbarLuxuryBlock(props: Readonly<NavbarLuxuryBlockProps>) {
   return <NavbarLuxurySection {...props} />;
 }

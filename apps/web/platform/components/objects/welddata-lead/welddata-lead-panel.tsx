@@ -30,11 +30,11 @@ function LinkRow({
   icon: Icon,
   label,
   href,
-}: {
+}: Readonly<{
   icon: typeof Globe;
   label: string;
   href: string;
-}) {
+}>) {
   return (
     <a
       href={href}
@@ -49,7 +49,7 @@ function LinkRow({
   );
 }
 
-export function WelddataLeadPanel(props: ObjectPanelComponentProps) {
+export function WelddataLeadPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const { id } = props;
   const cache = useAtomValue(welddataLeadCacheAtom);

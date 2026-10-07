@@ -469,7 +469,7 @@ export const mail = {
       createNewContact: 'Nieuw contact aanmaken',
       noPeopleFound: 'Geen personen gevonden',
       noRecentPeople: 'Geen recente ontvangers',
-      createNewPerson: 'Toevoegen als nieuwe persoon',
+      createNewPerson: 'Nieuwe ontvanger toevoegen',
       personCreated: 'Persoon toegevoegd',
       failedToCreatePerson: 'Persoon toevoegen mislukt',
       writePlaceholder: 'Schrijf uw bericht...',

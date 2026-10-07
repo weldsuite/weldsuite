@@ -68,10 +68,10 @@ export const COMING_SOON_CATEGORIES: ReadonlySet<Category> = new Set([
 export function CategoryIcon({
   category,
   className,
-}: {
+}: Readonly<{
   category: Category;
   className?: string;
-}) {
+}>) {
   if (COMING_SOON_CATEGORIES.has(category)) return null;
   const appCode = CATEGORY_TO_APP[category];
   const sizeClass = cn(className, CATEGORY_ICON_SIZE_OVERRIDE[category]);

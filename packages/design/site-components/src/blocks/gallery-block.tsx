@@ -19,7 +19,7 @@ export function GalleryBlock({
   columns = 3,
   gap = 'md',
   lightbox = true
-}: GalleryBlockProps) {
+}: Readonly<GalleryBlockProps>) {
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
 
   const columnClasses = {

@@ -164,13 +164,17 @@ export default function DocumentInboxPage() {
   const processDoc = useMutation({
     mutationFn: (id: string) => accountingApi.processDocument(id),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
-      qc.invalidateQueries({ queryKey: accountingKeys.documents.stats() });
+      void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.documents.stats() });
       const processed = res?.data as { id?: string } | undefined;
       if (processed?.id) {
-        accountingApi.getDocument(processed.id).then((full) => {
-          if (full?.data) setSelectedDoc(full.data as unknown as DocumentRow);
-        });
+        accountingApi
+          .getDocument(processed.id)
+          .then((full) => {
+            if (full?.data) setSelectedDoc(full.data as unknown as DocumentRow);
+          })
+          // Refreshing the open detail is best-effort; the list was already invalidated.
+          .catch(() => {});
       }
     },
   });
@@ -178,8 +182,8 @@ export default function DocumentInboxPage() {
   const rejectDoc = useMutation({
     mutationFn: (id: string) => accountingApi.rejectDocument(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
-      qc.invalidateQueries({ queryKey: accountingKeys.documents.stats() });
+      void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.documents.stats() });
       setSelectedDoc(null);
     },
   });
@@ -187,7 +191,7 @@ export default function DocumentInboxPage() {
   const rematchDoc = useMutation({
     mutationFn: (id: string) => accountingApi.rematchDocument(id),
     onSuccess: async (_res, id) => {
-      qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
       const full = await accountingApi.getDocument(id);
       if (full?.data) setSelectedDoc(full.data as unknown as DocumentRow);
     },
@@ -237,7 +241,7 @@ export default function DocumentInboxPage() {
         }
 
         setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'processing' } : it));
-        qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
+        void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
 
         await processDoc.mutateAsync(docId);
 
@@ -270,7 +274,7 @@ export default function DocumentInboxPage() {
   // status filter is active — otherwise the lone group header is redundant.
   // The trailing "other" group is an explicit catch-all: EntityList drops
   // items matching no group, so any status outside the known set stays visible here.
-  const knownDocStatuses = ['pending', 'processing', 'review', 'processed', 'linked', 'rejected', 'failed'];
+  const knownDocStatuses = new Set(['pending', 'processing', 'review', 'processed', 'linked', 'rejected', 'failed']);
   const groups: GroupConfig<DocumentRow>[] | undefined =
     statusFilter === 'all'
       ? [
@@ -280,7 +284,7 @@ export default function DocumentInboxPage() {
           { id: 'processed', label: td.groupProcessed, sortOrder: 4, filter: (d) => d.status === 'processed' },
           { id: 'linked', label: td.groupLinked, sortOrder: 5, filter: (d) => d.status === 'linked' },
           { id: 'rejected', label: td.groupRejected, sortOrder: 6, filter: (d) => d.status === 'rejected' || d.status === 'failed' },
-          { id: 'other', label: td.groupOther, sortOrder: 7, filter: (d) => !knownDocStatuses.includes(d.status) },
+          { id: 'other', label: td.groupOther, sortOrder: 7, filter: (d) => !knownDocStatuses.has(d.status) },
         ]
       : undefined;
 
@@ -500,7 +504,7 @@ export default function DocumentInboxPage() {
             await rematchDoc.mutateAsync(supplierDialog.id);
           }
           setSupplierDialog(null);
-          qc.invalidateQueries({ queryKey: accountingKeys.customers.all });
+          void qc.invalidateQueries({ queryKey: accountingKeys.customers.all });
         }}
         td={td}
       />
@@ -513,7 +517,7 @@ function CreateBillButton({ doc, label }: Readonly<{ doc: DocumentRow; label: st
   return (
     <Button
       onClick={() => {
-        navigate({ to: '/weldbooks/bills/add', search: { fromDocument: doc.id } });
+        void navigate({ to: '/weldbooks/bills/add', search: { fromDocument: doc.id } });
       }}
     >
       <Receipt className="h-4 w-4 mr-1" />

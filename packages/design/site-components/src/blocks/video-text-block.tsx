@@ -16,7 +16,7 @@ export function VideoTextBlock({
   text = "Blocks",
   fontFamily = "system-ui, sans-serif",
   fontSize = "clamp(4rem, 15vw, 15rem)",
-}: VideoTextBlockProps) {
+}: Readonly<VideoTextBlockProps>) {
   const [isLoaded, setIsLoaded] = React.useState(false);
 
   return (

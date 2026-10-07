@@ -6,7 +6,7 @@ interface FooterProps {
   website: Website;
 }
 
-export default function Footer({ website }: FooterProps) {
+export default function Footer({ website }: Readonly<FooterProps>) {
   const currentYear = new Date().getFullYear();
   const settings = website.settings as any;
 

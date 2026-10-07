@@ -26,7 +26,7 @@ export function ProductRow({
   products, 
   className,
   onViewAll 
-}: ProductRowProps) {
+}: Readonly<ProductRowProps>) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [canScrollLeft, setCanScrollLeft] = useState(false)

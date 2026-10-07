@@ -72,7 +72,7 @@ export default function ConversationListClient({ initialConversations, accessTok
   }, [initialConversations]);
 
   useEffect(() => {
-    requestNotificationPermission();
+    void requestNotificationPermission();
   }, []);
 
   useHelpdeskWebSocket({
@@ -80,7 +80,7 @@ export default function ConversationListClient({ initialConversations, accessTok
     accessToken,
     onNewConversation: async (newConversation) => {
       // Invalidate TanStack Query cache so the list refetches from DB
-      queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
+      void queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
 
       if (newConversation.id) {
         try {
@@ -102,7 +102,7 @@ export default function ConversationListClient({ initialConversations, accessTok
             toast.success(ti.newConversationStarted, {
               description: ti.newConversationVia.replace('{channel}', conversation.channel || 'widget'),
             });
-            showBrowserNotification('New Helpdesk Conversation', {
+            void showBrowserNotification('New Helpdesk Conversation', {
               body: `A new conversation has been started via ${conversation.channel || 'widget'}`,
               playSound: true,
               actionUrl: `/welddesk/inbox/all/${conversation.id}`,
@@ -114,7 +114,7 @@ export default function ConversationListClient({ initialConversations, accessTok
       }
     },
     onAgentAssigned: async (data) => {
-      queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
+      void queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
       try {
         const client = await getClient();
         // See the note in onNewConversation: app-api returns { data: conversation }.
@@ -164,7 +164,7 @@ export default function ConversationListClient({ initialConversations, accessTok
     }
   });
 
-  const items = useMemo(() => filteredConversations.map(conversationToItem), [filteredConversations]);
+  const items = useMemo(() => filteredConversations.map((conv) => conversationToItem(conv)), [filteredConversations]);
 
   const handleItemClick = (item: ConversationItem) => {
     const conversation = conversations.find(c => c.id === item.id);

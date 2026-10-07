@@ -15,7 +15,7 @@ export function ProductDescriptionElement({
   heading = 'Omschrijving',
   storeName = 'rhode',
   showStoreLink = true,
-}: ProductDescriptionElementProps) {
+}: Readonly<ProductDescriptionElementProps>) {
   return (
     <>
       {/* Description */}

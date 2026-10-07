@@ -48,7 +48,7 @@ export default function VideoSection({
   muted = true,
   store,
   settings
-}: VideoSectionProps) {
+}: Readonly<VideoSectionProps>) {
   // Check if it's a YouTube or Vimeo URL
   const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
   const isVimeo = url.includes('vimeo.com');

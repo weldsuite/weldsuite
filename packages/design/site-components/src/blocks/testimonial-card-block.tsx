@@ -21,7 +21,7 @@ export function TestimonialCardBlock({
   rating = 5,
   backgroundColor = '#ffffff',
   textColor = '#000000'
-}: TestimonialCardBlockProps) {
+}: Readonly<TestimonialCardBlockProps>) {
   return (
     <div
       className="rounded-lg shadow-lg p-6 max-w-2xl"

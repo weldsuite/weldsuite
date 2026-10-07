@@ -389,7 +389,7 @@ async function stepSendMessage(
   await ctx.channel.send(content);
 
   // Publish to ConversationRoom for platform agents
-  publishConversationEvent(ctx.conversationId, {
+  void publishConversationEvent(ctx.conversationId, {
     type: 'message',
     id: messageId,
     content,
@@ -437,7 +437,7 @@ async function stepSendChoices(
 
   await ctx.channel.send({ embeds: [embed], components: [row] });
 
-  publishConversationEvent(ctx.conversationId, {
+  void publishConversationEvent(ctx.conversationId, {
     type: 'message',
     id: messageId,
     content: content,
@@ -482,7 +482,7 @@ async function stepTriggerCsat(
 
   await ctx.channel.send({ embeds: [embed], components: [row] });
 
-  publishConversationEvent(ctx.conversationId, {
+  void publishConversationEvent(ctx.conversationId, {
     type: 'message',
     id: messageId,
     content: content,
@@ -528,7 +528,7 @@ async function stepCollectInput(
 
   await ctx.channel.send({ embeds: [embed], components: [row] });
 
-  publishConversationEvent(ctx.conversationId, {
+  void publishConversationEvent(ctx.conversationId, {
     type: 'message',
     id: messageId,
     content: content,

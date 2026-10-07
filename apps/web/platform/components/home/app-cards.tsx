@@ -160,7 +160,7 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 // Card has its own header chrome; the demo badge is handled by the caller.
-export function AnalyticsCard(_props: { isDemo?: boolean } = {}) {
+export function AnalyticsCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
   const [activeChart, setActiveChart] =
     React.useState<keyof typeof chartConfig>("desktop");
 
@@ -269,11 +269,11 @@ function FitContent({
   children,
   className,
   stretch = false,
-}: {
+}: Readonly<{
   children: React.ReactNode;
   className?: string;
   stretch?: boolean;
-}) {
+}>) {
   const ref = React.useRef<HTMLDivElement>(null);
 
   React.useLayoutEffect(() => {
@@ -300,7 +300,7 @@ function FitContent({
       }
       if (stretch && lastVisible >= 0) {
         for (let i = 0; i <= lastVisible; i++) {
-          if (!childNodes[i].hasAttribute('data-fit-fixed')) {
+          if (childNodes[i].dataset.fitFixed === undefined) {
             childNodes[i].style.flex = '1 1 auto';
           }
         }
@@ -326,7 +326,7 @@ function FitContent({
   );
 }
 
-function CardShell({ action, children }: { title?: string; action?: React.ReactNode; children: React.ReactNode }) {
+function CardShell({ action, children }: Readonly<{ title?: string; action?: React.ReactNode; children: React.ReactNode }>) {
   return (
     <div className="rounded-2xl border border-border bg-card flex flex-col h-[415px] min-h-[415px] max-h-[415px] overflow-hidden">
       {action && (
@@ -340,7 +340,7 @@ function CardShell({ action, children }: { title?: string; action?: React.ReactN
 }
 
 // Reusable header row matching EntityList (entity-list.tsx)
-function TableHeader({ children }: { children: React.ReactNode }) {
+function TableHeader({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="flex items-center gap-4 px-4 h-[35px] border-b border-border/70 bg-muted/30 sticky top-0 z-10">
       {children}
@@ -348,7 +348,7 @@ function TableHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-function HeaderCell({ children, className }: { children: React.ReactNode; className?: string }) {
+function HeaderCell({ children, className }: Readonly<{ children: React.ReactNode; className?: string }>) {
   return (
     <span className={cn('text-xs font-medium text-muted-foreground', className)}>
       {children}
@@ -419,12 +419,12 @@ export function MailCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldMail',
-}: {
+}: Readonly<{
   rows?: MailRow[];
   isLoading?: boolean;
   isDemo?: boolean;
   title?: string;
-} = {}) {
+}> = {}) {
   if (isLoading) {
     return (
       <CardShell title={title}>
@@ -529,13 +529,13 @@ export function FlowCard({
   isDemo = false,
   title = 'WeldFlow — My tasks',
   onRowClick,
-}: {
+}: Readonly<{
   rows?: FlowRow[];
   isLoading?: boolean;
   isDemo?: boolean;
   title?: string;
   onRowClick?: (row: FlowRow) => void;
-} = {}) {
+}> = {}) {
   if (isLoading) {
     return (
       <CardShell title={title}>
@@ -650,13 +650,13 @@ export function ProjectsCard({
   isDemo = false,
   title = 'WeldFlow — Projects',
   onRowClick,
-}: {
+}: Readonly<{
   rows?: ProjectRow[];
   isLoading?: boolean;
   isDemo?: boolean;
   title?: string;
   onRowClick?: (row: ProjectRow) => void;
-} = {}) {
+}> = {}) {
   if (isLoading) {
     return (
       <CardShell title={title}>
@@ -757,7 +757,7 @@ const WORKLOAD: Array<{
 
 // Step chart matching WorkloadAreaChart — indigo area + line, max 150% utilization scale,
 // row padded 4px from the top (maxHeight = rowHeight - 4, bottomY = rowHeight).
-function WorkloadAreaChart({ data, rowHeight }: { data: number[]; rowHeight: number }) {
+function WorkloadAreaChart({ data, rowHeight }: Readonly<{ data: number[]; rowHeight: number }>) {
   const maxUtilization = 150;
   const maxHeight = rowHeight - 4;
   const bottomY = rowHeight;
@@ -806,7 +806,7 @@ function WorkloadAreaChart({ data, rowHeight }: { data: number[]; rowHeight: num
 export function WorkloadCard({
   isDemo = false,
   title = 'WeldFlow — Workload',
-}: { isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
   return (
     <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
       {/* Header bar — split between Members/Availability (sidebar) and Utilization (timeline) */}
@@ -928,7 +928,7 @@ export function DeskCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldDesk — Tickets',
-}: { rows?: DeskTicketRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: DeskTicketRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return (
       <CardShell title={title}>
@@ -1001,7 +1001,7 @@ export function DeskEmailsCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldDesk — Emails',
-}: { rows?: DeskEmailRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: DeskEmailRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1060,7 +1060,7 @@ export function DeskLiveChatCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldDesk — Live chat',
-}: { rows?: DeskLiveChatRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: DeskLiveChatRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1132,7 +1132,7 @@ const DESK_SLACK: Array<{ channel: string; sender: string; message: string; when
   { channel: 'support-vermeulen', sender: 'Vermeulen · Sara', message: 'Got the corrected invoice, thanks!', when: 'Yest', unread: 0 },
 ];
 
-export function DeskSlackCard(_props: { isDemo?: boolean } = {}) {
+export function DeskSlackCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
   return (
     <CardShell>
       <TableHeader>
@@ -1187,7 +1187,7 @@ const DESK_DISCORD: Array<{ guild: string; channel: string; sender: string; mess
   { guild: 'Vinta Dev', channel: 'general', sender: 'jeroen#4422', message: 'Deployment looks clean from our side.', when: 'Yest', unread: 0 },
 ];
 
-export function DeskDiscordCard(_props: { isDemo?: boolean } = {}) {
+export function DeskDiscordCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
   return (
     <CardShell>
       <TableHeader>
@@ -1259,7 +1259,7 @@ export function DeskAiActiveCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldDesk — AI agent active',
-}: { rows?: DeskAiActiveRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: DeskAiActiveRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1335,7 +1335,7 @@ export function DeskAiResolvedCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldDesk — AI agent resolved',
-}: { rows?: DeskAiResolvedRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: DeskAiResolvedRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1417,7 +1417,7 @@ export function DeskReviewsCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldDesk — Reviews',
-}: { rows?: DeskReviewRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: DeskReviewRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1517,7 +1517,7 @@ export function CrmCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldCRM — My tasks',
-}: { rows?: CrmTaskRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: CrmTaskRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -1651,7 +1651,7 @@ export function PipelineCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldCRM — Pipeline',
-}: { rows?: PipelineDealRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: PipelineDealRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows variant="kanban" /></div></CardShell>;
   }
@@ -1748,7 +1748,7 @@ export function SequencesCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldCRM — Sequences',
-}: { rows?: SequenceRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: SequenceRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -1885,13 +1885,13 @@ export function ConnectCard({
   isDemo = false,
   title = 'WeldConnect — Recent executions',
   onRowClick,
-}: {
+}: Readonly<{
   rows?: ExecutionRow[];
   isLoading?: boolean;
   isDemo?: boolean;
   title?: string;
   onRowClick?: (row: ExecutionRow) => void;
-} = {}) {
+}> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2027,13 +2027,13 @@ export function WorkflowsCard({
   isDemo = false,
   title = 'WeldConnect — Workflows',
   onRowClick,
-}: {
+}: Readonly<{
   rows?: WorkflowRow[];
   isLoading?: boolean;
   isDemo?: boolean;
   title?: string;
   onRowClick?: (row: WorkflowRow) => void;
-} = {}) {
+}> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2149,7 +2149,7 @@ export function MeetCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldMeet',
-}: { rows?: MeetingRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: MeetingRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2210,7 +2210,7 @@ export function MeetHistoryCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldMeet — History',
-}: { rows?: MeetingHistoryRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: MeetingHistoryRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2323,7 +2323,7 @@ export function ChatCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldChat — Activity',
-}: { rows?: ChatActivityRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: ChatActivityRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -2416,7 +2416,7 @@ export function ChatDMsCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldChat — Direct messages',
-}: { rows?: DmRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: DmRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -2491,7 +2491,7 @@ export function ChatChannelsCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldChat — Channels',
-}: { rows?: ChannelRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: ChannelRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -2567,7 +2567,7 @@ export function HostCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldHost',
-}: { rows?: DomainRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: DomainRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2626,7 +2626,7 @@ export function DriveCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldDrive',
-}: { rows?: FileRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: FileRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2696,7 +2696,7 @@ export function CallCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldCall — History',
-}: { rows?: CallRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+}: Readonly<{ rows?: CallRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2840,7 +2840,7 @@ const AGENDA = [
   { time: '16:00', title: 'Roadmap planning Q3', tone: 'bg-violet-500' },
 ];
 
-export function CalendarCard({ isDemo = false, title = 'WeldCalendar' }: { isDemo?: boolean; title?: string } = {}) {
+export function CalendarCard({ isDemo = false, title = 'WeldCalendar' }: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
   return (
     <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
       <div className="border-b border-border/70 bg-background sticky top-0 z-10">
@@ -2878,7 +2878,7 @@ export function CalendarCard({ isDemo = false, title = 'WeldCalendar' }: { isDem
 }
 
 // ---------- WeldCalendar Schedule view ----------
-export function CalendarScheduleCard({ isDemo = false, title = 'WeldCalendar — Schedule' }: { isDemo?: boolean; title?: string } = {}) {
+export function CalendarScheduleCard({ isDemo = false, title = 'WeldCalendar — Schedule' }: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
   const groups = CAL_DAY_LABELS.map((day, i) => ({
     label: day.full,
     today: day.today,
@@ -2923,7 +2923,7 @@ export function CalendarScheduleCard({ isDemo = false, title = 'WeldCalendar —
 }
 
 // ---------- WeldCalendar 4-Day view ----------
-export function CalendarFourDayCard({ isDemo = false, title = 'WeldCalendar — 4-Day' }: { isDemo?: boolean; title?: string } = {}) {
+export function CalendarFourDayCard({ isDemo = false, title = 'WeldCalendar — 4-Day' }: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
   return (
     <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
       <div className="flex divide-x divide-border/60 h-full">
@@ -2971,7 +2971,7 @@ export function CalendarFourDayCard({ isDemo = false, title = 'WeldCalendar — 
 }
 
 // ---------- WeldCalendar Day view ----------
-export function CalendarDayCard({ isDemo = false, title = 'WeldCalendar — Day' }: { isDemo?: boolean; title?: string } = {}) {
+export function CalendarDayCard({ isDemo = false, title = 'WeldCalendar — Day' }: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
   const todayEvents = CAL_EVENTS.filter((e) => e.day === 0);
   return (
     <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>

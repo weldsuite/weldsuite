@@ -57,11 +57,19 @@ export async function publishNewEmailToUser(
  * Keeps personal `mail:new` for toast; this feeds `platformSyncMap.email`
  * and shared-mailbox list invalidation via entity-events → realtime.
  * Do not call for personal (consumer) tenants — they have no workspace hub.
+ *
+ * The event is workspace-wide, not mailbox-scoped: realtime pushes the payload
+ * to every connected member, the audit log keeps it, and webhooks, workflows
+ * and agents receive it as trigger data. So message content rides along only
+ * for a shared mailbox, which every member may open anyway. A private mailbox
+ * publishes ids only — enough to refresh caches. That excludes the thread id
+ * and SMTP Message-ID too: both are RFC 5322 ids that name the sender's host.
  */
 export async function publishInboundEmailCreated(
   env: Env,
   clerkOrgId: string,
   emailData: InboundEmailRealtimePayload,
+  mailboxIsShared: boolean,
 ): Promise<void> {
   await publishEntityEventRaw({
     env,
@@ -70,17 +78,25 @@ export async function publishInboundEmailCreated(
     entityType: 'email',
     action: 'created',
     entityId: emailData.messageId,
-    data: {
-      id: emailData.messageId,
-      accountId: emailData.accountId,
-      threadId: emailData.threadId,
-      subject: emailData.subject,
-      from: emailData.from.email,
-      preview: emailData.preview,
-      receivedAt: emailData.receivedAt,
-      hasAttachments: emailData.hasAttachments,
-      smtpMessageId: emailData.smtpMessageId,
-    },
+    data: mailboxIsShared
+      ? {
+          id: emailData.messageId,
+          accountId: emailData.accountId,
+          threadId: emailData.threadId,
+          subject: emailData.subject,
+          from: emailData.from.email,
+          preview: emailData.preview,
+          receivedAt: emailData.receivedAt,
+          hasAttachments: emailData.hasAttachments,
+          smtpMessageId: emailData.smtpMessageId,
+        }
+      : {
+          id: emailData.messageId,
+          accountId: emailData.accountId,
+          subject: null,
+          from: null,
+          receivedAt: emailData.receivedAt,
+        },
     source: 'system',
   });
 }

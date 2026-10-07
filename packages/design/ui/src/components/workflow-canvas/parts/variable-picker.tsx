@@ -58,10 +58,13 @@ export interface VariablePickerProps {
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
   /**
-   * Fields of the record an `entity_event` trigger fires for (paths relative
-   * to the record, e.g. `firstName`). When given, the picker lists them as
-   * `trigger.record.<path>` in place of the whole-record object entries, which
-   * can only be inserted into text as "[object Object]".
+   * Fields the trigger delivers beyond its fixed ones.
+   * - `entity_event`: the record's fields (paths relative to the record, e.g.
+   *   `firstName`), listed as `trigger.record.<path>` in place of the
+   *   whole-record object entries, which can only be inserted into text as
+   *   "[object Object]".
+   * - `workflow_complete`: the previous run's step outputs, with paths relative
+   *   to the trigger (`output.<stepId>.<field>`).
    */
   triggerRecordFields?: VariableItem[];
   className?: string;
@@ -80,7 +83,8 @@ export interface VariablePickerProps {
   };
 }
 
-function getStepOutputVariables(stepType: string): VariableItem[] {
+/** What a step of this type outputs, as paths under `steps.<id>.`. */
+export function getStepOutputVariables(stepType: string): VariableItem[] {
   const commonOutputs: Record<string, VariableItem[]> = {
     send_email: [
       { path: 'success', label: 'Success', type: 'boolean' },
@@ -172,6 +176,15 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'delayed', label: 'Delayed', type: 'boolean' },
       { path: 'duration', label: 'Duration', type: 'string' },
     ],
+    // An approval: the decision a following condition branches on.
+    manual_step: [
+      { path: 'approved', label: 'Approved', type: 'boolean' },
+      { path: 'decision', label: 'Decision', type: 'string' },
+      { path: 'comment', label: 'Comment', type: 'string' },
+      { path: 'decidedBy', label: 'Decided By (user ID)', type: 'string' },
+      { path: 'decidedByName', label: 'Decided By', type: 'string' },
+      { path: 'decidedAt', label: 'Decided At', type: 'string' },
+    ],
     send_notification: [
       { path: 'sent', label: 'Sent', type: 'boolean' },
       { path: 'notificationIds', label: 'Notification IDs', type: 'array' },
@@ -247,9 +260,12 @@ function getTriggerVariables(
       { path: 'payload', label: label('eventPayload', 'Event Payload'), type: 'object' },
     ],
     workflow_complete: [
-      { path: 'sourceWorkflowId', label: 'Source Workflow ID', type: 'string' },
+      { path: 'sourceWorkflowName', label: label('sourceWorkflowName', 'Previous workflow'), type: 'string' },
+      { path: 'sourceWorkflowId', label: label('sourceWorkflowId', 'Previous workflow ID'), type: 'string' },
+      { path: 'sourceExecutionId', label: label('sourceExecutionId', 'Previous run ID'), type: 'string' },
       { path: 'status', label: label('completionStatus', 'Completion Status'), type: 'string' },
-      { path: 'output', label: 'Workflow Output', type: 'object' },
+      // Its step outputs: listed per step when the host passes them (see `triggerRecordFields`).
+      ...(recordFields ?? []),
     ],
     api: [
       { path: 'data', label: label('apiRequestData', 'Request Data'), type: 'object' },
@@ -329,7 +345,7 @@ export function VariablePicker({
   triggerRecordFields,
   className,
   labels = {},
-}: VariablePickerProps) {
+}: Readonly<VariablePickerProps>) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['trigger']);
@@ -493,7 +509,7 @@ export function VariablePickerButton({
   onSelect,
   labels = {},
   ...props
-}: Omit<VariablePickerProps, 'trigger'>) {
+}: Readonly<Omit<VariablePickerProps, 'trigger'>>) {
   return (
     <VariablePicker
       {...props}

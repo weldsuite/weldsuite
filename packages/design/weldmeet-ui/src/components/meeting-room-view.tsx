@@ -10,8 +10,7 @@ import { AdmitGuestsPill } from './admit-guests-pill';
 import { StageIndicators } from './tools/stage-indicators';
 import { filterBreakoutParticipants } from '../tools/tools-store';
 import { useMeetingToolsController } from '../tools/use-meeting-tools-controller';
-import type { MeetingRoomViewProps, ViewMode } from '../types';
-import type { MeetingPeer } from '../types';
+import type { MeetingRoomViewProps, ViewMode, MeetingPeer } from '../types';
 
 /**
  * Audio-only playback for a single remote participant.
@@ -22,7 +21,7 @@ import type { MeetingPeer } from '../types';
  * Rendering this hidden sink in such layouts keeps each remote participant
  * audible regardless of what's on screen.
  */
-function RemoteParticipantAudio({ participant }: { participant: MeetingPeer }) {
+function RemoteParticipantAudio({ participant }: Readonly<{ participant: MeetingPeer }>) {
   const ref = useRef<HTMLAudioElement>(null);
   useSpeakerOutput(ref);
   useEffect(() => {
@@ -62,7 +61,7 @@ interface TileContext {
 }
 
 /** A camera tile wired to the room's pin / details / hand-raise state. */
-function CameraTile({ ctx, entry, pinned }: { ctx: TileContext; entry: Entry; pinned?: boolean }) {
+function CameraTile({ ctx, entry, pinned }: Readonly<{ ctx: TileContext; entry: Entry; pinned?: boolean }>) {
   const { p, isSelf } = entry;
   return (
     <ParticipantTile
@@ -86,12 +85,12 @@ function ScreenTile({
   entry,
   interactive = false,
   focused,
-}: {
+}: Readonly<{
   ctx: TileContext;
   entry: Entry;
   interactive?: boolean;
   focused?: boolean;
-}) {
+}>) {
   const { p, isSelf } = entry;
   return (
     <ScreenShareTile
@@ -233,13 +232,13 @@ function CameraFocusLayout({
   allParticipants,
   viewMode,
   pinnedParticipantId,
-}: {
+}: Readonly<{
   ctx: TileContext;
   focused: Entry;
   allParticipants: Entry[];
   viewMode: ViewMode;
   pinnedParticipantId: string | undefined;
-}) {
+}>) {
   const others = allParticipants.filter(({ p }) => p.id !== focused.p.id);
   const mainTile = (
     <CameraTile ctx={ctx} entry={focused} pinned={pinnedParticipantId === focused.p.id} />
@@ -292,11 +291,11 @@ function SoloPresenterLayout({
   ctx,
   selfPeer,
   isVideoOff,
-}: {
+}: Readonly<{
   ctx: TileContext;
   selfPeer: MeetingPeer;
   isVideoOff: boolean;
-}) {
+}>) {
   return (
     <div className="relative h-full w-full p-3">
       {/* Shared screen — full area (inside the p-3 wrapper so it
@@ -335,7 +334,7 @@ function SoloPresenterLayout({
  * the shared content). Grid falls into the normal grid; Spotlight
  * renders the share full-bleed below.
  */
-function PresenterLayout({ ctx, allParticipants, screenShareEntries }: LayoutProps) {
+function PresenterLayout({ ctx, allParticipants, screenShareEntries }: Readonly<LayoutProps>) {
   return (
     <div className="flex max-md:flex-col-reverse gap-2 p-3 h-full">
       {/* Main share area */}
@@ -378,7 +377,7 @@ function PresenterLayout({ ctx, allParticipants, screenShareEntries }: LayoutPro
  * — participant cameras are hidden entirely. If multiple people share
  * simultaneously each share tile stacks vertically.
  */
-function SpotlightShareLayout({ ctx, allParticipants, screenShareEntries }: LayoutProps) {
+function SpotlightShareLayout({ ctx, allParticipants, screenShareEntries }: Readonly<LayoutProps>) {
   return (
     <div className="flex flex-col gap-2 p-3 h-full">
       {screenShareEntries.map((entry) => (
@@ -408,7 +407,7 @@ function SpotlightShareLayout({ ctx, allParticipants, screenShareEntries }: Layo
  *                  badge so the user knows more participants are present.
  */
 const MOBILE_MAX_TILES = 8;
-function MobileGridLayout({ ctx, allParticipants, screenShareEntries }: LayoutProps) {
+function MobileGridLayout({ ctx, allParticipants, screenShareEntries }: Readonly<LayoutProps>) {
   const tiles: Array<{ key: string; node: ReactNode }> = [
     ...screenShareEntries.map((entry) => ({
       key: `${entry.p.id}-screen`,
@@ -448,7 +447,7 @@ function MobileGridLayout({ ctx, allParticipants, screenShareEntries }: LayoutPr
 }
 
 /** Plain tiled grid: screen shares first, then every camera tile. */
-function TiledGridLayout({ ctx, allParticipants, screenShareEntries }: LayoutProps) {
+function TiledGridLayout({ ctx, allParticipants, screenShareEntries }: Readonly<LayoutProps>) {
   // Total grid cells = normal participant tiles + screen-share tiles.
   const gridCols = gridColsClass(allParticipants.length + screenShareEntries.length);
   return (
@@ -498,7 +497,7 @@ function resolveScreenShareStage(props: StageLayoutProps): ReactNode | null {
  * strip). This is a temporary override — when sharing stops, the user's
  * viewMode is restored automatically.
  */
-function StageLayout(props: StageLayoutProps) {
+function StageLayout(props: Readonly<StageLayoutProps>) {
   const { ctx, allParticipants, screenShareEntries, focusedScreen, pinnedParticipant, focusedParticipant, viewMode, isMobile } = props;
   if (focusedScreen) {
     return (
@@ -533,7 +532,7 @@ function StageLayout(props: StageLayoutProps) {
 }
 
 /** Live captions overlay (last two lines). */
-function CaptionsOverlay({ captions }: { captions: NonNullable<MeetingRoomViewProps['captions']> }) {
+function CaptionsOverlay({ captions }: Readonly<{ captions: NonNullable<MeetingRoomViewProps['captions']> }>) {
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 max-w-[80%] pointer-events-none">
       <div className="rounded-2xl bg-black/70 px-4 py-2 text-white backdrop-blur shadow-lg ring-1 ring-white/10">
@@ -553,11 +552,11 @@ function FullscreenFrame({
   isFullscreen,
   rightReservation,
   children,
-}: {
+}: Readonly<{
   isFullscreen?: boolean;
   rightReservation: number;
   children: ReactNode;
-}) {
+}>) {
   if (!isFullscreen) return <>{children}</>;
   return (
     <div
@@ -576,7 +575,7 @@ function FullscreenFrame({
  * guest experience render this same component — design changes here flow to
  * both apps.
  */
-export function MeetingRoomView(props: MeetingRoomViewProps) {
+export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
   const {
     meeting,
     meetingTitle,

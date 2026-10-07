@@ -37,7 +37,7 @@ export function UserAppConsentDialog({
   scopes,
   mode,
   onConfirm,
-}: UserAppConsentDialogProps) {
+}: Readonly<UserAppConsentDialogProps>) {
   const { t, format } = useI18n();
   const wa = t.weldapps;
   const scopeLabels = wa.scopes as unknown as Record<string, string>;

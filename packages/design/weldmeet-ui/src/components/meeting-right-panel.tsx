@@ -6,8 +6,7 @@ import { cn } from '@weldsuite/ui/lib/utils';
 import { PeoplePanel } from './people-panel';
 import { MeetingToolsPanel } from './meeting-tools-panel';
 import { useIsMobile } from '../hooks/use-is-mobile';
-import type { RecordingLabels, RecordingState } from '../types';
-import type { MeetingClient, MeetingPeer } from '../types';
+import type { RecordingLabels, RecordingState, MeetingClient, MeetingPeer } from '../types';
 import type { MeetingToolsController } from '../tools/use-meeting-tools-controller';
 
 function formatMeetingDate(iso: string): string {
@@ -27,7 +26,7 @@ function formatMeetingId(code: string): string {
   // If the code is purely digits, group it 3-by-3 (Teams style: "327 141 953 603 466").
   // Otherwise show as-is (e.g. our short alphanumeric join codes).
   if (/^\d+$/.test(code)) {
-    return code.replace(/(\d{3})(?=\d)/g, '$1 ');
+    return code.replaceAll(/(\d{3})(?=\d)/g, '$1 ');
   }
   return code;
 }
@@ -93,7 +92,7 @@ export function MeetingRightPanel({
   recordingStartElapsedSeconds,
   recordingLabels,
   tools,
-}: MeetingRightPanelProps) {
+}: Readonly<MeetingRightPanelProps>) {
   const isOpen = panel !== null;
   const isMobile = useIsMobile();
 
@@ -183,7 +182,7 @@ function MeetingInfoPanel({
   description,
   scheduledStart,
   participantsCount,
-}: MeetingInfoPanelProps) {
+}: Readonly<MeetingInfoPanelProps>) {
   const [copied, setCopied] = useState(false);
 
   const formattedDate = scheduledStart ? formatMeetingDate(scheduledStart) : null;

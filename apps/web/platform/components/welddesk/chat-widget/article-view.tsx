@@ -22,7 +22,7 @@ interface ArticleViewProps {
   onClose: () => void;
 }
 
-export function ArticleView({ article, onBack, onClose }: ArticleViewProps) {
+export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewProps>) {
   const [showTableOfContents, setShowTableOfContents] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false); // Start small, then expand
 

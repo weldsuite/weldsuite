@@ -195,7 +195,7 @@ function flattenTree(
 export function KnowledgeClient({
   items,
   isLoading = false,
-}: KnowledgeClientProps) {
+}: Readonly<KnowledgeClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const router = useRouter();
@@ -788,7 +788,7 @@ export function KnowledgeClient({
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    handleCreateFolder();
+                    void handleCreateFolder();
                   }
                 }}
               />

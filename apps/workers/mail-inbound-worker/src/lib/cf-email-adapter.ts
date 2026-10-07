@@ -13,8 +13,7 @@ import {
 import type { ParsedInboundEmail } from '@weldsuite/email';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { nanoid } from 'nanoid';
-import type { ParsedEmail, SecurityStatus } from './email-storage';
-import type { ParsedAttachment } from './email-storage';
+import type { ParsedEmail, SecurityStatus, ParsedAttachment } from './email-storage';
 
 const provider = new CloudflareReceiveProvider();
 

@@ -14,7 +14,8 @@
     "./connectors/mappers": "./src/connectors/mappers.ts",
     "./connectors/moneybird-attachments": "./src/connectors/moneybird-attachments.ts",
     "./connectors/sync": "./src/connectors/sync.ts",
-    "./connectors/webhooks": "./src/connectors/webhooks.ts"
+    "./connectors/webhooks": "./src/connectors/webhooks.ts",
+    "./github/app-auth": "./src/github/app-auth.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

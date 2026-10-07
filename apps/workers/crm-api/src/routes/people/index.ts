@@ -10,8 +10,7 @@
  * projection on top of people, not a separate object.
  */
 
-import { Hono } from 'hono';
-import { Context } from 'hono';
+import { Hono, Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { requirePermission, hasContextPermission } from '@weldsuite/permissions/server';

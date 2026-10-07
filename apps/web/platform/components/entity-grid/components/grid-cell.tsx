@@ -87,7 +87,7 @@ interface FavoriteButtonProps<TEntity> {
   field: string;
 }
 
-function FavoriteButton<TEntity>({ entity, entityId, field }: FavoriteButtonProps<TEntity>) {
+function FavoriteButton<TEntity>({ entity, entityId, field }: Readonly<FavoriteButtonProps<TEntity>>) {
   const { state, setOptimisticUpdates, actions } = useGridContext<TEntity>();
   const isFavorite = !!(entity as Record<string, unknown>)[field];
 
@@ -152,7 +152,7 @@ interface CompanyCellProps<TEntity> {
 }
 
 // Render company/name column (special case - first column with avatar)
-function CompanyCell<TEntity>({ entity, column, compact }: CompanyCellProps<TEntity>) {
+function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellProps<TEntity>>) {
   const { config, state, setSelectedRows, actions } = useGridContext<TEntity>();
   const { selectedRows } = state;
   const entityId = config.getEntityId(entity);
@@ -251,7 +251,7 @@ interface EditableCellProps {
 }
 
 /** Shows the editor while the cell is in edit mode, otherwise the read-only display. */
-function EditableCell({ ctx, renderEditor, children }: EditableCellProps) {
+function EditableCell({ ctx, renderEditor, children }: Readonly<EditableCellProps>) {
   if (ctx.isEditing) {
     return (
       <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact} isEditing>
@@ -517,7 +517,7 @@ interface MemberCellProps {
 }
 
 /** Owner / account-manager column — shows the member's name + a picker, never a raw user id. */
-function MemberCell({ ctx }: MemberCellProps) {
+function MemberCell({ ctx }: Readonly<MemberCellProps>) {
   const members = useTeamMembersForGrid();
   const userId = (ctx.value as string | null | undefined) || undefined;
   const selected = members.find((m) => m.userId === userId);
@@ -592,7 +592,7 @@ export function GridCell<TEntity>({
   entity,
   column,
   isFirstColumn,
-}: GridCellProps<TEntity>) {
+}: Readonly<GridCellProps<TEntity>>) {
   const {
     config,
     state,
@@ -619,7 +619,7 @@ export function GridCell<TEntity>({
     if (isLocalOnly) {
       updateCustomFieldValue(entityId, column.id, newValue);
     } else {
-      updateEntityField(entityId, column.id, newValue);
+      void updateEntityField(entityId, column.id, newValue);
     }
   };
 
@@ -627,7 +627,7 @@ export function GridCell<TEntity>({
     if (isLocalOnly) {
       updateCustomFieldValue(entityId, column.id, newValue);
     } else {
-      updateEntityField(entityId, column.id, newValue?.toISOString() || null);
+      void updateEntityField(entityId, column.id, newValue?.toISOString() || null);
     }
   };
 

@@ -67,7 +67,7 @@ interface UsageDashboardProps {
   userId?: string;
 }
 
-export function UsageDashboard({ workspaceId, userId }: UsageDashboardProps) {
+export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [isLoading, setIsLoading] = useState(true);
@@ -100,7 +100,7 @@ export function UsageDashboard({ workspaceId, userId }: UsageDashboardProps) {
         setCreditsError(t('sweep.shared.failedToLoadCreditsInformation'));
       }
     }
-    loadCredits();
+    void loadCredits();
   }, [getClient, t]);
 
   // Load usage stats
@@ -146,7 +146,7 @@ export function UsageDashboard({ workspaceId, userId }: UsageDashboardProps) {
       }
     }
 
-    loadStats();
+    void loadStats();
   }, [period, workspaceId, userId]);
 
   const formatCost = (cents: number) => {

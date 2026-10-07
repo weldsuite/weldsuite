@@ -8,8 +8,7 @@
  */
 
 import { z } from 'zod';
-import type { UnifiedFile, PaginationMeta } from './files';
-import type { DriveFile } from './files';
+import type { UnifiedFile, PaginationMeta, DriveFile } from './files';
 import type { DriveFolder } from './folders';
 
 export const listAllFilesQuery = z.object({

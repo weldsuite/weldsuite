@@ -40,7 +40,7 @@ export function ContactFormModernSection({
   inputBorderColor = '#e5e7eb',
   maxWidth = 800,
   customFields = [],
-}: ContactFormModernSectionProps) {
+}: Readonly<ContactFormModernSectionProps>) {
   // Helper function to render a form field
   const renderField = (field: FormField) => {
     const fieldStyle = {
@@ -208,7 +208,7 @@ export function ContactFormModernSection({
                 transition: 'background-color 0.2s',
               }}
               onMouseOver={(e) => {
-                const rgb = parseInt(buttonBackgroundColor.replace('#', ''), 16);
+                const rgb = Number.parseInt(buttonBackgroundColor.replace('#', ''), 16);
                 const r = (rgb >> 16) & 0xff;
                 const g = (rgb >> 8) & 0xff;
                 const b = rgb & 0xff;

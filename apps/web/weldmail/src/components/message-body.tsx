@@ -37,10 +37,10 @@ overflow-wrap: anywhere;
 export function MessageBody({
   htmlBody,
   textBody,
-}: {
+}: Readonly<{
   htmlBody?: string | null;
   textBody?: string | null;
-}) {
+}>) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(160);
 

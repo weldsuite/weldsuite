@@ -5,6 +5,7 @@ import { LucideIcon, Copy, ArrowLeft } from "lucide-react";
 import { ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { useTranslations } from '@weldsuite/i18n/client';
+import { copyText } from '@/lib/clipboard';
 
 export interface StatusBadgeConfig {
   label: string;
@@ -80,7 +81,7 @@ export function EntityDetailHeader({
   avatar,
   children,
   centerActions = false,
-}: EntityDetailHeaderProps) {
+}: Readonly<EntityDetailHeaderProps>) {
   const t = useTranslations();
   const [isHoveringTitle, setIsHoveringTitle] = useState(false);
 
@@ -89,12 +90,11 @@ export function EntityDetailHeader({
 
   const handleCopyId = () => {
     if (entityId) {
-      navigator.clipboard.writeText(entityId);
-      toast.success(
+      copyText(entityId, () => toast.success(
         t('sweep.entities.idCopiedToClipboard', {
           entityType: entityType || t('sweep.entities.entityFallback'),
         }),
-      );
+      ));
     }
   };
 

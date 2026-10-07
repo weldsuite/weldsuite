@@ -50,7 +50,7 @@ export function BookingPagesSidebarSection({ bookingPages, onAdd }: Readonly<Boo
   const copyLink = (slug: string) => {
     // The public booking portal link, never the platform origin (which needs a login).
     const url = buildBookingPageUrl(orgSlug, slug);
-    navigator.clipboard.writeText(url);
+    void navigator.clipboard.writeText(url);
     toast.success(t.toast.bookingLinkCopied);
   };
 
@@ -70,7 +70,7 @@ export function BookingPagesSidebarSection({ bookingPages, onAdd }: Readonly<Boo
   const handleDeleted = (id: string) => {
     const basePath = `/weldcalendar/scheduling/${id}`;
     if (pathname === basePath || pathname.startsWith(`${basePath}/`)) {
-      navigate({ to: '/weldcalendar/scheduling' });
+      void navigate({ to: '/weldcalendar/scheduling' });
     }
   };
 

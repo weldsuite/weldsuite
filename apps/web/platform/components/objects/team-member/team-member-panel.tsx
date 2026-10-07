@@ -85,7 +85,7 @@ function displayNameOf(p: MemberProfile | undefined, fallback: string): string {
   return p.name || p.email || fallback;
 }
 
-function MemberAvatar({ profile }: { profile?: MemberProfile }) {
+function MemberAvatar({ profile }: Readonly<{ profile?: MemberProfile }>) {
   const t = useTranslations();
   const { getStatus } = usePresence();
 
@@ -113,7 +113,7 @@ function MemberAvatar({ profile }: { profile?: MemberProfile }) {
   );
 }
 
-function MemberTitle({ profile }: { profile?: MemberProfile }) {
+function MemberTitle({ profile }: Readonly<{ profile?: MemberProfile }>) {
   const t = useTranslations();
   const { getStatus } = usePresence();
 
@@ -137,7 +137,7 @@ function MemberTitle({ profile }: { profile?: MemberProfile }) {
   );
 }
 
-function MemberActions({ profile }: { profile?: MemberProfile }) {
+function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
   const t = useTranslations();
   const navigate = useNavigate();
   const compose = useComposeSafe();
@@ -257,11 +257,11 @@ function MemberPanelTabsBar({
   activeTab,
   setActiveTab,
   mode,
-}: {
+}: Readonly<{
   activeTab: MemberTabId;
   setActiveTab: (id: MemberTabId) => void;
   mode: 'panel' | 'fullscreen';
-}) {
+}>) {
   const t = useTranslations();
 
   const configEntries = useMemo(
@@ -319,7 +319,7 @@ function MemberPanelTabsBar({
 
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
-export function TeamMemberPanel(props: ObjectPanelComponentProps) {
+export function TeamMemberPanel(props: Readonly<ObjectPanelComponentProps>) {
   const { id, initialTab } = props;
   const { userId: viewerUserId } = useAuth();
   const profileQuery = useMemberProfile(id);

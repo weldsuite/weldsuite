@@ -29,7 +29,7 @@ export function Chip({
   leftIcon,
   disabled = false,
   style,
-}: ChipProps) {
+}: Readonly<ChipProps>) {
   const { colors } = useTheme();
 
   const backgroundColor = selected ? colors.primary : colors.secondary;

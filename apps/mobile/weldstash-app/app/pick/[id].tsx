@@ -73,7 +73,7 @@ function SendcloudForm({
   onMethodCodeChange,
   weightKg,
   onWeightKgChange,
-}: SendcloudFormProps) {
+}: Readonly<SendcloudFormProps>) {
   const { colors } = useTheme();
   if (!connected) {
     return (
@@ -163,7 +163,7 @@ interface CurrentLineCardProps {
   onMarkShort: () => void;
 }
 
-function CurrentLineCard({ line, scanPhase, scannedLocation, qty, onQtyChange, busy, onMarkShort }: CurrentLineCardProps) {
+function CurrentLineCard({ line, scanPhase, scannedLocation, qty, onQtyChange, busy, onMarkShort }: Readonly<CurrentLineCardProps>) {
   const { colors } = useTheme();
   return (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.divider }]}>

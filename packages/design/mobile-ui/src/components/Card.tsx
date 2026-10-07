@@ -10,7 +10,7 @@ export interface CardProps extends ViewProps {
   elevated?: boolean;
 }
 
-export function Card({ bordered = true, elevated = false, style, children, ...rest }: CardProps) {
+export function Card({ bordered = true, elevated = false, style, children, ...rest }: Readonly<CardProps>) {
   const { colors } = useTheme();
   return (
     <View

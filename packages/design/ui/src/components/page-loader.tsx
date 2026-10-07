@@ -7,7 +7,7 @@ export interface PageLoaderProps {
   fullScreen?: boolean;
 }
 
-export function PageLoader({ label = 'Loading...', className, fullScreen = true }: PageLoaderProps) {
+export function PageLoader({ label = 'Loading...', className, fullScreen = true }: Readonly<PageLoaderProps>) {
   return (
     <div
       className={cn(

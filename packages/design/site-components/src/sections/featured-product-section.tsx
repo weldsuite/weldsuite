@@ -71,7 +71,7 @@ export function FeaturedProductSection({
   selectedBlockId,
   isEditing = false,
   onSelectBlock,
-}: FeaturedProductSectionProps) {
+}: Readonly<FeaturedProductSectionProps>) {
   const [quantity, setQuantity] = useState(1);
   const [activeImage, setActiveImage] = useState(0);
   const [selectedSize, setSelectedSize] = useState('big (4.2 oz)');

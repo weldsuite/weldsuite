@@ -5,8 +5,7 @@
  *   leads:scope:all elevates from own-only default to cross-owner access.
  */
 
-import { Hono } from 'hono';
-import { Context } from 'hono';
+import { Hono, Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import {

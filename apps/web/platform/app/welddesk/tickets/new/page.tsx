@@ -1,10 +1,9 @@
 
 import { useState } from 'react';
-import { useSearchParams } from '@/lib/router';
+import { useSearchParams, Link, useRouter } from '@/lib/router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft } from 'lucide-react';
-import { Link, useRouter } from '@/lib/router';
 import { TicketTypeSelectorInline } from '@/components/welddesk/ticket-type-selector';
 import { DynamicTicketForm } from '@/components/welddesk/dynamic-ticket-form';
 import type { TicketTypeConfig } from '@/hooks/queries/use-helpdesk-queries';

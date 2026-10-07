@@ -24,7 +24,7 @@ interface SecuritySectionProps {
 export function SecuritySection({
   security,
   onSecurityChange
-}: SecuritySectionProps) {
+}: Readonly<SecuritySectionProps>) {
   const t = useTranslations()
   const handleChange = (key: keyof typeof security, value: boolean | number) => {
     onSecurityChange({ ...security, [key]: value })

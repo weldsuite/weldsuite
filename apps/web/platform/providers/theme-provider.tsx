@@ -5,7 +5,7 @@ interface ThemeProviderProps {
   children: React.ReactNode;
 }
 
-export function ThemeProvider({ children }: ThemeProviderProps) {
+export function ThemeProvider({ children }: Readonly<ThemeProviderProps>) {
   useEffect(() => {
     // Read from localStorage (inline script in root layout already applied theme to prevent FOUC)
     const storedTheme = localStorage.getItem('theme') || 'system';

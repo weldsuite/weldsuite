@@ -7,7 +7,9 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 // Execution Status Types
-export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout' | 'waiting_for_input';
+// `skipped`: the run never started because the workflow was already at its
+// configured `settings.maxConcurrentRuns` limit (see @weldsuite/db/lib/workflow-concurrency).
+export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout' | 'waiting_for_input' | 'skipped';
 
 // Trigger Types for Execution
 export type ExecutionTriggerType =

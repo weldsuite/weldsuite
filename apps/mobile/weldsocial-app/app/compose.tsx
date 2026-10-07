@@ -30,7 +30,7 @@ interface AccountPickerProps {
   onToggle: (accountId: string) => void;
 }
 
-function AccountPicker({ accounts, selectedIds, onToggle }: AccountPickerProps) {
+function AccountPicker({ accounts, selectedIds, onToggle }: Readonly<AccountPickerProps>) {
   const { colors } = useTheme();
   if (!accounts.length) {
     return (
@@ -63,7 +63,7 @@ interface MediaPickerProps {
   onToggle: (mediaId: string) => void;
 }
 
-function MediaPicker({ media, selectedIds, onToggle }: MediaPickerProps) {
+function MediaPicker({ media, selectedIds, onToggle }: Readonly<MediaPickerProps>) {
   const { colors } = useTheme();
   if (!media.length) {
     return (

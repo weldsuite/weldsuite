@@ -19,7 +19,7 @@ interface ToastContextType {
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
-export function ToastProvider({ children }: { children: React.ReactNode }) {
+export function ToastProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [toasts, setToasts] = useState<ToastData[]>([]);
 
   const showToast = useCallback((message: string, type: ToastType = 'success', duration: number = 3000) => {

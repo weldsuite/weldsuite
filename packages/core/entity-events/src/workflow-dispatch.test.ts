@@ -323,6 +323,110 @@ describe('matchAndDispatchWorkflowTriggers', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  describe('concurrency limit (settings.maxConcurrentRuns)', () => {
+    /**
+     * A fake supporting BOTH query shapes `dispatchEntityMatches` can issue:
+     * the trigger-index join (`select().from().innerJoin().where()`) and the
+     * concurrency count (`select().from().where()`, no join) — plus `insert`
+     * for the skipped-execution row.
+     */
+    function concurrencyFakeDb(indexRows: unknown[], activeRunCount: number) {
+      const insert = vi.fn(() => ({ values: vi.fn(async () => undefined) }));
+      const select = vi.fn(() => ({
+        from: () => ({
+          innerJoin: () => ({ where: async () => indexRows }),
+          where: async () => [{ count: activeRunCount }],
+        }),
+      }));
+      return { select, insert, db: { select, insert } as any };
+    }
+
+    it('skips dispatch and records a skipped execution when already at the limit', async () => {
+      const create = vi.fn(async () => undefined);
+      const { db, insert } = concurrencyFakeDb(
+        [
+          {
+            workflowId: 'wf_1',
+            triggerId: 'trg_1',
+            eventType: 'created',
+            filters: null,
+            workflowName: 'A',
+            settings: { maxConcurrentRuns: 1 },
+          },
+        ],
+        1, // already one active run -> at the limit
+      );
+
+      await matchAndDispatchWorkflowTriggers({
+        env: { EXECUTE_WORKFLOW: { create } },
+        db,
+        workspaceId: 'ws_1',
+        userId: 'u1',
+        entityType: 'company',
+        entityId: 'company_1',
+        action: 'created',
+        data: {},
+      });
+
+      expect(create).not.toHaveBeenCalled();
+      expect(insert).toHaveBeenCalledOnce();
+    });
+
+    it('dispatches normally when under the limit', async () => {
+      const create = vi.fn(async () => undefined);
+      const { db, insert } = concurrencyFakeDb(
+        [
+          {
+            workflowId: 'wf_1',
+            triggerId: 'trg_1',
+            eventType: 'created',
+            filters: null,
+            workflowName: 'A',
+            settings: { maxConcurrentRuns: 2 },
+          },
+        ],
+        1,
+      );
+
+      await matchAndDispatchWorkflowTriggers({
+        env: { EXECUTE_WORKFLOW: { create } },
+        db,
+        workspaceId: 'ws_1',
+        userId: 'u1',
+        entityType: 'company',
+        entityId: 'company_1',
+        action: 'created',
+        data: {},
+      });
+
+      expect(create).toHaveBeenCalledOnce();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('never touches the count query when no limit is configured', async () => {
+      const create = vi.fn(async () => undefined);
+      const db = fakeDb([
+        { workflowId: 'wf_1', triggerId: 'trg_1', eventType: 'created', filters: null, workflowName: 'A' },
+      ]);
+
+      await matchAndDispatchWorkflowTriggers({
+        env: { EXECUTE_WORKFLOW: { create } },
+        db,
+        workspaceId: 'ws_1',
+        userId: 'u1',
+        entityType: 'company',
+        entityId: 'company_1',
+        action: 'created',
+        data: {},
+      });
+
+      // The shared fakeDb's chain only supports the join shape — reaching the
+      // plain count query here would throw, so a passing dispatch proves it
+      // short-circuited on the missing/undefined `settings`.
+      expect(create).toHaveBeenCalledOnce();
+    });
+  });
 });
 
 describe('evalFilters', () => {

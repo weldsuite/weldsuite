@@ -81,11 +81,11 @@ function EditableTitle({
   title,
   isDone,
   onSave,
-}: {
+}: Readonly<{
   title: string;
   isDone: boolean;
   onSave: (newTitle: string) => void;
-}) {
+}>) {
   const [isEditing, setIsEditing] = useState(false);
   // Local mirror of the title so saves are optimistic — on blur we commit the
   // new value to `localTitle` immediately, the render uses it for the div's
@@ -203,7 +203,7 @@ export function TaskDetailPanel({
   hiddenFields,
   hideCompletionCheckbox,
   onBack,
-}: TaskDetailPanelProps) {
+}: Readonly<TaskDetailPanelProps>) {
   const widthNum = Number.parseInt(width, 10) || 480;
 
   const { t } = useI18n();

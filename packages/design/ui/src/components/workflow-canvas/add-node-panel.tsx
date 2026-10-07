@@ -148,7 +148,7 @@ const DEFAULT_ACTION_LABELS: Record<string, { name: string; description: string 
   collect_input: { name: 'Collect Input', description: 'Collect user input' },
 };
 
-export function AddNodePanel({ onAddAction, module, labels = {} }: AddNodePanelProps) {
+export function AddNodePanel({ onAddAction, module, labels = {} }: Readonly<AddNodePanelProps>) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 

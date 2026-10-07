@@ -21,7 +21,7 @@ export function ProgressBar({
   fillColor,
   indeterminate = false,
   style,
-}: ProgressBarProps) {
+}: Readonly<ProgressBarProps>) {
   const { colors } = useTheme();
   const resolvedTrack = trackColor ?? colors.secondary;
   const resolvedFill = fillColor ?? colors.primary;

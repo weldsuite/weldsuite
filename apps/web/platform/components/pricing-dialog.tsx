@@ -190,7 +190,7 @@ function CheckoutView({
   onBack,
   onClose,
   onCheckout,
-}: CheckoutViewProps) {
+}: Readonly<CheckoutViewProps>) {
   return (
     /* Checkout View */
     <div className="flex flex-col h-full">
@@ -254,7 +254,7 @@ function CheckoutBillingPeriod({
   prices,
   billingCycle,
   onBillingCycleChange,
-}: Pick<CheckoutViewProps, 'prices' | 'billingCycle' | 'onBillingCycleChange'>) {
+}: Readonly<Pick<CheckoutViewProps, 'prices' | 'billingCycle' | 'onBillingCycleChange'>>) {
   return (
     <div className="space-y-2">
       <Label className="text-sm text-muted-foreground">Billing period</Label>
@@ -282,7 +282,7 @@ function CheckoutSeats({
   plan,
   seatCount,
   onSeatCountChange,
-}: Pick<CheckoutViewProps, 'plan' | 'seatCount' | 'onSeatCountChange'>) {
+}: Readonly<Pick<CheckoutViewProps, 'plan' | 'seatCount' | 'onSeatCountChange'>>) {
   return (
     <div className="space-y-2">
       <Label className="text-sm text-muted-foreground">Seats</Label>
@@ -328,7 +328,7 @@ function CheckoutEmails({
   prices,
   emailCredits,
   onEmailCreditsChange,
-}: Pick<CheckoutViewProps, 'plan' | 'prices' | 'emailCredits' | 'onEmailCreditsChange'>) {
+}: Readonly<Pick<CheckoutViewProps, 'plan' | 'prices' | 'emailCredits' | 'onEmailCreditsChange'>>) {
   return (
     <div className="space-y-2">
       <Label className="text-sm text-muted-foreground">Monthly Emails</Label>
@@ -394,10 +394,10 @@ function CheckoutSummary({
   emailCredits,
   processing,
   onCheckout,
-}: Pick<
+}: Readonly<Pick<
   CheckoutViewProps,
   'plan' | 'prices' | 'seatCount' | 'emailCredits' | 'processing' | 'onCheckout'
->) {
+>>) {
   return (
     <div className="w-[344px] border-l bg-muted/30 p-6 flex flex-col">
       <div className="flex-1 space-y-4">
@@ -499,7 +499,7 @@ function PlanPrice({
   plan,
   isContact,
   isAnnual,
-}: Pick<PlanCardProps, 'plan' | 'isContact' | 'isAnnual'>) {
+}: Readonly<Pick<PlanCardProps, 'plan' | 'isContact' | 'isAnnual'>>) {
   return (
   <div className="mb-1">
     <div className="flex items-center gap-2">
@@ -534,9 +534,9 @@ function PlanCta({
   showProcessing,
   buttonText,
   onSelect,
-}: Pick<PlanCardProps, 'isContact' | 'isCurrent' | 'highlighted' | 'showProcessing' | 'buttonText' | 'onSelect'> & {
+}: Readonly<Pick<PlanCardProps, 'isContact' | 'isCurrent' | 'highlighted' | 'showProcessing' | 'buttonText' | 'onSelect'> & {
   disabled: boolean;
-}) {
+}>) {
   if (isContact) {
     return (
       <EnterpriseContactForm
@@ -588,7 +588,7 @@ function PlanCard({
   showProcessing,
   buttonText,
   onSelect,
-}: PlanCardProps) {
+}: Readonly<PlanCardProps>) {
   return (
     <div
       className={`relative p-[18px] rounded-2xl flex flex-col bg-card ${
@@ -641,7 +641,7 @@ function PlanCard({
 }
 
 // Decorative grid lines + corner plus icons around the plans grid.
-function PlanGridDecorations({ planCount }: { planCount: number }) {
+function PlanGridDecorations({ planCount }: Readonly<{ planCount: number }>) {
   return (
     <>
       <div className="absolute -top-[9px] -bottom-[9px] w-px hidden sm:block -left-2 bg-border/50" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' }} />
@@ -686,11 +686,11 @@ function FeatureHighlightBanner({
   featureHighlight,
   billingCycle,
   onToggle,
-}: {
+}: Readonly<{
   featureHighlight: NonNullable<PricingDialogProps['featureHighlight']>;
   billingCycle: 'monthly' | 'yearly';
   onToggle: () => void;
-}) {
+}>) {
   return (
     <div className="rounded-2xl border bg-card px-5 h-[53px] flex items-center justify-between gap-3">
       <p className="text-sm text-muted-foreground">{featureHighlight.description.split(featureHighlight.feature).map((part, i, arr) => i < arr.length - 1 ? <React.Fragment key={i}>{part}<span className="font-medium text-foreground">{featureHighlight.feature}</span></React.Fragment> : part)}</p>
@@ -716,7 +716,7 @@ function FeatureHighlightBanner({
 }
 
 
-export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans = [], highlightPlan, featureHighlight }: PricingDialogProps) {
+export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans = [], highlightPlan, featureHighlight }: Readonly<PricingDialogProps>) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [allPlans, setAllPlans] = useState<Billing.BillingPlan[]>([]);
   const [subscription, setSubscription] = useState<Billing.Subscription | null>(null);
@@ -740,7 +740,7 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
   // while the dialog is open instead of only when it opens.
   useEffect(() => {
     if (open) {
-      loadData();
+      void loadData();
       setViewMode('plans');
       setSelectedPlanForCheckout(null);
       track('Pricing Viewed');
