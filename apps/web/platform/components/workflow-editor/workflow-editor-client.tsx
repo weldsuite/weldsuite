@@ -5,7 +5,6 @@ import { createPortal } from 'react-dom';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { usePageAgentContext } from '@/components/weldagent-wrapper';
 import { useDataEvent } from '@/lib/events/data-events';
-import { automationKeys } from '@/hooks/queries/use-automation-queries';
 import { workflowEditorKeys, useRotateWebhookSecret, useDisableWebhookSignature, useWorkflowDetail } from '@/hooks/use-workflow-editor-data';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -76,13 +75,13 @@ import {
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
 import { toast } from 'sonner';
-import { useUpdateWorkflow, useTestWorkflow, useUpdateWorkflowStatus } from '@/hooks/queries/use-automation-queries';
+import { automationKeys, useUpdateWorkflow, useTestWorkflow, useUpdateWorkflowStatus } from '@/hooks/queries/use-automation-queries';
 import { ActionConfigForm } from './components/action-config-form';
 import { GenerateWithAiDialog } from './components/generate-with-ai-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import type { GeneratedWorkflowDraft, ActionType, TriggerType, EntityEvent } from '@/hooks/queries/use-automation-queries';
-import { WorkflowCanvas } from '@weldsuite/ui/components/workflow-canvas';
 import {
+  WorkflowCanvas,
   getConditionBranchIds,
   getMissingRequiredFields,
   isBranchingStepType,
@@ -117,6 +116,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { copyText } from '@/lib/clipboard';
 
 /**
  * A workflow step's shape varies by `type` (send_email / http_request /
@@ -535,23 +535,34 @@ const TIMEZONE_OPTIONS = [
 
 type ConfigSummarizer = (config: Record<string, unknown>) => string;
 
+/** Step config values are untyped; render primitives as-is and anything else as JSON. */
+function cfgText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
+}
+
 function summarizeSendEmail(config: Record<string, unknown>): string {
   if (!config.to) return '';
-  return config.subject ? `To: ${config.to} • ${config.subject}` : `To: ${config.to}`;
+  const to = cfgText(config.to);
+  return config.subject ? `To: ${to} • ${cfgText(config.subject)}` : `To: ${to}`;
 }
 
 function summarizeHttpRequest(config: Record<string, unknown>): string {
-  return config.method && config.url ? `${config.method} ${config.url}` : '';
+  return config.method && config.url ? `${cfgText(config.method)} ${cfgText(config.url)}` : '';
 }
 
 function summarizeCondition(config: Record<string, unknown>): string {
-  return config.field && config.operator ? `${config.field} ${config.operator} ${config.value || ''}` : '';
+  return config.field && config.operator
+    ? `${cfgText(config.field)} ${cfgText(config.operator)} ${cfgText(config.value || '')}`
+    : '';
 }
 
 function summarizeDelay(config: Record<string, unknown>): string {
-  if (config.seconds) return `Wait ${config.seconds} seconds`;
-  if (config.minutes) return `Wait ${config.minutes} minutes`;
-  if (config.hours) return `Wait ${config.hours} hours`;
+  if (config.seconds) return `Wait ${cfgText(config.seconds)} seconds`;
+  if (config.minutes) return `Wait ${cfgText(config.minutes)} minutes`;
+  if (config.hours) return `Wait ${cfgText(config.hours)} hours`;
   return '';
 }
 
@@ -563,7 +574,7 @@ function summarizeLogMessage(config: Record<string, unknown>): string {
 
 function summarizeRecordAction(config: Record<string, unknown>): string {
   const entity = config.entityType || config.entity;
-  return entity ? `Entity: ${entity}` : '';
+  return entity ? `Entity: ${cfgText(entity)}` : '';
 }
 
 function summarizeCreateCustomer(config: Record<string, unknown>): string {
@@ -731,7 +742,7 @@ function readScheduleSettings(
 type EditorModule = 'helpdesk' | 'general';
 
 /** Shared ghost "X" button that closes a sidebar panel. */
-function PanelCloseButton({ onClick }: { onClick: () => void }) {
+function PanelCloseButton({ onClick }: Readonly<{ onClick: () => void }>) {
   const { t } = useI18n();
   const label = t.weldconnect.workflowEditorClient.closePanel;
   return (
@@ -801,7 +812,7 @@ function EditorActionButtons({
   onSave,
   onPublish,
   onPause,
-}: EditorActionButtonsProps) {
+}: Readonly<EditorActionButtonsProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const tec = t.weldconnect.workflowEditorClient;
@@ -906,7 +917,7 @@ function EditorActionButtons({
 }
 
 /** Underline under the active header tab. */
-function TabUnderline({ active }: { active: boolean }) {
+function TabUnderline({ active }: Readonly<{ active: boolean }>) {
   return (
     <div className={cn(
       "absolute -bottom-[9px] left-0 right-0 h-0.5 transition-colors",
@@ -928,7 +939,7 @@ interface ExecutionsTabProps {
   onOpenRunsTab: () => void;
 }
 
-function ExecutionsTab({ showRunsPanel, replaceExecutionsTab, onOpenRunsTab }: ExecutionsTabProps) {
+function ExecutionsTab({ showRunsPanel, replaceExecutionsTab, onOpenRunsTab }: Readonly<ExecutionsTabProps>) {
   const st = useTranslations();
 
   if (replaceExecutionsTab) {
@@ -982,7 +993,7 @@ function EditorNavTabs({
   replaceExecutionsTab,
   onOpenEditorTab,
   onOpenRunsTab,
-}: EditorNavTabsProps) {
+}: Readonly<EditorNavTabsProps>) {
   const st = useTranslations();
   const showModuleTabs = module !== 'helpdesk';
 
@@ -1033,7 +1044,7 @@ interface EditorHeaderProps {
   onToggleMobileSidebar: () => void;
 }
 
-function EditorHeader({ hideNavTabs, nav, actions, onToggleMobileSidebar }: EditorHeaderProps) {
+function EditorHeader({ hideNavTabs, nav, actions, onToggleMobileSidebar }: Readonly<EditorHeaderProps>) {
   const { t } = useI18n();
   const detailsLabel = t.weldconnect.workflowEditorClient.overviewPanel.workflowDetails;
   return (
@@ -1124,7 +1135,7 @@ function resolveCronExpression(preset: string, customCron: string, cronPresets: 
 
 type HelpdeskRoutingTrigger = (typeof HELPDESK_ROUTING_TRIGGERS)[number];
 
-function HelpdeskTriggerList({ form, applyTriggerData }: { form: TriggerFormApi; applyTriggerData: ApplyTriggerData }) {
+function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: TriggerFormApi; applyTriggerData: ApplyTriggerData }>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
 
@@ -1175,7 +1186,7 @@ interface TriggerTypeListProps {
   onSelect: (typeId: string) => void;
 }
 
-function TriggerTypeList({ types, selectedType, onSelect }: TriggerTypeListProps) {
+function TriggerTypeList({ types, selectedType, onSelect }: Readonly<TriggerTypeListProps>) {
   const { t } = useI18n();
   const tcd = t.weldconnect.triggerConfigDialog;
 
@@ -1231,7 +1242,7 @@ interface EntityEventFieldsProps {
   applyTriggerData: ApplyTriggerData;
 }
 
-function EntityEventFields({ form, groupedEntityEvents, filteredEntityEvents, applyTriggerData }: EntityEventFieldsProps) {
+function EntityEventFields({ form, groupedEntityEvents, filteredEntityEvents, applyTriggerData }: Readonly<EntityEventFieldsProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const tcd = t.weldconnect.triggerConfigDialog;
@@ -1305,7 +1316,7 @@ interface ScheduleFieldsProps {
   applyTriggerData: ApplyTriggerData;
 }
 
-function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTriggerData }: ScheduleFieldsProps) {
+function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTriggerData }: Readonly<ScheduleFieldsProps>) {
   const { t, language } = useI18n();
   const tcd = t.weldconnect.triggerConfigDialog;
   const { scheduleType, scheduleCronPreset, scheduleCustomCron, scheduleTimezone, scheduleExecuteAt } = form;
@@ -1501,7 +1512,7 @@ interface IntegrationEventFieldsProps {
   applyTriggerData: ApplyTriggerData;
 }
 
-function IntegrationEventFields({ form, integrationTriggers, applyTriggerData }: IntegrationEventFieldsProps) {
+function IntegrationEventFields({ form, integrationTriggers, applyTriggerData }: Readonly<IntegrationEventFieldsProps>) {
   const { t } = useI18n();
   const tcd = t.weldconnect.triggerConfigDialog;
 
@@ -1558,7 +1569,7 @@ interface WorkflowCompleteFieldsProps {
   applyTriggerData: ApplyTriggerData;
 }
 
-function WorkflowCompleteFields({ form, workflowsForChaining, applyTriggerData }: WorkflowCompleteFieldsProps) {
+function WorkflowCompleteFields({ form, workflowsForChaining, applyTriggerData }: Readonly<WorkflowCompleteFieldsProps>) {
   const { t } = useI18n();
   const tcd = t.weldconnect.triggerConfigDialog;
 
@@ -1644,7 +1655,7 @@ function WorkflowCompleteFields({ form, workflowsForChaining, applyTriggerData }
   );
 }
 
-function WebhookSecretField({ webhookSecret, form }: { webhookSecret: string; form: TriggerFormApi }) {
+function WebhookSecretField({ webhookSecret, form }: Readonly<{ webhookSecret: string; form: TriggerFormApi }>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
 
@@ -1671,8 +1682,7 @@ function WebhookSecretField({ webhookSecret, form }: { webhookSecret: string; fo
           size="icon"
           className="flex-shrink-0"
           onClick={() => {
-            void navigator.clipboard.writeText(webhookSecret);
-            toast.success(tec.toasts.secretCopied);
+            copyText(webhookSecret, () => toast.success(tec.toasts.secretCopied));
           }}
         >
           <Copy className="h-4 w-4" />
@@ -1737,8 +1747,7 @@ function WebhookDetails({
             size="icon"
             className="flex-shrink-0"
             onClick={() => {
-              void navigator.clipboard.writeText(webhookData.externalUrl || webhookData.url);
-              toast.success(tec.toasts.urlCopied);
+              copyText(webhookData.externalUrl || webhookData.url, () => toast.success(tec.toasts.urlCopied));
             }}
           >
             <Copy className="h-4 w-4" />
@@ -1804,7 +1813,7 @@ function WebhookFields({
   );
 }
 
-function TriggerHint({ text }: { text: string }) {
+function TriggerHint({ text }: Readonly<{ text: string }>) {
   return (
     <div className="pt-3 border-t">
       <div className="p-3 bg-muted/50 rounded-lg">
@@ -1848,7 +1857,7 @@ function TriggerTypeDetails({
   oneTimeScheduleAllowed,
   form,
   applyTriggerData,
-}: Omit<TriggerPanelProps, 'module' | 'hasTrigger' | 'warning' | 'filteredTriggerTypes' | 'initialTriggerData' | 'onClose'>) {
+}: Readonly<Omit<TriggerPanelProps, 'module' | 'hasTrigger' | 'warning' | 'filteredTriggerTypes' | 'initialTriggerData' | 'onClose'>>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const tcd = t.weldconnect.triggerConfigDialog;
@@ -1895,7 +1904,7 @@ function TriggerPanel({
   initialTriggerData,
   onClose,
   ...detailProps
-}: TriggerPanelProps) {
+}: Readonly<TriggerPanelProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const { form, applyTriggerData } = detailProps;
@@ -1957,7 +1966,7 @@ interface ActionCategoryGroupProps {
   onSelect: (actionId: string) => void;
 }
 
-function ActionCategoryGroup({ label, actions, onSelect }: ActionCategoryGroupProps) {
+function ActionCategoryGroup({ label, actions, onSelect }: Readonly<ActionCategoryGroupProps>) {
   if (actions.length === 0) return null;
   return (
     <div className="space-y-1">
@@ -1999,7 +2008,7 @@ interface AddActionPanelProps {
   onClose: () => void;
 }
 
-function AddActionPanel({ module, actions, categoryLabels, onSelectAction, onClose }: AddActionPanelProps) {
+function AddActionPanel({ module, actions, categoryLabels, onSelectAction, onClose }: Readonly<AddActionPanelProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
 
@@ -2074,7 +2083,7 @@ function getBranchStyle(branchType: string): BranchStyle {
   };
 }
 
-function BranchAddStepButton({ className, onClick }: { className?: string; onClick: () => void }) {
+function BranchAddStepButton({ className, onClick }: Readonly<{ className?: string; onClick: () => void }>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
 
@@ -2093,7 +2102,7 @@ interface BranchChildStepsProps {
   onAddStep: () => void;
 }
 
-function BranchChildSteps({ childSteps, allSteps, onSelectStep, onAddStep }: BranchChildStepsProps) {
+function BranchChildSteps({ childSteps, allSteps, onSelectStep, onAddStep }: Readonly<BranchChildStepsProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
 
@@ -2149,7 +2158,7 @@ interface BranchEditPanelProps {
   onClose: () => void;
 }
 
-function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: BranchEditPanelProps) {
+function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Readonly<BranchEditPanelProps>) {
   const { t } = useI18n();
   const tbp = t.weldconnect.workflowEditorClient.branchPanel;
   const parentStep = steps[branch.parentConditionStepIndex];
@@ -2272,7 +2281,7 @@ function UnknownVariablesNote({ variables }: { variables: string[] }) {
   );
 }
 
-function StepStatusBanner({ step, unsupported }: { step: WorkflowStepBag; unsupported: boolean }) {
+function StepStatusBanner({ step, unsupported }: Readonly<{ step: WorkflowStepBag; unsupported: boolean }>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
@@ -2376,7 +2385,7 @@ function EditStepPanel({
   onDelete,
   onAddStepAfter,
   onClose,
-}: EditStepPanelProps) {
+}: Readonly<EditStepPanelProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const meta = getActionMeta(step.type || '');
@@ -2486,14 +2495,14 @@ function ChecklistCard({
   alignTop,
   message,
   onClick,
-}: {
+}: Readonly<{
   icon: React.ReactNode;
   title: React.ReactNode;
   badge: React.ReactNode;
   alignTop?: boolean;
   message: React.ReactNode;
   onClick: () => void;
-}) {
+}>) {
   return (
     <Button
       variant="ghost"
@@ -2595,7 +2604,7 @@ function OverviewPanel({
   onSelectTrigger,
   onSelectStep,
   onCloseMobile,
-}: OverviewPanelProps) {
+}: Readonly<OverviewPanelProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const showTriggerCheck = !triggerLocked && !!triggerIssue;
@@ -2663,7 +2672,9 @@ function OverviewPanel({
         <p className="text-xs text-muted-foreground mb-3">{tec.overviewPanel.helpfulResources}</p>
         <div className="grid grid-cols-1 gap-2">
           <a
-            href="#"
+            href="https://help.weldsuite.org/weldconnect"
+            target="_blank"
+            rel="noopener noreferrer"
             className="p-3 rounded-lg border border-border hover:border-gray-300 dark:hover:border-border hover:bg-muted/50 transition-colors"
           >
             <p className="text-sm font-medium mb-1">{tec.overviewPanel.documentation}</p>
@@ -2786,11 +2797,11 @@ function SubAgentPickerList({
   step,
   savedAgents,
   onSelect,
-}: {
+}: Readonly<{
   step: WorkflowStepBag | null | undefined;
   savedAgents: SavedAgent[] | undefined;
   onSelect: (agentId: string, agentName: string) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const stepConfig = step?.config as Record<string, unknown> | undefined;
@@ -2834,7 +2845,7 @@ function SubAgentPickerList({
   );
 }
 
-function SubAgentPickerDialog({ stepId, steps, savedAgents, onSelect, onClose }: SubAgentPickerDialogProps) {
+function SubAgentPickerDialog({ stepId, steps, savedAgents, onSelect, onClose }: Readonly<SubAgentPickerDialogProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const step = stepId ? steps.find((s) => s.id === stepId) : null;
@@ -2855,7 +2866,7 @@ function SubAgentPickerDialog({ stepId, steps, savedAgents, onSelect, onClose }:
 
 const SUB_AGENT_LABEL_CLASS = 'text-xs font-medium text-muted-foreground';
 
-function SubAgentLeftColumn({ form, setForm }: { form: SubAgentForm; setForm: SetSubAgentForm }) {
+function SubAgentLeftColumn({ form, setForm }: Readonly<{ form: SubAgentForm; setForm: SetSubAgentForm }>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const patch = (partial: Partial<SubAgentForm>) => setForm({ ...form, ...partial });
@@ -2970,11 +2981,11 @@ function SubAgentIntegrationItem({
   connection,
   form,
   setForm,
-}: {
+}: Readonly<{
   connection: McpConnection;
   form: SubAgentForm;
   setForm: SetSubAgentForm;
-}) {
+}>) {
   const isEnabled = form.integrationIds.includes(connection.id);
   const discoveredTools = connection.settings?.discoveredTools || [];
   const allowedTools = form.integrationToolPermissions[connection.id] || [];
@@ -3019,11 +3030,11 @@ function SubAgentRightColumn({
   form,
   setForm,
   mcpConnections,
-}: {
+}: Readonly<{
   form: SubAgentForm;
   setForm: SetSubAgentForm;
   mcpConnections: McpConnection[] | undefined;
-}) {
+}>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const connections = mcpConnections || [];
@@ -3094,7 +3105,7 @@ interface SubAgentEditDialogProps {
   onSave: () => void;
 }
 
-function SubAgentEditDialog({ open, form, setForm, mcpConnections, isSaving, onClose, onSave }: SubAgentEditDialogProps) {
+function SubAgentEditDialog({ open, form, setForm, mcpConnections, isSaving, onClose, onSave }: Readonly<SubAgentEditDialogProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
 
@@ -3165,7 +3176,7 @@ export function WorkflowEditorClient({
   resolveRecordFields,
   flagUnknownVariables,
   testerEmail,
-}: WorkflowEditorClientProps) {
+}: Readonly<WorkflowEditorClientProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const tcd = t.weldconnect.triggerConfigDialog;
@@ -3268,12 +3279,13 @@ export function WorkflowEditorClient({
   }, [tcd]);
 
   const filteredActionTypes = useMemo(() => {
+    const moduleActionTypes = module === 'helpdesk' ? translatedHelpdeskActionTypes : translatedActionTypes;
     const base = actionItems
       ? actionItems.map((a) => {
           const actions = t.weldconnect.addNodePanel.actions as Record<string, { name: string; description: string }>;
           return { ...a, name: actions[a.id]?.name ?? a.name, description: actions[a.id]?.description ?? a.description };
         })
-      : (module === 'helpdesk' ? translatedHelpdeskActionTypes : translatedActionTypes);
+      : moduleActionTypes;
     if (allowedActionIds) {
       return base.filter((a) => allowedActionIds.includes(a.id));
     }
@@ -3387,7 +3399,6 @@ export function WorkflowEditorClient({
   const isSaving = updateWorkflowMutation.isPending || updateStatusMutation.isPending;
   const isTesting = testWorkflowMutation.isPending;
   const [editingStep, setEditingStep] = useState<WorkflowStepBag | null>(null);
-  const [_selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
 
   // --- Validation: which steps / the trigger still need required config -----
   const stepNeedsWork = useCallback(
@@ -3550,7 +3561,7 @@ export function WorkflowEditorClient({
   // but no longer hit the removed `/ai/agent-definitions` endpoint.
   const { data: savedAgents } = useQuery({
     queryKey: ['ai-agents-all'],
-    queryFn: async (): Promise<Array<{ id: string; name: string; description?: string; moduleKey: string }>> => [],
+    queryFn: (): Promise<Array<{ id: string; name: string; description?: string; moduleKey: string }>> => Promise.resolve([]),
     staleTime: Infinity,
   });
 
@@ -3622,9 +3633,8 @@ export function WorkflowEditorClient({
     // AI has been removed platform-wide — sub-agent definitions can no
     // longer be saved. Short-circuit instead of hitting the removed
     // `/ai/agent-definitions` endpoint.
-    mutationFn: async (_params: { id: string; data: unknown }): Promise<never> => {
-      throw new Error('AI is currently unavailable');
-    },
+    mutationFn: (_params: { id: string; data: unknown }): Promise<never> =>
+      Promise.reject(new Error('AI is currently unavailable')),
     onError: () => toast.error(tec.toasts.agentUpdateFailed),
   });
 
@@ -3795,7 +3805,7 @@ export function WorkflowEditorClient({
       type: trigger.type,
       name: trigger.name,
       isEnabled: trigger.isEnabled ?? true,
-      ...(trigger.config || {}),
+      ...trigger.config,
     }));
     const mappedSteps = draft.steps.map((step, i) => ({
       id: step.id || `step-${Date.now()}-${i}`,
@@ -3815,7 +3825,6 @@ export function WorkflowEditorClient({
     }));
     setEditingStep(null);
     setEditingBranch(null);
-    setSelectedStepIndex(null);
     setShowTriggerPanel(false);
     setShowAddActionPanel(false);
     const firstTrigger = flattenedTriggers[0];
@@ -3934,7 +3943,6 @@ export function WorkflowEditorClient({
       .filter((s) => !idsToDelete.has(s.id || ''))
       .map((step, i) => ({ ...step, order: i }));
     setWorkflow((prev) => ({ ...prev, steps: updatedSteps }));
-    setSelectedStepIndex(null);
     setEditingStep(null);
     setEditingBranch(null);
   }, [workflow.steps]);
@@ -3990,11 +3998,9 @@ export function WorkflowEditorClient({
     setShowAddActionPanel(false);
     setEditingStep(null);
     setEditingBranch(null);
-    setSelectedStepIndex(null);
   }, [workflow.triggers, loadTriggerIntoPanel, resetTriggerPanel]);
 
   const handleSelectStep = useCallback((index: number) => {
-    setSelectedStepIndex(index);
     setShowTriggerPanel(false);
     setShowRunsPanel(false);
     setShowAddActionPanel(false);
@@ -4018,7 +4024,6 @@ export function WorkflowEditorClient({
   const handleSelectBranch = useCallback((branchNodeId: string, branchType: string, parentConditionId: string, parentConditionStepIndex: number) => {
     setEditingBranch({ branchNodeId, branchType, parentConditionId, parentConditionStepIndex });
     setEditingStep(null);
-    setSelectedStepIndex(null);
     setShowTriggerPanel(false);
     setShowRunsPanel(false);
     setShowAddActionPanel(false);

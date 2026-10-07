@@ -1,5 +1,5 @@
 
-import { useState, useRef, useCallback, useId } from 'react';
+import { useState, useRef, useCallback, useId, type ReactNode } from 'react';
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
 import { useProjects } from '@/hooks/queries/use-projects-queries';
@@ -114,12 +114,12 @@ function FormField({
   description,
   required,
   children,
-}: {
+}: Readonly<{
   label: string;
   description?: string;
   required?: boolean;
   children: React.ReactNode;
-}) {
+}>) {
   // Handed to the field's control through context (see localized-variable-input),
   // so clicking the label focuses it and screen readers announce a named field.
   const fieldId = useId();
@@ -166,7 +166,7 @@ function SetAttributeForm({
   onChange,
   entityType,
   acf,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   entityType: 'person' | 'conversation';
@@ -182,7 +182,7 @@ function SetAttributeForm({
     selectAttribute: string;
     selectValue: string;
   };
-}) {
+}>) {
   const { data: definitions = [], isLoading } = useCustomFields(entityType);
   const current: string = (config.attribute as string | undefined) ?? '';
 
@@ -195,6 +195,50 @@ function SetAttributeForm({
   const legacy = current && !known.has(current) ? [current] : [];
 
   const selectedDef = definitions.find((d) => d.slug === current);
+
+  let valueInput: ReactNode;
+  if (selectedDef?.fieldType === 'boolean') {
+    valueInput = (
+      <Select
+        value={String((config.value as string | undefined) ?? '')}
+        onValueChange={(value) => onChange({ ...config, value: value === 'true' })}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder={acf.selectValue} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="true">true</SelectItem>
+          <SelectItem value="false">false</SelectItem>
+        </SelectContent>
+      </Select>
+    );
+  } else if (selectedDef?.fieldType === 'single_select' && (selectedDef.options?.length ?? 0) > 0) {
+    valueInput = (
+      <Select
+        value={(config.value as string | undefined) ?? undefined}
+        onValueChange={(value) => onChange({ ...config, value })}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder={acf.selectValue} />
+        </SelectTrigger>
+        <SelectContent>
+          {selectedDef.options!.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  } else {
+    valueInput = (
+      <Input
+        value={(config.value as string | undefined) ?? ''}
+        onChange={(e) => onChange({ ...config, value: e.target.value })}
+        placeholder={acf.attributeValuePlaceholder}
+      />
+    );
+  }
 
   return (
     <>
@@ -231,42 +275,7 @@ function SetAttributeForm({
       </FormField>
 
       <FormField label={acf.attributeValue} description={acf.attributeValueDesc}>
-        {selectedDef?.fieldType === 'boolean' ? (
-          <Select
-            value={String((config.value as string | undefined) ?? '')}
-            onValueChange={(value) => onChange({ ...config, value: value === 'true' })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={acf.selectValue} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="true">true</SelectItem>
-              <SelectItem value="false">false</SelectItem>
-            </SelectContent>
-          </Select>
-        ) : selectedDef?.fieldType === 'single_select' && (selectedDef.options?.length ?? 0) > 0 ? (
-          <Select
-            value={(config.value as string | undefined) ?? undefined}
-            onValueChange={(value) => onChange({ ...config, value })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={acf.selectValue} />
-            </SelectTrigger>
-            <SelectContent>
-              {selectedDef.options!.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <Input
-            value={(config.value as string | undefined) ?? ''}
-            onChange={(e) => onChange({ ...config, value: e.target.value })}
-            placeholder={acf.attributeValuePlaceholder}
-          />
-        )}
+        {valueInput}
       </FormField>
     </>
   );
@@ -284,7 +293,7 @@ function SendEmailForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   emailAccounts?: EmailAccountOption[];
@@ -293,7 +302,7 @@ function SendEmailForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -551,13 +560,13 @@ function HttpRequestForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
   steps?: WorkflowStep[];
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -702,14 +711,14 @@ function ConditionForm({
   currentStepIndex = 0,
   triggerType,
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   workflowSteps?: WorkflowStep[];
   currentStepIndex?: number;
   triggerType?: string;
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -791,7 +800,7 @@ function CreateCustomerForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -799,7 +808,7 @@ function CreateCustomerForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
@@ -2589,15 +2598,23 @@ function CreateTaskForm({
   );
 }
 
-function DelayForm({ config, onChange }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+type DelayUnit = 'seconds' | 'minutes' | 'hours' | 'days';
+
+/** The largest unit the saved config uses, so an existing delay reopens as entered. */
+function initialDelayUnit(config: Record<string, unknown>): DelayUnit {
+  if (config.days) return 'days';
+  if (config.hours) return 'hours';
+  if (config.minutes) return 'minutes';
+  return 'seconds';
+}
+
+function DelayForm({ config, onChange }: Readonly<{ config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
-  const [unit, setUnit] = useState<'seconds' | 'minutes' | 'hours' | 'days'>(
-    config.days ? 'days' : config.hours ? 'hours' : config.minutes ? 'minutes' : 'seconds'
-  );
+  const [unit, setUnit] = useState<DelayUnit>(() => initialDelayUnit(config));
   const currentValue = (config[unit] as number | undefined) || (config.seconds as number | undefined) || 0;
 
-  const handleChange = (value: number, newUnit: 'seconds' | 'minutes' | 'hours' | 'days') => {
+  const handleChange = (value: number, newUnit: DelayUnit) => {
     const newConfig = { ...config };
     delete newConfig.seconds;
     delete newConfig.minutes;
@@ -2619,7 +2636,7 @@ function DelayForm({ config, onChange }: { config: Record<string, unknown>; onCh
             onChange={(e) => handleChange(Number.parseInt(e.target.value) || 0, unit)}
             className="flex-1"
           />
-          <Select value={unit} onValueChange={(v) => handleChange(currentValue, v as 'seconds' | 'minutes' | 'hours' | 'days')}>
+          <Select value={unit} onValueChange={(v) => handleChange(currentValue, v as DelayUnit)}>
             <SelectTrigger className="w-32">
               <SelectValue />
             </SelectTrigger>
@@ -2645,13 +2662,13 @@ function LogMessageForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
   steps?: WorkflowStep[];
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -2719,13 +2736,13 @@ function TransformDataForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
   steps?: WorkflowStep[];
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2778,14 +2795,14 @@ function RecordForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   isUpdate?: boolean;
   triggerType?: string;
   steps?: WorkflowStep[];
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2847,13 +2864,13 @@ function DeleteRecordForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
   steps?: WorkflowStep[];
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2909,13 +2926,13 @@ function QueryDataForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
   steps?: WorkflowStep[];
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -2984,14 +3001,14 @@ function LoopForm({
   currentStepIndex = 0,
   triggerType,
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   workflowSteps?: WorkflowStep[];
   currentStepIndex?: number;
   triggerType?: string;
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const previousSteps = workflowSteps.slice(0, currentStepIndex);
@@ -3032,13 +3049,13 @@ function SetVariableForm({
   triggerType,
   steps = [],
   workflowVariables = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
   steps?: WorkflowStep[];
   workflowVariables?: WorkflowVariable[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -3098,14 +3115,14 @@ function SendNotificationForm({
   steps = [],
   workflowVariables = [],
   workspaceMembers = [],
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
   steps?: WorkflowStep[];
   workflowVariables?: WorkflowVariable[];
   workspaceMembers?: WorkspaceMember[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -3427,11 +3444,11 @@ function SendNotificationForm({
 // Helpdesk Action Forms
 // ============================================================================
 
-function AssignConversationForm({ config, onChange, workspaceMembers = [] }: {
+function AssignConversationForm({ config, onChange, workspaceMembers = [] }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
   workspaceMembers?: WorkspaceMember[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -3483,10 +3500,10 @@ function AssignConversationForm({ config, onChange, workspaceMembers = [] }: {
   );
 }
 
-function TagConversationForm({ config, onChange }: {
+function TagConversationForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const [tagInput, setTagInput] = useState('');
@@ -3552,10 +3569,10 @@ function TagConversationForm({ config, onChange }: {
   );
 }
 
-function ChangeConversationStatusForm({ config, onChange }: {
+function ChangeConversationStatusForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -3591,10 +3608,10 @@ function ChangeConversationStatusForm({ config, onChange }: {
   );
 }
 
-function ChangePriorityForm({ config, onChange }: {
+function ChangePriorityForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -3616,10 +3633,10 @@ function ChangePriorityForm({ config, onChange }: {
   );
 }
 
-function SendReplyForm({ config, onChange }: {
+function SendReplyForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -3649,10 +3666,10 @@ function SendReplyForm({ config, onChange }: {
   );
 }
 
-function AddInternalNoteForm({ config, onChange }: {
+function AddInternalNoteForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -3670,10 +3687,10 @@ function AddInternalNoteForm({ config, onChange }: {
   );
 }
 
-function CreateTicketFromConversationForm({ config, onChange }: {
+function CreateTicketFromConversationForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -3716,10 +3733,10 @@ function CreateTicketFromConversationForm({ config, onChange }: {
   );
 }
 
-function ApplySlaForm({ config, onChange }: {
+function ApplySlaForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -3735,10 +3752,10 @@ function ApplySlaForm({ config, onChange }: {
   );
 }
 
-function TriggerCsatForm({ config, onChange }: {
+function TriggerCsatForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   return (
@@ -3756,10 +3773,10 @@ function TriggerCsatForm({ config, onChange }: {
   );
 }
 
-function SendBotMessageForm({ config, onChange }: {
+function SendBotMessageForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -3775,10 +3792,10 @@ function SendBotMessageForm({ config, onChange }: {
   );
 }
 
-function SendChoicesForm({ config, onChange }: {
+function SendChoicesForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -3847,10 +3864,10 @@ function SendChoicesForm({ config, onChange }: {
   );
 }
 
-function CollectInputForm({ config, onChange }: {
+function CollectInputForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -3983,18 +4000,18 @@ function parseFieldsConfig(raw: unknown): CustomerFieldConfig[] {
   return (raw as Array<{ id: string; required?: boolean }>).map((f) => ({ id: f.id, required: f.required ?? f.id === 'email' }));
 }
 
-function CollectCustomerInfoForm({ config, onChange }: {
+function CollectCustomerInfoForm({ config, onChange }: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
   const fieldConfigs = parseFieldsConfig(config.fields);
-  const selectedIds = fieldConfigs.map((f) => f.id);
+  const selectedIds = new Set(fieldConfigs.map((f) => f.id));
 
   const toggleField = (fieldId: string) => {
-    const isSelected = selectedIds.includes(fieldId);
+    const isSelected = selectedIds.has(fieldId);
     const next = isSelected
       ? fieldConfigs.filter((f) => f.id !== fieldId)
       : [...fieldConfigs, { id: fieldId, required: false }];
@@ -4023,7 +4040,7 @@ function CollectCustomerInfoForm({ config, onChange }: {
       <FormField label={acf.fieldsToCollect} required description={acf.fieldsToCollectDesc}>
         <div className="space-y-2">
           {CUSTOMER_INFO_FIELDS.map((field) => {
-            const isSelected = selectedIds.includes(field.id);
+            const isSelected = selectedIds.has(field.id);
             const fc = fieldConfigs.find((f) => f.id === field.id);
             return (
               <div
@@ -4085,7 +4102,7 @@ function AiGenerateForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -4093,7 +4110,7 @@ function AiGenerateForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -4173,7 +4190,7 @@ function AiClassifyForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -4181,7 +4198,7 @@ function AiClassifyForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const st = useTranslations();
@@ -4414,7 +4431,7 @@ export function ActionConfigForm({
   triggerType,
   extraVariableGroups,
   excludeGroups,
-}: ActionConfigFormProps) {
+}: Readonly<ActionConfigFormProps>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   // Get previous steps for variable context
