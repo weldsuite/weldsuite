@@ -39,7 +39,7 @@ export default function SSOCallbackPage() {
       }
     }
 
-    handleCallback();
+    void handleCallback();
   }, [handleRedirectCallback]);
 
   // Once authenticated, check org membership and redirect appropriately

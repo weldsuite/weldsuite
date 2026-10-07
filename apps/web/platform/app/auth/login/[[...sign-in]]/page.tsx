@@ -595,7 +595,7 @@ export default function LoginPage() {
                     setTwoFactorCode(value);
                     if (error) setError(null);
                     if (value.length === 6) {
-                      handleEmailVerifySubmit({ preventDefault: () => {} } as React.FormEvent, value);
+                      void handleEmailVerifySubmit({ preventDefault: () => {} } as React.FormEvent, value);
                     }
                   }}
                   disabled={isLoading}
@@ -681,7 +681,7 @@ export default function LoginPage() {
                     setFirstFactorCode(value);
                     if (error) setError(null);
                     if (value.length === 6) {
-                      handleFirstFactorVerifySubmit({ preventDefault: () => {} } as React.FormEvent, value);
+                      void handleFirstFactorVerifySubmit({ preventDefault: () => {} } as React.FormEvent, value);
                     }
                   }}
                   disabled={isLoading}
