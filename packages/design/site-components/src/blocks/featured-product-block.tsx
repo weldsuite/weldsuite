@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Star, ChevronLeft, ChevronRight, Minus, Plus, Truck, Store, Undo2 } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
+import { asText } from '@weldsuite/text';
 
 // Shop app style with 60/40 split
 
@@ -100,7 +101,7 @@ export function FeaturedProductBlock({
     { name: 'Green', color: '#10B981' },
   ];
 
-  const hasCompareAtPrice = compareAtPrice && Number.parseFloat(compareAtPrice) > Number.parseFloat(String(finalPrice));
+  const hasCompareAtPrice = compareAtPrice && Number.parseFloat(compareAtPrice) > Number.parseFloat(asText(finalPrice));
 
   return (
     <div

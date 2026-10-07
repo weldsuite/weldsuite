@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
+import { asText } from '@weldsuite/text';
 
 /**
  * Minimal JUnit XML reader shared by every framework (Vitest, Playwright,
@@ -52,8 +53,8 @@ function failureMessage(node: unknown): string {
 }
 
 function testCaseName(tc: Record<string, unknown>): string {
-  const name = String(tc['@_name'] ?? 'unnamed test');
-  const classname = tc['@_classname'] ? String(tc['@_classname']) : '';
+  const name = asText(tc['@_name'] ?? 'unnamed test');
+  const classname = tc['@_classname'] ? asText(tc['@_classname']) : '';
   return classname && !name.startsWith(classname)
     ? `${classname} › ${name}`
     : name;

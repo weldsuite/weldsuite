@@ -25,6 +25,7 @@ import {
 } from './domain-search';
 import { parseDomainPricelist, PRICELIST_CURRENCY, type DomainWholesalePrice } from './pricelist';
 import { isPrivacyProtectUnsupportedError } from './privacy-protect';
+import { asText } from '@weldsuite/text';
 
 export type RegistrarFetch = typeof fetch;
 export { RealtimeRegistrarError } from './errors';
@@ -429,7 +430,7 @@ function requestTransportError(err: unknown, endpoint: string): RealtimeRegistra
   return new RealtimeRegistrarError(
     0,
     aborted ? 'TIMEOUT' : 'NETWORK_ERROR',
-    `Realtime Register ${aborted ? 'timeout' : 'network error'} on ${endpoint}: ${err instanceof Error ? err.message : String(err)}`,
+    `Realtime Register ${aborted ? 'timeout' : 'network error'} on ${endpoint}: ${err instanceof Error ? err.message : asText(err)}`,
     endpoint,
   );
 }

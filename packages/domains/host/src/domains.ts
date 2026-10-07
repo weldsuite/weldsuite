@@ -37,6 +37,7 @@ import {
   MAX_CHECKOUT_DOMAINS,
   toPublicDomain,
 } from '@weldsuite/core-api-client/schemas/domains';
+import { asText } from '@weldsuite/text';
 
 export { toPublicDomain, isHiddenUnpaidDomain };
 
@@ -1630,7 +1631,7 @@ export function registrationStatusFromDomain(row: RegistrationStatusSource): Reg
 
   const metadataError =
     row.metadata && typeof row.metadata === 'object' && 'error' in row.metadata
-      ? String((row.metadata as { error?: unknown }).error ?? '')
+      ? asText((row.metadata as { error?: unknown }).error ?? '')
       : '';
 
   return {

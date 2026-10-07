@@ -27,6 +27,7 @@ import { getTenantDbForWorkspace, schema, type Database } from '@weldsuite/worke
 import type { TaskImportError } from '@weldsuite/db/schema/task-import-jobs';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { allocateTaskNumbers } from '../task-numbering';
+import { asText } from '@weldsuite/text';
 
 /**
  * The bindings the workflow reads: tenant DB resolution plus the R2 bucket
@@ -79,7 +80,7 @@ const VALID_TYPES = ['task', 'bug', 'story', 'epic', 'feature', 'improvement', '
 
 function parseDate(value: unknown): Date | null {
   if (!value) return null;
-  const d = new Date(String(value).trim());
+  const d = new Date(asText(value).trim());
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -104,7 +105,7 @@ function normalizeEnum(
   sanitize: (value: string) => string = (value) => value,
 ): string {
   if (!raw) return fallback;
-  const value = sanitize(String(raw).toLowerCase().trim());
+  const value = sanitize(asText(raw).toLowerCase().trim());
   return valid.includes(value) ? value : fallback;
 }
 

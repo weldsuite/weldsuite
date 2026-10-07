@@ -12,6 +12,7 @@ import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { asText } from '@weldsuite/text';
 
 const { mailTemplates } = schema;
 
@@ -235,7 +236,7 @@ export async function renderTemplate(
 
 function substitute(input: string, vars: Record<string, unknown>, escapeHtml: boolean): string {
   return input.replaceAll(/\{\{\s*([\w.-]+)\s*\}\}/g, (_, key) => {
-    const raw = String(vars[key] ?? '');
+    const raw = asText(vars[key] ?? '');
     return escapeHtml ? htmlEscape(raw) : raw;
   });
 }

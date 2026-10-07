@@ -7,6 +7,7 @@ const nextConfig = {
     '@weldsuite/meet-domain',
     '@weldsuite/realtime',
     '@weldsuite/worker-kit',
+    '@weldsuite/text',
   ],
   typescript: {
     ignoreBuildErrors: true,

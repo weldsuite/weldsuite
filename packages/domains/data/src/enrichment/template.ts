@@ -8,6 +8,7 @@
  */
 
 import type { LeadRow } from './actions/types';
+import { asText } from '@weldsuite/text';
 
 const BASE_FIELDS: (keyof LeadRow)[] = [
   'name',
@@ -30,7 +31,7 @@ export function resolveTemplate(
   const lookup = new Map<string, string>();
   const put = (key: string, value: unknown) => {
     if (value === undefined || value === null) return;
-    lookup.set(key.toLowerCase(), String(value));
+    lookup.set(key.toLowerCase(), asText(value));
   };
 
   for (const field of BASE_FIELDS) put(field as string, lead[field]);

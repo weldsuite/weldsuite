@@ -24,6 +24,7 @@ import { BaseZones } from 'cloudflare/resources/zones/zones';
 import { Records } from 'cloudflare/resources/dns/records';
 import type { RecordCreateParams, RecordResponse } from 'cloudflare/resources/dns/records';
 import type { ClientOptions } from 'cloudflare/client';
+import { asText } from '@weldsuite/text';
 
 export class CloudflareZoneError extends Error {
   constructor(
@@ -90,7 +91,7 @@ function toZoneError(err: unknown): CloudflareZoneError {
   if (!(err instanceof APIError)) {
     return new CloudflareZoneError(
       'UNKNOWN',
-      err instanceof Error ? err.message : String(err),
+      err instanceof Error ? err.message : asText(err),
     );
   }
   const cfErrors = (err.errors ?? []).map((e) => ({

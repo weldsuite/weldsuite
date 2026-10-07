@@ -2306,6 +2306,10 @@ importers:
         version: 5.9.2
 
   apps/tools/test-dashboard:
+    dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
     devDependencies:
       '@types/node':
         specifier: ^20.14.0
@@ -3108,6 +3112,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       '@weldsuite/ui':
         specifier: workspace:*
         version: link:../../../packages/design/ui
@@ -3964,6 +3971,9 @@ importers:
       '@cloudflare/sandbox':
         specifier: ^0.6.7
         version: 0.6.11
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       hono:
         specifier: ^4.12.34
         version: 4.12.34
@@ -3995,6 +4005,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       hono:
         specifier: ^4.12.34
         version: 4.12.34
@@ -4110,6 +4123,9 @@ importers:
       '@weldsuite/stripe':
         specifier: workspace:*
         version: link:../../../packages/core/stripe
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       '@weldsuite/worker-email':
         specifier: workspace:*
         version: link:../../../packages/core/worker-email
@@ -4217,6 +4233,9 @@ importers:
       '@weldsuite/realtime-registrar':
         specifier: workspace:*
         version: link:../../../packages/core/realtime-registrar
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
@@ -4275,6 +4294,9 @@ importers:
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../../../packages/core/permissions
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../../packages/core/worker-kit
@@ -4546,6 +4568,9 @@ importers:
       '@weldsuite/sendcloud':
         specifier: workspace:*
         version: link:../../../packages/core/sendcloud
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       '@weldsuite/worker-email':
         specifier: workspace:*
         version: link:../../../packages/core/worker-email
@@ -4826,6 +4851,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       '@weldsuite/worker-email':
         specifier: workspace:*
         version: link:../../../packages/core/worker-email
@@ -5417,6 +5445,9 @@ importers:
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../../../packages/core/permissions
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       '@weldsuite/worker-email':
         specifier: workspace:*
         version: link:../../../packages/core/worker-email
@@ -6055,6 +6086,10 @@ importers:
         version: 4.95.0(@cloudflare/workers-types@4.20260113.0)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
 
   packages/clients/api-client:
+    dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
     devDependencies:
       '@weldsuite/typescript-config':
         specifier: workspace:*
@@ -6084,6 +6119,9 @@ importers:
 
   packages/clients/core-api-client:
     dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       zod:
         specifier: ^3.25.76
         version: 3.25.76
@@ -6154,6 +6192,9 @@ importers:
       '@ai-sdk/openai-compatible':
         specifier: ^3.0.0
         version: 3.0.6(zod@4.3.6)
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
       ai:
         specifier: ^7.0.0
         version: 7.0.18(zod@4.3.6)
@@ -6194,6 +6235,9 @@ importers:
 
   packages/core/cloudflare-deploy:
     dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
       cloudflare:
         specifier: ^7.0.0
         version: 7.0.0
@@ -6242,6 +6286,9 @@ importers:
 
   packages/core/cloudflare-zones:
     dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
       cloudflare:
         specifier: ^7.0.0
         version: 7.0.0
@@ -6468,6 +6515,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../db
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
@@ -6624,6 +6674,10 @@ importers:
         version: 5.9.2
 
   packages/core/realtime-registrar:
+    dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0
@@ -6695,6 +6749,10 @@ importers:
         version: 3.2.7(@types/debug@4.1.12)(@types/node@26.2.0)(jiti@2.7.0)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(lightningcss@1.32.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.0)
 
   packages/core/stripe:
+    dependencies:
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0
@@ -6735,6 +6793,9 @@ importers:
       '@weldsuite/email':
         specifier: workspace:*
         version: link:../email
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0
@@ -6772,6 +6833,9 @@ importers:
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../permissions
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../text
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
@@ -6867,6 +6931,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../core/db
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       '@weldsuite/ui':
         specifier: workspace:*
         version: link:../ui
@@ -7124,6 +7191,9 @@ importers:
       '@cloudflare/realtimekit-virtual-background':
         specifier: ^0.0.2
         version: 0.0.2
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       '@weldsuite/ui':
         specifier: workspace:*
         version: link:../ui
@@ -7231,6 +7301,9 @@ importers:
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../../core/permissions
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../core/worker-kit
@@ -7505,6 +7578,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../core/db
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../core/worker-kit
@@ -7570,6 +7646,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../core/entity-events
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       '@weldsuite/worker-email':
         specifier: workspace:*
         version: link:../../core/worker-email
@@ -7613,6 +7692,9 @@ importers:
       '@weldsuite/stripe':
         specifier: workspace:*
         version: link:../../core/stripe
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../core/text
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../core/worker-kit

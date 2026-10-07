@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "hono": "^4.12.34"
   },
   "devDependencies": {

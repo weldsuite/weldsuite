@@ -28,6 +28,7 @@ import type { IndexableDocument, DocumentPage } from './documents';
 import { getValuesForEntities, getDefinitionsForEntityType } from '@weldsuite/core-domain/custom-field-values';
 import { getCustomObjectByEntityKey, type CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
 import { isMissingTable } from '@weldsuite/worker-kit/pg-errors';
+import { asText } from '@weldsuite/text';
 
 const records = schema.customObjectRecords;
 
@@ -66,7 +67,7 @@ function renderContent(
     if (!SEMANTIC_FIELD_TYPES.has(def.fieldType)) continue;
     const raw = fields[def.slug];
     if (raw === undefined || raw === null || raw === '') continue;
-    const value = Array.isArray(raw) ? raw.join(', ') : String(raw);
+    const value = Array.isArray(raw) ? raw.join(', ') : asText(raw);
     if (!value.trim()) continue;
     lines.push(`${def.name}: ${value}`);
   }
