@@ -175,7 +175,7 @@ export function MembersClient({
         setSelectedUserIds([]);
         setSelectedRole('member');
         setAllocation('100');
-        loadData();
+        void loadData();
       }
     } catch {
       toast.error(t.projects.members.failedToAddMembers);
@@ -188,7 +188,7 @@ export function MembersClient({
     const result = await membersApi.update(projectId, userId, { role: newRole });
     if (result.success) {
       toast.success(t.projects.members.roleUpdated);
-      loadData();
+      void loadData();
     } else {
       toast.error(result.error || t.projects.members.failedToUpdateRole);
     }
@@ -215,7 +215,7 @@ export function MembersClient({
     const result = await membersApi.remove(projectId, userId);
     if (result.success) {
       toast.success(t.projects.members.memberRemoved);
-      loadData();
+      void loadData();
     } else {
       toast.error(result.error || t.projects.members.failedToRemoveMember);
     }
@@ -441,7 +441,7 @@ export function MembersClient({
         onRemoveMember={(memberId) => {
           const member = members.find(m => m.id === memberId);
           if (member) {
-            handleRemoveMember(member.userId, member.user?.name || t.projects.members.unknown);
+            void handleRemoveMember(member.userId, member.user?.name || t.projects.members.unknown);
             setSelectedMember(null);
           }
         }}
@@ -452,7 +452,7 @@ export function MembersClient({
             const result = await membersApi.update(projectId, member.userId, { role: newRole.toLowerCase() });
             if (result.success) {
               toast.success(t.projects.members.roleUpdated);
-              loadData();
+              void loadData();
             } else {
               toast.error(result.error || t.projects.members.failedToUpdateRole);
             }

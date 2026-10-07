@@ -154,7 +154,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       }
     };
 
-    init();
+    void init();
     return () => { if (cleanupRef.current) cleanupRef.current(); };
   }, [user, organizationId, getCredentials]);
 

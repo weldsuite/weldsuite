@@ -66,7 +66,7 @@ export function CalendarInviteCard({ attachmentId, fileName, size }: Readonly<Ca
     let cancelled = false;
     setLoading(true);
     setEvent(null);
-    (async () => {
+    void (async () => {
       try {
         const text = await (await fetchMailAttachment(attachmentId)).text();
         const parsed = parseIcs(text);

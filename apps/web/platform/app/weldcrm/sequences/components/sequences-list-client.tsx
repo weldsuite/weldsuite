@@ -172,7 +172,7 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
         // load) refetches and includes the just-created sequence — otherwise
         // the 5-minute staleTime keeps the old list cached and the new
         // sequence appears to vanish.
-        queryClient.invalidateQueries({ queryKey: sequenceKeys.lists() });
+        void queryClient.invalidateQueries({ queryKey: sequenceKeys.lists() });
         router.push(`/weldcrm/sequences/${result.data.id}`);
       } else {
         toast.error(t('crm.sequences.createFailed'));
@@ -448,7 +448,7 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreate();
+                  if (e.key === 'Enter') void handleCreate();
                 }}
               />
             </div>

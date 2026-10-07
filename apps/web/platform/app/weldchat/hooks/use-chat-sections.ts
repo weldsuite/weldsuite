@@ -76,7 +76,7 @@ export function useChatSections() {
         localStorage.getItem(LEGACY_CHANNEL_SECTIONS_KEY) || '{}',
       );
 
-      (async () => {
+      void (async () => {
         const idMap: Record<string, string> = {}; // old localStorage id → new DB id
         for (let i = 0; i < parsed.length; i++) {
           try {

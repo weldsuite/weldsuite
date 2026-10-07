@@ -517,7 +517,7 @@ interface MemberCellProps {
 }
 
 /** Owner / account-manager column — shows the member's name + a picker, never a raw user id. */
-function MemberCell({ ctx }: MemberCellProps) {
+function MemberCell({ ctx }: Readonly<MemberCellProps>) {
   const members = useTeamMembersForGrid();
   const userId = (ctx.value as string | null | undefined) || undefined;
   const selected = members.find((m) => m.userId === userId);
@@ -619,7 +619,7 @@ export function GridCell<TEntity>({
     if (isLocalOnly) {
       updateCustomFieldValue(entityId, column.id, newValue);
     } else {
-      updateEntityField(entityId, column.id, newValue);
+      void updateEntityField(entityId, column.id, newValue);
     }
   };
 
@@ -627,7 +627,7 @@ export function GridCell<TEntity>({
     if (isLocalOnly) {
       updateCustomFieldValue(entityId, column.id, newValue);
     } else {
-      updateEntityField(entityId, column.id, newValue?.toISOString() || null);
+      void updateEntityField(entityId, column.id, newValue?.toISOString() || null);
     }
   };
 

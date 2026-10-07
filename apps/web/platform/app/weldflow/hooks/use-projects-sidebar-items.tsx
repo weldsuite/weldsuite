@@ -291,7 +291,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
   // Initialize projects
   React.useEffect(() => {
     if (!isActive) return;
-    reloadProjects();
+    void reloadProjects();
   }, [isActive, reloadProjects]);
 
   const handleAddProject = () => {
@@ -492,7 +492,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
                   onChange={(e) => setNewProjectName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && newProjectName.trim()) {
-                      handleCreateProject();
+                      void handleCreateProject();
                     }
                   }}
                   autoFocus
@@ -623,7 +623,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && renameValue.trim()) {
                       e.preventDefault();
-                      handleRenameProject();
+                      void handleRenameProject();
                     }
                   }}
                   autoFocus

@@ -114,7 +114,7 @@ export function LabelsSection({ projectId, isAdmin }: Readonly<LabelsSectionProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const startEdit = (label: ProjectLabel) => {
     setEditingId(label.id);
@@ -138,7 +138,7 @@ export function LabelsSection({ projectId, isAdmin }: Readonly<LabelsSectionProp
     if (res.success) {
       toast.success(t.projects.settings.labelUpdated);
       cancelEdit();
-      load();
+      void load();
     } else {
       toast.error(res.error || t.projects.settings.failedToUpdateLabel);
     }
@@ -165,7 +165,7 @@ export function LabelsSection({ projectId, isAdmin }: Readonly<LabelsSectionProp
     if (res.success) {
       toast.success(t.projects.settings.labelCreated);
       cancelAdd();
-      load();
+      void load();
     } else {
       toast.error(res.error || t.projects.settings.failedToCreateLabel);
     }
@@ -179,7 +179,7 @@ export function LabelsSection({ projectId, isAdmin }: Readonly<LabelsSectionProp
     if (res.success) {
       toast.success(t.projects.settings.labelDeleted);
       setDeleteTarget(null);
-      load();
+      void load();
     } else {
       toast.error(res.error || t.projects.settings.failedToDeleteLabel);
     }
@@ -379,7 +379,7 @@ export function LabelsSection({ projectId, isAdmin }: Readonly<LabelsSectionProp
                   placeholder={t.projects.settings.labelNamePlaceholder}
                   autoFocus
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newLabel.name.trim()) saveAdd();
+                    if (e.key === 'Enter' && newLabel.name.trim()) void saveAdd();
                   }}
                   className="h-9 flex-1 focus-visible:ring-0 focus-visible:ring-offset-0"
                 />

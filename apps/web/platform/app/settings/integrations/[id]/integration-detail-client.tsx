@@ -338,7 +338,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
 
   const relatedIds = getRelatedIntegrations(integrationId, integration.category);
 
-  const handleConnect = async () => {
+  const handleConnect = () => {
     if (integrationId === 'printnode') {
       setShowConfigDialog(true);
       return;
@@ -382,7 +382,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
    * This cannot be done client-side: the API key is a secret and PrintNode's API
    * is not CORS-accessible from the browser, so the check has to be server-side.
    */
-  const handleTestPrintNode = async () => {
+  const handleTestPrintNode = () => {
     if (!printNodeApiKey) {
       toast.error(ti.messages.enterApiKey);
       return;

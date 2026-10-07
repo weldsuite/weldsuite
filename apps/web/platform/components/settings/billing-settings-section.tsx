@@ -1720,7 +1720,7 @@ export function BillingSettingsSection() {
   const invoices = (invoicesData?.data as InvoiceInfo[]) ?? [];
 
   useEffect(() => {
-    loadData();
+    void loadData();
     // Mount-only load; `loadData` is redefined every render and re-running
     // it on every dependency change would refetch the whole plans/subscription
     // payload in a loop instead of once on open.
@@ -1748,11 +1748,11 @@ export function BillingSettingsSection() {
       } else {
         // On error, show plans view
         setViewMode('plans');
-        loadPlans();
+        void loadPlans();
       }
     } catch {
       setViewMode('plans');
-      loadPlans();
+      void loadPlans();
     }
 
     setLoading(false);
@@ -1781,12 +1781,12 @@ export function BillingSettingsSection() {
 
   const handleUpgrade = () => {
     setViewMode('plans');
-    loadPlans();
+    void loadPlans();
   };
 
   const handleChangePlan = () => {
     setViewMode('plans');
-    loadPlans();
+    void loadPlans();
   };
 
   const handleSelectPlan = (plan: Billing.BillingPlan) => {
@@ -1801,7 +1801,7 @@ export function BillingSettingsSection() {
 
     // Other free plans — proceed directly without seat selection
     if (plan.monthlyPrice === 0) {
-      handleConfirmCheckout(plan, 1);
+      void handleConfirmCheckout(plan, 1);
       return;
     }
 
@@ -1841,10 +1841,12 @@ export function BillingSettingsSection() {
     setError(null);
     setDowngradeBlockers([]);
 
-    if (await isCheckoutBlocked(plan)) return;
-
-    // Create Stripe Checkout session via billing worker
+    // Create Stripe Checkout session via billing worker. The downgrade check
+    // sits inside the try so a failed validation request clears the spinner
+    // and shows an error instead of leaving the dialog stuck.
     try {
+      if (await isCheckoutBlocked(plan)) return;
+
       const result = await changePlanMutation.mutateAsync({
         planId: plan.id,
         seats: seats,

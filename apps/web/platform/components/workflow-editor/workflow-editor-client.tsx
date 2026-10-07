@@ -34,6 +34,7 @@ import {
   MessageCircle,
   Slack,
   Github,
+  FileSpreadsheet,
   Bell,
   Building2,
   Calendar,
@@ -304,6 +305,10 @@ const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: st
   'slack.post_message': { icon: Slack, color: 'text-fuchsia-600', bgColor: 'bg-fuchsia-100 dark:bg-fuchsia-900/30' },
   'github.create_issue': { icon: Github, color: 'text-slate-700', bgColor: 'bg-slate-100 dark:bg-slate-800/40' },
   'github.create_comment': { icon: Github, color: 'text-slate-700', bgColor: 'bg-slate-100 dark:bg-slate-800/40' },
+  'google_sheets.append_row': { icon: FileSpreadsheet, color: 'text-green-600', bgColor: 'bg-green-100 dark:bg-green-900/30' },
+  'google_sheets.update_row': { icon: FileSpreadsheet, color: 'text-green-600', bgColor: 'bg-green-100 dark:bg-green-900/30' },
+  'gmail.send_email': { icon: Mail, color: 'text-red-600', bgColor: 'bg-red-100 dark:bg-red-900/30' },
+  'google_calendar.create_event': { icon: Calendar, color: 'text-blue-600', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
   create_task: { icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
   set_variable: { icon: Code, color: 'text-indigo-600', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
   // Helpdesk actions
@@ -427,6 +432,10 @@ const TASK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'slack.post_message', name: 'Slack: Post Message', description: 'Post a message to a Slack channel', icon: Slack, category: 'integration' },
   { id: 'github.create_issue', name: 'GitHub: Create Issue', description: 'Open a new issue in a repository', icon: Github, category: 'integration' },
   { id: 'github.create_comment', name: 'GitHub: Create Comment', description: 'Comment on an issue or pull request', icon: Github, category: 'integration' },
+  { id: 'google_sheets.append_row', name: 'Google Sheets: Append Row', description: 'Append a row to a spreadsheet', icon: FileSpreadsheet, category: 'integration' },
+  { id: 'google_sheets.update_row', name: 'Google Sheets: Update Row', description: 'Update a row in a spreadsheet', icon: FileSpreadsheet, category: 'integration' },
+  { id: 'gmail.send_email', name: 'Gmail: Send Email', description: 'Send an email from the connected Gmail account', icon: Mail, category: 'integration' },
+  { id: 'google_calendar.create_event', name: 'Google Calendar: Create Event', description: 'Create an event on a Google calendar', icon: Calendar, category: 'integration' },
   { id: 'run_script', name: 'Run Script', description: 'Execute custom JavaScript', icon: Code, category: 'integration' },
   // ai_generate + ai_classify are the only AI action types re-enabled after
   // the platform-wide AI teardown (apps/workers/workflow-worker/src/engine/actions/ai.ts).
@@ -601,6 +610,22 @@ function summarizeGithubCreateComment(config: Record<string, unknown>): string {
   return [repo, issueNumber].filter(Boolean).join(' ');
 }
 
+function summarizeGoogleSheetsRow(config: Record<string, unknown>): string {
+  const spreadsheet = typeof config.spreadsheetId === 'string' ? config.spreadsheetId : '';
+  const sheet = typeof config.sheetName === 'string' && config.sheetName ? `!${config.sheetName}` : '';
+  return spreadsheet ? `${spreadsheet}${sheet}` : '';
+}
+
+function summarizeGmailSendEmail(config: Record<string, unknown>): string {
+  const to = typeof config.to === 'string' ? config.to : '';
+  const subject = typeof config.subject === 'string' ? config.subject : '';
+  return [to, subject].filter(Boolean).join(': ');
+}
+
+function summarizeGoogleCalendarCreateEvent(config: Record<string, unknown>): string {
+  return typeof config.summary === 'string' ? config.summary : '';
+}
+
 const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['send_email', summarizeSendEmail],
   ['http_request', summarizeHttpRequest],
@@ -620,6 +645,10 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['slack.post_message', summarizeSlackPostMessage],
   ['github.create_issue', summarizeGithubCreateIssue],
   ['github.create_comment', summarizeGithubCreateComment],
+  ['google_sheets.append_row', summarizeGoogleSheetsRow],
+  ['google_sheets.update_row', summarizeGoogleSheetsRow],
+  ['gmail.send_email', summarizeGmailSendEmail],
+  ['google_calendar.create_event', summarizeGoogleCalendarCreateEvent],
   ['create_task', summarizeTask],
 ]);
 

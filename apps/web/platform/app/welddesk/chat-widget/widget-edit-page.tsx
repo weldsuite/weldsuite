@@ -36,7 +36,7 @@ export default function WidgetEditPage({ widgetId }: Readonly<WidgetEditPageProp
         setShowCreateDialog(false);
         setNewWidgetName('');
         toast.success(tw.widgetCreated);
-        navigate({ to: '/welddesk/chat-widget/$widgetId', params: { widgetId: result.data.widgetId } });
+        void navigate({ to: '/welddesk/chat-widget/$widgetId', params: { widgetId: result.data.widgetId } });
       }
     } catch {
       toast.error(tw.failedToCreateWidget);
@@ -104,7 +104,7 @@ export default function WidgetEditPage({ widgetId }: Readonly<WidgetEditPageProp
               value={newWidgetName}
               onChange={(e) => setNewWidgetName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !createWidget.isPending) handleCreate();
+                if (e.key === 'Enter' && !createWidget.isPending) void handleCreate();
               }}
               autoFocus
               className="mt-2"

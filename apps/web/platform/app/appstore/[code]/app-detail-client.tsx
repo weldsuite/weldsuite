@@ -138,7 +138,7 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
             if (app.isInstalled) {
               setShowUninstallDialog(true);
             } else {
-              handleInstall();
+              void handleInstall();
             }
           }}
         >

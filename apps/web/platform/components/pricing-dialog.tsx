@@ -740,7 +740,7 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
   // while the dialog is open instead of only when it opens.
   useEffect(() => {
     if (open) {
-      loadData();
+      void loadData();
       setViewMode('plans');
       setSelectedPlanForCheckout(null);
       track('Pricing Viewed');

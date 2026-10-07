@@ -73,7 +73,7 @@ export function ResourceUsage({ collapsed = false }: ResourceUsageProps) {
         setIsLoading(false);
       }
     }
-    checkRole();
+    void checkRole();
   }, [getClient]);
 
   const handlePlanChanged = React.useCallback(() => {

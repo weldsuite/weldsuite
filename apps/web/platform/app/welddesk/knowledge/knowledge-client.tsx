@@ -788,7 +788,7 @@ export function KnowledgeClient({
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    handleCreateFolder();
+                    void handleCreateFolder();
                   }
                 }}
               />

@@ -15,6 +15,10 @@ const workflowIntegrationKeys = {
     [...workflowIntegrationKeys.all, 'slack-channels', id] as const,
   githubRepos: (id: string | undefined) =>
     [...workflowIntegrationKeys.all, 'github-repos', id] as const,
+  googleSpreadsheet: (id: string | undefined, spreadsheetIdOrUrl: string | undefined) =>
+    [...workflowIntegrationKeys.all, 'google-spreadsheet', id, spreadsheetIdOrUrl] as const,
+  googleCalendars: (id: string | undefined) =>
+    [...workflowIntegrationKeys.all, 'google-calendars', id] as const,
 };
 
 // =============================================================================
@@ -158,6 +162,63 @@ export function useGithubRepos(integrationId: string | undefined) {
       const client = await getClient();
       return client.get<{ data: GithubRepoOption[] }>(
         `/workflow-integrations/${integrationId}/github/repos`,
+      );
+    },
+    enabled: !!integrationId,
+  });
+}
+
+export interface GoogleSheetTab {
+  sheetId: number;
+  title: string;
+}
+
+export interface GoogleSpreadsheetInfo {
+  spreadsheetId: string;
+  title: string;
+  url: string;
+  sheets: GoogleSheetTab[];
+}
+
+/**
+ * Resolves a pasted spreadsheet id/URL to its title + sheet tabs — backs both
+ * the spreadsheet field (validation) and the sheet-tab picker in the
+ * google_sheets.append_row / update_row step forms. No Drive scope is
+ * requested (see connect-api's services/workflow-integrations/google.ts), so
+ * there is no "browse my Drive" picker — the id/URL is pasted, not selected.
+ */
+export function useGoogleSpreadsheet(integrationId: string | undefined, spreadsheetIdOrUrl: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: workflowIntegrationKeys.googleSpreadsheet(integrationId, spreadsheetIdOrUrl),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: GoogleSpreadsheetInfo }>(
+        `/workflow-integrations/${integrationId}/google_sheets/spreadsheet?spreadsheetId=${encodeURIComponent(spreadsheetIdOrUrl ?? '')}`,
+      );
+    },
+    enabled: !!integrationId && !!spreadsheetIdOrUrl,
+    retry: false,
+  });
+}
+
+export interface GoogleCalendarOption {
+  id: string;
+  summary: string;
+  primary: boolean;
+  accessRole: string;
+}
+
+/** Calendars the connected Google account can write to — the
+ *  google_calendar.create_event step form's calendar picker. */
+export function useGoogleCalendars(integrationId: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: workflowIntegrationKeys.googleCalendars(integrationId),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: GoogleCalendarOption[] }>(
+        `/workflow-integrations/${integrationId}/google_calendar/calendars`,
       );
     },
     enabled: !!integrationId,

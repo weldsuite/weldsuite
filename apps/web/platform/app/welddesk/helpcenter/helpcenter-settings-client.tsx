@@ -27,6 +27,7 @@ import {
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { EmptyStateIllustration } from '@/components/entity-list';
+import { copyText } from '@/lib/clipboard';
 
 export interface HelpcenterSettingsData {
   id?: string;
@@ -359,8 +360,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Readonly<Props>) {
               variant="ghost"
               size="sm"
               onClick={() => {
-                navigator.clipboard.writeText(`https://${settings.defaultSubdomain}`);
-                toast.success(th.copiedToClipboard);
+                copyText(`https://${settings.defaultSubdomain}`, () => toast.success(th.copiedToClipboard));
               }}
             >
               <Copy className="h-3.5 w-3.5" />

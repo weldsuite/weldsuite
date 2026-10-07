@@ -72,7 +72,7 @@ export default function WhiteboardPage() {
   }, [projectId]);
 
   useEffect(() => {
-    loadWhiteboards();
+    void loadWhiteboards();
   }, [loadWhiteboards]);
 
   const filterConfigs: FilterConfig[] = useMemo(() => [], []);
@@ -271,7 +271,7 @@ export default function WhiteboardPage() {
                 onChange={(e) => setNewWhiteboardName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isCreating) {
-                    handleCreateWhiteboard();
+                    void handleCreateWhiteboard();
                   }
                 }}
               />

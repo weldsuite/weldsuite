@@ -213,6 +213,40 @@ describe('/api/workflows · pglite integration', () => {
       expect((await setStatus(request, id, 'active')).status).toBe(200);
     });
 
+    it('refuses activating a gmail.send_email step with no connected Gmail integration', async () => {
+      const request = app();
+      const { res, id } = await create(request, {
+        name: 'Gmail ping',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'gmail.send_email', config: { to: 'jane@acme.com', subject: 'Hi', body: 'Hi' } }],
+      });
+      expect(res.status).toBe(201);
+
+      const activate = await setStatus(request, id, 'active');
+      expect(activate.status).toBe(400);
+      const body = (await activate.json()) as {
+        error: { details: { reason: string; issues: Array<{ code: string }> } };
+      };
+      expect(body.error.details.issues.map((i) => i.code)).toEqual(['integration_not_connected']);
+    });
+
+    it('activates a gmail.send_email step once a Gmail integration is connected', async () => {
+      await db.insert(schema.workflowIntegrations).values({
+        id: generateId('win'),
+        name: 'Gmail',
+        type: 'gmail',
+        status: 'connected',
+      });
+
+      const request = app();
+      const { id } = await create(request, {
+        name: 'Gmail ping (connected)',
+        triggers: [{ id: 'trigger-1', type: 'schedule', scheduleType: 'recurring', cronExpression: '0 9 * * *' }],
+        steps: [{ id: 'step-1', type: 'gmail.send_email', config: { to: 'jane@acme.com', subject: 'Hi', body: 'Hi' } }],
+      });
+      expect((await setStatus(request, id, 'active')).status).toBe(200);
+    });
+
     it('leaves CRM sequences out of the gate', async () => {
       const request = app();
       const { id } = await create(request, {

@@ -8,7 +8,7 @@
  */
 
 import { z } from 'zod';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, like, lt, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
@@ -22,9 +22,18 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { workflowIntegrationOAuthRoutes } from './oauth';
 import { listSlackChannels, testSlackAuth } from '../../services/workflow-integrations/slack';
 import { listGithubRepos, testGithubAuth } from '../../services/workflow-integrations/github';
+import {
+  testGoogleAuth,
+  getGoogleSpreadsheet,
+  listGoogleCalendars,
+} from '../../services/workflow-integrations/google';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const wi = schema.workflowIntegrations;
+
+// All three share the Google OAuth client and the same userinfo-ping test —
+// 'gmail' doesn't match a `startsWith('google')` check, so this is explicit.
+const GOOGLE_INTEGRATION_TYPES = new Set(['google_sheets', 'gmail', 'google_calendar']);
 
 // OAuth + API-key connect flow (POST /:provider/authorize|callback|apikey).
 app.route('/', workflowIntegrationOAuthRoutes);
@@ -287,12 +296,10 @@ app.post('/:id/test', requirePermission('integrations:create'), async (c) => {
       const result = await testSlackAuth(token);
       ok = result.ok;
       detail = result.message;
-    } else if (integration.type.startsWith('google')) {
-      const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      ok = r.ok;
-      detail = r.ok ? 'Google token valid' : `userinfo returned ${r.status}`;
+    } else if (GOOGLE_INTEGRATION_TYPES.has(integration.type)) {
+      const result = await testGoogleAuth(token);
+      ok = result.ok;
+      detail = result.message;
     } else {
       ok = true;
       detail = 'Token present';
@@ -353,6 +360,58 @@ app.get('/:id/github/repos', requirePermission('integrations:read'), async (c) =
   } catch (err) {
     console.error('[connect-api/workflow-integrations] github repos failed:', err);
     return error.internal(c, 'Failed to list GitHub repositories');
+  }
+});
+
+/** Shared setup for a Google provider's picker routes: load the row, decrypt
+ *  its token, and check it is actually that provider's type. */
+async function loadGoogleToken(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  id: string,
+  expectedType: string,
+) {
+  const db = c.get('tenantDb');
+  const encKey = { v1: c.env.DATABASE_ENCRYPTION_KEY, v2: c.env.DATABASE_ENCRYPTION_KEY_V2 };
+  const [integration] = await db.select().from(wi).where(and(eq(wi.id, id), isNull(wi.deletedAt))).limit(1);
+  if (!integration) return { error: error.notFound(c, 'Integration', id) } as const;
+  if (integration.type !== expectedType) return { error: error.badRequest(c, `Not a ${expectedType} integration`) } as const;
+  const tokens = integration.oauthTokens as { accessToken?: string } | null;
+  if (!tokens?.accessToken) return { error: error.badRequest(c, 'Integration is not connected') } as const;
+  const token = await maybeDecryptField(tokens.accessToken, encKey);
+  return { token } as const;
+}
+
+// Spreadsheet + sheet-tab picker — one call resolves a pasted spreadsheet
+// id/URL and returns its title and tabs (no Drive scope is requested; see
+// services/workflow-integrations/google.ts for why there is no "browse my
+// Drive" picker here).
+app.get('/:id/google_sheets/spreadsheet', requirePermission('integrations:read'), async (c) => {
+  const id = c.req.param('id');
+  const spreadsheetIdOrUrl = c.req.query('spreadsheetId');
+  if (!spreadsheetIdOrUrl) return error.badRequest(c, 'spreadsheetId query param is required');
+  const resolved = await loadGoogleToken(c, id, 'google_sheets');
+  if ('error' in resolved) return resolved.error;
+  try {
+    const info = await getGoogleSpreadsheet(resolved.token, spreadsheetIdOrUrl);
+    return success(c, info);
+  } catch (err) {
+    console.error('[connect-api/workflow-integrations] google sheets spreadsheet lookup failed:', err);
+    return error.badRequest(c, 'Could not read that spreadsheet. Check the id/URL and that this Google account can open it.');
+  }
+});
+
+// Calendar picker (calendarList.list) — the google_calendar.create_event step
+// form's calendar dropdown.
+app.get('/:id/google_calendar/calendars', requirePermission('integrations:read'), async (c) => {
+  const id = c.req.param('id');
+  const resolved = await loadGoogleToken(c, id, 'google_calendar');
+  if ('error' in resolved) return resolved.error;
+  try {
+    const calendars = await listGoogleCalendars(resolved.token);
+    return success(c, calendars);
+  } catch (err) {
+    console.error('[connect-api/workflow-integrations] google calendar list failed:', err);
+    return error.internal(c, 'Failed to list Google calendars');
   }
 });
 
