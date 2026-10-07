@@ -461,7 +461,7 @@ export const mail = {
       createNewContact: 'Crear nuevo contacto',
       noPeopleFound: 'No se encontraron personas',
       noRecentPeople: 'No hay destinatarios recientes',
-      createNewPerson: 'Añadir como nueva persona',
+      createNewPerson: 'Añadir nuevo destinatario',
       personCreated: 'Persona añadida',
       failedToCreatePerson: 'No se pudo añadir la persona',
       writePlaceholder: 'Escribe tu mensaje...',
