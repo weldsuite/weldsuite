@@ -171,7 +171,7 @@ export async function acknowledgeCoachingLog(db: Database, id: string, employeeI
 // Evaluation forms
 // ---------------------------------------------------------------------------
 
-export async function listEvaluationForms(db: Database, includeInactive = true) {
+export function listEvaluationForms(db: Database, includeInactive = true) {
   const conditions: SQL[] = [isNull(ef.deletedAt)];
   if (!includeInactive) conditions.push(eq(ef.isActive, true));
   return db.select().from(ef).where(and(...conditions)).orderBy(asc(ef.name));

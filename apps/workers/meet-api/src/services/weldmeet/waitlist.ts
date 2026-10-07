@@ -15,7 +15,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 
 export type WaitlistEntry = typeof schema.meetingSessionWaitlist.$inferSelect;
 
-export async function listWaitlist(
+export function listWaitlist(
   db: Database,
   meetingId: string,
   status: 'pending' | 'admitted' | 'denied' | 'all' = 'pending',

@@ -73,7 +73,7 @@ export { ImportTasksWorkflow } from '@weldsuite/flow-domain/workflows/import-tas
 
 export default {
   fetch: app.fetch,
-  scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+  scheduled: (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     // Hourly: send task digests (moved here from app-api's scheduled()).
     if (event.cron === '0 * * * *') {
       ctx.waitUntil(

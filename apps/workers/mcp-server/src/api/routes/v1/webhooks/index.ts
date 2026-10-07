@@ -32,7 +32,7 @@ const listWebhooksQuery = z.object({
 const table = schema.workflowWebhooks;
 const app = new Hono<HonoEnv>();
 
-app.get('/events', requireScope('webhooks:read'), async (c) => {
+app.get('/events', requireScope('webhooks:read'), (c) => {
   const events = listAllEvents().map((event) => {
     const dotIdx = event.indexOf('.');
     const entity = event.slice(0, dotIdx);

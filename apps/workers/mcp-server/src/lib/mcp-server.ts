@@ -211,7 +211,7 @@ export async function createMcpServer(
   }
 
   // Register workspace info resource
-  server.resource('workspace-info', 'weldsuite://workspace/info', { description: 'Workspace name, plan tier, and configuration' }, async () => {
+  server.resource('workspace-info', 'weldsuite://workspace/info', { description: 'Workspace name, plan tier, and configuration' }, () => {
     const info = {
       workspaceId: session.workspaceId,
       workspaceName: session.workspaceName,

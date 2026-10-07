@@ -423,7 +423,7 @@ export async function deleteEmployee(db: Database, id: string): Promise<void> {
 // Sensitive block
 // ---------------------------------------------------------------------------
 
-async function encryptSensitive(value: HrEmployeeSensitive, keyring: EncryptionKeyring): Promise<string> {
+function encryptSensitive(value: HrEmployeeSensitive, keyring: EncryptionKeyring): Promise<string> {
   if (!keyring.v1 && !keyring.v2) {
     throw new HrValidationError('Sensitive employee data cannot be stored: the worker has no encryption key');
   }

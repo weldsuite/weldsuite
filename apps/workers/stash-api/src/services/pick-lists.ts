@@ -115,7 +115,7 @@ async function loadPickList(db: Database, id: string) {
   return row ?? null;
 }
 
-async function loadItems(db: Database, pickListId: string) {
+function loadItems(db: Database, pickListId: string) {
   return db
     .select()
     .from(pickListItems)

@@ -413,16 +413,16 @@ export class GoogleCalendarSyncAdapter implements CrmSyncAdapter {
 
   // ---------- Webhooks (Google Watch API) ----------
 
-  async verifyWebhookSignature(
+  verifyWebhookSignature(
     _body: string,
     headers: Record<string, string>,
     secret: string,
   ): Promise<boolean> {
     try {
       const parsed = JSON.parse(secret) as { token: string };
-      return headers['x-goog-channel-token'] === parsed.token;
+      return Promise.resolve(headers['x-goog-channel-token'] === parsed.token);
     } catch {
-      return false;
+      return Promise.resolve(false);
     }
   }
 

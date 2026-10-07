@@ -336,14 +336,19 @@ export async function deleteAttendance(db: Database, id: string) {
   await db.delete(att).where(eq(att.id, id));
 }
 
-export async function approveAttendance(db: Database, ids: string[], approvedBy: string) {
-  if (ids.length === 0) return [];
+export function approveAttendance(
+  db: Database,
+  ids: string[],
+  approvedBy: string,
+): Promise<{ id: string; employeeId: string }[]> {
+  if (ids.length === 0) return Promise.resolve([]);
   const now = new Date();
   return db
     .update(att)
     .set({ approvedAt: now, approvedBy, updatedAt: now })
     .where(and(inArray(att.id, ids), isNull(att.approvedAt)))
-    .returning({ id: att.id, employeeId: att.employeeId });
+    .returning({ id: att.id, employeeId: att.employeeId })
+    .execute();
 }
 
 /** Resolve import/portal employee references: email (case-insensitive) or employee number. */

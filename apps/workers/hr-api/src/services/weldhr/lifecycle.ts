@@ -26,7 +26,7 @@ const tsk = schema.hrChecklistTasks;
 // Templates
 // ---------------------------------------------------------------------------
 
-export async function listTemplates(db: Database, kind?: string) {
+export function listTemplates(db: Database, kind?: string) {
   const conditions = [isNull(tpl.deletedAt)];
   if (kind) conditions.push(eq(tpl.kind, kind));
   return db.select().from(tpl).where(and(...conditions)).orderBy(asc(tpl.kind), asc(tpl.name));

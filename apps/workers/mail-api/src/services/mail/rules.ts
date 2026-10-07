@@ -34,7 +34,7 @@ export interface ListRulesFilters {
   isActive?: boolean;
 }
 
-export async function listRules(db: Database, filters: ListRulesFilters) {
+export function listRules(db: Database, filters: ListRulesFilters) {
   const conditions: SQL[] = [isNull(mailRules.deletedAt)!];
   if (filters.accountId) conditions.push(eq(mailRules.accountId, filters.accountId));
   if (filters.isActive !== undefined) conditions.push(eq(mailRules.isActive, filters.isActive));

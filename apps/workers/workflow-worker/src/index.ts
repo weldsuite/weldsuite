@@ -333,7 +333,7 @@ export default {
   // Cron Trigger: workflow schedule sweep (every minute — see wrangler.toml
   // [triggers] per env). Moved here from the obsolete apps/api-worker, which
   // declared the sweep but never registered a cron trigger to run it.
-  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): void {
     if (event.cron === '* * * * *') {
       ctx.waitUntil(
         runWorkflowScheduleSweep(env).catch((err) => {

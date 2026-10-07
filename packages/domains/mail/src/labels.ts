@@ -219,7 +219,7 @@ export interface ListLabelsFilters {
   accessibleAccountIds?: string[];
 }
 
-export async function listMailLabels(db: Database, filters: ListLabelsFilters) {
+export function listMailLabels(db: Database, filters: ListLabelsFilters) {
   const conditions: SQL[] = [isNull(mailLabels.deletedAt)!];
   if (filters.accountId) conditions.push(eq(mailLabels.accountId, filters.accountId));
   if (filters.accessibleAccountIds) {

@@ -201,7 +201,7 @@ export async function scheduleEmail(
   };
 }
 
-export async function listScheduled(db: Database, filters: { accountId?: string }) {
+export function listScheduled(db: Database, filters: { accountId?: string }) {
   const conditions = [isNull(mailMessages.deletedAt), eq(mailMessages.sendStatus, 'scheduled')];
   if (filters.accountId) conditions.push(eq(mailMessages.accountId, filters.accountId));
   return db

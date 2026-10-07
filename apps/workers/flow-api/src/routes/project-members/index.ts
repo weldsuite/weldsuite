@@ -208,7 +208,7 @@ app.get('/by-user/:projectId/:userId', requirePermission('projects:read'), async
 // numbers are a follow-up that can join tasks + time-entries.
 // ============================================================================
 
-app.get('/by-user/:projectId/:userId/stats', requirePermission('projects:read'), async (c) => {
+app.get('/by-user/:projectId/:userId/stats', requirePermission('projects:read'), (c) => {
   return success(c, {
     tasksAssigned: 0,
     tasksCompleted: 0,
