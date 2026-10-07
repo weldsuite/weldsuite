@@ -92,7 +92,7 @@ export class WorkspaceHub extends DurableObject<Env> {
    * so an in-memory-only Map silently empties on every wake and publishes
    * stop reaching subscribers.
    */
-  private subscriptions = new Map<string, Set<string>>();
+  private readonly subscriptions = new Map<string, Set<string>>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -790,7 +790,7 @@ export class WorkspaceHub extends DurableObject<Env> {
       const db = await getTenantDbForWorkspace(this.env, workspaceId);
       const updated = await setUserOnlineIfOffline(db, userId);
       if (updated) {
-        this.broadcastStatusChange(userId, 'online');
+        await this.broadcastStatusChange(userId, 'online');
       }
     } catch (err) {
       console.error('[WorkspaceHub] repairOnlineInDb failed:', err);

@@ -65,7 +65,11 @@ export function useSession() {
     if (!user) return;
 
     const interval = setInterval(() => {
-      validateSession();
+      // A failed check (e.g. offline) keeps the current session state; the
+      // next tick tries again.
+      validateSession().catch((err: unknown) => {
+        console.warn('[auth] Periodic session check failed:', err);
+      });
     }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
@@ -228,7 +232,7 @@ export function useWorkspaceAccess(workspaceId?: string) {
       }
     };
 
-    checkAccess();
+    void checkAccess();
   }, [user, workspaceId]);
 
   return { hasAccess, checking };

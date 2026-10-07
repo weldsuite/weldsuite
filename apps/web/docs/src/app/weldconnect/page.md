@@ -57,7 +57,12 @@ Build workflows that the whole team relies on from an account that stays in the 
 
 ## Templates
 
-WeldConnect is getting a new set of ready-made workflow templates. Until they are available, start from a blank workflow as described in [Create a workflow](/weldconnect/create-workflow).
+Open **Templates** in the WeldConnect sidebar to start from a ready-made workflow instead of a blank one. The gallery has two groups:
+
+- **Starter templates**: ready-made workflows for common jobs, such as following up on new leads, celebrating won deals in WeldChat, a weekly AI kickoff email or alerting you when a workflow fails.
+- **Your templates**: workflows your team saved with **Save as template** on a workflow's **Settings** page.
+
+Each template shows whether it is ready to use or how many fields you still need to fill in, and which app connections it needs (for example Slack or Google Sheets). **Use template** creates a draft workflow and opens it in the editor; fill in the steps marked as needing setup, then publish it as described in [Create a workflow](/weldconnect/create-workflow).
 
 ---
 

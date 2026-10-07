@@ -53,12 +53,13 @@ Done (all merged on `develop`):
 |---|---|---|---|
 | 2 | "After another workflow" trigger | #891 | `workflow_complete` unlocked with a workflow picker; matcher reads the flat editor shape; idempotent chained starts; Test runs don't chain; `{{trigger.*}}` incl. source step outputs |
 | 4 | AI steps | #892 | `ai_generate` / `ai_classify` unlocked, metered against the credit wallet, `settings.maxCreditsPerRun` enforced (ledger sum + worst-case estimate); settings field restored; workflow-worker secrets manifest fixed |
-| 5 | Unhide finished sections | #891 | Variables, Webhooks (managed rows can't be deleted), Analytics with error log + acknowledge. Actions / Triggers libraries and Templates stay hidden (`WELDCONNECT_OUT_OF_SCOPE_SECTIONS`) |
+| 5 | Unhide finished sections | #891 | Variables, Webhooks (managed rows can't be deleted), Analytics with error log + acknowledge. Actions / Triggers libraries stay hidden (`WELDCONNECT_OUT_OF_SCOPE_SECTIONS`); Templates and Integrations were added to the sidebar in #927 |
+| 3 | Server-backed templates | #927 | Gallery lists `GET /api/workflow-templates`: the workspace's own templates ("Save as template" on a workflow's Settings page) plus nine built-in starter templates kept in code (`@weldsuite/app-api-client/schemas/weldconnect-templates`, texts in `@weldsuite/i18n/locales/<locale>/weldconnect-templates`), each tested against the activation gate; "Use template" always creates a draft; Templates and Integrations added to the sidebar |
 | 6 | Approvals + waiting status | #891 | `manual_step` as "Approval" (approvers, notifications, approve/reject + comment, 7-day expiry), `waiting_for_input` status, badge, filter; refused inside branches/loops (`nested_waiting_step`) |
 | 7 | Providers: Slack | #894 | OAuth connect, test, channel picker, `slack.post_message` (thread replies, mapped errors); provider owner-membership check in `providers/token.ts`; `PUBLIC_APP_URL` fixed for test/production |
 | 7 | Providers: Google | #904 | `google_sheets.append_row` / `update_row`, `gmail.send_email`, `google_calendar.create_event`; least-privilege scopes, paste-a-link spreadsheet picker, token refresh on workflow-worker |
 | 7 | Providers: GitHub | #905 | `app_installation` auth reusing WeldFlow's GitHub App installation, repo picker, `github.create_issue` / `github.create_comment` |
-| 8 | Help docs | `docs/weldconnect-guides` | Guides on help.weldsuite.org (`apps/web/docs/src/app/weldconnect/`); screenshots still to capture (TODO list in each page's `screenshots_todo` frontmatter) |
+| 8 | Help docs | #926 | Guides on help.weldsuite.org (`apps/web/docs/src/app/weldconnect/`); screenshots still to capture (TODO list in each page's `screenshots_todo` frontmatter) |
 | 9 | Extras | #906 | One-time schedules (`scheduleType: 'one_time'`, `executeAt`, fires once then disables itself), version history (`workflow_versions`, restore through `updateWorkflow`), `settings.maxConcurrentRuns` with a `skipped` run status; tenant migration `0199_far_tomas`, D1 `0003_schedule_index_one_time.sql` |
 
 Next:
@@ -68,12 +69,6 @@ Next:
   verified by unit/integration tests and type-checks; only a few paths were
   tried in a browser. Needs the workflow-worker secrets and the Slack/Google
   OAuth configuration listed there.
-- **(3) Server-backed templates** (in progress, `feat/weldconnect-templates`).
-  The gallery (`app/weldconnect/templates/components/templates-client.tsx`)
-  shows hardcoded client templates from
-  `components/workflow-template-dialog.tsx`; list `workflow_templates` from the
-  API instead, ship a starter set built only from steps that work, and unhide
-  the section.
 - **(10) Backfill legacy webhooks** into `workflow_webhook_registry`, only if
   any pre-#862 webhook workflows are still live (they register again on their
   next save).

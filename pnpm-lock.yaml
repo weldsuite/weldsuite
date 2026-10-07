@@ -4580,6 +4580,9 @@ importers:
       '@weldsuite/flow-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/flow
+      '@weldsuite/i18n':
+        specifier: workspace:*
+        version: link:../../../packages/core/i18n
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../../packages/core/notifications

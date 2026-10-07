@@ -15,6 +15,7 @@ import { useWorkflowDetail } from '@/hooks/use-workflow-editor-data';
 import type { WorkflowSettings } from '@/lib/db/schema/workflows';
 import { useI18n } from '@/lib/i18n/provider';
 import { WorkflowVersionHistoryDialog } from '../../components/workflow-version-history-dialog';
+import { SaveAsTemplateButton } from '../../components/save-as-template-button';
 
 const NAME_MAX_LENGTH = 255;
 // Mirrors workflowSettingsSchema.maxCreditsPerRun (packages/clients/app-api-client/src/schemas/weldconnect.ts).
@@ -32,9 +33,11 @@ interface WorkflowSettingsContentProps {
    * workflow elsewhere, like CRM sequences, leave this off.
    */
   showGeneral?: boolean;
+  /** Offer "Save as template" (WeldConnect; not for CRM sequences, which have no template gallery). */
+  showSaveAsTemplate?: boolean;
 }
 
-export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader, showGeneral }: Readonly<WorkflowSettingsContentProps>) {
+export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader, showGeneral, showSaveAsTemplate }: Readonly<WorkflowSettingsContentProps>) {
   const { t } = useI18n();
   const tws = t.weldconnect.workflowSettings;
   const nameFieldId = useId();
@@ -400,6 +403,21 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
               {tws.history.button}
             </Button>
           </div>
+
+          {showSaveAsTemplate && (
+            <>
+              <div className="border-t my-8" />
+              <div className="space-y-4">
+                <h2 className="text-base font-semibold">{t.weldconnect.templates.saveAsTemplate.title}</h2>
+                <p className="text-sm text-muted-foreground">{t.weldconnect.templates.saveAsTemplate.hint}</p>
+                <SaveAsTemplateButton
+                  workflowId={workflowId}
+                  workflowName={workflow.name ?? ''}
+                  workflowDescription={workflow.description ?? ''}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -423,5 +441,5 @@ export default function WorkflowSettingsPage() {
     { label: crumbs.settings },
   ]);
 
-  return <WorkflowSettingsContent workflowId={workflowId} showGeneral />;
+  return <WorkflowSettingsContent workflowId={workflowId} showGeneral showSaveAsTemplate />;
 }

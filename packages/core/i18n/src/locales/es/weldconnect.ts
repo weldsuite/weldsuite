@@ -592,183 +592,6 @@ export const weldconnect = {
     },
   },
 
-  templateCatalog: {
-    dialogTitle: 'Plantillas',
-    dialogDescription: 'Elige una plantilla de flujo de trabajo para empezar.',
-    breadcrumbLabel: 'Plantillas',
-    startFromScratch: 'Empezar desde cero',
-    blankWorkflowName: 'Flujo de trabajo en blanco',
-    templateCount: '{count} plantilla',
-    templateCountPlural: '{count} plantillas',
-    categories: {
-      all: 'Todas las plantillas',
-      notifications: 'Notificaciones',
-      dataSync: 'Sincronización de datos',
-      automation: 'Automatización',
-      scheduling: 'Programación',
-      integrations: 'Integraciones',
-      ai: 'IA',
-      communication: 'Comunicación',
-    },
-    items: {
-      emailNotification: {
-        name: 'Notificación por correo',
-        description: 'Envía notificaciones por correo cuando ocurren eventos',
-        longDescription: 'Envía automáticamente notificaciones por correo personalizadas a miembros del equipo o clientes cuando ocurren eventos específicos. Configura disparadores, personaliza el contenido del correo con variables dinámicas y define reglas de entrega.',
-      },
-      thresholdAlert: {
-        name: 'Alerta de umbral',
-        description: 'Alerta cuando las métricas superan umbrales definidos',
-        longDescription: 'Supervisa métricas clave de forma programada y recibe alertas instantáneas cuando los valores superan los umbrales que definas. Perfecto para vigilar niveles de inventario, objetivos de ventas o cualquier métrica cuantificable.',
-      },
-      slaBreachAlert: {
-        name: 'Alerta de incumplimiento de SLA',
-        description: 'Alerta cuando los tickets de soporte incumplen los plazos de SLA',
-        longDescription: 'Supervisa los tickets de soporte de forma periódica y alerta automáticamente a tu equipo cuando los tickets se acercan a sus plazos de SLA o ya los han incumplido. Incluye notificación de escalado por correo.',
-      },
-      lowStockAlert: {
-        name: 'Alerta de stock bajo',
-        description: 'Alerta cuando el inventario cae por debajo de los niveles mínimos',
-        longDescription: 'Supervisa automáticamente los niveles de inventario de tus productos de forma programada. Cuando el stock cae por debajo del umbral mínimo configurado, recibe notificaciones instantáneas y alertas por correo para reponer.',
-      },
-      errorWebhookAlert: {
-        name: 'Alerta de webhook de error',
-        description: 'Recibe webhooks de error y notifica al equipo',
-        longDescription: 'Configura un endpoint para recibir webhooks de error de servicios externos. Filtra automáticamente por gravedad, notifica al equipo adecuado y registra el error para depuración.',
-      },
-      recordSync: {
-        name: 'Sincronización de registros',
-        description: 'Mantén los registros sincronizados entre sistemas',
-        longDescription: 'Garantiza la coherencia de los datos sincronizando automáticamente los registros cuando cambian. Cuando un registro se actualiza, este flujo consulta el sistema de destino y actualiza el registro correspondiente.',
-      },
-      dataCleanup: {
-        name: 'Limpieza de datos',
-        description: 'Limpia automáticamente registros antiguos o sin uso',
-        longDescription: 'Programa una limpieza automática de datos para eliminar registros obsoletos. Consulta los registros que cumplen tus criterios, los recorre y elimina cada uno registrando la operación.',
-      },
-      dataEnrichment: {
-        name: 'Enriquecimiento de datos',
-        description: 'Enriquece registros nuevos con datos de APIs externas',
-        longDescription: 'Cuando se crea un registro nuevo, llama automáticamente a una API externa para enriquecerlo con datos adicionales. Transforma la respuesta y actualiza el registro con la información enriquecida.',
-      },
-      periodicImport: {
-        name: 'Importación periódica',
-        description: 'Importa datos de APIs externas de forma programada',
-        longDescription: 'Importa automáticamente datos de APIs externas con una programación recurrente. Obtén los datos, transfórmalos para que encajen con tu esquema y crea registros nuevos por cada elemento de la respuesta.',
-      },
-      entityAutomation: {
-        name: 'Automatización de entidades',
-        description: 'Automatiza acciones ante cambios de entidades',
-        longDescription: 'Dispara acciones automatizadas cada vez que se crean, actualizan o eliminan entidades. Construye reglas de automatización complejas que respondan a los cambios en tus datos, con lógica condicional y notificaciones.',
-      },
-      approvalWorkflow: {
-        name: 'Flujo de aprobación',
-        description: 'Procesos de aprobación de varios pasos con notificaciones',
-        longDescription: 'Crea flujos de aprobación estructurados con notificaciones por correo, periodos de espera y resultados condicionales. Envía solicitudes de aprobación, espera las respuestas y actualiza los registros según la decisión.',
-      },
-      userOnboarding: {
-        name: 'Incorporación de usuarios',
-        description: 'Automatiza los pasos de incorporación de usuarios nuevos',
-        longDescription: 'Agiliza el proceso de incorporación de usuarios con flujos automatizados. Envía correos de bienvenida, crea registros de configuración, espera la activación de la cuenta y haz seguimiento con recursos útiles.',
-      },
-      leadScoring: {
-        name: 'Puntuación de leads',
-        description: 'Puntúa y cualifica leads automáticamente',
-        longDescription: 'Cuando se crea o actualiza un lead, calcula automáticamente una puntuación basada en sus datos. Consulta las actividades relacionadas, aplica la lógica de puntuación y actualiza el registro del lead con la puntuación calculada.',
-      },
-      taskAutoAssignment: {
-        name: 'Asignación automática de tareas',
-        description: 'Asigna tareas automáticamente según reglas',
-        longDescription: 'Cuando se crea una tarea o ticket nuevo, evalúa automáticamente las reglas de asignación y asígnalo al miembro del equipo adecuado. Envía notificaciones a la persona asignada.',
-      },
-      followUpSequence: {
-        name: 'Secuencia de seguimiento',
-        description: 'Seguimiento por correo automatizado de varios pasos',
-        longDescription: 'Crea una secuencia de correos automatizada con pausas programadas entre cada mensaje. Perfecta para campañas de maduración, secuencias de incorporación o recordatorios de seguimiento.',
-      },
-      orderProcessing: {
-        name: 'Procesamiento de pedidos',
-        description: 'Automatiza el flujo de procesamiento de pedidos nuevos',
-        longDescription: 'Cuando llega un pedido nuevo, valídalo automáticamente, actualiza su estado, notifica al equipo de preparación y envía una confirmación al cliente.',
-      },
-      scheduledReport: {
-        name: 'Informe programado',
-        description: 'Genera y envía informes de forma programada',
-        longDescription: 'Genera y distribuye informes automáticamente con una programación recurrente. Consulta los datos de tus módulos, dales formato y envíalos por correo a las partes interesadas.',
-      },
-      reminderWorkflow: {
-        name: 'Recordatorio',
-        description: 'Envía recordatorios programados para fechas límite',
-        longDescription: 'No vuelvas a perder una fecha límite con recordatorios automatizados. Envía notificaciones y correos de forma recurrente para recordar a los miembros del equipo las tareas y fechas límite próximas.',
-      },
-      dailyDigest: {
-        name: 'Resumen diario',
-        description: 'Agrega la actividad diaria en un correo de resumen',
-        longDescription: 'Compila un resumen diario de todas las actividades y métricas importantes. Consulta varias fuentes de datos, transfórmalas en un formato de resumen y entrégalo a las partes interesadas cada mañana.',
-      },
-      scheduledMaintenance: {
-        name: 'Mantenimiento programado',
-        description: 'Ejecuta tareas de mantenimiento automatizadas de forma programada',
-        longDescription: 'Automatiza operaciones de mantenimiento rutinarias como el archivado de datos, la limpieza de caché o las comprobaciones de estado del sistema. Se ejecuta con una programación configurable y registra todas las operaciones.',
-      },
-      webhookHandler: {
-        name: 'Gestor de webhooks',
-        description: 'Procesa webhooks entrantes de servicios externos',
-        longDescription: 'Recibe y procesa webhooks de servicios externos. Registra el payload entrante, valídalo con lógica condicional y reenvía los datos mediante una solicitud HTTP a otro servicio.',
-      },
-      apiIntegration: {
-        name: 'Integración de API',
-        description: 'Conecta y sincroniza datos con APIs externas',
-        longDescription: 'Construye integraciones con APIs externas cuando ocurren eventos de entidades. Realiza solicitudes HTTP, transforma los datos de respuesta y crea o actualiza registros en tu sistema.',
-      },
-      webhookRelay: {
-        name: 'Relé de webhooks',
-        description: 'Recibe webhooks y reenvíalos a varios servicios',
-        longDescription: 'Configura un relé de webhooks que reciba webhooks entrantes, transforme el payload y lo reenvíe a varios servicios posteriores. Incluye registro para auditoría.',
-      },
-      crmExternalSync: {
-        name: 'Sincronización externa de CRM',
-        description: 'Sincroniza los datos del CRM con un sistema CRM externo',
-        longDescription: 'Mantén los datos de tu CRM sincronizados con sistemas CRM externos como Salesforce o HubSpot. Obtén datos periódicamente, compara registros y actualiza tu CRM local con los cambios.',
-      },
-      aiContentGenerator: {
-        name: 'Generador de contenido con IA',
-        description: 'Genera contenido con IA bajo demanda',
-        longDescription: 'Dispara manualmente la generación de contenido con IA. Proporciona un tema o prompt y deja que la IA genere textos de marketing, entradas de blog, contenido para redes sociales o plantillas de correo.',
-      },
-      aiDataExtractor: {
-        name: 'Extractor de datos con IA',
-        description: 'Extrae datos estructurados de texto usando IA',
-        longDescription: 'Cuando llegan datos no estructurados nuevos (correos, documentos, notas), usa IA para extraer información estructurada como nombres, fechas, importes y categorías. Actualiza automáticamente los registros con los datos extraídos.',
-      },
-      aiTicketClassifier: {
-        name: 'Clasificador de tickets con IA',
-        description: 'Clasifica tickets de soporte con IA',
-        longDescription: 'Clasifica automáticamente los tickets de soporte entrantes usando IA. Analiza el contenido del ticket, determina la categoría y la prioridad, y luego actualiza el ticket y dirígelo al equipo adecuado.',
-      },
-      aiEmailResponder: {
-        name: 'Respondedor de correo con IA',
-        description: 'Redacta borradores de respuesta de correo con IA',
-        longDescription: 'Cuando llega un correo de soporte o consulta nueva, usa IA para generar un borrador de respuesta profesional basado en el contenido. Revísalo y envíalo, o envíalo automáticamente para consultas habituales.',
-      },
-      orderConfirmation: {
-        name: 'Confirmación de pedido',
-        description: 'Envía correos de confirmación para pedidos nuevos',
-        longDescription: 'Envía automáticamente un correo de confirmación de pedido con un formato cuidado cuando se realiza un pedido nuevo. Actualiza el estado del pedido y registra la confirmación.',
-      },
-      customerWelcome: {
-        name: 'Serie de bienvenida a clientes',
-        description: 'Da la bienvenida a clientes nuevos con una serie de correos',
-        longDescription: 'Crea una experiencia de bienvenida cercana para los clientes nuevos. Envía un correo de bienvenida inmediato, espera unos días y haz seguimiento con consejos y recursos útiles para que empiecen.',
-      },
-      ticketAutoReply: {
-        name: 'Respuesta automática de tickets',
-        description: 'Responde automáticamente a tickets de soporte nuevos',
-        longDescription: 'Confirma al instante los tickets de soporte nuevos con una respuesta automática profesional. Siempre envía un correo de acuse de recibo y luego comprueba la prioridad para escalar los tickets de alta prioridad al equipo.',
-      },
-    },
-  },
-
   // Variables
   variables: {
     title: 'Variables y secretos',
@@ -1085,15 +908,6 @@ export const weldconnect = {
       seriesTotal: 'Total',
       seriesSuccessful: 'Correctas',
       seriesFailed: 'Fallidas',
-    },
-    workflowTemplate: {
-      trigger: 'Disparador',
-      back: 'Volver',
-      categories: 'Categorías',
-      requiredObjects: 'Objetos requeridos',
-      requiredIntegrations: 'Integraciones requeridas',
-      steps: 'Pasos',
-      allTemplates: 'Todas las plantillas',
     },
   },
 
@@ -1549,8 +1363,6 @@ export const weldconnect = {
       helpfulResources: 'Recursos útiles',
       documentation: 'Documentación',
       documentationHint: 'Aprende a configurar flujos de trabajo',
-      templates: 'Plantillas',
-      templatesHint: 'Usa plantillas prediseñadas',
     },
     subAgentDialog: {
       addSubAgent: 'Añadir subagente',

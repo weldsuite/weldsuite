@@ -183,7 +183,7 @@ export interface SharedMeetingChatPanelProps {
 // Root panel
 // ============================================================================
 
-export function SharedMeetingChatPanel(props: SharedMeetingChatPanelProps) {
+export function SharedMeetingChatPanel(props: Readonly<SharedMeetingChatPanelProps>) {
   const { isOpen, onClose, width = 480 } = props;
   const isMobile = useIsMobile();
 
@@ -244,10 +244,10 @@ export function SharedMeetingChatPanel(props: SharedMeetingChatPanelProps) {
 function PinnedBar({
   pinnedMessages,
   onUnpin,
-}: {
+}: Readonly<{
   pinnedMessages: PinnedMessage[];
   onUnpin?: (id: string) => void;
-}) {
+}>) {
   const [activeIndex, setActiveIndex] = useState(0);
 
   if (pinnedMessages.length === 0) return null;
@@ -336,7 +336,7 @@ function PinnedBar({
 // Message List
 // ============================================================================
 
-function MessageList(props: SharedMeetingChatPanelProps) {
+function MessageList(props: Readonly<SharedMeetingChatPanelProps>) {
   const {
     messages,
     isLoading,
@@ -467,7 +467,7 @@ function MessageList(props: SharedMeetingChatPanelProps) {
           const isCompact =
             !!prevMessage &&
             prevMessage.authorId === message.authorId &&
-            !isNaN(timeDiff) &&
+            !Number.isNaN(timeDiff) &&
             timeDiff >= 0 &&
             timeDiff < 300000;
 
@@ -535,7 +535,7 @@ function MessageActionBar({
   onPinToggle,
   onCopyText,
   onDelete,
-}: MessageActionBarProps) {
+}: Readonly<MessageActionBarProps>) {
   return (
     <div className="absolute -top-3 right-4 flex items-center gap-0.5 bg-background border rounded-[12px] shadow-sm p-1 z-10">
       <Button variant="ghost" size="icon" className="h-7 w-7" title="Reply" onClick={() => {}}>
@@ -617,7 +617,7 @@ function MessageItem({
   onDelete,
   onCopyToast,
   onClickAuthor,
-}: MessageItemProps) {
+}: Readonly<MessageItemProps>) {
   const [isHovered, setIsHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Shared hover state for the author affordance so hovering EITHER the avatar
@@ -655,8 +655,11 @@ function MessageItem({
   }
 
   const handleCopyText = () => {
-    navigator.clipboard.writeText(message.content);
-    onCopyToast?.('Message copied');
+    navigator.clipboard
+      .writeText(message.content)
+      .then(() => onCopyToast?.('Message copied'))
+      // Clipboard blocked: nothing to confirm, the message stays selectable.
+      .catch(() => {});
   };
 
   const handlePin = () => {
@@ -791,7 +794,7 @@ function MessageInput({
   currentUserName,
   currentUserId,
   participants,
-}: SharedMeetingChatPanelProps) {
+}: Readonly<SharedMeetingChatPanelProps>) {
   const [content, setContent] = useState('');
   const [showToolbar, setShowToolbar] = useState(false);
   const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
@@ -840,7 +843,7 @@ function MessageInput({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -1213,11 +1216,11 @@ function MentionPicker({
   participants,
   currentUserId,
   onSelect,
-}: {
+}: Readonly<{
   participants: ChatParticipant[];
   currentUserId?: string;
   onSelect: (p: ChatParticipant) => void;
-}) {
+}>) {
   const [search, setSearch] = useState('');
   const list = participants.filter(
     (p) =>

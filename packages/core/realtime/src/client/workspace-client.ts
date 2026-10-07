@@ -51,10 +51,10 @@ export class WorkspaceClient {
   private ws: WebSocket | null = null;
   /** WebSocket that is still handshaking (not yet promoted to this.ws) */
   private pendingWs: WebSocket | null = null;
-  private handlers = new Map<string, Set<EventHandler>>();
-  private subscribedTopics = new Set<string>();
-  private connectionHandlers = new Set<ConnectionHandler>();
-  private resyncHandlers = new Set<ResyncHandler>();
+  private readonly handlers = new Map<string, Set<EventHandler>>();
+  private readonly subscribedTopics = new Set<string>();
+  private readonly connectionHandlers = new Set<ConnectionHandler>();
+  private readonly resyncHandlers = new Set<ResyncHandler>();
   private state: ConnectionState = 'disconnected';
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -63,7 +63,7 @@ export class WorkspaceClient {
   /** In-memory mirror of the persisted cursor — last `eventId` we observed. */
   private lastEventId: string | null = null;
 
-  constructor(private config: WorkspaceClientConfig) {}
+  constructor(private readonly config: WorkspaceClientConfig) {}
 
   async connect(): Promise<void> {
     if (this.ws && this.state === 'connected') return;
