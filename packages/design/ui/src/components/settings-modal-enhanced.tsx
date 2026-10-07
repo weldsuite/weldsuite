@@ -81,11 +81,13 @@ import { cn } from "../lib/utils"
 import { toast } from "sonner"
 
 // Type definitions for server actions
+type UserRole = "USER" | "ADMIN" | "MERCHANT"
+
 interface User {
   id: string
   email: string
   name?: string | null
-  role: "USER" | "ADMIN" | "MERCHANT"
+  role: UserRole
   createdAt: Date
   workspaces?: Array<{
     id: string
@@ -181,7 +183,7 @@ export function SettingsModalEnhanced({
   onOpenChange, 
   trigger,
   serverActions 
-}: SettingsModalProps) {
+}: Readonly<SettingsModalProps>) {
   const [activeSection, setActiveSection] = React.useState("appearance")
   const [loading, setLoading] = React.useState(false)
   
@@ -214,7 +216,7 @@ export function SettingsModalEnhanced({
     name: "",
     email: "",
     password: "",
-    role: "USER" as "USER" | "ADMIN" | "MERCHANT"
+    role: "USER" as UserRole
   })
   
   const [newWorkspaceData, setNewWorkspaceData] = React.useState({
@@ -273,7 +275,7 @@ export function SettingsModalEnhanced({
   // Load data when modal opens or section changes
   React.useEffect(() => {
     if (open && serverActions) {
-      loadDataForSection(activeSection)
+      void loadDataForSection(activeSection)
     }
   }, [open, activeSection, serverActions, loadDataForSection])
 
@@ -355,8 +357,11 @@ export function SettingsModalEnhanced({
       if (result.success && result.data) {
         toast.success("API key created successfully")
         // Copy key to clipboard
-        navigator.clipboard.writeText(result.data.key)
-        toast.info("API key copied to clipboard")
+        navigator.clipboard
+          .writeText(result.data.key)
+          .then(() => toast.info("API key copied to clipboard"))
+          // Clipboard blocked: the new key is still listed to copy by hand.
+          .catch(() => {})
         setShowAddApiKeyDialog(false)
         setNewApiKeyData({ name: "", permissions: [] })
         // Reload API keys
@@ -713,7 +718,7 @@ export function SettingsModalEnhanced({
                     <Label htmlFor="role">Role</Label>
                     <Select 
                       value={newUserData.role} 
-                      onValueChange={(value: "USER" | "ADMIN" | "MERCHANT") => 
+                      onValueChange={(value: UserRole) => 
                         setNewUserData({ ...newUserData, role: value })
                       }
                     >
@@ -881,8 +886,11 @@ export function SettingsModalEnhanced({
                             variant="ghost"
                             size="icon"
                             onClick={() => {
-                              navigator.clipboard.writeText(apiKey.key)
-                              toast.success("API key copied to clipboard")
+                              navigator.clipboard
+                                .writeText(apiKey.key)
+                                .then(() => toast.success("API key copied to clipboard"))
+                                // Clipboard blocked: the key stays on screen.
+                                .catch(() => {})
                             }}
                           >
                             <Copy className="h-3 w-3" />

@@ -27,7 +27,7 @@ import { refreshSpeakerDevices, useSpeakerDevices } from '../hooks/use-speaker-o
 
 // ─── Tooltip ─────────────────────────────────────────────────────────────────
 
-function CallTooltip({ label, children }: { label: string; children: React.ReactNode }) {
+function CallTooltip({ label, children }: Readonly<{ label: string; children: React.ReactNode }>) {
   const [show, setShow] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -229,13 +229,13 @@ function useMeetingDevices(meeting: MeetingClient | null) {
       } catch { /* devices not available */ }
     }
 
-    loadDevices();
+    void loadDevices();
 
     // Refresh device list whenever the OS reports a change — covers OBS
     // Virtual Camera starting after meeting join, USB cam plug/unplug,
     // bluetooth headset connect, etc. Without this, the dropdown is frozen
     // at whatever was available at meeting-connect time.
-    const onDeviceChange = () => { loadDevices(); };
+    const onDeviceChange = () => { void loadDevices(); };
     tryIgnore(() => navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange));
 
     // RTK also surfaces device updates via its own event. Subscribing to
@@ -403,7 +403,7 @@ function DeviceMenu({
   onChange,
   fallbackPrefix,
   output,
-}: {
+}: Readonly<{
   tooltip: string;
   off: boolean;
   devices: MediaDeviceInfo[];
@@ -415,7 +415,7 @@ function DeviceMenu({
     activeId: string;
     onChange: (deviceId: string) => void;
   };
-}) {
+}>) {
   const hasOutputs = !!output && output.devices.length > 0;
   if (devices.length === 0 && !hasOutputs) return null;
   return (
@@ -464,7 +464,7 @@ function ScreenShareControl({
   setSelectedResolutionIdx,
   shareScreenAudio,
   toggleShareScreenAudio,
-}: {
+}: Readonly<{
   meeting: MeetingClient | null;
   isScreenSharing: boolean;
   startScreenShare: (constraints?: DisplayMediaStreamOptions) => Promise<void>;
@@ -473,7 +473,7 @@ function ScreenShareControl({
   setSelectedResolutionIdx: (idx: number) => void;
   shareScreenAudio: boolean;
   toggleShareScreenAudio: () => void;
-}) {
+}>) {
   async function selectResolution(idx: number) {
     const res = SCREEN_RESOLUTIONS[idx]!;
     setSelectedResolutionIdx(idx);
@@ -501,9 +501,11 @@ function ScreenShareControl({
           className="h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
           onClick={isScreenSharing ? stopScreenShare : () => {
             const res = SCREEN_RESOLUTIONS[selectedResolutionIdx]!;
-            startScreenShare({
+            void startScreenShare({
               video: { width: { ideal: res.width }, height: { ideal: res.height }, frameRate: { ideal: res.frameRate } },
               audio: shareScreenAudio,
+            }).catch((err: unknown) => {
+              console.warn('[CallControlsBar] startScreenShare failed:', err);
             });
           }}
         >
@@ -570,13 +572,13 @@ function RecordingMenuSection({
   pauseRecording,
   resumeRecording,
   runAfterClose,
-}: Pick<
+}: Readonly<Pick<
   CallControlsBarProps,
   'isRecording' | 'recordingState' | 'startRecording' | 'stopRecording' | 'pauseRecording' | 'resumeRecording'
 > & {
   /** Closes the menu, then runs the action on the next frame (see `CallControlsBar`). */
   runAfterClose: (action: () => void) => void;
-}) {
+}>) {
   if (!startRecording) return null;
   const paused = recordingState === 'PAUSED';
   return (
@@ -626,7 +628,7 @@ const LAYOUT_OPTIONS = [
 ] as const;
 
 /** Layout section of the More-options dropdown. */
-function LayoutMenuSection({ viewMode, setViewMode }: { viewMode: ViewMode; setViewMode: (mode: ViewMode) => void }) {
+function LayoutMenuSection({ viewMode, setViewMode }: Readonly<{ viewMode: ViewMode; setViewMode: (mode: ViewMode) => void }>) {
   return (
     <>
       <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Layout</DropdownMenuLabel>
@@ -658,7 +660,7 @@ function ViewOptionsMenuSection({
   isFullscreen,
   onToggleFullscreen,
   onPictureInPicture,
-}: Pick<CallControlsBarProps, 'isFullscreen' | 'onToggleFullscreen' | 'onPictureInPicture'>) {
+}: Readonly<Pick<CallControlsBarProps, 'isFullscreen' | 'onToggleFullscreen' | 'onPictureInPicture'>>) {
   if (!onToggleFullscreen && !onPictureInPicture) return null;
   return (
     <>
@@ -714,7 +716,7 @@ export function CallControlsBar({
   onOpenSettings,
   gates,
   extraControls,
-}: CallControlsBarProps) {
+}: Readonly<CallControlsBarProps>) {
   const showScreenShare = gates?.screenShare !== false;
   const showHandRaise = gates?.handRaise !== false;
   const showVirtualBackgrounds = gates?.virtualBackgrounds !== false;
