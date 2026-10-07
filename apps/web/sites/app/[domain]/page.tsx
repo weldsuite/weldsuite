@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getWebsiteByDomain, trackPageView, getProducts, getCollections, type Website } from "@/lib/api-client";
+import { getWebsiteByDomain, trackPageView, getProducts, getCollections } from "@/lib/api-client";
 import SiteRenderer from "@/components/site-renderer";
 
 interface PageProps {

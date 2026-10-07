@@ -12,12 +12,10 @@ import { RadioGroup, RadioGroupItem } from "@weldsuite/ui/components/radio-group
 import { Checkbox } from "@weldsuite/ui/components/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@weldsuite/ui/components/select";
 import {
-  Package,
   RotateCcw,
   ArrowLeft,
   ArrowRight,
   Home,
-  AlertCircle,
   CheckCircle,
   Info,
 } from "lucide-react";

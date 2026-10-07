@@ -5,7 +5,7 @@
  * whose deadlines have passed and marks them as breached.
  */
 
-import { eq, and, isNull, lt, sql } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { generateId } from './id';

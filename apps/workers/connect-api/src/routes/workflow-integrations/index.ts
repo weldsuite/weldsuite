@@ -14,7 +14,7 @@ import { and, desc, eq, isNull, like, lt, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { maybeDecryptField } from '@weldsuite/db/lib/crypto';
-import { listIntegrations, getIntegrationDef } from '@weldsuite/workflow-integrations';
+import { listIntegrations } from '@weldsuite/workflow-integrations';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';

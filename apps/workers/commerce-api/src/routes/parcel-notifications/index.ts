@@ -29,7 +29,7 @@ import {
   updateWebhookSchema,
 } from '@weldsuite/app-api-client/schemas/parcel-notifications';
 import type { Env, Variables } from '../../types';
-import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
+import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 

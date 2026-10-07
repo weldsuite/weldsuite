@@ -9,7 +9,7 @@
  * — see `companies.ts` for the same pattern.
  */
 
-import { eq, and, desc, isNull, like, or, sql, inArray, ilike, type SQL } from 'drizzle-orm';
+import { eq, and, desc, isNull, like, or, sql, inArray, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { computeChanges } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';

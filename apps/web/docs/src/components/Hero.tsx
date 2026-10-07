@@ -1,5 +1,4 @@
 import Image from 'next/image'
-import clsx from 'clsx'
 
 import { Button } from '@/components/Button'
 import { HeroBackground } from '@/components/HeroBackground'

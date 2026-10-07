@@ -19,7 +19,6 @@ import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,

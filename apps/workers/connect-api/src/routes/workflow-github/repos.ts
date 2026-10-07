@@ -25,7 +25,6 @@ import { getInstallationToken } from '../../services/github/auth';
 import {
   listAvailableRepos,
   listLinkedRepos,
-  getLinkedRepo,
   linkRepo,
   updateRepoLink,
   unlinkRepo,

@@ -7,7 +7,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, asc, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
@@ -15,7 +15,7 @@ import {
   updatePickerSchema,
 } from '@weldsuite/app-api-client/schemas/pickers';
 import type { Env, Variables } from '../../types';
-import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
+import { cursorPagination, error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 

@@ -1,12 +1,10 @@
 import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home,
   Inbox,
   BarChart3,
   Users,
   BookOpen,
-  Plug,
   Globe,
   Briefcase,
   FolderOpen,
@@ -35,7 +33,6 @@ import {
   CloudUpload,
   Share2,
   Mail,
-  MessageCircle,
   Calculator,
   FileText,
   Receipt,

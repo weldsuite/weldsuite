@@ -30,7 +30,6 @@ import {
 } from '../../middleware/custom-object';
 import {
   createRecord,
-  deleteRecord,
   getRecord,
   listRecords,
   updateRecord,
