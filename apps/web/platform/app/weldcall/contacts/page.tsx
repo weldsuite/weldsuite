@@ -430,8 +430,8 @@ function CallContactsContent() {
 
   const actions: EntityGridActions<CallContact> = useMemo(
     () => ({
-      onUpdateEntity: async () => ({ success: true }),
-      onDeleteEntity: async () => ({ success: true }),
+      onUpdateEntity: () => Promise.resolve({ success: true }),
+      onDeleteEntity: () => Promise.resolve({ success: true }),
       onRowClick: (contact) => {
         setInitialDialerNumber(contact.phone);
         setIsDialerOpen(true);

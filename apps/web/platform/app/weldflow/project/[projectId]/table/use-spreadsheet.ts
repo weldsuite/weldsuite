@@ -213,7 +213,7 @@ function makeMutation<TArgs, TResult = void>(
         console.error('[useSpreadsheet] mutation failed:', err);
       }
     },
-    mutateAsync: async (args) => fn(args),
+    mutateAsync: (args) => Promise.resolve(fn(args)),
   };
 }
 

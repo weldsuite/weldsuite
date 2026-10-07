@@ -368,13 +368,13 @@ export function HelpdeskWorkflowEditorClient({
   // but no longer hit the removed `/ai/agent-definitions` endpoint.
   const { data: savedAgents } = useQuery({
     queryKey: ['ai-agents', 'helpdesk'],
-    queryFn: async (): Promise<Array<{ id: string; name: string; description?: string; moduleKey: string }>> => [],
+    queryFn: (): Promise<Array<{ id: string; name: string; description?: string; moduleKey: string }>> => Promise.resolve([]),
     staleTime: Infinity,
   });
 
   const { data: editSubAgentData } = useQuery({
     queryKey: ['ai-agent-detail', editSubAgentId],
-    queryFn: async (): Promise<AgentDefinitionDetail | undefined> => undefined,
+    queryFn: (): Promise<AgentDefinitionDetail | undefined> => Promise.resolve(undefined),
     enabled: false,
   });
 

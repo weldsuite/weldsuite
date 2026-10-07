@@ -164,7 +164,7 @@ export function useSyncPersonalToken() {
 
   useEffect(() => {
     if (isSignedIn) {
-      setPersonalApiTokenGetter(async () => getToken());
+      setPersonalApiTokenGetter(() => Promise.resolve(getToken()));
     } else {
       setPersonalApiTokenGetter(null);
     }
