@@ -46,8 +46,9 @@ export function detectTicketSuggestion(
       category: 'general',
       priority: 'medium',
     };
-  } catch (error) {
-    // Fallback on parse error
+  } catch {
+    // Fallback on parse error: a malformed marker still means the AI asked
+    // for a ticket, so create one with default details.
     return {
       shouldCreateTicket: true,
       subject: 'Support Request from Chat',

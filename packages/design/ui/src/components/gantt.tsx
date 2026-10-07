@@ -232,7 +232,7 @@ const getWidth = (
   if (context.range === 'daily') {
     const delta = differenceIn(endAt, startAt);
 
-    return parsedColumnWidth * (delta ? delta : 1);
+    return parsedColumnWidth * (delta || 1);
   }
 
   const daysInStartMonth = getDaysInMonth(startAt);

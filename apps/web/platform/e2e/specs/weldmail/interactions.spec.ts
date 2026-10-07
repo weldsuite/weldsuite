@@ -49,6 +49,7 @@ test.describe('WeldMail · inbox interactions', () => {
 
     const url = page.url();
     if (/\/weldmail\/setup/.test(url)) {
+      // Skipped: Without a mail account the inbox redirects to setup, so there is no inbox to test.
       test.skip(true, 'No mail account — redirected to setup');
       return;
     }

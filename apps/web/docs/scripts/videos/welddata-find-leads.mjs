@@ -15,7 +15,7 @@ const lists = [
   { id: 'wdl_partners', createdAt: now, updatedAt: now, kind: 'company', name: 'Partner companies', description: null, color: 'bg-violet-500', icon: 'Database', leadCount: 8 },
 ]
 
-function person(n, name, title, companyName, domain, industry, location, country, companySize) {
+function person(n, { name, title, companyName, domain, industry, location, country, companySize }) {
   return {
     id: `lem_${n}`,
     kind: 'person',
@@ -35,14 +35,14 @@ function person(n, name, title, companyName, domain, industry, location, country
 }
 
 const results = [
-  person(1, 'Marta Lindqvist', 'Head of Sales', 'Brightwave Software', 'brightwave.example', 'Technology, Information and Internet', 'Stockholm', 'Sweden', '51-200'),
-  person(2, 'Tobias Reinhardt', 'Head of Sales', 'Northgate Logistics', 'northgate.example', 'Freight and Package Transportation', 'Hamburg', 'Germany', '51-200'),
-  person(3, 'Chloe Fontaine', 'Head of Sales, EMEA', 'Lumen Analytics', 'lumen-analytics.example', 'IT Services and IT Consulting', 'Lyon', 'France', '51-200'),
-  person(4, 'Ravi Menon', 'Head of Sales', 'Copperleaf Foods', 'copperleaf.example', 'Food and Beverage Manufacturing', 'Manchester', 'United Kingdom', '51-200'),
-  person(5, 'Sofia Alvarez', 'Head of Sales', 'Harborview Insurance', 'harborview.example', 'Insurance', 'Madrid', 'Spain', '51-200'),
-  person(6, 'Jonas Vermeulen', 'Head of Sales Operations', 'Pixelforge Studios', 'pixelforge.example', 'Design Services', 'Antwerp', 'Belgium', '51-200'),
-  person(7, 'Hannah Whitfield', 'Head of Sales', 'Evergreen Energy', 'evergreen-energy.example', 'Electric Power Generation', 'Dublin', 'Ireland', '51-200'),
-  person(8, 'Luca Bianchi', 'Head of Sales', 'Solstice Travel', 'solstice-travel.example', 'Travel Arrangements', 'Milan', 'Italy', '51-200'),
+  person(1, { name: 'Marta Lindqvist', title: 'Head of Sales', companyName: 'Brightwave Software', domain: 'brightwave.example', industry: 'Technology, Information and Internet', location: 'Stockholm', country: 'Sweden', companySize: '51-200' }),
+  person(2, { name: 'Tobias Reinhardt', title: 'Head of Sales', companyName: 'Northgate Logistics', domain: 'northgate.example', industry: 'Freight and Package Transportation', location: 'Hamburg', country: 'Germany', companySize: '51-200' }),
+  person(3, { name: 'Chloe Fontaine', title: 'Head of Sales, EMEA', companyName: 'Lumen Analytics', domain: 'lumen-analytics.example', industry: 'IT Services and IT Consulting', location: 'Lyon', country: 'France', companySize: '51-200' }),
+  person(4, { name: 'Ravi Menon', title: 'Head of Sales', companyName: 'Copperleaf Foods', domain: 'copperleaf.example', industry: 'Food and Beverage Manufacturing', location: 'Manchester', country: 'United Kingdom', companySize: '51-200' }),
+  person(5, { name: 'Sofia Alvarez', title: 'Head of Sales', companyName: 'Harborview Insurance', domain: 'harborview.example', industry: 'Insurance', location: 'Madrid', country: 'Spain', companySize: '51-200' }),
+  person(6, { name: 'Jonas Vermeulen', title: 'Head of Sales Operations', companyName: 'Pixelforge Studios', domain: 'pixelforge.example', industry: 'Design Services', location: 'Antwerp', country: 'Belgium', companySize: '51-200' }),
+  person(7, { name: 'Hannah Whitfield', title: 'Head of Sales', companyName: 'Evergreen Energy', domain: 'evergreen-energy.example', industry: 'Electric Power Generation', location: 'Dublin', country: 'Ireland', companySize: '51-200' }),
+  person(8, { name: 'Luca Bianchi', title: 'Head of Sales', companyName: 'Solstice Travel', domain: 'solstice-travel.example', industry: 'Travel Arrangements', location: 'Milan', country: 'Italy', companySize: '51-200' }),
 ]
 
 /** Initials avatar as an inline SVG, so saved leads never load an external favicon. */

@@ -1777,8 +1777,9 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     }
   };
 
-  function loadMessages() {
-    appApi.chatMessages.list({ channelId }).then((res) => {
+  async function loadMessages() {
+    try {
+      const res = await appApi.chatMessages.list({ channelId });
       const raw = res.data ?? [];
       const msgs: Message[] = Array.isArray(raw) ? (raw as unknown as Message[]) : [];
       const merged = msgs.map((m) => ({
@@ -1800,7 +1801,11 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       // channel keeps rendering as "unread" (tinted row + accent timestamp) in
       // the DM list. Fire-and-forget; the list refetches on the resulting event.
       appApi.channels.markRead(channelId).catch(() => {});
-    }).catch(console.error).finally(() => setMessagesLoading(false));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setMessagesLoading(false);
+    }
   }
 
   // Draft autosave helpers

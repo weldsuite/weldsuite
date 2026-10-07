@@ -480,7 +480,7 @@ app.post('/accept', zValidator('json', z.object({
 
     // No PENDING member found - user might already be active or invitation not found
     // Check if user is already an active member in any org
-    if (!matched) matched = await findExistingWorkspace(masterDb, memberships);
+    matched ??= await findExistingWorkspace(masterDb, memberships);
 
     if (!matched) {
       return error.notFound(c, 'Invitation');

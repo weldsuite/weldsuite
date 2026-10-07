@@ -487,7 +487,7 @@ export function CustomerDetailHeader({
       a.download = `${slug}-${stamp}.json`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      a.remove();
       toast.success(t('sweep.weldcrm.customerDetailHeader.exportDownloaded'));
     } catch (err) {
       console.error('[CustomerDetailHeader] Failed to export:', err);

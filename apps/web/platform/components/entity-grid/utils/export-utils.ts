@@ -104,6 +104,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   link.download = filename;
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  link.remove();
   URL.revokeObjectURL(link.href);
 }

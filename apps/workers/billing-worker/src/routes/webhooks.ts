@@ -1183,7 +1183,7 @@ async function handleInvoicePaid(
   }
 
   // Sync seat limit to Clerk after purchasedSeats update
-  const currentSeats = paidQuantity > 0 ? paidQuantity : 0;
+  const currentSeats = Math.max(paidQuantity, 0);
   await trySyncClerkSeatLimit(env, masterDb, workspace.clerkOrgId, workspace.id, plan, currentSeats, 'invoice.paid');
 }
 

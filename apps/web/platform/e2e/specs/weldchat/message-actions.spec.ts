@@ -37,6 +37,7 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
   let channelId: string | null = null;
 
   test.beforeAll(() => {
+    // Skipped: Seeds and cleans up through app-api /test-fixtures, so it needs TEST_API_URL, TEST_FIXTURES_TOKEN and TEST_WORKSPACE_ID.
     test.skip(
       !isTestFixturesConfigured(),
       'test-fixtures env vars not set — skipping live WeldChat message-action tests',
@@ -142,6 +143,7 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
   });
 
   test('a private channel exposes an "Invite people" affordance for existing teammates', async ({ page, api }) => {
+    // Skipped: A private channel needs an owning member, seeded from the test user's id (TEST_USER_ID).
     test.skip(!TEST_USER_ID, 'TEST_USER_ID not set — cannot seed an owning member for a private channel');
     const channel = await api.seedChatChannel({
       name: `E2E Private ${Date.now().toString(36)}`,
@@ -171,6 +173,7 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
   // -------------------------------------------------------------------------
 
   test('own message exposes an Edit action', async ({ page, api }) => {
+    // Skipped: An own-authored message is seeded as the test user, which needs TEST_USER_ID.
     test.skip(!TEST_USER_ID, 'TEST_USER_ID not set — cannot seed an own-authored message');
 
     const channel = await api.seedChatChannel({ name: `E2E Edit ${Date.now().toString(36)}` });

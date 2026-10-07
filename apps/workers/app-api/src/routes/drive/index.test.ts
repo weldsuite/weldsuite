@@ -12,27 +12,11 @@ import { driveRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 
 describe('/api/drive · auth gates', () => {
-  it('GET /trash returns 403 without files:read', async () => {
+  it.each(['trash', 'all', 'stats'])('GET /%s returns 403 without files:read', async (view) => {
     const { request } = createTestApp('/api/drive', driveRoutes, {
       context: { permissions: permissions() },
     });
-    const res = await request('/api/drive/trash');
-    expect(res.status).toBe(403);
-  });
-
-  it('GET /all returns 403 without files:read', async () => {
-    const { request } = createTestApp('/api/drive', driveRoutes, {
-      context: { permissions: permissions() },
-    });
-    const res = await request('/api/drive/all');
-    expect(res.status).toBe(403);
-  });
-
-  it('GET /stats returns 403 without files:read', async () => {
-    const { request } = createTestApp('/api/drive', driveRoutes, {
-      context: { permissions: permissions() },
-    });
-    const res = await request('/api/drive/stats');
+    const res = await request(`/api/drive/${view}`);
     expect(res.status).toBe(403);
   });
 });

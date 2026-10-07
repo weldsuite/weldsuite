@@ -55,8 +55,8 @@ export function ContainerBlock({
     right: 'mx-0 ml-auto',
   }[alignment];
 
-  const horizontalPadding = paddingX !== undefined ? paddingX : padding;
-  const verticalPadding = paddingY !== undefined ? paddingY : padding;
+  const horizontalPadding = paddingX ?? padding;
+  const verticalPadding = paddingY ?? padding;
 
   // Outer wrapper with horizontal margin to control background width, inner wrapper for content
   return (

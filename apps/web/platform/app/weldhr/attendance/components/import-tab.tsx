@@ -12,7 +12,7 @@ import type { HrAttendanceStatus, HrImportResult } from '@weldsuite/app-api-clie
 import type { ImportHrAttendanceInput } from '@weldsuite/app-api-client/schemas/weldhr';
 import { useImportHrAttendance } from '@/hooks/queries/use-weldhr-queries';
 import { ErrorBanner, errorMessage } from '../../components/shared';
-import { asText } from '@weldsuite/text';
+import { readTextFile } from '@/lib/read-text-file';
 
 const STATUSES: Set<HrAttendanceStatus> = new Set(['present', 'late', 'absent', 'excused', 'remote', 'half_day']);
 const TEMPLATE = 'employee,date,clock_in,clock_out,break_minutes,status,notes\njane@example.com,2025-01-06,09:00,17:30,30,,\n';
@@ -159,9 +159,9 @@ export function ImportTab() {
 
   function handleFile(file: File) {
     setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = () => setCsvText(asText(reader.result ?? ''));
-    reader.readAsText(file);
+    readTextFile(file).then(setCsvText).catch(() => {
+      // An unreadable file leaves the previous CSV, as FileReader did.
+    });
   }
 
   async function submit() {

@@ -27,7 +27,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrImportResult } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrKpis, useImportHrKpiValues } from '@/hooks/queries/use-weldhr-queries';
 import { ErrorBanner, errorMessage } from '../../components/shared';
-import { asText } from '@weldsuite/text';
+import { readTextFile } from '@/lib/read-text-file';
 
 interface ParsedRow {
   employee: string;
@@ -96,9 +96,9 @@ export function ImportTab() {
   function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setCsvText(asText(reader.result ?? ''));
-    reader.readAsText(file);
+    readTextFile(file).then(setCsvText).catch(() => {
+      // An unreadable file leaves the previous CSV, as FileReader did.
+    });
     e.target.value = '';
   }
 

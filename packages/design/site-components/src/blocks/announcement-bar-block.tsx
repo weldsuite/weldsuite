@@ -70,6 +70,10 @@ export interface AnnouncementBarBlockProps {
   mode?: 'live' | 'preview' | 'edit';
 }
 
+function StarIconFallback() {
+  return <Star className="size-4" />;
+}
+
 export function AnnouncementBarBlock({
   features = {
     freeShipping: { enabled: true, text: 'Free shipping over $75' },
@@ -99,7 +103,7 @@ export function AnnouncementBarBlock({
       <DynamicIcon
         name={kebab as never}
         className={iconClass}
-        fallback={() => <Star className={iconClass} />}
+        fallback={StarIconFallback}
       />
     );
   };

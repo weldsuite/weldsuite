@@ -906,20 +906,33 @@ function buildInboundPayload(
   };
 }
 
+/** The stored message every member notification is about. */
+interface StoredEmailNotice {
+  account: RecipientAccount;
+  workspaceId: string;
+  clerkOrgId: string;
+  email: ParsedEmail;
+  result: StoreEmailResult;
+  preview: string;
+  inboundPayload: ReturnType<typeof buildInboundPayload>;
+}
+
 /**
  * Notify one workspace member: realtime always, Expo push for ham only.
  * Returns true when the in-app (realtime) notification was published.
  */
 async function notifyWorkspaceMember(
   env: Env,
-  account: RecipientAccount,
-  workspaceId: string,
-  clerkOrgId: string,
   member: RecipientAccount['members'][number],
-  email: ParsedEmail,
-  result: StoreEmailResult,
-  preview: string,
-  inboundPayload: ReturnType<typeof buildInboundPayload>,
+  {
+    account,
+    workspaceId,
+    clerkOrgId,
+    email,
+    result,
+    preview,
+    inboundPayload,
+  }: StoredEmailNotice,
 ): Promise<boolean> {
   // Skip the sender: when a message is sent to an internal recipient, a
   // shared mailbox, or the sender's own address, the sent copy is routed
@@ -1019,19 +1032,18 @@ async function finishWorkspaceDelivery(
   // Use clerkOrgId (NOT internal workspaceId) — WorkspaceHub DO is keyed
   // by clerkOrgId on the WS-auth side, so the publish must use the same
   // key or it lands on a different DO and never reaches the client.
+  const notice: StoredEmailNotice = {
+    account,
+    workspaceId,
+    clerkOrgId,
+    email,
+    result,
+    preview,
+    inboundPayload,
+  };
   let notified = 0;
   for (const member of account.members) {
-    const memberNotified = await notifyWorkspaceMember(
-      env,
-      account,
-      workspaceId,
-      clerkOrgId,
-      member,
-      email,
-      result,
-      preview,
-      inboundPayload,
-    );
+    const memberNotified = await notifyWorkspaceMember(env, member, notice);
     if (memberNotified) notified++;
   }
 

@@ -337,7 +337,9 @@ export async function getMessage(id: string): Promise<EmailListItem> {
   try {
     const { data } = await appApi.mailMessages.get(id);
     return data as EmailListItem;
-  } catch (err) {
+  } catch {
+    // Not in the workspace mailbox: the id may belong to a personal mailbox,
+    // so try there; a real miss surfaces as that call's error.
     const { data } = await personalApi.mailMessages.get(id);
     return normalizePersonalMessage(data);
   }

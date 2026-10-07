@@ -32,8 +32,10 @@ const required = ['MAIL_LIVE_API_URL', 'MAIL_LIVE_TOKEN', 'MAIL_LIVE_WORKSPACE_I
 
 test.describe('app-api · LIVE mail send (opt-in)', () => {
   test.beforeAll(() => {
+    // Skipped unless opted in: this sends a real email through the live provider, so it runs only with MAIL_LIVE=1.
     test.skip(!enabled, 'MAIL_LIVE not set — opt-in live send test is disabled');
     const missing = required.filter((k) => !process.env[k]);
+    // Skipped: A live send needs a real API host, token, workspace, mail account and recipient.
     test.skip(missing.length > 0, `Missing live-send env vars: ${missing.join(', ')}`);
   });
 

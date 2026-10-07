@@ -79,7 +79,7 @@ export function VideoBlock({
       autoplay={autoplay}
       loop={loop}
       muted={muted}
-      showControls={showControls !== undefined ? showControls : controls}
+      showControls={showControls ?? controls}
       coverImage={coverImage}
       sectionHeading={sectionHeading}
       sectionHeadingAlignment={sectionHeadingAlignment}

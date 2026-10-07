@@ -964,7 +964,7 @@ export async function createCalendarEventForTask(
     organizerId: params.userId,
     sourceType: resolvedSourceType,
     sourceId: resolvedSourceId,
-    autoScheduled: hasDueDate ? false : true,
+    autoScheduled: !hasDueDate,
     createdAt: now,
     updatedAt: now,
   });

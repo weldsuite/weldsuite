@@ -127,7 +127,9 @@ async function main(): Promise<void> {
   console.log('\nSeeded ai_gateway_credits. Verify in the admin console at /ai-costs.');
 }
 
-main().catch((err: unknown) => {
+try {
+  await main();
+} catch (err: unknown) {
   console.error('Seed failed:', err);
   process.exit(1);
-});
+}
