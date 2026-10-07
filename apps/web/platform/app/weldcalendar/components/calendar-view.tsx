@@ -20,10 +20,9 @@ import { defaultQuickCreateRange, defaultRangeForDay, normalizeQuickCreateRange,
 import { useDismissOnOutsideMouseDown } from './quick-create-dismiss';
 import { setQuickCreatePreviewTitle, useQuickCreatePreviewTitle } from './quick-create-preview-store';
 import { inviteEmailFromQuery } from './guest-invite';
-import { Mail, UserPlus } from 'lucide-react';
+import { Mail, UserPlus, ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
 import { placeCardNearAnchor } from '../lib/popover-position';
 import { WEEK_STARTS_ON, formatClock, useTimeFormat, type TimeFormat } from '../lib/calendar-format';
-import { ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import {
   DropdownMenu,
@@ -430,12 +429,12 @@ export function CalendarView() {
     return () => mql.removeEventListener('change', handler);
   }, []);
 
-  const [currentView, setCurrentViewState] = useState<View>(() => {
+  const [currentView, setCurrentView] = useState<View>(() => {
     const saved = localStorage.getItem('weldcalendar:view');
     return (saved && ['month', 'week', '4day', 'day', 'year', 'schedule'].includes(saved)) ? saved as View : 'month';
   });
-  const setCurrentView = useCallback((view: View) => {
-    setCurrentViewState(view);
+  const changeView = useCallback((view: View) => {
+    setCurrentView(view);
     localStorage.setItem('weldcalendar:view', view);
   }, []);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -990,8 +989,8 @@ export function CalendarView() {
 
   const showDay = useCallback((day: Date) => {
     setCurrentDate(day);
-    setCurrentView('day');
-  }, [setCurrentView]);
+    changeView('day');
+  }, [changeView]);
 
   const handleSelectSlot = useCallback(
     (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => {
@@ -1049,7 +1048,7 @@ export function CalendarView() {
           />
           <Select
             value={isMobile ? foldViewForMobile(currentView) : currentView}
-            onValueChange={(v) => setCurrentView(v as View)}
+            onValueChange={(v) => changeView(v as View)}
           >
             <SelectTrigger size="sm" className="w-[110px] md:w-[130px] shadow-none" aria-label={t.calendarView.viewSelectLabel}>
               <SelectValue />
@@ -1115,8 +1114,7 @@ export function CalendarView() {
           is handled by a document-level mousedown listener above. The card
           itself is hidden during preview drag so it doesn't follow / occlude. */}
       {quickCreateOpen && !isPreviewDragging && (
-        <>
-          <div
+        <div
             ref={quickCreateRef}
             className="fixed z-[70] w-[360px] bg-popover border rounded-xl shadow-lg animate-in fade-in-0 zoom-in-95"
             style={{ top: quickCreatePos.y, left: quickCreatePos.x }}
@@ -1131,7 +1129,6 @@ export function CalendarView() {
               onMoreOptions={handleOpenFullDialog}
             />
           </div>
-        </>
       )}
 
       {/* Event detail panel — slide-in matching TaskDetailPanel design */}
@@ -1206,7 +1203,7 @@ function CalendarSearchInput({
   toggleLabel,
   onOpenChange,
   onQueryChange,
-}: {
+}: Readonly<{
   open: boolean;
   query: string;
   placeholder: string;
@@ -1214,7 +1211,7 @@ function CalendarSearchInput({
   toggleLabel: string;
   onOpenChange: (open: boolean) => void;
   onQueryChange: (query: string) => void;
-}) {
+}>) {
   return (
     <div className="relative flex items-center">
       <div className={cn(
@@ -1287,14 +1284,14 @@ function CalendarBody({
   onShowDay,
   selectedEventId,
   timeGrid,
-}: {
+}: Readonly<{
   currentView: View;
   isMobile: boolean;
   onSelectDay: (day: Date) => void;
   onShowDay: (day: Date) => void;
   selectedEventId?: string;
   timeGrid: TimeGridViewProps;
-}) {
+}>) {
   if (currentView === 'year') {
     return <YearView currentDate={timeGrid.currentDate} events={timeGrid.events} onDateClick={onShowDay} />;
   }
@@ -1394,14 +1391,14 @@ function TaskLabelsRow({
   onClose,
   onAddLabel,
   onRemoveLabel,
-}: {
+}: Readonly<{
   labels: string[];
   isActive: boolean;
   onToggle: () => void;
   onClose: () => void;
   onAddLabel: (label: string) => void;
   onRemoveLabel: (label: string) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const summary =
     labels.length > 0 ? (
@@ -1470,7 +1467,7 @@ function PeopleRow({
   onDeactivate,
   onAdd,
   onRemove,
-}: {
+}: Readonly<{
   people: GuestEntry[];
   isActive: boolean;
   emptyLabel: string;
@@ -1484,7 +1481,7 @@ function PeopleRow({
   onDeactivate: () => void;
   onAdd: (guest: GuestEntry) => void;
   onRemove: (id: string) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   if (people.length === 0 && !isActive) {
     return (
@@ -1563,7 +1560,7 @@ function DescriptionRow({
   onActivate,
   onDeactivate,
   onChange,
-}: {
+}: Readonly<{
   isActive: boolean;
   description: string;
   descriptionRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -1572,7 +1569,7 @@ function DescriptionRow({
   onActivate: () => void;
   onDeactivate: () => void;
   onChange: (value: string) => void;
-}) {
+}>) {
   // Focus the textarea when the row becomes active (replaces the autoFocus attribute).
   useEffect(() => {
     if (isActive) descriptionRef.current?.focus();
@@ -1622,7 +1619,7 @@ function EventTimeRow({
   onEndDateChange,
   onStartTimeChange,
   onEndTimeChange,
-}: {
+}: Readonly<{
   isActive: boolean;
   onToggle: () => void;
   allDay: boolean;
@@ -1635,7 +1632,7 @@ function EventTimeRow({
   onEndDateChange: (value: string) => void;
   onStartTimeChange: (value: string) => void;
   onEndTimeChange: (value: string) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   return (
@@ -1729,7 +1726,7 @@ function MeetingRow({
   onCopyLink,
   onUpdateSetting,
   onRemove,
-}: {
+}: Readonly<{
   meetingUrl: string;
   /** WeldMeet was added but the meeting is created on save. */
   pending: boolean;
@@ -1739,7 +1736,7 @@ function MeetingRow({
   onCopyLink: () => void;
   onUpdateSetting: (patch: Partial<MeetingSettings>) => void;
   onRemove: () => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const hasMeeting = pending || !!meetingUrl;
   // The row is only a button while it still offers "add WeldMeet".
@@ -1895,13 +1892,13 @@ function LocationRow({
   onActivate,
   onDeactivate,
   onChange,
-}: {
+}: Readonly<{
   isActive: boolean;
   location: string;
   onActivate: () => void;
   onDeactivate: () => void;
   onChange: (value: string) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const summary = location ? (
     <span className="text-sm text-foreground h-7 flex items-center truncate">{location}</span>
@@ -1937,10 +1934,10 @@ function LocationRow({
 function RepeatPopover({
   repeat,
   onChange,
-}: {
+}: Readonly<{
   repeat: string | null;
   onChange: (repeat: string | null) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const options: { value: string | null; label: string }[] = [
     { value: null, label: t.quickCreate.noRepeat },
@@ -2007,7 +2004,7 @@ export function QuickCreateCard({
   editEvent,
   defaultGuests,
   defaultWeldMeet = false,
-}: {
+}: Readonly<{
   defaultType: string;
   defaultStart?: Date;
   defaultEnd?: Date;
@@ -2027,7 +2024,7 @@ export function QuickCreateCard({
   defaultGuests?: Array<{ email: string; name?: string }>;
   /** Start with "Add WeldMeet" switched on when creating a new event. */
   defaultWeldMeet?: boolean;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const [initial] = useState(() =>
     getQuickCreateInitialValues(editEvent, {
@@ -2598,7 +2595,7 @@ function MonthView({
   selectedEventId,
   onEventDrop,
   onShowDay,
-}: {
+}: Readonly<{
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
@@ -2615,7 +2612,7 @@ function MonthView({
   selectedColor?: string;
   selectedEventId?: string;
   onEventDrop: (event: CalendarEvent, newStart: Date, newEnd: Date) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   // Shown live in the preview chip, like the time-grid preview block does.
@@ -2645,7 +2642,7 @@ function MonthView({
   // cover (also on grid days that come after a start before the grid); other
   // events appear once, on their start day.
   const eventsByDay = useMemo(
-    () => bucketMonthEvents(events, weeks[0][0], weeks[weeks.length - 1][6]),
+    () => bucketMonthEvents(events, weeks[0][0], weeks.at(-1)![6]),
     [events, weeks],
   );
 
@@ -2901,12 +2898,12 @@ function MobileWeekDayStrip({
   weekDate,
   selectedDate,
   onSelectDay,
-}: {
+}: Readonly<{
   weekDate: Date;
   selectedDate: Date;
   events: CalendarEvent[];
   onSelectDay: (d: Date) => void;
-}) {
+}>) {
   const weekStart = startOfWeek(weekDate, { weekStartsOn: WEEK_STARTS_ON });
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
@@ -2956,7 +2953,7 @@ function MobileWeekDayStrip({
  *  user picks a day in the strip to swap the timeline; toolbar PREV/NEXT
  *  navigate by week (handled by the parent's existing goPrev / goNext when
  *  currentView is 'week'). */
-function MobileWeekTimelineView(props: {
+function MobileWeekTimelineView(props: Readonly<{
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
@@ -2971,7 +2968,7 @@ function MobileWeekTimelineView(props: {
   workingHours?: WorkingHours | null;
   onPreviewMouseDown?: (e: React.MouseEvent) => void;
   onPreviewResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
-}) {
+}>) {
   const { currentDate, events, onSelectDay, ...dayProps } = props;
 
   // Horizontal swipe → previous / next day with a smooth slide.
@@ -3150,13 +3147,13 @@ function MobileMonthBlock({
   currentDate,
   eventCounts,
   onSelectDay,
-}: {
+}: Readonly<{
   month: Date;
   currentDate: Date;
   /** Events per `yyyy-MM-dd`; a day with at least one gets a dot. */
   eventCounts: ReadonlyMap<string, number>;
   onSelectDay: (d: Date) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const weeks = useMemo(() => buildMonthGrid(month), [month]);
   const monthKey = format(month, 'yyyy-MM');
@@ -3234,14 +3231,14 @@ function MobileMonthView({
   currentDate,
   events,
   onSelectDay,
-}: {
+}: Readonly<{
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
   onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
   /** Called with the tapped day; the parent opens that day's view. */
   onSelectDay: (d: Date) => void;
-}) {
+}>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // One pass over the events (multi-day ones count on each day they cover);
   // every month block looks its days up in this map.
@@ -3342,7 +3339,7 @@ function WeekView({
   workingHours,
   onPreviewMouseDown,
   onPreviewResize,
-}: {
+}: Readonly<{
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
@@ -3356,7 +3353,7 @@ function WeekView({
   workingHours?: WorkingHours | null;
   onPreviewMouseDown?: (e: React.MouseEvent) => void;
   onPreviewResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   const weekStart = startOfWeek(currentDate, { weekStartsOn: WEEK_STARTS_ON });
@@ -3524,7 +3521,7 @@ function DayView({
   onPreviewMouseDown,
   onPreviewResize,
   hideHeader,
-}: {
+}: Readonly<{
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
@@ -3541,7 +3538,7 @@ function DayView({
   /** Suppress the built-in day header. Used by MobileWeekTimelineView which
    *  renders its own week-strip header above the timeline. */
   hideHeader?: boolean;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   const dayKey = format(currentDate, 'yyyy-MM-dd');
@@ -3693,7 +3690,7 @@ function TimeSlotEvent({
   onResizeBottomStart,
   dimmed,
   placement,
-}: {
+}: Readonly<{
   event: CalendarEvent;
   /** The part of the event on this day's column; omit to draw it from its own start. */
   segment?: TimedSegment;
@@ -3706,7 +3703,7 @@ function TimeSlotEvent({
   onResizeTopStart?: (e: React.MouseEvent) => void;
   onResizeBottomStart?: (e: React.MouseEvent) => void;
   dimmed?: boolean;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   // The event's real times, shown in the label even on a continuation segment.
@@ -3865,13 +3862,13 @@ function DragGhost({
   top,
   duration,
   hourHeight,
-}: {
+}: Readonly<{
   event: CalendarEvent;
   color: string;
   top: number;
   duration: number;
   hourHeight: number;
-}) {
+}>) {
   const timeFormat = useTimeFormat();
   const heightPx = Math.max((duration / 60) * hourHeight, 22);
   const hours = Math.floor(top / hourHeight);
@@ -3908,13 +3905,13 @@ function ResizeGhost({
   top,
   height,
   hourHeight,
-}: {
+}: Readonly<{
   event: CalendarEvent;
   color: string;
   top: number;
   height: number;
   hourHeight: number;
-}) {
+}>) {
   const timeFormat = useTimeFormat();
   const heightPx = Math.max(height, 22);
   const startMinutes = Math.round(((top / hourHeight) * 60) / 15) * 15;
@@ -3946,7 +3943,7 @@ function ResizeGhost({
   );
 }
 
-function CurrentTimeIndicator({ hourHeight = 48 }: { hourHeight?: number }) {
+function CurrentTimeIndicator({ hourHeight = 48 }: Readonly<{ hourHeight?: number }>) {
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -3977,7 +3974,7 @@ function CurrentTimeIndicator({ hourHeight = 48 }: { hourHeight?: number }) {
 // `text-muted-foreground` class from the row, matching every other icon.
 // ============================================================================
 
-function WeldMeetIcon({ className }: { className?: string }) {
+function WeldMeetIcon({ className }: Readonly<{ className?: string }>) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -4147,7 +4144,7 @@ export function EventDetailPanel({
       return;
     }
     // Interior line breaks are kept; only the outer whitespace goes.
-    const next = descriptionDraft.replace(/\r\n/g, '\n').trim();
+    const next = descriptionDraft.replaceAll('\r\n', '\n').trim();
     if (!event?.id || next === (event.description ?? '')) {
       setDescriptionDraft(event?.description ?? '');
       return;
@@ -4803,14 +4800,14 @@ function EventInlineTextField({
   placeholder,
   renderDisplay,
   onSave,
-}: {
+}: Readonly<{
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   placeholder: string;
   renderDisplay?: (value: string) => React.ReactNode;
   onSave: (next: string) => void;
-}) {
+}>) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -4905,7 +4902,7 @@ const ATTENDEE_AVATAR_PALETTE = [
 function attendeeFallbackColor(seed: string): string {
   let hash = 0;
   // Math.imul(n, 1) is ToInt32(n): keeps the hash wrapped to 32 bits.
-  for (let i = 0; i < seed.length; i++) hash = Math.imul(hash * 31 + seed.charCodeAt(i), 1);
+  for (let i = 0; i < seed.length; i++) hash = Math.imul(hash * 31 + seed.codePointAt(i)!, 1);
   return ATTENDEE_AVATAR_PALETTE[Math.abs(hash) % ATTENDEE_AVATAR_PALETTE.length]!;
 }
 
@@ -4914,12 +4911,12 @@ function AttendeeAvatar({
   name,
   avatar,
   className,
-}: {
+}: Readonly<{
   email: string;
   name?: string;
   avatar?: string;
   className?: string;
-}) {
+}>) {
   const seed = email || name || '?';
   const bg = attendeeFallbackColor(seed);
   const initial = (name || email || '?').charAt(0).toUpperCase();
@@ -4949,10 +4946,10 @@ interface WorkspaceMemberLite {
 function EventAttendeesField({
   attendees,
   onChange,
-}: {
+}: Readonly<{
   attendees: { email: string; name?: string; status?: string; role?: string }[];
   onChange: (next: { email: string; name?: string }[]) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const sweep = getTranslations('sweep').entities;
   const [createQuery, setCreateQuery] = useState<string | null>(null);
@@ -5214,10 +5211,10 @@ function formatDateDisplay(date: Date | undefined) {
 function DatePickerField({
   value,
   onChange,
-}: {
+}: Readonly<{
   value: Date;
   onChange: (date: Date) => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState<Date | undefined>(value);
 
@@ -5287,13 +5284,13 @@ function InlineSelectRow({
   displayValue,
   options,
   onChange,
-}: {
+}: Readonly<{
   icon: React.ReactNode;
   value: string;
   displayValue: string;
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
-}) {
+}>) {
   const { open, setOpen, rowRef, pos, toggle: handleClick } = useRowDropdown();
 
   return (
@@ -5357,14 +5354,14 @@ function InlineDateTimeRow({
   onDateChange,
   onTimeChange,
   placeholder,
-}: {
+}: Readonly<{
   icon: React.ReactNode;
   date?: Date;
   time: string;
   onDateChange: (d: Date) => void;
   onTimeChange: (t: string) => void;
   placeholder: string;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   const [open, setOpen] = useState(false);
@@ -5448,11 +5445,11 @@ function CalendarSelectRow({
   calendars,
   selectedId,
   onChange,
-}: {
+}: Readonly<{
   calendars: UserCalendar[];
   selectedId?: string;
   onChange: (id: string) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const { open, setOpen, rowRef, pos, toggle: handleClick } = useRowDropdown();
   const selected = calendars.find((c) => c.id === selectedId) || calendars[0];
@@ -5524,7 +5521,7 @@ function FourDayView({
   workingHours,
   onPreviewMouseDown,
   onPreviewResize,
-}: {
+}: Readonly<{
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
@@ -5538,7 +5535,7 @@ function FourDayView({
   workingHours?: WorkingHours | null;
   onPreviewMouseDown?: (e: React.MouseEvent) => void;
   onPreviewResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   const days = Array.from({ length: 4 }, (_, i) => addDays(currentDate, i));
@@ -5679,11 +5676,11 @@ function YearView({
   currentDate,
   events,
   onDateClick,
-}: {
+}: Readonly<{
   currentDate: Date;
   events: CalendarEvent[];
   onDateClick: (date: Date) => void;
-}) {
+}>) {
   const year = currentDate.getFullYear();
   const months = Array.from({ length: 12 }, (_, i) => new Date(year, i, 1));
   // Events per day for the whole year (all-day and multi-day events count on
@@ -5705,11 +5702,11 @@ function YearMonth({
   month,
   eventCounts,
   onDateClick,
-}: {
+}: Readonly<{
   month: Date;
   eventCounts: ReadonlyMap<string, number>;
   onDateClick: (date: Date) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const weeks = useMemo(() => buildMonthGrid(month, { minWeeks: 5 }), [month]);
   const weekdayLabels = weekdayInitials();
@@ -5792,11 +5789,11 @@ function ScheduleView({
   events,
   calendarColorMap,
   onSelectEvent,
-}: {
+}: Readonly<{
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
   onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   const items: ScheduleItem[] = useMemo(() => {
@@ -5992,7 +5989,7 @@ function TimeSlotPreview({
   hourHeight,
   onMouseDown,
   onResize,
-}: {
+}: Readonly<{
   date: Date;
   endDate?: Date;
   type?: string;
@@ -6003,7 +6000,7 @@ function TimeSlotPreview({
   hourHeight: number;
   onMouseDown?: (e: React.MouseEvent) => void;
   onResize?: (edge: 'top' | 'bottom', e: React.MouseEvent) => void;
-}) {
+}>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
   const typedTitle = useQuickCreatePreviewTitle().trim();
@@ -6053,12 +6050,12 @@ function SlotDragPreview({
   heightPx,
   startTime,
   endTime,
-}: {
+}: Readonly<{
   topPx: number;
   heightPx: number;
   startTime: Date;
   endTime: Date;
-}) {
+}>) {
   const timeFormat = useTimeFormat();
   return (
     <div

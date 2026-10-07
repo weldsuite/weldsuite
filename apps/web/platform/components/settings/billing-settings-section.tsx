@@ -553,7 +553,7 @@ const withScaleHighlight = (plans: Billing.BillingPlan[] | undefined) =>
     highlighted: p.highlighted || p.slug === 'scale',
   }));
 
-function InvoiceStatusBadge({ status }: { status: string }) {
+function InvoiceStatusBadge({ status }: Readonly<{ status: string }>) {
   const t = useTranslations();
   if (status === 'paid' || status === 'succeeded') {
     return (
@@ -575,10 +575,10 @@ function InvoiceStatusBadge({ status }: { status: string }) {
 function PlansHeaderBar({
   isAnnual,
   onToggleAnnual,
-}: {
+}: Readonly<{
   isAnnual: boolean;
   onToggleAnnual: () => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 mb-[18px] h-[53px] px-4 md:px-5 bg-card rounded-2xl border">
@@ -662,10 +662,10 @@ function PlanGridDecorations() {
 function PlanCardPrice({
   plan,
   isAnnual,
-}: {
+}: Readonly<{
   plan: Billing.BillingPlan;
   isAnnual: boolean;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="mb-1">
@@ -699,13 +699,13 @@ function PlanCardCta({
   processing,
   buttonText,
   onSelect,
-}: {
+}: Readonly<{
   plan: Billing.BillingPlan;
   isCurrent: boolean;
   processing: boolean;
   buttonText: string;
   onSelect: (plan: Billing.BillingPlan) => void;
-}) {
+}>) {
   const t = useTranslations();
   if (isContactPlan(plan)) {
     return (
@@ -746,16 +746,21 @@ function PlanPricingCard({
   processing,
   buttonText,
   onSelect,
-}: {
+}: Readonly<{
   plan: Billing.BillingPlan;
   isAnnual: boolean;
   isCurrent: boolean;
   processing: boolean;
   buttonText: string;
   onSelect: (plan: Billing.BillingPlan) => void;
-}) {
+}>) {
   const t = useTranslations();
   const features = formatPlanFeatures(plan);
+  let priceSubtitle: string;
+  if (isContactPlan(plan)) priceSubtitle = t('sweep.settings.billing.billedAnnually');
+  else if (isAnnual) priceSubtitle = t('sweep.settings.billing.perUserMonthBilledAnnually');
+  else priceSubtitle = t('sweep.settings.billing.perUserMonth');
+
   return (
     <div
       className={`relative p-[18px] rounded-2xl flex flex-col bg-card ${
@@ -772,9 +777,7 @@ function PlanPricingCard({
 
       {/* Price subtitle */}
       <p className="text-sm text-muted-foreground mb-1">
-        {isContactPlan(plan)
-          ? t('sweep.settings.billing.billedAnnually')
-          : (isAnnual ? t('sweep.settings.billing.perUserMonthBilledAnnually') : t('sweep.settings.billing.perUserMonth'))}
+        {priceSubtitle}
       </p>
 
 
@@ -814,7 +817,7 @@ function ComparisonPlanColumn({
   processing,
   buttonText,
   onSelect,
-}: {
+}: Readonly<{
   plan: Billing.BillingPlan;
   isLast: boolean;
   isAnnual: boolean;
@@ -822,7 +825,7 @@ function ComparisonPlanColumn({
   processing: boolean;
   buttonText: string;
   onSelect: (plan: Billing.BillingPlan) => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className={isLast ? 'pl-4 pr-0' : 'px-4'}>
@@ -866,7 +869,7 @@ function ComparisonPlanColumn({
   );
 }
 
-function ComparisonValue({ val }: { val: string | boolean }) {
+function ComparisonValue({ val }: Readonly<{ val: string | boolean }>) {
   if (val === true) return <Check className="w-4 h-4 text-primary mx-auto" />;
   if (val === false) return <span className="text-muted-foreground/40">{'\u2715'}</span>;
   return <span className="text-muted-foreground">{val}</span>;
@@ -875,10 +878,10 @@ function ComparisonValue({ val }: { val: string | boolean }) {
 function ComparisonSectionBlock({
   section,
   plans,
-}: {
+}: Readonly<{
   section: ComparisonSection;
   plans: Billing.BillingPlan[];
-}) {
+}>) {
   return (
     <div className="mt-10">
       <h4 className="text-lg font-semibold pb-4 border-b border-border/50">{section.title}</h4>
@@ -911,14 +914,14 @@ function PlanComparisonTable({
   onToggleAnnual,
   processing,
   onSelect,
-}: {
+}: Readonly<{
   plans: Billing.BillingPlan[];
   currentApiPlan: Billing.BillingPlan | undefined;
   isAnnual: boolean;
   onToggleAnnual: () => void;
   processing: boolean;
   onSelect: (plan: Billing.BillingPlan) => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="hidden md:block mt-52">
@@ -983,7 +986,7 @@ function PlansView({
   isAnnual,
   onToggleAnnual,
   onSelectPlan,
-}: {
+}: Readonly<{
   plans: Billing.BillingPlan[];
   subscription: Billing.Subscription | null;
   planLimits: PlanLimitsInfo;
@@ -996,7 +999,7 @@ function PlansView({
   isAnnual: boolean;
   onToggleAnnual: () => void;
   onSelectPlan: (plan: Billing.BillingPlan) => void;
-}) {
+}>) {
   const t = useTranslations();
   const currentApiPlan = plans.find(p => p.id === subscription?.planId);
   const minSeats = Math.max(1, planLimits?.currentUsage.memberCount || 1);
@@ -1083,11 +1086,11 @@ function InvoicesListView({
   invoices,
   onBack,
   onViewInvoice,
-}: {
+}: Readonly<{
   invoices: InvoiceInfo[];
   onBack: () => void;
   onViewInvoice: (invoice: InvoiceInfo) => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="space-y-6">
@@ -1149,10 +1152,10 @@ function InvoicesListView({
 function InvoiceDetailView({
   invoice,
   onBack,
-}: {
+}: Readonly<{
   invoice: InvoiceInfo;
   onBack: () => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="space-y-6">
@@ -1233,7 +1236,7 @@ function ManageSeatsDialog({
   perSeatPrice,
   processing,
   onConfirm,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   subscription: Billing.Subscription | null;
@@ -1245,7 +1248,7 @@ function ManageSeatsDialog({
   perSeatPrice: number;
   processing: boolean;
   onConfirm: () => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1320,13 +1323,16 @@ function ManageSeatsDialog({
   );
 }
 
+/** When the trial ends: an ISO string from the API, a Date once parsed, or none. */
+type TrialEndsAt = string | Date | null;
+
 function PlanStatusBadge({
   subscription,
   isTrialing,
-}: {
+}: Readonly<{
   subscription: Billing.Subscription | null;
   isTrialing: boolean;
-}) {
+}>) {
   const t = useTranslations();
   if (isTrialing) {
     return <Badge variant="secondary" className="rounded-sm">{t('sweep.settings.billing.freeTrial')}</Badge>;
@@ -1343,11 +1349,11 @@ function PlanSubtitle({
   subscription,
   isTrialing,
   trialEndsAt,
-}: {
+}: Readonly<{
   subscription: Billing.Subscription | null;
   isTrialing: boolean;
-  trialEndsAt: string | Date | null;
-}) {
+  trialEndsAt: TrialEndsAt;
+}>) {
   const t = useTranslations();
   if (isTrialing) {
     return trialEndsAt
@@ -1374,26 +1380,34 @@ function PlanSubtitle({
   );
 }
 
+/** "Pro 2" → "Pro": drops a trailing tier number and the space before it. */
+function stripPlanTier(name: string | undefined): string | undefined {
+  if (!name) return name;
+  let end = name.length;
+  while (end > 0 && name[end - 1] >= '0' && name[end - 1] <= '9') end--;
+  return end === name.length ? name : name.slice(0, end).trimEnd();
+}
+
 function CurrentPlanHeader({
   subscription,
   isTrialing,
   trialEndsAt,
   onChangePlan,
   onUpgrade,
-}: {
+}: Readonly<{
   subscription: Billing.Subscription | null;
   isTrialing: boolean;
-  trialEndsAt: string | Date | null;
+  trialEndsAt: TrialEndsAt;
   onChangePlan: () => void;
   onUpgrade: () => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="p-6 border-b">
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold">{subscription?.planName?.replace(/\s*\d+$/, '') || subscription?.planName}</h2>
+            <h2 className="text-xl font-semibold">{stripPlanTier(subscription?.planName) || subscription?.planName}</h2>
             <PlanStatusBadge subscription={subscription} isTrialing={isTrialing} />
           </div>
           <p className="text-sm text-muted-foreground mt-1">
@@ -1420,11 +1434,11 @@ function TeamMembersSection({
   subscription,
   planLimits,
   onOpenManageSeats,
-}: {
+}: Readonly<{
   subscription: Billing.Subscription | null;
   planLimits: PlanLimitsInfo;
   onOpenManageSeats: () => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className="rounded-lg border">
@@ -1458,7 +1472,7 @@ function TeamMembersSection({
         </div>
 
         {/* Members progress bar */}
-        {planLimits && planLimits.maxMembers && (
+        {planLimits?.maxMembers && (
           <div className="mt-4 space-y-2">
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
@@ -1486,11 +1500,11 @@ function RecentInvoicesSection({
   invoices,
   onViewAll,
   onViewInvoice,
-}: {
+}: Readonly<{
   invoices: InvoiceInfo[];
   onViewAll: () => void;
   onViewInvoice: (invoice: InvoiceInfo) => void;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div>
@@ -1527,7 +1541,7 @@ function RecentInvoicesSection({
   );
 }
 
-function InvoiceHistorySection({ invoices }: { invoices: InvoiceInfo[] }) {
+function InvoiceHistorySection({ invoices }: Readonly<{ invoices: InvoiceInfo[] }>) {
   const t = useTranslations();
   return (
     <div>
@@ -1603,14 +1617,14 @@ function BillingOverview({
   onOpenManageSeats,
   onViewAllInvoices,
   onViewInvoice,
-}: {
+}: Readonly<{
   subscription: Billing.Subscription | null;
   plans: Billing.BillingPlan[];
   planLimits: PlanLimitsInfo;
   invoices: InvoiceInfo[];
   error: string | null;
   isTrialing: boolean;
-  trialEndsAt: string | Date | null;
+  trialEndsAt: TrialEndsAt;
   manageSeatsOpen: boolean;
   onManageSeatsOpenChange: (open: boolean) => void;
   manageSeatCount: number;
@@ -1622,16 +1636,17 @@ function BillingOverview({
   onOpenManageSeats: () => void;
   onViewAllInvoices: () => void;
   onViewInvoice: (invoice: InvoiceInfo) => void;
-}) {
+}>) {
   const t = useTranslations();
   const currentPlanForSeats = plans.find(p => p.id === subscription?.planId);
   const manageSeatsMin = Math.max(1, planLimits?.currentUsage.memberCount || 1);
   const manageSeatsMax = currentPlanForSeats?.maxMembers || undefined;
-  const perSeatPrice = currentPlanForSeats
-    ? (subscription?.cycle === Billing.BillingCycle.Yearly
-        ? (currentPlanForSeats.yearlyPrice || Math.round(currentPlanForSeats.monthlyPrice * 10))
-        : currentPlanForSeats.monthlyPrice)
-    : 0;
+  let perSeatPrice = 0;
+  if (currentPlanForSeats) {
+    perSeatPrice = subscription?.cycle === Billing.BillingCycle.Yearly
+      ? currentPlanForSeats.yearlyPrice || Math.round(currentPlanForSeats.monthlyPrice * 10)
+      : currentPlanForSeats.monthlyPrice;
+  }
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">

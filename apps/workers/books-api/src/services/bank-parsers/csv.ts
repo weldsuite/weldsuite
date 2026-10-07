@@ -12,7 +12,7 @@ export function parseCSV(content: string): BankFileParseResult {
   };
 
   try {
-    const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    const normalized = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
     if (!normalized) {
       result.errors.push({ message: 'Empty CSV file' });
       return result;
@@ -46,7 +46,7 @@ export function parseCSV(content: string): BankFileParseResult {
     if (result.transactions.length > 0) {
       const dates = result.transactions.map((t) => t.date).filter(Boolean).sort((a, b) => (a < b ? -1 : Number(a > b)));
       if (dates.length > 0) {
-        result.dateRange = { from: dates[0], to: dates[dates.length - 1] };
+        result.dateRange = { from: dates[0], to: dates.at(-1)! };
       }
     }
   } catch (err) {
@@ -143,7 +143,7 @@ function applyAccountIbanFromFirstRow(
   if (column === -1 || lines.length <= 1) return;
   const value = parseCSVLine(lines[1], separator)[column];
   if (value) {
-    result.accountIban = value.replace(/\s/g, '');
+    result.accountIban = value.replaceAll(/\s/g, '');
   }
 }
 
@@ -168,7 +168,7 @@ function optionalText(fields: string[], column: number): string | undefined {
 
 /** IBAN of an optional column with whitespace removed. */
 function optionalIban(fields: string[], column: number): string | undefined {
-  return column !== -1 ? fields[column]?.replace(/\s/g, '') || undefined : undefined;
+  return column !== -1 ? fields[column]?.replaceAll(/\s/g, '') || undefined : undefined;
 }
 
 /** Date of an optional column. */
@@ -266,7 +266,7 @@ function parseABNRow(
 
   const accountNumber = fields[0];
   if (lineNo === 1 && accountNumber) {
-    result.accountIban = accountNumber.replace(/\s/g, '');
+    result.accountIban = accountNumber.replaceAll(/\s/g, '');
   }
 
   const date = parseDate(fields[2]);
@@ -307,13 +307,13 @@ function extractCounterpartyFromABN(description: string): {
   const result: { name?: string; iban?: string; reference?: string } = {};
 
   // Try to find IBAN in description
-  const ibanMatch = description.match(/\b([A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,})\b/);
+  const ibanMatch = /\b([A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,})\b/.exec(description);
   if (ibanMatch) {
     result.iban = ibanMatch[1];
   }
 
   // Try to extract name (often before IBAN or after specific markers)
-  const nameMatch = description.match(/^([A-Z][A-Za-z\s.'-]+?)(?:\s{2,}|\s*[A-Z]{2}\d{2})/);
+  const nameMatch = /^([A-Z][A-Za-z\s.'-]+?)(?:\s{2,}|\s*[A-Z]{2}\d{2})/.exec(description);
   if (nameMatch) {
     result.name = nameMatch[1].trim();
   }
@@ -531,23 +531,23 @@ function findColumn(headers: string[], candidates: string[]): number {
  * Supported: YYYYMMDD, YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, MM/DD/YYYY (if unambiguous)
  */
 function parseDate(value: string): string | null {
-  const trimmed = value.trim().replace(/"/g, '');
+  const trimmed = value.trim().replaceAll('"', '');
   if (!trimmed) return null;
 
   // YYYYMMDD
-  let match = trimmed.match(/^(\d{4})(\d{2})(\d{2})$/);
+  let match = /^(\d{4})(\d{2})(\d{2})$/.exec(trimmed);
   if (match) {
     return `${match[1]}-${match[2]}-${match[3]}`;
   }
 
   // YYYY-MM-DD
-  match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
   if (match) {
     return `${match[1]}-${match[2]}-${match[3]}`;
   }
 
   // DD-MM-YYYY or DD/MM/YYYY (European format, common in Dutch banks)
-  match = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  match = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/.exec(trimmed);
   if (match) {
     const day = match[1].padStart(2, '0');
     const month = match[2].padStart(2, '0');
@@ -557,7 +557,7 @@ function parseDate(value: string): string | null {
   }
 
   // YYYY/MM/DD
-  match = trimmed.match(/^(\d{4})\/(\d{2})\/(\d{2})$/);
+  match = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(trimmed);
   if (match) {
     return `${match[1]}-${match[2]}-${match[3]}`;
   }
@@ -569,11 +569,11 @@ function parseDate(value: string): string | null {
  * Parse amount string, handling Dutch number format (comma as decimal, dot as thousands).
  */
 function parseAmount(value: string): number {
-  let cleaned = value.trim().replace(/"/g, '');
+  let cleaned = value.trim().replaceAll('"', '');
   if (!cleaned) return 0;
 
   // Remove currency symbols and whitespace
-  cleaned = cleaned.replace(/[€$£\s]/g, '');
+  cleaned = cleaned.replaceAll(/[€$£\s]/g, '');
 
   // Handle Dutch format: 1.234,56 → 1234.56
   if (cleaned.includes(',') && cleaned.includes('.')) {
@@ -581,18 +581,18 @@ function parseAmount(value: string): number {
     const lastComma = cleaned.lastIndexOf(',');
     const lastDot = cleaned.lastIndexOf('.');
     if (lastComma > lastDot) {
-      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+      cleaned = cleaned.replaceAll('.', '').replace(',', '.');
     } else {
       // US format: 1,234.56
-      cleaned = cleaned.replace(/,/g, '');
+      cleaned = cleaned.replaceAll(',', '');
     }
   } else if (cleaned.includes(',')) {
     // Only comma — treat as decimal separator
     cleaned = cleaned.replace(',', '.');
   }
 
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : num;
+  const num = Number.parseFloat(cleaned);
+  return Number.isNaN(num) ? 0 : num;
 }
 
 /**
@@ -601,11 +601,11 @@ function parseAmount(value: string): number {
  */
 function extractReferenceFromText(text: string): string | undefined {
   // 16-digit structured payment reference (betalingskenmerk)
-  const refMatch = text.match(/\b(\d{16})\b/);
+  const refMatch = /\b(\d{16})\b/.exec(text);
   if (refMatch) return refMatch[1];
 
   // Shorter reference patterns
-  const kwMatch = text.match(/(?:kenmerk|ref(?:erentie)?|reference)[:\s]*([A-Za-z0-9-]+)/i);
+  const kwMatch = /(?:kenmerk|ref(?:erentie)?|reference)[:\s]*([A-Za-z0-9-]+)/i.exec(text);
   if (kwMatch) return kwMatch[1];
 
   return undefined;

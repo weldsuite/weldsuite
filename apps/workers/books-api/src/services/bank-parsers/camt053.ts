@@ -13,7 +13,7 @@ export function parseCAMT053(content: string): BankFileParseResult {
 
   try {
     // Normalise line endings
-    const xml = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const xml = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
     // Find all Stmt (statement) blocks
     const stmtBlocks = extractAllBlocks(xml, 'Stmt');
@@ -33,7 +33,7 @@ export function parseCAMT053(content: string): BankFileParseResult {
     // Compute date range
     if (result.transactions.length > 0) {
       const dates = result.transactions.map((t) => t.date).sort((a, b) => (a < b ? -1 : Number(a > b)));
-      result.dateRange = { from: dates[0], to: dates[dates.length - 1] };
+      result.dateRange = { from: dates[0], to: dates.at(-1)! };
     }
   } catch (err) {
     result.errors.push({
@@ -66,7 +66,7 @@ function applyBalances(result: BankFileParseResult, stmt: string): void {
     const amt = extractTagValue(bal, 'Amt');
     if (amt === null) continue;
 
-    const amount = parseFloat(amt);
+    const amount = Number.parseFloat(amt);
     const signed = extractTagValue(bal, 'CdtDbtInd') === 'DBIT' ? -amount : amount;
 
     // OPBD = Opening Booked, PRCD = Previous Closing
@@ -109,7 +109,7 @@ function parseEntry(entry: string): ParsedBankTransaction | null {
 
   // Amount
   const amtStr = extractTagValue(entry, 'Amt');
-  const amount = amtStr ? parseFloat(amtStr) : 0;
+  const amount = amtStr ? Number.parseFloat(amtStr) : 0;
 
   // Credit/Debit indicator
   const cdtDbtInd = extractTagValue(entry, 'CdtDbtInd');
@@ -265,16 +265,16 @@ function parseTxDetails(txDtls: string, isDebit: boolean): TxDetails {
  */
 function extractBlock(xml: string, tagName: string): string | null {
   // Match both <Tag> and <ns:Tag> and <ns2:Tag>
-  const openPattern = new RegExp(`<(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}(?:\\s[^>]*)?>`, 's');
-  const match = xml.match(openPattern);
-  if (!match || match.index === undefined) return null;
+  const openPattern = new RegExp(String.raw`<(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}(?:\s[^>]*)?>`, 's');
+  const match = openPattern.exec(xml);
+  if (match?.index === undefined) return null;
 
   const startIdx = match.index + match[0].length;
 
   // Find the matching close tag
   const closePattern = new RegExp(`</(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}>`, 's');
-  const closeMatch = xml.substring(startIdx).match(closePattern);
-  if (!closeMatch || closeMatch.index === undefined) return null;
+  const closeMatch = closePattern.exec(xml.substring(startIdx));
+  if (closeMatch?.index === undefined) return null;
 
   return xml.substring(startIdx, startIdx + closeMatch.index);
 }
@@ -284,7 +284,7 @@ function extractBlock(xml: string, tagName: string): string | null {
  */
 function extractAllBlocks(xml: string, tagName: string): string[] {
   const results: string[] = [];
-  const openPattern = new RegExp(`<(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}(?:\\s[^>]*)?>`, 'gs');
+  const openPattern = new RegExp(String.raw`<(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}(?:\s[^>]*)?>`, 'gs');
   const closePattern = new RegExp(`</(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}>`, 'g');
 
   let openMatch: RegExpExecArray | null;
@@ -305,10 +305,10 @@ function extractAllBlocks(xml: string, tagName: string): string[] {
  */
 function extractTagValue(xml: string, tagName: string): string | null {
   const pattern = new RegExp(
-    `<(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}(?:\\s[^>]*)?>([^<]*)</(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}>`,
+    String.raw`<(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}(?:\s[^>]*)?>([^<]*)</(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}>`,
     's',
   );
-  const match = xml.match(pattern);
+  const match = pattern.exec(xml);
   return match ? match[1].trim() : null;
 }
 
@@ -317,7 +317,7 @@ function extractTagValue(xml: string, tagName: string): string | null {
  */
 function extractAllTagValues(xml: string, tagName: string): string[] {
   const pattern = new RegExp(
-    `<(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}(?:\\s[^>]*)?>([^<]*)</(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}>`,
+    String.raw`<(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}(?:\s[^>]*)?>([^<]*)</(?:[a-zA-Z0-9]+:)?${escapeRegExp(tagName)}>`,
     'gs',
   );
   const results: string[] = [];
@@ -329,5 +329,5 @@ function extractAllTagValues(xml: string, tagName: string): string[] {
 }
 
 function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return str.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
