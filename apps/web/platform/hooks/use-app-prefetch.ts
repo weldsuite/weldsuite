@@ -176,11 +176,13 @@ export function useAppPrefetch() {
       const now = Date.now();
       if (now - (lastFired.current[appCode] ?? 0) < PREFETCH_STALE_TIME_MS) return;
       lastFired.current[appCode] = now;
-      try {
-        fn({ queryClient, appClient, userId });
-      } catch {
-        // Prefetch failures are non-fatal — the real hook will fetch on click.
-      }
+      // Running the prefetcher inside `.then` routes both sync throws and
+      // rejections to the catch below.
+      Promise.resolve()
+        .then(() => fn({ queryClient, appClient, userId }))
+        .catch(() => {
+          // Prefetch failures are non-fatal — the real hook will fetch on click.
+        });
     }, HOVER_DEBOUNCE_MS);
   }, [queryClient, appClient, userId]);
 

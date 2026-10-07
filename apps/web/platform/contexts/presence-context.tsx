@@ -18,6 +18,7 @@ import React, {
   useState,
   useCallback,
   useRef,
+  useMemo,
 } from 'react';
 import { useAuth, useOrganization } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -57,7 +58,7 @@ interface PresenceContextValue {
 
 const PresenceContext = createContext<PresenceContextValue | null>(null);
 
-export function PresenceProvider({ children }: { children: React.ReactNode }) {
+export function PresenceProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { userId } = useAuth();
   const { organization } = useOrganization();
   const { getClient } = useAppApiClient();
@@ -118,7 +119,7 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    fetchStatuses();
+    void fetchStatuses();
     return () => { cancelled = true; };
   }, [workspaceId, getClient]);
 
@@ -185,7 +186,7 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    setOnline();
+    void setOnline();
   }, [userId, workspaceId, getClient, fetchEpoch]);
 
   // Re-assert our current status whenever the realtime connection comes
@@ -339,7 +340,7 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
 
     const onChannelMessage = (e: MessageEvent) => {
       const data = e.data;
-      if (data && data.type === 'activity' && typeof data.ts === 'number') {
+      if (data?.type === 'activity' && typeof data.ts === 'number') {
         // Peer activity — update our clock but DON'T re-broadcast (avoid loops).
         registerActivity(data.ts, false);
       }
@@ -411,8 +412,13 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
 
   const myStatus = userId ? presenceMap[userId] ?? null : null;
 
+  const value = useMemo<PresenceContextValue>(
+    () => ({ presenceMap, myStatus, setMyStatus, getStatus, isLoading }),
+    [presenceMap, myStatus, setMyStatus, getStatus, isLoading],
+  );
+
   return (
-    <PresenceContext.Provider value={{ presenceMap, myStatus, setMyStatus, getStatus, isLoading }}>
+    <PresenceContext.Provider value={value}>
       {children}
     </PresenceContext.Provider>
   );

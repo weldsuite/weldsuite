@@ -6,7 +6,7 @@
  * but with meeting-specific lifecycle (no ringing, join-on-demand, waiting room).
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
 import {
   createRnnoiseSuppressor,
@@ -108,13 +108,11 @@ async function applyPreferredDevices(meeting: RealtimeKitClient, ids: PreviewDev
       if (!id || id === currentId) return undefined;
       return all.find((d) => d.kind === kind && d.deviceId === id);
     };
-    const targets = [
-      find('audioinput', ids.audioDeviceId, current?.audio?.deviceId),
-      find('videoinput', ids.videoDeviceId, current?.video?.deviceId),
-    ];
-    for (const device of targets) {
-      if (device) await meeting.self.setDevice(device);
-    }
+    // One switch at a time: RTK re-acquires the track for each device change.
+    const audio = find('audioinput', ids.audioDeviceId, current?.audio?.deviceId);
+    if (audio) await meeting.self.setDevice(audio);
+    const video = find('videoinput', ids.videoDeviceId, current?.video?.deviceId);
+    if (video) await meeting.self.setDevice(video);
   } catch (err) {
     console.warn('[WeldMeet] applying the pre-join device choice failed:', err);
   }
@@ -215,6 +213,8 @@ export interface CallCaption {
   at: number;
 }
 
+type CallViewMode = 'grid' | 'spotlight' | 'speaker' | 'sidebar';
+
 interface WeldMeetCallState {
   meetingId: string | null;
   sessionId: string | null;
@@ -246,7 +246,7 @@ interface WeldMeetCallState {
    *  Held in the context so the pin survives the meeting view remounting when
    *  it moves between the inline page and the fullscreen overlay. */
   pinnedId: string | null;
-  viewMode: 'grid' | 'spotlight' | 'speaker' | 'sidebar';
+  viewMode: CallViewMode;
   isOrganizer: boolean;
   meetingTitle: string;
   isRecording: boolean;
@@ -296,7 +296,7 @@ interface WeldMeetCallActions {
   requestPopOut: () => void;
   /** Internal: the PiP widget registers its pop-out implementation here. */
   registerPopOut: (fn: () => void) => void;
-  setViewMode: (mode: 'grid' | 'spotlight' | 'speaker' | 'sidebar') => void;
+  setViewMode: (mode: CallViewMode) => void;
   /**
    * Start the RealtimeKit recorder. With `aiOptions` (transcript / summary,
    * chosen in the start-recording dialog) they are applied first, which is
@@ -344,7 +344,7 @@ export function useWeldMeetCallOptional() {
 // Provider
 // ============================================================================
 
-export function WeldMeetCallProvider({ children }: { children: React.ReactNode }) {
+export function WeldMeetCallProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getClient } = useAppApiClient();
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
@@ -377,7 +377,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'grid' | 'spotlight' | 'speaker' | 'sidebar'>('grid');
+  const [viewMode, setViewMode] = useState<CallViewMode>('grid');
   const [isOrganizer, setIsOrganizer] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingState, setRecordingState] = useState<RecordingState>('IDLE');
@@ -450,7 +450,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
         if (!cancelled) authTokenRef.current = t;
       } catch { /* ignore */ }
     };
-    refresh();
+    void refresh();
     const iv = setInterval(refresh, 30_000);
     return () => { cancelled = true; clearInterval(iv); };
   }, [status, getToken]);
@@ -599,8 +599,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
         // If we already have a partial caption from the same speaker as the
         // most-recent entry, replace it instead of appending — RTK streams
         // partial deltas as separate events.
-        const last = next[next.length - 1];
-        if (last && last.peerId === t.peerId && last.isPartial) {
+        const last = next.at(-1);
+        if (last?.isPartial && last.peerId === t.peerId) {
           next[next.length - 1] = {
             ...last,
             text: t.transcript ?? '',
@@ -815,7 +815,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     const prev = previewStreamRef.current;
     // Never leave a track running that is no longer part of the stream.
     prev?.getTracks().forEach((t) => {
-      if (!next || !next.getTracks().includes(t)) t.stop();
+      if (!next?.getTracks().includes(t)) t.stop();
     });
     previewStreamRef.current = next;
     setPreviewStream(next);
@@ -1274,8 +1274,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       await client.post(`/meeting-sessions/${sId}/leave`);
     } catch { /* best effort */ }
     cleanup();
-    queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
-    queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
+    void queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
+    void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
   }, [meetingId, sessionId, meeting, getClient, cleanup, queryClient]);
 
   const endMeetingAction = useCallback(async () => {
@@ -1296,15 +1296,17 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     meetingIdRef.current = null;
     sessionIdRef.current = null;
     cleanup();
-    queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
-    queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
+    void queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
+    void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
   }, [meetingId, sessionId, getClient, cleanup, queryClient, fireLeaveRequest]);
 
   const toggleMute = useCallback(async () => {
     if (!meeting) return;
     if (meeting.self.audioEnabled) {
       micWantedRef.current = false;
-      meeting.self.disableAudio();
+      meeting.self.disableAudio().catch((err) => {
+        console.error('[WeldMeet] disableAudio failed:', err);
+      });
       setIsMuted(true);
       playMuteSound();
       return;
@@ -1456,7 +1458,9 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
 
   const stopScreenShare = useCallback(() => {
     if (!meeting) return;
-    meeting.self.disableScreenShare();
+    meeting.self.disableScreenShare().catch((err) => {
+      console.error('[WeldMeet] stopScreenShare failed:', err);
+    });
     setIsScreenSharing(false);
     playScreenShareSound();
   }, [meeting]);
@@ -1614,73 +1618,142 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     }
   }, [meeting]);
 
-  const value: WeldMeetCallContextValue = {
-    meetingId,
-    sessionId,
-    meetingType,
-    status,
-    isMuted,
-    isVideoOff,
-    micBlocked,
-    cameraBlocked,
-    isScreenSharing,
-    duration,
-    meeting,
-    handRaised,
-    handRaisedParticipants,
-    previewStream,
-    previewAudioEnabled,
-    previewVideoEnabled,
-    previewAudioInputs,
-    previewVideoInputs,
-    previewAudioDeviceId,
-    previewVideoDeviceId,
-    previewAudioPermission,
-    previewVideoPermission,
-    isFullscreen,
-    isPiP,
-    pinnedId,
-    viewMode,
-    isOrganizer,
-    meetingTitle,
-    isRecording,
-    recordingState,
-    recordingStartRequestedAt,
-    backgroundType: virtualBackground.backgroundType,
-    backgroundValue: virtualBackground.backgroundValue,
-    isBackgroundLoading: virtualBackground.isLoading,
-    prewarmedVideoTrack,
-    captions,
-    joinMeeting,
-    confirmJoinFromPreview,
-    cancelPreview,
-    togglePreviewAudio,
-    togglePreviewVideo,
-    changePreviewAudioDevice,
-    changePreviewVideoDevice,
-    leaveMeeting,
-    endMeeting: endMeetingAction,
-    toggleMute,
-    toggleVideo,
-    startScreenShare,
-    stopScreenShare,
-    toggleHandRaise,
-    toggleFullscreen,
-    minimizeToPiP,
-    expandFromPiP,
-    togglePin,
-    requestPopOut,
-    registerPopOut,
-    setViewMode,
-    startRecording,
-    stopRecording,
-    pauseRecording,
-    resumeRecording,
-    applyBlur: virtualBackground.applyBlur,
-    applyImage: virtualBackground.applyImage,
-    removeBackground: virtualBackground.removeBackground,
-    prewarmMedia,
-  };
+  const value = useMemo<WeldMeetCallContextValue>(
+    () => ({
+      meetingId,
+      sessionId,
+      meetingType,
+      status,
+      isMuted,
+      isVideoOff,
+      micBlocked,
+      cameraBlocked,
+      isScreenSharing,
+      duration,
+      meeting,
+      handRaised,
+      handRaisedParticipants,
+      previewStream,
+      previewAudioEnabled,
+      previewVideoEnabled,
+      previewAudioInputs,
+      previewVideoInputs,
+      previewAudioDeviceId,
+      previewVideoDeviceId,
+      previewAudioPermission,
+      previewVideoPermission,
+      isFullscreen,
+      isPiP,
+      pinnedId,
+      viewMode,
+      isOrganizer,
+      meetingTitle,
+      isRecording,
+      recordingState,
+      recordingStartRequestedAt,
+      backgroundType: virtualBackground.backgroundType,
+      backgroundValue: virtualBackground.backgroundValue,
+      isBackgroundLoading: virtualBackground.isLoading,
+      prewarmedVideoTrack,
+      captions,
+      joinMeeting,
+      confirmJoinFromPreview,
+      cancelPreview,
+      togglePreviewAudio,
+      togglePreviewVideo,
+      changePreviewAudioDevice,
+      changePreviewVideoDevice,
+      leaveMeeting,
+      endMeeting: endMeetingAction,
+      toggleMute,
+      toggleVideo,
+      startScreenShare,
+      stopScreenShare,
+      toggleHandRaise,
+      toggleFullscreen,
+      minimizeToPiP,
+      expandFromPiP,
+      togglePin,
+      requestPopOut,
+      registerPopOut,
+      setViewMode,
+      startRecording,
+      stopRecording,
+      pauseRecording,
+      resumeRecording,
+      applyBlur: virtualBackground.applyBlur,
+      applyImage: virtualBackground.applyImage,
+      removeBackground: virtualBackground.removeBackground,
+      prewarmMedia,
+    }),
+    [
+      meetingId,
+      sessionId,
+      meetingType,
+      status,
+      isMuted,
+      isVideoOff,
+      micBlocked,
+      cameraBlocked,
+      isScreenSharing,
+      duration,
+      meeting,
+      handRaised,
+      handRaisedParticipants,
+      previewStream,
+      previewAudioEnabled,
+      previewVideoEnabled,
+      previewAudioInputs,
+      previewVideoInputs,
+      previewAudioDeviceId,
+      previewVideoDeviceId,
+      previewAudioPermission,
+      previewVideoPermission,
+      isFullscreen,
+      isPiP,
+      pinnedId,
+      viewMode,
+      isOrganizer,
+      meetingTitle,
+      isRecording,
+      recordingState,
+      recordingStartRequestedAt,
+      virtualBackground.backgroundType,
+      virtualBackground.backgroundValue,
+      virtualBackground.isLoading,
+      prewarmedVideoTrack,
+      captions,
+      joinMeeting,
+      confirmJoinFromPreview,
+      cancelPreview,
+      togglePreviewAudio,
+      togglePreviewVideo,
+      changePreviewAudioDevice,
+      changePreviewVideoDevice,
+      leaveMeeting,
+      endMeetingAction,
+      toggleMute,
+      toggleVideo,
+      startScreenShare,
+      stopScreenShare,
+      toggleHandRaise,
+      toggleFullscreen,
+      minimizeToPiP,
+      expandFromPiP,
+      togglePin,
+      requestPopOut,
+      registerPopOut,
+      setViewMode,
+      startRecording,
+      stopRecording,
+      pauseRecording,
+      resumeRecording,
+      virtualBackground.applyBlur,
+      virtualBackground.applyImage,
+      virtualBackground.removeBackground,
+      prewarmMedia,
+    ],
+  );
 
   // NOTE: do NOT wrap children in <RealtimeKitProvider> here. The provider's
   // implementation renders `value ? children : fallback` — wrapping the app
