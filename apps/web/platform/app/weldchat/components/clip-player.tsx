@@ -8,6 +8,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Play, Pause, Volume2, VolumeX, MoreVertical, Download, Share2, Link2, Maximize, X, Captions, Loader2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { toast } from 'sonner';
 import { useTranscribeClip } from '@/hooks/queries/use-weldchat-queries';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
@@ -88,6 +89,11 @@ function generateWaveform(seed: string, count: number): number[] {
 
 function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlayerProps>) {
   const { t } = useI18n();
+  const copyLink = useCallback(() => {
+    navigator.clipboard.writeText(attachment.url).catch(() => {
+      toast.error(t.sweep.entities.copyLinkFailed);
+    });
+  }, [attachment.url, t]);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -270,9 +276,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
               </a>
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => {
-                void navigator.clipboard.writeText(attachment.url);
-              }}
+              onClick={copyLink}
             >
               <Link2 className="h-3.5 w-3.5 mr-0.5" />
               {t.weldchat.clipPlayer.copyLink}
@@ -283,7 +287,7 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
                   // Rejects when the user dismisses the share sheet; nothing to do then.
                   navigator.share({ title: t.weldchat.clipPlayer.voiceClip, url: attachment.url }).catch(() => {});
                 } else {
-                  void navigator.clipboard.writeText(attachment.url);
+                  copyLink();
                 }
               }}
             >
