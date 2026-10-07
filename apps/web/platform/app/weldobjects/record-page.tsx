@@ -21,6 +21,7 @@ import {
 } from '@/hooks/queries/use-custom-objects-queries';
 import { RecordFormDialog } from './record-form-dialog';
 import { groupFields } from './field-input';
+import { asText } from '@weldsuite/text';
 
 /** Render one stored value for display. Mirrors the input coercions. */
 function displayValue(fieldType: string, value: unknown): React.ReactNode {
@@ -30,7 +31,7 @@ function displayValue(fieldType: string, value: unknown): React.ReactNode {
     case 'boolean':
       return value ? '✓' : '—';
     case 'date':
-      return typeof value === 'string' ? new Date(value).toLocaleDateString() : String(value);
+      return typeof value === 'string' ? new Date(value).toLocaleDateString() : asText(value);
     case 'multi_select':
       return Array.isArray(value) ? (
         <div className="flex flex-wrap gap-1">
@@ -41,14 +42,14 @@ function displayValue(fieldType: string, value: unknown): React.ReactNode {
           ))}
         </div>
       ) : (
-        String(value)
+        asText(value)
       );
     case 'url': {
       // Render an anchor only for http(s). The stored value is arbitrary text —
       // records are writable through the external API and MCP tools, not just
       // the URL input — so `mailto:`, `data:` and protocol-relative `//evil`
       // can all reach this. Anything else renders as inert text.
-      const raw = String(value);
+      const raw = asText(value);
       let safe: string | null = null;
       try {
         const parsed = new URL(raw);
@@ -71,8 +72,8 @@ function displayValue(fieldType: string, value: unknown): React.ReactNode {
     }
     case 'email':
       return (
-        <a href={`mailto:${String(value)}`} className="text-primary hover:underline">
-          {String(value)}
+        <a href={`mailto:${asText(value)}`} className="text-primary hover:underline">
+          {asText(value)}
         </a>
       );
     case 'rating': {
@@ -83,7 +84,7 @@ function displayValue(fieldType: string, value: unknown): React.ReactNode {
       return '★'.repeat(filled) + '☆'.repeat(5 - filled);
     }
     default:
-      return String(value);
+      return asText(value);
   }
 }
 

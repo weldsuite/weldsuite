@@ -1,5 +1,6 @@
 import { useSearch } from '@tanstack/react-router';
 import { useMemo } from 'react';
+import { asText } from '@weldsuite/text';
 
 /**
  * The read-only half of `URLSearchParams`. Next.js ships a class by this name;
@@ -28,7 +29,7 @@ export function useSearchParams(): ReadonlyURLSearchParams {
           usp.append(key, String(v));
         }
       } else if (value !== undefined && value !== null) {
-        usp.set(key, String(value));
+        usp.set(key, asText(value));
       }
     }
     return usp as ReadonlyURLSearchParams;

@@ -21,6 +21,7 @@ import {
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { cn } from '@/lib/utils';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
+import { asText } from '@weldsuite/text';
 
 const ENTITY_TYPE_VALUES = [
   'all', 'contact', 'customer', 'product', 'order', 'invoice', 'bill',
@@ -40,7 +41,7 @@ const actionPillClass: Record<string, string> = {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return 'none';
   if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  return asText(value);
 }
 
 function ChangeDetails({ changes, label }: Readonly<{ changes: Record<string, { from: unknown; to: unknown }>; label: string }>) {

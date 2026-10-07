@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import type { CustomFieldDefinition } from '@/lib/api/domains/settings';
+import { asText } from '@weldsuite/text';
 
 interface CustomFieldsSidebarSectionProps {
   entityType: string;
@@ -231,7 +232,7 @@ function EditableCustomField({
   }, [isEditing]);
 
   const handleStartEdit = () => {
-    setEditValue(value != null ? String(value) : '');
+    setEditValue(value != null ? asText(value) : '');
     setIsEditing(true);
   };
 
@@ -332,7 +333,7 @@ function InlineEditor({ ctx, className }: Readonly<{ ctx: FieldContext; classNam
       <input
         ref={inputRef}
         type="date"
-        defaultValue={value ? new Date(String(value)).toISOString().split('T')[0] : ''}
+        defaultValue={value ? new Date(asText(value)).toISOString().split('T')[0] : ''}
         onChange={(e) => onEditValueChange(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={isSaving}

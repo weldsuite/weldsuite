@@ -13,6 +13,7 @@ import type { AnalyticsReport as AnalyticsReportSummary } from '@/app/weldflow/a
 import type { AnalyticsReport, AnalyticsChart } from '@/app/weldflow/analytics/[id]/_components/report-view-client';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import type { ProjectGoals } from '@/lib/api/domains/weldflow';
+import { asText } from '@weldsuite/text';
 
 // =============================================================================
 // Query Keys

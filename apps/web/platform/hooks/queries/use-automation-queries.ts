@@ -17,6 +17,7 @@ import type {
   WorkflowTemplateItem,
 } from '@weldsuite/app-api-client/schemas/weldconnect-templates';
 import type { ExecutionLogEntry } from '@/app/weldconnect/executions/[id]/execution-detail-client';
+import { asText } from '@weldsuite/text';
 
 /**
  * Execution row as the API returns it today: the shared schema type plus the
@@ -143,7 +144,7 @@ function buildQueryString(params: Record<string, unknown>): string {
   const searchParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      searchParams.set(key, String(value));
+      searchParams.set(key, asText(value));
     }
   }
   const qs = searchParams.toString();

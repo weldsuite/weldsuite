@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Opportunity, OpportunityFilters } from '@/lib/api/domains/weldcrm';
+import { asText } from '@weldsuite/text';
 
 export type { Opportunity, OpportunityFilters } from '@/lib/api/domains/weldcrm';
 
@@ -35,7 +36,7 @@ function buildQuery(params: Record<string, unknown> | undefined): string {
   const search = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined || v === null || v === '') continue;
-    search.set(k, String(v));
+    search.set(k, asText(v));
   }
   const q = search.toString();
   return q ? `?${q}` : '';

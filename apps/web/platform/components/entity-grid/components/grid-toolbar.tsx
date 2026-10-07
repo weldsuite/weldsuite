@@ -42,6 +42,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { useGridContext } from '../context';
 import type { GridColumnDef, GridFilter } from '../types';
+import { asText } from '@weldsuite/text';
 
 interface GridToolbarProps {
   onCreateEntity?: () => void;
@@ -499,7 +500,7 @@ function GridFilterPills<TEntity>({
                 open={editingValueIndex === index}
                 onOpenChange={(open) => {
                   setEditingValueIndex(open ? index : null);
-                  if (open) setTextInputValue(filter.value != null ? String(filter.value) : '');
+                  if (open) setTextInputValue(filter.value != null ? asText(filter.value) : '');
                 }}
               >
                 <PopoverTrigger asChild>

@@ -18,6 +18,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { CustomerList, CustomerListFilters } from '@/lib/api/domains/weldcrm';
+import { asText } from '@weldsuite/text';
 
 export type { CustomerList } from '@/lib/api/domains/weldcrm';
 
@@ -53,7 +54,7 @@ function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      queryParams.set(key, String(value));
+      queryParams.set(key, asText(value));
     }
   }
   const query = queryParams.toString();
