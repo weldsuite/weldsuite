@@ -69,6 +69,7 @@ import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { formatTaskNumber } from '@/lib/task-number';
 import { useObjectPanel } from '@/components/object-panel';
+import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { FilterPills } from '@/components/entity-list';
@@ -688,18 +689,7 @@ const PipelinePage = () => {
   const [editingCrmTask, setEditingCrmTask] = useState<CrmTask | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
-  const [availableLabels, setAvailableLabels] = useState<ProjectLabel[]>([]);
-
-  // Fetch this project's labels (plus legacy workspace-wide labels)
-  useEffect(() => {
-    async function loadLabels() {
-      const result = await labelsApi.list(projectId);
-      if (result.success && result.data) {
-        setAvailableLabels(result.data);
-      }
-    }
-    void loadLabels();
-  }, [projectId]);
+  const [availableLabels, setAvailableLabels] = useProjectLabels(projectId);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
     if (!canWrite) return null;

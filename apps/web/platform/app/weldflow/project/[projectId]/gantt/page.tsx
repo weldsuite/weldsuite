@@ -55,6 +55,7 @@ import { ganttApi, tasksApi, membersApi, labelsApi } from '@/app/weldflow/lib/ap
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { useObjectPanel } from '@/components/object-panel';
+import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { useI18n } from '@/lib/i18n/provider';
 import { copyText } from '@/lib/clipboard';
@@ -532,18 +533,7 @@ const GanttPage = () => {
   const [editingCrmTask, setEditingCrmTask] = useState<CrmTask | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [projectMembers, setProjectMembers] = useState<{ userId: string; user?: { id: string; name: string; email: string; avatar?: string } }[]>([]);
-  const [availableLabels, setAvailableLabels] = useState<ProjectLabel[]>([]);
-
-  // Fetch this project's labels (plus legacy workspace-wide labels)
-  useEffect(() => {
-    async function loadLabels() {
-      const result = await labelsApi.list(projectId);
-      if (result.success && result.data) {
-        setAvailableLabels(result.data);
-      }
-    }
-    void loadLabels();
-  }, [projectId]);
+  const [availableLabels, setAvailableLabels] = useProjectLabels(projectId);
 
   const handleCreateLabel = useCallback(async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
     const result = await labelsApi.create({ ...data, projectId });
