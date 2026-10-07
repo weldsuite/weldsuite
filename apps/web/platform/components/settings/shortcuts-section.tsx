@@ -61,9 +61,23 @@ const shortcuts = {
   ]
 }
 
+function renderShortcutKey(key: string): React.ReactNode {
+  if (key === '⌘') {
+    return <span className="inline-block scale-150 leading-none translate-y-[0.5px]">{key}</span>
+  }
+  if (['↑', '↓', '←', '→'].includes(key)) {
+    return <span className="text-[19px] leading-none -translate-y-[2.5px] inline-block">{key}</span>
+  }
+  if (key.length === 1) {
+    return <span className="text-[13px] leading-none -translate-y-px inline-block">{key}</span>
+  }
+  return key
+}
+
 export function ShortcutsSection() {
   const t = useTranslations()
-  const [searchQuery, setSearchQuery] = React.useState("")  const [activeFilters, setActiveFilters] = React.useState<ActiveFilter[]>([])
+  const [searchQuery, setSearchQuery] = React.useState("")
+  const [activeFilters, setActiveFilters] = React.useState<ActiveFilter[]>([])
   const filterConfigs: FilterConfig[] = React.useMemo(() => [
     {
       field: 'category',
@@ -137,15 +151,7 @@ export function ShortcutsSection() {
                               ? "h-[26px] w-[26px] p-0"
                               : "h-[26px] px-2 py-0",
                           )}>
-                            {key === '⌘' ? (
-                              <span className="inline-block scale-150 leading-none translate-y-[0.5px]">{key}</span>
-                            ) : ['↑', '↓', '←', '→'].includes(key) ? (
-                              <span className="text-[19px] leading-none -translate-y-[2.5px] inline-block">{key}</span>
-                            ) : key.length === 1 ? (
-                              <span className="text-[13px] leading-none -translate-y-px inline-block">{key}</span>
-                            ) : (
-                              key
-                            )}
+                            {renderShortcutKey(key)}
                           </kbd>
                         </React.Fragment>
                       ))}

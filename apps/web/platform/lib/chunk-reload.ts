@@ -26,8 +26,12 @@ const MIN_RELOAD_INTERVAL_MS = 10_000;
 
 /** True when `error` looks like a stale dynamic-import / module-preload failure. */
 export function isStaleChunkError(error: unknown): boolean {
-  const message =
-    error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  let message = '';
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (typeof error === 'string') {
+    message = error;
+  }
   if (!message) return false;
   return (
     /Failed to fetch dynamically imported module/i.test(message) ||

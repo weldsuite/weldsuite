@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { Building, Plus, Search, Check } from 'lucide-react';
 import {
   Dialog,
@@ -72,6 +72,42 @@ export function CompanySelectorDialog({
     }
   }, [open]);
 
+  let listContent: ReactNode;
+  if (isLoading) {
+    listContent = (
+      <div className="flex items-center justify-center py-8 text-muted-foreground">
+        {t('sweep.weldcrm.companySelectorDialog.loadingCompanies')}
+      </div>
+    );
+  } else if (filteredCompanies.length > 0) {
+    listContent = filteredCompanies.map((company) => (
+      <Button
+        key={company.id}
+        variant="ghost"
+        onClick={() => handleSelect(company)}
+        className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors"
+      >
+        <Building className="h-4 w-4 text-muted-foreground" />
+        <span className="flex-1 text-left">{company.name}</span>
+        {selectedCompany === company.name && (
+          <Check className="h-4 w-4 text-primary" />
+        )}
+      </Button>
+    ));
+  } else if (searchQuery) {
+    listContent = (
+      <div className="py-8 text-center text-muted-foreground">
+        {t('sweep.weldcrm.companySelectorDialog.noCompaniesFound')}
+      </div>
+    );
+  } else {
+    listContent = (
+      <div className="py-8 text-center text-muted-foreground">
+        {t('sweep.weldcrm.companySelectorDialog.noCompaniesYet')}
+      </div>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -98,34 +134,7 @@ export function CompanySelectorDialog({
           {/* Companies List */}
           <ScrollArea className="h-[240px]">
             <div className="space-y-1">
-              {isLoading ? (
-                <div className="flex items-center justify-center py-8 text-muted-foreground">
-                  {t('sweep.weldcrm.companySelectorDialog.loadingCompanies')}
-                </div>
-              ) : filteredCompanies.length > 0 ? (
-                filteredCompanies.map((company) => (
-                  <Button
-                    key={company.id}
-                    variant="ghost"
-                    onClick={() => handleSelect(company)}
-                    className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors"
-                  >
-                    <Building className="h-4 w-4 text-muted-foreground" />
-                    <span className="flex-1 text-left">{company.name}</span>
-                    {selectedCompany === company.name && (
-                      <Check className="h-4 w-4 text-primary" />
-                    )}
-                  </Button>
-                ))
-              ) : searchQuery ? (
-                <div className="py-8 text-center text-muted-foreground">
-                  {t('sweep.weldcrm.companySelectorDialog.noCompaniesFound')}
-                </div>
-              ) : (
-                <div className="py-8 text-center text-muted-foreground">
-                  {t('sweep.weldcrm.companySelectorDialog.noCompaniesYet')}
-                </div>
-              )}
+              {listContent}
             </div>
           </ScrollArea>
 

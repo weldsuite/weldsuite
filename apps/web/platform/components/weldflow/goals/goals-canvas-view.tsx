@@ -1973,7 +1973,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
           style={{
             transform: `translate(${panPosition.x}px, ${panPosition.y}px) scale(${zoom})`,
             transformOrigin: '0 0',
-            transition: isPanning || isDragging || isInitialLoad ? 'none' : (isZooming ? 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)' : 'none')
+            transition: isZooming && !(isPanning || isDragging || isInitialLoad) ? 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)' : 'none'
           }}
         >
           {/* Grid pattern background */}

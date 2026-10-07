@@ -12,7 +12,7 @@ import {
   type GanttFeature,
 } from '@weldsuite/ui/components/gantt';
 import { Check, ChevronDown, ChevronRight, MinusIcon, PlusIcon, AlertCircle, Search, CalendarIcon, SquarePen, Trash2 } from 'lucide-react';
-import { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback, memo, type ReactNode } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import {
@@ -94,8 +94,22 @@ function transformApiData(data: Projects.WorkloadOverview | null): { members: Te
       member.tasks.forEach(task => {
         const now = new Date();
         // Use actual start/due dates with sensible fallbacks
-        const startAt = task.startDate ? new Date(task.startDate) : (task.dueDate ? addDays(new Date(task.dueDate), -7) : now);
-        const endAt = task.dueDate ? new Date(task.dueDate) : (task.startDate ? addDays(new Date(task.startDate), 7) : addDays(now, 7));
+        let startAt: Date;
+        if (task.startDate) {
+          startAt = new Date(task.startDate);
+        } else if (task.dueDate) {
+          startAt = addDays(new Date(task.dueDate), -7);
+        } else {
+          startAt = now;
+        }
+        let endAt: Date;
+        if (task.dueDate) {
+          endAt = new Date(task.dueDate);
+        } else if (task.startDate) {
+          endAt = addDays(new Date(task.startDate), 7);
+        } else {
+          endAt = addDays(now, 7);
+        }
 
         // Calculate hours per day based on estimated hours and duration
         const durationDays = Math.max(1, Math.ceil((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60 * 24)));
@@ -121,6 +135,21 @@ function transformApiData(data: Projects.WorkloadOverview | null): { members: Te
 }
 
 // Workload calculation utilities
+type UtilizationStatus = 'overloaded' | 'near' | 'available' | 'empty';
+
+function getUtilizationStatus(utilization: number): UtilizationStatus {
+  if (utilization > 100) return 'overloaded';
+  if (utilization >= 80) return 'near';
+  if (utilization > 0) return 'available';
+  return 'empty';
+}
+
+function workloadTextClass(avgWorkload: number, hoursPerDay: number): string {
+  if (avgWorkload > hoursPerDay) return "text-red-500";
+  if (avgWorkload > hoursPerDay * 0.8) return "text-green-500";
+  return "text-muted-foreground";
+}
+
 const calculateDailyWorkload = (
   memberId: string,
   tasks: Task[],
@@ -230,7 +259,7 @@ const TeamMemberSidebarItem = memo(({
       <div className="text-right space-y-0.5">
         <p className={cn(
           "text-xs font-medium",
-          avgWorkload > member.hoursPerDay ? "text-red-500" : avgWorkload > member.hoursPerDay * 0.8 ? "text-green-500" : "text-muted-foreground"
+          workloadTextClass(avgWorkload, member.hoursPerDay)
         )}>
           {avgWorkload.toFixed(1)}h / {member.hoursPerDay}h
         </p>
@@ -433,13 +462,7 @@ const WorkloadAreaChart = memo(({
 
       {/* Tooltip */}
       {hoveredDate && hoveredWorkload && (() => {
-        const status = hoveredWorkload.utilization > 100
-          ? 'overloaded'
-          : hoveredWorkload.utilization >= 80
-            ? 'near'
-            : hoveredWorkload.utilization > 0
-              ? 'available'
-              : 'empty';
+        const status = getUtilizationStatus(hoveredWorkload.utilization);
 
         const statusLabel = {
           overloaded: 'Overloaded',
@@ -464,6 +487,21 @@ const WorkloadAreaChart = memo(({
 
         const overHours = hoveredWorkload.hours - member.hoursPerDay;
         const totalTaskHours = hoveredWorkload.tasks.reduce((sum, t) => sum + t.hoursPerDay, 0);
+
+        let capacityDelta: ReactNode = null;
+        if (status === 'overloaded') {
+          capacityDelta = (
+            <span className="text-[11px] font-medium text-red-600 dark:text-red-400 tabular-nums">
+              +{overHours.toFixed(1)}h over
+            </span>
+          );
+        } else if (status === 'available' || status === 'near') {
+          capacityDelta = (
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {(-overHours).toFixed(1)}h left
+            </span>
+          );
+        }
 
         return (
           <div
@@ -502,15 +540,7 @@ const WorkloadAreaChart = memo(({
                     / {member.hoursPerDay}h
                   </span>
                 </div>
-                {status === 'overloaded' ? (
-                  <span className="text-[11px] font-medium text-red-600 dark:text-red-400 tabular-nums">
-                    +{overHours.toFixed(1)}h over
-                  </span>
-                ) : (status === 'available' || status === 'near') ? (
-                  <span className="text-[11px] text-muted-foreground tabular-nums">
-                    {(-overHours).toFixed(1)}h left
-                  </span>
-                ) : null}
+                {capacityDelta}
               </div>
               <div className="relative h-1 bg-muted rounded-full overflow-hidden">
                 <div
@@ -1177,7 +1207,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                     <span className="text-sm font-medium flex-1 truncate">{member.name}</span>
                     <span className={cn(
                       "text-xs font-medium",
-                      avgWorkload > member.hoursPerDay ? "text-red-500" : avgWorkload > member.hoursPerDay * 0.8 ? "text-green-500" : "text-muted-foreground"
+                      workloadTextClass(avgWorkload, member.hoursPerDay)
                     )}>
                       {avgWorkload.toFixed(1)}h / {member.hoursPerDay}h
                     </span>

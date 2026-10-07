@@ -67,13 +67,28 @@ function formatDate(dateString: string | null) {
   })
 }
 
+function statusBadgeClasses(status: string) {
+  if (status === "active") {
+    return "border-transparent bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+  }
+  if (status === "paused") {
+    return "border-transparent bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+  }
+  return "border-transparent bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
+}
+
+function deliveryStatusClasses(status: string) {
+  if (status === "delivered") {
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+  }
+  if (status === "failed") {
+    return "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
+  }
+  return "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+}
+
 function StatusBadge({ status, label }: Readonly<{ status: string; label: string }>) {
-  const classes =
-    status === "active"
-      ? "border-transparent bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
-      : status === "paused"
-        ? "border-transparent bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
-        : "border-transparent bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
+  const classes = statusBadgeClasses(status)
   return <Badge className={classes}>{label}</Badge>
 }
 
@@ -370,15 +385,17 @@ export function ExternalWebhooksSection() {
           </Dialog>
         </div>
 
-        {isLoading ? (
+        {isLoading && (
           <div className="border rounded-lg p-8 text-center text-muted-foreground">…</div>
-        ) : filteredWebhooks.length === 0 ? (
+        )}
+        {!isLoading && filteredWebhooks.length === 0 && (
           <div className="border rounded-lg p-8 text-center text-muted-foreground">
             <WebhookIcon className="h-6 w-6 mx-auto mb-2 opacity-50" />
             <p>{ts.empty}</p>
             <p className="text-sm mt-1">{ts.emptyDescription}</p>
           </div>
-        ) : (
+        )}
+        {!isLoading && filteredWebhooks.length > 0 && (
           <div className="border rounded-lg overflow-hidden">
             <Table>
               <TableHeader>
@@ -592,11 +609,7 @@ export function ExternalWebhooksSection() {
                         <Badge
                           className={cn(
                             "border-transparent",
-                            delivery.status === "delivered"
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
-                              : delivery.status === "failed"
-                                ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
-                                : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400",
+                            deliveryStatusClasses(delivery.status),
                           )}
                         >
                           {ts.deliveries.status[delivery.status]}

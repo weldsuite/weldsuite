@@ -96,13 +96,7 @@ export function CommonTab({ userId, isSelf }: Readonly<CommonTabProps>) {
             to={`/weldchat/c/${c.id}`}
             label={c.type === 'dm' ? c.name : `# ${c.name}`}
             hint={t(c.memberCount === 1 ? 'sweep.shared.memberCountOne' : 'sweep.shared.memberCountOther', { count: c.memberCount })}
-            leading={
-              c.type === 'dm'
-                ? c.memberCount > 2
-                  ? <GroupDmAvatar name={c.name} />
-                  : <DmAvatar name={c.name} />
-                : <ChannelAvatar type={c.type} />
-            }
+            leading={channelLeading(c.type, c.name, c.memberCount)}
           />
         ))}
       </Section>
@@ -240,6 +234,12 @@ function Row({
       )}
     </li>
   );
+}
+
+function channelLeading(type: 'public' | 'private' | 'dm', name: string, memberCount: number): React.ReactNode {
+  if (type !== 'dm') return <ChannelAvatar type={type} />;
+  if (memberCount > 2) return <GroupDmAvatar name={name} />;
+  return <DmAvatar name={name} />;
 }
 
 function ChannelAvatar({ type }: Readonly<{ type: 'public' | 'private' | 'dm' }>) {

@@ -1,5 +1,5 @@
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback, type CSSProperties } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -289,6 +289,16 @@ function NoteEditorDialog({
     onOpenChange(newOpen);
   };
 
+  let dialogPositionClass = "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]";
+  let dialogStyle: CSSProperties = { width: '890px', maxWidth: '90vw', height: '935px', maxHeight: '90vh', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' };
+  if (isMinimized) {
+    dialogPositionClass = "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0 rounded-xl";
+    dialogStyle = { width: '320px', height: '50px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' };
+  } else if (isPinned) {
+    dialogPositionClass = "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0";
+    dialogStyle = { width: '440px', maxWidth: '90vw', height: '500px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' };
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogPortal>
@@ -298,18 +308,9 @@ function NoteEditorDialog({
           className={cn(
             "bg-background fixed z-50 rounded-lg p-0 flex flex-col gap-0 transition-all duration-200",
             isTransitioningToPin ? "opacity-0 pointer-events-none" : "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-            isMinimized
-              ? "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0 rounded-xl"
-              : isPinned
-                ? "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0"
-                : "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]"
+            dialogPositionClass
           )}
-          style={isMinimized
-            ? { width: '320px', height: '50px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' }
-            : isPinned
-              ? { width: '440px', maxWidth: '90vw', height: '500px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' }
-              : { width: '890px', maxWidth: '90vw', height: '935px', maxHeight: '90vh', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' }
-          }
+          style={dialogStyle}
         >
         {isMinimized ? (
           <div className="flex items-center h-full px-4">

@@ -1129,16 +1129,18 @@ export function ApiKeysSection() {
           </Alert>
         )}
 
-        {loading ? (
+        {loading && (
           <div className="border rounded-lg p-8 text-center text-muted-foreground">
             {t('sweep.settings.apiKeys.loadingKeys')}
           </div>
-        ) : apiKeys.length === 0 ? (
+        )}
+        {!loading && apiKeys.length === 0 && (
           <div className="border rounded-lg p-8 text-center text-muted-foreground">
             <p>{t('sweep.settings.apiKeys.emptyState.title')}</p>
             <p className="text-sm mt-1">{t('sweep.settings.apiKeys.emptyState.subtitle')}</p>
           </div>
-        ) : (
+        )}
+        {!loading && apiKeys.length > 0 && (
           <div className="border rounded-lg overflow-hidden">
             <Table>
               <TableHeader>
