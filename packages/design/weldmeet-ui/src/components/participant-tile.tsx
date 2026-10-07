@@ -27,8 +27,8 @@ const PERSON_THEMES = [
 
 function hashString(input: string): number {
   let h = 0;
-  for (let i = 0; i < input.length; i++) {
-    h = ((h << 5) - h) + input.codePointAt(i)!;
+  for (const char of input) {
+    h = ((h << 5) - h) + char.codePointAt(0)!;
     h |= 0;
   }
   return Math.abs(h);

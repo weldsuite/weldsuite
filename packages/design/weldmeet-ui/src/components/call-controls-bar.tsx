@@ -504,6 +504,8 @@ function ScreenShareControl({
             void startScreenShare({
               video: { width: { ideal: res.width }, height: { ideal: res.height }, frameRate: { ideal: res.frameRate } },
               audio: shareScreenAudio,
+            }).catch((err: unknown) => {
+              console.warn('[CallControlsBar] startScreenShare failed:', err);
             });
           }}
         >
