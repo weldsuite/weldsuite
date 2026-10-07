@@ -253,6 +253,13 @@ export type BlockResponseResult =
   | { ok: true; blockResponses: Record<string, BlockResponse> }
   | { ok: false; reason: 'not_found' | 'no_such_action' | 'already_responded' };
 
+function responseTypeForBlock(blockType: string): 'form' | 'rating' | 'file' | 'button' {
+  if (blockType === 'input_form') return 'form';
+  if (blockType === 'rating') return 'rating';
+  if (blockType === 'file_request') return 'file';
+  return 'button';
+}
+
 /**
  * Record a customer's response to an interactive block (button / form / rating
  * / file request). Idempotency is enforced per actionId — a second response to
@@ -285,14 +292,7 @@ export async function recordBlockResponse(
   const existingResponses = (message.blockResponses || {}) as Record<string, BlockResponse>;
   if (existingResponses[actionId]) return { ok: false, reason: 'already_responded' };
 
-  const responseType =
-    targetBlock.type === 'input_form'
-      ? 'form'
-      : targetBlock.type === 'rating'
-        ? 'rating'
-        : targetBlock.type === 'file_request'
-          ? 'file'
-          : 'button';
+  const responseType = responseTypeForBlock(targetBlock.type);
 
   // `value` is caller-supplied and only narrows once paired with its block
   // type, which the union models per-variant — assert at the boundary rather

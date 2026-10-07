@@ -425,6 +425,21 @@ export interface AutoDraftInput {
   modelId?: string | null;
 }
 
+/**
+ * Caller-supplied message ids are checked one by one: they need not belong to
+ * `accountId`.
+ */
+async function loadRecentContext(db: Database, gate: AccountGate, input: AutoDraftInput) {
+  if (input.recentMessageIds && input.recentMessageIds.length > 0) {
+    return (
+      await Promise.all(
+        input.recentMessageIds.slice(0, 20).map((id) => loadAccessibleMessage(db, gate, id)),
+      )
+    ).filter((m): m is LoadedMessage => Boolean(m));
+  }
+  return loadRecentMessages(db, [input.accountId], 8);
+}
+
 export async function autoDraft(
   env: Env,
   db: Database,
@@ -438,22 +453,16 @@ export async function autoDraft(
   await gate(input.accountId);
 
   // Primary context: an explicit message to reply to, else recent inbox.
-  // Caller-supplied message ids are checked one by one: they need not belong
-  // to `accountId`.
   const replyTo = input.messageId ? await loadAccessibleMessage(db, gate, input.messageId) : null;
-  const recent = replyTo
-    ? []
-    : input.recentMessageIds && input.recentMessageIds.length > 0
-      ? (
-          await Promise.all(
-            input.recentMessageIds.slice(0, 20).map((id) => loadAccessibleMessage(db, gate, id)),
-          )
-        ).filter((m): m is LoadedMessage => Boolean(m))
-      : await loadRecentMessages(db, [input.accountId], 8);
+  const recent = replyTo ? [] : await loadRecentContext(db, gate, input);
 
   const digest = recent
     .map((m) => `- ${m.from?.email ?? ''}: ${m.subject ?? '(no subject)'} — ${m.preview ?? ''}`)
     .join('\n');
+
+  let intentLine = 'Suggest a helpful follow-up email based on the context.';
+  if (input.prompt) intentLine = `The user's intent: ${input.prompt}`;
+  else if (replyTo) intentLine = 'Write an appropriate reply.';
 
   const ai = getAi(env);
   await assertAiCredits(metering);
@@ -473,11 +482,7 @@ export async function autoDraft(
         lengthLine(accountCtx.aiSettings?.defaultLength),
         replyTo ? `Reply to this email:\n\n${messageContext(replyTo)}\n` : '',
         digest ? `Recent inbox context:\n${digest}\n` : '',
-        input.prompt
-          ? `The user's intent: ${input.prompt}`
-          : replyTo
-            ? 'Write an appropriate reply.'
-            : 'Suggest a helpful follow-up email based on the context.',
+        intentLine,
         'Return a subject line and the email body.',
       ]
         .filter(Boolean)

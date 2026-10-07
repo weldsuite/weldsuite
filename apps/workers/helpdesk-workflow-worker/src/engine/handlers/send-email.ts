@@ -30,11 +30,9 @@ export const sendEmailHandler: StepHandler = {
 
     // Determine email endpoint — check for configured API worker URL or email service
     const envAny = env as unknown as Record<string, unknown>;
-    const emailEndpoint = envAny.EMAIL_API_URL
-      ? asText(envAny.EMAIL_API_URL)
-      : envAny.API_WORKER_URL
-        ? `${asText(envAny.API_WORKER_URL)}/api/mail/send`
-        : null;
+    let emailEndpoint: string | null = null;
+    if (envAny.EMAIL_API_URL) emailEndpoint = asText(envAny.EMAIL_API_URL);
+    else if (envAny.API_WORKER_URL) emailEndpoint = `${asText(envAny.API_WORKER_URL)}/api/mail/send`;
 
     if (!emailEndpoint) {
       // Graceful degradation — log and return success

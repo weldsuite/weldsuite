@@ -40,8 +40,12 @@ function detectDevice(): DeviceInfo {
   const isDesktop = width > 1024;
   const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
+  let type: DeviceInfo['type'] = 'desktop';
+  if (isMobile) type = 'mobile';
+  else if (isTablet) type = 'tablet';
+
   return {
-    type: isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop',
+    type,
     isMobile,
     isTablet,
     isDesktop,

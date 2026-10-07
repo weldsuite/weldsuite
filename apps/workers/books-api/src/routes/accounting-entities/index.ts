@@ -374,12 +374,13 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       existing.jurisdictionCode
     ).toUpperCase();
 
+    const mergedWithoutAlias = data.taxIdentifiers
+      ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
+      : existing.taxIdentifiers;
     const mergedTaxIdentifiers =
       vatAlias !== undefined
         ? { ...existing.taxIdentifiers, ...data.taxIdentifiers, vatNumber: vatAlias }
-        : data.taxIdentifiers
-          ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
-          : existing.taxIdentifiers;
+        : mergedWithoutAlias;
 
     const india = applyIndiaTaxIdentifiers({
       jurisdictionCode: nextJurisdiction,

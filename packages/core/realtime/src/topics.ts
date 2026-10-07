@@ -122,14 +122,12 @@ export function hrPortalTicketKvKey(ticketHash: string): string {
 
 /** The only topics a portal connection may subscribe to. */
 export function hrPortalAllowedTopics(ticket: HrPortalRealtimeTicket): string[] {
-  const own =
-    ticket.kind === 'employee'
-      ? ticket.employeeId
-        ? hrPortalTopics.employee(ticket.employeeId)
-        : null
-      : ticket.companyId
-        ? hrPortalTopics.client(ticket.companyId)
-        : null;
+  let own: string | null;
+  if (ticket.kind === 'employee') {
+    own = ticket.employeeId ? hrPortalTopics.employee(ticket.employeeId) : null;
+  } else {
+    own = ticket.companyId ? hrPortalTopics.client(ticket.companyId) : null;
+  }
   return own ? [hrPortalTopics.workspace, own] : [hrPortalTopics.workspace];
 }
 

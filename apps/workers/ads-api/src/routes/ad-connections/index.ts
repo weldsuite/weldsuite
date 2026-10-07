@@ -163,12 +163,9 @@ app.post('/:id/sync', requirePermission('ad_accounts:update'), async (c) => {
   const orgId = c.get('orgId');
   const id = c.req.param('id');
   const scope = c.req.query('scope');
-  const syncScope =
-    scope === 'push'
-      ? 'push'
-      : scope === 'pull' || scope === 'metrics'
-        ? 'pull'
-        : 'full';
+  let syncScope: 'push' | 'pull' | 'full' = 'full';
+  if (scope === 'push') syncScope = 'push';
+  else if (scope === 'pull' || scope === 'metrics') syncScope = 'pull';
 
   const [connection] = await db
     .select()

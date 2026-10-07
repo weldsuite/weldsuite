@@ -753,11 +753,15 @@ app.patch('/:id/status', requirePermission('conversations:update'), zValidator('
       .where(and(eq(t.id, id), isNull(t.deletedAt)))
       .returning();
 
+    let eventAction: 'closed' | 'resolved' | 'updated' = 'updated';
+    if (status === 'closed') eventAction = 'closed';
+    else if (status === 'resolved') eventAction = 'resolved';
+
     publishEntityEvent({
       c,
       entityType: 'helpdesk_conversation',
       entityId: id,
-      action: status === 'closed' ? 'closed' : status === 'resolved' ? 'resolved' : 'updated',
+      action: eventAction,
       data: { id, status },
     });
 

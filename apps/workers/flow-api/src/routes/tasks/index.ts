@@ -290,12 +290,9 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
   const personMap = await fetchLinkedPersonMap(db, taskResults);
 
   return taskResults.map((task: any) => {
-    const ids: string[] =
-      Array.isArray(task.assigneeIds) && task.assigneeIds.length > 0
-        ? task.assigneeIds
-        : task.assigneeId
-          ? [task.assigneeId]
-          : [];
+    let ids: string[] = [];
+    if (Array.isArray(task.assigneeIds) && task.assigneeIds.length > 0) ids = task.assigneeIds;
+    else if (task.assigneeId) ids = [task.assigneeId];
 
     const assigneesArr = ids
       .map((id: string) => memberMap.get(id))

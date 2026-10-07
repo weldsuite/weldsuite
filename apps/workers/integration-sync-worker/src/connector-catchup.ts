@@ -83,8 +83,9 @@ function classifyCatchupError(err: unknown): {
   retryAfterSeconds?: number;
 } {
   if (err instanceof ConnectorApiError) {
-    const kind =
-      err.kind === 'auth' ? 'auth' : err.kind === 'rate_limit' ? 'rate_limit' : 'transient';
+    let kind: 'auth' | 'rate_limit' | 'transient' = 'transient';
+    if (err.kind === 'auth') kind = 'auth';
+    else if (err.kind === 'rate_limit') kind = 'rate_limit';
     return { kind, message: err.message, retryAfterSeconds: err.retryAfterSeconds };
   }
   return { kind: 'transient', message: err instanceof Error ? err.message : 'catch-up failed' };

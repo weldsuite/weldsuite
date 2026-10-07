@@ -229,9 +229,12 @@ export class HubSpotProvider implements IntegrationProvider {
     if (!response.ok) throw new Error(`HubSpot fetch error ${response.status}`);
 
     const record = await response.json() as HubSpotRecord;
+    let recordType = 'person';
+    if (objectType === 'companies') recordType = 'company';
+    else if (objectType === 'deals') recordType = 'deal';
     return {
       id: record.id,
-      type: objectType === 'companies' ? 'company' : objectType === 'deals' ? 'deal' : 'person',
+      type: recordType,
       data: record.properties as Record<string, unknown>,
       raw: record,
     };

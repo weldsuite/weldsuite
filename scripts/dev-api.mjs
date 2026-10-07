@@ -33,7 +33,10 @@ const present = API_MODULES.filter((m) =>
   existsSync(path.join(workersDir, m.worker, 'wrangler.toml')),
 );
 // app-api (core) first: the first config gets the HTTP port.
-present.sort((a, b) => (a.id === 'core' ? -1 : b.id === 'core' ? 1 : 0));
+present.sort((a, b) => {
+  if (a.id === 'core') return -1;
+  return b.id === 'core' ? 1 : 0;
+});
 
 const configs = present.flatMap((m) => ['-c', path.join(workersDir, m.worker, 'wrangler.toml')]);
 const forwarded = present.filter((m) => m.id !== 'core').map((m) => m.id);

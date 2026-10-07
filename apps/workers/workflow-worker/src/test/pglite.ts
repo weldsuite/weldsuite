@@ -55,7 +55,10 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
     );
     const files = (await fs.readdir(migrationsDir))
       .filter((f) => f.endsWith('.sql'))
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      .sort((a, b) => {
+        if (a < b) return -1;
+        return a > b ? 1 : 0;
+      });
 
     for (const file of files) {
       const raw = await fs.readFile(path.join(migrationsDir, file), 'utf8');

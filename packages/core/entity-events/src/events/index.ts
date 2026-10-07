@@ -148,7 +148,9 @@ export function parseEventName(
   name: string,
   extraEntityTypes?: ExtraEntityTypes,
 ): { entityType: EntityType; action: string } | null {
-  const sep = name.includes(':') ? ':' : name.includes('.') ? '.' : null;
+  let sep: ':' | '.' | null = null;
+  if (name.includes(':')) sep = ':';
+  else if (name.includes('.')) sep = '.';
   if (!sep) return null;
   const idx = name.indexOf(sep);
   const entityType = name.slice(0, idx);

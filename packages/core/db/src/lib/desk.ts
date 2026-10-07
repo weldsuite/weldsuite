@@ -293,14 +293,10 @@ export async function appendDeskMessage(
   const next = nextConversationProgress(current, input, now);
 
   const messageId = input.generateId('dmsg');
+  const assigneePatch = input.assigneeId !== undefined ? { assigneeId: input.assigneeId } : null;
   const metadata: DeskMessageMetadata | null = input.metadata
-    ? {
-        ...input.metadata,
-        ...(input.assigneeId !== undefined ? { assigneeId: input.assigneeId } : {}),
-      }
-    : input.assigneeId !== undefined
-      ? { assigneeId: input.assigneeId }
-      : null;
+    ? { ...input.metadata, ...assigneePatch }
+    : assigneePatch;
 
   const [message] = await db
     .insert(messages)
@@ -406,6 +402,15 @@ export interface ListDeskConversationsQuery {
   limit?: number;
 }
 
+function conversationOrderBy(sort: ListDeskConversationsQuery['sort']) {
+  if (sort === 'oldest') return [conversations.createdAt, conversations.id];
+  if (sort === 'waiting_longest') return [sql`${conversations.waitingSince} ASC NULLS LAST`, conversations.id];
+  return [
+    sql`COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt}) DESC`,
+    desc(conversations.id),
+  ];
+}
+
 export async function listDeskConversations(
   db: AnyDb,
   query: ListDeskConversationsQuery,
@@ -421,15 +426,7 @@ export async function listDeskConversations(
 
   const where = filters.length > 0 ? and(...filters) : undefined;
 
-  const orderBy =
-    query.sort === 'oldest'
-      ? [conversations.createdAt, conversations.id]
-      : query.sort === 'waiting_longest'
-        ? [sql`${conversations.waitingSince} ASC NULLS LAST`, conversations.id]
-        : [
-            sql`COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt}) DESC`,
-            desc(conversations.id),
-          ];
+  const orderBy = conversationOrderBy(query.sort);
 
   const offset = query.cursor ? Number.parseInt(query.cursor, 10) || 0 : 0;
 
@@ -886,18 +883,16 @@ export function toPublicDeskMessage(
   const author =
     message.authorType === 'agent' && message.authorId ? authors.get(message.authorId) : undefined;
   const metadata = message.metadata ?? {};
+  let authorName: string | null = null;
+  if (message.authorType === 'agent') authorName = author?.name ?? 'Support';
+  else if (message.authorType === 'bot') authorName = 'Bot';
   return {
     id: message.id,
     conversationId: message.conversationId,
     kind: message.kind === 'event' ? 'event' : 'message',
     body: message.body,
     authorType: message.authorType,
-    authorName:
-      message.authorType === 'agent'
-        ? author?.name ?? 'Support'
-        : message.authorType === 'bot'
-          ? 'Bot'
-          : null,
+    authorName,
     authorAvatar: author?.avatar ?? null,
     attachments: message.attachments,
     eventType: typeof metadata.eventType === 'string' ? metadata.eventType : null,

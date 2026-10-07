@@ -187,6 +187,10 @@ function aggregateKpis(values: KpiRow[]) {
     const latest = trend.at(-1) ?? null;
     const first = rows[0]!;
     const latestRows = latest ? periods.get(`${latest.periodStart}|${latest.periodEnd}`) ?? [] : [];
+    let onTarget: boolean | null = null;
+    if (latest && first.target !== null) {
+      onTarget = first.direction === 'lower_better' ? latest.average <= first.target : latest.average >= first.target;
+    }
     return {
       kpiId,
       name: first.kpiName,
@@ -194,12 +198,7 @@ function aggregateKpis(values: KpiRow[]) {
       direction: first.direction,
       target: first.target,
       latest,
-      onTarget:
-        latest && first.target !== null
-          ? first.direction === 'lower_better'
-            ? latest.average <= first.target
-            : latest.average >= first.target
-          : null,
+      onTarget,
       trend: trend.slice(-12),
       byEmployee: latestRows.map((r) => ({ employeeId: r.employeeId, employeeName: r.employeeName, value: r.value })),
     };

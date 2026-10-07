@@ -88,7 +88,11 @@ function mockRoutes(page, env) {
   const sent = [
     thread('s1', { sender: ME.name, email: 'lucas@example.com', subject: 'Re: Quote for the new office chairs', preview: 'Looks good, please go ahead with the order.', minutes: 170, labels: ['SENT'] }),
   ]
-  const threadsFor = (slug) => (slug === 'sent' ? sent : slug === 'inbox' ? inbox : [])
+  const threadsFor = (slug) => {
+    if (slug === 'sent') return sent
+    if (slug === 'inbox') return inbox
+    return []
+  }
 
   return mockApi(page, new URL(env.platformBase).origin, [
     ['GET /api/mail-accounts', () => ({ data: [account], pagination: { totalCount: 1, hasMore: false, cursor: null } })],

@@ -289,11 +289,16 @@ export async function createAttendance(
   return row!;
 }
 
+function nextClockTime(value: string | null | undefined, current: Date | null): Date | null {
+  if (value === undefined) return current;
+  return value ? new Date(value) : null;
+}
+
 export async function updateAttendance(db: Database, id: string, input: AttendanceWrite) {
   const existing = await requireAttendance(db, id);
   const date = input.date ?? existing.date;
-  const clockIn = input.clockIn !== undefined ? (input.clockIn ? new Date(input.clockIn) : null) : existing.clockIn;
-  const clockOut = input.clockOut !== undefined ? (input.clockOut ? new Date(input.clockOut) : null) : existing.clockOut;
+  const clockIn = nextClockTime(input.clockIn, existing.clockIn);
+  const clockOut = nextClockTime(input.clockOut, existing.clockOut);
   const breakMinutes = input.breakMinutes ?? existing.breakMinutes;
   const timesChanged = input.clockIn !== undefined || input.clockOut !== undefined || input.date !== undefined;
   const derived = await derive(

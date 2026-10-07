@@ -48,12 +48,9 @@ export function resolveWooCommerceAuthCallbackUrl(args: {
     }
   };
 
-  const fromEnv =
-    args.environment === 'production'
-      ? 'https://app-api.weldsuite.org'
-      : args.environment === 'test'
-        ? 'https://app-api-test.weldsuite.org'
-        : null;
+  let fromEnv: string | null = null;
+  if (args.environment === 'production') fromEnv = 'https://app-api.weldsuite.org';
+  else if (args.environment === 'test') fromEnv = 'https://app-api-test.weldsuite.org';
 
   const origin =
     httpsOrigin(args.requestOrigin) ?? httpsOrigin(args.appApiPublicUrl) ?? httpsOrigin(fromEnv ?? undefined);
