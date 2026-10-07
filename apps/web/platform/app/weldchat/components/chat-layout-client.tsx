@@ -143,7 +143,6 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   // Track whether transitions should be enabled.
   // Disabled until the first user-driven panel toggle to prevent any load animation.
   const hasUserToggled = useRef(false);
-  const [, setEnableTransitions] = useState(false);
 
   // Listen for member-detail-panel events to adjust content width
   useEffect(() => {
@@ -171,7 +170,6 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
     const handler = () => {
       if (!hasUserToggled.current) {
         hasUserToggled.current = true;
-        setEnableTransitions(true);
       }
     };
     window.addEventListener('member-detail-panel-user-toggle', handler);
@@ -196,7 +194,6 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
     }
     if (!hasUserToggled.current) {
       hasUserToggled.current = true;
-      setEnableTransitions(true);
     }
   }, [isEntitySheetOpen]);
 

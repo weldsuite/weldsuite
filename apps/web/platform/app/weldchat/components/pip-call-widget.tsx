@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useReducer } from 'react';
 import { useWeldChatCall, useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { useChannel, useChannelMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useUser } from '@clerk/clerk-react';
@@ -113,7 +113,7 @@ function PiPCallWidgetInner() {
   const { data: membersData } = useChannelMembers(channelId ?? '');
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasAnimatedRef = useRef(false);
-  const [, forceUpdate] = useState(0);
+  const [, forceUpdate] = useReducer((n: number) => n + 1, 0);
 
   const channel = channelData?.data;
   const isDm = channel?.type === 'dm';
@@ -136,7 +136,7 @@ function PiPCallWidgetInner() {
   // Force re-render when participants change
   useEffect(() => {
     if (!meeting) return;
-    const tick = () => forceUpdate(n => n + 1);
+    const tick = () => forceUpdate();
     meeting.participants.joined.on('participantJoined', tick);
     meeting.participants.joined.on('participantLeft', tick);
     meeting.self.on('videoUpdate', tick);

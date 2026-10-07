@@ -324,12 +324,10 @@ export function PipelineKanban({
   const deleteOpportunityMutation = useDeleteOpportunity();
   const [stages, setStages] = useState<Stage[]>([]);
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
-  const [_activeStageId, setActiveStageId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [_viewMode, _setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [showDealDetails, setShowDealDetails] = useState(false);
   const [showEditDeal, setShowEditDeal] = useState(false);
-  const [selectedDealForEdit, _setSelectedDealForEdit] = useState<Deal | null>(null);
+  const selectedDealForEdit: Deal | null = null;
   const { open: openObjectPanel } = useObjectPanel();
   const [showAddStage, setShowAddStage] = useState(false);
   const [selectedStageForNewDeal, setSelectedStageForNewDeal] = useState<string | null>(null);
@@ -470,7 +468,6 @@ export function PipelineKanban({
 
   
   // Backward compatibility alias
-  const _showAttributeLabels = viewSettings.showAttributeLabels;
   
   const containerRef = useRef<HTMLDivElement>(null);
   const stagesScrollRef = useRef<HTMLDivElement>(null);
@@ -587,18 +584,15 @@ export function PipelineKanban({
     // Check if we're dragging a stage or a deal
     if (activeId.startsWith(SORTABLE_STAGE_PREFIX)) {
       const stageId = activeId.replace(SORTABLE_STAGE_PREFIX, '');
-      setActiveStageId(stageId);
       setActiveDealId(null);
     } else {
       setActiveDealId(activeId);
-      setActiveStageId(null);
     }
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveDealId(null);
-    setActiveStageId(null);
 
     if (!over) return;
 
@@ -736,7 +730,6 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
     setSelectedStageForFormula(null);
   };
 
-  const _totalValue = stages.reduce((sum, stage) => sum + stage.value, 0);
 
   // Filter stages based on search query, active filters and the "Hide
   // stage" toggle (TASK-921) — hidden stages never show on the board.
@@ -789,7 +782,6 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
     });
   }, [stages, searchQuery, activeFilters, hiddenStageIds]);
 
-  const _totalDeals = stages.reduce((sum, stage) => sum + stage.count, 0);
   const _weightedValue = stages.reduce((sum, stage) => {
     if (stage.id === 'CLOSED_LOST') return sum;
     const probability = stage.probability || 0;

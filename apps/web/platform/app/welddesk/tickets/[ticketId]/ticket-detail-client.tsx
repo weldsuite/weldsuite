@@ -1305,7 +1305,6 @@ export default function TicketDetailClient({
   const [showCreateTicket, setShowCreateTicket] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isEditingSubject, setIsEditingSubject] = useState(false);
-  const [, setEditedSubject] = useState(ticket.subject || '');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const subjectInputRef = useRef<HTMLInputElement>(null);
 
@@ -1478,7 +1477,6 @@ export default function TicketDetailClient({
                   type="button"
                   className="flex items-center max-w-full min-w-0 group cursor-text text-left border border-transparent hover:border-gray-300 dark:hover:border-border rounded-md px-2 py-0.5 -ml-0.5 transition-colors"
                   onClick={() => {
-                    setEditedSubject(ticket.subject || '');
                     setIsEditingSubject(true);
                   }}
                 >

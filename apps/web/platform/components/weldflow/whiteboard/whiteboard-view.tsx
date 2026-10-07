@@ -203,7 +203,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     prevCanWriteRef.current = canWrite;
   }, [canWrite]);
   const [elements, setElements] = useState<WhiteboardElement[]>(initialElements);
-  const [_isSaving, setIsSaving] = useState(false);
 
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const [selectedElements, setSelectedElements] = useState<Set<string>>(new Set());
@@ -234,7 +233,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   const [arrowType, setArrowType] = useState<ArrowType>('arrow');
   const [isResizing, setIsResizing] = useState(false);
   const [resizeHandle, setResizeHandle] = useState<'nw' | 'ne' | 'sw' | 'se' | null>(null);
-  const [_resizeStartPoint, setResizeStartPoint] = useState({ x: 0, y: 0 });
   const [resizeStartSize, setResizeStartSize] = useState({ width: 0, height: 0, x: 0, y: 0 });
   const [editingElement, setEditingElement] = useState<string | null>(null);
   const [isMiddleMouseDown, setIsMiddleMouseDown] = useState(false);
@@ -535,7 +533,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     }
 
     try {
-      setIsSaving(true);
       const client = await getClient();
       // `PUT /projects/:projectId/whiteboard[/:id]` never existed (api-worker mounts
       // no projects routes). Canonical surface: `PATCH /api/whiteboards/:id` to update
@@ -556,7 +553,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
       console.error('Failed to save whiteboard:', error);
       toast.error(st('sweep.weldflow.whiteboardView.saveFailed'));
     } finally {
-      setIsSaving(false);
     }
   }, [canWrite, projectId, whiteboardId, getClient, st]);
 
@@ -1119,7 +1115,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
       e.preventDefault(); // Prevent text selection
       setIsResizing(true);
       setResizeHandle(resize.handle);
-      setResizeStartPoint(point);
       setResizeStartSize({
         width: resize.box.width,
         height: resize.box.height,

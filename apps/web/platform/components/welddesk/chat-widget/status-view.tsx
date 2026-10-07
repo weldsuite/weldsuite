@@ -57,7 +57,6 @@ export function StatusView({
   const [hoveredSegment, setHoveredSegment] = useState<{ service: number; day: number } | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
-  const [, setHoveredService] = useState<number | null>(null);
 
   // Generate mock uptime data for each service
   const generateUptimeData = (): ('operational' | 'minor' | 'moderate' | 'major')[] => {
@@ -353,7 +352,6 @@ export function StatusView({
                     }}
                     onMouseEnter={() => {
                       // Track that we're hovering this service's chart
-                      setHoveredService(serviceIndex);
                       // Clear any pending hide timeout
                       if (hideTimeout) {
                         clearTimeout(hideTimeout);
@@ -362,7 +360,6 @@ export function StatusView({
                     }}
                     onMouseLeave={() => {
                       // Only hide tooltip when leaving the entire chart area
-                      setHoveredService(null);
                       const timeout = setTimeout(() => {
                         setHoveredSegment(null);
                       }, 100);

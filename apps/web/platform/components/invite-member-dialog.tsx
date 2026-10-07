@@ -220,7 +220,6 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
   const [isLoading, setIsLoading] = useState(false);
   const [roles, setRoles] = useState<Role[]>([]);
   const [memberLimits, setMemberLimits] = useState<MemberLimitsInfo | null>(null);
-  const [, setLimitsLoading] = useState(false);
   const [prepaidSeats, setPrepaidSeats] = useState<PrepaidSeatsInfo | null>(null);
   const router = useRouter();
   const { getClient } = useAppApiClient();
@@ -256,7 +255,6 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
       // Load member limits and prepaid seats info — app-api /api/member-limits
       // and /api/prepaid-seats (were /settings/member-limits and
       // /settings/prepaid-seats).
-      setLimitsLoading(true);
       getClient().then(async (client) => {
         try {
           const [limitsResult, seatsResult] = await Promise.all([
@@ -272,7 +270,6 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
         } catch {
           // Member limits / prepaid seats stay null — UI treats null as "no limit info".
         } finally {
-          setLimitsLoading(false);
         }
       });
     }

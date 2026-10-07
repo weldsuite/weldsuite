@@ -197,8 +197,6 @@ const sampleNotes: Note[] = [
 export function NotesView() {
   const st = useTranslations();
   const [notes, setNotes] = useState<Note[]>(sampleNotes);
-  const [_sortBy, _setSortBy] = useState<'creation' | 'updated'>('creation');
-  const [_viewMode, _setViewMode] = useState<'grid' | 'list'>('grid');
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
