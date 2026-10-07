@@ -542,8 +542,7 @@ export function NewNumberClient({
 
   const handleAddToCart = (num: AvailableNumber) => {
     setCartNumbers(prev => {
-      const exists = prev.find(n => n.phone_number === num.phone_number);
-      if (exists) return prev;
+      if (prev.some(n => n.phone_number === num.phone_number)) return prev;
       return [...prev, num];
     });
     setPreviewedNumber(null);
