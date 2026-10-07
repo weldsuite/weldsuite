@@ -5,19 +5,20 @@
 
 import type { ActionHandler } from '../../types';
 import { getIntegrationCredentials } from './token';
+import { asText } from '@weldsuite/text';
 
 export const handleTeamsPostMessage: ActionHandler = async (inputs, ctx) => {
-  const text = String(inputs.text || '');
+  const text = asText(inputs.text || '');
   if (!text) throw new Error('Teams message text is required');
 
   const { credentials } = await getIntegrationCredentials(ctx, {
     type: 'teams',
-    integrationId: inputs.integrationId ? String(inputs.integrationId) : undefined,
+    integrationId: inputs.integrationId ? asText(inputs.integrationId) : undefined,
   });
   const webhookUrl = credentials.webhookUrl;
   if (!webhookUrl) throw new Error('Teams integration has no webhook URL');
 
-  const title = inputs.title ? String(inputs.title) : undefined;
+  const title = inputs.title ? asText(inputs.title) : undefined;
   const card = {
     '@type': 'MessageCard',
     '@context': 'https://schema.org/extensions',

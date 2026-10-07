@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { schema } from '../../db';
 import type { StepHandler, StepContext, StepResult } from '../../types';
 import { createBotMessage } from '../helpers';
+import { asText } from '@weldsuite/text';
 
 const CUSTOMER_FIELD_DEFS: Record<string, { label: string; type: string; placeholder: string }> = {
   name: { label: 'Name', type: 'text', placeholder: 'John Doe' },
@@ -32,7 +33,7 @@ export const collectCustomerInfoHandler: StepHandler = {
       }
     }
 
-    const content = String(
+    const content = asText(
       ctx.inputs.message ||
         'Before we get started, could you share your details so we can assist you better?',
     );

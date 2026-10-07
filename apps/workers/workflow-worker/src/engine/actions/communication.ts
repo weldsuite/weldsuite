@@ -11,6 +11,7 @@ import { resolveIntegration, integrationBearerToken } from '../integrations';
 import { NonRetryableStepError } from '../errors';
 import { escapeHtml } from '../resolve-inputs';
 import { EMAIL_ADDRESS, postInternalApi } from './helpers';
+import { asText } from '@weldsuite/text';
 
 /** `a@b.co` or `Display Name <a@b.co>`: whether the address part is valid. */
 export function isValidRecipient(recipient: string): boolean {
@@ -49,7 +50,7 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
   const ccRecipients = validatedRecipients(inputs.cc, 'Cc', false);
   const bccRecipients = validatedRecipients(inputs.bcc, 'Bcc', false);
 
-  const subject = String(inputs.subject ?? '').trim();
+  const subject = asText(inputs.subject ?? '').trim();
   if (!subject) throw new NonRetryableStepError('Email subject is required');
 
   const accounts = await ctx.db
@@ -70,7 +71,7 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
 
   // The editor's "Plain text" tab saves `isHtml: false`; keep its line breaks
   // in the HTML part instead of collapsing the whole message onto one line.
-  const rawBody = String(inputs.body || inputs.html || '');
+  const rawBody = asText(inputs.body || inputs.html || '');
   const isPlainText = inputs.isHtml === false;
   const html = isPlainText ? escapeHtml(rawBody).replace(/\r?\n/g, '<br>') : rawBody;
   const text = isPlainText ? rawBody : rawBody.replace(/<[^>]*>/g, '');
@@ -111,7 +112,7 @@ function notificationRecipients(inputs: Record<string, unknown>): string[] {
  */
 export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
   const title = String(inputs.title || '').trim();
-  const body = String(inputs.body || inputs.message || '');
+  const body = asText(inputs.body || inputs.message || '');
   if (!title) throw new NonRetryableStepError('Notification title is required');
 
   let requested = notificationRecipients(inputs);
@@ -210,14 +211,14 @@ export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
  * instead and let this one keep doing exactly what it always did.
  */
 export const handleSlackMessage: ActionHandler = async (inputs, ctx) => {
-  const channel = String(inputs.channel || '');
-  const text = String(inputs.text || '');
+  const channel = asText(inputs.channel || '');
+  const text = asText(inputs.text || '');
   if (!channel) throw new Error('Slack channel is required');
   if (!text) throw new Error('Slack message text is required');
 
   const integ = await resolveIntegration(ctx.db, {
     type: 'slack',
-    integrationId: inputs.integrationId ? String(inputs.integrationId) : undefined,
+    integrationId: inputs.integrationId ? asText(inputs.integrationId) : undefined,
   });
   const token = integrationBearerToken(integ);
   if (!token) throw new Error('Slack integration has no usable token');

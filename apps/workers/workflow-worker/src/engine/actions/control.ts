@@ -7,17 +7,18 @@
 
 import type { ActionContext, ActionHandler } from '../types';
 import { NonRetryableStepError } from '../errors';
+import { asText } from '@weldsuite/text';
 
 export const handleSetVariable: ActionHandler = async (inputs, ctx) => {
-  const varName = String(inputs.name || inputs.variableName || '');
+  const varName = asText(inputs.name || inputs.variableName || '');
   if (!varName) throw new Error('Variable name is required');
   ctx.variables[varName] = inputs.value;
   return { set: true, name: varName, value: inputs.value };
 };
 
 export const handleLog: ActionHandler = async (inputs) => {
-  const message = String(inputs.message || inputs.text || '');
-  const level = String(inputs.level || 'info').toLowerCase();
+  const message = asText(inputs.message || inputs.text || '');
+  const level = asText(inputs.level || 'info').toLowerCase();
   switch (level) {
     case 'error':
       console.error(`[LOG] ${message}`);
@@ -179,7 +180,7 @@ export const handleCondition: ActionHandler = async (inputs, ctx) => {
     return { matchedBranch: matchBranch(inputs.branches, fieldValue), value: fieldValue };
   }
 
-  const operator = String(inputs.operator || 'eq');
+  const operator = asText(inputs.operator || 'eq');
   const passed = compareValues(operator, fieldValue, inputs.value);
   return { passed, value: fieldValue, result: fieldValue };
 };

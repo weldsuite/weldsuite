@@ -4,29 +4,30 @@
 
 import type { ActionHandler } from '../../types';
 import { getIntegrationCredentials } from './token';
+import { asText } from '@weldsuite/text';
 
 async function asanaToken(ctx: Parameters<ActionHandler>[1], integrationId: unknown): Promise<string> {
   const { credentials } = await getIntegrationCredentials(ctx, {
     type: 'asana',
-    integrationId: integrationId ? String(integrationId) : undefined,
+    integrationId: integrationId ? asText(integrationId) : undefined,
   });
   if (!credentials.token) throw new Error('Asana integration has no token');
   return credentials.token;
 }
 
 export const handleAsanaCreateTask: ActionHandler = async (inputs, ctx) => {
-  const name = String(inputs.name || '');
+  const name = asText(inputs.name || '');
   if (!name) throw new Error('Asana task name is required');
-  const projectId = inputs.projectId ? String(inputs.projectId) : undefined;
-  const workspaceId = inputs.workspaceId ? String(inputs.workspaceId) : undefined;
+  const projectId = inputs.projectId ? asText(inputs.projectId) : undefined;
+  const workspaceId = inputs.workspaceId ? asText(inputs.workspaceId) : undefined;
   if (!projectId && !workspaceId) throw new Error('Asana task needs a projectId or workspaceId');
 
   const token = await asanaToken(ctx, inputs.integrationId);
   const data: Record<string, unknown> = {
     name,
-    notes: inputs.notes ? String(inputs.notes) : undefined,
-    assignee: inputs.assignee ? String(inputs.assignee) : undefined,
-    due_on: inputs.dueOn ? String(inputs.dueOn) : undefined,
+    notes: inputs.notes ? asText(inputs.notes) : undefined,
+    assignee: inputs.assignee ? asText(inputs.assignee) : undefined,
+    due_on: inputs.dueOn ? asText(inputs.dueOn) : undefined,
   };
   if (projectId) data.projects = [projectId];
   else if (workspaceId) data.workspace = workspaceId;
@@ -42,15 +43,15 @@ export const handleAsanaCreateTask: ActionHandler = async (inputs, ctx) => {
 };
 
 export const handleAsanaUpdateTask: ActionHandler = async (inputs, ctx) => {
-  const taskId = String(inputs.taskId || '');
+  const taskId = asText(inputs.taskId || '');
   if (!taskId) throw new Error('Asana taskId is required');
 
   const token = await asanaToken(ctx, inputs.integrationId);
   const data: Record<string, unknown> = {};
-  if (inputs.name !== undefined) data.name = String(inputs.name);
-  if (inputs.notes !== undefined) data.notes = String(inputs.notes);
+  if (inputs.name !== undefined) data.name = asText(inputs.name);
+  if (inputs.notes !== undefined) data.notes = asText(inputs.notes);
   if (inputs.completed !== undefined) data.completed = Boolean(inputs.completed);
-  if (inputs.dueOn !== undefined) data.due_on = String(inputs.dueOn);
+  if (inputs.dueOn !== undefined) data.due_on = asText(inputs.dueOn);
 
   const res = await fetch(`https://app.asana.com/api/1.0/tasks/${taskId}`, {
     method: 'PUT',

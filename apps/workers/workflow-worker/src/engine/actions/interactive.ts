@@ -11,12 +11,13 @@ import type { ActionHandler, WaitingForInputResult } from '../types';
 import { NonRetryableStepError } from '../errors';
 import { resolveConversationId, publishRealtime } from './helpers';
 import { handleSendNotification } from './communication';
+import { asText } from '@weldsuite/text';
 
 export const handleSendMessage: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const content = String(inputs.message || '');
+  const content = asText(inputs.message || '');
   const messageId = generateId('msg');
   const now = new Date();
   await ctx.db.insert(schema.helpdeskConversationMessages).values({
@@ -46,7 +47,7 @@ export const handleSendChoices: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const content = String(inputs.message || '');
+  const content = asText(inputs.message || '');
   const options = (inputs.options as Array<{ id: string; label: string; value: string }>) || [];
   const messageId = generateId('msg');
   const now = new Date();
@@ -85,7 +86,7 @@ export const handleCollectInput: ActionHandler = async (inputs, ctx) => {
   const conversationId = resolveConversationId(inputs, ctx);
   if (!conversationId) return { success: false, error: 'No conversation ID' };
 
-  const content = String(inputs.message || '');
+  const content = asText(inputs.message || '');
   const fields = (inputs.fields as Array<{ id: string; label: string; type: string; required: boolean }>) || [];
   const messageId = generateId('msg');
   const now = new Date();
@@ -128,7 +129,7 @@ export function manualStepApproverIds(inputs: Record<string, unknown>): string[]
       ? [inputs.assigneeId]
       : [];
   // An unresolved {{variable}} arrives as an empty string: drop it.
-  return [...new Set(raw.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  return [...new Set(raw.map((id) => asText(id ?? '').trim()).filter(Boolean))];
 }
 
 /** What a waiting manual_step stores as its output (and so on its step row). */
@@ -154,7 +155,7 @@ export interface ManualStepWaiting extends WaitingForInputResult {
  */
 export const handleManualStep: ActionHandler = async (inputs, ctx) => {
   const title = String(inputs.title || '').trim() || 'Approval needed';
-  const description = inputs.description ? String(inputs.description) : null;
+  const description = inputs.description ? asText(inputs.description) : null;
 
   const requested = manualStepApproverIds(inputs);
   let approverIds: string[] = [];

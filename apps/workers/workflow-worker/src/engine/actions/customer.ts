@@ -14,6 +14,7 @@
 import type { ActionHandler } from '../types';
 import { NonRetryableStepError } from '../errors';
 import { EMAIL_ADDRESS, postInternalApi } from './helpers';
+import { asText } from '@weldsuite/text';
 
 /** Wire contract with app-api's internal create-customer route. */
 export interface CreateCustomerResponse {
@@ -25,7 +26,7 @@ export interface CreateCustomerResponse {
 
 function optionalString(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
-  const trimmed = String(value).trim();
+  const trimmed = asText(value).trim();
   return trimmed === '' ? undefined : trimmed;
 }
 

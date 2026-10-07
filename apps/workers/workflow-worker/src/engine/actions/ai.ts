@@ -65,6 +65,7 @@ import { readGatewayCreditSnapshot, toCreditStates } from '@weldsuite/credits/ga
 import { getMasterDb, type MasterDatabase } from '../../db';
 import { NonRetryableStepError } from '../errors';
 import type { ActionContext, ActionHandler } from '../types';
+import { asText } from '@weldsuite/text';
 
 /** Thrown when the workspace wallet can't cover even the minimum precheck —
  *  the step fails loudly rather than silently skipping (see file header). */
@@ -297,12 +298,12 @@ async function creditStates(ctx: ActionContext) {
 }
 
 export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext) => {
-  const prompt = String(inputs.prompt || '');
+  const prompt = asText(inputs.prompt || '');
   if (!prompt) throw new Error('Prompt is required');
   assertGatewayConfigured(ctx);
 
   const systemPrompt = firstDefined(inputs.systemPrompt, inputs.system);
-  const modelId = inputs.model ? String(inputs.model) : recommended.draft.free;
+  const modelId = inputs.model ? asText(inputs.model) : recommended.draft.free;
   const temperature = inputs.temperature !== undefined ? Number(inputs.temperature) : undefined;
   const maxTokensRaw = firstDefined(inputs.maxTokens, inputs.max_tokens);
   const maxOutputTokens = maxTokensRaw !== undefined ? Number(maxTokensRaw) : undefined;
@@ -334,7 +335,7 @@ export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext
     ({ model }) =>
       generateText({
         model,
-        system: systemPrompt !== undefined ? String(systemPrompt) : undefined,
+        system: systemPrompt !== undefined ? asText(systemPrompt) : undefined,
         prompt,
         temperature,
         maxOutputTokens,
@@ -363,7 +364,7 @@ export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext
 };
 
 export const handleAiClassify: ActionHandler = async (inputs, ctx: ActionContext) => {
-  const text = String(inputs.text || inputs.input || '');
+  const text = asText(inputs.text || inputs.input || '');
   const categories = (firstDefined(inputs.categories, inputs.labels) as string[] | undefined) ?? undefined;
   if (!text) throw new Error('Text input is required');
   if (!categories || !Array.isArray(categories) || categories.length === 0) {
@@ -371,7 +372,7 @@ export const handleAiClassify: ActionHandler = async (inputs, ctx: ActionContext
   }
   assertGatewayConfigured(ctx);
 
-  const modelId = inputs.model ? String(inputs.model) : recommended.classify.free;
+  const modelId = inputs.model ? asText(inputs.model) : recommended.classify.free;
 
   const metering = await resolveMetering(ctx);
   await assertCredits(metering);

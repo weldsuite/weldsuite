@@ -4,6 +4,7 @@
 
 import { NonRetryableStepError } from '../errors';
 import type { ActionContext, WorkflowEnv } from '../types';
+import { asText } from '@weldsuite/text';
 
 /**
  * Service bindings to a worker's internal entrypoint, trusted by topology (a
@@ -129,7 +130,7 @@ export function resolveConversationId(
   inputs: Record<string, unknown>,
   context: ActionContext,
 ): string | null {
-  if (inputs.conversationId) return String(inputs.conversationId);
+  if (inputs.conversationId) return asText(inputs.conversationId);
   const td = context.triggerData as Record<string, unknown> | undefined;
   if (td?.entityType === 'helpdesk_conversation') return String(td.entityId);
   if (td?.data && typeof td.data === 'object' && 'conversationId' in (td.data as object)) {
