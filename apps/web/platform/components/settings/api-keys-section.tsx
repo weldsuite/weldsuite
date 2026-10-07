@@ -137,7 +137,7 @@ const GROUP_LOGOS: Record<string, string> = {
   Chat: '/assets/images/weldchat/icon.svg',
   Host: '/assets/images/weldhost/icon.svg',
   Automation: '/assets/images/weldconnect/icon.svg',
-  WeldBooks: '/assets/images/weldbooks/icon.svg',
+  WeldBooks: '/assets/images/weldbooks/icon.svg?v=2',
   Settings: '/assets/images/weldsuite/icon.svg',
 };
 
