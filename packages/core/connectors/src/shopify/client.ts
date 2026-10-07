@@ -44,7 +44,7 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 2;
 
 export function normalizeShopDomain(domain: string): string {
-  const trimmed = domain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  const trimmed = domain.trim().replace(/^https?:\/\//i, '').replace(/(?<!\/)\/+$/, '');
   if (!trimmed) {
     throw new ConnectorApiError({ message: 'Shop domain is required', status: 400, kind: 'permanent' });
   }
@@ -75,7 +75,7 @@ function parseNextPageInfo(linkHeader: string | null): string | null {
   if (!linkHeader) return null;
   const match = linkHeader.split(',').find((part) => part.includes('rel="next"'));
   if (!match) return null;
-  const urlMatch = /<([^>]+)>/.exec(match);
+  const urlMatch = /<([^<>]+)>/.exec(match);
   if (!urlMatch?.[1]) return null;
   try {
     return new URL(urlMatch[1]).searchParams.get('page_info');

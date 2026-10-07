@@ -58,7 +58,7 @@ export function normalizePicqerSubdomain(subdomain: string): string {
     .trim()
     .replace(/^https?:\/\//i, '')
     .replace(/\.picqer\.com.*$/i, '')
-    .replace(/\/+$/, '')
+    .replace(/(?<!\/)\/+$/, '')
     .toLowerCase();
   if (!trimmed) {
     throw new ConnectorApiError({ message: 'Picqer subdomain is required', status: 400, kind: 'permanent' });

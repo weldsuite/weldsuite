@@ -62,7 +62,7 @@ let changedFiles = 0;
 for (const file of files) {
   const before = readFileSync(file, 'utf8');
   const after = before.replace(
-    /((?:from|import|vi\.mock|vi\.importActual)\s*\(?\s*)(['"])(\.{1,2}\/[^'"]+)\2/g,
+    /((?:from|import|vi\.mock|vi\.importActual)\s*(?:\(\s*)?)(['"])(\.{1,2}\/[^'"]+)\2/g,
     (whole, lead, quote, spec) => {
       const abs = path.resolve(path.dirname(file), spec);
       const existsHere = [abs, `${abs}.ts`, path.join(abs, 'index.ts')].some((p) => existsSync(p));

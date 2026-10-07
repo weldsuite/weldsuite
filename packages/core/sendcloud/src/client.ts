@@ -287,7 +287,7 @@ function nextPath(linkHeader: string | null, json: Record<string, unknown>, base
 function parseLinkNext(header: string | null): string | null {
   if (!header) return null;
   for (const part of header.split(',')) {
-    const match = /<([^>]+)>\s*;\s*rel="?next"?/i.exec(part.trim());
+    const match = /<([^<>]+)>\s*;\s*rel="?next"?/i.exec(part.trim());
     if (match?.[1]) return match[1];
   }
   return null;

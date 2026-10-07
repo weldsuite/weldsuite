@@ -139,7 +139,7 @@ export function matchWebhookTopic(provider: string, topic: string): ConnectorWeb
 }
 
 export function connectorWebhookDeliveryUrl(baseUrl: string, connectionId: string): string {
-  const trimmed = baseUrl.replace(/\/+$/, '');
+  const trimmed = baseUrl.replace(/(?<!\/)\/+$/, '');
   return `${trimmed}/webhooks/connectors/${connectionId}`;
 }
 

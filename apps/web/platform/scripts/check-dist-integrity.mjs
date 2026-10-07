@@ -53,16 +53,21 @@ for (const f of readdirSync(assetsDir)) {
 //     read as a missing `emojis-data.js` and failed every build.
 //   * the leading `https?://` lookbehind, so assets served from a remote origin
 //     are not expected to exist in this dist.
-const refRe =
-  /(?<!https?:\/\/[^"'\s]{0,300})(?:(?:\.?\/)?assets\/([A-Za-z0-9._-]+\.(?:js|css))|(?:^|["'(])\.\/([A-Za-z0-9._-]+\.(?:js|css)))(?![A-Za-z0-9._-])/g;
+//
+// The two forms are separate regexes (their matches never overlap), merged back
+// into document order per file.
+const assetsRefRe =
+  /(?<!https?:\/\/[^"'\s]{0,300})(?:\.?\/)?assets\/([A-Za-z0-9._-]+\.(?:js|css))(?![A-Za-z0-9._-])/g;
+const relativeRefRe =
+  /(?<!https?:\/\/[^"'\s]{0,300})(?:^|["'(])\.\/([A-Za-z0-9._-]+\.(?:js|css))(?![A-Za-z0-9._-])/g;
 
 const missing = new Map(); // missing filename -> Set(referencing files)
 
 for (const file of scanTargets) {
   const txt = readFileSync(file, 'utf8');
-  let m;
-  while ((m = refRe.exec(txt))) {
-    const name = m[1] ?? m[2];
+  const refs = [...txt.matchAll(assetsRefRe), ...txt.matchAll(relativeRefRe)].sort((a, b) => a.index - b.index);
+  for (const m of refs) {
+    const name = m[1];
     if (!name) continue;
     if (!present.has(name)) {
       if (!missing.has(name)) missing.set(name, new Set());

@@ -509,7 +509,7 @@ export interface ApiOriginResolverOptions {
  * (`/api/tickets/123`).
  */
 export function createApiOriginResolver(options: ApiOriginResolverOptions) {
-  const coreOrigin = options.coreOrigin.replace(/\/+$/, '');
+  const coreOrigin = options.coreOrigin.replace(/(?<!\/)\/+$/, '');
   const cache = new Map<ApiModuleId, string>();
 
   const originFor = (module: ApiModule): string => {
@@ -517,7 +517,7 @@ export function createApiOriginResolver(options: ApiOriginResolverOptions) {
     const cached = cache.get(module.id);
     if (cached) return cached;
     const origin = (options.overrides?.[module.id] ?? moduleOriginFrom(coreOrigin, module)).replace(
-      /\/+$/,
+      /(?<!\/)\/+$/,
       '',
     );
     cache.set(module.id, origin);

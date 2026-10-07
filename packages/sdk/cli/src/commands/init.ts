@@ -38,7 +38,7 @@ function suggestCode(source: string): string {
   const slug = source
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/^-+|(?<!-)-+$/g, '')
     .replace(/^[^a-z]+/, '');
   return slug.length >= 3 ? slug.slice(0, 50) : 'my-weld-app';
 }

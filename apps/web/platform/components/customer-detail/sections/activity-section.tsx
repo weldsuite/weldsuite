@@ -36,7 +36,7 @@ import {
   differenceInHours,
   format,
 } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, stripTags } from '@/lib/utils';
 import type { ActivitySectionProps, Activity as ActivityType } from '../types';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
@@ -44,7 +44,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { asText } from '@weldsuite/text';
 
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').trim();
+  return stripTags(html).trim();
 }
 
 /**

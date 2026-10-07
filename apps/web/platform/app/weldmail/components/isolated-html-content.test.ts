@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isSafeHref } from './isolated-html-content';
+import { isSafeHref, parseRgbFunction } from './isolated-html-content';
 
 describe('isSafeHref', () => {
   it('allows the navigation schemes we open from email', () => {
@@ -31,5 +31,21 @@ describe('isSafeHref', () => {
     expect(isSafeHref('')).toBe(false);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(isSafeHref(undefined as any)).toBe(false);
+  });
+});
+
+describe('parseRgbFunction', () => {
+  it('reads the comma, space and slash syntaxes of rgb()/rgba()', () => {
+    expect(parseRgbFunction('rgb(255, 0, 10)')).toEqual({ r: 255, g: 0, b: 10, a: 1 });
+    expect(parseRgbFunction('rgba(1, 2, 3, 0.5)')).toEqual({ r: 1, g: 2, b: 3, a: 0.5 });
+    expect(parseRgbFunction('rgb(1 2 3 / 50%)')).toEqual({ r: 1, g: 2, b: 3, a: 0.5 });
+    expect(parseRgbFunction('rgb( 1 ,2,  3 )')).toEqual({ r: 1, g: 2, b: 3, a: 1 });
+    expect(parseRgbFunction('rgba(1.5, 2, .3, 1%)')).toEqual({ r: 1.5, g: 2, b: 0.3, a: 0.01 });
+  });
+
+  it('rejects anything that is not exactly that shape', () => {
+    for (const value of ['rgba(1,2,3,)', 'rgb(1 2 3 4)', 'rgb(1, 2)', 'rgb(1, 2, 3) ', 'rgbx(1, 2, 3)', 'oklch(0.5 0.1 200)']) {
+      expect(parseRgbFunction(value)).toBeNull();
+    }
   });
 });

@@ -110,18 +110,29 @@ interface Hsla { h: number; s: number; l: number; a: number }
 
 let colorProbe: CanvasRenderingContext2D | null = null;
 
+/** `rgb(` / `rgba(` and the three color channels, comma- or space-separated. */
+const RGB_CHANNELS = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/;
+/** What may follow the channels: an optional `, a` / `/ a%` alpha, then `)`. */
+const RGB_ALPHA_TAIL = /^(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/;
+
+/** An `rgb()`/`rgba()` color, or null when `value` has any other shape. */
+export function parseRgbFunction(value: string): Rgba | null {
+  const channels = RGB_CHANNELS.exec(value);
+  const tail = channels && RGB_ALPHA_TAIL.exec(value.slice(channels[0].length));
+  if (!channels || !tail) return null;
+  const alphaDivisor = tail[2] ? 100 : 1;
+  const alpha = tail[1] === undefined ? 1 : Number(tail[1]) / alphaDivisor;
+  return { r: Number(channels[1]), g: Number(channels[2]), b: Number(channels[3]), a: alpha };
+}
+
 /**
  * Parses a computed CSS color. Computed colors are almost always `rgb()`/`rgba()`;
  * anything else (e.g. the app's own `oklch()` theme tokens) is resolved by
  * painting one pixel on a canvas.
  */
 function parseColor(value: string): Rgba | null {
-  const m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/.exec(value);
-  if (m) {
-    const alphaDivisor = m[5] ? 100 : 1;
-    const alpha = m[4] === undefined ? 1 : Number(m[4]) / alphaDivisor;
-    return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]), a: alpha };
-  }
+  const rgb = parseRgbFunction(value);
+  if (rgb) return rgb;
   try {
     colorProbe ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
     if (!colorProbe) return null;

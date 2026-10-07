@@ -21,7 +21,7 @@ function sizeOf(node) {
 function pkgOf(id) {
   if (!id) return '(unknown)';
   id = id.replaceAll('\\', '/');
-  const pnpm = id.match(/node_modules\/\.pnpm\/([^/]+?)@[^/]+\/node_modules\/(@[^/]+\/[^/]+|[^/]+)/);
+  const pnpm = id.match(/node_modules\/\.pnpm\/([^/][^/@]*)@[^/]+\/node_modules\/(@[^/]+\/[^/]+|[^/]+)/);
   if (pnpm) return 'npm: ' + pnpm[2];
   const nm = id.match(/node_modules\/(@[^/]+\/[^/]+|[^/]+)/);
   if (nm) return 'npm: ' + nm[1];

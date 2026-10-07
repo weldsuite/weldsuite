@@ -76,10 +76,10 @@ export function normalizeStoreUrl(url: string): string {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new ConnectorApiError({ message: 'Store URL must be http or https', status: 400, kind: 'permanent' });
   }
-  parsed.pathname = parsed.pathname.replace(/\/+$/, '') || '';
+  parsed.pathname = parsed.pathname.replace(/(?<!\/)\/+$/, '') || '';
   parsed.search = '';
   parsed.hash = '';
-  return parsed.toString().replace(/\/+$/, '');
+  return parsed.toString().replace(/(?<!\/)\/+$/, '');
 }
 
 function basicAuth(key: string, secret: string): string {
@@ -194,7 +194,7 @@ function buildWooUrl(args: {
       ? new URL(`${origin}/wp-json/wc/v3/${resource}`)
       : (() => {
           const parsed = new URL(origin);
-          const basePath = parsed.pathname.replace(/\/+$/, '');
+          const basePath = parsed.pathname.replace(/(?<!\/)\/+$/, '');
           parsed.pathname = basePath === '' ? '/' : basePath;
           parsed.searchParams.set('rest_route', `/wc/v3/${resource}`);
           return parsed;

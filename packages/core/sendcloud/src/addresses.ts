@@ -38,8 +38,10 @@ export function toCountryCode(value?: string | null): string | null {
 export function splitStreet(line1?: string | null): { addressLine1: string; houseNumber: string } {
   const value = (line1 ?? '').trim();
   if (!value) return { addressLine1: '', houseNumber: '1' };
-  const match = /^(.*?)[\s,]+(\d+\s*[a-zA-Z]?)$/.exec(value);
-  if (match) return { addressLine1: match[1]!.trim(), houseNumber: match[2]!.trim() };
+  // The house number after the first separator run that reaches it; starting
+  // only at the beginning of a run keeps the search linear.
+  const match = /(?<![\s,])[\s,]+(\d+\s*[a-zA-Z]?)$/.exec(value);
+  if (match) return { addressLine1: value.slice(0, match.index).trim(), houseNumber: match[1]!.trim() };
   return { addressLine1: value, houseNumber: '1' };
 }
 

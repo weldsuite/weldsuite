@@ -355,7 +355,7 @@ function base64urlFromBuffer(buffer: ArrayBuffer): string {
   for (const byte of bytes) {
     binary += String.fromCodePoint(byte);
   }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/(?<!=)=+$/, '');
 }
 
 function base64urlDecode(input: string): string {
