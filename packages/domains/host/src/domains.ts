@@ -17,7 +17,6 @@ import {
   privacyProtectForDomain,
   tldSupportsPrivacyProtect,
   type DomainCheckResult,
-  type DomainContactInput,
 } from '@weldsuite/realtime-registrar';
 import {
   createCloudflareZone,
@@ -33,13 +32,18 @@ import {
 } from '@weldsuite/stripe';
 import {
   isExternalDomainRegistrar,
-  isHiddenUnpaidDomain,
   MAX_CHECKOUT_DOMAINS,
   toPublicDomain,
 } from '@weldsuite/core-api-client/schemas/domains';
 import { asText } from '@weldsuite/text';
 
-export { toPublicDomain, isHiddenUnpaidDomain };
+export {
+  toPublicDomain,
+  isHiddenUnpaidDomain,
+  MAX_CHECKOUT_DOMAINS,
+} from '@weldsuite/core-api-client/schemas/domains';
+/** Re-export contact input type for transfer/register helpers. */
+export type { DomainContactInput } from '@weldsuite/realtime-registrar';
 
 const { hostDomains, hostDnsZones } = schema;
 
@@ -1064,8 +1068,6 @@ export async function issueAuthCode(
 // Checkout — RTR availability + pricing + Stripe Checkout Session
 // ============================================================================
 
-export { MAX_CHECKOUT_DOMAINS };
-
 export type CheckoutResult =
   | { ok: false; reason: 'unavailable'; domain: string }
   | { ok: false; reason: 'no_price'; tld: string }
@@ -1548,9 +1550,6 @@ export async function pollRenewalProcess(
     return domain;
   }
 }
-
-/** Re-export contact input type for transfer/register helpers. */
-export type { DomainContactInput };
 
 // ============================================================================
 // Completion (post-checkout, called by polling or webhook flow)

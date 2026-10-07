@@ -6,14 +6,11 @@
  */
 
 import { and, eq, gt, isNull } from 'drizzle-orm';
-import {
-  DEV_SESSION_TTL_MS,
-  isAllowedDevSessionUrl,
-} from '@weldsuite/app-api-client/schemas/user-apps';
+import { DEV_SESSION_TTL_MS } from '@weldsuite/app-api-client/schemas/user-apps';
 import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
-export { DEV_SESSION_TTL_MS, isAllowedDevSessionUrl };
+export { DEV_SESSION_TTL_MS, isAllowedDevSessionUrl } from '@weldsuite/app-api-client/schemas/user-apps';
 
 const uSessions = masterSchema.userAppDevSessions;
 const uApps = masterSchema.userApps;

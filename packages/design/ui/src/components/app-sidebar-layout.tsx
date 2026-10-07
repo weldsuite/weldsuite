@@ -15,22 +15,21 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "./sidebar"
+} from "./sidebar";
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { LucideIcon, Plus, MoreVertical } from "lucide-react"
-import { cn } from "../lib/utils"
-import { SidebarUserMenu, type SidebarUserMenuProps } from "./sidebar-user-menu"
+import { usePathname } from "next/navigation";
+import { LucideIcon, Plus, MoreVertical } from "lucide-react";
+import { cn } from "../lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-} from "./dropdown-menu"
-import { Button } from "./button"
+} from "./dropdown-menu";
+import { Button } from "./button";
 
-export { SidebarUserMenu, type SidebarUserMenuProps }
+export { SidebarUserMenu, type SidebarUserMenuProps } from "./sidebar-user-menu";
 
 export interface ItemAction {
   label: string;

@@ -18,15 +18,13 @@
  */
 
 import { EmailMessage } from 'cloudflare:email';
-import {
-  CloudflareDomainProvider,
-  CloudflareSendProvider,
-  type ForwardableEmailMessage,
-} from '@weldsuite/email/providers/cloudflare';
+import { CloudflareDomainProvider, CloudflareSendProvider } from '@weldsuite/email/providers/cloudflare';
 import { PendingVerificationError } from '@weldsuite/email';
 import type { EmailAttachment } from '@weldsuite/email/core/types';
 import { findZoneIdByName } from '@weldsuite/cloudflare-zones';
 import { asText } from '@weldsuite/text';
+
+export type { ForwardableEmailMessage } from '@weldsuite/email/providers/cloudflare';
 
 /** The bindings and secrets this package reads. Any worker Env with them fits. */
 export interface WorkerEmailEnv {
@@ -181,4 +179,3 @@ function makeDomainProvider(env: WorkerEmailEnv): CloudflareDomainProvider {
   });
 }
 
-export type { ForwardableEmailMessage };

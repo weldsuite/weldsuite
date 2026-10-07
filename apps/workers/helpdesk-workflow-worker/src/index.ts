@@ -12,7 +12,6 @@
  * 3. CF Workflow: ConversationWorkflow (step execution)
  */
 
-import { AssignmentRouter } from './durable-objects/assignment-router';
 import { ConversationWorkflow } from './workflows/conversation-workflow';
 import { getMasterDb, getTenantDbForWorkspace } from './db';
 import { checkSlaBreaches } from './lib/sla-breach-checker';
@@ -24,7 +23,8 @@ import type { Env, AssignRequest, AgentCapacity } from './types';
 import type { ConversationWorkflowParams } from './workflows/conversation-workflow';
 
 // Re-export for wrangler
-export { AssignmentRouter, ConversationWorkflow };
+export { AssignmentRouter } from './durable-objects/assignment-router';
+export { ConversationWorkflow } from './workflows/conversation-workflow';
 
 // AI is currently unavailable — the Anthropic provider bootstrap has been
 // removed. AI-backed steps (ai_auto_reply, ai_classify, ai_summarize,

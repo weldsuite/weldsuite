@@ -35,11 +35,13 @@ import {
   generateUserCode,
   getCliAuthByDevice,
   getCliAuthByUserCode,
-  normalizeUserCode,
   putCliAuthSession,
   resolveLoginUrl,
   type CliAuthComplete,
 } from '../../services/cli-auth';
+
+/** Re-export for tests / docs. */
+export { normalizeUserCode, formatUserCode } from '../../services/cli-auth';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -234,6 +236,3 @@ approve.post('/', zValidator('json', approveInput), async (c) => {
 app.route('/approve', approve);
 
 export const cliAuthRoutes = app;
-
-/** Re-export for tests / docs. */
-export { normalizeUserCode, formatUserCode };

@@ -15,11 +15,14 @@ import {
   SOCIAL_HUB_TOPICS,
   dispatchSocialRealtimeEvent,
   type SocialRealtimeHandlers,
-  type SocialRealtimeSurface,
 } from './social-realtime-dispatch';
 
-export type { SocialRealtimeSurface, SocialRealtimeHandlers };
-export { SOCIAL_HUB_TOPICS, dispatchSocialRealtimeEvent };
+export {
+  type SocialRealtimeSurface,
+  type SocialRealtimeHandlers,
+  SOCIAL_HUB_TOPICS,
+  dispatchSocialRealtimeEvent,
+} from './social-realtime-dispatch';
 
 interface UseSocialRealtimeOptions extends SocialRealtimeHandlers {
   /** When false, skip subscription (e.g. signed-out). Default true. */

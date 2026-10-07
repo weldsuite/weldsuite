@@ -11,7 +11,6 @@ import {
   connectorWebhookDeliveryUrl,
   connectorWebhookKvKey,
   enabledConnectorSyncs,
-  generateWebhookSecret,
   getConnector,
   matchWebhookTopic,
   MoneybirdClient,
@@ -41,10 +40,9 @@ import {
 import { ingestRecords } from './ingest';
 import { modifiedAtOf } from './mappers';
 import { touchConnectorIndexWebhook, type ConnectorSyncIndexEnv } from '../connector-sync-index';
-import {
-  MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET,
-  type MoneybirdAttachmentSyncContext,
-} from './moneybird-attachments';
+import { MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET, type MoneybirdAttachmentSyncContext } from './moneybird-attachments';
+
+export { generateWebhookSecret } from '@weldsuite/connectors';
 
 /**
  * What the webhook helpers read: the KV cache holding the connection mapping,
@@ -357,4 +355,3 @@ export async function processConnectorWebhook(args: {
   }
 }
 
-export { generateWebhookSecret };
