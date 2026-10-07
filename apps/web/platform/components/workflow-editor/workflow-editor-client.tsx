@@ -90,7 +90,6 @@ import {
 } from '@weldsuite/ui/components/workflow-canvas';
 import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepConfig } from '@weldsuite/ui/components/workflow-canvas';
 import { buildAllVariables, getStepOutputVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
-import { WorkflowTemplateDialog } from '@/app/weldconnect/components/workflow-template-dialog';
 import { getWorkflowIssueCodes, isUnsupportedWorkflowError } from '@/app/weldconnect/mvp';
 import type { RecordFieldDef } from '@/app/weldconnect/record-fields';
 import { TriggerEmptyState } from './components/trigger-empty-state';
@@ -233,8 +232,12 @@ interface WorkflowEditorClientProps {
    * workflow created before the lists were narrowed.
    */
   blockUnsupported?: boolean;
-  /** Hide the "Generate with AI" button and the templates entry points. */
-  hideTemplatesAndAi?: boolean;
+  /**
+   * Hide the "Generate with AI" button and the "Helpful resources" panel.
+   * Templates are not offered in the editor: WeldConnect starts a workflow from
+   * one in the template gallery (/weldconnect/templates).
+   */
+  hideAiAndResources?: boolean;
   editorHref?: string;
   replaceExecutionsTab?: { label: string; href: string; icon: LucideIcon };
   triggerLocked?: boolean;
@@ -760,7 +763,7 @@ function WorkflowStatusBadge({ status }: { status: string }) {
 
 interface EditorActionButtonsProps {
   module: EditorModule;
-  hideTemplatesAndAi?: boolean;
+  hideAiAndResources?: boolean;
   hidePublish?: boolean;
   hasBlockingIssues: boolean;
   stepCount: number;
@@ -782,7 +785,7 @@ interface EditorActionButtonsProps {
 /** Generate / Test / "needs setup" chip / Save / Publish. Rendered in the header or portaled to an external nav. */
 function EditorActionButtons({
   module,
-  hideTemplatesAndAi,
+  hideAiAndResources,
   hidePublish,
   hasBlockingIssues,
   stepCount,
@@ -812,7 +815,7 @@ function EditorActionButtons({
 
   return (
     <>
-      {!isHelpdesk && !hideTemplatesAndAi && (
+      {!isHelpdesk && !hideAiAndResources && (
         <Button
           variant="outline"
           size="sm"
@@ -2569,12 +2572,11 @@ interface OverviewPanelProps {
   allStepsConfigured: boolean;
   actionTypes: SidebarActionType[];
   categoryLabels: Record<string, string>;
-  hideTemplatesAndAi?: boolean;
+  hideAiAndResources?: boolean;
   isStepUnsupported: (type: string | undefined) => boolean;
   getUnknownVariables: (step: WorkflowStepBag) => string[];
   onSelectTrigger: () => void;
   onSelectStep: (index: number) => void;
-  onOpenTemplates: () => void;
   onCloseMobile: () => void;
 }
 
@@ -2587,12 +2589,11 @@ function OverviewPanel({
   allStepsConfigured,
   actionTypes,
   categoryLabels,
-  hideTemplatesAndAi,
+  hideAiAndResources,
   isStepUnsupported,
   getUnknownVariables,
   onSelectTrigger,
   onSelectStep,
-  onOpenTemplates,
   onCloseMobile,
 }: OverviewPanelProps) {
   const { t } = useI18n();
@@ -2658,9 +2659,9 @@ function OverviewPanel({
       </ScrollArea>
 
       {/* Helpful Resources - Fixed at bottom */}
-      <div className={cn('p-4 border-t', hideTemplatesAndAi && 'hidden')}>
+      <div className={cn('p-4 border-t', hideAiAndResources && 'hidden')}>
         <p className="text-xs text-muted-foreground mb-3">{tec.overviewPanel.helpfulResources}</p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2">
           <a
             href="#"
             className="p-3 rounded-lg border border-border hover:border-gray-300 dark:hover:border-border hover:bg-muted/50 transition-colors"
@@ -2670,17 +2671,6 @@ function OverviewPanel({
               {tec.overviewPanel.documentationHint}
             </p>
           </a>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={onOpenTemplates}
-            className="p-3 rounded-lg border border-border hover:border-gray-300 dark:hover:border-border hover:bg-muted/50 transition-colors text-left"
-          >
-            <p className="text-sm font-medium mb-1">{tec.overviewPanel.templates}</p>
-            <p className="text-xs text-muted-foreground">
-              {tec.overviewPanel.templatesHint}
-            </p>
-          </Button>
         </div>
       </div>
     </>
@@ -3157,7 +3147,7 @@ export function WorkflowEditorClient({
   allowedTriggerTypes,
   allowedScheduleTypes,
   blockUnsupported,
-  hideTemplatesAndAi,
+  hideAiAndResources,
   editorHref,
   replaceExecutionsTab,
   triggerLocked,
@@ -3501,7 +3491,6 @@ export function WorkflowEditorClient({
   const [showTriggerPanel, setShowTriggerPanel] = useState(false);
   const [showRunsPanel, setShowRunsPanel] = useState(initialPanel === 'runs');
   const [showAddActionPanel, setShowAddActionPanel] = useState(false);
-  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [pendingGeneratedDraft, setPendingGeneratedDraft] = useState<{
     workflow: GeneratedWorkflowDraft;
@@ -4167,7 +4156,7 @@ export function WorkflowEditorClient({
 
   const actionButtonProps: EditorActionButtonsProps = {
     module,
-    hideTemplatesAndAi,
+    hideAiAndResources,
     hidePublish,
     hasBlockingIssues,
     stepCount: workflow.steps.length,
@@ -4296,12 +4285,11 @@ export function WorkflowEditorClient({
         allStepsConfigured={incompleteStepIds.size === 0}
         actionTypes={filteredActionTypes}
         categoryLabels={categoryLabels}
-        hideTemplatesAndAi={hideTemplatesAndAi}
+        hideAiAndResources={hideAiAndResources}
         isStepUnsupported={isStepUnsupported}
         getUnknownVariables={getUnknownVariables}
         onSelectTrigger={handleSelectTrigger}
         onSelectStep={handleSelectStep}
-        onOpenTemplates={() => setShowTemplateDialog(true)}
         onCloseMobile={() => setShowMobileSidebar(false)}
       />
     );
@@ -4403,62 +4391,7 @@ export function WorkflowEditorClient({
         onRun={handleRunTest}
       />
 
-      <WorkflowTemplateDialog
-        open={showTemplateDialog}
-        onOpenChange={setShowTemplateDialog}
-        onSelectTemplate={(template) => {
-          if (template.id === 'blank') {
-            // Reset to blank workflow
-            setWorkflow((prev) => ({ ...prev, triggers: [], steps: [] }));
-            setTriggerType('entity_event');
-            setTriggerEntityType('');
-            setTriggerEventType('');
-            setEditingStep(null);
-            setSelectedStepIndex(null);
-            return;
-          }
-
-          if (template.trigger && template.steps) {
-            // Apply template trigger and steps
-            setWorkflow((prev) => ({
-              ...prev,
-              triggers: [template.trigger as WorkflowTriggerBag],
-              steps: template.steps as unknown as WorkflowStepBag[],
-            }));
-
-            // Update trigger panel state to match template
-            const trigger = template.trigger;
-            setTriggerType(trigger.type || 'entity_event');
-
-            if (trigger.type === 'entity_event') {
-              setTriggerEntityType(trigger.entityType || '');
-              setTriggerEventType(trigger.eventType || '');
-            } else if (trigger.type === 'schedule') {
-              setScheduleType(trigger.scheduleType || 'recurring');
-              setScheduleTimezone(trigger.timezone || 'Europe/Amsterdam');
-              setScheduleExecuteAt(trigger.executeAt || '');
-              if (trigger.cronExpression) {
-                const preset = CRON_PRESETS.find((p) => p.cron === trigger.cronExpression);
-                if (preset) {
-                  setScheduleCronPreset(preset.id);
-                } else {
-                  setScheduleCronPreset('custom');
-                  setScheduleCustomCron(trigger.cronExpression);
-                }
-              }
-            }
-
-            // Reset editing state
-            setEditingStep(null);
-            setSelectedStepIndex(null);
-            setEditingBranch(null);
-            setShowTriggerPanel(false);
-            setShowAddActionPanel(false);
-          }
-        }}
-      />
-
-      {module !== 'helpdesk' && !hideTemplatesAndAi && (
+      {module !== 'helpdesk' && !hideAiAndResources && (
         <GenerateWithAiDialog
           open={showGenerateDialog}
           onOpenChange={setShowGenerateDialog}
