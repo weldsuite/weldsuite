@@ -527,7 +527,7 @@ function SubmitButton({ accentColor, loading, onPress, label }: Readonly<SubmitB
 }
 
 function validateNewPassword(pwd: string): boolean {
-  return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /[0-9]/.test(pwd);
+  return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /\d/.test(pwd);
 }
 
 export function LoginScreen({

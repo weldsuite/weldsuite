@@ -75,7 +75,7 @@ function parseNextPageInfo(linkHeader: string | null): string | null {
   if (!linkHeader) return null;
   const match = linkHeader.split(',').find((part) => part.includes('rel="next"'));
   if (!match) return null;
-  const urlMatch = match.match(/<([^>]+)>/);
+  const urlMatch = /<([^>]+)>/.exec(match);
   if (!urlMatch?.[1]) return null;
   try {
     return new URL(urlMatch[1]).searchParams.get('page_info');

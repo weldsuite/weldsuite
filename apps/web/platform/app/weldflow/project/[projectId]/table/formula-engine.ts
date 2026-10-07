@@ -30,7 +30,7 @@ export interface RangeRef {
 const CELL_REF_RE = /^(\$?)([A-Z]+)(\$?)(\d+)$/;
 
 export function parseRef(ref: string): CellRef | null {
-  const m = ref.toUpperCase().match(CELL_REF_RE);
+  const m = CELL_REF_RE.exec(ref.toUpperCase());
   if (!m) return null;
   return {
     col: colIndex(m[2]),

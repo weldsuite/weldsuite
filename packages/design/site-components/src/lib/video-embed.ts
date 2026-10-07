@@ -11,7 +11,7 @@ export interface EmbedOptions {
 }
 
 function buildYouTubeUrl(url: string, { autoplay, loop, muted, showControls }: EmbedOptions): string {
-  const videoId = url.match(/(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/)?.[1];
+  const videoId = /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/.exec(url)?.[1];
   if (!videoId) return '';
 
   const params = new URLSearchParams();
@@ -28,7 +28,7 @@ function buildYouTubeUrl(url: string, { autoplay, loop, muted, showControls }: E
 }
 
 function buildVimeoUrl(url: string, { autoplay, loop, muted, showControls }: EmbedOptions): string {
-  const videoId = url.match(/vimeo\.com\/(\d+)/)?.[1];
+  const videoId = /vimeo\.com\/(\d+)/.exec(url)?.[1];
   if (!videoId) return '';
 
   const params = new URLSearchParams();

@@ -162,7 +162,7 @@ function ResetPasswordContent() {
     if (pwd.length < 8) errors.push(t.auth.resetPassword.requirements.atLeast8Chars);
     if (!/[A-Z]/.test(pwd)) errors.push(t.auth.resetPassword.requirements.oneUppercase);
     if (!/[a-z]/.test(pwd)) errors.push(t.auth.resetPassword.requirements.oneLowercase);
-    if (!/[0-9]/.test(pwd)) errors.push(t.auth.resetPassword.requirements.oneNumber);
+    if (!/\d/.test(pwd)) errors.push(t.auth.resetPassword.requirements.oneNumber);
     return errors;
   };
 
@@ -337,7 +337,7 @@ function ResetPasswordContent() {
                     password.length >= 8,
                     /[A-Z]/.test(password),
                     /[a-z]/.test(password),
-                    /[0-9]/.test(password),
+                    /\d/.test(password),
                   ];
                   const isValid = checks[i];
                   return (

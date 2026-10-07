@@ -27,9 +27,8 @@ export function detectTicketSuggestion(
 
   try {
     // Match pattern: [CREATE_TICKET | subject: "..." | category: "..." | priority: "..."]
-    const match = message.match(
-      /\[CREATE_TICKET\s*\|\s*subject:\s*"([^"]+)"\s*\|\s*category:\s*"([^"]+)"\s*\|\s*priority:\s*"([^"]+)"\s*\]/i
-    );
+    const match =
+      /\[CREATE_TICKET\s*\|\s*subject:\s*"([^"]+)"\s*\|\s*category:\s*"([^"]+)"\s*\|\s*priority:\s*"([^"]+)"\s*\]/i.exec(message);
 
     if (match) {
       return {

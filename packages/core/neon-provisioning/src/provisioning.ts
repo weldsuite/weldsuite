@@ -168,9 +168,9 @@ export interface ProvisioningResult {
  * Database Provisioning Service
  */
 export class DatabaseProvisioningService {
-  private neonClient: NeonClient;
-  private defaultRegion: string;
-  private env: ProvisioningEnv;
+  private readonly neonClient: NeonClient;
+  private readonly defaultRegion: string;
+  private readonly env: ProvisioningEnv;
 
   constructor(env: ProvisioningEnv) {
     this.neonClient = createNeonClient(env);

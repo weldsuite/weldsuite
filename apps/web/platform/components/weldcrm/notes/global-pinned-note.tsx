@@ -29,7 +29,7 @@ function stripHtml(html: string): string {
 // Helper to get note title from content
 function getNoteTitle(content: string): string {
   if (!content) return 'Untitled';
-  const headingMatch = content.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
+  const headingMatch = /<h[1-3][^>]*>(.*?)<\/h[1-3]>/i.exec(content);
   if (headingMatch && headingMatch[1]) {
     const title = stripHtml(headingMatch[1]).trim();
     if (title) return title;

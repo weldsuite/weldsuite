@@ -349,7 +349,7 @@ function splitAssignment(text: string): [string, string, string, string] | null 
 function highlightSystemText(text: string, type: InternalNote['type']): React.ReactNode {
   if (type === 'status_change') {
     // "Status changed from Open to In Progress"
-    const statusMatch = text.match(/^(Status changed from )(.+?)( to )(.+)$/);
+    const statusMatch = /^(Status changed from )(.+?)( to )(.+)$/.exec(text);
     if (statusMatch) {
       return <>{statusMatch[1]}<span className="text-foreground font-medium">{statusMatch[2]}</span>{statusMatch[3]}<span className="text-foreground font-medium">{statusMatch[4]}</span></>;
     }
@@ -360,7 +360,7 @@ function highlightSystemText(text: string, type: InternalNote['type']): React.Re
     if (assignMatch) {
       return <>{assignMatch[1]}<span className="text-foreground font-medium">{assignMatch[2]}</span><span className="text-muted-foreground">{assignMatch[3]}</span></>;
     }
-    const simpleAssign = text.match(/^(Assigned to )(.+)$/);
+    const simpleAssign = /^(Assigned to )(.+)$/.exec(text);
     if (simpleAssign) {
       return <>{simpleAssign[1]}<span className="text-foreground font-medium">{simpleAssign[2]}</span></>;
     }

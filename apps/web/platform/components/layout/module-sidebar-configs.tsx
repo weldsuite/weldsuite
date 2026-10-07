@@ -478,7 +478,7 @@ export function getModuleKey(pathname: string): string | null {
     return 'home';
   }
   // Hosted WeldApps: `/apps/{code}` (+ optional subpaths for sidebar sections).
-  const userAppMatch = pathname.match(/^\/apps\/([a-z][a-z0-9-]*)(?:\/|$)/);
+  const userAppMatch = /^\/apps\/([a-z][a-z0-9-]*)(?:\/|$)/.exec(pathname);
   if (userAppMatch) {
     return `user-app:${userAppMatch[1]}`;
   }

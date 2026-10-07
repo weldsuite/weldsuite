@@ -24,7 +24,7 @@ interface CellRange {
 class SelectionStore {
   range: CellRange | null = null;
   isSelecting = false;
-  private listeners = new Set<() => void>();
+  private readonly listeners = new Set<() => void>();
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);

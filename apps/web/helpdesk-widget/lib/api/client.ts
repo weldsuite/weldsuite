@@ -74,7 +74,7 @@ export interface SendMessageParams {
 }
 
 class WidgetApiClient {
-  private apiUrl: string;
+  private readonly apiUrl: string;
   private widgetId: string | null = null;
   private customerId: string | null = null;
   private _testMode = false;

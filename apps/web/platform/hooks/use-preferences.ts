@@ -16,7 +16,7 @@ const ONE_YEAR = 365 * 24 * 60 * 60;
 
 function getCookie(name: string): string | undefined {
   if (typeof document === 'undefined') return undefined;
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  const match = new RegExp(`(?:^|; )${name}=([^;]*)`).exec(document.cookie);
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 

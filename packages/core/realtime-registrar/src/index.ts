@@ -309,7 +309,7 @@ export function toE164a(
 ): string | null {
   if (!phone) return null;
   const trimmed = phone.trim();
-  if (/^\+[0-9]{1,3}\.[0-9]{1,14}$/.test(trimmed)) return trimmed;
+  if (/^\+\d{1,3}\.\d{1,14}$/.test(trimmed)) return trimmed;
 
   const cc = countryCode?.toUpperCase().slice(0, 2);
   const calling = cc ? CALLING_CODES[cc] : undefined;

@@ -181,13 +181,13 @@ export function getEntityStateCode(entity: {
   jurisdictionSettings?: Record<string, unknown> | null;
 }): string | undefined {
   const fromSettings = entity.jurisdictionSettings?.stateCode;
-  if (typeof fromSettings === 'string' && /^[0-9]{2}$/.test(fromSettings.trim())) {
+  if (typeof fromSettings === 'string' && /^\d{2}$/.test(fromSettings.trim())) {
     return fromSettings.trim();
   }
   const gstin = entity.taxIdentifiers?.vatNumber;
   if (gstin) {
     const normalized = gstin.replace(/[\s-]/g, '').toUpperCase();
-    const match = normalized.match(/^[0-9]{2}/);
+    const match = /^\d{2}/.exec(normalized);
     return match?.[0];
   }
   return undefined;

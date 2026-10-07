@@ -20,7 +20,7 @@ export enum LogLevel {
  * Logger class
  */
 export class Logger {
-  private config: LogConfig;
+  private readonly config: LogConfig;
   private level: LogLevel;
 
   constructor(config: LogConfig) {

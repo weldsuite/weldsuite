@@ -315,7 +315,7 @@ export function MessageInput({
   // so the palette can guide the user.
   const handleCreateTaskCommand = useCallback(
     (text: string): void => {
-      const match = text.match(/^\/createtask\s+(\S[\s\S]*)$/i);
+      const match = /^\/createtask\s+(\S[\s\S]*)$/i.exec(text);
       if (!match) return;
       const title = match[1].trim();
       if (!title) return;

@@ -30,11 +30,11 @@ function embedQuery(
 
 function getEmbedUrl(url: string, options: EmbedOptions): string {
   if (options.isYouTube) {
-    const videoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1];
+    const videoId = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/.exec(url)?.[1];
     return videoId ? `https://www.youtube.com/embed/${videoId}${embedQuery(options, '&mute=1')}` : '';
   }
   if (options.isVimeo) {
-    const videoId = url.match(/vimeo\.com\/(\d+)/)?.[1];
+    const videoId = /vimeo\.com\/(\d+)/.exec(url)?.[1];
     return videoId ? `https://player.vimeo.com/video/${videoId}${embedQuery(options, '&muted=1')}` : '';
   }
   return url;

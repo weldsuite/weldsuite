@@ -7,7 +7,7 @@
  */
 
 /** A valid environment variable name for every target WeldPass syncs to. */
-const KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const KEY_PATTERN = /^[A-Za-z_]\w*$/;
 
 export function isValidSecretKey(key: string): boolean {
   return KEY_PATTERN.test(key) && key.length <= 255;

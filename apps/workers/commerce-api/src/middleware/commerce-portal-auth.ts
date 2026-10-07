@@ -19,7 +19,7 @@ function readBearer(c: { req: { header: (k: string) => string | undefined } }): 
   if (header?.toLowerCase().startsWith('bearer ')) return header.slice(7).trim();
   const cookie = c.req.header('Cookie');
   if (!cookie) return undefined;
-  const match = cookie.match(/(?:^|;\s*)cportal_session=([^;]+)/);
+  const match = /(?:^|;\s*)cportal_session=([^;]+)/.exec(cookie);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 

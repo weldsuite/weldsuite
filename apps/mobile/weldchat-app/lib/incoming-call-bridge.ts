@@ -42,7 +42,7 @@ function channelIdFromPushData(data: Record<string, unknown>): string {
   if (typeof data.chatChannelId === 'string') return data.chatChannelId;
   if (typeof data.channelId === 'string') return data.channelId;
   if (typeof data.actionUrl === 'string') {
-    return data.actionUrl.match(/\/weldchat\/(?:dm\/)?([^/?#]+)/)?.[1] ?? '';
+    return /\/weldchat\/(?:dm\/)?([^/?#]+)/.exec(data.actionUrl)?.[1] ?? '';
   }
   return '';
 }

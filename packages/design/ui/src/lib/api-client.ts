@@ -22,7 +22,7 @@ export interface PagedResult<T> {
 }
 
 class ApiClient {
-  private baseUrl: string;
+  private readonly baseUrl: string;
 
   constructor(baseUrl: string = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000') {
     this.baseUrl = baseUrl;

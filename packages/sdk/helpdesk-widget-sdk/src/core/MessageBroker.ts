@@ -57,25 +57,25 @@ interface IframeReadyState {
  * Central hub for all postMessage communication
  */
 export class MessageBroker {
-  private config: ResolvedConfig;
-  private logger: Logger;
-  private security: SecurityManager;
-  private iframeManager: IframeManager;
-  private subscriptions: Map<string, MessageSubscription> = new Map();
+  private readonly config: ResolvedConfig;
+  private readonly logger: Logger;
+  private readonly security: SecurityManager;
+  private readonly iframeManager: IframeManager;
+  private readonly subscriptions: Map<string, MessageSubscription> = new Map();
   private messageQueue: QueuedMessage[] = [];
   private isReady = false;
-  private rateLimiter: RateLimiter;
-  private responseHandlers: Map<string, (message: WeldMessage) => void> = new Map();
+  private readonly rateLimiter: RateLimiter;
+  private readonly responseHandlers: Map<string, (message: WeldMessage) => void> = new Map();
 
   // Iframe ready state tracking
-  private iframeReadyStates: Map<IframeType, IframeReadyState> = new Map();
+  private readonly iframeReadyStates: Map<IframeType, IframeReadyState> = new Map();
 
   // Queue timeout configuration
-  private queueTimeout = 30000; // 30 seconds
+  private readonly queueTimeout = 30000; // 30 seconds
   private queueWatcherInterval: ReturnType<typeof setInterval> | null = null;
 
   // Bound handlers for proper cleanup
-  private boundHandleMessage: (event: MessageEvent) => void;
+  private readonly boundHandleMessage: (event: MessageEvent) => void;
 
   constructor(
     config: ResolvedConfig,

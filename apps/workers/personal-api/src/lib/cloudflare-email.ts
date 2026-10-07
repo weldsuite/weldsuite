@@ -45,7 +45,7 @@ export async function sendEmail(
     throw new Error('sendEmail: no recipients');
   }
 
-  const fromMatch = params.from.match(/^"?([^"<]*)"?\s*<([^>]+)>$/);
+  const fromMatch = /^"?([^"<]*)"?\s*<([^>]+)>$/.exec(params.from);
   const fromEmail = fromMatch ? fromMatch[2]!.trim() : params.from.trim();
   const fromName = fromMatch ? fromMatch[1]!.trim() || undefined : undefined;
 

@@ -23,7 +23,7 @@ function resolveTaskDeepLink(data: Record<string, unknown> | undefined): {
   if (typeof data.projectId === 'string' && data.projectId) {
     projectId = data.projectId;
   } else if (typeof data.actionUrl === 'string') {
-    projectId = data.actionUrl.match(/\/weldflow\/project\/([^/?#]+)/)?.[1];
+    projectId = /\/weldflow\/project\/([^/?#]+)/.exec(data.actionUrl)?.[1];
   }
 
   if (!projectId || !/^[A-Za-z0-9_-]+$/.test(projectId)) return null;

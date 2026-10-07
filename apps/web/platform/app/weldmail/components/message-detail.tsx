@@ -112,7 +112,7 @@ function getAvatarColor(name: string): string {
 
 // Extract email from "Name <email>" format or return the string if it's just an email
 function extractEmail(sender: string): string {
-  const match = sender.match(/<([^>]+)>/);
+  const match = /<([^>]+)>/.exec(sender);
   if (match) return match[1];
   // Check if the string itself is an email
   if (sender.includes('@')) return sender;
@@ -121,7 +121,7 @@ function extractEmail(sender: string): string {
 
 // Extract name from "Name <email>" format
 function extractName(sender: string): string {
-  const match = sender.match(/^([^<]+)</);
+  const match = /^([^<]+)</.exec(sender);
   if (match) return match[1].trim();
   // If no angle brackets, check if it's just an email
   if (sender.includes('@')) {

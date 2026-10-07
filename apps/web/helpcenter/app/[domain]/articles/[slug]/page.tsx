@@ -65,7 +65,7 @@ function extractHeadings(html: string): { id: string; text: string; level: numbe
     const attrs = match[2]
     const inner = match[3]
     const text = inner.replace(/<[^<>]*>/g, '').trim()
-    const idAttr = attrs.match(/\bid="([^"]*)"/i)?.[1]
+    const idAttr = /\bid="([^"]*)"/i.exec(attrs)?.[1]
     const id =
       idAttr ||
       text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')

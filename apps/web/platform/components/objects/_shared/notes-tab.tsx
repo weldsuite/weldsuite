@@ -36,7 +36,7 @@ function stripHtml(html: string): string {
 
 function getNoteTitle(content: string, untitledLabel: string): string {
   if (!content) return untitledLabel;
-  const heading = content.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
+  const heading = /<h[1-3][^>]*>(.*?)<\/h[1-3]>/i.exec(content);
   if (heading?.[1]) {
     const headingText = stripHtml(heading[1]).trim();
     if (headingText) return headingText;

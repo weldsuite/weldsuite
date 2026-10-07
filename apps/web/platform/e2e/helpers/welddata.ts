@@ -300,7 +300,7 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
       });
     }
 
-    m = p.match(/^\/welddata\/lists\/([^/]+)\/cells$/);
+    m = /^\/welddata\/lists\/([^/]+)\/cells$/.exec(p);
     if (m && method === 'GET') return json(200, { data: cellsByList[m[1]] ?? [] });
     return undefined;
   };
