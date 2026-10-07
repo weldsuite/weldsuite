@@ -25,7 +25,7 @@ export function EntityGrid<TEntity>({
   hideToolbarSearch,
   hideToolbarFilter,
   toolbarActions,
-}: EntityGridProps<TEntity>) {
+}: Readonly<EntityGridProps<TEntity>>) {
   const router = useRouter();
   const searchParamsHook = useSearchParams();
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -161,11 +161,11 @@ function GridSelectionBarWrapper<TEntity>({
   availableLists,
   actions,
   listName,
-}: {
+}: Readonly<{
   availableLists: Array<{ id: string; title: string; color: string }>;
   actions: EntityGridProps<TEntity>['actions'];
   listName?: string;
-}) {
+}>) {
   const { state, setSelectedRows, setIsDeleting } = useGridContext<TEntity>();
   const { selectedRows, isDeleting } = state;
 

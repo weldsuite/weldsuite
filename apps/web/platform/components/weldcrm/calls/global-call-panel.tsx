@@ -316,7 +316,7 @@ function MinimizedBar({
   onExpand,
   onEndCall,
   onDismiss,
-}: MinimizedBarProps) {
+}: Readonly<MinimizedBarProps>) {
   const t = useTranslations();
   const isEnded = callState?.status === 'ended';
 
@@ -390,7 +390,7 @@ interface PanelHeaderProps {
   onClose: () => void;
 }
 
-function PanelHeader({ hasCall, onMinimize, onClose }: PanelHeaderProps) {
+function PanelHeader({ hasCall, onMinimize, onClose }: Readonly<PanelHeaderProps>) {
   const t = useTranslations();
 
   return (
@@ -442,7 +442,7 @@ function ConnectedControls({
   onToggleMute,
   onToggleHold,
   onToggleDtmfPad,
-}: ConnectedControlsProps) {
+}: Readonly<ConnectedControlsProps>) {
   const t = useTranslations();
 
   return (
@@ -512,7 +512,7 @@ function ActiveCallView({
   onToggleDtmfPad,
   onEndCall,
   onDigit,
-}: ActiveCallViewProps) {
+}: Readonly<ActiveCallViewProps>) {
   const t = useTranslations();
   const isConnected = callState.status === 'connected';
 
@@ -588,7 +588,7 @@ function ActiveCallView({
   );
 }
 
-function NoPhoneNumbersView({ onConfigure }: { onConfigure: () => void }) {
+function NoPhoneNumbersView({ onConfigure }: Readonly<{ onConfigure: () => void }>) {
   const t = useTranslations();
 
   return (
@@ -615,7 +615,7 @@ interface ZeroKeyProps {
 }
 
 // Long-press on 0 types +
-function ZeroKey({ onTap, onLongPress }: ZeroKeyProps) {
+function ZeroKey({ onTap, onLongPress }: Readonly<ZeroKeyProps>) {
   const zeroLongPress = useRef(false);
   const zeroPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -657,7 +657,7 @@ interface DialPadProps {
   onLongPressZero: () => void;
 }
 
-function DialPad({ onDigit, onLongPressZero }: DialPadProps) {
+function DialPad({ onDigit, onLongPressZero }: Readonly<DialPadProps>) {
   return (
     <div className="grid grid-cols-3 gap-2">
       {DIAL_PAD_DIGITS.map((digit) => {
@@ -718,7 +718,7 @@ function DialerView({
   onDigit,
   onLongPressZero,
   onCall,
-}: DialerViewProps) {
+}: Readonly<DialerViewProps>) {
   const t = useTranslations();
 
   return (

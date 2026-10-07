@@ -20,11 +20,11 @@ interface ResourceUsageProps {
   collapsed?: boolean;
 }
 
-function UsageProgressBar({ value, thresholds, className }: {
+function UsageProgressBar({ value, thresholds, className }: Readonly<{
   value: number;
   thresholds?: { red: number; amber: number };
   className?: string;
-}) {
+}>) {
   const { red = 90, amber = 75 } = thresholds ?? {};
 
   const getIndicatorColor = (percentage: number) => {
@@ -48,7 +48,7 @@ function UsageProgressBar({ value, thresholds, className }: {
   );
 }
 
-export function ResourceUsage({ collapsed = false }: ResourceUsageProps) {
+export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps>) {
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);

@@ -24,7 +24,7 @@ interface ActivityTabProps {
   entityKind: 'company' | 'person';
 }
 
-export function ActivityTab({ entityId, entityKind }: ActivityTabProps) {
+export function ActivityTab({ entityId, entityKind }: Readonly<ActivityTabProps>) {
   const t = useTranslations();
   const filter = entityKind === 'company' ? { customerId: entityId } : { personId: entityId };
   const { data, isLoading } = useActivities(filter);

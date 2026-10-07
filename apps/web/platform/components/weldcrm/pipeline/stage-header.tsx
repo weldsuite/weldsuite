@@ -40,7 +40,7 @@ export function StageHeader({
   onRenameStage,
   onHideStage,
   onDeleteStage,
-}: StageHeaderProps) {
+}: Readonly<StageHeaderProps>) {
   const t = useTranslations();
   const [isOpen, setIsOpen] = useState(false);
   const headerRef = React.useRef<HTMLDivElement>(null);

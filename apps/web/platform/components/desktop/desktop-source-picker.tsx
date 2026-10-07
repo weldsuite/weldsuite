@@ -155,13 +155,13 @@ function SourceGrid({
   onSelect,
   onConfirm,
   emptyLabel,
-}: {
+}: Readonly<{
   sources: DesktopSource[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onConfirm: (id: string) => void;
   emptyLabel: string;
-}) {
+}>) {
   if (sources.length === 0) {
     return <p className="py-8 text-center text-sm text-muted-foreground">{emptyLabel}</p>;
   }

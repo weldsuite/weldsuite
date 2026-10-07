@@ -37,7 +37,7 @@ export function CreateRoleDialog({
   onOpenChange,
   roles,
   onRoleCreated,
-}: CreateRoleDialogProps) {
+}: Readonly<CreateRoleDialogProps>) {
   const t = useTranslations();
   const [loading, setLoading] = React.useState(false);
   const [name, setName] = React.useState('');

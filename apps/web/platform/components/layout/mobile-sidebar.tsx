@@ -63,7 +63,7 @@ interface RailIconProps {
   appType?: 'system' | 'user' | 'object';
 }
 
-function RailAppIcon({ appCode, name, icon, appType }: RailIconProps) {
+function RailAppIcon({ appCode, name, icon, appType }: Readonly<RailIconProps>) {
   if (appType === 'object') {
     return (
       <LucideDynamicIcon
@@ -100,7 +100,7 @@ function RailAppIcon({ appCode, name, icon, appType }: RailIconProps) {
   return <Icon className="h-6 w-6" />;
 }
 
-export function MobileSidebar({ installedApps }: MobileSidebarProps) {
+export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();

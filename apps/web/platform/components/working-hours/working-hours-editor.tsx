@@ -22,12 +22,12 @@ function DayRow({
   hours,
   onChange,
   disabled,
-}: {
+}: Readonly<{
   day: { key: string; label: string };
   hours: DayHours;
   onChange: (hours: DayHours) => void;
   disabled?: boolean;
-}) {
+}>) {
   const t = useTranslations();
   const addBreak = () => {
     onChange({
@@ -126,11 +126,11 @@ export function WorkingHoursEditor({
   value,
   onChange,
   disabled,
-}: {
+}: Readonly<{
   value: WorkingHours;
   onChange: (hours: WorkingHours) => void;
   disabled?: boolean;
-}) {
+}>) {
   const t = useTranslations();
   const days = DAY_KEYS.map((key) => ({ key, label: t(`sweep.shared.weekday.${key}`) }));
   return (

@@ -30,7 +30,7 @@ import {
 } from '@/components/objects/_shared/simple-object-panel';
 import { detailsTab, extraTab } from '@/components/objects/_shared/focused-tabs';
 
-export function OrderPanel(props: ObjectPanelComponentProps) {
+export function OrderPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = getTranslations('commerce').module;
   const { id } = props;
   const { open } = useObjectPanel();

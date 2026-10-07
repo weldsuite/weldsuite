@@ -9,7 +9,7 @@ interface GridPaginationProps {
   onPageChange: (page: number) => void;
 }
 
-export function GridPagination({ onPageChange }: GridPaginationProps) {
+export function GridPagination({ onPageChange }: Readonly<GridPaginationProps>) {
   const t = useTranslations();
   const { pagination } = useGridContext();
 

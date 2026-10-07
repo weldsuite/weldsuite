@@ -20,7 +20,7 @@ import type { MenuProps } from './menu-kit';
 import { useStub, useMenuAlign } from './menu-kit';
 import { useTranslations } from '@weldsuite/i18n/client';
 
-export function HelpMenu({ menuValue }: MenuProps) {
+export function HelpMenu({ menuValue }: Readonly<MenuProps>) {
   const t = useTranslations();
   const stub = useStub();
   const align = useMenuAlign(menuValue);

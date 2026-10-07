@@ -17,7 +17,7 @@ interface EntityChatHeaderProps {
  * the conversation name plus voice + video call buttons. Call buttons
  * disable until a channel exists (i.e. the first message has been sent).
  */
-export function EntityChatHeader({ name, channelId, hideCallButtons = false }: EntityChatHeaderProps) {
+export function EntityChatHeader({ name, channelId, hideCallButtons = false }: Readonly<EntityChatHeaderProps>) {
   const t = useTranslations();
   const { startCall, status } = useWeldChatCall();
   const inCall = status !== 'idle';

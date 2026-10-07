@@ -58,7 +58,7 @@ export function EventsView({
   onNavigateAnnouncements,
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'news', 'appointments', 'announcements', 'events', 'parcel-tracking']
-}: EventsViewProps) {
+}: Readonly<EventsViewProps>) {
   const [activeTab] = useState('events');
   const [registeredEvents, setRegisteredEvents] = useState<string[]>([]);
 

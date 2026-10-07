@@ -28,7 +28,7 @@ export function ListDetailLayout({
   listClassName,
   detailClassName,
   basePath,
-}: ListDetailLayoutProps) {
+}: Readonly<ListDetailLayoutProps>) {
   const pathname = usePathname();
   const widthStyle = typeof listWidth === 'number' ? `${listWidth}px` : listWidth;
 

@@ -74,7 +74,7 @@ export function IntegrationDetailLayout({
   children,
   backHref = '/settings/integrations',
   backLabel,
-}: IntegrationDetailLayoutProps) {
+}: Readonly<IntegrationDetailLayoutProps>) {
   const t = useTranslations();
   const router = useRouter();
   const CategoryIcon = getCategoryIcon(category);

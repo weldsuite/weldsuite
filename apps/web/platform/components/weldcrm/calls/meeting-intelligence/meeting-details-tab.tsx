@@ -48,7 +48,7 @@ function formatParticipantDuration(
   return formatSessionDuration((participant.priorSeconds ?? 0) + currentStint);
 }
 
-export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: MeetingDetailsTabProps) {
+export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: Readonly<MeetingDetailsTabProps>) {
   const t = useTranslations();
   const callDate = new Date(call.date);
   const callDuration = call.duration || 0;
@@ -276,7 +276,7 @@ const PARTICIPANT_COLORS = [
  * A single fallback participant row. Linked to a team member profile (when
  * matched to a workspace member) or a CRM contact; otherwise a plain row.
  */
-function ParticipantRow({ participant, index }: { participant: MeetingAttendeeDetail; index: number }) {
+function ParticipantRow({ participant, index }: Readonly<{ participant: MeetingAttendeeDetail; index: number }>) {
   const t = useTranslations();
   const label = participant.name || participant.email || t('sweep.weldcrm.meetingDetailsTab.unknown');
   const initials = (participant.name?.[0] ?? participant.email?.[0] ?? '?').toUpperCase();

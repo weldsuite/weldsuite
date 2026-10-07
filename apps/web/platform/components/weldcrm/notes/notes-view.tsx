@@ -107,13 +107,13 @@ function NoteEditorDialog({
   onOpenChange,
   onSave,
   onDelete,
-}: {
+}: Readonly<{
   note: Note | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (content: string) => Promise<void>;
   onDelete: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const { setPinnedNote, setIsOpen: setGlobalPinnedOpen, setOnSave, setOnDelete, setStartMinimized } = usePinnedNote();
   const [title, setTitle] = useState('');
@@ -439,7 +439,7 @@ function NoteEditorDialog({
   );
 }
 
-export function NotesView({ initialNotes = [] }: NotesViewProps) {
+export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
   const t = useTranslations();
   const router = useRouter();
   const searchParams = useSearchParams();

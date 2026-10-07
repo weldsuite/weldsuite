@@ -48,7 +48,7 @@ export function ZapietHomeView({
   onOpenParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'news', 'appointments', 'announcements', 'events', 'parcel-tracking'],
   companyLogoUrl
-}: ZapietHomeViewProps) {
+}: Readonly<ZapietHomeViewProps>) {
   const [activeTab] = useState('home');
 
   return (

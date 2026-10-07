@@ -50,7 +50,7 @@ export function ProfileSection({
   onProfileSave,
   onProfileCancel,
   onAvatarUpload,
-}: ProfileSectionProps) {
+}: Readonly<ProfileSectionProps>) {
   const t = useTranslations()
   const [timezoneOpen, setTimezoneOpen] = React.useState(false)
   const selectedTz = TIMEZONES.find((tz) => tz.id === profileData.timezone)

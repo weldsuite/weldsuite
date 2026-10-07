@@ -114,7 +114,7 @@ function companyInitial(name: string): string {
   return (trimmed[0] ?? '#').toUpperCase();
 }
 
-function CompanyAvatar({ company, onUpload }: { company?: Company; onUpload?: (url: string) => void }) {
+function CompanyAvatar({ company, onUpload }: Readonly<{ company?: Company; onUpload?: (url: string) => void }>) {
   if (!company) return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
   const initial = companyInitial(company.displayName);
   // Treat empty strings as "no avatar" so the fallback initial renders.
@@ -142,7 +142,7 @@ function CompanyAvatar({ company, onUpload }: { company?: Company; onUpload?: (u
   );
 }
 
-function CompanyTitle({ company }: { company?: Company }) {
+function CompanyTitle({ company }: Readonly<{ company?: Company }>) {
   if (!company) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
     <span className="text-[15px] font-medium text-foreground truncate">
@@ -166,7 +166,7 @@ function CompanyActions({
   isTabVisible,
   onToggleTab,
   onResetTabs,
-}: {
+}: Readonly<{
   company?: Company;
   onArchiveToggle: () => void;
   onDelete: () => void;
@@ -174,7 +174,7 @@ function CompanyActions({
   isTabVisible: (id: string) => boolean;
   onToggleTab: (id: string) => void;
   onResetTabs: () => void;
-}) {
+}>) {
   const st = useTranslations();
   const compose = useComposeSafe();
   if (!company) return null;
@@ -298,12 +298,12 @@ function CompanyPanelTabsBar({
   setActiveTab,
   peopleCount,
   isTabVisible,
-}: {
+}: Readonly<{
   activeTab: CompanyTab['id'];
   setActiveTab: (id: CompanyTab['id']) => void;
   peopleCount: number;
   isTabVisible: (id: string) => boolean;
-}) {
+}>) {
   const tabs = useMemo(
     () =>
       COMPANY_TABS.filter((t) => isTabVisible(t.id)).map((t) => ({
@@ -341,11 +341,11 @@ function CompanyDetailsTab({
   company,
   onUpdateField,
   onUpdateFieldAsync,
-}: {
+}: Readonly<{
   company: Company;
   onUpdateField: (patch: Record<string, unknown>) => void;
   onUpdateFieldAsync: (patch: Record<string, unknown>) => Promise<void>;
-}) {
+}>) {
   const st = useTranslations();
   const { options: statusOptions } = useCustomerStatusOptions();
   return (
@@ -505,11 +505,11 @@ function CompanyPeopleTab({
   companyId,
   employments,
   onOpenPerson,
-}: {
+}: Readonly<{
   companyId: string;
   employments: CompanyPersonRow[];
   onOpenPerson: (personId: string) => void;
-}) {
+}>) {
   const st = useTranslations();
   const portalT = getTranslations('commerce').module.portal;
   const unlinkMut = useUnlinkPersonFromCompany();
@@ -683,7 +683,7 @@ function CompanyPeopleTab({
 
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
-export function CompanyPanel(props: ObjectPanelComponentProps) {
+export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
   const st = useTranslations();
   const { id, onClose, initialTab } = props;
   const companyQuery = useCompany(id);

@@ -57,7 +57,7 @@ export function NoteEditorModal({
   onClose, 
   onSave,
   onToggleFavorite 
-}: NoteEditorModalProps) {
+}: Readonly<NoteEditorModalProps>) {
   const st = useTranslations();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');

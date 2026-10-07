@@ -13,7 +13,7 @@ interface ObjectPanelTabsProps {
  * panel renders tabs with identical styling without each one re-deriving the
  * same markup.
  */
-export function ObjectPanelTabs({ tabs, activeTab, onChange, className }: ObjectPanelTabsProps) {
+export function ObjectPanelTabs({ tabs, activeTab, onChange, className }: Readonly<ObjectPanelTabsProps>) {
   const visible = tabs.filter((t) => !t.hidden);
   const mapped: PageTab[] = visible.map((t) => ({
     id: t.id,

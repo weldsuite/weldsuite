@@ -80,7 +80,7 @@ export function EditDealModal({
   deal,
   onSubmit,
   onDelete,
-}: EditDealModalProps) {
+}: Readonly<EditDealModalProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const [loading, setLoading] = useState(false);

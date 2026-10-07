@@ -48,7 +48,7 @@ interface LinkPersonPopoverProps {
   linkedPersonIds: Set<string>;
 }
 
-export function LinkPersonPopover({ companyId, linkedPersonIds }: LinkPersonPopoverProps) {
+export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkPersonPopoverProps>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');

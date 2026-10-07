@@ -25,7 +25,7 @@ function useBill(id: string) {
   });
 }
 
-export function BillPanel(props: ObjectPanelComponentProps) {
+export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const { id } = props;
   const { data, isLoading, error } = useBill(id);

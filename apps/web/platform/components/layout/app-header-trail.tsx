@@ -36,7 +36,7 @@ interface AppHeaderTrailProps {
   onResolved?: (handle: AppHeaderTrailHandle) => void;
 }
 
-export function AppHeaderTrail({ onResolved }: AppHeaderTrailProps) {
+export function AppHeaderTrail({ onResolved }: Readonly<AppHeaderTrailProps>) {
   const matches = useMatches();
   const registry = useFallbackLabelRegistry();
   const providerCrumbs = useCurrentBreadcrumbsMaybe();
@@ -116,7 +116,7 @@ export function AppHeaderTrail({ onResolved }: AppHeaderTrailProps) {
   );
 }
 
-function SegmentLink({ seg }: { seg: ReturnType<typeof collapseLongTrail>['visible'][number] }) {
+function SegmentLink({ seg }: Readonly<{ seg: ReturnType<typeof collapseLongTrail>['visible'][number] }>) {
   if (seg.pending) {
     return (
       <span
@@ -141,7 +141,7 @@ function SegmentLink({ seg }: { seg: ReturnType<typeof collapseLongTrail>['visib
   );
 }
 
-function SegmentPage({ seg }: { seg: ReturnType<typeof collapseLongTrail>['visible'][number] }) {
+function SegmentPage({ seg }: Readonly<{ seg: ReturnType<typeof collapseLongTrail>['visible'][number] }>) {
   if (seg.pending) {
     return (
       <span

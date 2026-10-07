@@ -767,12 +767,12 @@ function ToolbarButton({
   onClick,
   active = false,
   children,
-}: {
+}: Readonly<{
   label: string;
   onClick: () => void;
   active?: boolean;
   children: ReactNode;
-}) {
+}>) {
   return (
     <Button
       variant="ghost"
@@ -811,14 +811,14 @@ function ColorMenu({
   onPick,
   onClear,
   clearLabel,
-}: {
+}: Readonly<{
   label: string;
   Icon: typeof Pilcrow;
   colors: string[];
   onPick: (color: string) => void;
   onClear: () => void;
   clearLabel: string;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -886,7 +886,7 @@ const FONT_FAMILIES = [
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 24, 30, 36, 48, 60, 72];
 
-function FontFamilyMenu({ current, onPick }: { current: string; onPick: (family: string) => void }) {
+function FontFamilyMenu({ current, onPick }: Readonly<{ current: string; onPick: (family: string) => void }>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   return (
@@ -930,7 +930,7 @@ function FontFamilyMenu({ current, onPick }: { current: string; onPick: (family:
   );
 }
 
-function FontSizeMenu({ current, onPick }: { current: number; onPick: (pt: number) => void }) {
+function FontSizeMenu({ current, onPick }: Readonly<{ current: number; onPick: (pt: number) => void }>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   return (
@@ -977,11 +977,11 @@ function LineSpacingMenu({
   onLineHeight,
   onToggleSpaceBefore,
   onToggleSpaceAfter,
-}: {
+}: Readonly<{
   onLineHeight: (lh: string) => void;
   onToggleSpaceBefore: () => void;
   onToggleSpaceAfter: () => void;
-}) {
+}>) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const heights: [string, string][] = [
@@ -1073,7 +1073,7 @@ function getBlockLabels(t: (path: string) => string): Record<BlockKind, string> 
   };
 }
 
-function BlockTypeMenu({ current, onPick }: { current: BlockKind; onPick: (kind: BlockKind) => void }) {
+function BlockTypeMenu({ current, onPick }: Readonly<{ current: BlockKind; onPick: (kind: BlockKind) => void }>) {
   const t = useTranslations();
   const blockItems = useMemo(() => getBlockItems(t), [t]);
   const blockLabels = useMemo(() => getBlockLabels(t), [t]);

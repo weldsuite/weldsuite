@@ -116,7 +116,7 @@ interface FormatButtonProps {
   children: React.ReactNode;
 }
 
-function FormatButton({ active, title, onMouseDown, children }: FormatButtonProps) {
+function FormatButton({ active, title, onMouseDown, children }: Readonly<FormatButtonProps>) {
   return (
     <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", active && "bg-muted")} onMouseDown={onMouseDown} title={title}>
       {children}
@@ -144,7 +144,7 @@ function FormatToolbar({
   onUnorderedList,
   onOrderedList,
   onLink,
-}: FormatToolbarProps) {
+}: Readonly<FormatToolbarProps>) {
   const t = useTranslations();
   return (
     <div className={className}>
@@ -178,7 +178,7 @@ interface MinimizedNoteBarProps {
   isSaving: boolean;
 }
 
-function MinimizedNoteBar({ customerName, title, isSaving }: MinimizedNoteBarProps) {
+function MinimizedNoteBar({ customerName, title, isSaving }: Readonly<MinimizedNoteBarProps>) {
   const t = useTranslations();
   return (
     <div className="flex items-center h-full px-4">
@@ -198,7 +198,7 @@ function MinimizedNoteBar({ customerName, title, isSaving }: MinimizedNoteBarPro
   );
 }
 
-function NoteDialogHeader({ customerName }: { customerName?: string }) {
+function NoteDialogHeader({ customerName }: Readonly<{ customerName?: string }>) {
   const t = useTranslations();
   return (
     <DialogHeader className="p-4 pr-32 border-b flex-row items-center justify-between space-y-0 min-h-[44px]">
@@ -225,7 +225,7 @@ interface NoteWindowControlsProps {
   onClose: () => void;
 }
 
-function NoteWindowControls({ isMinimized, isPinned, onToggleMinimize, onPinClick, onClose }: NoteWindowControlsProps) {
+function NoteWindowControls({ isMinimized, isPinned, onToggleMinimize, onPinClick, onClose }: Readonly<NoteWindowControlsProps>) {
   const t = useTranslations();
   return (
     <div className="absolute top-3 right-3 flex items-center gap-1">
@@ -274,7 +274,7 @@ export function NoteEditorDialog({
   onOpenChange,
   onSave,
   onDelete,
-}: NoteEditorDialogProps) {
+}: Readonly<NoteEditorDialogProps>) {
   const t = useTranslations();
   const pinnedNoteContext = usePinnedNote();
   const [title, setTitle] = useState('');

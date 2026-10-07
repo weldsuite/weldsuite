@@ -7,7 +7,7 @@ import { isStaleChunkError, reloadForStaleChunk } from '@/lib/chunk-reload';
 import { getDesktop } from '@/lib/desktop';
 import { copyText } from '@/lib/clipboard';
 
-function DevErrorDetails({ error, componentStack }: { error: Error; componentStack?: string }) {
+function DevErrorDetails({ error, componentStack }: Readonly<{ error: Error; componentStack?: string }>) {
   const [copied, setCopied] = useState(false);
 
   const fullText = [error.stack, componentStack && `\nComponent Stack:\n${componentStack}`]
@@ -62,7 +62,7 @@ export function goHomeFromError(): void {
   window.location.assign('/');
 }
 
-export function RootErrorFallback({ error, info, reset }: ErrorComponentProps) {
+export function RootErrorFallback({ error, info, reset }: Readonly<ErrorComponentProps>) {
   // A stale dynamic import (chunk removed by a redeploy) surfaces here as a
   // render error. Reload once to pick up the latest build rather than showing
   // a dead-end error screen. The guard in reloadForStaleChunk prevents loops.

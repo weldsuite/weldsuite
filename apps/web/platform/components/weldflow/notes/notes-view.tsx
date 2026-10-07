@@ -396,11 +396,11 @@ export function NotesView() {
 }
 
 // Note Card Component
-function NoteCard({ note, onToggleFavorite, onClick }: { 
-  note: Note; 
+function NoteCard({ note, onToggleFavorite, onClick }: Readonly<{
+  note: Note;
   onToggleFavorite: (id: string) => void;
   onClick: () => void;
-}) {
+}>) {
   const st = useTranslations();
   const router = useRouter();
 

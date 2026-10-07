@@ -17,7 +17,7 @@ interface CompanyChatProps {
   companyName?: string;
 }
 
-export function CompanyChat({ companyId, companyName }: CompanyChatProps) {
+export function CompanyChat({ companyId, companyName }: Readonly<CompanyChatProps>) {
   const channelQuery = useCompanyChannel(companyId);
   const sendMutation = useSendCompanyMessage(companyId);
 

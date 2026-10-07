@@ -48,13 +48,13 @@ interface PeopleRow {
 
 const ROLE_ORDER: Record<Role, number> = { owner: 0, admin: 1, member: 2 };
 
-function RoleIcon({ role }: { role: Role }) {
+function RoleIcon({ role }: Readonly<{ role: Role }>) {
   if (role === 'owner') return <Crown className="h-3 w-3 text-yellow-500" />;
   if (role === 'admin') return <ShieldCheck className="h-3 w-3 text-blue-500" />;
   return null;
 }
 
-export function ChannelPeopleTab({ channelId }: ChannelPeopleTabProps) {
+export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const { user } = useUser();

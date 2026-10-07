@@ -54,7 +54,7 @@ const COLUMNS = 'grid grid-cols-[1fr_64px_88px] items-center';
 export function UpgradeBusinessFeaturesDialog({
   open,
   onOpenChange,
-}: UpgradeBusinessFeaturesDialogProps) {
+}: Readonly<UpgradeBusinessFeaturesDialogProps>) {
   const [pricingOpen, setPricingOpen] = useState(false);
 
   const handleContinue = () => {

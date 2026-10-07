@@ -20,7 +20,7 @@ export function AppearanceSection({
   fontSize,
   onThemeChange,
   onFontSizeChange
-}: AppearanceSectionProps) {
+}: Readonly<AppearanceSectionProps>) {
   const t = useTranslations()
   return (
     <div className="space-y-6">

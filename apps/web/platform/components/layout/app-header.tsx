@@ -36,7 +36,7 @@ export function AppHeader({
   onCalendarToggle,
   onNotificationsToggle,
   onWeldAgentToggle,
-}: AppHeaderProps) {
+}: Readonly<AppHeaderProps>) {
   const t = useTranslations();
   const [hideAll, setHideAll] = useState(false);
 

@@ -15,7 +15,7 @@ interface PersonChatProps {
   personName?: string;
 }
 
-export function PersonChat({ personId, personName }: PersonChatProps) {
+export function PersonChat({ personId, personName }: Readonly<PersonChatProps>) {
   const channelQuery = usePersonChannel(personId);
   const sendMutation = useSendPersonMessage(personId);
 

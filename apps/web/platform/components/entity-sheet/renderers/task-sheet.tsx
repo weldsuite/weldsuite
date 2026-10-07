@@ -8,6 +8,6 @@ import type { EntitySheetRendererProps } from '../types';
  * file is just a thin adapter between the entity-sheet host props and the
  * panel's `ObjectPanelComponentProps`.
  */
-export function TaskSheet({ entityId, onClose }: EntitySheetRendererProps) {
+export function TaskSheet({ entityId, onClose }: Readonly<EntitySheetRendererProps>) {
   return <TaskPanel id={entityId} isOpen={true} onClose={onClose} />;
 }

@@ -28,7 +28,7 @@ export interface PaginatedDocMenubarProps {
  * over a different trigger switches the active menu (mirrors the legacy
  * BlockNote menubar's behaviour and works around Radix hover-swap timing).
  */
-export function PaginatedDocMenubar({ cmd, actions, editable = true }: PaginatedDocMenubarProps) {
+export function PaginatedDocMenubar({ cmd, actions, editable = true }: Readonly<PaginatedDocMenubarProps>) {
   const [value, setValue] = useState<string>('');
 
   return (

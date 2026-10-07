@@ -18,7 +18,7 @@ interface ComingSoonTabProps {
   description?: string;
 }
 
-export function ComingSoonTab({ icon: Icon, label, description }: ComingSoonTabProps) {
+export function ComingSoonTab({ icon: Icon, label, description }: Readonly<ComingSoonTabProps>) {
   const t = useTranslations();
   return (
     <div className="flex flex-col items-center justify-center text-center px-6 py-12 gap-2">

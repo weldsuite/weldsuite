@@ -74,7 +74,7 @@ function FormattingToolbar({
   onUnorderedList,
   onOrderedList,
   onLink,
-}: FormattingToolbarProps) {
+}: Readonly<FormattingToolbarProps>) {
   const t = useTranslations();
 
   return (

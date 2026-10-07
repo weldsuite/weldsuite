@@ -17,7 +17,7 @@ interface MeetingsTabProps {
   entityKind: 'company' | 'person';
 }
 
-export function MeetingsTab({ entityId, entityKind }: MeetingsTabProps) {
+export function MeetingsTab({ entityId, entityKind }: Readonly<MeetingsTabProps>) {
   const filter = useMemo<ListMeetingsParams>(
     () =>
       entityKind === 'company'

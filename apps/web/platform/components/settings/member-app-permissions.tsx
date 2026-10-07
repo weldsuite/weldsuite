@@ -53,7 +53,7 @@ export function MemberAppPermissions({
   roleLabel,
   canManage,
   onSave,
-}: MemberAppPermissionsProps) {
+}: Readonly<MemberAppPermissionsProps>) {
   const t = useTranslations();
 
   // Stored lists may predate the per-app format; show them per app.
@@ -247,11 +247,11 @@ function LegendItem({
   className,
   icon: Icon,
   children,
-}: {
+}: Readonly<{
   className: string;
   icon: React.ElementType;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <span className="flex items-center gap-1.5">
       <span className={cn('flex h-4 w-4 items-center justify-center rounded border', className)}>

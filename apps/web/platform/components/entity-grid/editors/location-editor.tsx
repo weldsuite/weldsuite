@@ -54,7 +54,7 @@ function suggestionToDisplay(s: { name: string; place_formatted?: string; featur
   return s.place_formatted ? `${s.name}, ${s.place_formatted}` : s.name;
 }
 
-export function LocationEditor({ value, onChange, onCommit }: LocationEditorProps) {
+export function LocationEditor({ value, onChange, onCommit }: Readonly<LocationEditorProps>) {
   // The normalized initial string, used only for change detection and "did we
   // start with data?" checks. We deliberately depend on the *content* of the
   // string, NOT on `value`'s object reference (the parent re-creates the

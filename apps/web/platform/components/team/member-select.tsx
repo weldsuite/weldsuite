@@ -62,7 +62,7 @@ interface AssigneeAvatarProps {
   className?: string;
 }
 
-function AssigneeAvatar({ id, name, picture, className }: AssigneeAvatarProps) {
+function AssigneeAvatar({ id, name, picture, className }: Readonly<AssigneeAvatarProps>) {
   const seed = id || name || '?';
   const bg = assigneeFallbackColor(seed);
   const initial = (name || '?').charAt(0).toUpperCase();
@@ -87,7 +87,7 @@ export function MemberSelect({
   className,
   placeholder = '--',
   variant = 'default',
-}: MemberSelectProps) {
+}: Readonly<MemberSelectProps>) {
   const { getClient } = useAppApiClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['team-members', 'list'],

@@ -52,7 +52,7 @@ export function NewsView({
   onNavigateEvents,
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
-}: NewsViewProps) {
+}: Readonly<NewsViewProps>) {
   const [activeTab] = useState('news');
 
   const newsItems: NewsItem[] = [

@@ -67,7 +67,7 @@ function formatDate(dateString: string | null) {
   })
 }
 
-function StatusBadge({ status, label }: { status: string; label: string }) {
+function StatusBadge({ status, label }: Readonly<{ status: string; label: string }>) {
   const classes =
     status === "active"
       ? "border-transparent bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
@@ -83,7 +83,7 @@ interface EventPickerProps {
   onToggle: (event: string) => void
 }
 
-function EventPicker({ events, selected, onToggle }: EventPickerProps) {
+function EventPicker({ events, selected, onToggle }: Readonly<EventPickerProps>) {
   const groups = React.useMemo(() => {
     const byEntity = new Map<string, typeof events>()
     for (const e of events) {

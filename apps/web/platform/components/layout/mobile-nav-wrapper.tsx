@@ -12,7 +12,7 @@ interface MobileNavWrapperProps {
   installedApps: InstalledApp[];
 }
 
-export function MobileNavWrapper({ children, installedApps }: MobileNavWrapperProps) {
+export function MobileNavWrapper({ children, installedApps }: Readonly<MobileNavWrapperProps>) {
   return (
     <MobileNavProvider>
       <WeldAgentProvider>

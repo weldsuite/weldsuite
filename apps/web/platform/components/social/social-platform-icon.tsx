@@ -71,7 +71,7 @@ export function SocialPlatformIcon({
   className,
   colored = false,
   title,
-}: {
+}: Readonly<{
   platform: string;
   className?: string;
   /**
@@ -85,7 +85,7 @@ export function SocialPlatformIcon({
    * where announcing the brand twice is just noise.
    */
   title?: string;
-}) {
+}>) {
   const brand = isSocialPlatformKey(platform) ? BRANDS[platform] : undefined;
   if (!brand) return null;
 

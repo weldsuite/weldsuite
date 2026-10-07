@@ -885,7 +885,7 @@ function ContactForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   isUpdate?: boolean;
@@ -894,7 +894,7 @@ function ContactForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const cf = acf.contactFields;
@@ -965,15 +965,7 @@ function LeadForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const lf = acf.leadFields;
@@ -1036,13 +1028,13 @@ function PipelineStagePicker({
   onPipelineChange,
   onStageChange,
   labels,
-}: {
+}: Readonly<{
   pipeline: string | undefined;
   stageId: string | undefined;
   onPipelineChange: (pipeline: string | undefined) => void;
   onStageChange: (stageId: string | undefined) => void;
   labels: { pipeline: string; stage: string; selectPipeline: string; selectStage: string; noStages: string };
-}) {
+}>) {
   const { data: pipelinesRes, isLoading: loadingPipelines } = usePipelines();
   const pipelines = pipelinesRes?.data ?? [];
   const { data: stagesRes, isLoading: loadingStages } = usePipelineStages(pipeline);
@@ -1102,15 +1094,7 @@ function DealForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const df = acf.dealFields;
@@ -1197,15 +1181,7 @@ function MoveDealStageForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const mf = acf.moveDealStageFields;
@@ -1261,15 +1237,7 @@ function LogActivityForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const af = acf.activityFields;
@@ -1353,15 +1321,7 @@ function PostChatMessageForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const cf = acf.postChatMessage;
@@ -1441,15 +1401,7 @@ function SlackPostMessageForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
-  config: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void;
-  triggerType?: string;
-  steps?: WorkflowStep[];
-  workflowVariables?: WorkflowVariable[];
-  extraVariableGroups?: VariableGroup[];
-  excludeGroups?: string[];
-}) {
+}: VariableStepFormProps) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const cf = acf.slackPostMessage;
@@ -2401,7 +2353,7 @@ function CreateTaskForm({
   workspaceMembers = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -2410,7 +2362,7 @@ function CreateTaskForm({
   workspaceMembers?: WorkspaceMember[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const tf = acf.taskFields;
@@ -4253,7 +4205,7 @@ function ManualStepForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
   workspaceMembers?: WorkspaceMember[];
@@ -4262,7 +4214,7 @@ function ManualStepForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const ta = acf.approvalStep;

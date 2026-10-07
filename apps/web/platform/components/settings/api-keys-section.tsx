@@ -174,12 +174,12 @@ function PermissionGroupTable({
   entities,
   selectedScopes,
   onToggleScope,
-}: {
+}: Readonly<{
   group: string;
   entities: PermissionEntity[];
   selectedScopes: string[];
   onToggleScope: (scopeId: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const groupLogo = GROUP_LOGOS[group];
   return (
@@ -234,13 +234,13 @@ function PermissionScopeCell({
   cellBorder,
   selectedScopes,
   onToggleScope,
-}: {
+}: Readonly<{
   entity: PermissionEntity;
   action: 'read' | 'write';
   cellBorder: string;
   selectedScopes: string[];
   onToggleScope: (scopeId: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const scope = entity.scopes.find((s) => s.id.endsWith(`:${action}`));
   return (
@@ -266,7 +266,7 @@ function PermissionsSelector({
   onSelectAll,
   onClearAll,
   className,
-}: {
+}: Readonly<{
   selectedScopes: string[];
   onToggleScope: (scopeId: string) => void;
   onSelectAllRead: () => void;
@@ -274,7 +274,7 @@ function PermissionsSelector({
   onSelectAll: () => void;
   onClearAll: () => void;
   className?: string;
-}) {
+}>) {
   const t = useTranslations();
   return (
     <div className={cn('flex min-h-0 flex-1 flex-col gap-2', className)}>

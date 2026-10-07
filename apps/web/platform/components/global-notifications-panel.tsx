@@ -91,7 +91,7 @@ function transformNotification(notification: UnifiedNotification): DisplayNotifi
   };
 }
 
-export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAnimation }: GlobalNotificationsPanelProps) {
+export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAnimation }: Readonly<GlobalNotificationsPanelProps>) {
   const {
     notifications: rawNotifications,
     unreadCount,

@@ -52,7 +52,7 @@ interface EntityChatProps {
  * both states. Used by any entity that wants its own chat: tasks,
  * projects, and anything added to the server-side provider registry.
  */
-export function EntityChat({ entityType, entityId, fallbackName, hideCallButtons, hideHeader, headerSlot }: EntityChatProps) {
+export function EntityChat({ entityType, entityId, fallbackName, hideCallButtons, hideHeader, headerSlot }: Readonly<EntityChatProps>) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const { user } = useUser();
@@ -152,12 +152,12 @@ function FirstMessageComposer({
   entityId,
   currentUser,
   onSent,
-}: {
+}: Readonly<{
   entityType: string;
   entityId: string;
   currentUser: ReturnType<typeof useUser>['user'];
   onSent: (channel: EntityChannel, message: MessageItemMessage) => void;
-}) {
+}>) {
   const t = useTranslations();
   const { data: membersData } = useWorkspaceMembers();
   const membersMap = useMemo(() => {
@@ -231,7 +231,7 @@ function FirstMessageComposer({
 
 // ---------------------------------------------------------------------------
 
-function EmbeddedChannelChat({ channelId }: { channelId: string }) {
+function EmbeddedChannelChat({ channelId }: Readonly<{ channelId: string }>) {
   const t = useTranslations();
   const queryClient = useQueryClient();
 

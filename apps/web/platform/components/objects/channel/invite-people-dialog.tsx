@@ -56,7 +56,7 @@ function extractErrorMessage(err: unknown): string | undefined {
   return undefined;
 }
 
-export function InvitePeopleDialog({ channelId, open, onOpenChange }: InvitePeopleDialogProps) {
+export function InvitePeopleDialog({ channelId, open, onOpenChange }: Readonly<InvitePeopleDialogProps>) {
   const st = useTranslations();
   const { data: channelData } = useChannel(channelId);
   const channel = channelData?.data;
@@ -132,7 +132,7 @@ export function InvitePeopleDialog({ channelId, open, onOpenChange }: InvitePeop
 
 // ─── Members tab — add existing workspace people ───────────────────────────
 
-function MembersTab({ channelId, onDone }: { channelId: string; onDone: () => void }) {
+function MembersTab({ channelId, onDone }: Readonly<{ channelId: string; onDone: () => void }>) {
   const st = useTranslations();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -279,7 +279,7 @@ interface InviteResponse {
   };
 }
 
-function GuestTab({ channelId, onDone }: { channelId: string; onDone: () => void }) {
+function GuestTab({ channelId, onDone }: Readonly<{ channelId: string; onDone: () => void }>) {
   const { t } = useI18n();
   const st = useTranslations();
   const ts = t.weldchat?.inviteExternal;

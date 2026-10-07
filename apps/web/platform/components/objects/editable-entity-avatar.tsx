@@ -36,7 +36,7 @@ export function EditableEntityAvatar({
   entityType,
   entityId,
   className,
-}: EditableEntityAvatarProps) {
+}: Readonly<EditableEntityAvatarProps>) {
   const t = useTranslations();
   const inputRef = useRef<HTMLInputElement>(null);
 

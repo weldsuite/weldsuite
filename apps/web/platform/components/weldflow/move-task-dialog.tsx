@@ -49,7 +49,7 @@ export function MoveTaskDialog({
   taskId,
   currentProjectId,
   onMoved,
-}: MoveTaskDialogProps) {
+}: Readonly<MoveTaskDialogProps>) {
   const { t } = useI18n();
   const tt = t.projects.tasks;
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);

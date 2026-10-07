@@ -17,7 +17,7 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 
-function ChecklistItemRow({ item, label }: { item: AppChecklistItem; label: string }) {
+function ChecklistItemRow({ item, label }: Readonly<{ item: AppChecklistItem; label: string }>) {
   return (
     <Link
       href={item.href}
@@ -42,7 +42,7 @@ function ChecklistItemRow({ item, label }: { item: AppChecklistItem; label: stri
  * from the pathname and shows relevant tasks.
  * Hidden when the sidebar is collapsed.
  */
-export function OnboardingChecklist({ collapsed }: { collapsed: boolean }) {
+export function OnboardingChecklist({ collapsed }: Readonly<{ collapsed: boolean }>) {
   const pathname = usePathname();
   const { t } = useI18n();
   const moduleKey = getModuleKey(pathname);

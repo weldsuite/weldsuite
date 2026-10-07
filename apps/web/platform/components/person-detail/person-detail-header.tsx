@@ -45,7 +45,7 @@ export function PersonDetailHeader({
   dropdownItems,
   additionalActions,
   className,
-}: PersonDetailHeaderProps) {
+}: Readonly<PersonDetailHeaderProps>) {
   const t = useTranslations();
   const router = useRouter();
   const resolvedBackLabel = backLabel ?? t('sweep.weldcrm.customerDetailView.back');

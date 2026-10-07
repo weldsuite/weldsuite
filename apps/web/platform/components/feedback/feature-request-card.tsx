@@ -29,7 +29,7 @@ const statusClassName: Record<FeatureStatus, string> = {
   declined: 'bg-gray-500/10 text-gray-600',
 };
 
-export function FeatureRequestCard({ request, onVoteUpdate }: FeatureRequestCardProps) {
+export function FeatureRequestCard({ request, onVoteUpdate }: Readonly<FeatureRequestCardProps>) {
   const t = useTranslations();
   const typeLabels: Record<FeatureType, string> = {
     feature: t('sweep.shared.featureType.feature'),

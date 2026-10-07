@@ -20,7 +20,7 @@ interface InlineSubtaskInputProps {
  * panel grabs focus whenever its channel resolves, so relying on the browser
  * alone would let typed characters land in the chat instead.
  */
-export function InlineSubtaskInput({ placeholder, onSubmit, onCancel }: InlineSubtaskInputProps) {
+export function InlineSubtaskInput({ placeholder, onSubmit, onCancel }: Readonly<InlineSubtaskInputProps>) {
   const [title, setTitle] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   // Guards against a double Enter (or Enter + blur) creating two subtasks.

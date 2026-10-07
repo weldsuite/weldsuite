@@ -53,7 +53,7 @@ export function AnnouncementsView({
   onNavigateEvents,
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'news', 'appointments', 'announcements', 'events', 'parcel-tracking']
-}: AnnouncementsViewProps) {
+}: Readonly<AnnouncementsViewProps>) {
   const [activeTab] = useState('announcements');
 
   const announcements: AnnouncementItem[] = [

@@ -60,7 +60,7 @@ export function RepeatConfigMenu({
   onRepeatChange,
   onIntervalChange,
   onUnitChange,
-}: RepeatConfigMenuProps) {
+}: Readonly<RepeatConfigMenuProps>) {
   const t = useTranslations();
   const labels = repeatLabels(t);
   const unitLabels = repeatUnitLabels(t);

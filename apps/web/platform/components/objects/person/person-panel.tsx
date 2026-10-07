@@ -110,7 +110,7 @@ function personGravatar(email: string | null | undefined): string | undefined {
   return `https://www.gravatar.com/avatar/${encodeURIComponent(email.toLowerCase())}?d=mp&s=64`;
 }
 
-function PersonAvatar({ person, onUpload }: { person?: Person; onUpload?: (url: string) => void }) {
+function PersonAvatar({ person, onUpload }: Readonly<{ person?: Person; onUpload?: (url: string) => void }>) {
   if (!person) return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
   const initial = personInitial(person);
   // Treat empty strings as "no avatar" so the fallback initial renders.
@@ -137,7 +137,7 @@ function PersonAvatar({ person, onUpload }: { person?: Person; onUpload?: (url: 
   );
 }
 
-function PersonTitle({ person }: { person?: Person }) {
+function PersonTitle({ person }: Readonly<{ person?: Person }>) {
   if (!person) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
     <span className="text-[15px] font-medium text-foreground truncate">
@@ -150,11 +150,11 @@ function PersonActions({
   person,
   onDelete,
   onArchiveToggle,
-}: {
+}: Readonly<{
   person?: Person;
   onDelete: () => void;
   onArchiveToggle: () => void;
-}) {
+}>) {
   const st = useTranslations();
   const compose = useComposeSafe();
   const addToCrm = useAddPersonToCrm();
@@ -260,12 +260,12 @@ function PersonPanelTabsBar({
   setActiveTab,
   mode,
   companyCount,
-}: {
+}: Readonly<{
   activeTab: PersonTab['id'];
   setActiveTab: (id: PersonTab['id']) => void;
   mode: 'panel' | 'fullscreen';
   companyCount: number;
-}) {
+}>) {
   const st = useTranslations();
   const configEntries = useMemo(
     () =>
@@ -342,11 +342,11 @@ function PersonDetailsTab({
   person,
   onUpdateField,
   onUpdateFieldAsync,
-}: {
+}: Readonly<{
   person: Person;
   onUpdateField: (patch: Record<string, unknown>) => void;
   onUpdateFieldAsync: (patch: Record<string, unknown>) => Promise<void>;
-}) {
+}>) {
   const st = useTranslations();
   const { options: statusOptions } = useCustomerStatusOptions();
   return (
@@ -497,11 +497,11 @@ function PersonCompaniesTab({
   personId,
   employments,
   onOpenCompany,
-}: {
+}: Readonly<{
   personId: string;
   employments: PersonCompanyRow[];
   onOpenCompany: (companyId: string) => void;
-}) {
+}>) {
   const st = useTranslations();
   const unlinkMut = useUnlinkPersonFromCompany();
   const linkedIds = useMemo(
@@ -601,7 +601,7 @@ function PersonCompaniesTab({
 
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
-export function PersonPanel(props: ObjectPanelComponentProps) {
+export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
   const st = useTranslations();
   const { id, onClose, initialTab } = props;
   const personQuery = usePerson(id);

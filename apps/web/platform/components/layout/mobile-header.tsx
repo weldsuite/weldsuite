@@ -11,7 +11,7 @@ interface MobileHeaderProps {
   className?: string;
 }
 
-export function MobileHeader({ className }: MobileHeaderProps) {
+export function MobileHeader({ className }: Readonly<MobileHeaderProps>) {
   const t = useTranslations();
   const { isOpen, toggleOpen, moduleInfo, showWeldAgent, toggleWeldAgent, headerVariant } = useMobileNav();
   const { resolvedTheme } = useTheme();

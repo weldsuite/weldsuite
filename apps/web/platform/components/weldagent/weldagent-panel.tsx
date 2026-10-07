@@ -38,7 +38,7 @@ export function WeldAgentPanel({
   onNewConversationCreated,
   prefillText,
   onPrefillConsumed,
-}: WeldAgentPanelProps) {
+}: Readonly<WeldAgentPanelProps>) {
   const t = getTranslations('common').ai.chat;
   const { data: agents = [] } = useAgents();
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');

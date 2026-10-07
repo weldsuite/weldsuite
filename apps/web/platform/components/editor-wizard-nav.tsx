@@ -23,7 +23,7 @@ export function EditorWizardNav({
   currentStep,
   rightContent,
   onBeforeNavigate,
-}: EditorWizardNavProps) {
+}: Readonly<EditorWizardNavProps>) {
   const handleNavigate = (e: React.MouseEvent, href: string) => {
     if (onBeforeNavigate && !onBeforeNavigate(href)) {
       e.preventDefault();

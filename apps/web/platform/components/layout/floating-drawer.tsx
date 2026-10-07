@@ -29,7 +29,7 @@ export function FloatingDrawer({
   style,
   children,
   ...rest
-}: FloatingDrawerProps) {
+}: Readonly<FloatingDrawerProps>) {
   if (!isOpen) return null;
 
   return (

@@ -35,7 +35,7 @@ interface OverviewTabProps {
   profile: MemberProfile;
 }
 
-export function OverviewTab({ profile }: OverviewTabProps) {
+export function OverviewTab({ profile }: Readonly<OverviewTabProps>) {
   const t = useTranslations();
   const update = useUpdateMemberProfile(profile.userId);
   const now = useNow(30_000);
@@ -232,7 +232,7 @@ export function OverviewTab({ profile }: OverviewTabProps) {
   );
 }
 
-function CopyableEmail({ email }: { email: string }) {
+function CopyableEmail({ email }: Readonly<{ email: string }>) {
   const t = useTranslations();
   const [copied, setCopied] = React.useState(false);
   const composeContext = useComposeSafe();

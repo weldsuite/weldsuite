@@ -80,7 +80,7 @@ export function DocumentEditorPage({
   contentRef,
   titleRef,
   className,
-}: DocumentEditorPageProps) {
+}: Readonly<DocumentEditorPageProps>) {
   const defaultToolbarRenderer = useCallback((toolbarProps: ToolbarProps) => (
     <div className="bg-background sticky top-0 z-10 w-full border-b">
       <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">

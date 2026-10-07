@@ -105,7 +105,7 @@ export function PanelEntityList<T extends { id: string }>({
   onLoadMore,
   emptyState,
   noResultsState,
-}: PanelEntityListProps<T>) {
+}: Readonly<PanelEntityListProps<T>>) {
   const t = getTranslations('common');
   const hasRowMenu = !!onEdit || !!onDelete;
 

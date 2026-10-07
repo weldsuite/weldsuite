@@ -52,7 +52,7 @@ export function VideoPlayer({
   onSeek,
   onMinimize,
   onFullscreen,
-}: VideoPlayerProps) {
+}: Readonly<VideoPlayerProps>) {
   const st = useTranslations();
   const [volume, setVolume] = useState(1);
   const [playbackRate, setPlaybackRate] = useState(1);

@@ -33,10 +33,10 @@ export interface PersonDetailSidebarProps {
 function EditableField({
   field,
   onSave
-}: {
+}: Readonly<{
   field: SidebarField;
   onSave?: (fieldKey: string, value: string) => void;
-}) {
+}>) {
   const t = useTranslations();
   const [isEditing, setIsEditing] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -150,7 +150,7 @@ function EditableField({
   );
 }
 
-export function PersonDetailSidebar({ sections, className, onFieldSave }: PersonDetailSidebarProps) {
+export function PersonDetailSidebar({ sections, className, onFieldSave }: Readonly<PersonDetailSidebarProps>) {
   return (
     <div className={`w-full md:w-80 flex-shrink-0 md:pr-8 pb-6 md:pb-0 border-b md:border-b-0 md:border-r border-border/40 ${className || ''}`}>
       {sections.map((section, sectionIndex) => (
