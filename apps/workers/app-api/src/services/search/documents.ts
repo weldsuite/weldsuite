@@ -117,8 +117,8 @@ const knowledgePageLoader = defineLoader({
   type: 'knowledge_page',
   select: (db) => {
     const { knowledgePages, knowledgeSpaces } = schema;
-    // Private spaces are excluded for the same reason the lexical leg excludes
-    // them: the index has no user identity to check membership against, so
+    // Only open teamspaces, for the same reason the lexical leg limits itself:
+    // the index has no user identity to check membership against, so
     // anything indexed here is visible to every member of the workspace.
     const base = () =>
       db
@@ -134,7 +134,8 @@ const knowledgePageLoader = defineLoader({
     const visible = and(
       isNull(knowledgePages.deletedAt),
       isNull(knowledgeSpaces.deletedAt),
-      sql`${knowledgeSpaces.visibility} != 'private'`,
+      eq(knowledgeSpaces.kind, 'team'),
+      eq(knowledgeSpaces.visibility, 'open'),
     );
 
     return {

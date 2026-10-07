@@ -26,9 +26,17 @@ interface VersionHistorySheetProps {
   onOpenChange: (open: boolean) => void;
   /** Called once a version has been restored on the server. */
   onRestored?: () => void;
+  /** Whether the caller may save and restore versions (editor role in the teamspace). */
+  canEdit?: boolean;
 }
 
-export function VersionHistorySheet({ pageId, open, onOpenChange, onRestored }: Readonly<VersionHistorySheetProps>) {
+export function VersionHistorySheet({
+  pageId,
+  open,
+  onOpenChange,
+  onRestored,
+  canEdit = true,
+}: Readonly<VersionHistorySheetProps>) {
   const t = getTranslations('weldknow');
   const { data, isLoading } = useKnowledgePageVersions(pageId, open);
   const createVersion = useCreateKnowledgePageVersion();
@@ -92,14 +100,16 @@ export function VersionHistorySheet({ pageId, open, onOpenChange, onRestored }: 
             {formatDistanceToNow(new Date(version.createdAt), { addSuffix: true })}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={() => setRestoreTarget(version)}
-        >
-          {t.versions.restore}
-        </Button>
+        {canEdit && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setRestoreTarget(version)}
+          >
+            {t.versions.restore}
+          </Button>
+        )}
       </div>
     ));
   })();
@@ -112,22 +122,24 @@ export function VersionHistorySheet({ pageId, open, onOpenChange, onRestored }: 
           <SheetDescription className="sr-only">{t.versions.title}</SheetDescription>
         </SheetHeader>
 
-        <div className="flex items-center gap-2 px-4">
-          <Input
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={t.versions.createPlaceholder}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void handleCreate();
-              }
-            }}
-          />
-          <Button type="button" onClick={handleCreate} disabled={createVersion.isPending} className="shrink-0">
-            {t.versions.createButton}
-          </Button>
-        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2 px-4">
+            <Input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={t.versions.createPlaceholder}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void handleCreate();
+                }
+              }}
+            />
+            <Button type="button" onClick={handleCreate} disabled={createVersion.isPending} className="shrink-0">
+              {t.versions.createButton}
+            </Button>
+          </div>
+        )}
 
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-2">
           {versionList}

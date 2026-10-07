@@ -517,8 +517,9 @@ export async function searchKnowledgePages(
     ${scoreColumn(knowledgePages.contentText, q)}
   )`;
 
-  // Private spaces are excluded — the search context has no user identity,
-  // so only workspace-visible spaces are searchable here.
+  // Only open teamspaces — the search context has no user identity to check
+  // teamspace membership against, so closed/private teamspaces and personal
+  // spaces stay out (WeldKnow's own sidebar is the way into those).
   const rows = await db
     .select({
       id: knowledgePages.id,
@@ -534,7 +535,8 @@ export async function searchKnowledgePages(
       and(
         isNull(knowledgePages.deletedAt),
         isNull(knowledgeSpaces.deletedAt),
-        sql`${knowledgeSpaces.visibility} != 'private'`,
+        eq(knowledgeSpaces.kind, 'team'),
+        eq(knowledgeSpaces.visibility, 'open'),
         or(
           sql`lower(${knowledgePages.title}) LIKE ${term}`,
           sql`lower(${knowledgePages.contentText}) LIKE ${term}`,

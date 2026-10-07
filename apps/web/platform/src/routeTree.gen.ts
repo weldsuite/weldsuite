@@ -105,6 +105,7 @@ import { Route as WeldmailScheduledIndexRouteImport } from './routes/weldmail/sc
 import { Route as WeldmailInboxIndexRouteImport } from './routes/weldmail/inbox/index'
 import { Route as WeldmailDomainsIndexRouteImport } from './routes/weldmail/domains/index'
 import { Route as WeldknowTrashIndexRouteImport } from './routes/weldknow/trash/index'
+import { Route as WeldknowTeamspacesIndexRouteImport } from './routes/weldknow/teamspaces/index'
 import { Route as WeldhrSettingsIndexRouteImport } from './routes/weldhr/settings/index'
 import { Route as WeldhrPortalIndexRouteImport } from './routes/weldhr/portal/index'
 import { Route as WeldhrPerformanceIndexRouteImport } from './routes/weldhr/performance/index'
@@ -897,6 +898,11 @@ const WeldmailDomainsIndexRoute = WeldmailDomainsIndexRouteImport.update({
 const WeldknowTrashIndexRoute = WeldknowTrashIndexRouteImport.update({
   id: '/trash/',
   path: '/trash/',
+  getParentRoute: () => WeldknowRouteRoute,
+} as any)
+const WeldknowTeamspacesIndexRoute = WeldknowTeamspacesIndexRouteImport.update({
+  id: '/teamspaces/',
+  path: '/teamspaces/',
   getParentRoute: () => WeldknowRouteRoute,
 } as any)
 const WeldhrSettingsIndexRoute = WeldhrSettingsIndexRouteImport.update({
@@ -2855,6 +2861,7 @@ export interface FileRoutesByFullPath {
   '/weldhr/performance/': typeof WeldhrPerformanceIndexRoute
   '/weldhr/portal/': typeof WeldhrPortalIndexRoute
   '/weldhr/settings/': typeof WeldhrSettingsIndexRoute
+  '/weldknow/teamspaces/': typeof WeldknowTeamspacesIndexRoute
   '/weldknow/trash/': typeof WeldknowTrashIndexRoute
   '/weldmail/domains/': typeof WeldmailDomainsIndexRoute
   '/weldmail/inbox/': typeof WeldmailInboxIndexRoute
@@ -3227,6 +3234,7 @@ export interface FileRoutesByTo {
   '/weldhr/performance': typeof WeldhrPerformanceIndexRoute
   '/weldhr/portal': typeof WeldhrPortalIndexRoute
   '/weldhr/settings': typeof WeldhrSettingsIndexRoute
+  '/weldknow/teamspaces': typeof WeldknowTeamspacesIndexRoute
   '/weldknow/trash': typeof WeldknowTrashIndexRoute
   '/weldmail/domains': typeof WeldmailDomainsIndexRoute
   '/weldmail/inbox': typeof WeldmailInboxIndexRoute
@@ -3635,6 +3643,7 @@ export interface FileRoutesById {
   '/weldhr/performance/': typeof WeldhrPerformanceIndexRoute
   '/weldhr/portal/': typeof WeldhrPortalIndexRoute
   '/weldhr/settings/': typeof WeldhrSettingsIndexRoute
+  '/weldknow/teamspaces/': typeof WeldknowTeamspacesIndexRoute
   '/weldknow/trash/': typeof WeldknowTrashIndexRoute
   '/weldmail/domains/': typeof WeldmailDomainsIndexRoute
   '/weldmail/inbox/': typeof WeldmailInboxIndexRoute
@@ -4045,6 +4054,7 @@ export interface FileRouteTypes {
     | '/weldhr/performance/'
     | '/weldhr/portal/'
     | '/weldhr/settings/'
+    | '/weldknow/teamspaces/'
     | '/weldknow/trash/'
     | '/weldmail/domains/'
     | '/weldmail/inbox/'
@@ -4417,6 +4427,7 @@ export interface FileRouteTypes {
     | '/weldhr/performance'
     | '/weldhr/portal'
     | '/weldhr/settings'
+    | '/weldknow/teamspaces'
     | '/weldknow/trash'
     | '/weldmail/domains'
     | '/weldmail/inbox'
@@ -4824,6 +4835,7 @@ export interface FileRouteTypes {
     | '/weldhr/performance/'
     | '/weldhr/portal/'
     | '/weldhr/settings/'
+    | '/weldknow/teamspaces/'
     | '/weldknow/trash/'
     | '/weldmail/domains/'
     | '/weldmail/inbox/'
@@ -5735,6 +5747,13 @@ declare module '@tanstack/react-router' {
       path: '/trash'
       fullPath: '/weldknow/trash/'
       preLoaderRoute: typeof WeldknowTrashIndexRouteImport
+      parentRoute: typeof WeldknowRouteRoute
+    }
+    '/weldknow/teamspaces/': {
+      id: '/weldknow/teamspaces/'
+      path: '/teamspaces'
+      fullPath: '/weldknow/teamspaces/'
+      preLoaderRoute: typeof WeldknowTeamspacesIndexRouteImport
       parentRoute: typeof WeldknowRouteRoute
     }
     '/weldhr/settings/': {
@@ -8758,12 +8777,14 @@ const WeldhrRouteRouteWithChildren = WeldhrRouteRoute._addFileChildren(
 
 interface WeldknowRouteRouteChildren {
   WeldknowIndexRoute: typeof WeldknowIndexRoute
+  WeldknowTeamspacesIndexRoute: typeof WeldknowTeamspacesIndexRoute
   WeldknowTrashIndexRoute: typeof WeldknowTrashIndexRoute
   WeldknowPagePageIdIndexRoute: typeof WeldknowPagePageIdIndexRoute
 }
 
 const WeldknowRouteRouteChildren: WeldknowRouteRouteChildren = {
   WeldknowIndexRoute: WeldknowIndexRoute,
+  WeldknowTeamspacesIndexRoute: WeldknowTeamspacesIndexRoute,
   WeldknowTrashIndexRoute: WeldknowTrashIndexRoute,
   WeldknowPagePageIdIndexRoute: WeldknowPagePageIdIndexRoute,
 }

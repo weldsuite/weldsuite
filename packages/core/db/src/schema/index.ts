@@ -143,6 +143,7 @@ export * from './welddesk-blocks';
 export * from './helpdesk-article-folders';
 export * from './helpdesk-articles';
 export * from './knowledge-spaces';
+export * from './knowledge-space-members';
 export * from './knowledge-pages';
 export * from './knowledge-page-versions';
 export * from './knowledge-favorites';

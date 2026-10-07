@@ -33,9 +33,11 @@ import type { Block, PartialBlock } from '@blocknote/core';
 import {
   useAddKnowledgeFavorite,
   useDeleteKnowledgePage,
+  useJoinKnowledgeSpace,
   useKnowledgeFavorites,
   useKnowledgePage,
   useKnowledgePageTree,
+  useKnowledgeSpaces,
   useRemoveKnowledgeFavorite,
   useSaveKnowledgePageContent,
   useUpdateKnowledgePageMeta,
@@ -89,8 +91,10 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   const { data: pageData, isLoading, isError } = useKnowledgePage(pageId);
   const { data: treeData } = useKnowledgePageTree();
   const { data: favoritesData } = useKnowledgeFavorites();
+  const { data: spacesData } = useKnowledgeSpaces();
 
   const updateMeta = useUpdateKnowledgePageMeta();
+  const joinSpace = useJoinKnowledgeSpace();
   const saveContent = useSaveKnowledgePageContent();
   const deletePage = useDeleteKnowledgePage();
   const addFavorite = useAddKnowledgeFavorite();
@@ -295,7 +299,21 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     );
   }
 
-  const readOnly = !canUpdate || page.isLocked;
+  // The workspace permission and the teamspace role must both allow writing.
+  const space = spacesData?.data.find((s) => s.id === page.spaceId);
+  const canWrite = canUpdate && (space?.canWrite ?? false);
+  const readOnly = !canWrite || page.isLocked;
+  const canJoinToEdit = !!space && !space.isMember && space.kind === 'team' && space.visibility === 'open';
+
+  const handleJoin = async () => {
+    if (!space) return;
+    try {
+      await joinSpace.mutateAsync(space.id);
+      toast.success(t.teamspaces.joinSuccess);
+    } catch {
+      toast.error(t.teamspaces.joinError);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -327,7 +345,7 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
                 <History className="mr-2 h-4 w-4" />
                 {t.page.versionHistory}
               </DropdownMenuItem>
-              {canUpdate && (
+              {canWrite && (
                 <DropdownMenuItem onClick={handleToggleLock}>
                   {page.isLocked ? (
                     <LockOpen className="mr-2 h-4 w-4" />
@@ -337,13 +355,13 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
                   {page.isLocked ? t.page.unlock : t.page.lock}
                 </DropdownMenuItem>
               )}
-              {canUpdate && (
+              {canWrite && (
                 <DropdownMenuItem onClick={() => setShowMoveDialog(true)}>
                   <Move className="mr-2 h-4 w-4" />
                   {t.page.moveTo}
                 </DropdownMenuItem>
               )}
-              {canDelete && (
+              {canDelete && canWrite && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -385,6 +403,18 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
             <p className="mb-4 text-sm text-muted-foreground">{t.page.lockedBanner}</p>
           )}
 
+          {canJoinToEdit ? (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
+              <p className="text-sm text-muted-foreground">{t.page.joinBanner}</p>
+              <Button size="sm" variant="outline" onClick={handleJoin} disabled={joinSpace.isPending}>
+                {t.page.joinToEdit}
+              </Button>
+            </div>
+          ) : (
+            !canWrite &&
+            space && <p className="mb-4 text-sm text-muted-foreground">{t.page.readOnlyBanner}</p>
+          )}
+
           <BlockEditor
             ref={blockEditorRef}
             key={page.id}
@@ -406,6 +436,7 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
         open={showVersions}
         onOpenChange={setShowVersions}
         onRestored={handleVersionRestored}
+        canEdit={canWrite}
       />
 
       <ConfirmDialog

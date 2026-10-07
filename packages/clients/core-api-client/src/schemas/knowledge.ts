@@ -2,9 +2,22 @@ import { z } from 'zod';
 
 // `/api/knowledge` — WeldKnow workspace wiki (spaces + nested pages).
 
-/** Space visibility: workspace-wide or private to the creator. */
-export const KNOWLEDGE_SPACE_VISIBILITIES = ['workspace', 'private'] as const;
+/**
+ * Teamspace visibility (Notion model):
+ *   open    — everyone can find and read it; joining makes you an editor
+ *   closed  — everyone sees it exists; only members read it, owners add people
+ *   private — only members know it exists
+ */
+export const KNOWLEDGE_SPACE_VISIBILITIES = ['open', 'closed', 'private'] as const;
 export type KnowledgeSpaceVisibility = (typeof KNOWLEDGE_SPACE_VISIBILITIES)[number];
+
+/** `personal` is each person's own Private section; `team` is a teamspace. */
+export const KNOWLEDGE_SPACE_KINDS = ['personal', 'team'] as const;
+export type KnowledgeSpaceKind = (typeof KNOWLEDGE_SPACE_KINDS)[number];
+
+/** owner manages the teamspace, editor writes pages, viewer reads. */
+export const KNOWLEDGE_SPACE_ROLES = ['owner', 'editor', 'viewer'] as const;
+export type KnowledgeSpaceRole = (typeof KNOWLEDGE_SPACE_ROLES)[number];
 
 // ---------------------------------------------------------------------------
 // Spaces
@@ -16,6 +29,8 @@ export const createKnowledgeSpaceSchema = z.object({
   icon: z.string().max(100).nullish(),
   color: z.string().max(50).nullish(),
   visibility: z.enum(KNOWLEDGE_SPACE_VISIBILITIES).optional(),
+  /** Add every workspace member as an editor. Needs knowledge:manage. */
+  isDefault: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 });
 
@@ -23,6 +38,23 @@ export const updateKnowledgeSpaceSchema = createKnowledgeSpaceSchema.partial();
 
 export type CreateKnowledgeSpaceInput = z.infer<typeof createKnowledgeSpaceSchema>;
 export type UpdateKnowledgeSpaceInput = z.infer<typeof updateKnowledgeSpaceSchema>;
+
+// ---------------------------------------------------------------------------
+// Teamspace members
+// ---------------------------------------------------------------------------
+
+/** Add a teammate, or change their role if they are already in. */
+export const addKnowledgeSpaceMemberSchema = z.object({
+  userId: z.string().min(1),
+  role: z.enum(KNOWLEDGE_SPACE_ROLES),
+});
+
+export const updateKnowledgeSpaceMemberSchema = z.object({
+  role: z.enum(KNOWLEDGE_SPACE_ROLES),
+});
+
+export type AddKnowledgeSpaceMemberInput = z.infer<typeof addKnowledgeSpaceMemberSchema>;
+export type UpdateKnowledgeSpaceMemberInput = z.infer<typeof updateKnowledgeSpaceMemberSchema>;
 
 // ---------------------------------------------------------------------------
 // Pages
