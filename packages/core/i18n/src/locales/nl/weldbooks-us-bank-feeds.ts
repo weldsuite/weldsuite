@@ -249,6 +249,29 @@ export const weldbooksUsBankFeeds = {
     connectedThrough: 'Gekoppeld via {bank}',
   },
 
+  /** De compacte samenvatting boven de lijst met bankrekeningen. */
+  strip: {
+    label: 'Bankkoppelingen',
+    connectPrompt: 'Koppel je bank en nieuwe transacties komen vanzelf binnen.',
+    connected: {
+      one: '{count} bank gekoppeld',
+      other: '{count} banken gekoppeld',
+    },
+    synced: 'bijgewerkt {time}',
+    neverSynced: 'nog niet bijgewerkt',
+    attention: {
+      one: '{count} vraagt aandacht',
+      other: '{count} vragen aandacht',
+    },
+    manage: 'Bankkoppelingen beheren',
+  },
+
+  /** De lijst met bankrekeningen als er nog geen zijn en een bankkoppeling mogelijk is. */
+  emptyAccounts: {
+    description:
+      'Koppel je bank om je rekeningen en transacties automatisch binnen te halen, of voeg zelf een rekening toe.',
+    addManually: 'Rekening handmatig toevoegen',
+  },
   errors: {
     generic: 'Er ging iets mis. Probeer het opnieuw.',
     forbidden: 'Je hebt geen toestemming om dit te doen.',
