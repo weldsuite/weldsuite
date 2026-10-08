@@ -1,12 +1,20 @@
 import { useState } from 'react';
 import { useParams } from '@/lib/router';
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { MoreHorizontal } from 'lucide-react';
+import { useCan } from '@weldsuite/permissions/react';
 import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import {
   Table,
   TableBody,
@@ -16,32 +24,28 @@ import {
   TableRow,
 } from '@weldsuite/ui/components/table';
 import {
+  useAccountingEntity,
   useAccountingInvoice,
   useFinalizeInvoice,
+  useUpdateInvoiceStatus,
 } from '@/hooks/queries/use-accounting-queries';
-import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import {
   generateInvoicePdf,
   downloadPdf,
-  type InvoicePdfEntity,
+  type InvoicePdfLabels,
 } from '@/lib/weldbooks/invoice-pdf';
 import type { InvoiceDetail } from '@/lib/api/domains/weldbooks';
 import { RecordPaymentDialog } from '../components/record-payment-dialog';
 import { SendInvoiceDialog } from '../components/send-invoice-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
-
-const formatDate = (value: string | null | undefined) => {
-  if (!value) return '-';
-  return new Date(value).toLocaleDateString('nl-NL', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-};
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
+import { formatPostalAddressLines } from '@/components/address/postal-address';
+import { countryName } from '@/components/address/countries';
 
 function getStatusBadge(status: string, labels: Record<string, string>) {
   switch (status) {
@@ -50,7 +54,11 @@ function getStatusBadge(status: string, labels: Record<string, string>) {
     case 'sent':
       return <Badge variant="secondary">{labels.sent}</Badge>;
     case 'paid':
-      return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{labels.paid}</Badge>;
+      return (
+        <Badge className="bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-300">
+          {labels.paid}
+        </Badge>
+      );
     case 'overdue':
       return <Badge variant="destructive">{labels.overdue}</Badge>;
     case 'partial':
@@ -59,39 +67,52 @@ function getStatusBadge(status: string, labels: Record<string, string>) {
       return <Badge variant="outline">{labels.cancelled}</Badge>;
     case 'finalized':
       return <Badge variant="secondary">{labels.finalized}</Badge>;
+    case 'uncollectible':
+      return <Badge variant="outline">{labels.uncollectible}</Badge>;
     default:
       return <Badge variant="outline">{status}</Badge>;
   }
 }
 
+/** Statuses after which the invoice can no longer be cancelled or written off. */
+const CLOSED_STATUSES = new Set(['cancelled', 'paid', 'uncollectible']);
+const OPEN_BALANCE_STATUSES = new Set(['sent', 'partial', 'overdue', 'finalized']);
+
 export default function InvoiceDetailPage() {
   const params = useParams();
   const id = params.id as string;
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const st = useTranslations();
   const ti = t.accounting.invoiceDetail;
   const tsl = t.accounting.statusLabels.invoice;
-  const { formatMoney } = useCurrentEntityCurrency();
+  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const { labels } = useJurisdictionLabels();
+  const canUpdate = useCan('invoices:update');
 
   const { data, isLoading } = useAccountingInvoice(id);
   const finalizeMutation = useFinalizeInvoice();
+  const statusMutation = useUpdateInvoiceStatus();
 
   const { entityId } = useCurrentAccountingEntity();
-  const { data: entity } = useQuery<InvoicePdfEntity | null>({
-    queryKey: ['accounting', 'entities', entityId, 'for-pdf'],
-    enabled: !!entityId,
-    queryFn: async () => {
-      const res = await weldbooksApi.get<{ data: InvoicePdfEntity } | InvoicePdfEntity>(
-        '/accounting-entities/' + entityId,
-      );
-      return 'data' in res ? res.data : res;
-    },
-  });
+  const { data: entity } = useAccountingEntity(entityId);
 
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [statusDialog, setStatusDialog] = useState<'cancelled' | 'uncollectible' | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
+
+  const country = (code: string) => countryName(code, language || 'en');
+
+  const pdfLabels = (): InvoicePdfLabels => {
+    const tp = t.accounting.invoicePdf;
+    return {
+      ...tp,
+      tax: labels.tax,
+      taxId: labels.taxId,
+      registrationId: labels.registrationId,
+    };
+  };
 
   const handleDownload = async () => {
     if (!data?.data) return;
@@ -100,11 +121,11 @@ export default function InvoiceDetailPage() {
       const bytes = await generateInvoicePdf(
         data.data as InvoiceDetail,
         entity ?? { name: st('sweep.weldbooks.invoiceDetail.yourCompanyFallback') },
+        { labels: pdfLabels(), formatDate: (v) => formatDate(v, '-'), countryName: country },
       );
       const filename = ((data.data as InvoiceDetail).invoiceNumber || 'invoice') + '.pdf';
       downloadPdf(bytes, filename);
-    } catch (err) {
-      console.error('[Invoice] PDF generation failed', err);
+    } catch {
       toast.error(ti.failedToPdf);
     } finally {
       setDownloading(false);
@@ -123,8 +144,7 @@ export default function InvoiceDetailPage() {
       a.download = filename || fallbackName;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('[Invoice] attachment open failed', err);
+    } catch {
       toast.error(ti.failedToOpenAttachment);
     } finally {
       setOpeningAttachment(null);
@@ -147,10 +167,35 @@ export default function InvoiceDetailPage() {
     invoice.status === 'sent' ||
     invoice.status === 'partial' ||
     invoice.status === 'overdue';
+  const canCancel = canUpdate && !CLOSED_STATUSES.has(invoice.status);
+  const canWriteOff =
+    canUpdate && OPEN_BALANCE_STATUSES.has(invoice.status) && Number(invoice.balanceDue ?? 0) > 0;
 
   const handleFinalize = () => {
-    finalizeMutation.mutate(invoice.id);
+    finalizeMutation.mutate(invoice.id, {
+      onSuccess: () => toast.success(ti.finalized),
+      onError: (err) => toast.error(ti.finalizeFailed, { description: err instanceof Error ? err.message : undefined }),
+    });
   };
+
+  const handleStatusChange = async () => {
+    if (!statusDialog) return;
+    try {
+      await statusMutation.mutateAsync({ id: invoice.id, status: statusDialog });
+      toast.success(ti.statusUpdated);
+      setStatusDialog(null);
+    } catch (err) {
+      // The server explains why, e.g. a finalized invoice needs a credit note.
+      toast.error(ti.statusUpdateFailed, { description: err instanceof Error ? err.message : undefined });
+    }
+  };
+
+  const billingLines = formatPostalAddressLines(normalizeAccountingAddress(invoice.billingAddress), {
+    countryName: country,
+  });
+  const shippingLines = formatPostalAddressLines(normalizeAccountingAddress(invoice.shippingAddress), {
+    countryName: country,
+  });
 
   const renderTaxLines = () => {
     if (invoice.taxBreakdown && invoice.taxBreakdown.length > 0) {
@@ -164,7 +209,7 @@ export default function InvoiceDetailPage() {
     if (invoice.taxTotal && Number(invoice.taxTotal) !== 0) {
       return (
         <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">{ti.tax}</span>
+          <span className="text-muted-foreground">{labels.tax}</span>
           <span>{formatMoney(invoice.taxTotal, invoice.currency)}</span>
         </div>
       );
@@ -173,14 +218,14 @@ export default function InvoiceDetailPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-semibold">{invoice.invoiceNumber ?? tsl.fallback}</h1>
           {getStatusBadge(invoice.status, tsl)}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={handleDownload} disabled={downloading}>
             {downloading ? ti.generatingPdf : ti.downloadPdf}
           </Button>
@@ -206,6 +251,30 @@ export default function InvoiceDetailPage() {
           {canRecordPayment && (
             <Button onClick={() => setPaymentDialogOpen(true)}>{ti.recordPayment}</Button>
           )}
+          {(canCancel || canWriteOff) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" aria-label={ti.moreActions}>
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {canWriteOff && (
+                  <DropdownMenuItem onClick={() => setStatusDialog('uncollectible')}>
+                    {ti.markUncollectible}
+                  </DropdownMenuItem>
+                )}
+                {canCancel && (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setStatusDialog('cancelled')}
+                  >
+                    {ti.cancelInvoice}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
@@ -215,10 +284,28 @@ export default function InvoiceDetailPage() {
           <CardHeader>
             <CardTitle>{ti.contact}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-1">
-            <p className="font-medium">{invoice.contactName ?? '-'}</p>
-            {invoice.contactEmail && (
-              <p className="text-sm text-muted-foreground">{invoice.contactEmail}</p>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <p className="font-medium">{invoice.contactName ?? '-'}</p>
+              {invoice.contactEmail && (
+                <p className="text-sm text-muted-foreground">{invoice.contactEmail}</p>
+              )}
+            </div>
+            {(billingLines.length > 0 || shippingLines.length > 0) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                {billingLines.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">{ti.billTo}</p>
+                    {billingLines.map((line) => <p key={line}>{line}</p>)}
+                  </div>
+                )}
+                {shippingLines.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">{ti.shipTo}</p>
+                    {shippingLines.map((line) => <p key={line}>{line}</p>)}
+                  </div>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -230,11 +317,11 @@ export default function InvoiceDetailPage() {
           <CardContent className="space-y-1">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{ti.issueDate}</span>
-              <span>{formatDate(invoice.issueDate)}</span>
+              <span>{formatDate(invoice.issueDate, '-')}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{ti.dueDate}</span>
-              <span>{formatDate(invoice.dueDate)}</span>
+              <span>{formatDate(invoice.dueDate, '-')}</span>
             </div>
             {invoice.reference && (
               <div className="flex justify-between text-sm">
@@ -275,7 +362,7 @@ export default function InvoiceDetailPage() {
         <CardHeader>
           <CardTitle>{ti.lineItems}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -283,7 +370,7 @@ export default function InvoiceDetailPage() {
                 <TableHead className="text-right">{ti.qty}</TableHead>
                 <TableHead className="text-right">{ti.unitPrice}</TableHead>
                 <TableHead className="text-right">{ti.discount}</TableHead>
-                <TableHead className="text-right">{ti.tax}</TableHead>
+                <TableHead className="text-right">{labels.tax}</TableHead>
                 <TableHead className="text-right">{ti.total}</TableHead>
               </TableRow>
             </TableHeader>
@@ -336,7 +423,7 @@ export default function InvoiceDetailPage() {
                 <span>{formatMoney(invoice.total, invoice.currency)}</span>
               </div>
               {invoice.amountPaid && Number(invoice.amountPaid) > 0 && (
-                <div className="flex justify-between text-sm text-green-600">
+                <div className="flex justify-between text-sm text-green-600 dark:text-green-400">
                   <span>{ti.amountPaid}</span>
                   <span>-{formatMoney(invoice.amountPaid, invoice.currency)}</span>
                 </div>
@@ -356,6 +443,7 @@ export default function InvoiceDetailPage() {
       <SendInvoiceDialog
         invoiceId={invoice.id}
         contactEmail={invoice.contactEmail}
+        isDraft={isDraft}
         open={sendDialogOpen}
         onOpenChange={setSendDialogOpen}
       />
@@ -364,6 +452,19 @@ export default function InvoiceDetailPage() {
         balanceDue={invoice.balanceDue ?? '0'}
         open={paymentDialogOpen}
         onOpenChange={setPaymentDialogOpen}
+      />
+      <ConfirmDialog
+        open={statusDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatusDialog(null);
+        }}
+        title={statusDialog === 'uncollectible' ? ti.uncollectibleTitle : ti.cancelInvoiceTitle}
+        description={statusDialog === 'uncollectible' ? ti.uncollectibleDescription : ti.cancelInvoiceDescription}
+        confirmLabel={statusDialog === 'uncollectible' ? ti.confirmUncollectible : ti.confirmCancel}
+        cancelLabel={ti.keepInvoice}
+        variant="destructive"
+        loading={statusMutation.isPending}
+        onConfirm={handleStatusChange}
       />
     </div>
   );

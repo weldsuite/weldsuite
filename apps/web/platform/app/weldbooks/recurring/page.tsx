@@ -5,7 +5,7 @@ import { Repeat } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 interface RecurringRow {
   id: string;
@@ -18,7 +18,7 @@ interface RecurringRow {
 
 export default function RecurringInvoicesPage() {
   const { t } = useI18n();
-  const { formatMoney } = useCurrentEntityCurrency();
+  const { formatMoney, formatDate } = useWeldbooksFormat();
   const trp = t.accounting.recurringPage;
 
   const { data, isLoading } = useAccountingRecurringInvoices();
@@ -43,7 +43,7 @@ export default function RecurringInvoicesPage() {
       id: 'nextDate',
       header: trp.colNextDate,
       width: 'w-[140px]',
-      render: (item) => <span className="text-muted-foreground">{item.nextDate ?? '—'}</span>,
+      render: (item) => <span className="text-muted-foreground">{formatDate(item.nextDate)}</span>,
     },
     {
       id: 'amount',

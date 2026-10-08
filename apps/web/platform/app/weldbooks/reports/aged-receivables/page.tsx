@@ -10,7 +10,7 @@ import {
 } from '@weldsuite/ui/components/table';
 import { useAgedReceivablesReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 interface AgedReceivablesInvoiceRow {
   id: string;
@@ -29,7 +29,7 @@ interface AgedReceivablesReport {
 
 export default function AgedReceivablesReportPage() {
   const { t } = useI18n();
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
   const tr = t.accounting.reports;
 
   const { data, isLoading } = useAgedReceivablesReport();
@@ -89,7 +89,7 @@ export default function AgedReceivablesReportPage() {
                       <TableRow key={inv.id}>
                         <TableCell>{inv.invoiceNumber}</TableCell>
                         <TableCell>{inv.contactName}</TableCell>
-                        <TableCell>{inv.dueDate}</TableCell>
+                        <TableCell>{formatDate(inv.dueDate)}</TableCell>
                         <TableCell>{inv.daysOverdue}</TableCell>
                         <TableCell className="text-right">{fmt(inv.balanceDue)}</TableCell>
                       </TableRow>

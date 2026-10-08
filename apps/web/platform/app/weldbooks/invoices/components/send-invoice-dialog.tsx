@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   Dialog,
@@ -12,6 +13,8 @@ import { useI18n } from '@/lib/i18n/provider';
 interface SendInvoiceDialogProps {
   invoiceId: string;
   contactEmail: string | null;
+  /** A draft is finalized (posted) by the server before it is sent. */
+  isDraft?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -19,6 +22,7 @@ interface SendInvoiceDialogProps {
 export function SendInvoiceDialog({
   invoiceId,
   contactEmail,
+  isDraft = false,
   open,
   onOpenChange,
 }: Readonly<SendInvoiceDialogProps>) {
@@ -29,7 +33,11 @@ export function SendInvoiceDialog({
   const handleSend = () => {
     sendInvoice.mutate(invoiceId, {
       onSuccess: () => {
+        toast.success(ts.sent);
         onOpenChange(false);
+      },
+      onError: (err) => {
+        toast.error(ts.sendFailed, { description: err instanceof Error ? err.message : undefined });
       },
     });
   };
@@ -45,6 +53,7 @@ export function SendInvoiceDialog({
             ? ts.sendToEmail.replace('{email}', contactEmail)
             : ts.noEmailFound}
         </p>
+        {isDraft && <p className="text-sm text-muted-foreground">{ts.draftWillFinalize}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {ts.cancel}

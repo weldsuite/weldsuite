@@ -11,6 +11,7 @@ import {
   type ActiveFilter,
 } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
+import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 
 interface CustomerRow {
   id: string;
@@ -26,6 +27,7 @@ export default function AccountingCustomersPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const tcp = t.accounting.customersPage;
+  const { labels } = useJurisdictionLabels();
 
   // Backend expands role=customer → customer + both. This pill lets the user
   // narrow to only the dual-role entries when they want to audit them.
@@ -73,7 +75,7 @@ export default function AccountingCustomersPage() {
     },
     {
       id: 'vat',
-      header: tcp.colVat,
+      header: labels.taxId,
       width: 'w-[180px]',
       render: (c) => <span className="text-muted-foreground">{c.vatNumber ?? '—'}</span>,
     },

@@ -8,12 +8,7 @@ import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list
 import { BankAccountFormDialog } from '@/components/accounting/bank-account-form-dialog';
 import type { BankAccount } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
-import { formatWeldbooksMoney } from '@/lib/weldbooks/format-money';
-
-function formatBalance(value: string | null | undefined, currency: string | null | undefined, locale?: string | null): string {
-  return formatWeldbooksMoney(value, currency, locale);
-}
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 export default function BankAccountsPage() {
   const [createOpen, setCreateOpen] = useState(false);
@@ -21,7 +16,7 @@ export default function BankAccountsPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const tbp = t.accounting.bankingPages;
-  const { currency: entityCurrency, locale } = useCurrentEntityCurrency();
+  const { entityCurrency, formatMoney } = useWeldbooksFormat();
 
   const accounts = (data?.data ?? []) as BankAccount[];
 
@@ -61,7 +56,7 @@ export default function BankAccountsPage() {
       id: 'currency',
       header: tbp.columns.currency,
       width: 'w-[100px]',
-      render: (a) => <span className="text-muted-foreground">{a.currency ?? 'EUR'}</span>,
+      render: (a) => <span className="text-muted-foreground">{a.currency ?? entityCurrency ?? '—'}</span>,
     },
     {
       id: 'balance',
@@ -69,7 +64,7 @@ export default function BankAccountsPage() {
       width: 'w-[180px]',
       render: (a) => (
         <span className="tabular-nums font-medium">
-          {formatBalance(a.currentBalance, a.currency ?? entityCurrency, locale)}
+          {formatMoney(a.currentBalance, a.currency ?? entityCurrency)}
         </span>
       ),
     },

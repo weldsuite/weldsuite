@@ -49,18 +49,22 @@ export function BankAccountFormDialog({
 }: Readonly<BankAccountFormDialogProps>) {
   const t = useTranslations();
   const isEdit = !!bankAccount;
-  const { currency: entityCurrency } = useCurrentEntityCurrency();
+  const { entityCurrency } = useCurrentEntityCurrency();
+  // The entity's currency; the first listed one only while the entity is unknown.
+  const defaultCurrency = entityCurrency ?? CURRENCIES[0];
 
   const [name, setName] = useState('');
   const [iban, setIban] = useState('');
   const [bic, setBic] = useState('');
   const [bankName, setBankName] = useState('');
   const [accountHolderName, setAccountHolderName] = useState('');
-  const [currency, setCurrency] = useState('EUR');
+  const [currency, setCurrency] = useState(defaultCurrency);
   const [ledgerAccountId, setLedgerAccountId] = useState<string>('');
   const [isDefault, setIsDefault] = useState(false);
   const [autoReconcile, setAutoReconcile] = useState(true);
   const currencyTouchedRef = useRef(false);
+  // An entity or account currency outside the common list stays selectable.
+  const currencyOptions = currency && !CURRENCIES.includes(currency) ? [currency, ...CURRENCIES] : CURRENCIES;
 
   // Bank ledger accounts from the CoA — filtered to asset/bank subtype
   const { data: accountsData } = useAccountingAccounts();
@@ -82,7 +86,7 @@ export function BankAccountFormDialog({
       setBic(bankAccount.bic ?? '');
       setBankName(bankAccount.bankName ?? '');
       setAccountHolderName(bankAccount.accountHolderName ?? '');
-      setCurrency(bankAccount.currency ?? entityCurrency);
+      setCurrency(bankAccount.currency ?? defaultCurrency);
       setLedgerAccountId(bankAccount.ledgerAccountId ?? '');
       setIsDefault(!!bankAccount.isDefault);
       setAutoReconcile(bankAccount.autoReconcile !== false);
@@ -92,7 +96,7 @@ export function BankAccountFormDialog({
       setBic('');
       setBankName('');
       setAccountHolderName('');
-      setCurrency(entityCurrency);
+      setCurrency(defaultCurrency);
       setLedgerAccountId('');
       setIsDefault(false);
       setAutoReconcile(true);
@@ -101,8 +105,8 @@ export function BankAccountFormDialog({
 
   useEffect(() => {
     if (!open || bankAccount || currencyTouchedRef.current) return;
-    setCurrency(entityCurrency);
-  }, [open, bankAccount, entityCurrency]);
+    setCurrency(defaultCurrency);
+  }, [open, bankAccount, defaultCurrency]);
 
   const createMutation = useCreateBankAccount();
   const updateMutation = useUpdateBankAccount();
@@ -215,7 +219,7 @@ export function BankAccountFormDialog({
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {CURRENCIES.map((c) => (
+                  {currencyOptions.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c === 'INR' ? t('sweep.weldbooks.bankAccountForm.currencyInr') : c}
                     </SelectItem>

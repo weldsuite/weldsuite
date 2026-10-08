@@ -26,12 +26,23 @@ import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entit
 interface Jurisdiction {
   code: string;
   name: string;
+  defaultLocale?: string;
+  defaultCurrency?: string;
 }
 
-const JURISDICTION_DEFAULTS: Record<string, { locale: string; baseCurrency: string; vatHint: string; timezone: string }> = {
-  NL: { locale: 'nl-NL', baseCurrency: 'EUR', vatHint: 'NL123456789B01', timezone: 'Europe/Amsterdam' },
-  IN: { locale: 'en-IN', baseCurrency: 'INR', vatHint: '27AABCU9603R1ZM', timezone: 'Asia/Kolkata' },
+/** Example tax IDs and time zones; locale and currency come from the jurisdiction list. */
+const JURISDICTION_HINTS: Record<string, { vatHint: string; timezone: string }> = {
+  NL: { vatHint: 'NL123456789B01', timezone: 'Europe/Amsterdam' },
+  IN: { vatHint: '27AABCU9603R1ZM', timezone: 'Asia/Kolkata' },
 };
+
+function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
+}
 
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR'];
 
@@ -73,20 +84,17 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
     enabled: open,
   });
 
+  const selectedJurisdiction = jurisdictions.find((j) => j.code === jurisdictionCode);
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      const defaults = JURISDICTION_DEFAULTS[jurisdictionCode] ?? {
-        locale: 'en-US',
-        baseCurrency,
-        vatHint: '',
-        timezone: 'UTC',
-      };
       return weldbooksApi.post<{ data: { id: string } } | { id: string }>('/accounting-entities', {
         name,
         jurisdictionCode,
         baseCurrency,
-        locale: defaults.locale,
-        timezone: defaults.timezone,
+        // Omitted locale falls back to the adapter's default on the server.
+        locale: selectedJurisdiction?.defaultLocale,
+        timezone: JURISDICTION_HINTS[jurisdictionCode]?.timezone ?? browserTimeZone(),
         taxIdentifiers: vatNumber ? { vatNumber } : undefined,
         isDefault: true,
         seedDefaults: true,
@@ -102,7 +110,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
     },
   });
 
-  const vatHint = JURISDICTION_DEFAULTS[jurisdictionCode]?.vatHint ?? '';
+  const vatHint = JURISDICTION_HINTS[jurisdictionCode]?.vatHint ?? '';
   const isIndia = jurisdictionCode === 'IN';
   const jurisdictionOptions = jurisdictions.length > 0 ? jurisdictions : FALLBACK_JURISDICTIONS;
   const jurisdictionLabel = (j: { code: string; name: string }): string => {
@@ -143,8 +151,8 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
                 value={jurisdictionCode}
                 onValueChange={(v) => {
                   setJurisdictionCode(v);
-                  const d = JURISDICTION_DEFAULTS[v];
-                  if (d) setBaseCurrency(d.baseCurrency);
+                  const currency = jurisdictions.find((j) => j.code === v)?.defaultCurrency;
+                  if (currency) setBaseCurrency(currency);
                 }}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>

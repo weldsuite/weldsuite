@@ -26,7 +26,7 @@ import {
   useAccountingAccounts,
 } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 interface JournalLine {
   /** Client-only stable React key; never sent to the API. */
@@ -54,9 +54,9 @@ export default function AddJournalEntryPage() {
   const accounts = accountsData?.data ?? [];
   const { t } = useI18n();
   const tj = t.accounting.journalEntry;
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, today } = useWeldbooksFormat();
 
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => today());
   const [description, setDescription] = useState('');
   const [reference, setReference] = useState('');
   const [lines, setLines] = useState<JournalLine[]>([emptyLine(), emptyLine()]);

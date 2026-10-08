@@ -7,7 +7,7 @@ import {
   type ListTableGroup,
 } from '@weldsuite/ui/components/list-table';
 import type { BankTransaction } from '@/lib/api/domains/weldbooks';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { formatWeldbooksMoney } from '@/lib/weldbooks/format-money';
 
 interface BankTransactionsTableProps {
@@ -38,25 +38,14 @@ function statusVariant(status: string) {
   }
 }
 
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return '';
-  try {
-    return new Intl.DateTimeFormat('nl-NL', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    }).format(new Date(dateStr));
-  } catch {
-    return dateStr;
-  }
-}
-
 function formatAmount(amount: string, currency: string, locale?: string | null): string {
   return formatWeldbooksMoney(amount, currency, locale);
 }
 
-function renderDateCell(t: BankTransaction) {
-  return <span className="text-sm">{formatDate(t.date)}</span>;
+function createDateCell(formatDate: (value: string | null | undefined) => string) {
+  return function renderDateCell(t: BankTransaction) {
+    return <span className="text-sm">{formatDate(t.date)}</span>;
+  };
 }
 
 function renderDescriptionCell(t: BankTransaction) {
@@ -123,7 +112,7 @@ export function BankTransactionsTable({
   groupByStatus,
 }: Readonly<BankTransactionsTableProps>) {
   const st = useTranslations();
-  const { currency: entityCurrency, locale } = useCurrentEntityCurrency();
+  const { currency: entityCurrency, entityLocale: locale, formatDate } = useWeldbooksFormat();
   const displayCurrency = currency || entityCurrency;
   const resolvedEmptyMessage = emptyMessage ?? st('sweep.weldbooks.bankTransactionsTable.emptyMessage');
   const columns: ListTableColumn<BankTransaction>[] = [
@@ -131,7 +120,7 @@ export function BankTransactionsTable({
       id: 'date',
       header: st('sweep.weldbooks.date'),
       width: 110,
-      cell: renderDateCell,
+      cell: createDateCell(formatDate),
     },
     {
       id: 'description',

@@ -1,8 +1,162 @@
 import { weldbooksApi } from '../weldbooks-client';
+import type { PostalAddress } from '@/components/address/postal-address';
+import type { StoredAccountingAddress } from '@/lib/weldbooks/address';
+import type { JurisdictionSummary } from '@/lib/weldbooks/jurisdiction';
 
 // ============================================================================
 // Types
 // ============================================================================
+
+/** Lock dates on an entity, as `YYYY-MM-DD` or null. */
+export interface EntityLockDates {
+  salesLockDate: string | null;
+  purchaseLockDate: string | null;
+  taxLockDate: string | null;
+  periodLockDate: string | null;
+  hardLockDate: string | null;
+}
+
+export interface AccountingEntity extends Partial<EntityLockDates> {
+  id: string;
+  name: string;
+  legalName?: string | null;
+  entityType?: string | null;
+  jurisdictionCode: string;
+  baseCurrency: string;
+  locale?: string | null;
+  timezone?: string | null;
+  fiscalYearStart?: number | null;
+  isDefault?: boolean | null;
+  isActive?: boolean | null;
+  address?: StoredAccountingAddress | null;
+  contact?: { email?: string; phone?: string; website?: string } | null;
+  bankDetails?: {
+    iban?: string;
+    bic?: string;
+    accountNumber?: string;
+    routingNumber?: string;
+    bankName?: string;
+  } | null;
+  taxIdentifiers?: {
+    vatNumber?: string;
+    registrationNumber?: string;
+    einOrSsn?: string;
+    other?: Record<string, string>;
+  } | null;
+  branding?: {
+    logoUrl?: string;
+    primaryColor?: string;
+    accentColor?: string;
+    footerText?: string;
+    paymentInstructions?: string;
+    termsAndConditions?: string;
+  } | null;
+  jurisdictionSettings?: Record<string, unknown> | null;
+}
+
+export interface UpdateAccountingEntityInput {
+  name?: string;
+  legalName?: string;
+  entityType?: string;
+  address?: PostalAddress;
+  contact?: { email?: string; phone?: string; website?: string };
+  bankDetails?: {
+    iban?: string;
+    bic?: string;
+    accountNumber?: string;
+    routingNumber?: string;
+    bankName?: string;
+  };
+  taxIdentifiers?: { vatNumber?: string; registrationNumber?: string; einOrSsn?: string };
+  fiscalYearStart?: number;
+  locale?: string;
+  timezone?: string;
+  jurisdictionSettings?: Record<string, unknown>;
+}
+
+export interface UpdateLockDatesInput {
+  salesLockDate?: string | null;
+  purchaseLockDate?: string | null;
+  taxLockDate?: string | null;
+  periodLockDate?: string | null;
+  /** Can only move forward; never null. */
+  hardLockDate?: string;
+}
+
+export type LockType = 'sales' | 'purchase' | 'tax' | 'period';
+
+export interface LockDateException {
+  id: string;
+  entityId: string;
+  lockType: LockType;
+  userId: string | null;
+  endsAt: string;
+  reason: string;
+  createdAt: string;
+  createdBy: string | null;
+  revokedAt: string | null;
+  revokedBy: string | null;
+}
+
+export interface CreateLockExceptionInput {
+  lockType: LockType;
+  userId?: string | null;
+  /** ISO datetime, in the future and at most 30 days out. */
+  endsAt: string;
+  reason: string;
+}
+
+export interface PostingCatchUpResult {
+  dryRun: boolean;
+  invoices: number;
+  bills: number;
+  payments: number;
+  bankTransactions: number;
+  taxLines: number;
+  skipped: Array<{ type: string; id: string; number: string | null; reason: string }>;
+}
+
+export type PaymentMethod =
+  | 'check'
+  | 'ach'
+  | 'wire'
+  | 'credit_card'
+  | 'debit_card'
+  | 'cash'
+  | 'third_party_network'
+  | 'bank_transfer'
+  | 'direct_debit'
+  | 'ideal'
+  | 'other';
+
+export interface PaymentAllocationInput {
+  invoiceId?: string;
+  billId?: string;
+  amount: string;
+}
+
+export interface RecordInvoicePaymentInput {
+  amount: string;
+  date: string;
+  paymentMethod: PaymentMethod;
+  checkNumber?: string;
+  reference?: string;
+}
+
+export interface CreatePaymentInput {
+  type: 'received' | 'made' | string;
+  amount: string;
+  date: string;
+  contactId: string;
+  paymentMethod: PaymentMethod;
+  checkNumber?: string;
+  reference?: string;
+  bankAccountId?: string;
+  invoiceId?: string;
+  billId?: string;
+  /** One payment covering several invoices or bills. */
+  allocations?: PaymentAllocationInput[];
+}
 
 export interface Dashboard {
   revenue: { month: string; year: string; invoiceCount: number };
@@ -58,36 +212,41 @@ export interface Account {
 export interface TaxRate {
   id: string;
   name: string;
+  /** numeric(7,4) as a string, e.g. "8.8750". */
   rate: string;
   type: string;
+  jurisdictionCode: string;
+  /** Generic category: standard | reduced | zero | exempt | reverse_charge | … */
+  taxCategoryCode: string | null;
+  /** Jurisdiction-specific codes (NL rubriek, IN component, …). */
+  jurisdictionMetadata: Record<string, unknown> | null;
   isDefault: boolean | null;
   isActive: boolean | null;
-  btwRubriek: string | null;
   description: string | null;
   ledgerAccountId: string | null;
-  reverseCharge: boolean | null;
-  euService: boolean | null;
-  exportGoods: boolean | null;
 }
 
 export interface Customer {
   id: string;
-  type: string;
+  type?: string | null;
   role: 'none' | 'customer' | 'supplier' | 'both' | string;
   name: string;
-  companyName: string | null;
-  firstName: string | null;
-  lastName: string | null;
-  email: string | null;
-  phone: string | null;
-  taxNumber: string | null;
-  kvkNumber: string | null;
-  iban: string | null;
-  bic: string | null;
-  paymentTermsDays: number | null;
-  notes: string | null;
-  outstandingBalance: string | null;
-  createdAt: string;
+  companyName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  vatNumber?: string | null;
+  registrationNumber?: string | null;
+  iban?: string | null;
+  bic?: string | null;
+  currency?: string | null;
+  billingAddress?: StoredAccountingAddress | null;
+  shippingAddress?: StoredAccountingAddress | null;
+  paymentTermsDays?: number | null;
+  notes?: string | null;
+  outstandingBalance?: string | null;
+  createdAt?: string;
 }
 
 export interface Invoice {
@@ -111,6 +270,8 @@ export interface Invoice {
   internalNotes: string | null;
   createdAt: string;
   attachmentKeys?: string[] | null;
+  billingAddress?: StoredAccountingAddress | null;
+  shippingAddress?: StoredAccountingAddress | null;
   taxBreakdown?: Array<{
     taxRateId: string;
     taxRateName: string;
@@ -165,6 +326,7 @@ export interface Bill {
   internalNotes: string | null;
   createdAt: string;
   attachmentKeys?: string[] | null;
+  vendorAddress?: StoredAccountingAddress | null;
 }
 
 export interface BillDetail extends Bill {
@@ -350,6 +512,7 @@ export interface Payment {
   amount: string;
   date: string;
   paymentMethod: string | null;
+  checkNumber?: string | null;
   reference: string | null;
   invoiceId: string | null;
   billId: string | null;
@@ -435,6 +598,26 @@ export const accountingApi = {
     >('/accounting-settings/exchange-rates'),
   getExchangeRate: (from: string, to: string) =>
     weldbooksApi.get<ApiResponse<{ from: string; to: string; rate: number }>>(`/accounting-settings/exchange-rate/${from}/${to}`),
+  /** Post documents from before automatic posting existed. `dryRun` only counts. */
+  postingCatchUp: (dryRun: boolean) =>
+    weldbooksApi.post<ApiResponse<PostingCatchUpResult>>('/accounting-settings/posting-catch-up', { dryRun }),
+
+  // Entities + jurisdictions
+  listJurisdictions: () => weldbooksApi.get<ApiResponse<JurisdictionSummary[]>>('/accounting-entities/jurisdictions'),
+  listEntities: () => weldbooksApi.get<ApiResponse<AccountingEntity[]>>('/accounting-entities'),
+  getEntity: (id: string) => weldbooksApi.get<ApiResponse<AccountingEntity>>(`/accounting-entities/${id}`),
+  updateEntity: (id: string, data: UpdateAccountingEntityInput) =>
+    weldbooksApi.patch<ApiResponse<AccountingEntity>>(`/accounting-entities/${id}`, data),
+  updateLockDates: (id: string, data: UpdateLockDatesInput) =>
+    weldbooksApi.patch<ApiResponse<AccountingEntity>>(`/accounting-entities/${id}/lock-dates`, data),
+  listLockExceptions: (id: string) =>
+    weldbooksApi.get<ApiResponse<LockDateException[]>>(`/accounting-entities/${id}/lock-exceptions`),
+  createLockException: (id: string, data: CreateLockExceptionInput) =>
+    weldbooksApi.post<ApiResponse<LockDateException>>(`/accounting-entities/${id}/lock-exceptions`, data),
+  revokeLockException: (id: string, exceptionId: string) =>
+    weldbooksApi.post<ApiResponse<LockDateException>>(
+      `/accounting-entities/${id}/lock-exceptions/${exceptionId}/revoke`,
+    ),
 
   // Accounts
   listAccounts: (params?: { type?: string; subtype?: string; isActive?: string; search?: string }) =>
@@ -478,11 +661,13 @@ export const accountingApi = {
   updateInvoice: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Invoice>>(`/invoices/${id}`, data),
   deleteInvoice: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/invoices/${id}`),
   sendInvoice: (id: string) => weldbooksApi.patch<ApiResponse<Invoice>>(`/invoices/${id}/send`),
+  /** `cancelled` works only for never-finalized invoices; `uncollectible` books a bad-debt write-off. */
   updateInvoiceStatus: (id: string, status: string) => weldbooksApi.patch<ApiResponse<Invoice>>(`/invoices/${id}/status`, { status }),
   finalizeInvoice: (id: string) => weldbooksApi.post<ApiResponse<{ invoiceId: string; journalEntryId: string }>>(`/invoices/${id}/finalize`),
   duplicateInvoice: (id: string) => weldbooksApi.post<ApiResponse<{ id: string }>>(`/invoices/${id}/duplicate`),
   createCreditNote: (id: string) => weldbooksApi.post<ApiResponse<{ id: string; invoiceNumber: string }>>(`/invoices/${id}/credit-note`),
-  recordInvoicePayment: (id: string, data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<unknown>>(`/invoices/${id}/record-payment`, data),
+  recordInvoicePayment: (id: string, data: RecordInvoicePaymentInput) =>
+    weldbooksApi.post<ApiResponse<unknown>>(`/invoices/${id}/record-payment`, data),
   createInvoiceFromOrder: (orderId: string) =>
     weldbooksApi.post<ApiResponse<{ invoiceId: string; invoiceNumber: string }>>(`/invoices/from-order/${orderId}`),
 
@@ -597,7 +782,7 @@ export const accountingApi = {
   listPayments: (params?: { type?: string; contactId?: string; from?: string; to?: string; page?: number; pageSize?: number }) =>
     weldbooksApi.get<PaginatedResponse<Payment>>(`/payments${buildQuery(params || {})}`),
   getPayment: (id: string) => weldbooksApi.get<ApiResponse<Payment>>(`/payments/${id}`),
-  createPayment: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<{ id: string }>>('/payments', data),
+  createPayment: (data: CreatePaymentInput) => weldbooksApi.post<ApiResponse<{ id: string }>>('/payments', data),
   deletePayment: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/payments/${id}`),
 
   // Reports

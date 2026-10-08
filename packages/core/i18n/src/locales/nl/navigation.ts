@@ -194,6 +194,13 @@ export const navigation = {
         agedPayables: 'Openstaande crediteuren',
         entities: 'Entiteiten',
         settings: 'Instellingen',
+        vendors: 'Leveranciers',
+        creditMemos: 'Creditnota\'s',
+        taxNav: {
+          vat: 'BTW-aangiften',
+          gst: 'GST-aangiften',
+          sales_tax: 'Sales tax',
+        },
       },
       agents: {
         allAgents: 'Alle agents',

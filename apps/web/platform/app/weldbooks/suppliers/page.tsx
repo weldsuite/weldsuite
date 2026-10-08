@@ -11,6 +11,7 @@ import {
   type ActiveFilter,
 } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
+import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 
 interface SupplierRow {
   id: string;
@@ -26,6 +27,7 @@ export default function AccountingSuppliersPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const tsp = t.accounting.suppliersPage;
+  const { labels } = useJurisdictionLabels();
 
   // Backend expands role=supplier → supplier + both. This pill lets the user
   // narrow to only the dual-role entries when auditing.
@@ -73,7 +75,7 @@ export default function AccountingSuppliersPage() {
     },
     {
       id: 'vat',
-      header: tsp.colVat,
+      header: labels.taxId,
       width: 'w-[180px]',
       render: (c) => <span className="text-muted-foreground">{c.vatNumber ?? '—'}</span>,
     },

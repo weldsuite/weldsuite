@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
-import { useForm } from 'react-hook-form';
+import { useEffect, useMemo } from 'react';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -22,12 +23,24 @@ import {
 import { useRecordInvoicePayment } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import {
+  defaultPaymentMethod,
+  isPaymentMethod,
+  paymentMethodsFor,
+} from '@/lib/weldbooks/payment-methods';
 
 function createPaymentSchema(st: (key: string) => string) {
   return z.object({
     amount: z.string().min(1, st('sweep.weldbooks.recordPayment.amountRequired')),
     date: z.string().min(1, st('sweep.weldbooks.recordPayment.dateRequired')),
-    paymentMethod: z.string().min(1, st('sweep.weldbooks.recordPayment.paymentMethodRequired')),
+    paymentMethod: z
+      .string()
+      .min(1, st('sweep.weldbooks.recordPayment.paymentMethodRequired'))
+      // Explicit `boolean` so TS doesn't infer a type predicate and narrow the form type.
+      .refine((value: string): boolean => isPaymentMethod(value), st('sweep.weldbooks.recordPayment.paymentMethodRequired')),
+    checkNumber: z.string().max(30).optional(),
     reference: z.string().optional(),
   });
 }
@@ -51,31 +64,63 @@ export function RecordPaymentDialog({
   const { t } = useI18n();
   const st = useTranslations();
   const tr = t.accounting.recordPayment;
+  const methodLabels = t.accounting.paymentMethods;
   const paymentSchema = useMemo(() => createPaymentSchema(st), [st]);
+  const { today } = useWeldbooksFormat();
+  const { code: jurisdictionCode } = useCurrentJurisdiction();
+
+  const defaults = useMemo<PaymentFormValues>(
+    () => ({
+      amount: balanceDue,
+      date: today(),
+      paymentMethod: defaultPaymentMethod(jurisdictionCode),
+      checkNumber: '',
+      reference: '',
+    }),
+    [balanceDue, today, jurisdictionCode],
+  );
 
   const {
     register,
     handleSubmit,
-    setValue,
+    control,
     reset,
+    watch,
     formState: { errors },
   } = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentSchema),
-    defaultValues: {
-      amount: balanceDue,
-      date: new Date().toISOString().split('T')[0],
-      paymentMethod: 'bank_transfer',
-      reference: '',
-    },
+    defaultValues: defaults,
   });
 
+  // Start every opening from the current balance, today and the entity's usual method.
+  useEffect(() => {
+    if (open) reset(defaults);
+  }, [open, defaults, reset]);
+
+  const paymentMethod = watch('paymentMethod');
+  const methods = paymentMethodsFor(jurisdictionCode, paymentMethod);
+  const isCheck = paymentMethod === 'check';
+
   const onSubmit = (data: PaymentFormValues) => {
+    if (!isPaymentMethod(data.paymentMethod)) return;
     recordPayment.mutate(
-      { id: invoiceId, data },
+      {
+        id: invoiceId,
+        data: {
+          amount: data.amount,
+          date: data.date,
+          paymentMethod: data.paymentMethod,
+          checkNumber: data.paymentMethod === 'check' && data.checkNumber?.trim() ? data.checkNumber.trim() : undefined,
+          reference: data.reference?.trim() ? data.reference.trim() : undefined,
+        },
+      },
       {
         onSuccess: () => {
-          reset();
+          toast.success(tr.recorded);
           onOpenChange(false);
+        },
+        onError: (err) => {
+          toast.error(tr.failed, { description: err instanceof Error ? err.message : undefined });
         },
       },
     );
@@ -94,6 +139,7 @@ export function RecordPaymentDialog({
               id="amount"
               type="number"
               step="0.01"
+              inputMode="decimal"
               {...register('amount')}
             />
             {errors.amount && (
@@ -111,26 +157,42 @@ export function RecordPaymentDialog({
 
           <div className="space-y-2">
             <Label htmlFor="paymentMethod">{tr.paymentMethod}</Label>
-            <Select
-              defaultValue="bank_transfer"
-              onValueChange={(value) => setValue('paymentMethod', value)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={tr.selectMethod} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="bank_transfer">{tr.methods.bankTransfer}</SelectItem>
-                <SelectItem value="cash">{tr.methods.cash}</SelectItem>
-                <SelectItem value="card">{tr.methods.card}</SelectItem>
-                <SelectItem value="ideal">{tr.methods.ideal}</SelectItem>
-              </SelectContent>
-            </Select>
+            <Controller
+              control={control}
+              name="paymentMethod"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger id="paymentMethod">
+                    <SelectValue placeholder={tr.selectMethod} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {methods.map((method) => (
+                      <SelectItem key={method} value={method}>
+                        {methodLabels[method]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
             {errors.paymentMethod && (
               <p className="text-sm text-destructive">
                 {errors.paymentMethod.message}
               </p>
             )}
           </div>
+
+          {isCheck && (
+            <div className="space-y-2">
+              <Label htmlFor="checkNumber">{tr.checkNumber}</Label>
+              <Input
+                id="checkNumber"
+                placeholder={tr.checkNumberPlaceholder}
+                maxLength={30}
+                {...register('checkNumber')}
+              />
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="reference">{tr.reference}</Label>

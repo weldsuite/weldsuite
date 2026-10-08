@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useTransition } from 'react';
 import { toast } from 'sonner';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -25,14 +25,32 @@ import {
 import { Autocomplete, type AutocompleteOption } from '@weldsuite/ui/components/autocomplete';
 import {
   useCreateInvoice,
+  useAccountingCustomer,
   useAccountingCustomers,
   useAccountingTaxRates,
 } from '@/hooks/queries/use-accounting-queries';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import type { Customer } from '@/lib/api/domains/weldbooks';
+import { toPostalAddressFormValue, type PostalAddress } from '@/components/address/postal-address';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { addDaysToIsoDate } from '@/lib/weldbooks/format';
+import { InvoiceAddressSection, invoiceAddressPayload } from './invoice-address-section';
+
+/** Select value for "no tax"; never sent to the API (the line gets `taxRateId: null`). */
+const NO_TAX = 'none';
+const DEFAULT_PAYMENT_TERMS_DAYS = 30;
+
+const addressSchema = z.object({
+  line1: z.string().optional(),
+  line2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  postalCode: z.string().optional(),
+  country: z.string().optional(),
+});
 
 function createInvoiceFormSchema(st: (key: string) => string) {
   const lineItemSchema = z.object({
@@ -49,21 +67,16 @@ function createInvoiceFormSchema(st: (key: string) => string) {
     dueDate: z.string().min(1, st('sweep.weldbooks.invoiceDialog.dueDateRequired')),
     reference: z.string().optional().default(''),
     notes: z.string().optional().default(''),
+    billingAddress: addressSchema,
+    shipToDifferent: z.boolean(),
+    shippingAddress: addressSchema,
     items: z.array(lineItemSchema).min(1, st('sweep.weldbooks.invoiceDialog.atLeastOneLineItem')),
   });
 }
 
 type InvoiceFormValues = z.infer<ReturnType<typeof createInvoiceFormSchema>>;
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function defaultDueDate() {
-  const d = new Date();
-  d.setDate(d.getDate() + 30);
-  return d.toISOString().slice(0, 10);
-}
+const emptyLine = { description: '', quantity: 1, unitPrice: 0, taxRateId: null, discountPercent: 0 };
 
 interface InvoiceDialogProps {
   open: boolean;
@@ -78,7 +91,8 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
   const st = useTranslations();
   const tid = t.accounting.invoiceDialog;
   const invoiceFormSchema = useMemo(() => createInvoiceFormSchema(st), [st]);
-  const { entityCurrency, formatMoney } = useCurrentEntityCurrency();
+  const { entityCurrency, formatMoney, today } = useWeldbooksFormat();
+  const { labels } = useJurisdictionLabels();
 
   const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
@@ -110,17 +124,20 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
     return (res?.data ?? []).map((c) => toContactOption(c));
   };
 
-  const defaultValues: InvoiceFormValues = useMemo(
-    () => ({
+  const defaultValues: InvoiceFormValues = useMemo(() => {
+    const issueDate = today();
+    return {
       contactId: '',
-      issueDate: todayISO(),
-      dueDate: defaultDueDate(),
+      issueDate,
+      dueDate: addDaysToIsoDate(issueDate, DEFAULT_PAYMENT_TERMS_DAYS),
       reference: '',
       notes: '',
-      items: [{ description: '', quantity: 1, unitPrice: 0, taxRateId: null, discountPercent: 0 }],
-    }),
-    [],
-  );
+      billingAddress: toPostalAddressFormValue(null),
+      shipToDifferent: false,
+      shippingAddress: toPostalAddressFormValue(null),
+      items: [{ ...emptyLine }],
+    };
+  }, [today]);
 
   const form = useForm({
     resolver: zodResolver(invoiceFormSchema),
@@ -133,6 +150,28 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
   });
 
   const watchedItems = form.watch('items');
+  const watchedContactId = form.watch('contactId');
+
+  // The due date follows the customer's payment terms until picked by hand.
+  const { data: selectedContactData } = useAccountingCustomer(watchedContactId);
+  const selectedTerms = selectedContactData?.data?.paymentTermsDays;
+  useEffect(() => {
+    if (selectedTerms == null || form.getFieldState('dueDate').isDirty) return;
+    form.setValue('dueDate', addDaysToIsoDate(form.getValues('issueDate'), selectedTerms));
+  }, [selectedTerms, form]);
+
+  const setBillingAddress = useCallback(
+    (next: PostalAddress) => form.setValue('billingAddress', toPostalAddressFormValue(next), { shouldDirty: true }),
+    [form],
+  );
+  const setShippingAddress = useCallback(
+    (next: PostalAddress) => form.setValue('shippingAddress', toPostalAddressFormValue(next), { shouldDirty: true }),
+    [form],
+  );
+  const setShipToDifferent = useCallback(
+    (next: boolean) => form.setValue('shipToDifferent', next, { shouldDirty: true }),
+    [form],
+  );
 
   const taxRateMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -142,6 +181,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
     return map;
   }, [taxRates]);
 
+  // Preview only — the server computes the authoritative totals on save.
   const totals = useMemo(() => {
     let subtotal = 0;
     let taxTotal = 0;
@@ -173,11 +213,13 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
           dueDate: values.dueDate,
           reference: values.reference || undefined,
           notes: values.notes || undefined,
+          ...invoiceAddressPayload(values, 'add'),
           items: values.items.map((item) => ({
             description: item.description,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            taxRateId: item.taxRateId || undefined,
+            // "No tax" is null — the API rejects placeholder ids such as 'none'.
+            taxRateId: item.taxRateId && item.taxRateId !== NO_TAX ? item.taxRateId : null,
             discountPercent: item.discountPercent || undefined,
           })),
         };
@@ -192,7 +234,6 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
         onOpenChange(false);
         if (createdId) onCreated?.({ id: createdId });
       } catch (error) {
-        console.error('Error creating invoice:', error);
         toast.error(tid.failedToCreate, {
           description: error instanceof Error ? error.message : st('sweep.weldbooks.invoiceDialog.unexpectedError'),
         });
@@ -203,13 +244,13 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-5xl w-full p-0 gap-0 overflow-hidden max-h-[90vh] flex flex-col">
-        <DialogHeader className="px-6 py-4 border-b">
+        <DialogHeader className="px-4 sm:px-6 py-4 border-b">
           <DialogTitle>{tid.newInvoice}</DialogTitle>
           <DialogDescription>{tid.createForCustomer}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-6">
             <div className="space-y-2">
               <Label htmlFor="contactId">{tid.customer}</Label>
               <Autocomplete
@@ -230,7 +271,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="issueDate">{tid.issueDate}</Label>
                 <Input
@@ -261,6 +302,19 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
               />
             </div>
 
+            {watchedContactId ? (
+              <InvoiceAddressSection
+                idPrefix="invoice-dialog"
+                contactId={watchedContactId}
+                billingAddress={form.watch('billingAddress')}
+                shippingAddress={form.watch('shippingAddress')}
+                shipToDifferent={form.watch('shipToDifferent')}
+                onBillingAddressChange={setBillingAddress}
+                onShippingAddressChange={setShippingAddress}
+                onShipToDifferentChange={setShipToDifferent}
+              />
+            ) : null}
+
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>{tid.lineItems}</Label>
@@ -269,105 +323,114 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
                   variant="outline"
                   size="sm"
                   className="shadow-none h-7"
-                  onClick={() =>
-                    append({
-                      description: '',
-                      quantity: 1,
-                      unitPrice: 0,
-                      taxRateId: null,
-                      discountPercent: 0,
-                    })
-                  }
+                  onClick={() => append({ ...emptyLine })}
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" />
                   {tid.addItem}
                 </Button>
               </div>
 
-              {fields.map((field, index) => (
-                <div key={field.id} className="rounded-md border border-border p-3 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {tid.itemNumber.replace('{number}', String(index + 1))}
-                    </span>
-                    {fields.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-destructive"
-                        onClick={() => remove(index)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
+              {fields.map((field, index) => {
+                const id = (name: string) => `dialog-items-${index}-${name}`;
+                return (
+                  <div key={field.id} className="rounded-md border border-border p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {tid.itemNumber.replace('{number}', String(index + 1))}
+                      </span>
+                      {fields.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-destructive"
+                          aria-label={tid.itemNumber.replace('{number}', String(index + 1))}
+                          onClick={() => remove(index)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
 
-                  <Input
-                    placeholder={tid.descriptionPlaceholder}
-                    className="shadow-none"
-                    {...form.register(`items.${index}.description`)}
-                  />
-                  {form.formState.errors.items?.[index]?.description && (
-                    <p className="text-sm text-destructive">
-                      {form.formState.errors.items[index]?.description?.message}
-                    </p>
-                  )}
+                    <div className="space-y-1.5">
+                      <Label htmlFor={id('description')} className="text-xs">{tid.description}</Label>
+                      <Input
+                        id={id('description')}
+                        placeholder={tid.descriptionPlaceholder}
+                        className="shadow-none"
+                        {...form.register(`items.${index}.description`)}
+                      />
+                      {form.formState.errors.items?.[index]?.description && (
+                        <p className="text-sm text-destructive">
+                          {form.formState.errors.items[index]?.description?.message}
+                        </p>
+                      )}
+                    </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      type="number"
-                      step="any"
-                      min="0"
-                      placeholder={tid.qtyPlaceholder}
-                      className="shadow-none"
-                      {...form.register(`items.${index}.quantity`, { valueAsNumber: true })}
-                    />
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder={tid.unitPricePlaceholder}
-                      className="shadow-none"
-                      {...form.register(`items.${index}.unitPrice`, { valueAsNumber: true })}
-                    />
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor={id('quantity')} className="text-xs">{tid.quantity}</Label>
+                        <Input
+                          id={id('quantity')}
+                          type="number"
+                          step="any"
+                          min="0"
+                          className="shadow-none"
+                          {...form.register(`items.${index}.quantity`, { valueAsNumber: true })}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={id('unitPrice')} className="text-xs">{tid.unitPrice}</Label>
+                        <Input
+                          id={id('unitPrice')}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="shadow-none"
+                          {...form.register(`items.${index}.unitPrice`, { valueAsNumber: true })}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={id('taxRate')} className="text-xs">{labels.taxRate}</Label>
+                        <Select
+                          value={form.watch(`items.${index}.taxRateId`) ?? NO_TAX}
+                          onValueChange={(val) =>
+                            form.setValue(`items.${index}.taxRateId`, val === NO_TAX ? null : val, {
+                              shouldValidate: true,
+                            })
+                          }
+                        >
+                          <SelectTrigger id={id('taxRate')} className="shadow-none">
+                            <SelectValue placeholder={labels.noTax} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NO_TAX}>{labels.noTax}</SelectItem>
+                            {taxRates.map((tr) => (
+                              <SelectItem key={tr.id} value={tr.id}>
+                                {tr.name ?? `${Number(tr.rate)}%`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={id('discountPercent')} className="text-xs">{tid.discountPercent}</Label>
+                        <Input
+                          id={id('discountPercent')}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          className="shadow-none"
+                          {...form.register(`items.${index}.discountPercent`, {
+                            valueAsNumber: true,
+                          })}
+                        />
+                      </div>
+                    </div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <Select
-                      value={form.watch(`items.${index}.taxRateId`) ?? ''}
-                      onValueChange={(val) =>
-                        form.setValue(`items.${index}.taxRateId`, val === 'none' ? null : val, {
-                          shouldValidate: true,
-                        })
-                      }
-                    >
-                      <SelectTrigger className="shadow-none">
-                        <SelectValue placeholder={tid.taxRatePlaceholder} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">{tid.noTax}</SelectItem>
-                        {taxRates.map((tr) => (
-                          <SelectItem key={tr.id} value={tr.id}>
-                            {tr.name ?? tr.rate + '%'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="100"
-                      placeholder={tid.discountPlaceholder}
-                      className="shadow-none"
-                      {...form.register(`items.${index}.discountPercent`, {
-                        valueAsNumber: true,
-                      })}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
 
               {form.formState.errors.items?.root && (
                 <p className="text-sm text-destructive">
@@ -388,22 +451,23 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
             </div>
           </div>
 
-          <div className="border-t px-6 py-3 space-y-1 text-sm">
+          <div className="border-t px-4 sm:px-6 py-3 space-y-1 text-sm">
             <div className="flex justify-between text-muted-foreground">
               <span>{tid.subtotal}</span>
               <span>{formatMoney(totals.subtotal)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
-              <span>{tid.tax}</span>
+              <span>{labels.tax}</span>
               <span>{formatMoney(totals.taxTotal)}</span>
             </div>
             <div className="flex justify-between font-semibold">
               <span>{tid.total}</span>
               <span>{formatMoney(totals.total)}</span>
             </div>
+            <p className="text-xs text-muted-foreground">{tid.totalsPreview}</p>
           </div>
 
-          <div className="border-t px-6 py-4 flex items-center justify-end gap-2">
+          <div className="border-t px-4 sm:px-6 py-4 flex items-center justify-end gap-2">
             <Button
               type="button"
               variant="outline"

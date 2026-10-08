@@ -33,9 +33,29 @@ test.describe('WeldBooks · customer add form', () => {
     await expect(page.locator('#companyName')).toBeVisible();
     await expect(page.locator('#email')).toBeVisible();
     await expect(page.locator('#phone')).toBeVisible();
-    await expect(page.locator('#taxNumber')).toBeVisible();
-    await expect(page.locator('#iban')).toBeVisible();
+    await expect(page.locator('#vatNumber')).toBeVisible();
+    await expect(page.locator('#registrationNumber')).toBeVisible();
     await expect(page.locator('#paymentTermsDays')).toBeVisible();
+    await expect(page.locator('#notes')).toBeVisible();
+  });
+
+  test('renders the billing address and a same-as-billing shipping toggle', async ({ page }) => {
+    await expect(page.locator('#billing-line1')).toBeVisible();
+    await expect(page.locator('#billing-city')).toBeVisible();
+    await expect(page.locator('#billing-postalCode')).toBeVisible();
+    await expect(page.locator('#billing-country')).toBeVisible();
+
+    // Shipping defaults to "same as billing"; unticking reveals its own fields.
+    await expect(page.locator('#shipping-line1')).toHaveCount(0);
+    await page.locator('#shippingSameAsBilling').click();
+    await expect(page.locator('#shipping-line1')).toBeVisible();
+  });
+
+  test('a US billing address shows a state picker and a ZIP code label', async ({ page }) => {
+    await page.locator('#billing-country').click();
+    await page.getByRole('option', { name: /^united states$/i }).click();
+    await expect(page.locator('#billing-state')).toHaveAttribute('role', 'combobox');
+    await expect(page.getByText(/zip code/i)).toBeVisible();
   });
 
   test('role select defaults to "customer"', async ({ page }) => {

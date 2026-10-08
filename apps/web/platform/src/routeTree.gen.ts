@@ -392,6 +392,7 @@ import { Route as WeldconnectTemplatesIdEditIndexRouteImport } from './routes/we
 import { Route as WeldcalendarSchedulingIdViewIndexRouteImport } from './routes/weldcalendar/scheduling/$id/view/index'
 import { Route as WeldcalendarSchedulingIdEditIndexRouteImport } from './routes/weldcalendar/scheduling/$id/edit/index'
 import { Route as WeldbooksInvoicesIdEditIndexRouteImport } from './routes/weldbooks/invoices/$id/edit/index'
+import { Route as WeldbooksEntitiesIdEditIndexRouteImport } from './routes/weldbooks/entities/$id/edit/index'
 import { Route as WeldbooksCustomersIdEditIndexRouteImport } from './routes/weldbooks/customers/$id/edit/index'
 import { Route as WeldbooksBillsIdEditIndexRouteImport } from './routes/weldbooks/bills/$id/edit/index'
 import { Route as WeldbooksAccountsIdEditIndexRouteImport } from './routes/weldbooks/accounts/$id/edit/index'
@@ -2489,6 +2490,12 @@ const WeldbooksInvoicesIdEditIndexRoute =
     path: '/invoices/$id/edit/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
+const WeldbooksEntitiesIdEditIndexRoute =
+  WeldbooksEntitiesIdEditIndexRouteImport.update({
+    id: '/entities/$id/edit/',
+    path: '/entities/$id/edit/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksCustomersIdEditIndexRoute =
   WeldbooksCustomersIdEditIndexRouteImport.update({
     id: '/customers/$id/edit/',
@@ -3006,6 +3013,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/bills/$id/edit/': typeof WeldbooksBillsIdEditIndexRoute
   '/weldbooks/customers/$id/edit/': typeof WeldbooksCustomersIdEditIndexRoute
+  '/weldbooks/entities/$id/edit/': typeof WeldbooksEntitiesIdEditIndexRoute
   '/weldbooks/invoices/$id/edit/': typeof WeldbooksInvoicesIdEditIndexRoute
   '/weldcalendar/scheduling/$id/edit/': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view/': typeof WeldcalendarSchedulingIdViewIndexRoute
@@ -3378,6 +3386,7 @@ export interface FileRoutesByTo {
   '/weldbooks/accounts/$id/edit': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/bills/$id/edit': typeof WeldbooksBillsIdEditIndexRoute
   '/weldbooks/customers/$id/edit': typeof WeldbooksCustomersIdEditIndexRoute
+  '/weldbooks/entities/$id/edit': typeof WeldbooksEntitiesIdEditIndexRoute
   '/weldbooks/invoices/$id/edit': typeof WeldbooksInvoicesIdEditIndexRoute
   '/weldcalendar/scheduling/$id/edit': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view': typeof WeldcalendarSchedulingIdViewIndexRoute
@@ -3790,6 +3799,7 @@ export interface FileRoutesById {
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/bills/$id/edit/': typeof WeldbooksBillsIdEditIndexRoute
   '/weldbooks/customers/$id/edit/': typeof WeldbooksCustomersIdEditIndexRoute
+  '/weldbooks/entities/$id/edit/': typeof WeldbooksEntitiesIdEditIndexRoute
   '/weldbooks/invoices/$id/edit/': typeof WeldbooksInvoicesIdEditIndexRoute
   '/weldcalendar/scheduling/$id/edit/': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view/': typeof WeldcalendarSchedulingIdViewIndexRoute
@@ -4202,6 +4212,7 @@ export interface FileRouteTypes {
     | '/weldbooks/accounts/$id/edit/'
     | '/weldbooks/bills/$id/edit/'
     | '/weldbooks/customers/$id/edit/'
+    | '/weldbooks/entities/$id/edit/'
     | '/weldbooks/invoices/$id/edit/'
     | '/weldcalendar/scheduling/$id/edit/'
     | '/weldcalendar/scheduling/$id/view/'
@@ -4574,6 +4585,7 @@ export interface FileRouteTypes {
     | '/weldbooks/accounts/$id/edit'
     | '/weldbooks/bills/$id/edit'
     | '/weldbooks/customers/$id/edit'
+    | '/weldbooks/entities/$id/edit'
     | '/weldbooks/invoices/$id/edit'
     | '/weldcalendar/scheduling/$id/edit'
     | '/weldcalendar/scheduling/$id/view'
@@ -4985,6 +4997,7 @@ export interface FileRouteTypes {
     | '/weldbooks/accounts/$id/edit/'
     | '/weldbooks/bills/$id/edit/'
     | '/weldbooks/customers/$id/edit/'
+    | '/weldbooks/entities/$id/edit/'
     | '/weldbooks/invoices/$id/edit/'
     | '/weldcalendar/scheduling/$id/edit/'
     | '/weldcalendar/scheduling/$id/view/'
@@ -7771,6 +7784,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksInvoicesIdEditIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldbooks/entities/$id/edit/': {
+      id: '/weldbooks/entities/$id/edit/'
+      path: '/entities/$id/edit'
+      fullPath: '/weldbooks/entities/$id/edit/'
+      preLoaderRoute: typeof WeldbooksEntitiesIdEditIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/customers/$id/edit/': {
       id: '/weldbooks/customers/$id/edit/'
       path: '/customers/$id/edit'
@@ -8245,6 +8265,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksAccountsIdEditIndexRoute: typeof WeldbooksAccountsIdEditIndexRoute
   WeldbooksBillsIdEditIndexRoute: typeof WeldbooksBillsIdEditIndexRoute
   WeldbooksCustomersIdEditIndexRoute: typeof WeldbooksCustomersIdEditIndexRoute
+  WeldbooksEntitiesIdEditIndexRoute: typeof WeldbooksEntitiesIdEditIndexRoute
   WeldbooksInvoicesIdEditIndexRoute: typeof WeldbooksInvoicesIdEditIndexRoute
 }
 
@@ -8301,6 +8322,7 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksAccountsIdEditIndexRoute: WeldbooksAccountsIdEditIndexRoute,
   WeldbooksBillsIdEditIndexRoute: WeldbooksBillsIdEditIndexRoute,
   WeldbooksCustomersIdEditIndexRoute: WeldbooksCustomersIdEditIndexRoute,
+  WeldbooksEntitiesIdEditIndexRoute: WeldbooksEntitiesIdEditIndexRoute,
   WeldbooksInvoicesIdEditIndexRoute: WeldbooksInvoicesIdEditIndexRoute,
 }
 

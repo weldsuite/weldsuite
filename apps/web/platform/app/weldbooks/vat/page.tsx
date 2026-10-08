@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { VatNotAvailable } from './components/vat-not-available';
 import { toast } from 'sonner';
 import { PageLoader } from '@/components/page-loader';
 import { useAccountingVatReturns, useCalculateVatReturn } from '@/hooks/queries/use-accounting-queries';
@@ -34,10 +35,10 @@ import {
 } from '@weldsuite/ui/components/table';
 import { Plus } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
-import { weldbooksApi } from '@/lib/api/weldbooks-client';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 
 interface VatReturnRow {
   id: string;
@@ -49,11 +50,6 @@ interface VatReturnRow {
   rubrieken?: Record<string, number> | null;
 }
 
-interface EntityRow {
-  id: string;
-  jurisdictionCode: string;
-}
-
 function vatStatusBadgeVariant(status: string): 'default' | 'destructive' | 'outline' {
   if (status === 'filed' || status === 'accepted') return 'default';
   if (status === 'rejected') return 'destructive';
@@ -61,7 +57,8 @@ function vatStatusBadgeVariant(status: string): 'default' | 'destructive' | 'out
 }
 
 export default function VatReturnsPage() {
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
+  const { features, isResolved, isError: jurisdictionError } = useCurrentJurisdiction();
   const { data, isLoading } = useAccountingVatReturns();
   const calculateMutation = useCalculateVatReturn();
   const navigate = useNavigate();
@@ -79,31 +76,22 @@ export default function VatReturnsPage() {
 
   const qc = useQueryClient();
 
-  const { data: entities = [] } = useQuery<EntityRow[]>({
-    queryKey: ['accounting', 'entities'],
-    queryFn: async () => {
-      const res = await weldbooksApi.get<{ data: EntityRow[] } | EntityRow[]>('/accounting-entities');
-      return Array.isArray(res) ? res : res.data ?? [];
-    },
-  });
-  const matchedEntity = entityId ? entities.find((e) => e.id === entityId) : undefined;
-  const currentJurisdiction = matchedEntity?.jurisdictionCode;
-  // Only treat as NL when the selected entity is known and NL — never default unresolved → NL
-  const isNlEntity = currentJurisdiction === 'NL';
+  // Gate on the jurisdiction's features; never assume NL while it is unresolved.
+  const showIcp = features.icp;
 
   useEffect(() => {
-    if (!isNlEntity && dialogMode === 'icp') {
+    if (!showIcp && dialogMode === 'icp') {
       setShowDialog(false);
       setDialogMode('vat');
       setPeriodStart('');
       setPeriodEnd('');
       setPeriodLabel('');
     }
-  }, [isNlEntity, dialogMode]);
+  }, [showIcp, dialogMode]);
 
   const { data: icpData } = useQuery({
     queryKey: ['accounting', 'icp-declarations', entityId],
-    enabled: isNlEntity && Boolean(entityId),
+    enabled: showIcp && Boolean(entityId),
     queryFn: () => accountingApi.listIcpDeclarations(),
   });
 
@@ -129,13 +117,25 @@ export default function VatReturnsPage() {
     onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.icpFilingFailed')),
   });
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  if (isLoading || (!isResolved && !jurisdictionError)) return <PageLoader fullScreen={false} />;
+
+  if (!features.vatReturn) {
+    return <VatNotAvailable title={tv.notAvailableTitle} description={tv.notAvailableDescription} />;
+  }
 
   const returns = (data?.data ?? []) as VatReturnRow[];
 
+  const periodTypeLabel = (type: string) => {
+    if (type === 'yearly' || type === 'annual') return tv.periodTypes.annual;
+    if (type === 'monthly') return tv.periodTypes.monthly;
+    if (type === 'quarterly') return tv.periodTypes.quarterly;
+    return type;
+  };
+  const periodRange = (start: string | null, end: string | null) => `${formatDate(start)} — ${formatDate(end)}`;
+
   const handleCalculate = () => {
     if (!periodStart || !periodEnd) return;
-    if (dialogMode === 'icp' && !isNlEntity) {
+    if (dialogMode === 'icp' && !showIcp) {
       toast.error(st('sweep.weldbooks.vat.icpFilingFailed'));
       return;
     }
@@ -206,9 +206,9 @@ export default function VatReturnsPage() {
                       onClick={() => navigate({ to: '/weldbooks/vat/$id', params: { id: vr.id } })}
                     >
                       <TableCell className="font-medium">
-                        {vr.periodLabel || `${vr.periodStart?.slice(0, 10)} — ${vr.periodEnd?.slice(0, 10)}`}
+                        {vr.periodLabel || periodRange(vr.periodStart, vr.periodEnd)}
                       </TableCell>
-                      <TableCell className="capitalize">{vr.periodType}</TableCell>
+                      <TableCell>{periodTypeLabel(vr.periodType)}</TableCell>
                       <TableCell className="text-right tabular-nums">{fmt(vr.rubrieken?.r5a)}</TableCell>
                       <TableCell className="text-right tabular-nums">{fmt(vr.rubrieken?.r5b)}</TableCell>
                       <TableCell className={`text-right tabular-nums font-medium ${r5f >= 0 ? 'text-red-600' : 'text-green-600'}`}>
@@ -224,8 +224,8 @@ export default function VatReturnsPage() {
         </CardContent>
       </Card>
 
-      {/* Opgaaf ICP — Netherlands only */}
-      {isNlEntity ? (
+      {/* EC Sales List (ICP) — only where the jurisdiction has it */}
+      {showIcp ? (
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div>
@@ -262,7 +262,7 @@ export default function VatReturnsPage() {
                 icpDeclarations.map((d) => (
                   <TableRow key={d.id}>
                     <TableCell className="font-medium">
-                      {d.periodLabel || `${d.periodStart?.slice(0, 10)} — ${d.periodEnd?.slice(0, 10)}`}
+                      {d.periodLabel || periodRange(d.periodStart, d.periodEnd)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{fmt(d.totalAmount)}</TableCell>
                     <TableCell>{statusBadge(d.status)}</TableCell>

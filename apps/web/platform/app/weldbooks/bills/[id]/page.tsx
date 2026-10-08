@@ -31,7 +31,10 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { ArrowLeft, Pencil, Check, X } from 'lucide-react';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
+import { formatPostalAddressLines } from '@/components/address/postal-address';
+import { countryName } from '@/components/address/countries';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { toast } from 'sonner';
 
@@ -71,10 +74,10 @@ export default function BillDetailPage() {
   const { data, isLoading } = useAccountingBill(id);
   const approveBill = useApproveBill();
   const rejectBill = useRejectBill();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const st = useTranslations();
   const tb = t.accounting.billDetail;
-  const { formatMoney } = useCurrentEntityCurrency();
+  const { formatMoney, formatDate } = useWeldbooksFormat();
 
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -95,6 +98,9 @@ export default function BillDetailPage() {
   }
 
   const items = bill.items ?? [];
+  const vendorAddressLines = formatPostalAddressLines(normalizeAccountingAddress(bill.vendorAddress), {
+    countryName: (code) => countryName(code, language),
+  });
 
   const handleOpenAttachment = async (index: number, fallbackName: string) => {
     setOpeningAttachment(index);
@@ -206,6 +212,11 @@ export default function BillDetailPage() {
           </CardHeader>
           <CardContent>
             <p className="font-medium">{bill.contactName ?? '-'}</p>
+            {vendorAddressLines.map((line, index) => (
+              <p key={`${index}-${line}`} className="text-sm text-muted-foreground">
+                {line}
+              </p>
+            ))}
           </CardContent>
         </Card>
         <Card>
@@ -217,11 +228,11 @@ export default function BillDetailPage() {
           <CardContent className="space-y-1">
             <p className="text-sm">
               <span className="text-muted-foreground">{tb.issued} </span>
-              {bill.issueDate?.split('T')[0]}
+              {formatDate(bill.issueDate)}
             </p>
             <p className="text-sm">
               <span className="text-muted-foreground">{tb.due} </span>
-              {bill.dueDate?.split('T')[0]}
+              {formatDate(bill.dueDate)}
             </p>
           </CardContent>
         </Card>

@@ -28,6 +28,7 @@ import {
 } from '@weldsuite/ui/components/card';
 import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 const subtypesByType: Record<string, { value: string; labelKey: string }[]> = {
   asset: [
@@ -75,7 +76,7 @@ function createAccountSchema(st: (key: string) => string) {
     type: z.enum(['asset', 'liability', 'equity', 'revenue', 'expense']),
     subtype: z.string().optional(),
     normalSide: z.enum(['debit', 'credit']),
-    currency: z.string().default('EUR'),
+    currency: z.string().optional(),
     openingBalance: z.coerce.number().optional(),
     isActive: z.boolean().optional(),
   });
@@ -91,6 +92,7 @@ export default function EditAccountPage() {
   const { t } = useI18n();
   const st = useTranslations();
   const ta = t.accounting.accounts;
+  const { entityCurrency } = useCurrentEntityCurrency();
   const accountSchema = useMemo(() => createAccountSchema(st), [st]);
 
   const account = data?.data;
@@ -105,7 +107,7 @@ export default function EditAccountPage() {
           type: (account.type as AccountFormValues['type']) ?? 'asset',
           subtype: account.subtype ?? '',
           normalSide: (account.normalSide as AccountFormValues['normalSide']) ?? 'debit',
-          currency: account.currency ?? 'EUR',
+          currency: account.currency ?? entityCurrency ?? '',
           openingBalance: Number(account.openingBalance ?? 0),
           isActive: account.isActive ?? true,
         }
@@ -126,7 +128,11 @@ export default function EditAccountPage() {
   }
 
   const onSubmit = async (values: AccountFormValues) => {
-    await updateAccount.mutateAsync({ id, data: values as Record<string, unknown> });
+    // An empty currency is left out so the stored one is kept.
+    await updateAccount.mutateAsync({
+      id,
+      data: { ...values, currency: values.currency || undefined } as Record<string, unknown>,
+    });
     navigate({ to: '/weldbooks/accounts/$id', params: { id } });
   };
 

@@ -28,7 +28,7 @@ export default function AccountDetailPage() {
   const { data, isLoading } = useAccountingAccount(id);
   const { t } = useI18n();
   const ta = t.accounting.accounts;
-  const { formatMoney } = useCurrentEntityCurrency();
+  const { formatMoney, entityCurrency } = useCurrentEntityCurrency();
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -93,7 +93,7 @@ export default function AccountDetailPage() {
             value={account.subtype ? <span className="capitalize">{account.subtype.replace(/_/g, ' ')}</span> : null}
           />
           <DetailRow label={ta.normalSide} value={<span className="capitalize">{account.normalSide}</span>} />
-          <DetailRow label={ta.currency} value={account.currency ?? 'EUR'} />
+          <DetailRow label={ta.currency} value={account.currency ?? entityCurrency ?? '—'} />
         </CardContent>
       </Card>
 
