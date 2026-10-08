@@ -7,7 +7,8 @@
  * 3. Exact amount + counterparty name similarity, inside the payment window
  *    (US statements carry no IBAN, only the payer's name in the text)
  * 4. Check number (+ amount) against a recorded payment, and a deposit's
- *    total against an incoming line
+ *    total against an incoming line. A payment is compared at what reached
+ *    the bank: its amount less any backup withholding.
  *
  * Returns match suggestions with confidence scores.
  *
@@ -20,6 +21,7 @@
 import { eq, and, isNull, or, sql, between, inArray, type SQL } from 'drizzle-orm';
 import { schema as tables, type Database } from '@weldsuite/worker-kit/db';
 import { reconcileBankTransactionToDocument, reconcileBankTransactionToPayment } from './accounting-bank-match';
+import { paymentNetAmount } from './accounting-payments';
 import { daysApart, nameConfidence, nameSimilarity } from './accounting-bank-similarity';
 
 type BankTransactionRow = typeof tables.bankTransactions.$inferSelect;
@@ -170,7 +172,9 @@ function loadUnlinkedPayments(
     isNull(payments.depositId),
   ];
   if (near) {
-    const byAmount = between(sql`${payments.amount}::numeric`, near[0], near[1]);
+    // What reached the bank: the amount less any backup withholding kept back.
+    const bankAmount = sql`(${payments.amount}::numeric - coalesce(${payments.backupWithholdingAmount}::numeric, 0))`;
+    const byAmount = between(bankAmount, near[0], near[1]);
     where.push(checkNumber ? or(byAmount, eq(payments.checkNumber, checkNumber))! : byAmount);
   }
   return db.select().from(payments).where(and(...where)).limit(limit);
@@ -514,7 +518,10 @@ function matchPayments(
   const suggestions: ReconciliationSuggestion[] = [];
   for (const payment of pool.payments) {
     if (payment.type !== direction || payment.entityId !== transaction.entityId) continue;
-    const amountMatches = Math.abs(Number.parseFloat(payment.amount) - absAmount) < 0.01;
+    // A payment with backup withholding hits the bank for its net, not for the gross it settles.
+    const bankAmount = paymentNetAmount(payment);
+    const withheld = Number.parseFloat(payment.backupWithholdingAmount ?? '0') > 0;
+    const amountMatches = Math.abs(bankAmount - absAmount) < 0.01;
     const checkMatches = Boolean(check) && normalizeCheckNumber(payment.checkNumber) === check;
     if (!amountMatches && !checkMatches) continue;
 
@@ -522,7 +529,7 @@ function matchPayments(
     let confidence = 0;
     if (amountMatches) {
       confidence += 0.4;
-      reasons.push('exact amount match');
+      reasons.push(withheld ? 'exact amount match after backup withholding' : 'exact amount match');
     }
     if (checkMatches) {
       confidence += amountMatches ? 0.5 : 0.3;
@@ -550,7 +557,7 @@ function matchPayments(
       suggestions.push(
         suggestion(
           'payment',
-          { entityId: payment.id, entityNumber: payment.checkNumber ?? payment.reference ?? null, contactName, amount: payment.amount },
+          { entityId: payment.id, entityNumber: payment.checkNumber ?? payment.reference ?? null, contactName, amount: bankAmount.toFixed(2) },
           confidence,
           reasons,
         ),

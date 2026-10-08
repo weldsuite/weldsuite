@@ -10,14 +10,19 @@
  * changed after the run was made is held, whoever approved before. Only when
  * the last approval is recorded do the payments exist: one per vendor that
  * isn't held, allocated over its bills and posted to the ledger, linked to
- * the run, and numbered for a check run. Creating them can fail midway (a
- * closed period, a bill paid elsewhere); the approvals stay recorded, nothing
- * is created twice, and approving again finishes the job.
+ * the run, and numbered for a check run. A vendor that 24% backup withholding
+ * applies to is paid the net: the bills settle for the gross, the bank is
+ * credited the net and the withheld part is booked to Backup Withholding
+ * Payable (worked out here, per vendor, as the payment is made). Creating the
+ * payments can fail midway (a closed period, a bill paid elsewhere); the
+ * approvals stay recorded, nothing is created twice (each payment has an id
+ * derived from the run and the vendor), and approving again finishes the job.
  */
 
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { assertPostingAllowed } from '@weldsuite/books-domain/accounting-guards';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { paymentNetAmount } from '../accounting-payments';
 import { PaymentRunError } from './errors';
 import { activeHolds, encodeHolds, heldPartyIds, type RunHold } from './holds';
 import {
@@ -32,13 +37,19 @@ import {
   type RunMethod,
   type RunRow,
 } from './runs';
-import { createRunPayment, numberUnnumberedChecks, runReference } from './payments';
+import { createRunPayment, numberUnnumberedChecks, runPaymentId } from './payments';
+import { computeRunWithholding } from './withholding';
 
 export interface RunPaymentView {
   paymentId: string;
   partyId: string;
   partyName: string;
+  /** What the payment settles with the vendor's bills, before withholding. */
   amount: string;
+  /** Backup withholding kept back from the vendor; null when none. */
+  backupWithholdingAmount: string | null;
+  /** What the bank is credited, the check is written for and the NACHA file pays: `amount` less the withholding. */
+  netAmount: string;
   checkNumber: string | null;
   /** Made by this call (not found from an earlier, interrupted one). */
   created: boolean;
@@ -64,8 +75,8 @@ function payDate(run: Pick<RunRow, 'paymentDate'>): Date {
   return new Date(`${run.paymentDate}T00:00:00.000Z`);
 }
 
-/** Payments a run already made: linked to it, or carrying its reference (an attempt that stopped before the link was written). */
-async function findRunPayments(db: Database, run: RunRow, partyIds?: string[]) {
+/** Payments a run already made (the payment is linked to its run in the posting that makes it), voided ones too when asked. */
+async function findRunPayments(db: Database, run: RunRow, opts: { partyIds?: string[]; includeDeleted?: boolean } = {}) {
   return db
     .select()
     .from(schema.payments)
@@ -73,9 +84,9 @@ async function findRunPayments(db: Database, run: RunRow, partyIds?: string[]) {
       and(
         eq(schema.payments.entityId, run.entityId),
         eq(schema.payments.type, 'sent'),
-        isNull(schema.payments.deletedAt),
-        ...(partyIds ? [inArray(schema.payments.contactId, partyIds)] : []),
-        or(eq(schema.payments.paymentRunId, run.id), eq(schema.payments.reference, runReference(run.id))),
+        eq(schema.payments.paymentRunId, run.id),
+        ...(opts.includeDeleted ? [] : [isNull(schema.payments.deletedAt)]),
+        ...(opts.partyIds ? [inArray(schema.payments.contactId, opts.partyIds)] : []),
       ),
     );
 }
@@ -219,21 +230,31 @@ async function makePayments(
   const nameOf = new Map(parties.map((p) => [p.id, p.displayName ?? p.id]));
   partyIds.sort((a, b) => (nameOf.get(a) ?? a).localeCompare(nameOf.get(b) ?? b) || a.localeCompare(b));
 
-  const existing = await findRunPayments(db, run, partyIds);
-  const existingByParty = new Map(existing.map((p) => [p.contactId, p]));
+  // What the run already paid these vendors (an earlier, interrupted attempt), voided payments included.
+  const existing = await findRunPayments(db, run, { partyIds, includeDeleted: true });
+  const liveByParty = new Map(existing.filter((p) => !p.deletedAt).map((p) => [p.contactId, p]));
+  const voidedFor = (partyId: string) => existing.filter((p) => p.contactId === partyId && p.deletedAt).length;
+
+  // Backup withholding of the vendors still to be paid, worked out per vendor as its payment is made.
+  const withholding = await computeRunWithholding(db, {
+    entityId: run.entityId,
+    method,
+    paymentDate: payDate(run),
+    items: payable.filter((i) => !liveByParty.has(i.partyId)),
+    parties,
+  });
 
   const views: RunPaymentView[] = [];
   for (const partyId of partyIds) {
-    const found = existingByParty.get(partyId);
+    const found = liveByParty.get(partyId);
     if (found) {
-      if (found.paymentRunId !== run.id) {
-        await db.update(schema.payments).set({ paymentRunId: run.id, updatedAt: new Date() }).where(eq(schema.payments.id, found.id));
-      }
       views.push({
         paymentId: found.id,
         partyId,
         partyName: nameOf.get(partyId) ?? partyId,
         amount: found.amount,
+        backupWithholdingAmount: found.backupWithholdingAmount,
+        netAmount: paymentNetAmount(found).toFixed(2),
         checkNumber: found.checkNumber,
         created: false,
       });
@@ -241,6 +262,8 @@ async function makePayments(
     }
     const own = payable.filter((i) => i.partyId === partyId);
     const created = await createRunPayment(db, {
+      // The same vendor in the same run is the same payment: approving again can't pay it twice.
+      id: await runPaymentId(run.id, partyId, voidedFor(partyId)),
       entityId: run.entityId,
       runId: run.id,
       method,
@@ -248,6 +271,7 @@ async function makePayments(
       partyId,
       date: payDate(run),
       allocations: own.map((i) => ({ billId: i.billId, amount: i.amount })),
+      backupWithholdingAmount: withholding.get(partyId)?.amount ?? 0,
       userId,
     });
     views.push({
@@ -255,6 +279,8 @@ async function makePayments(
       partyId,
       partyName: nameOf.get(partyId) ?? partyId,
       amount: created.amount.toFixed(2),
+      backupWithholdingAmount: created.backupWithholdingAmount > 0 ? created.backupWithholdingAmount.toFixed(2) : null,
+      netAmount: created.netAmount.toFixed(2),
       checkNumber: created.checkNumber,
       created: true,
     });

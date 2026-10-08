@@ -12,6 +12,7 @@ import {
   type RunHold,
 } from './holds';
 import { fileIdModifierFor, localDateTime } from './nacha';
+import { runPaymentId } from './payments';
 import { totalsOf } from './runs';
 import {
   achPatchToStored,
@@ -60,10 +61,11 @@ describe('holds', () => {
   it('say which holds the run can release', () => {
     expect(releaseBlocker(hold({ code: 'in_other_run' }))).toBeNull();
     expect(releaseBlocker(hold({ code: 'prenote_required' }))).toBeNull();
-    expect(releaseBlocker(hold({ code: 'backup_withholding' }))).toBeNull();
     expect(releaseBlocker(hold({ code: 'bank_details_changed' }))).toMatch(/verify/i);
     expect(releaseBlocker(hold({ code: 'no_bank_details' }))).toMatch(/fix/i);
     expect(releaseBlocker(hold({ code: 'invalid_bank_details' }))).toMatch(/fix/i);
+    // Paying a vendor in full would skip the withholding: only a chart with a Backup Withholding Payable account clears it.
+    expect(releaseBlocker(hold({ code: 'backup_withholding' }))).toMatch(/Backup Withholding Payable/);
   });
 
   it('total only what is paid: held vendors are left out', () => {
@@ -149,6 +151,22 @@ describe('approvals', () => {
     expect(hasIndependentApprover(run, ['one', 'two'])).toBe(true);
     // A single approval may be the creator's.
     expect(hasIndependentApprover({ createdBy: 'maker', requiredApprovals: 1 }, ['maker'])).toBe(true);
+  });
+});
+
+describe('the id of a run payment', () => {
+  it('is the same for the same run and vendor, and fits a payment id', async () => {
+    const id = await runPaymentId('prn_mf3k2x9a1b2c3d4e', 'pty_mf3k2x9a1b2c3d4e');
+    expect(id).toBe(await runPaymentId('prn_mf3k2x9a1b2c3d4e', 'pty_mf3k2x9a1b2c3d4e'));
+    expect(id).toMatch(/^pay_[0-9a-f]{24}$/);
+    expect(id.length).toBeLessThanOrEqual(30);
+  });
+
+  it('differs per run, per vendor and per attempt after a void', async () => {
+    const base = await runPaymentId('prn_1', 'pty_1');
+    const ids = new Set([base, await runPaymentId('prn_2', 'pty_1'), await runPaymentId('prn_1', 'pty_2'), await runPaymentId('prn_1', 'pty_1', 1), await runPaymentId('prn_1', 'pty_1', 2)]);
+    expect(ids.size).toBe(5);
+    expect(await runPaymentId('prn_1', 'pty_1', 0)).toBe(base);
   });
 });
 

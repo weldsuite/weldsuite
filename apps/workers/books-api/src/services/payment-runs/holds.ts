@@ -17,9 +17,11 @@
  * - `in_other_run`: one of the vendor's bills is in another draft or pending
  *   run. Releasable with a reason (the payment service still refuses to
  *   overpay a bill).
- * - `backup_withholding`: 24% backup withholding applies to the vendor and
- *   payment runs can't withhold yet. Releasable with a reason: the vendor is
- *   then paid in full.
+ * - `backup_withholding`: 24% backup withholding applies to the vendor and the
+ *   chart of accounts has no Backup Withholding Payable account to put it in.
+ *   Where the chart has one, withholding is no hold: the run takes it out of
+ *   the payment (./approval.ts). Fixed on the chart, never released: paying
+ *   the vendor in full would skip withholding the IRS requires.
  *
  * Holds live in `payment_runs.holds` as `{ partyId, reason }`. `reason` holds
  * a small JSON document (`code`, `message`, an optional `key` and, once
@@ -31,8 +33,8 @@ import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { abaChecksumValid, isAchBankingDay } from '@weldsuite/books-domain/us-compliance/nacha';
 import { addDays } from '@weldsuite/books-domain/us-compliance/dates';
-import { computeBackupWithholding } from '../backup-withholding';
 import type { AchSettings } from './settings';
+import { computeRunWithholding, hasBackupWithholdingAccount } from './withholding';
 
 type PartyRow = typeof schema.parties.$inferSelect;
 
@@ -49,6 +51,9 @@ export type HoldCode = (typeof HOLD_CODES)[number];
 
 /** Holds that only fixing the vendor clears: they can't be released from the run. */
 export const BANK_HOLD_CODES: readonly HoldCode[] = ['no_bank_details', 'invalid_bank_details', 'bank_details_changed'];
+
+/** Holds that are never released from the run (and so carry nothing over): the vendor or the chart has to be fixed. */
+export const UNRELEASABLE_HOLD_CODES: readonly HoldCode[] = [...BANK_HOLD_CODES, 'backup_withholding'];
 
 export interface Release {
   by: string;
@@ -383,24 +388,21 @@ export async function evaluateHolds(db: Database, args: EvaluateHoldsArgs): Prom
     }
   }
 
-  // Backup withholding: payment runs can't withhold, so a vendor it applies to is paid by hand.
-  for (const partyId of partyIds) {
-    const party = partyById.get(partyId);
-    if (!party?.is1099Vendor) continue;
-    const gross = args.items.filter((i) => i.partyId === partyId).reduce((sum, i) => sum + i.amount, 0);
-    const withholding = await computeBackupWithholding(db, {
-      entityId: args.entityId,
-      partyId,
-      grossAmount: gross,
-      date: args.paymentDate,
-      paymentMethod: args.method,
-    });
-    if (withholding.amount > 0) {
+  // Backup withholding is taken out of the payment, so it only holds a vendor when the chart has nowhere to put it.
+  const withholding = await computeRunWithholding(db, {
+    entityId: args.entityId,
+    method: args.method,
+    paymentDate: args.paymentDate,
+    items: args.items,
+    parties,
+  });
+  if (withholding.size > 0 && !(await hasBackupWithholdingAccount(db, args.entityId))) {
+    for (const [partyId, outcome] of withholding) {
       found.push({
         partyId,
         code: 'backup_withholding',
         key: '',
-        message: `${name(partyId)} is subject to ${Math.round(withholding.rate * 100)}% backup withholding (${money(withholding.amount)} of ${money(gross)}). Payment runs can't withhold yet: pay this vendor by hand, or release the hold to pay in full.`,
+        message: `${name(partyId)} is subject to ${Math.round(outcome.rate * 100)}% backup withholding (${money(outcome.amount)} of ${money(outcome.gross)}), but this accounting entity has no Backup Withholding Payable account to put it in. Add one to the chart of accounts, then check the run again.`,
       });
     }
   }
@@ -408,8 +410,8 @@ export async function evaluateHolds(db: Database, args: EvaluateHoldsArgs): Prom
   const previous = args.previous ?? [];
   return found.map((hold) => {
     const earlier = previous.find((p) => p.partyId === hold.partyId && p.code === hold.code && p.key === hold.key && p.released);
-    // A bank hold has nothing to carry: verifying the change on the vendor is what clears it.
-    const carry = earlier && !BANK_HOLD_CODES.includes(hold.code) ? earlier.released : null;
+    // A hold that can't be released has nothing to carry: fixing the vendor (or the chart) is what clears it.
+    const carry = earlier && !UNRELEASABLE_HOLD_CODES.includes(hold.code) ? earlier.released : null;
     return { ...hold, released: carry };
   });
 }
@@ -421,6 +423,9 @@ export function releaseBlocker(hold: RunHold): string | null {
   }
   if (hold.code === 'bank_details_changed') {
     return 'Verify the vendor\'s changed bank details on the vendor first; the hold then clears by itself.';
+  }
+  if (hold.code === 'backup_withholding') {
+    return 'Add a Backup Withholding Payable account to the chart of accounts first: a vendor subject to backup withholding can\'t be paid in full.';
   }
   return null;
 }

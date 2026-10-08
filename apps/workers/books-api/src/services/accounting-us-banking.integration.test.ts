@@ -1,12 +1,13 @@
 /**
  * US banking basics on pglite: bank accounts with encrypted numbers and card
  * accounts on a liability, statement import (OFX, CSV with an explicit layout,
- * BAI2) with re-import dedupe, matching by name and check number, Undeposited
- * Funds and bank deposits, and statement reconciliation with undo.
+ * BAI2) with re-import dedupe, matching by name and check number (a payment with
+ * backup withholding at the net amount the bank shows), Undeposited Funds and
+ * bank deposits, and statement reconciliation with undo.
  *
- * The books run on an entity with the NL chart plus the two US system roles
- * (`undeposited_funds`, `credit_card_payable`), so the tests don't depend on
- * the US chart template.
+ * The books run on an entity with the NL chart plus the three US system roles
+ * (`undeposited_funds`, `credit_card_payable`, `backup_withholding_payable`),
+ * so the tests don't depend on the US chart template.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -23,6 +24,7 @@ import { bankTransactionsRoutes } from '../routes/bank-transactions';
 import { billsRoutes } from '../routes/bills';
 import { invoicesRoutes } from '../routes/invoices';
 import { paymentsRoutes } from '../routes/payments';
+import { recordPayment } from './accounting-payments';
 
 const ENCRYPTION_KEY = `${'0'.repeat(63)}1`;
 const events: Array<{ eventType: string; entityId: string; data: Record<string, unknown> }> = [];
@@ -135,6 +137,7 @@ beforeAll(async () => {
   await db.insert(schema.accounts).values([
     { id: 'acc_undeposited', entityId, code: '1150', name: 'Undeposited Funds', type: 'asset', subtype: 'current_assets', normalSide: 'debit', isSystemAccount: true, metadata: { systemRole: 'undeposited_funds' }, currency: 'USD', createdAt: now, updatedAt: now },
     { id: 'acc_card_payable', entityId, code: '1650', name: 'Credit Card Payable', type: 'liability', subtype: 'credit_card', normalSide: 'credit', isSystemAccount: true, metadata: { systemRole: 'credit_card_payable' }, currency: 'USD', createdAt: now, updatedAt: now },
+    { id: 'acc_bw_payable', entityId, code: '2398', name: 'Backup Withholding Payable', type: 'liability', normalSide: 'credit', isSystemAccount: true, metadata: { systemRole: 'backup_withholding_payable' }, currency: 'USD', createdAt: now, updatedAt: now },
     { id: 'acc_fees', entityId, code: '4990', name: 'Bank Charges', type: 'expense', normalSide: 'debit', currency: 'USD', createdAt: now, updatedAt: now },
     { id: 'acc_interest', entityId, code: '8990', name: 'Interest Income', type: 'revenue', normalSide: 'credit', currency: 'USD', createdAt: now, updatedAt: now },
   ]);
@@ -514,6 +517,64 @@ describe('matching by name, amount and check number', () => {
     expect(result).toMatchObject({ autoReconciled: true, reconciledEntityType: 'payment' });
     const [cleared] = await db.select().from(schema.payments).where(eq(schema.payments.id, paid.data.id));
     expect(cleared.checkStatus).toBe('cleared');
+  });
+
+  it('compares a payment with backup withholding at the net amount the bank shows', async () => {
+    // Its own bank account: the statement reconciliation below counts the ledger lines of the other one.
+    const bank = await bankAccounts('', 'POST', {
+      name: 'Payables Checking', bankName: 'JPMorgan Chase', currency: 'USD', accountType: 'checking', routingNumber: '021000021', accountNumber: '9900 4455',
+    });
+    expect(bank.status).toBe(201);
+    const bankId = bank.data.id as string;
+
+    // $1,000 to a vendor with $240 (24%) kept back: the bank is credited $760, the withheld $240 goes to Backup Withholding Payable.
+    const check = await recordPayment(db, {
+      entityId, type: 'sent', amount: 1000, backupWithholdingAmount: 240, date: new Date('2026-02-08'), paymentMethod: 'check', checkNumber: '3003',
+      checkStatus: 'printed', bankAccountId: bankId, contactId: 'pty_landlord', allocations: [], userId: null,
+    });
+    const [stored] = await db.select().from(schema.payments).where(eq(schema.payments.id, check.paymentId));
+    expect(stored).toMatchObject({ amount: '1000.00', backupWithholdingAmount: '240.00', checkNumber: '3003', bankTransactionId: null });
+    expect((await entryLines(check.journalEntryId!)).map((l) => [l.debit, l.credit]).sort()).toEqual([[0, 240], [0, 760], [1000, 0]]);
+
+    // The statement shows the net with the check number: suggested at the net, and good enough to auto-match.
+    await db.insert(schema.bankTransactions).values({ id: 'bt_check_3003', entityId, bankAccountId: bankId, date: new Date('2026-02-17'), amount: '-760.00', status: 'unreconciled', checkNumber: '3003', description: 'CHECK 3003' });
+    const suggestions = await transactions('/bt_check_3003/suggestions');
+    expect(suggestions.data[0]).toMatchObject({ type: 'payment', id: check.paymentId, amount: '760.00' });
+    expect(suggestions.data[0].confidence).toBeGreaterThanOrEqual(0.9);
+    expect(suggestions.data[0].reasons).toEqual(expect.arrayContaining(['exact amount match after backup withholding', 'check number matches']));
+    expect(suggestions.data[0].reasons).not.toContain('check number matches but the amount differs');
+
+    // A line for the gross is not this payment: not suggested, and refused when matched by hand.
+    await db.insert(schema.bankTransactions).values({ id: 'bt_gross_1000', entityId, bankAccountId: bankId, date: new Date('2026-02-17'), amount: '-1000.00', status: 'unreconciled', description: 'WIRE OUT' });
+    const gross = await transactions('/bt_gross_1000/suggestions');
+    expect((gross.data as Array<{ type: string }>).find((s) => s.type === 'payment')).toBeUndefined();
+    const refused = await transactions('/bt_gross_1000/match-payment', 'POST', { paymentId: check.paymentId });
+    expect(refused.status).toBe(400);
+    expect(refused.error?.message).toContain('760.00 (1000.00 less 240.00 backup withholding) but the bank line is 1000.00');
+
+    const auto = await transactions('/auto-reconcile', 'POST', { bankAccountId: bankId });
+    expect(auto.status).toBe(200);
+    const results = auto.data.results as Array<{ transactionId: string; autoReconciled: boolean; reconciledEntityType?: string }>;
+    expect(results.find((r) => r.transactionId === 'bt_check_3003')).toMatchObject({ autoReconciled: true, reconciledEntityType: 'payment' });
+    expect(results.find((r) => r.transactionId === 'bt_gross_1000')).toMatchObject({ autoReconciled: false });
+    const [cleared] = await db.select().from(schema.payments).where(eq(schema.payments.id, check.paymentId));
+    expect(cleared).toMatchObject({ checkStatus: 'cleared', bankTransactionId: 'bt_check_3003' });
+
+    // An ACH payment has no check number: its net is suggested but never auto-matched on the amount alone, and matches by hand at the net.
+    const ach = await recordPayment(db, {
+      entityId, type: 'sent', amount: 500, backupWithholdingAmount: 120, date: new Date('2026-02-09'), paymentMethod: 'ach',
+      bankAccountId: bankId, contactId: 'pty_landlord', allocations: [], userId: null,
+    });
+    await db.insert(schema.bankTransactions).values({ id: 'bt_ach_380', entityId, bankAccountId: bankId, date: new Date('2026-02-18'), amount: '-380.00', status: 'unreconciled', description: 'ACH DEBIT OFFICE LANDLORD LLC' });
+    const achSuggestions = await transactions('/bt_ach_380/suggestions');
+    expect(achSuggestions.data[0]).toMatchObject({ type: 'payment', id: ach.paymentId, amount: '380.00' });
+    expect(achSuggestions.data[0].confidence).toBeLessThan(0.8);
+    const wrong = await transactions('/bt_gross_1000/match-payment', 'POST', { paymentId: ach.paymentId });
+    expect(wrong.status).toBe(400);
+    const matched = await transactions('/bt_ach_380/match-payment', 'POST', { paymentId: ach.paymentId });
+    expect(matched.status, matched.text).toBe(200);
+    const [line] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'bt_ach_380'));
+    expect(line).toMatchObject({ status: 'reconciled', reconciledPaymentId: ach.paymentId });
   });
 
   it('filters payments by check number', async () => {

@@ -5,7 +5,9 @@
  * is presented. A check is reported as issued once it is printed (a check still
  * to print was never handed to anyone), and as void when it was printed and then
  * voided. The file covers a date range: checks issued in it and checks voided
- * in it; `buildPositivePayFile` decides which of those are marked void.
+ * in it; `buildPositivePayFile` decides which of those are marked void. A check
+ * is reported for what it is written for: the payment less any backup
+ * withholding kept back.
  *
  * The account number is decrypted for the file and the reveal is logged
  * (`positive_pay`).
@@ -18,6 +20,7 @@ import {
   POSITIVE_PAY_FORMATS,
   type PositivePayCheck,
 } from '@weldsuite/books-domain/us-compliance/positive-pay';
+import { paymentNetAmount } from '../accounting-payments';
 import { revealAccountNumber } from '../accounting-bank-accounts';
 import { badRequest, PaymentRunError } from './errors';
 import { registerWhere } from './checks';
@@ -72,7 +75,7 @@ export async function generatePositivePay(
     return {
       checkNumber: payment.checkNumber as string,
       issueDate: isoDay(payment.date),
-      amount: Number.parseFloat(payment.amount),
+      amount: paymentNetAmount(payment),
       payee: payeeName ?? payment.contactId,
       status: voided ? 'voided' : 'issued',
       voidDate: voided ? isoDay(payment.deletedAt ?? payment.updatedAt) : null,

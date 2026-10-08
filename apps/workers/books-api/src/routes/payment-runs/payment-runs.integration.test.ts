@@ -2,7 +2,9 @@
  * Vendor payment runs on pglite: ACH runs with dual approval, holds for
  * vendors whose bank details changed, NACHA files and the reveal log, prenotes,
  * check runs with numbering, print data, void and reissue, the check register,
- * Positive Pay and the bank account's payment settings.
+ * Positive Pay, backup withholding (a vendor is paid the net, the withheld part
+ * is booked to Backup Withholding Payable) and the bank account's payment
+ * settings.
  *
  * The books run on a US entity (the US chart template). Vendors get encrypted
  * ACH details through `buildVendorTaxChange`, the same code the contact
@@ -21,6 +23,7 @@ import { bankAccountsRoutes } from '../bank-accounts';
 import { billsRoutes } from '../bills';
 import { paymentRunsRoutes } from './index';
 import { buildVendorTaxChange } from '../../services/vendor-tax-data';
+import { createRunPayment, runPaymentId } from '../../services/payment-runs/payments';
 
 /** Lets one test make the payments service fail partway through a run. */
 const failure = vi.hoisted(() => ({ failAfter: null as number | null, calls: 0 }));
@@ -308,7 +311,8 @@ describe('payable bills', () => {
     expect(byName['Alpha Roofing LLC'].bills).toHaveLength(2);
     expect(byName['Bravo Lumber Inc'].ach).toMatchObject({ ready: true, verified: false, holdActive: true, held: true });
     expect(byName['Charlie Supply'].ach).toMatchObject({ ready: false, hasRouting: false, hasAccount: false });
-    expect(byName['Echo Freelance'].backupWithholding.applies).toBe(true);
+    // 24% of $5,000 for a 1099 vendor without a TIN, with what the vendor would be paid.
+    expect(byName['Echo Freelance'].backupWithholding).toMatchObject({ applies: true, reason: 'no_tin', rate: 0.24, amount: '1200.00', net: '3800.00' });
     expect(byName['Alpha Roofing LLC'].backupWithholding).toEqual({ applies: false });
     expect(byName['Alpha Roofing LLC'].ach.prenote).toBe('needed');
     // Bank numbers never appear, only the last four.
@@ -416,8 +420,23 @@ describe('an ACH run', () => {
       perms: ['*'],
     });
     expect(patched.status, patched.text).toBe(200);
-    expect(patched.data).toMatchObject({ paymentDate: isoDay(daysFromNow(9)), requiredApprovals: 1, totalAmount: '100.00', heldAmount: '5000.00', paymentCount: 1 });
-    expect(patched.data.holds.map((h: { code: string }) => h.code)).toEqual(['backup_withholding']);
+    // Backup withholding holds nobody: Echo is paid in the run, less 24%.
+    expect(patched.data).toMatchObject({
+      paymentDate: isoDay(daysFromNow(9)),
+      requiredApprovals: 1,
+      totalAmount: '5100.00',
+      heldAmount: '0.00',
+      paymentCount: 2,
+      withheldAmount: '1200.00',
+      netAmount: '3900.00',
+    });
+    expect(patched.data.holds).toEqual([]);
+    expect(patched.data.vendors.find((v: { partyId: string }) => v.partyId === 'pty_echo')).toMatchObject({
+      amount: '5000.00',
+      held: false,
+      backupWithholding: { amount: '1200.00', net: '3800.00', reason: 'no_tin', rate: 0.24 },
+    });
+    expect(patched.data.vendors.find((v: { partyId: string }) => v.partyId === 'pty_foxtrot').backupWithholding).toBeNull();
     expect(patched.data.history.map((h: { action: string }) => h.action)).toEqual(['created', 'updated']);
 
     const gone = await runs(`/${id}`, { method: 'DELETE', perms: CREATOR_PERMS });
@@ -600,7 +619,7 @@ describe('holds', () => {
     await db.update(schema.parties).set({ bankDetailsVerifiedAt: null, bankDetailsVerifiedBy: null }).where(eq(schema.parties.id, 'pty_bravo'));
   });
 
-  it('a bill in another open run holds the vendor until released with a reason; backup withholding too', async () => {
+  it('a bill in another open run holds the vendor until released with a reason; backup withholding holds nobody', async () => {
     const first = await createRun({ method: 'ach', items: [{ billId: billId.f1, amount: 120 }] });
     expect(first.status, first.text).toBe(201);
     expect(first.data.holds).toEqual([]);
@@ -608,8 +627,9 @@ describe('holds', () => {
     const second = await createRun({ method: 'ach', items: [{ billId: billId.f1, amount: 120 }, { billId: billId.e1, amount: 5000 }] });
     expect(second.status, second.text).toBe(201);
     const codes = Object.fromEntries((second.data.holds as Array<{ partyName: string; code: string }>).map((h) => [h.partyName, h.code]));
-    expect(codes).toEqual({ 'Foxtrot Partners': 'in_other_run', 'Echo Freelance': 'backup_withholding' });
-    expect(second.data.paymentCount).toBe(0);
+    // Echo is subject to backup withholding but is not held: the run takes the 24% out of the payment.
+    expect(codes).toEqual({ 'Foxtrot Partners': 'in_other_run' });
+    expect(second.data).toMatchObject({ paymentCount: 1, totalAmount: '5000.00', heldAmount: '120.00' });
     const id = second.data.id as string;
 
     const noReason = await runs(`/${id}/release-hold`, { method: 'POST', body: { partyId: 'pty_foxtrot' }, perms: MANAGER_PERMS, user: APPROVER_A });
@@ -620,11 +640,11 @@ describe('holds', () => {
 
     const released = await runs(`/${id}/release-hold`, { method: 'POST', body: { partyId: 'pty_foxtrot', reason: 'First run was a mistake' }, perms: MANAGER_PERMS, user: APPROVER_A });
     expect(released.status, released.text).toBe(200);
-    expect(released.data).toMatchObject({ paymentCount: 1, totalAmount: '120.00' });
+    expect(released.data).toMatchObject({ paymentCount: 2, totalAmount: '5120.00', heldAmount: '0.00', withheldAmount: '1200.00', netAmount: '3920.00' });
     const foxtrot = released.data.holds.find((h: { partyId: string }) => h.partyId === 'pty_foxtrot');
     expect(foxtrot.released).toMatchObject({ by: APPROVER_A, reason: 'First run was a mistake' });
     expect(released.data.vendors.find((v: { partyId: string }) => v.partyId === 'pty_foxtrot').held).toBe(false);
-    expect(released.data.vendors.find((v: { partyId: string }) => v.partyId === 'pty_echo').held).toBe(true);
+    expect(released.data.vendors.find((v: { partyId: string }) => v.partyId === 'pty_echo').held).toBe(false);
 
     // The release survives the hold being worked out again on submit.
     const submitted = await runs(`/${id}/submit`, { method: 'POST', perms: CREATOR_PERMS });
@@ -1089,6 +1109,302 @@ describe('an approval that stops partway', () => {
     expect(await billOf(billId.j1)).toMatchObject({ status: 'paid', amountPaid: '20.00' });
     expect(await billOf(billId.k1)).toMatchObject({ status: 'paid' });
     expect(finished.data.run).toMatchObject({ status: 'approved', totalAmount: '50.00', paymentCount: 2 });
+  });
+});
+
+// ── Backup withholding ──────────────────────────────────────────────────────
+
+/** The lines of a journal entry by chart code, with the run's bank account as `bank`. */
+async function entryByAccount(journalEntryId: string) {
+  const [bank] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, bankId));
+  const rows = await db
+    .select({ id: schema.accounts.id, code: schema.accounts.code, debit: schema.journalLines.debit, credit: schema.journalLines.credit })
+    .from(schema.journalLines)
+    .innerJoin(schema.accounts, eq(schema.journalLines.accountId, schema.accounts.id))
+    .where(eq(schema.journalLines.journalEntryId, journalEntryId));
+  const byKey: Record<string, { debit: number; credit: number }> = {};
+  for (const row of rows) {
+    const key = row.id === bank!.ledgerAccountId ? 'bank' : row.code;
+    const current = byKey[key] ?? { debit: 0, credit: 0 };
+    byKey[key] = { debit: current.debit + Number(row.debit), credit: current.credit + Number(row.credit) };
+  }
+  return byKey;
+}
+
+/** Credits less debits on the Backup Withholding Payable account, over every entry. */
+async function withholdingPayable(): Promise<number> {
+  const rows = await db
+    .select({ debit: schema.journalLines.debit, credit: schema.journalLines.credit })
+    .from(schema.journalLines)
+    .innerJoin(schema.accounts, eq(schema.journalLines.accountId, schema.accounts.id))
+    .where(and(eq(schema.accounts.entityId, entityId), eq(schema.accounts.code, '2310')));
+  return rows.reduce((sum, r) => Math.round((sum + Number(r.credit) - Number(r.debit)) * 100) / 100, 0);
+}
+
+describe('backup withholding', () => {
+  const oscar: Record<string, string> = {};
+
+  beforeAll(async () => {
+    await addVendor('pty_oscar', 'Oscar Consulting', { tin1099: true });
+    oscar.o1 = await addBill('pty_oscar', 'O-1', '3000.00');
+    oscar.o2 = await addBill('pty_oscar', 'O-2', '500.00');
+    oscar.o3 = await addBill('pty_oscar', 'O-3', '250.00');
+  }, 60_000);
+
+  describe('an ACH run', () => {
+    let runId: string;
+
+    it('shows what a vendor is paid before the run is approved', async () => {
+      const created = await createRun({ method: 'ach', items: [{ billId: billId.e1, amount: 5000 }] });
+      expect(created.status, created.text).toBe(201);
+      runId = created.data.id;
+      expect(created.data.holds).toEqual([]);
+      expect(created.data).toMatchObject({ totalAmount: '5000.00', withheldAmount: '1200.00', netAmount: '3800.00', paymentCount: 1 });
+      expect(created.data.vendors[0]).toMatchObject({
+        partyId: 'pty_echo',
+        amount: '5000.00',
+        held: false,
+        backupWithholding: { amount: '1200.00', net: '3800.00', reason: 'no_tin', rate: 0.24 },
+        payment: null,
+      });
+    });
+
+    it('pays the vendor the net: bills settled for the gross, 24% booked to Backup Withholding Payable', async () => {
+      await runs(`/${runId}/submit`, { method: 'POST', perms: CREATOR_PERMS });
+      expect((await approve(runId, APPROVER_A)).data.approved).toBe(false);
+      const done = await approve(runId, APPROVER_B);
+      expect(done.status, done.text).toBe(200);
+      expect(done.data.approved).toBe(true);
+      expect(done.data.payments).toEqual([
+        expect.objectContaining({ partyName: 'Echo Freelance', amount: '5000.00', backupWithholdingAmount: '1200.00', netAmount: '3800.00', created: true }),
+      ]);
+
+      const payments = await db.select().from(schema.payments).where(eq(schema.payments.paymentRunId, runId));
+      expect(payments).toHaveLength(1);
+      const [payment] = payments;
+      expect(payment).toMatchObject({ contactId: 'pty_echo', type: 'sent', paymentMethod: 'ach', amount: '5000.00', backupWithholdingAmount: '1200.00' });
+      // One payment per run and vendor: its id is derived from the two.
+      expect(payment!.id).toBe(await runPaymentId(runId, 'pty_echo'));
+      expect(await billOf(billId.e1)).toMatchObject({ status: 'paid', balanceDue: '0.00', amountPaid: '5000.00' });
+      expect(await entryByAccount(payment!.journalEntryId!)).toEqual({
+        '2000': { debit: 5000, credit: 0 },
+        bank: { debit: 0, credit: 3800 },
+        '2310': { debit: 0, credit: 1200 },
+      });
+
+      const detail = await runs(`/${runId}`, { perms: ['bills:read'] });
+      expect(detail.data).toMatchObject({ status: 'approved', totalAmount: '5000.00', withheldAmount: '1200.00', netAmount: '3800.00' });
+      expect(detail.data.vendors[0]).toMatchObject({
+        backupWithholding: { amount: '1200.00', net: '3800.00' },
+        payment: { id: payment!.id, amount: '5000.00', backupWithholdingAmount: '1200.00', netAmount: '3800.00' },
+      });
+      expect(JSON.stringify(events.filter((e) => e.eventType === 'payment:created' && e.data.id === payment!.id))).toContain('"backupWithholdingAmount":"1200.00"');
+    });
+
+    it('approving again does not pay the vendor twice', async () => {
+      const again = await approve(runId, APPROVER_B);
+      expect(again.status).toBe(409);
+      expect(again.error?.code).toBe('INVALID_STATE');
+      expect(await db.select().from(schema.payments).where(eq(schema.payments.paymentRunId, runId))).toHaveLength(1);
+      expect(await billOf(billId.e1)).toMatchObject({ amountPaid: '5000.00' });
+    });
+
+    it('puts the net in the NACHA file, not the gross', async () => {
+      const res = await runs(`/${runId}/nacha`, { perms: MANAGER_PERMS, user: APPROVER_B });
+      expect(res.status, res.text).toBe(200);
+      const { content, summary } = res.data;
+      expect(summary).toMatchObject({ paymentCount: 1, totalCredit: '3800.00', totalDebit: '0.00' });
+      expect(summary.payments).toEqual([
+        expect.objectContaining({ name: 'Echo Freelance', amount: '3800.00', grossAmount: '5000.00', backupWithholdingAmount: '1200.00' }),
+      ]);
+      const lines = (content as string).split('\r\n');
+      expect(lines.some((l) => l.startsWith('622121000248') && l.includes('4440003333') && l.includes('0000380000'))).toBe(true);
+      expect(content).not.toContain('0000500000');
+      expect(verifyNachaFile(content)).toMatchObject({ ok: true, totalCreditCents: 380000, totalDebitCents: 0 });
+      await runs(`/${runId}/complete`, { method: 'POST' });
+    });
+  });
+
+  describe('a check run', () => {
+    let runId: string;
+    let oscarPayment: string;
+    let oscarCheck: string;
+
+    it('finishes an interrupted approval without paying anyone twice, withholding from the vendor it stopped at', async () => {
+      const created = await createRun({ method: 'check', items: [{ billId: billId.c1, amount: 300 }, { billId: oscar.o1!, amount: 3000 }] });
+      expect(created.status, created.text).toBe(201);
+      runId = created.data.id;
+      expect(created.data).toMatchObject({ totalAmount: '3300.00', withheldAmount: '720.00', netAmount: '2580.00', paymentCount: 2 });
+      await runs(`/${runId}/submit`, { method: 'POST', perms: CREATOR_PERMS });
+
+      // Charlie Supply comes first and is paid; Oscar Consulting fails.
+      failure.calls = 0;
+      failure.failAfter = 1;
+      const broken = await approve(runId, APPROVER_A);
+      failure.failAfter = null;
+      expect(broken.status).toBe(400);
+      const half = await db.select().from(schema.payments).where(eq(schema.payments.paymentRunId, runId));
+      expect(half.map((p) => p.contactId)).toEqual(['pty_charlie']);
+      expect(await billOf(oscar.o1!)).toMatchObject({ status: 'approved', balanceDue: '3000.00' });
+
+      const finished = await approve(runId, APPROVER_B);
+      expect(finished.status, finished.text).toBe(200);
+      expect(finished.data.approved).toBe(true);
+      expect(
+        finished.data.payments.map((p: { partyName: string; created: boolean; amount: string; backupWithholdingAmount: string | null; netAmount: string }) => [
+          p.partyName,
+          p.created,
+          p.amount,
+          p.backupWithholdingAmount,
+          p.netAmount,
+        ]),
+      ).toEqual([
+        ['Charlie Supply', false, '300.00', null, '300.00'],
+        ['Oscar Consulting', true, '3000.00', '720.00', '2280.00'],
+      ]);
+
+      const payments = await db.select().from(schema.payments).where(eq(schema.payments.paymentRunId, runId));
+      expect(payments).toHaveLength(2);
+      const charlie = payments.find((p) => p.contactId === 'pty_charlie')!;
+      const paid = payments.find((p) => p.contactId === 'pty_oscar')!;
+      oscarPayment = paid.id;
+      oscarCheck = paid.checkNumber!;
+      expect(paid).toMatchObject({ amount: '3000.00', backupWithholdingAmount: '720.00', paymentMethod: 'check', checkStatus: 'to_print' });
+      expect(paid.id).toBe(await runPaymentId(runId, 'pty_oscar'));
+      expect(Number(oscarCheck)).toBe(Number(charlie.checkNumber) + 1);
+      expect(charlie.backupWithholdingAmount).toBeNull();
+      expect(await entryByAccount(paid.journalEntryId!)).toEqual({
+        '2000': { debit: 3000, credit: 0 },
+        bank: { debit: 0, credit: 2280 },
+        '2310': { debit: 0, credit: 720 },
+      });
+      expect(await withholdingPayable()).toBe(1920);
+    });
+
+    it('writes the check for the net, with the withholding on the stub', async () => {
+      const res = await runs(`/${runId}/checks`, { perms: MANAGER_PERMS });
+      expect(res.status, res.text).toBe(200);
+      const check = res.data.checks.find((c: { payee: { partyId: string } }) => c.payee.partyId === 'pty_oscar');
+      expect(check).toMatchObject({
+        paymentId: oscarPayment,
+        checkNumber: oscarCheck,
+        amount: '2280.00',
+        grossAmount: '3000.00',
+        backupWithholdingAmount: '720.00',
+        courtesyAmount: '$**2,280.00',
+        voucher: { grossTotal: '3000.00', backupWithholding: '720.00', total: '2280.00' },
+      });
+      expect(check.amountInWords).toMatch(/^Two thousand two hundred eighty and 00\/100$/);
+      expect(check.voucher.rows).toEqual([
+        { date: '2026-09-01', reference: 'O-1', description: null, amount: '3000.00', billTotal: '3000.00', discount: null },
+      ]);
+      const plain = res.data.checks.find((c: { payee: { partyId: string } }) => c.payee.partyId === 'pty_charlie');
+      expect(plain).toMatchObject({ amount: '300.00', grossAmount: '300.00', backupWithholdingAmount: null, voucher: { grossTotal: '300.00', backupWithholding: null, total: '300.00' } });
+    });
+
+    it('reports the net to Positive Pay and in the check register', async () => {
+      const printed = await runs(`/${runId}/checks/printed`, { method: 'POST', body: { paymentIds: [oscarPayment] }, perms: MANAGER_PERMS });
+      expect(printed.status, printed.text).toBe(200);
+
+      const pp = await runs(`/positive-pay?bankAccountId=${bankId}`, { perms: MANAGER_PERMS });
+      expect(pp.status, pp.text).toBe(200);
+      const lines = (pp.data.content as string).split('\r\n').filter(Boolean);
+      expect(lines.some((l) => new RegExp(`^000123456789,${oscarCheck},\\d\\d/\\d\\d/\\d{4},2280\\.00,Oscar Consulting,$`).test(l))).toBe(true);
+      expect(pp.data.content).not.toContain('3000.00');
+
+      const register = await runs(`/check-register?bankAccountId=${bankId}&status=printed`, { perms: ['banking:read'] });
+      const row = register.data.find((r: { payeeId: string }) => r.payeeId === 'pty_oscar');
+      expect(row).toMatchObject({ checkNumber: oscarCheck, amount: '2280.00', grossAmount: '3000.00', backupWithholdingAmount: '720.00', status: 'printed' });
+      const body = JSON.parse(register.text) as { summary: Record<string, { total: string }> };
+      const printedPayments = await db
+        .select()
+        .from(schema.payments)
+        .where(and(eq(schema.payments.bankAccountId, bankId), eq(schema.payments.paymentMethod, 'check'), eq(schema.payments.checkStatus, 'printed')));
+      const netTotal = printedPayments.reduce((sum, p) => Math.round((sum + Number(p.amount) - Number(p.backupWithholdingAmount ?? 0)) * 100) / 100, 0);
+      expect(Number(body.summary.printed!.total)).toBe(netTotal);
+    });
+
+    it('reissues a voided check with the same withholding, and reverses the withholding of the voided one', async () => {
+      const res = await runs(`/checks/${oscarPayment}/void`, { method: 'POST', body: { reason: 'Printer jam', reissue: true }, perms: MANAGER_PERMS });
+      expect(res.status, res.text).toBe(200);
+      expect(res.data.voided).toMatchObject({ paymentId: oscarPayment, amount: '3000.00', backupWithholdingAmount: '720.00', netAmount: '2280.00' });
+      expect(res.data.replacement).toMatchObject({ amount: '3000.00', backupWithholdingAmount: '720.00', netAmount: '2280.00', checkStatus: 'to_print' });
+      expect(Number(res.data.replacement.checkNumber)).toBeGreaterThan(Number(oscarCheck));
+
+      const [replacement] = await db.select().from(schema.payments).where(eq(schema.payments.id, res.data.replacement.paymentId));
+      expect(replacement).toMatchObject({ amount: '3000.00', backupWithholdingAmount: '720.00', paymentRunId: runId, contactId: 'pty_oscar' });
+      expect(await entryByAccount(replacement!.journalEntryId!)).toEqual({
+        '2000': { debit: 3000, credit: 0 },
+        bank: { debit: 0, credit: 2280 },
+        '2310': { debit: 0, credit: 720 },
+      });
+      // 1,200 (Echo) + 720 (the replacement): the voided check's 720 was reversed.
+      expect(await withholdingPayable()).toBe(1920);
+      expect(await billOf(oscar.o1!)).toMatchObject({ status: 'paid', amountPaid: '3000.00' });
+
+      const detail = await runs(`/${runId}`, { perms: ['bills:read'] });
+      expect(detail.data).toMatchObject({ withheldAmount: '720.00', netAmount: '2580.00' });
+    });
+  });
+
+  describe('payments made twice', () => {
+    it('are one payment: the same id returns the payment that exists, with its check number', async () => {
+      const [before] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, bankId));
+      const args = {
+        id: await runPaymentId('prn_idempotent', 'pty_oscar'),
+        entityId,
+        runId: 'prn_idempotent',
+        method: 'check' as const,
+        bankAccountId: bankId,
+        partyId: 'pty_oscar',
+        date: new Date(`${PAY_DATE}T00:00:00.000Z`),
+        allocations: [{ billId: oscar.o3!, amount: 250 }],
+        backupWithholdingAmount: 60,
+        userId: 'user_service',
+      };
+      const first = await createRunPayment(db, args);
+      expect(first).toMatchObject({ amount: 250, backupWithholdingAmount: 60, netAmount: 190 });
+      const [afterFirst] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, bankId));
+      expect(afterFirst!.nextCheckNumber).toBe(before!.nextCheckNumber! + 1);
+
+      const again = await createRunPayment(db, args);
+      expect(again).toMatchObject({ paymentId: first.paymentId, checkNumber: first.checkNumber, amount: 250, backupWithholdingAmount: 60, netAmount: 190 });
+      const [afterAgain] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, bankId));
+      expect(afterAgain!.nextCheckNumber).toBe(afterFirst!.nextCheckNumber);
+
+      expect(await db.select().from(schema.payments).where(eq(schema.payments.id, args.id))).toHaveLength(1);
+      expect(await db.select().from(schema.journalEntries).where(eq(schema.journalEntries.sourceId, args.id))).toHaveLength(1);
+      expect(await billOf(oscar.o3!)).toMatchObject({ status: 'paid', amountPaid: '250.00' });
+    });
+  });
+
+  describe('a chart without Backup Withholding Payable', () => {
+    it('holds a vendor it can not withhold from, never releases the hold, and lets the vendor in once the chart is fixed', async () => {
+      const [account] = await db.select().from(schema.accounts).where(and(eq(schema.accounts.entityId, entityId), eq(schema.accounts.code, '2310')));
+      expect(account).toBeTruthy();
+      await db.update(schema.accounts).set({ deletedAt: new Date() }).where(eq(schema.accounts.id, account!.id));
+      try {
+        const created = await createRun({ method: 'check', items: [{ billId: oscar.o2!, amount: 500 }] });
+        expect(created.status, created.text).toBe(201);
+        const id = created.data.id as string;
+        expect(created.data.holds.map((h: { code: string; releasable: boolean }) => [h.code, h.releasable])).toEqual([['backup_withholding', false]]);
+        expect(created.data.holds[0].message).toMatch(/no Backup Withholding Payable account/);
+        expect(created.data).toMatchObject({ paymentCount: 0, heldAmount: '500.00' });
+
+        const refused = await runs(`/${id}/release-hold`, { method: 'POST', body: { partyId: 'pty_oscar', reason: 'Pay in full' }, perms: MANAGER_PERMS });
+        expect(refused.status).toBe(409);
+        expect(refused.error?.code).toBe('HOLD_NOT_RELEASABLE');
+
+        await db.update(schema.accounts).set({ deletedAt: null }).where(eq(schema.accounts.id, account!.id));
+        const submitted = await runs(`/${id}/submit`, { method: 'POST', perms: CREATOR_PERMS });
+        expect(submitted.status, submitted.text).toBe(200);
+        expect(submitted.data.holds).toEqual([]);
+        expect(submitted.data).toMatchObject({ paymentCount: 1, totalAmount: '500.00', withheldAmount: '120.00', netAmount: '380.00' });
+        await runs(`/${id}/cancel`, { method: 'POST', perms: CREATOR_PERMS });
+      } finally {
+        await db.update(schema.accounts).set({ deletedAt: null }).where(eq(schema.accounts.id, account!.id));
+      }
+    });
   });
 });
 

@@ -8,6 +8,14 @@
  * a bill in another open run, ...) are left out of the payments until the hold
  * is cleared.
  *
+ * Backup withholding (24% from a 1099 vendor without a TIN, or flagged after an
+ * IRS B notice) is taken out of the payment, not held: the bills settle for the
+ * gross, the bank is credited the net and the withheld part goes to Backup
+ * Withholding Payable. Run and vendor views carry `withheldAmount` / `netAmount`
+ * (a preview until the payment is made); checks, NACHA entries, Positive Pay
+ * and the check register show the net, `grossAmount` and
+ * `backupWithholdingAmount` next to it.
+ *
  *   GET    /                         runs of the entity ?status= ?method= ?bankAccountId= ?limit= ?cursor=
  *   GET    /payable-bills            approved bills with a balance, by vendor ?dueBefore= ?partyId= ?bankAccountId=
  *   POST   /                         {bankAccountId, method, paymentDate, items[], secCode?, sameDay?, requiredApprovals?, notes?}

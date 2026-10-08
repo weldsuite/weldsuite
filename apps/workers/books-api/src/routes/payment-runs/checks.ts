@@ -50,7 +50,12 @@ checksRoutes.post('/:paymentId/void', requirePermission('banking:manage'), zVali
       entityType: 'payment',
       entityId: paymentId,
       action: 'deleted',
-      data: { id: paymentId, amount: result.voided.amount, method: 'check' },
+      data: {
+        id: paymentId,
+        amount: result.voided.amount,
+        ...(result.voided.backupWithholdingAmount ? { backupWithholdingAmount: result.voided.backupWithholdingAmount } : {}),
+        method: 'check',
+      },
     });
     if (result.replacement) {
       publishEntityEvent({
@@ -58,7 +63,12 @@ checksRoutes.post('/:paymentId/void', requirePermission('banking:manage'), zVali
         entityType: 'payment',
         entityId: result.replacement.paymentId,
         action: 'created',
-        data: { id: result.replacement.paymentId, amount: result.replacement.amount, method: 'check' },
+        data: {
+          id: result.replacement.paymentId,
+          amount: result.replacement.amount,
+          ...(result.replacement.backupWithholdingAmount ? { backupWithholdingAmount: result.replacement.backupWithholdingAmount } : {}),
+          method: 'check',
+        },
       });
     }
     if (result.run) {

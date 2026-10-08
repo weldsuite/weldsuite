@@ -15,8 +15,13 @@ import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { formatPostalAddressLines } from '@weldsuite/books-domain/accounting-address';
+import {
+  BACKUP_WITHHOLDING_RATE,
+  type BackupWithholdingReason,
+} from '@weldsuite/books-domain/us-compliance/backup-withholding';
 import { computeBackupWithholding } from '../backup-withholding';
 import { resolveEntityBaseCurrency } from '../../lib/entity-context';
+import { paymentNetAmount } from '../accounting-payments';
 import { roundMoney } from '../accounting-posting';
 import { badRequest, notFound, PaymentRunError } from './errors';
 import {
@@ -32,6 +37,7 @@ import {
   type RunHold,
 } from './holds';
 import { ACH_SEC_CODES, DEFAULT_HOLD_WINDOW_DAYS, readAchSettings } from './settings';
+import { computeRunWithholding, type VendorWithholding } from './withholding';
 
 export type RunRow = typeof schema.paymentRuns.$inferSelect;
 export type BankAccountRow = typeof schema.bankAccounts.$inferSelect;
@@ -544,14 +550,38 @@ export async function listRuns(
 export interface RunVendorView {
   partyId: string;
   name: string;
+  /** What the vendor's bills in the run settle for, before backup withholding. */
   amount: string;
   billCount: number;
   held: boolean;
+  /**
+   * Backup withholding on the vendor's payment: what was kept back once the
+   * payment is made, a preview (worked out again when the payment is made)
+   * before that. Null when none applies. `net` is what the vendor is paid.
+   */
+  backupWithholding: { amount: string; net: string; reason: BackupWithholdingReason | null; rate: number } | null;
   holds: Array<{ code: string; message: string; releasable: boolean; released: RunHold['released']; blocker: string | null }>;
-  payment: { id: string; amount: string; checkNumber: string | null; checkStatus: string | null; deleted: boolean } | null;
+  payment: {
+    id: string;
+    /** What the payment settles, before withholding. */
+    amount: string;
+    backupWithholdingAmount: string | null;
+    /** What the bank was credited, the check is written for and the NACHA file pays. */
+    netAmount: string;
+    checkNumber: string | null;
+    checkStatus: string | null;
+    deleted: boolean;
+  } | null;
 }
 
-/** A run with its bills, vendors (and what holds them), payments, approvals and history. */
+/**
+ * A run with its bills, vendors (and what holds them), payments, approvals and history.
+ *
+ * `totalAmount` is what the run's bills settle for; `withheldAmount` is the
+ * backup withholding kept back from it and `netAmount` what leaves the bank
+ * (the payments that exist, or the vendors that are not held while the run is
+ * still being planned).
+ */
 export async function getRunDetail(db: Database, entityId: string, runId: string) {
   const run = await loadRun(db, entityId, runId);
   const items = run.items ?? [];
@@ -578,16 +608,51 @@ export async function getRunDetail(db: Database, entityId: string, runId: string
   const partyById = new Map(parties.map((p) => [p.id, p]));
   const nameOf = (partyId: string) => partyById.get(partyId)?.displayName ?? partyId;
 
-  const vendors: RunVendorView[] = partyIds.map((partyId) => {
+  // Backup withholding: the stored amount of a payment that exists, a preview for a vendor still to be paid.
+  const open = (OPEN_RUN_STATUSES as readonly string[]).includes(run.status);
+  const liveByParty = new Map(payments.filter((p) => !p.deletedAt).map((p) => [p.contactId, p]));
+  const planned = open
+    ? await computeRunWithholding(db, {
+        entityId,
+        method: run.method as RunMethod,
+        paymentDate: run.paymentDate,
+        items: items.filter((i) => !liveByParty.has(i.partyId)),
+        parties,
+      })
+    : new Map<string, VendorWithholding>();
+
+  const vendors: RunVendorView[] = [];
+  let countedGross = 0;
+  let countedWithheld = 0;
+  for (const partyId of partyIds) {
     const own = items.filter((i) => i.partyId === partyId);
     const partyHolds = holds.filter((h) => h.partyId === partyId);
-    const payment = payments.find((p) => p.contactId === partyId && !p.deletedAt) ?? payments.find((p) => p.contactId === partyId);
-    return {
+    const live = liveByParty.get(partyId);
+    const payment = live ?? payments.find((p) => p.contactId === partyId);
+    const gross = own.reduce((sum, i) => roundMoney(sum + i.amount), 0);
+    const held = partyHolds.some((h) => !h.released);
+    const preview = planned.get(partyId);
+    const withheld = live ? Number.parseFloat(live.backupWithholdingAmount ?? '0') : (preview?.amount ?? 0);
+    // What the run pays: the payments that exist, and while it is planned every vendor that is not held.
+    if (live || (open && !held)) {
+      countedGross = roundMoney(countedGross + (live ? Number.parseFloat(live.amount) : gross));
+      countedWithheld = roundMoney(countedWithheld + withheld);
+    }
+    vendors.push({
       partyId,
       name: nameOf(partyId),
-      amount: own.reduce((sum, i) => roundMoney(sum + i.amount), 0).toFixed(2),
+      amount: gross.toFixed(2),
       billCount: own.length,
-      held: partyHolds.some((h) => !h.released),
+      held,
+      backupWithholding:
+        withheld > 0
+          ? {
+              amount: withheld.toFixed(2),
+              net: (live ? paymentNetAmount(live) : roundMoney(gross - withheld)).toFixed(2),
+              reason: preview?.reason ?? null,
+              rate: preview?.rate ?? BACKUP_WITHHOLDING_RATE,
+            }
+          : null,
       holds: partyHolds.map((h) => ({
         code: h.code,
         message: h.message,
@@ -599,18 +664,22 @@ export async function getRunDetail(db: Database, entityId: string, runId: string
         ? {
             id: payment.id,
             amount: payment.amount,
+            backupWithholdingAmount: Number.parseFloat(payment.backupWithholdingAmount ?? '0') > 0 ? payment.backupWithholdingAmount : null,
+            netAmount: paymentNetAmount(payment).toFixed(2),
             checkNumber: payment.checkNumber,
             checkStatus: payment.deletedAt ? 'voided' : payment.checkStatus,
             deleted: Boolean(payment.deletedAt),
           }
         : null,
-    };
-  });
+    });
+  }
 
   return {
     ...summarize(run, bank[0]?.name ?? null),
     bankAccount: bank[0] ? { id: bank[0].id, name: bank[0].name, accountNumberLast4: bank[0].last4 } : null,
     ...totalsOf(items, holds),
+    withheldAmount: countedWithheld.toFixed(2),
+    netAmount: roundMoney(countedGross - countedWithheld).toFixed(2),
     approvals: run.approvals ?? [],
     items: items.map((i) => {
       const bill = billById.get(i.billId);
@@ -711,7 +780,10 @@ export async function listPayableBills(db: Database, filter: PayableBillsFilter)
             held: ach.holdActive,
           }
         : null,
-      backupWithholding: withholding && withholding.amount > 0 ? { applies: true, reason: withholding.reason, amount: withholding.amount.toFixed(2) } : { applies: false },
+      backupWithholding:
+        withholding && withholding.amount > 0
+          ? { applies: true, reason: withholding.reason, rate: withholding.rate, amount: withholding.amount.toFixed(2), net: withholding.net.toFixed(2) }
+          : { applies: false },
       bills: own.map((b) => ({
         id: b.id,
         billNumber: b.billNumber,

@@ -8,6 +8,11 @@
  * `voidPayment` soft-deletes the payment, reverses the ledger entry and
  * reopens the bills, so everything below reads checks with deleted rows
  * included and calls a deleted check voided.
+ *
+ * A check is written for the net amount of its payment: a vendor that backup
+ * withholding was taken from gets a check for what is left, and the stub lists
+ * the bills at what they were settled for with the withholding as a deduction.
+ * `amount` on a check is that net amount, `grossAmount` what the payment settles.
  */
 
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql, type SQL } from 'drizzle-orm';
@@ -25,7 +30,7 @@ import {
   type MicrFields,
 } from '@weldsuite/books-domain/us-compliance/checks';
 import { revealAccountNumber } from '../accounting-bank-accounts';
-import { voidPayment } from '../accounting-payments';
+import { paymentNetAmount, voidPayment } from '../accounting-payments';
 import { badRequest, notFound, PaymentRunError } from './errors';
 import { createRunPayment } from './payments';
 import { loadBankAccount, loadRun, type RunRow } from './runs';
@@ -80,7 +85,12 @@ export interface CheckPrintItem {
   date: string;
   /** MM/DD/YYYY, as printed. */
   dateDisplay: string;
+  /** What the check is written for: the payment less any backup withholding. */
   amount: string;
+  /** What the payment settles with the vendor's bills, before withholding. */
+  grossAmount: string;
+  /** Backup withholding kept back from the vendor; null when none. */
+  backupWithholdingAmount: string | null;
   amountInWords: string;
   /** "$**1,234.56" */
   courtesyAmount: string;
@@ -97,6 +107,11 @@ export interface CheckPrintItem {
   } | null;
   voucher: {
     rows: VoucherRow[];
+    /** The bills' amounts added up, before withholding. */
+    grossTotal: string;
+    /** Backup withholding deducted on the stub; null when none. */
+    backupWithholding: string | null;
+    /** The amount of the check: `grossTotal` less the withholding. */
     total: string;
   };
 }
@@ -172,7 +187,10 @@ export async function buildCheckPrintData(
 
   const checks: CheckPrintItem[] = wanted.map((payment) => {
     const checkNumber = payment.checkNumber as string;
-    const amount = Number.parseFloat(payment.amount);
+    const gross = Number.parseFloat(payment.amount);
+    const withheld = Number.parseFloat(payment.backupWithholdingAmount ?? '0');
+    // The check is written for what is left after backup withholding.
+    const amount = paymentNetAmount(payment);
     const rows = allocations.filter((a) => a.paymentId === payment.id);
     const party = partyById.get(payment.contactId);
     const billNumbers = rows.map((r) => r.bill.billNumber ?? r.bill.reference ?? r.bill.id);
@@ -218,6 +236,8 @@ export async function buildCheckPrintData(
       date: isoDay(payment.date),
       dateDisplay: usDate(isoDay(payment.date)),
       amount: amount.toFixed(2),
+      grossAmount: gross.toFixed(2),
+      backupWithholdingAmount: withheld > 0 ? withheld.toFixed(2) : null,
       amountInWords: amountInWords(amount),
       courtesyAmount: courtesyAmount(amount),
       payee: {
@@ -241,6 +261,8 @@ export async function buildCheckPrintData(
             discount: covers && discount > 0 ? discount.toFixed(2) : null,
           };
         }),
+        grossTotal: gross.toFixed(2),
+        backupWithholding: withheld > 0 ? withheld.toFixed(2) : null,
         total: amount.toFixed(2),
       },
     };
@@ -330,8 +352,24 @@ export async function markChecksPrinted(
 // Void and reissue
 
 export interface VoidCheckResult {
-  voided: { paymentId: string; checkNumber: string | null; amount: string; partyId: string; runId: string | null };
-  replacement: { paymentId: string; checkNumber: string | null; amount: string; checkStatus: CheckStatus } | null;
+  /** `amount` is what the payment settles; `netAmount` what the check was written for (less backup withholding). */
+  voided: {
+    paymentId: string;
+    checkNumber: string | null;
+    amount: string;
+    backupWithholdingAmount: string | null;
+    netAmount: string;
+    partyId: string;
+    runId: string | null;
+  };
+  replacement: {
+    paymentId: string;
+    checkNumber: string | null;
+    amount: string;
+    backupWithholdingAmount: string | null;
+    netAmount: string;
+    checkStatus: CheckStatus;
+  } | null;
   run: RunRow | null;
 }
 
@@ -339,7 +377,7 @@ export interface VoidCheckResult {
  * Void a check: the payment is voided through the payments service (the
  * ledger entry is reversed, the bills are open again) and keeps its number.
  * With `reissue` the same amount goes out again on a new payment under the
- * next check number, to print.
+ * next check number, to print, with the same backup withholding.
  */
 export async function voidCheck(
   db: Database,
@@ -413,11 +451,15 @@ export async function voidCheck(
       userId: args.userId,
       reference: payment.reference,
       notes: `Replaces check ${payment.checkNumber ?? payment.id}`,
+      // The replacement is the same payment on a new check: the withholding taken from the voided one carries over.
+      backupWithholdingAmount: Number.parseFloat(payment.backupWithholdingAmount ?? '0'),
     });
     replacement = {
       paymentId: created.paymentId,
       checkNumber: created.checkNumber,
       amount: created.amount.toFixed(2),
+      backupWithholdingAmount: created.backupWithholdingAmount > 0 ? created.backupWithholdingAmount.toFixed(2) : null,
+      netAmount: created.netAmount.toFixed(2),
       checkStatus: 'to_print',
     };
   }
@@ -432,6 +474,8 @@ export async function voidCheck(
       paymentId: payment.id,
       checkNumber: payment.checkNumber,
       amount: payment.amount,
+      backupWithholdingAmount: Number.parseFloat(payment.backupWithholdingAmount ?? '0') > 0 ? payment.backupWithholdingAmount : null,
+      netAmount: paymentNetAmount(payment).toFixed(2),
       partyId: payment.contactId,
       runId: payment.paymentRunId,
     },
@@ -501,7 +545,8 @@ export async function checkRegister(db: Database, filter: RegisterFilter) {
       .select({
         status: STATUS_SQL,
         count: sql<number>`count(*)::int`,
-        total: sql<string>`coalesce(sum(${t.amount}), 0)`,
+        // A check is written for its payment less any backup withholding.
+        total: sql<string>`coalesce(sum(${t.amount} - coalesce(${t.backupWithholdingAmount}, 0)), 0)`,
       })
       .from(t)
       .where(and(...base))
@@ -520,7 +565,9 @@ export async function checkRegister(db: Database, filter: RegisterFilter) {
       date: isoDay(payment.date),
       payeeId: payment.contactId,
       payeeName: payeeName ?? payment.contactId,
-      amount: payment.amount,
+      amount: paymentNetAmount(payment).toFixed(2),
+      grossAmount: payment.amount,
+      backupWithholdingAmount: Number.parseFloat(payment.backupWithholdingAmount ?? '0') > 0 ? payment.backupWithholdingAmount : null,
       status: checkStatusOf(payment),
       bankAccountId: payment.bankAccountId,
       runId: payment.paymentRunId,

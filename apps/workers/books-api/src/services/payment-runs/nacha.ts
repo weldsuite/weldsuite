@@ -3,9 +3,14 @@
  *
  * Built from the run's payments (one credit per vendor), the vendors' bank
  * details and the bank account's ACH settings, with `buildNachaFile` from the
- * books domain doing the formatting. The vendor account numbers and (for a
- * balanced file) the company account number are decrypted here and each
- * decryption writes a `tax_id_reveals` row with the reason `nacha_file`.
+ * books domain doing the formatting. An entry is the net amount of its
+ * payment: a vendor that backup withholding was taken from is credited what
+ * is left after the withholding, while the remittance addenda (CCD+, CTX) list
+ * the bills at the amounts they were settled for.
+ *
+ * The vendor account numbers and (for a balanced file) the company account
+ * number are decrypted here and each decryption writes a `tax_id_reveals` row
+ * with the reason `nacha_file`.
  *
  * Two checks happen again at export, because the file is where money leaves:
  * a vendor whose bank details changed after the run was approved and haven't
@@ -24,6 +29,7 @@ import {
   type NachaPayment,
   type NachaSecCode,
 } from '@weldsuite/books-domain/us-compliance/nacha';
+import { paymentNetAmount } from '../accounting-payments';
 import { revealAccountNumber } from '../accounting-bank-accounts';
 import { revealPartySecret, SecretNotFoundError } from '../vendor-tax-data';
 import { PaymentRunError } from './errors';
@@ -99,7 +105,12 @@ export interface NachaSummary {
     paymentId: string;
     partyId: string;
     name: string;
+    /** What is credited to the vendor: the payment less any backup withholding. */
     amount: string;
+    /** What the payment settles with the vendor's bills. */
+    grossAmount: string;
+    /** Backup withholding kept back from the vendor; null when none. */
+    backupWithholdingAmount: string | null;
     secCode: NachaSecCode;
     accountLast4: string | null;
     traceNumber: string | null;
@@ -214,7 +225,10 @@ export async function generateNachaFile(
 
   const secFor = (party: PartyRow): NachaSecCode => (run.secCode as NachaSecCode | null) ?? (isIndividual(party) ? 'PPD' : ach.defaultSecCode);
   const nachaPayments: NachaPayment[] = [];
-  const meta = new Map<string, { partyId: string; name: string; secCode: NachaSecCode; last4: string | null; amount: string }>();
+  const meta = new Map<
+    string,
+    { partyId: string; name: string; secCode: NachaSecCode; last4: string | null; amount: string; gross: string; withheld: string | null }
+  >();
 
   for (const payment of payments) {
     const party = partyById.get(payment.contactId);
@@ -226,6 +240,9 @@ export async function generateNachaFile(
       own.map((a) => ({ reference: a.billNumber ?? payment.id, amount: Number.parseFloat(a.amount) })),
     );
     const name = party.displayName ?? party.id;
+    // The vendor is paid what is left after backup withholding; the withheld part stays in the bank account.
+    const net = paymentNetAmount(payment);
+    const withheld = Number.parseFloat(payment.backupWithholdingAmount ?? '0');
     nachaPayments.push({
       id: payment.id,
       secCode,
@@ -233,11 +250,19 @@ export async function generateNachaFile(
       routingNumber: party.achRoutingNumber,
       accountNumber: await reveal(party),
       accountType: party.achAccountType === 'savings' ? 'savings' : 'checking',
-      amount: Number.parseFloat(payment.amount),
+      amount: net,
       identification: own.length === 1 ? (own[0]?.billNumber ?? '') : (party.partyCode ?? ''),
       ...(secCode === 'CCD+' || secCode === 'CTX' ? { paymentInfo: remittance } : {}),
     });
-    meta.set(payment.id, { partyId: party.id, name, secCode, last4: party.achAccountLast4, amount: Number.parseFloat(payment.amount).toFixed(2) });
+    meta.set(payment.id, {
+      partyId: party.id,
+      name,
+      secCode,
+      last4: party.achAccountLast4,
+      amount: net.toFixed(2),
+      gross: Number.parseFloat(payment.amount).toFixed(2),
+      withheld: withheld > 0 ? withheld.toFixed(2) : null,
+    });
   }
 
   for (const hold of prenoteHolds) {
@@ -255,7 +280,7 @@ export async function generateNachaFile(
       amount: 0,
       prenote: true,
     });
-    meta.set(`prenote:${party.id}`, { partyId: party.id, name, secCode: sec, last4: party.achAccountLast4, amount: '0.00' });
+    meta.set(`prenote:${party.id}`, { partyId: party.id, name, secCode: sec, last4: party.achAccountLast4, amount: '0.00', gross: '0.00', withheld: null });
   }
 
   let offsetAccount: { routingNumber: string; accountNumber: string; accountType: 'checking' | 'savings'; name?: string } | undefined;
@@ -361,6 +386,8 @@ export async function generateNachaFile(
         partyId: m.partyId,
         name: m.name,
         amount: m.amount,
+        grossAmount: m.gross,
+        backupWithholdingAmount: m.withheld,
         secCode: m.secCode,
         accountLast4: m.last4,
         traceNumber: traceOf.get(id) ?? null,

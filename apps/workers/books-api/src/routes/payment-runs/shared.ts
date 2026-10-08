@@ -135,7 +135,7 @@ export async function auditRun(
 export function publishPaymentsCreated(
   c: AppContext,
   run: RunRow,
-  payments: Array<{ paymentId: string; amount: string; created: boolean }>,
+  payments: Array<{ paymentId: string; amount: string; backupWithholdingAmount: string | null; created: boolean }>,
 ): void {
   for (const payment of payments) {
     if (!payment.created) continue;
@@ -144,7 +144,14 @@ export function publishPaymentsCreated(
       entityType: 'payment',
       entityId: payment.paymentId,
       action: 'created',
-      data: { id: payment.paymentId, amount: payment.amount, date: run.paymentDate, method: run.method },
+      // `amount` is what the payment settles; backup withholding, when there is some, comes out of what the bank pays.
+      data: {
+        id: payment.paymentId,
+        amount: payment.amount,
+        ...(payment.backupWithholdingAmount ? { backupWithholdingAmount: payment.backupWithholdingAmount } : {}),
+        date: run.paymentDate,
+        method: run.method,
+      },
     });
   }
 }

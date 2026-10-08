@@ -19,7 +19,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { PostingError, reverseJournalEntry, roundMoney } from './accounting-posting';
-import { recordPayment, voidPayment } from './accounting-payments';
+import { paymentNetAmount, recordPayment, voidPayment } from './accounting-payments';
 
 type BankTransactionRow = typeof schema.bankTransactions.$inferSelect;
 
@@ -95,7 +95,9 @@ export async function reconcileBankTransactionToDocument(
 /**
  * Tie a bank line to a payment that was recorded before the line arrived. The
  * payment already debited or credited the bank's ledger account, so this only
- * links them; a check that was printed becomes cleared.
+ * links them; a check that was printed becomes cleared. The line is compared
+ * with what the payment moved through the bank: its amount less any backup
+ * withholding.
  */
 export async function reconcileBankTransactionToPayment(
   db: Database,
@@ -124,9 +126,14 @@ export async function reconcileBankTransactionToPayment(
         : 'Only money going out can be matched to a payment sent',
     );
   }
-  if (Math.abs(roundMoney(Math.abs(amount)) - roundMoney(Number.parseFloat(payment.amount))) >= 0.005) {
+  // A payment with backup withholding hits the bank for its net: the withheld part never leaves the account.
+  const bankAmount = paymentNetAmount(payment);
+  if (Math.abs(roundMoney(Math.abs(amount)) - bankAmount) >= 0.005) {
+    const withheld = Number.parseFloat(payment.backupWithholdingAmount ?? '0');
     throw new PostingError(
-      `The payment is for ${Number.parseFloat(payment.amount).toFixed(2)} but the bank line is ${Math.abs(amount).toFixed(2)}.`,
+      withheld > 0
+        ? `The payment is for ${bankAmount.toFixed(2)} (${Number.parseFloat(payment.amount).toFixed(2)} less ${withheld.toFixed(2)} backup withholding) but the bank line is ${Math.abs(amount).toFixed(2)}.`
+        : `The payment is for ${bankAmount.toFixed(2)} but the bank line is ${Math.abs(amount).toFixed(2)}.`,
     );
   }
 

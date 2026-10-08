@@ -54,6 +54,16 @@ export function normalizePaymentMethod(method: string | null | undefined): Payme
   return LEGACY_METHODS[value] ?? 'other';
 }
 
+/**
+ * What a payment moved through the bank: its amount less any backup
+ * withholding kept back (the bank is credited the net, the withheld part goes
+ * to Backup Withholding Payable). This is what a bank line, a printed check, a
+ * NACHA entry or a Positive Pay record carries, and what bank matching compares.
+ */
+export function paymentNetAmount(payment: { amount: string | null; backupWithholdingAmount?: string | null }): number {
+  return roundMoney(Number.parseFloat(payment.amount ?? '0') - Number.parseFloat(payment.backupWithholdingAmount ?? '0'));
+}
+
 export type DepositTarget = 'undeposited_funds' | 'bank';
 
 /**
