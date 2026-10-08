@@ -3,6 +3,10 @@
  *
  * Permissions: products:read | products:create | products:update | products:delete.
  *
+ * `taxable` and `taxClass` (a WeldBooks tax code or a Stripe / Avalara provider
+ * code) are validated on create and update (`./tax-schemas`). WeldBooks invoice
+ * lines and the order sales tax calculation read them to pick a line's tax code.
+ *
  * `GET /:id/categories` is the reverse of `GET /categories/:id/products`. It
  * reads the `category_products` junction, which carries a `product_id` index
  * for exactly this direction. Membership is written from the category side
@@ -21,7 +25,6 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { createProductSchema, updateProductSchema } from '@weldsuite/core-api-client/schemas/products';
 import { ConnectorApiError } from '@weldsuite/connectors';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -36,6 +39,7 @@ import {
   unlinkProductSalesChannel,
   updateProductSalesChannel,
 } from '../../services/connectors/publish-product';
+import { createProductBodySchema, updateProductBodySchema } from './tax-schemas';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.products;
@@ -285,7 +289,7 @@ app.delete('/:id/sales-channels/:channelId', requirePermission('products:update'
   }
 });
 
-app.post('/', requirePermission('products:create'), zValidator('json', createProductSchema), async (c) => {
+app.post('/', requirePermission('products:create'), zValidator('json', createProductBodySchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json') as Record<string, any>;
   const id = generateId('prod');
@@ -306,7 +310,7 @@ app.post('/', requirePermission('products:create'), zValidator('json', createPro
   }
 });
 
-app.patch('/:id', requirePermission('products:update'), zValidator('json', updateProductSchema), async (c) => {
+app.patch('/:id', requirePermission('products:update'), zValidator('json', updateProductBodySchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json') as Record<string, any>;
