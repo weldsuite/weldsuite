@@ -127,6 +127,74 @@ describe('http_request', () => {
   });
 });
 
+describe('http_request unreachable hosts', () => {
+  it('fails fast with a readable message when Cloudflare answers 530 for an unresolvable host', async () => {
+    stubFetch(() => new Response('error code: 1016', { status: 530 }));
+    const err = (await handleHttpRequest(
+      { url: 'https://e2e-test.invalid/ping', method: 'POST', body: {} },
+      makeActionContext(),
+    ).catch((e) => e)) as Error;
+    expect(err).toBeInstanceOf(NonRetryableStepError);
+    expect(err.message).toBe('Could not resolve host e2e-test.invalid');
+  });
+
+  it('treats a bare 530 as a DNS failure too', async () => {
+    stubFetch(() => new Response('', { status: 530 }));
+    await expect(handleHttpRequest({ url: 'https://nope.invalid/' }, makeActionContext())).rejects.toThrow(
+      'Could not resolve host nope.invalid',
+    );
+  });
+
+  it('names the Cloudflare error code for other 530 failures', async () => {
+    stubFetch(() => new Response('error code: 1033', { status: 530 }));
+    const err = (await handleHttpRequest({ url: 'https://tunnel.example.com/' }, makeActionContext()).catch((e) => e)) as Error;
+    expect(err).toBeInstanceOf(NonRetryableStepError);
+    expect(err.message).toBe('Could not reach tunnel.example.com: Cloudflare error 1033');
+  });
+
+  it('fails fast when fetch itself throws (DNS failure, connection refused)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network connection lost.'); }));
+    const err = (await handleHttpRequest({ url: 'https://down.example.com/x' }, makeActionContext()).catch((e) => e)) as Error;
+    expect(err).toBeInstanceOf(NonRetryableStepError);
+    expect(err.message).toBe('Could not connect to down.example.com: Network connection lost.');
+  });
+
+  it('still treats a timeout as retryable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const e = new Error('aborted');
+            e.name = 'AbortError';
+            reject(e);
+          });
+        }),
+      ),
+    );
+    const err = (await handleHttpRequest({ url: 'https://api.test/slow', timeout: 10 }, makeActionContext()).catch((e) => e)) as Error;
+    expect(err).not.toBeInstanceOf(NonRetryableStepError);
+  });
+
+  it('includes the status text, with a fallback when HTTP/2 sends none', async () => {
+    stubFetch(() => new Response('{}', { status: 404, statusText: '' }));
+    await expect(handleHttpRequest({ url: 'https://api.test/x' }, makeActionContext())).rejects.toThrow(
+      'HTTP request failed: 404 Not Found',
+    );
+    stubFetch(() => new Response('boom', { status: 502, statusText: '' }));
+    await expect(handleHttpRequest({ url: 'https://api.test/x' }, makeActionContext())).rejects.toThrow(
+      'HTTP request failed: 502 Bad Gateway',
+    );
+  });
+
+  it('fails a webhook to an unresolvable host fast as well', async () => {
+    stubFetch(() => new Response('error code: 1016', { status: 530 }));
+    const err = (await handleWebhook({ url: 'https://nope.invalid/in', body: {} }, makeActionContext()).catch((e) => e)) as Error;
+    expect(err).toBeInstanceOf(NonRetryableStepError);
+    expect(err.message).toBe('Could not resolve host nope.invalid');
+  });
+});
+
 describe('http_request public targets', () => {
   it.each(['https://notweldsuite.org/x', 'https://weldsuite.org.example.com/x', 'https://example.com/x', 'http://[2606:4700:4700::1111]/x', 'http://172.32.0.1/x'])(
     'allows %s',

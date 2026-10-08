@@ -12,8 +12,8 @@
  * accordingly: a bounded timeout, a capped response body, a scheme/target
  * allowlist that blocks attempts to reach the worker's own private network or
  * the platform's own hostnames, and error classification the engine's retry
- * loop can act on (a 4xx is the caller's problem and won't get fixed by
- * retrying; a 5xx or network failure might).
+ * loop can act on (a 4xx or an unresolvable host is the caller's problem and
+ * won't get fixed by retrying; a 5xx or a timeout might).
  */
 
 import type { ActionHandler, ActionContext } from '../types';
@@ -222,9 +222,59 @@ function safeResponseHeaders(response: Response): Record<string, string> {
   return headers;
 }
 
+/** HTTP/2 responses carry no reason phrase; fall back to the standard one so a message never ends in a bare status code. */
+const STATUS_TEXT: Record<number, string> = {
+  400: 'Bad Request',
+  401: 'Unauthorized',
+  403: 'Forbidden',
+  404: 'Not Found',
+  405: 'Method Not Allowed',
+  408: 'Request Timeout',
+  409: 'Conflict',
+  410: 'Gone',
+  413: 'Payload Too Large',
+  415: 'Unsupported Media Type',
+  422: 'Unprocessable Content',
+  429: 'Too Many Requests',
+  500: 'Internal Server Error',
+  501: 'Not Implemented',
+  502: 'Bad Gateway',
+  503: 'Service Unavailable',
+  504: 'Gateway Timeout',
+  520: 'Unknown Error (Cloudflare)',
+  521: 'Web Server Is Down (Cloudflare)',
+  522: 'Connection Timed Out (Cloudflare)',
+  523: 'Origin Is Unreachable (Cloudflare)',
+  524: 'A Timeout Occurred (Cloudflare)',
+  530: 'Origin DNS Error (Cloudflare)',
+};
+
+function statusLabel(response: Response): string {
+  const text = response.statusText || STATUS_TEXT[response.status];
+  return text ? `${response.status} ${text}` : String(response.status);
+}
+
 /**
- * `fetch` + capped body read under one timeout. A timeout (and any network
- * error) stays retryable: a slow or flaky upstream may answer on a later attempt.
+ * Cloudflare answers an outbound fetch to a host it cannot resolve (or reach)
+ * with a 530 response instead of throwing. Retrying cannot fix a name that
+ * does not exist, so it is surfaced as a non-retryable failure with a message
+ * a workflow author can act on.
+ */
+function assertHostReachable(response: Response, responseText: string, host: string): void {
+  if (response.status !== 530) return;
+  const code = /\b(1\d{3})\b/.exec(responseText)?.[1];
+  if (!code || code === '1016') {
+    throw new NonRetryableStepError(`Could not resolve host ${host}`, { status: response.status });
+  }
+  throw new NonRetryableStepError(`Could not reach ${host}: Cloudflare error ${code}`, {
+    status: response.status,
+  });
+}
+
+/**
+ * `fetch` + capped body read under one timeout. A timeout stays retryable (a
+ * slow upstream may answer on a later attempt); a thrown network error (DNS
+ * failure, connection refused, TLS) will not fix itself and is not.
  */
 async function fetchWithTimeout(
   url: URL,
@@ -241,7 +291,8 @@ async function fetchWithTimeout(
     if (err instanceof Error && err.name === 'AbortError') {
       throw new Error(`Request timed out after ${timeoutMs}ms`);
     }
-    throw err;
+    const reason = err instanceof Error && err.message ? err.message : String(err);
+    throw new NonRetryableStepError(`Could not connect to ${url.hostname}: ${reason}`);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -273,13 +324,15 @@ export const handleHttpRequest: ActionHandler = async (inputs, ctx) => {
     timeout,
   );
 
+  assertHostReachable(response, responseText, url.hostname);
+
   const parsedBody = parseResponseBody(responseText, response.headers.get('content-type'));
   const responseHeaders = safeResponseHeaders(response);
 
   if (response.status >= 400 && response.status < 500) {
     // A 4xx is the request's problem (bad input, auth, not found) — retrying
     // the exact same request will not fix it.
-    throw new NonRetryableStepError(`HTTP request failed: ${response.status} ${response.statusText}`, {
+    throw new NonRetryableStepError(`HTTP request failed: ${statusLabel(response)}`, {
       status: response.status,
       headers: responseHeaders,
       body: parsedBody,
@@ -287,7 +340,7 @@ export const handleHttpRequest: ActionHandler = async (inputs, ctx) => {
   }
   if (response.status >= 500) {
     // 5xx is the upstream's problem and may well succeed on retry.
-    throw new Error(`HTTP request failed: ${response.status} ${response.statusText}`);
+    throw new Error(`HTTP request failed: ${statusLabel(response)}`);
   }
 
   return {
@@ -320,6 +373,8 @@ export const handleWebhook: ActionHandler = async (inputs, ctx) => {
     timeout,
   );
 
+  assertHostReachable(response, responseText, url.hostname);
+
   let responseData: unknown;
   try {
     responseData = JSON.parse(responseText);
@@ -328,7 +383,7 @@ export const handleWebhook: ActionHandler = async (inputs, ctx) => {
   }
 
   if (!response.ok) {
-    throw new Error(`Webhook failed: ${response.status} ${response.statusText} - ${responseText.slice(0, 200)}`);
+    throw new Error(`Webhook failed: ${statusLabel(response)} - ${responseText.slice(0, 200)}`);
   }
   return { success: true, status: response.status, response: responseData };
 };
