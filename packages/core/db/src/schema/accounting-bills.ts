@@ -8,6 +8,7 @@ import {
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
+import type { StoredPostalAddress } from './accounting-address';
 
 export const bills = pgTable('bills', {
   id: varchar('id', { length: 30 }).primaryKey(),
@@ -44,6 +45,9 @@ export const bills = pgTable('bills', {
   notes: text('notes'),
   internalNotes: text('internal_notes'),
 
+  /** The supplier's address as printed on their invoice. */
+  vendorAddress: jsonb('vendor_address').$type<StoredPostalAddress>(),
+
   expenseAccountId: varchar('expense_account_id', { length: 30 }),
   sourceDocumentId: varchar('source_document_id', { length: 30 }),
 
@@ -65,6 +69,10 @@ export const bills = pgTable('bills', {
     component?: string;
     /** System account role for journal posting. */
     accountRole?: string;
+    /** The rate's tax category (standard, reduced, reverse_charge, ...). */
+    taxCategoryCode?: string;
+    /** Purchase tax the buyer self-assesses (reverse charge, imports): not owed to the supplier. */
+    selfAssessed?: boolean;
   }>>(),
 
   journalEntryId: varchar('journal_entry_id', { length: 30 }),
@@ -95,7 +103,7 @@ export const billItems = pgTable('bill_items', {
   unit: varchar('unit', { length: 20 }),
   discountPercent: numeric('discount_percent', { precision: 5, scale: 2 }).default('0'),
   taxRateId: varchar('tax_rate_id', { length: 30 }),
-  taxRate: numeric('tax_rate', { precision: 5, scale: 2 }),
+  taxRate: numeric('tax_rate', { precision: 7, scale: 4 }),
   taxAmount: numeric('tax_amount', { precision: 18, scale: 2 }),
   lineTotal: numeric('line_total', { precision: 18, scale: 2 }),
   lineTotalWithTax: numeric('line_total_with_tax', { precision: 18, scale: 2 }),

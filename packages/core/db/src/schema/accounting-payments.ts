@@ -20,7 +20,12 @@ export const payments = pgTable('payments', {
   currency: varchar('currency', { length: 3 }).default('EUR'),
   exchangeRate: numeric('exchange_rate', { precision: 12, scale: 6 }).default('1'),
   date: timestamp('date').notNull(),
+  /**
+   * check | ach | wire | credit_card | debit_card | cash | third_party_network |
+   * bank_transfer | direct_debit | ideal | other (validated by books-api).
+   */
   paymentMethod: varchar('payment_method', { length: 20 }),
+  checkNumber: varchar('check_number', { length: 30 }),
   reference: varchar('reference', { length: 255 }),
 
   invoiceId: varchar('invoice_id', { length: 30 }),
