@@ -12,17 +12,18 @@ export const listMembersQuery = z.object({
   /**
    * Filter by member type. Defaults server-side to 'INTERNAL' so the
    * existing team admin views don't suddenly start showing guests.
-   * Pass 'all' for the team-settings table (which renders both with a
-   * distinguishing badge), or 'EXTERNAL_GUEST' to list only guests.
+   * Pass 'all' for the team-settings table (which renders every type with a
+   * distinguishing badge), 'EXTERNAL_GUEST' to list only guests, or
+   * 'EMPLOYEE' for the My HR-only members.
    */
-  memberType: z.enum(['INTERNAL', 'EXTERNAL_GUEST', 'all']).optional(),
+  memberType: z.enum(['INTERNAL', 'EXTERNAL_GUEST', 'EMPLOYEE', 'all']).optional(),
 });
 
 export const inviteMemberInput = z.object({
   email: z.string().email(),
   name: z.string().min(1),
   roleId: z.string().nullish(),
-  memberType: z.enum(['INTERNAL', 'EXTERNAL_GUEST']).optional(),
+  memberType: z.enum(['INTERNAL', 'EXTERNAL_GUEST', 'EMPLOYEE']).optional(),
 });
 
 export const updateMemberRoleInput = z.object({
@@ -49,7 +50,7 @@ export interface MemberPublic {
   picture: string | null;
   role: string;
   status: string;
-  memberType: 'INTERNAL' | 'EXTERNAL_GUEST';
+  memberType: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE';
 }
 
 /** Fields visible to the member themselves (extends public). */

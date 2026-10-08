@@ -6,6 +6,7 @@
 import { weldhrAdmin } from './weldhr-admin';
 import { weldhrPeople } from './weldhr-people';
 import { weldhrPerformance } from './weldhr-performance';
+import { weldhrSelf } from './weldhr-self';
 import { weldhrTime } from './weldhr-time';
 
 export const weldhr = {
@@ -153,4 +154,5 @@ export const weldhr = {
   ...weldhrTime,
   ...weldhrPerformance,
   ...weldhrAdmin,
+  ...weldhrSelf,
 };

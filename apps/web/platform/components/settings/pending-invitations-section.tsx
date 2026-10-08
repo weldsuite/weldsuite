@@ -118,6 +118,14 @@ export function PendingInvitationsSection({
                             {st('sweep.settings.team.guest')}
                           </span>
                         )}
+                        {member.memberType === 'EMPLOYEE' && (
+                          <span
+                            className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+                            title={st('sweep.settings.team.employeeTooltip')}
+                          >
+                            {st('sweep.settings.team.employee')}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </TableCell>

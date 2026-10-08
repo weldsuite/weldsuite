@@ -86,6 +86,14 @@ export default function WeldHrEmployeesPage() {
             <span className="max-w-[70%] shrink-0 truncate font-medium">{emp.displayName}</span>
             <span className="min-w-0 truncate text-xs text-muted-foreground">{emp.email}</span>
           </span>
+          {!emp.userId && (
+            <span
+              className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+              title={t('weldhr.employees.table.notLinkedHint')}
+            >
+              {t('weldhr.employees.table.notLinked')}
+            </span>
+          )}
         </span>
       ),
     },

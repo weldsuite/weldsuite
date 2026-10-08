@@ -2309,6 +2309,13 @@ export const sweep = {
       "unknown": "Unknown",
       "guestTooltip": "External guest — only sees channels they're invited to",
       "guest": "Guest",
+      "employeeTooltip": "Employee — only uses My HR and WeldChat",
+      "inviteAsEmployee": "Employee (My HR + chat only)",
+      "employee": "Employee",
+      "employeeAccess": {
+        "title": "Employee member",
+        "description": "Employee members have fixed access: My HR (their own employee record) and WeldChat. They have no role, and app access or permission overrides do not apply. To give them more, remove them and invite them again as a team member."
+      },
       "noTeams": "No teams",
       "resendInvite": "Resend Invite",
       "cancelInvite": "Cancel Invite",
