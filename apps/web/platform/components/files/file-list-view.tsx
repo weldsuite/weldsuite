@@ -32,6 +32,7 @@ import {
   formatFileSize,
   formatDate,
 } from '@/app/welddrive/components/drive-file-card';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 /** Normalised shape a row needs to render in the WeldDrive list design. */
 export interface FileListItem {
@@ -141,8 +142,11 @@ export function FileListView({
       return (
         <div
           key={item.id}
+          role="button"
+          tabIndex={0}
           onClick={() => onRowClick?.(item)}
           onDoubleClick={() => onRowDoubleClick?.(item)}
+          onKeyDown={activateOnKey(() => onRowClick?.(item))}
           className="flex items-center gap-4 px-4 cursor-pointer border-b border-gray-200/70 dark:border-border group transition-colors hover:bg-gray-50 dark:hover:bg-secondary/50"
           style={{ height: '51px' }}
         >

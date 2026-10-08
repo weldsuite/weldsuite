@@ -25,6 +25,7 @@ import {
   type FilterConfig,
   type GroupConfig,
 } from '@/components/entity-list';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 type BookmarkItem = {
   id: string;
@@ -172,12 +173,7 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
       role="link"
       tabIndex={0}
       onClick={() => jumpToMessage(bk.channelId, bk.messageId)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          jumpToMessage(bk.channelId, bk.messageId);
-        }
-      }}
+      onKeyDown={activateOnKey(() => jumpToMessage(bk.channelId, bk.messageId))}
       className={cn(
         'flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group/bk relative',
       )}
