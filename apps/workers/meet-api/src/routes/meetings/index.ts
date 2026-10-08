@@ -692,30 +692,33 @@ app.post(
       }
 
       const env = c.env;
-      const invitees: ResolvedInvitee[] = [];
-      for (const invitee of normalizeInvitees(body.invitees)) {
-        const link = await resolveParticipantLink(db, env, orgId, {
-          email: invitee.email,
-          name: invitee.name,
-        });
-        let memberUserId = '';
-        if (link.workspaceMemberId) {
-          const [member] = await db
-            .select({ userId: schema.workspaceMembers.userId })
-            .from(schema.workspaceMembers)
-            .where(eq(schema.workspaceMembers.id, link.workspaceMemberId))
-            .limit(1);
-          memberUserId = member?.userId ?? '';
-        }
-        invitees.push({
-          email: invitee.email,
-          name: link.displayName || invitee.name || invitee.email,
-          userId: memberUserId,
-          avatar: link.avatarUrl,
-          workspaceMemberId: link.workspaceMemberId,
-          personId: link.personId,
-        });
-      }
+      // Invitees are de-duplicated by email and capped at 50 by the schema, so
+      // resolving them concurrently is bounded and race-free.
+      const invitees: ResolvedInvitee[] = await Promise.all(
+        normalizeInvitees(body.invitees).map(async (invitee): Promise<ResolvedInvitee> => {
+          const link = await resolveParticipantLink(db, env, orgId, {
+            email: invitee.email,
+            name: invitee.name,
+          });
+          let memberUserId = '';
+          if (link.workspaceMemberId) {
+            const [member] = await db
+              .select({ userId: schema.workspaceMembers.userId })
+              .from(schema.workspaceMembers)
+              .where(eq(schema.workspaceMembers.id, link.workspaceMemberId))
+              .limit(1);
+            memberUserId = member?.userId ?? '';
+          }
+          return {
+            email: invitee.email,
+            name: link.displayName || invitee.name || invitee.email,
+            userId: memberUserId,
+            avatar: link.avatarUrl,
+            workspaceMemberId: link.workspaceMemberId,
+            personId: link.personId,
+          };
+        }),
+      );
 
       const { attendees, added, alreadyInvited } = mergeInvitees(currentAttendees, invitees);
 

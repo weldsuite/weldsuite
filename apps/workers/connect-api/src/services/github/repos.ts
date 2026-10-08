@@ -7,7 +7,7 @@
  * All DB queries are scoped by workspaceId.
  */
 
-import { eq, and, isNull, desc } from 'drizzle-orm';
+import { eq, and, isNull, desc, inArray } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -264,17 +264,15 @@ export async function removeRepoLinksByRepoIds(
   if (repoIds.length === 0) return;
 
   const now = new Date();
-  for (const repoId of repoIds) {
-    await db
-      .update(githubRepoLinks)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(
-        and(
-          eq(githubRepoLinks.workspaceId, workspaceId),
-          eq(githubRepoLinks.connectionId, connectionId),
-          eq(githubRepoLinks.repoId, repoId),
-          isNull(githubRepoLinks.deletedAt),
-        ),
-      );
-  }
+  await db
+    .update(githubRepoLinks)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(githubRepoLinks.workspaceId, workspaceId),
+        eq(githubRepoLinks.connectionId, connectionId),
+        inArray(githubRepoLinks.repoId, repoIds),
+        isNull(githubRepoLinks.deletedAt),
+      ),
+    );
 }

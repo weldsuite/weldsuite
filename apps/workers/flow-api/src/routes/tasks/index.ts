@@ -625,16 +625,19 @@ function dispatchGithubOutboundSync(
         if (!link || link.syncDirection === 'inbound') return;
 
         const bucket = Math.floor(Date.now() / 15000);
-        for (const kind of opts.kinds) {
-          try {
-            await binding.create({
-              id: `github-outbound-${opts.taskId}-${kind}-${bucket}`,
-              params: { workspaceId, taskId: opts.taskId, kind },
-            });
-          } catch {
-            // Duplicate within the debounce window — already dispatched.
-          }
-        }
+        // A handful of kinds, each its own workflow instance: create them together.
+        await Promise.all(
+          opts.kinds.map(async (kind) => {
+            try {
+              await binding.create({
+                id: `github-outbound-${opts.taskId}-${kind}-${bucket}`,
+                params: { workspaceId, taskId: opts.taskId, kind },
+              });
+            } catch {
+              // Duplicate within the debounce window — already dispatched.
+            }
+          }),
+        );
       } catch (err) {
         console.error('[app-api/tasks] github outbound dispatch failed:', err);
       }

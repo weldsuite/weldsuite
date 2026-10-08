@@ -74,28 +74,31 @@ async function copyDir(src, dst, replacements) {
   await fs.mkdir(dst, { recursive: true });
   const entries = await fs.readdir(src, { withFileTypes: true });
 
-  for (const entry of entries) {
-    // Skip generated / junk folders inside the template.
-    if (entry.name === 'node_modules' || entry.name === '.expo' || entry.name === 'dist') continue;
+  // The template is a small tree and each entry writes its own path, so copy concurrently.
+  await Promise.all(
+    entries.map(async (entry) => {
+      // Skip generated / junk folders inside the template.
+      if (entry.name === 'node_modules' || entry.name === '.expo' || entry.name === 'dist') return;
 
-    const srcPath = path.join(src, entry.name);
-    const dstPath = path.join(dst, entry.name);
+      const srcPath = path.join(src, entry.name);
+      const dstPath = path.join(dst, entry.name);
 
-    if (entry.isDirectory()) {
-      await copyDir(srcPath, dstPath, replacements);
-    } else if (entry.isFile()) {
-      const ext = path.extname(entry.name).toLowerCase();
-      if (BINARY_EXT.has(ext)) {
-        await fs.copyFile(srcPath, dstPath);
-      } else {
-        let contents = await fs.readFile(srcPath, 'utf8');
-        for (const [token, value] of Object.entries(replacements)) {
-          contents = contents.split(token).join(value);
+      if (entry.isDirectory()) {
+        await copyDir(srcPath, dstPath, replacements);
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (BINARY_EXT.has(ext)) {
+          await fs.copyFile(srcPath, dstPath);
+        } else {
+          let contents = await fs.readFile(srcPath, 'utf8');
+          for (const [token, value] of Object.entries(replacements)) {
+            contents = contents.split(token).join(value);
+          }
+          await fs.writeFile(dstPath, contents);
         }
-        await fs.writeFile(dstPath, contents);
       }
-    }
-  }
+    }),
+  );
 }
 
 async function listSiblingMobileApps(excludeSlug) {
@@ -109,15 +112,18 @@ async function listSiblingMobileApps(excludeSlug) {
 
 async function appendEasignoreEntries(slug, siblings) {
   // Append the new app's slug to each sibling's .easignore so their builds skip it.
-  for (const sibling of siblings) {
-    const easignorePath = path.join(repoRoot, 'apps', 'mobile', sibling, '.easignore');
-    if (!(await pathExists(easignorePath))) continue;
-    const existing = await fs.readFile(easignorePath, 'utf8');
-    const line = `apps/mobile/${slug}`;
-    if (existing.split(/\r?\n/).includes(line)) continue;
-    const updated = existing.endsWith('\n') ? existing + line + '\n' : existing + '\n' + line + '\n';
-    await fs.writeFile(easignorePath, updated);
-  }
+  // Each sibling has its own .easignore, so the updates are independent.
+  await Promise.all(
+    siblings.map(async (sibling) => {
+      const easignorePath = path.join(repoRoot, 'apps', 'mobile', sibling, '.easignore');
+      if (!(await pathExists(easignorePath))) return;
+      const existing = await fs.readFile(easignorePath, 'utf8');
+      const line = `apps/mobile/${slug}`;
+      if (existing.split(/\r?\n/).includes(line)) return;
+      const updated = existing.endsWith('\n') ? existing + line + '\n' : existing + '\n' + line + '\n';
+      await fs.writeFile(easignorePath, updated);
+    }),
+  );
 
   // Also extend the new app's own .easignore with lines for each sibling.
   const newEasignore = path.join(repoRoot, 'apps', 'mobile', slug, '.easignore');

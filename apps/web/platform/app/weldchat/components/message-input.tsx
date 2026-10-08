@@ -36,6 +36,7 @@ import {
 import { fitAttachments, isChatUploadTooLarge, MAX_CHAT_UPLOAD_BYTES, MAX_MESSAGE_ATTACHMENTS, uploadChatFile } from '../lib/chat-upload';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 /** A composer attachment — an uploaded file, or a recorded audio/video/screen clip. */
 type MessageAttachment = ChatAttachment | ChatClipAttachment;
@@ -613,12 +614,12 @@ export function MessageInput({
 
   const updateActiveFormats = useCallback(() => {
     const formats = new Set<string>();
-    if (document.queryCommandState('bold')) formats.add('bold');
-    if (document.queryCommandState('italic')) formats.add('italic');
-    if (document.queryCommandState('underline')) formats.add('underline');
-    if (document.queryCommandState('strikeThrough')) formats.add('strikeThrough');
-    if (document.queryCommandState('insertUnorderedList')) formats.add('insertUnorderedList');
-    if (document.queryCommandState('insertOrderedList')) formats.add('insertOrderedList');
+    if (isEditorCommandActive('bold')) formats.add('bold');
+    if (isEditorCommandActive('italic')) formats.add('italic');
+    if (isEditorCommandActive('underline')) formats.add('underline');
+    if (isEditorCommandActive('strikeThrough')) formats.add('strikeThrough');
+    if (isEditorCommandActive('insertUnorderedList')) formats.add('insertUnorderedList');
+    if (isEditorCommandActive('insertOrderedList')) formats.add('insertOrderedList');
     // Check if cursor is inside a <code> element
     const sel = window.getSelection();
     if (sel?.anchorNode) {
@@ -683,11 +684,11 @@ export function MessageInput({
       }
       handleInput();
     } else if (command === 'insertUnorderedList' || command === 'insertOrderedList') {
-      document.execCommand(command, false);
+      runEditorCommand(command);
       // Ensure the editor updates content state
       handleInput();
     } else {
-      document.execCommand(command, false);
+      runEditorCommand(command);
     }
     updateActiveFormats();
   }, [updateActiveFormats, handleInput]);
@@ -716,23 +717,30 @@ export function MessageInput({
     setUploadingCount((n) => n + list.length);
     try {
       const client = await getClient();
-      for (const file of list) {
+      // `list` is capped at MAX_MESSAGE_ATTACHMENTS, so upload in parallel and
+      // append the results in the order the files were picked. A successful file
+      // stays counted in `uploadingCount` until the batch lands in `attachments`,
+      // so a second selection can't push past the cap in between.
+      const uploadedAttachments = await Promise.all(list.map(async (file) => {
         try {
           const uploaded = await uploadChatFile(client, file, channelId);
-          setAttachments((prev) => [...prev, {
+          return {
             id: uploaded.id,
             fileName: file.name,
             fileSize: file.size,
             mimeType: uploaded.mimeType,
             url: uploaded.url,
-          }]);
+          };
         } catch (err) {
           console.error('File upload failed:', err);
           toast.error(t.weldchat.messageInput.uploadFailed.replace('{fileName}', file.name));
-        } finally {
           setUploadingCount((n) => n - 1);
+          return null;
         }
-      }
+      }));
+      const added = uploadedAttachments.filter((a): a is NonNullable<typeof a> => a !== null);
+      setAttachments((prev) => [...prev, ...added]);
+      setUploadingCount((n) => n - added.length);
     } catch (err) {
       // getClient() failed before any file started — release them all.
       console.error('File upload failed:', err);

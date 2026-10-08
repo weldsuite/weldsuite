@@ -272,9 +272,7 @@ export async function clearCatchAllForAccount(env: Env, db: Database, accountId:
     })
     .where(eq(mailDomains.catchAllAccountId, accountId));
 
-  for (const row of rows) {
-    await deactivateCatchAllRegistry(env, row.domainName);
-  }
+  await Promise.all(rows.map((row) => deactivateCatchAllRegistry(env, row.domainName)));
 }
 
 /**

@@ -389,26 +389,28 @@ async function persistAttachmentPointers(
   attachments: ResolvedAttachment[],
   now: Date,
 ): Promise<void> {
-  for (const att of attachments) {
-    try {
-      await db.insert(mailAttachments).values({
-        id: generateId('attach'),
-        messageId,
-        fileName: att.filename,
-        contentType: att.contentType || 'application/octet-stream',
-        size: att.content.byteLength,
-        storagePath: att.fileKey,
-        isInline: false,
-        createdAt: now,
-        updatedAt: now,
-      });
-    } catch (err) {
-      console.error(
-        `[mail-send] Failed to persist attachment ${att.filename} for message ${messageId}:`,
-        err,
-      );
-    }
-  }
+  await Promise.all(
+    attachments.map(async (att) => {
+      try {
+        await db.insert(mailAttachments).values({
+          id: generateId('attach'),
+          messageId,
+          fileName: att.filename,
+          contentType: att.contentType || 'application/octet-stream',
+          size: att.content.byteLength,
+          storagePath: att.fileKey,
+          isInline: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } catch (err) {
+        console.error(
+          `[mail-send] Failed to persist attachment ${att.filename} for message ${messageId}:`,
+          err,
+        );
+      }
+    }),
+  );
 }
 
 /** Upsert recipients into contacts in the background (inline when there is no `waitUntil`). */

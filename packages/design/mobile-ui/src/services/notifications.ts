@@ -247,16 +247,19 @@ export async function createNotificationChannels(
 ): Promise<void> {
   if (Platform.OS !== 'android') return;
 
-  for (const channel of channels) {
-    await Notifications.setNotificationChannelAsync(channel.id, {
-      name: channel.name,
-      description: channel.description,
-      importance: channel.importance ?? Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 250, 250],
-      // Use the system default sound unless the caller supplies a bundled custom
-      // sound. (Previously hardcoded 'notification.wav', which was never bundled
-      // in any app and silently fell back to the default anyway.)
-      sound: channel.sound ?? 'default',
-    });
-  }
+  // The app's fixed channel list; each channel is independent, so create them together.
+  await Promise.all(
+    channels.map((channel) =>
+      Notifications.setNotificationChannelAsync(channel.id, {
+        name: channel.name,
+        description: channel.description,
+        importance: channel.importance ?? Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        // Use the system default sound unless the caller supplies a bundled custom
+        // sound. (Previously hardcoded 'notification.wav', which was never bundled
+        // in any app and silently fell back to the default anyway.)
+        sound: channel.sound ?? 'default',
+      }),
+    ),
+  );
 }

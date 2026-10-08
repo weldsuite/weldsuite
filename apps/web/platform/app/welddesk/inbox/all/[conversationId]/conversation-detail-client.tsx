@@ -1438,18 +1438,32 @@ export default function ConversationDetailClient({
   };
 
   const uploadAttachments = async (attachments: AttachmentPreview[]): Promise<ActionMessageAttachment[]> => {
-    const uploaded: ActionMessageAttachment[] = [];
     try {
       const client = await getClient();
-      for (const attachment of attachments) {
-        const result = await uploadAttachment(client, attachment);
-        if (result) uploaded.push(result);
+      // The attachments of one message: upload them in parallel, keep the
+      // ones that made it (in their original order) if any upload throws.
+      const settled = await Promise.allSettled(
+        attachments.map((attachment) => uploadAttachment(client, attachment)),
+      );
+      const uploaded: ActionMessageAttachment[] = [];
+      let firstError: unknown;
+      for (const outcome of settled) {
+        if (outcome.status === 'fulfilled') {
+          if (outcome.value) uploaded.push(outcome.value);
+        } else if (firstError === undefined) {
+          firstError = outcome.reason;
+        }
       }
+      if (firstError !== undefined) {
+        console.error('Failed to upload attachments:', firstError);
+        toast.error(ti.failedToUploadAttachments);
+      }
+      return uploaded;
     } catch (error) {
       console.error('Failed to upload attachments:', error);
       toast.error(ti.failedToUploadAttachments);
+      return [];
     }
-    return uploaded;
   };
 
   const handleWeldAgentSend = async (attachments?: AttachmentPreview[]) => {

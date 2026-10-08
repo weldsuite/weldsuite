@@ -495,16 +495,19 @@ export async function createPerson(
 
   if (input.companyIds?.length) {
     const now = new Date();
-    for (const companyId of input.companyIds) {
-      await db.insert(personCompanies).values({
-        id: generateId('pc'),
-        createdAt: now,
-        updatedAt: now,
-        personId: created.id,
-        companyId,
-        isPrimary: companyId === input.primaryCompanyId,
-      });
-    }
+    // One person's company links: independent rows, insert them together.
+    await Promise.all(
+      input.companyIds.map((companyId) =>
+        db.insert(personCompanies).values({
+          id: generateId('pc'),
+          createdAt: now,
+          updatedAt: now,
+          personId: created.id,
+          companyId,
+          isPrimary: companyId === input.primaryCompanyId,
+        }),
+      ),
+    );
   }
 
   // Phase 1 dual-write: mirror the customFields blob into the typed values table.

@@ -336,6 +336,9 @@ export async function setValues(
     .where(and(eq(vals.entityType, entityType), eq(vals.entityId, entityId)));
   const existingByFieldId = new Map(existing.map((r) => [r.fieldId, r]));
 
+  // Validate every field first so a rejected value aborts before any write,
+  // then persist: each field owns its own value row, so the writes are independent.
+  const writes: { def: Definition; normalized: NormalizedFieldValue }[] = [];
   for (const slug of slugs) {
     const def = defBySlug.get(slug);
     if (!def) continue;
@@ -343,17 +346,22 @@ export async function setValues(
     // In non-patch mode a missing slug means "clear"; in patch mode we skip it.
     if (raw === undefined && patch) continue;
 
-    const normalized = normalizeFieldValue(def, slug, raw, enforceRequired);
-    await persistFieldValue(db, {
-      def,
-      entityType,
-      entityId,
-      normalized,
-      prior: existingByFieldId.get(def.id),
-      now,
-      generateId,
-    });
+    writes.push({ def, normalized: normalizeFieldValue(def, slug, raw, enforceRequired) });
   }
+
+  await Promise.all(
+    writes.map(({ def, normalized }) =>
+      persistFieldValue(db, {
+        def,
+        entityType,
+        entityId,
+        normalized,
+        prior: existingByFieldId.get(def.id),
+        now,
+        generateId,
+      }),
+    ),
+  );
 }
 
 type NormalizedFieldValue = string | number | boolean | string[] | Record<string, unknown> | null;

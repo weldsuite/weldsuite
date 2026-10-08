@@ -613,9 +613,11 @@ async function suggestInvoices(db: Database, txn: BankTransactionRow, amount: nu
     .where(and(isNull(invoicesTable.deletedAt), sql`${invoicesTable.balanceDue}::numeric > 0`))
     .limit(20);
 
+  // At most 20 read-only lookups: score them together, keep the invoice order.
+  const confidences = await Promise.all(openInvoices.map((inv) => invoiceConfidence(db, txn, inv, amount)));
   const suggestions: MatchSuggestion[] = [];
-  for (const inv of openInvoices) {
-    const confidence = await invoiceConfidence(db, txn, inv, amount);
+  for (const [i, inv] of openInvoices.entries()) {
+    const confidence = confidences[i];
     if (confidence > 0) {
       suggestions.push({ type: 'invoice', id: inv.id, number: inv.invoiceNumber, contactName: inv.contactName, amount: inv.balanceDue, confidence });
     }

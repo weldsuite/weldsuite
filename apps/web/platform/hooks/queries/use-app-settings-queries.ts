@@ -2,7 +2,7 @@
  * Per-app settings surfaces (WeldDesk, WeldMail).
  *
  * WeldDesk settings load from app-api (/api/helpdesk-settings). WeldMail plan
- * usage is the one call still on the legacy worker — see the TODO below.
+ * usage is the one call still on the legacy worker — see the phase-out note below.
  */
 
 import { useQuery } from '@tanstack/react-query';

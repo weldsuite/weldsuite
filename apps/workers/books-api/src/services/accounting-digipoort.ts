@@ -98,6 +98,16 @@ export const DIGIPOORT_PRODUCTION_ENDPOINTS = {
 // SOAP Envelope Builders
 // ============================================================================
 
+/** Base64 of the UTF-8 bytes of `text` (chunked so large XBRL stays off the arg-count limit). */
+function utf8ToBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCodePoint(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
 function buildAanleverSoapEnvelope(
   btwNumber: string,
   xmlContent: string,
@@ -105,7 +115,7 @@ function buildAanleverSoapEnvelope(
   berichtsoort = 'Omzetbelasting',
 ): string {
   // Base64-encode the XBRL content for the SOAP attachment
-  const base64Content = btoa(unescape(encodeURIComponent(xmlContent)));
+  const base64Content = utf8ToBase64(xmlContent);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope

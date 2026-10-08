@@ -234,9 +234,13 @@ export async function getIntegrationCredentials(
   await assertOwnerStillMember(ctx);
   const integ = await resolveIntegration(ctx.db, params);
   const key = keyringFromEnv(ctx.env);
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(integ.credentials || {})) {
-    out[k] = typeof v === 'string' ? await maybeDecrypt(v, key) : String(v);
-  }
+  const out: Record<string, string> = Object.fromEntries(
+    await Promise.all(
+      Object.entries(integ.credentials || {}).map(async ([k, v]): Promise<[string, string]> => [
+        k,
+        typeof v === 'string' ? await maybeDecrypt(v, key) : String(v),
+      ]),
+    ),
+  );
   return { credentials: out, settings: integ.settings, integrationId: integ.id };
 }

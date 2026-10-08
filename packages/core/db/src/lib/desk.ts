@@ -378,16 +378,22 @@ export async function attachDeskVisitorContact(
     .from(conversations)
     .where(eq(conversations.visitorId, visitorId));
 
-  for (const row of rows) {
-    const patch: Partial<DeskConversation> = {};
-    if (email && !row.email) patch.email = email;
-    if (name && !row.name) patch.name = name;
-    if (Object.keys(patch).length === 0) continue;
-    const [next] = await db
-      .update(conversations)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(eq(conversations.id, row.id))
-      .returning();
+  // One visitor's conversations, each patched on its own row: independent writes.
+  const results = await Promise.all(
+    rows.map(async (row) => {
+      const patch: Partial<DeskConversation> = {};
+      if (email && !row.email) patch.email = email;
+      if (name && !row.name) patch.name = name;
+      if (Object.keys(patch).length === 0) return undefined;
+      const [next] = await db
+        .update(conversations)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(conversations.id, row.id))
+        .returning();
+      return next;
+    }),
+  );
+  for (const next of results) {
     if (next) updated.push(next);
   }
   return updated;

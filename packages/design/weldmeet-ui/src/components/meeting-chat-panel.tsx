@@ -53,6 +53,7 @@ import { EmojiPicker } from './emoji-picker';
 import { useIsMobile } from '../hooks/use-is-mobile';
 import { sanitizeRichText, hasRichFormatting } from '../lib/sanitize-rich-text';
 import { randomIdSuffix } from '../lib/random-id';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 // ============================================================================
 // Shared types
@@ -865,12 +866,12 @@ function MessageInput({
 
   const updateActiveFormats = useCallback(() => {
     const formats = new Set<string>();
-    if (document.queryCommandState('bold')) formats.add('bold');
-    if (document.queryCommandState('italic')) formats.add('italic');
-    if (document.queryCommandState('underline')) formats.add('underline');
-    if (document.queryCommandState('strikeThrough')) formats.add('strikeThrough');
-    if (document.queryCommandState('insertUnorderedList')) formats.add('insertUnorderedList');
-    if (document.queryCommandState('insertOrderedList')) formats.add('insertOrderedList');
+    if (isEditorCommandActive('bold')) formats.add('bold');
+    if (isEditorCommandActive('italic')) formats.add('italic');
+    if (isEditorCommandActive('underline')) formats.add('underline');
+    if (isEditorCommandActive('strikeThrough')) formats.add('strikeThrough');
+    if (isEditorCommandActive('insertUnorderedList')) formats.add('insertUnorderedList');
+    if (isEditorCommandActive('insertOrderedList')) formats.add('insertOrderedList');
     setActiveFormats(formats);
   }, []);
 
@@ -884,7 +885,7 @@ function MessageInput({
     (command: string) => {
       if (!editorRef.current) return;
       editorRef.current.focus();
-      document.execCommand(command, false);
+      runEditorCommand(command);
       updateActiveFormats();
       handleInput();
     },
@@ -936,36 +937,40 @@ function MessageInput({
       e.target.value = '';
       if (files.length === 0 || !onUploadFile) return;
 
-      for (const file of files) {
-        // Optimistic placeholder so the user sees the file immediately with a
-        // spinner; replaced with the real attachment (shareable URL) once the
-        // upload resolves, or removed on failure.
-        const tempId = `uploading_${Date.now()}_${randomIdSuffix(6)}`;
-        const placeholder: ChatMessageAttachment = {
-          id: tempId,
-          fileName: file.name,
-          fileSize: file.size,
-          mimeType: file.type,
-          url: '',
-          _uploading: true,
-        };
-        setAttachments((prev) => [...prev, placeholder]);
-        setUploadCount((n) => n + 1);
+      // The files of one picker selection: upload them together. Each placeholder
+      // is added before its upload's first await, so they still appear in order.
+      await Promise.all(
+        files.map(async (file) => {
+          // Optimistic placeholder so the user sees the file immediately with a
+          // spinner; replaced with the real attachment (shareable URL) once the
+          // upload resolves, or removed on failure.
+          const tempId = `uploading_${Date.now()}_${randomIdSuffix(6)}`;
+          const placeholder: ChatMessageAttachment = {
+            id: tempId,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.type,
+            url: '',
+            _uploading: true,
+          };
+          setAttachments((prev) => [...prev, placeholder]);
+          setUploadCount((n) => n + 1);
 
-        try {
-          const uploaded = await onUploadFile(file);
-          setAttachments((prev) =>
-            uploaded
-              ? prev.map((a) => (a.id === tempId ? { ...uploaded, _uploading: false } : a))
-              : prev.filter((a) => a.id !== tempId),
-          );
-        } catch (err) {
-          console.error('[MeetingChat] File upload failed:', err);
-          setAttachments((prev) => prev.filter((a) => a.id !== tempId));
-        } finally {
-          setUploadCount((n) => Math.max(0, n - 1));
-        }
-      }
+          try {
+            const uploaded = await onUploadFile(file);
+            setAttachments((prev) =>
+              uploaded
+                ? prev.map((a) => (a.id === tempId ? { ...uploaded, _uploading: false } : a))
+                : prev.filter((a) => a.id !== tempId),
+            );
+          } catch (err) {
+            console.error('[MeetingChat] File upload failed:', err);
+            setAttachments((prev) => prev.filter((a) => a.id !== tempId));
+          } finally {
+            setUploadCount((n) => Math.max(0, n - 1));
+          }
+        }),
+      );
     },
     [onUploadFile],
   );
