@@ -145,9 +145,6 @@ export interface SharedMeetingChatPanelProps {
   /** Participants list — used for future @-mention picker (no-op when empty) */
   participants?: ChatParticipant[];
 
-  /** Active typing users — displayed below the input */
-  typingUsers?: string[];
-
   /** Pinned messages — omit or pass empty array to hide the pinned bar */
   pinnedMessages?: PinnedMessage[];
   onPinMessage?: (messageId: string) => void;

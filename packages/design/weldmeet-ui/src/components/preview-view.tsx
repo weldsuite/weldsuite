@@ -77,7 +77,6 @@ export const DEFAULT_PREVIEW_VIEW_LABELS: PreviewViewLabels = {
 
 export interface PreviewViewProps {
   meetingTitle?: string;
-  meetingType?: 'video' | 'audio';
   previewStream: MediaStream | null;
   previewAudioEnabled: boolean;
   previewVideoEnabled: boolean;

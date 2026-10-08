@@ -5,7 +5,7 @@ export function CallControlsBar({ onToggleEffects, effectsOpen }: Readonly<{ onT
   const {
     isMuted, isVideoOff, isScreenSharing, handRaised, viewMode,
     toggleMute, toggleVideo, startScreenShare, stopScreenShare, endCall, toggleHandRaise, setViewMode,
-    meeting, backgroundType,
+    meeting,
   } = useWeldChatCall();
 
   return (
@@ -25,7 +25,6 @@ export function CallControlsBar({ onToggleEffects, effectsOpen }: Readonly<{ onT
       onLeave={endCall}
       onToggleEffects={onToggleEffects}
       effectsOpen={effectsOpen}
-      backgroundType={backgroundType}
     />
   );
 }

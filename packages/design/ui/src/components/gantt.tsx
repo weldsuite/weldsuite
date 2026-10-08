@@ -1156,9 +1156,6 @@ export const GanttFeatureList: FC<GanttFeatureListProps> = ({
 export type GanttSubtaskConnectorProps = {
   feature: GanttFeature;
   parentFeature: GanttFeature;
-  isLastChild: boolean;
-  isFirstChild: boolean;
-  rowsFromParent: number; // How many rows between parent and this subtask
 };
 
 export const GanttSubtaskConnector: FC<GanttSubtaskConnectorProps> = ({
@@ -1226,40 +1223,19 @@ export const GanttTreeView: FC<GanttTreeViewProps> = ({
   renderFeature,
   className,
 }) => {
-  // Build parent map with index positions
-  const { parentMap, parentIndexMap } = useMemo(() => {
+  // Build parent map
+  const parentMap = useMemo(() => {
     const map = new Map<string, GanttFeature>();
-    const indexMap = new Map<string, number>();
-    features.forEach((f, idx) => {
-      map.set(f.id, f);
-      indexMap.set(f.id, idx);
-    });
-    return { parentMap: map, parentIndexMap: indexMap };
-  }, [features]);
-
-  // Find children for each parent and their order
-  const childInfo = useMemo(() => {
-    const childrenByParent = new Map<string, GanttFeature[]>();
     features.forEach((f) => {
-      if (f.parentTaskId && f.isSubtask) {
-        const children = childrenByParent.get(f.parentTaskId) || [];
-        children.push(f);
-        childrenByParent.set(f.parentTaskId, children);
-      }
+      map.set(f.id, f);
     });
-    return childrenByParent;
+    return map;
   }, [features]);
 
   return (
     <div className={cn('relative', className)}>
       {features.map((feature, index) => {
         const parentFeature = feature.parentTaskId ? parentMap.get(feature.parentTaskId) : undefined;
-        const parentIndex = feature.parentTaskId ? parentIndexMap.get(feature.parentTaskId) : undefined;
-        const siblings = feature.parentTaskId ? childInfo.get(feature.parentTaskId) || [] : [];
-        const siblingIndex = siblings.findIndex(s => s.id === feature.id);
-        const isFirstChild = siblingIndex === 0;
-        const isLastChild = siblingIndex === siblings.length - 1;
-        const rowsFromParent = parentIndex !== undefined ? index - parentIndex : 1;
 
         return (
           <div
@@ -1271,9 +1247,6 @@ export const GanttTreeView: FC<GanttTreeViewProps> = ({
               <GanttSubtaskConnector
                 feature={feature}
                 parentFeature={parentFeature}
-                isFirstChild={isFirstChild}
-                isLastChild={isLastChild}
-                rowsFromParent={rowsFromParent}
               />
             )}
             {renderFeature(feature, index)}

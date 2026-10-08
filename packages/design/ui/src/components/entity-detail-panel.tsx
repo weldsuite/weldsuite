@@ -68,23 +68,17 @@ export interface EntityDetailPanelProps {
   onClose: () => void;
   title: string;
   onTitleChange?: (value: string) => void;
-  description?: string;
 
   // Header
   isCompleted?: boolean;
   onToggleComplete?: () => void;
-  completeButtonLabel?: string;
-  completedButtonLabel?: string;
   showHeaderActions?: boolean;
   onShare?: () => void;
   onCopyLink?: () => void;
-  onMaximize?: () => void;
   onDuplicate?: () => void;
   onAddToFavorites?: () => void;
   onArchive?: () => void;
   onDelete?: () => void;
-  onMoreOptions?: () => void;
-  headerActions?: ReactNode;
 
   // Content
   visibilityText?: string;
