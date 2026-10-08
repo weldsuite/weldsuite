@@ -28,6 +28,7 @@ import { toCertificateRef } from '@weldsuite/books-domain/sales-tax/load';
 import { addDays } from '@weldsuite/books-domain/sales-tax/dates';
 import { getUsState } from '@weldsuite/books-domain/jurisdictions/us/states';
 import { salesTaxErrorResponse, SalesTaxSetupError } from '../../services/sales-tax/errors';
+import { linkCertificateToEarlierSales } from '../../services/sales-tax/certificate-cure';
 import {
   checkDateOrder,
   isoDateSchema,
@@ -259,9 +260,12 @@ app.post('/', requirePermission('taxes:create'), zValidator('json', createCertif
       entityId: row.id,
       action: 'created',
     });
-    const presented = presentCertificate(row as CertificateRow, null);
+    // A certificate received within 90 days of an earlier exempt sale cures it.
+    const linkedSales = await linkCertificateToEarlierSales(db, entity.id, row, today());
+    const lastUsed = linkedSales > 0 ? await lastUsedByCertificate(db, entity.id, [row.id]) : new Map<string, string | null>();
+    const presented = presentCertificate(row as CertificateRow, lastUsed.get(row.id));
     publishEntityEvent({ c, entityType: 'exemption_certificate', entityId: row.id, action: 'created', data: eventData(row as CertificateRow, presented.status) });
-    return success(c, presented, 201);
+    return success(c, { ...presented, linkedSales }, 201);
   } catch (err) {
     const handled = salesTaxErrorResponse(c, err);
     if (handled) return handled;
@@ -309,10 +313,11 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('taxes:update'), zValidator('
       ),
     });
     const updated = { ...row, ...update };
+    const linkedSales = await linkCertificateToEarlierSales(db, entity.id, updated, today());
     const lastUsed = await lastUsedByCertificate(db, entity.id, [row.id]);
     const presented = presentCertificate(updated, lastUsed.get(row.id));
     publishEntityEvent({ c, entityType: 'exemption_certificate', entityId: row.id, action: 'updated', data: eventData(updated, presented.status) });
-    return success(c, presented);
+    return success(c, { ...presented, linkedSales });
   } catch (err) {
     const handled = salesTaxErrorResponse(c, err);
     if (handled) return handled;
