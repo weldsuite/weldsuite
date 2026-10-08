@@ -449,6 +449,8 @@ export const common = {
         passwordPlaceholder: 'Voer uw wachtwoord in',
         forgotPassword: 'Wachtwoord vergeten?',
         continueWithGoogle: 'Doorgaan met Google',
+        signInWithPasskey: 'Aanmelden met een passkey',
+        passkeySignInFailed: 'Aanmelden met passkey mislukt. Probeer het opnieuw of gebruik uw wachtwoord.',
         orDivider: 'of',
         signIn: 'Aanmelden',
         signingIn: 'Aanmelden...',
