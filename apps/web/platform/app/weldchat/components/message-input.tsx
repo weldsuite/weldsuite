@@ -718,7 +718,9 @@ export function MessageInput({
     try {
       const client = await getClient();
       // `list` is capped at MAX_MESSAGE_ATTACHMENTS, so upload in parallel and
-      // append the results in the order the files were picked.
+      // append the results in the order the files were picked. A successful file
+      // stays counted in `uploadingCount` until the batch lands in `attachments`,
+      // so a second selection can't push past the cap in between.
       const uploadedAttachments = await Promise.all(list.map(async (file) => {
         try {
           const uploaded = await uploadChatFile(client, file, channelId);
@@ -732,15 +734,13 @@ export function MessageInput({
         } catch (err) {
           console.error('File upload failed:', err);
           toast.error(t.weldchat.messageInput.uploadFailed.replace('{fileName}', file.name));
-          return null;
-        } finally {
           setUploadingCount((n) => n - 1);
+          return null;
         }
       }));
-      setAttachments((prev) => [
-        ...prev,
-        ...uploadedAttachments.filter((a): a is NonNullable<typeof a> => a !== null),
-      ]);
+      const added = uploadedAttachments.filter((a): a is NonNullable<typeof a> => a !== null);
+      setAttachments((prev) => [...prev, ...added]);
+      setUploadingCount((n) => n - added.length);
     } catch (err) {
       // getClient() failed before any file started — release them all.
       console.error('File upload failed:', err);

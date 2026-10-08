@@ -39,8 +39,9 @@ export async function uploadMailAttachments(
   files: File[],
 ): Promise<MailAttachmentRef[]> {
   // The attachments of one email (capped by MAX_EMAIL_SIZE_BYTES): upload them
-  // in parallel. Any failure rejects with the failing file's name.
-  return Promise.all(
+  // in parallel, wait for all of them so a retry never overlaps this attempt,
+  // then reject with the first failing file (in the order they were picked).
+  const settled = await Promise.allSettled(
     files.map(async (file): Promise<MailAttachmentRef> => {
       const contentType = file.type || 'application/octet-stream';
       try {
@@ -74,4 +75,8 @@ export async function uploadMailAttachments(
       }
     }),
   );
+  return settled.map((outcome) => {
+    if (outcome.status === 'rejected') throw outcome.reason;
+    return outcome.value;
+  });
 }

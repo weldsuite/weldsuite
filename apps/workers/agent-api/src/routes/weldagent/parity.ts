@@ -361,7 +361,9 @@ app.post('/connectors/events', requirePermission('weldagent:manage', 'weldagent:
     text: data.text,
   });
   // At most five routines, each with its own run row and job: start them together.
-  const started: Array<{ routineId: string; runId: string }> = await Promise.all(
+  // allSettled so one failure doesn't hide the runs that did start (a retried
+  // event would otherwise start them a second time).
+  const settled = await Promise.allSettled(
     matches.slice(0, 5).map(async (routine) => {
       const runId = await createRoutineRun(db, {
         routineId: routine.id,
@@ -392,6 +394,11 @@ app.post('/connectors/events', requirePermission('weldagent:manage', 'weldagent:
       return { routineId: routine.id, runId };
     }),
   );
+  const started = settled.flatMap((outcome) => {
+    if (outcome.status === 'fulfilled') return [outcome.value];
+    console.error('[weldagent/connectors] routine start failed:', outcome.reason);
+    return [];
+  });
   return success(c, { matched: matches.length, started });
 });
 
