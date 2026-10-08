@@ -19,7 +19,7 @@ d1_migrate_with_retry() {
     fi
     local status=$?
     if [[ "$attempt" -ge "$((10#$max_attempts))" ]]; then
-      echo "::error::D1 ${label} failed after ${max_attempts} attempts (last exit ${status})"
+      echo "::error::D1 ${label} failed after ${max_attempts} attempts (last exit ${status})" >&2
       return "$status"
     fi
     echo "::warning::D1 ${label} failed (exit ${status}); retrying in ${sleep_s}s (often Cloudflare 7429/504)"
