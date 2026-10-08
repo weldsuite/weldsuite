@@ -23,6 +23,85 @@ export interface ConnectBankButtonProps {
   onLinked?: (connection: BankFeedConnection) => void;
 }
 
+export type ConnectBankLauncherOptions = Pick<
+  ConnectBankButtonProps,
+  'mode' | 'connection' | 'defaultBankAccountId' | 'returnTo' | 'onLinked'
+>;
+
+/**
+ * The bank feed link flow without its button, for places that start it from
+ * something else (an empty state's action). Render `elements` wherever the
+ * hook is used: they are the provider picker and the link dialogs.
+ */
+export function useConnectBankLauncher({
+  mode = 'create',
+  connection,
+  defaultBankAccountId,
+  returnTo,
+  onLinked,
+}: Readonly<ConnectBankLauncherOptions> = {}) {
+  const { can } = usePermissions();
+  const providers = useBankFeedProviders();
+  const flow = useBankFeedConnect({ defaultBankAccountId, returnTo, onLinked });
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const allowed = can('banking:create');
+  const country = providers.data?.country ?? '';
+  const options = providers.data?.providers ?? [];
+  const repair = mode !== 'create' && connection ? repairRequest(connection, mode, providers.data) : null;
+  const repairs = mode !== 'create' && !!connection;
+
+  /** A provider can link this entity's banks (or repair this connection). */
+  const available = repairs ? !!repair : options.length > 0;
+  const disabled = !allowed || flow.busy || providers.isLoading || providers.isError || !available;
+
+  const start = () => {
+    if (repairs) {
+      if (repair) void flow.connect(repair);
+      return;
+    }
+    const only = options.length === 1 ? options[0] : undefined;
+    if (only && !only.requiresInstitution) {
+      void flow.connect({ provider: only });
+      return;
+    }
+    setPickerOpen(true);
+  };
+
+  const elements = (
+    <>
+      {!repairs ? (
+        <ConnectBankDialog
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          providers={options}
+          country={country}
+          onConnect={(selection) =>
+            void flow.connect({
+              provider: selection.provider,
+              institution: selection.institution,
+              psuType: selection.psuType,
+            })
+          }
+        />
+      ) : null}
+      {flow.dialogs}
+    </>
+  );
+
+  return {
+    start,
+    allowed,
+    available,
+    disabled,
+    /** Still finding out which providers there are. */
+    loading: providers.isLoading,
+    busy: flow.busy,
+    repairs,
+    elements,
+  };
+}
+
 /**
  * One button for every bank feed link. Which provider opens depends on the
  * entity's country and on what is configured: with one provider the link
@@ -42,60 +121,27 @@ export function ConnectBankButton({
   onLinked,
 }: Readonly<ConnectBankButtonProps>) {
   const { t } = useFeedTexts();
-  const { can } = usePermissions();
-  const providers = useBankFeedProviders();
-  const flow = useBankFeedConnect({ defaultBankAccountId, returnTo, onLinked });
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const launcher = useConnectBankLauncher({ mode, connection, defaultBankAccountId, returnTo, onLinked });
 
-  if (!can('banking:create')) return null;
+  if (!launcher.allowed) return null;
 
-  const country = providers.data?.country ?? '';
-  const options = providers.data?.providers ?? [];
-  const repair = mode !== 'create' && connection ? repairRequest(connection, mode, providers.data) : null;
-  const repairs = mode !== 'create' && !!connection;
-
-  const unavailable = repairs ? !repair : options.length === 0;
-  const disabled = flow.busy || providers.isLoading || providers.isError || unavailable;
-
-  const start = () => {
-    if (repairs) {
-      if (repair) void flow.connect(repair);
-      return;
-    }
-    const only = options.length === 1 ? options[0] : undefined;
-    if (only && !only.requiresInstitution) {
-      void flow.connect({ provider: only });
-      return;
-    }
-    setPickerOpen(true);
-  };
-
-  const Icon = flow.busy ? Loader2 : repairs ? RefreshCw : Landmark;
-  const text = flow.busy ? t.connecting : (label ?? t.connectBank);
+  const Icon = launcher.busy ? Loader2 : launcher.repairs ? RefreshCw : Landmark;
+  const text = launcher.busy ? t.connecting : (label ?? t.connectBank);
 
   return (
     <>
-      <Button type="button" variant={variant} size={size} className={className} disabled={disabled} onClick={start}>
-        <Icon className={flow.busy ? 'animate-spin' : undefined} aria-hidden="true" />
+      <Button
+        type="button"
+        variant={variant}
+        size={size}
+        className={className}
+        disabled={launcher.disabled}
+        onClick={launcher.start}
+      >
+        <Icon className={launcher.busy ? 'animate-spin' : undefined} aria-hidden="true" />
         {text}
       </Button>
-
-      {!repairs ? (
-        <ConnectBankDialog
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          providers={options}
-          country={country}
-          onConnect={(selection) =>
-            void flow.connect({
-              provider: selection.provider,
-              institution: selection.institution,
-              psuType: selection.psuType,
-            })
-          }
-        />
-      ) : null}
-      {flow.dialogs}
+      {launcher.elements}
     </>
   );
 }

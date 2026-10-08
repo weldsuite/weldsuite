@@ -247,6 +247,29 @@ export const weldbooksUsBankFeeds = {
     connectedThrough: 'Connected through {bank}',
   },
 
+  /** The compact summary above the bank accounts list. */
+  strip: {
+    label: 'Bank feeds',
+    connectPrompt: 'Connect your bank and new transactions arrive on their own.',
+    connected: {
+      one: '{count} bank connected',
+      other: '{count} banks connected',
+    },
+    synced: 'synced {time}',
+    neverSynced: 'not synced yet',
+    attention: {
+      one: '{count} needs attention',
+      other: '{count} need attention',
+    },
+    manage: 'Manage bank feeds',
+  },
+
+  /** The bank accounts list when there are none yet and a bank feed can be connected. */
+  emptyAccounts: {
+    description:
+      'Connect your bank to bring in your accounts and transactions automatically, or add an account yourself.',
+    addManually: 'Add account manually',
+  },
   errors: {
     generic: 'Something went wrong. Try again.',
     forbidden: 'You do not have permission to do this.',
