@@ -64,13 +64,9 @@ import {
   Vault,
   HeartPulse,
   UsersRound,
-  Network,
-  UserPlus,
   CalendarCheck,
   Plane,
-  MessageSquareHeart,
   ClipboardCheck,
-  Target,
   AppWindow,
   UserRound,
   Percent,
@@ -215,9 +211,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldhr.myHr, href: '/weldhr/me', icon: UserRound, permission: 'employees:self' },
           { title: t.navigation.moduleSidebar.weldhr.dashboard, href: '/weldhr', icon: LayoutDashboard },
           { title: t.navigation.moduleSidebar.weldhr.employees, href: '/weldhr/employees', icon: User, permission: 'employees:read' },
-          { title: t.navigation.moduleSidebar.weldhr.clients, href: '/weldhr/clients', icon: Building, permission: 'employees:read' },
-          { title: t.navigation.moduleSidebar.weldhr.orgChart, href: '/weldhr/org-chart', icon: Network, permission: 'employees:read' },
-          { title: t.navigation.moduleSidebar.weldhr.lifecycle, href: '/weldhr/lifecycle', icon: UserPlus, permission: 'employees:read' },
         ],
       },
       {
@@ -225,14 +218,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         items: [
           { title: t.navigation.moduleSidebar.weldhr.attendance, href: '/weldhr/attendance', icon: CalendarCheck, permission: 'attendance:read' },
           { title: t.navigation.moduleSidebar.weldhr.leave, href: '/weldhr/leave', icon: Plane, permission: 'leave:read' },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.weldhr.groups.performance,
-        items: [
-          { title: t.navigation.moduleSidebar.weldhr.coaching, href: '/weldhr/coaching', icon: MessageSquareHeart, permission: 'coaching:read' },
-          { title: t.navigation.moduleSidebar.weldhr.evaluations, href: '/weldhr/evaluations', icon: ClipboardCheck, permission: 'evaluations:read' },
-          { title: t.navigation.moduleSidebar.weldhr.performance, href: '/weldhr/performance', icon: Target, permission: 'evaluations:read' },
         ],
       },
       {

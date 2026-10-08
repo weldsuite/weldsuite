@@ -36,15 +36,12 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import type { HrAvailableMember } from '@weldsuite/app-api-client/domains/weldhr';
 import {
-  useCreateHrAssignment,
   useCreateHrEmployeeFromMember,
   useHrAvailableMembers,
-  useHrChecklistTemplates,
   useHrDepartments,
 } from '@/hooks/queries/use-weldhr-queries';
 import {
   EmployeePicker,
-  CompanyPicker,
   ErrorBanner,
   errorMessage,
   todayIso,
@@ -62,9 +59,6 @@ const formSchema = z.object({
   startDate: z.string().optional(),
   departmentId: z.string().optional(),
   managerId: z.string().optional(),
-  onboardingTemplateId: z.string().optional(),
-  assignCompanyId: z.string().optional(),
-  assignRole: z.string().trim().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -86,17 +80,13 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
   const navigate = useNavigate();
   const { can } = usePermissions();
   const createFromMember = useCreateHrEmployeeFromMember();
-  const createAssignment = useCreateHrAssignment();
   const { data: departments } = useHrDepartments();
-  const { data: templates } = useHrChecklistTemplates('onboarding');
   const { data: availableMembers, isLoading: membersLoading } = useHrAvailableMembers({ limit: 200 });
   const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
   const [managerLabel, setManagerLabel] = useState<string | null>(null);
-  const [companyLabel, setCompanyLabel] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   const members = availableMembers ?? [];
-  const defaultTemplateId = templates?.find((tpl) => tpl.isDefault)?.id;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -112,13 +102,10 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
       startDate: todayIso(),
       departmentId: undefined,
       managerId: undefined,
-      onboardingTemplateId: undefined,
-      assignCompanyId: undefined,
-      assignRole: '',
     },
   });
 
-  const isSubmitting = createFromMember.isPending || createAssignment.isPending;
+  const isSubmitting = createFromMember.isPending;
 
   function selectMember(userId: string | undefined) {
     setSelectedUserId(userId);
@@ -153,22 +140,7 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
         startDate: values.startDate || null,
         departmentId: values.departmentId || null,
         managerId: values.managerId || null,
-        onboardingTemplateId: values.onboardingTemplateId || undefined,
       });
-
-      if (values.assignCompanyId) {
-        try {
-          await createAssignment.mutateAsync({
-            employeeId: created.data.id,
-            companyId: values.assignCompanyId,
-            role: values.assignRole?.trim() || null,
-            startDate: values.startDate || todayIso(),
-            isPrimary: true,
-          });
-        } catch {
-          // The employee was created; a failed first assignment shouldn't block navigation.
-        }
-      }
 
       onClose();
       void navigate({ to: '/weldhr/employees/$employeeId', params: { employeeId: created.data.id } });
@@ -416,66 +388,6 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
                       allowClear
                     />
                   </FormItem>
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="onboardingTemplateId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('weldhr.employees.create.onboarding')}</FormLabel>
-                      <Select
-                        value={field.value ?? defaultTemplateId ?? '__none'}
-                        onValueChange={(v) => field.onChange(v === '__none' ? undefined : v)}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="__none">{t('weldhr.employees.create.onboardingNone')}</SelectItem>
-                          {(templates ?? []).map((tpl) => (
-                            <SelectItem key={tpl.id} value={tpl.id}>
-                              {tpl.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="space-y-3 rounded-md border p-3">
-                  <p className="text-xs font-medium text-muted-foreground">{t('weldhr.employees.create.firstClient')}</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <FormItem>
-                      <Label>{t('weldhr.common.client')}</Label>
-                      <CompanyPicker
-                        value={form.watch('assignCompanyId') ?? null}
-                        valueLabel={companyLabel}
-                        onChange={(id, label) => {
-                          form.setValue('assignCompanyId', id ?? undefined);
-                          setCompanyLabel(label);
-                        }}
-                        allowClear
-                      />
-                    </FormItem>
-                    <FormField
-                      control={form.control}
-                      name="assignRole"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('weldhr.employees.create.role')}</FormLabel>
-                          <FormControl>
-                            <Input {...field} disabled={!form.watch('assignCompanyId')} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
                 </div>
               </>
             )}

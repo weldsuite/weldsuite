@@ -75,7 +75,7 @@ export const settings = {
       mailAccounts: 'Mail-accounts',
       manageMailAccounts: 'E-mailaccounts beheren',
       weldhrSettings: 'WeldHR',
-      configureWeldhr: 'Afdelingen, checklisttemplates, verloftypes, beoordelingsformulieren en KPI\'s',
+      configureWeldhr: 'Afdelingen en verloftypes',
     },
 
     companyInfo: {
@@ -1038,7 +1038,7 @@ export const settings = {
 
     weldhr: {
       title: 'WeldHR',
-      description: 'Afdelingen, checklisttemplates, verloftypes, beoordelingsformulieren en KPI-definities.',
+      description: 'Afdelingen en verloftypes.',
     },
 
     weldcrm: {

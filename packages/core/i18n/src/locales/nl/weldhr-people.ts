@@ -1,6 +1,6 @@
 /**
- * WeldHR — personeelsschermen: dashboard, medewerkersoverzicht + profiel,
- * organigram, klantaccounts. Wordt samengevoegd in `weldhr` door ./weldhr.ts.
+ * WeldHR — personeelsschermen: dashboard, medewerkersoverzicht + profiel.
+ * Wordt samengevoegd in `weldhr` door ./weldhr.ts.
  */
 export const weldhrPeople = {
   dashboard: {
@@ -9,10 +9,6 @@ export const weldhrPeople = {
     clockedInToday: 'Vandaag ingeklokt',
     onLeaveToday: 'Vandaag met verlof',
     pendingLeaveRequests: 'Verlofaanvragen in afwachting',
-    openOnboardingTasks: 'Openstaande onboardingtaken',
-    overdueOnboardingTasks: '{count} te laat',
-    coachingFollowUpsDue: 'Coaching-opvolgingen te doen',
-    avgEvaluationScore: 'Gem. beoordelingsscore (90d)',
     loadFailed: 'Het dashboard kon niet worden geladen.',
     upcomingStarts: {
       title: 'Aankomende startdata',
@@ -23,22 +19,9 @@ export const weldhrPeople = {
       empty: 'Niemand is vandaag met verlof.',
       until: 'tot {date}',
     },
-    recentEvaluations: {
-      title: 'Recente beoordelingen',
-      empty: 'Nog geen beoordelingen.',
-    },
-    clients: {
-      title: 'Klantaccounts',
-      empty: 'Nog geen klantaccounts.',
-      viewAll: 'Alles bekijken',
-      headcount: '{count} personen',
-      fte: '{fte} FTE',
-    },
     links: {
       leave: 'Verlof',
-      lifecycle: 'Lifecycle',
       coaching: 'Coaching',
-      evaluations: 'Beoordelingen',
     },
   },
 
@@ -57,7 +40,6 @@ export const weldhrPeople = {
       jobTitle: 'Functietitel',
       department: 'Afdeling',
       manager: 'Leidinggevende',
-      clients: 'Klantaccounts',
       status: 'Status',
       startDate: 'Startdatum',
       notLinked: 'Niet in workspace',
@@ -89,10 +71,6 @@ export const weldhrPeople = {
       startDate: 'Startdatum',
       department: 'Afdeling',
       manager: 'Leidinggevende',
-      onboarding: 'Onboardingchecklist starten',
-      onboardingNone: 'Geen checklist starten',
-      firstClient: 'Eerste klanttoewijzing (optioneel)',
-      role: 'Rol',
       submit: 'Medewerker aanmaken',
       failed: 'Deze medewerker kon niet worden aangemaakt.',
     },
@@ -127,8 +105,6 @@ export const weldhrPeople = {
       actions: {
         edit: 'Bewerken',
         delete: 'Verwijderen',
-        startOnboarding: 'Onboarding starten',
-        startOffboarding: 'Uitdiensttreding starten',
       },
       deleteConfirm: {
         title: 'Medewerker verwijderen',
@@ -136,14 +112,9 @@ export const weldhrPeople = {
       },
       tabs: {
         overview: 'Overzicht',
-        clients: 'Klanten',
         personal: 'Persoonlijk',
-        lifecycle: 'Lifecycle',
         attendance: 'Aanwezigheid',
         leave: 'Verlof',
-        coaching: 'Coaching',
-        evaluations: 'Beoordelingen',
-        performance: 'Prestaties',
       },
       overview: {
         profile: 'Profiel',
@@ -160,37 +131,10 @@ export const weldhrPeople = {
           title: 'Directe rapportages',
           empty: 'Geen directe rapportages.',
         },
-        clients: {
-          title: 'Klantaccounts',
-          empty: 'Nog niet toegewezen aan een klantaccount.',
-        },
       },
       edit: {
         title: 'Medewerker bewerken',
         failed: 'Deze medewerker kon niet worden opgeslagen.',
-      },
-      clientsTab: {
-        title: 'Klanttoewijzingen',
-        addAssignment: 'Toewijzing toevoegen',
-        empty: 'Nog geen klanttoewijzingen.',
-        endAssignment: 'Toewijzing beëindigen',
-        table: {
-          company: 'Klantaccount',
-          role: 'Rol',
-          allocation: 'Toewijzing',
-          dates: 'Periode',
-          status: 'Actief',
-          primary: 'Primair',
-        },
-        assignmentForm: {
-          title: 'Klanttoewijzing toevoegen',
-          editTitle: 'Klanttoewijzing bewerken',
-          client: 'Klantaccount',
-          role: 'Rol',
-          allocation: 'Toewijzing %',
-          primary: 'Primaire toewijzing',
-          failed: 'Deze toewijzing kon niet worden opgeslagen.',
-        },
       },
       personalTab: {
         title: 'Persoonlijke gegevens',
@@ -219,108 +163,6 @@ export const weldhrPeople = {
           hour: 'uur',
           month: 'maand',
           year: 'jaar',
-        },
-      },
-      lifecycleDialog: {
-        onboardingTitle: 'Onboarding starten',
-        offboardingTitle: 'Uitdiensttreding starten',
-        template: 'Checklistsjabloon',
-        lastWorkingDay: 'Laatste werkdag',
-        noTemplates: 'Nog geen checklistsjablonen. Maak er eerst een aan in de WeldHR-instellingen.',
-        failed: 'Deze checklist kon niet worden gestart.',
-      },
-    },
-  },
-
-  orgChart: {
-    title: 'Organigram',
-    subtitle: 'Rapportagelijnen, afgeleid van de leidinggevende van elke medewerker.',
-    search: 'Medewerkers zoeken…',
-    empty: 'Nog geen medewerkers.',
-    reports: '{count} directe rapportages',
-    loadFailed: 'Het organigram kon niet worden geladen.',
-  },
-
-  clients: {
-    title: 'Klantaccounts',
-    subtitle: 'Bezetting en FTE toegewezen aan elk klantaccount.',
-    assignEmployee: 'Medewerker toewijzen',
-    searchPlaceholder: 'Klantaccounts zoeken…',
-    loadFailed: 'Klantaccounts konden niet worden geladen.',
-    table: {
-      company: 'Bedrijf',
-      active: 'Actief',
-      fte: 'FTE',
-      total: 'Totaal ooit toegewezen',
-    },
-    empty: {
-      title: 'Nog geen klantaccounts',
-      description: 'Wijs een medewerker toe aan een CRM-bedrijf om een klantaccount te starten.',
-    },
-    assign: {
-      title: 'Medewerker toewijzen',
-      employee: 'Medewerker',
-      client: 'Klantaccount',
-      role: 'Rol',
-      startDate: 'Startdatum',
-      submit: 'Toewijzen',
-      failed: 'Deze toewijzing kon niet worden aangemaakt.',
-    },
-    detail: {
-      loadFailed: 'Dit klantaccount kon niet worden geladen.',
-      viewInCrm: 'Bekijken in CRM',
-      tabs: {
-        team: 'Team',
-        clientView: 'Wat de klant ziet',
-        contacts: 'Contacten',
-      },
-      team: {
-        active: 'Actief',
-        past: 'Verleden',
-        empty: 'Nog geen toewijzingen.',
-        endAssignment: 'Toewijzing beëindigen',
-        assignmentForm: {
-          title: 'Toewijzing toevoegen',
-          editTitle: 'Toewijzing bewerken',
-          role: 'Rol',
-          allocation: 'Toewijzing %',
-          primary: 'Primaire toewijzing',
-          failed: 'Deze toewijzing kon niet worden opgeslagen.',
-        },
-      },
-      clientView: {
-        infoBanner: 'Alleen records gemarkeerd als "gedeeld met klant" verschijnen in het portaal.',
-        individualScoresOn: 'Individuele scores zijn zichtbaar voor deze klant.',
-        individualScoresOff: 'Alleen teamgemiddelden zijn zichtbaar voor deze klant.',
-        summary: {
-          headcount: 'Bezetting',
-          fte: 'FTE',
-          avgScore: 'Gem. beoordelingsscore',
-          attendanceRate: 'Aanwezigheidspercentage (30d)',
-          milestonesAchieved: 'Mijlpalen behaald',
-          milestonesOpen: 'Mijlpalen open',
-        },
-        kpis: {
-          title: "KPI's",
-          target: 'Doel',
-          onTarget: 'Op doel',
-          offTarget: 'Niet op doel',
-        },
-        team: {
-          title: 'Team',
-          empty: 'Nog geen teamleden.',
-        },
-        evaluations: {
-          title: 'Gedeelde beoordelingen',
-          empty: 'Geen beoordelingen gedeeld met deze klant.',
-        },
-        milestones: {
-          title: 'Mijlpalen',
-          empty: 'Geen mijlpalen gedeeld met deze klant.',
-        },
-        coaching: {
-          title: 'Coaching',
-          empty: 'Geen coachingsessies gedeeld met deze klant.',
         },
       },
     },
