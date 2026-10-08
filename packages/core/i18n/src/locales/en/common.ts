@@ -447,6 +447,8 @@ export const common = {
         emailPlaceholder: 'john@company.com',
         passwordLabel: 'Password',
         passwordPlaceholder: 'Enter your password',
+        showPassword: 'Show password',
+        hidePassword: 'Hide password',
         forgotPassword: 'Forgot password?',
         continueWithGoogle: 'Continue with Google',
         orDivider: 'or',

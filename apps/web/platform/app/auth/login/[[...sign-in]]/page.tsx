@@ -12,7 +12,7 @@ import {
   InputOTPSlot,
 } from '@weldsuite/ui/components/input-otp';
 import { REGEXP_ONLY_DIGITS } from 'input-otp';
-import { Loader2, Mail, Lock, KeyRound, ChevronLeft } from 'lucide-react';
+import { Loader2, Mail, Lock, KeyRound, ChevronLeft, Eye, EyeOff } from 'lucide-react';
 import { getSafeCallbackUrl, getClerkErrorMessage } from '../../utils';
 import { getTranslations } from '@/lib/i18n';
 
@@ -245,6 +245,7 @@ export default function LoginPage() {
   const [step, setStep] = useState<LoginStep>('credentials');
   const [email, setEmail] = useState(prefillEmail || '');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [firstFactorCode, setFirstFactorCode] = useState('');
   const [useBackupCode, setUseBackupCode] = useState(false);
@@ -811,15 +812,24 @@ export default function LoginPage() {
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[17px] w-[17px] text-gray-400 pointer-events-none" />
                 <Input
                   id="password"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   placeholder={t.auth.login.passwordPlaceholder}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={isLoading}
                   autoFocus={!!prefillEmail}
-                  className="pl-10 !h-[40px] !border-gray-300 !bg-white text-gray-900 !text-[14px] selection:bg-blue-200 selection:text-gray-900 !ring-0 !ring-offset-0 focus:!ring-0 focus:!ring-offset-0 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus:!border-gray-400"
+                  className="pl-10 pr-10 !h-[40px] !border-gray-300 !bg-white text-gray-900 !text-[14px] selection:bg-blue-200 selection:text-gray-900 !ring-0 !ring-offset-0 focus:!ring-0 focus:!ring-offset-0 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus:!border-gray-400"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? t.auth.login.hidePassword : t.auth.login.showPassword}
+                  aria-pressed={showPassword}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="h-[17px] w-[17px]" /> : <Eye className="h-[17px] w-[17px]" />}
+                </button>
               </div>
             </div>
 

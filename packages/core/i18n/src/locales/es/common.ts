@@ -428,6 +428,8 @@ export const common = {
         emailPlaceholder: 'juan@empresa.com',
         passwordLabel: 'Contraseña',
         passwordPlaceholder: 'Introduce tu contraseña',
+        showPassword: 'Mostrar contraseña',
+        hidePassword: 'Ocultar contraseña',
         forgotPassword: '¿Olvidaste tu contraseña?',
         continueWithGoogle: 'Continuar con Google',
         orDivider: 'o',
