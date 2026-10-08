@@ -2,8 +2,9 @@
  * One line of bank feed status above the bank accounts list: how many banks
  * are connected, when they last synced, and whether one needs attention, with
  * a link to the bank feeds page for the rest. Without a connection it offers
- * Connect bank instead, as long as there are accounts it could feed (with no
- * accounts at all, the list's empty state makes that offer).
+ * Connect bank instead. It only sits above a list that has accounts: with none
+ * (or while they load), the list's empty state is the one thing on the page,
+ * and that empty state makes the Connect bank offer.
  */
 import { Link } from '@tanstack/react-router';
 import { AlertTriangle, ChevronRight, Landmark } from 'lucide-react';
@@ -35,13 +36,13 @@ export function BankFeedsStrip({ hasAccounts }: Readonly<{ hasAccounts: boolean 
   const providers = useBankFeedProviders(undefined, { enabled: readable });
 
   // The bank feeds page reports load errors; a summary line just stays away.
-  if (!readable || connections.isLoading || connections.isError) return null;
+  if (!readable || !hasAccounts || connections.isLoading || connections.isError) return null;
 
   const live = (connections.data ?? []).filter((connection) => !isEnded(connection.status));
 
   if (live.length === 0) {
     const canConnect = can('banking:create') && (providers.data?.providers.length ?? 0) > 0;
-    if (!hasAccounts || !canConnect) return null;
+    if (!canConnect) return null;
     return (
       <section aria-label={t.strip.label} className={STRIP_CLASS}>
         <Landmark className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />

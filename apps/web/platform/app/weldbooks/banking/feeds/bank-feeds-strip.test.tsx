@@ -122,6 +122,13 @@ describe('BankFeedsStrip', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('stays away without accounts even when a bank is connected', async () => {
+    routes({ connections: [makeConnection({ lastSyncedAt: minutesAgo(5) })] });
+    const { container } = renderWithProviders(<BankFeedsStrip hasAccounts={false} />);
+    await settled();
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('stays away when no provider serves this country, or the user may not connect one', async () => {
     routes({ connections: [], providers: { country: 'BE', providers: [] } });
     const first = renderWithProviders(<BankFeedsStrip hasAccounts />);
