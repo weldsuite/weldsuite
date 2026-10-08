@@ -58,7 +58,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
   {
     code: 'weldbooks',
     label: 'WeldBooks',
-    objects: ['entities', 'invoices', 'bills', 'journal', 'accounts', 'banking', 'reports', 'settings'],
+    objects: ['entities', 'invoices', 'bills', 'journal', 'accounts', 'banking', 'reports', 'settings', 'taxes', 'tax_ids'],
   },
   {
     code: 'welddesk',

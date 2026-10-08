@@ -34,7 +34,27 @@ export type SystemAccountRole =
   | 'retained_earnings'
   | 'realized_fx_gain'
   | 'realized_fx_loss'
-  | 'rounding';
+  | 'rounding'
+  // US (and any jurisdiction that wants them)
+  | 'undeposited_funds'
+  | 'sales_tax_payable'
+  | 'use_tax_payable'
+  | 'owner_equity'
+  | 'owner_draws'
+  | 'opening_balance_equity'
+  | 'credit_card_payable'
+  | 'backup_withholding_payable'
+  | 'sales_tax_vendor_discount'
+  | 'tax_penalties_interest'
+  | 'accumulated_depreciation'
+  | 'depreciation_expense'
+  | 'fixed_assets'
+  | 'gain_loss_on_disposal'
+  | 'payroll_wages_expense'
+  | 'payroll_tax_expense'
+  | 'payroll_liabilities'
+  | 'unapplied_cash_payment_income'
+  | 'unapplied_cash_bill_payment_expense';
 
 /** GST component code used in India tax expansion (CGST/SGST/IGST). */
 export type GstComponentCode = 'cgst' | 'sgst' | 'igst';
