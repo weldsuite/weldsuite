@@ -56,6 +56,9 @@ export default function EntitiesPage() {
   const jurisdictionOf = (e: EntityRow) =>
     jurisdictions.find((j) => j.code.toUpperCase() === e.jurisdictionCode?.toUpperCase());
   const tt = t.accounting.terminology;
+  // US legal forms have their own labels; the other jurisdictions keep the short code.
+  const usTypeLabels = t.weldbooksUs.setup.entityTypes as Record<string, string>;
+  const entityTypeLabel = (type: string) => usTypeLabels[type] ?? type.toUpperCase();
 
   const korMutation = useMutation({
     mutationFn: async ({ entity, enabled }: { entity: EntityRow; enabled: boolean }) => {
@@ -92,13 +95,13 @@ export default function EntitiesPage() {
     {
       id: 'jurisdiction',
       header: te.colJurisdiction,
-      width: 'w-[140px]',
+      width: 'w-[220px]',
       render: (e) => (
         <span>
           {e.jurisdictionCode}
           {e.entityType ? (
             <span className="text-xs text-muted-foreground ml-1">
-              · {e.entityType.toUpperCase()}
+              · {entityTypeLabel(e.entityType)}
             </span>
           ) : null}
         </span>
