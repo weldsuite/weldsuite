@@ -11,6 +11,7 @@ import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
 import { useWeldChatMessagesRealtime, type WeldChatRealtimeMessage } from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import { useWeldChatRealtime } from '@/hooks/weldchat/use-weldchat-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
+import { useMarkReadOnOpen } from '@/hooks/weldchat/use-mark-read-on-open';
 
 import { ChannelHeader } from '../components/channel-header';
 import { PinnedMessagesBar } from '../components/pinned-messages-bar';
@@ -111,10 +112,8 @@ export default function DmConversationPage() {
 
   const { client } = useWeldChatRoom(channelId ?? null);
 
-  // Auto mark DM as read on open
-  useEffect(() => {
-    if (channelId) markAsRead(channelId);
-  }, [channelId, markAsRead]);
+  // Mark the DM read on open; the answer says where the new messages start.
+  const unreadMarker = useMarkReadOnOpen(channelId);
 
   const onMessageCreated = useCallback((message: WeldChatRealtimeMessage) => {
     if (!channelId) return;
@@ -174,7 +173,7 @@ export default function DmConversationPage() {
       ) : (
         <>
           <PinnedMessagesBar channelId={channelId} />
-          <MessageList key={channelId} channelId={channelId} client={client} isDm targetMessageId={targetMessageId} onTargetHandled={clearTarget} />
+          <MessageList key={channelId} channelId={channelId} client={client} isDm targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
           <MessageInput key={channelId} channelId={channelId} client={client} />
         </>
       )}

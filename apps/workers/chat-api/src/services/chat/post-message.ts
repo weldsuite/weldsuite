@@ -59,6 +59,9 @@ const SEARCH_ENTITY_TYPES_SET: ReadonlySet<string> = new Set<string>([
   'domain',
 ]);
 
+/** Most files one message may carry (the web composer stops at the same number). */
+export const MAX_MESSAGE_ATTACHMENTS = 10;
+
 export interface PostChatMessageInput {
   content: string;
   htmlContent?: string;
@@ -143,6 +146,9 @@ async function assertChannelAllowsSend(
   }
   if (input.attachments?.length && !flags.attachmentsEnabled) {
     throw new ChatFeatureError('Attachments are disabled in this channel');
+  }
+  if ((input.attachments?.length ?? 0) > MAX_MESSAGE_ATTACHMENTS) {
+    throw new ChatFeatureError(`A message can have at most ${MAX_MESSAGE_ATTACHMENTS} attachments`);
   }
   if (input.parentId) {
     await assertThreadParentInChannel(db, channelId, input.parentId);

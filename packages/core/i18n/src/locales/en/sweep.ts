@@ -464,9 +464,7 @@ export const sweep = {
       "download": "Download"
     },
     "forwardMessage": {
-      "couldNotOpenDm": "Could not open DM with {name}",
-      "scheduleOpenTabNote": "Scheduled messages are only sent while WeldSuite stays open in this tab. You can schedule up to {days} days ahead.",
-      "scheduleTooFar": "Pick a time within the next {days} days"
+      "couldNotOpenDm": "Could not open DM with {name}"
     },
     "groupConversation": {
       "defaultName": "Group Chat"

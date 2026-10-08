@@ -285,6 +285,20 @@ describe('/api/chat-messages · thread parent validation', () => {
     const [parent] = await db.select().from(schema.chatMessages).where(eq(schema.chatMessages.id, root));
     expect(parent?.threadReplyCount).toBe(1);
   });
+
+  it('caps the number of attachments on one message', async () => {
+    const attachment = (n: number) => ({
+      id: `att_${n}`,
+      fileName: `f${n}.txt`,
+      fileSize: 1,
+      mimeType: 'text/plain',
+      url: `https://cdn.example/f${n}.txt`,
+    });
+    const ten = Array.from({ length: 10 }, (_, n) => attachment(n));
+    expect((await postTo(publicChannelId, { body: 'ten files', attachments: ten })).status).toBe(201);
+    const eleven = [...ten, attachment(10)];
+    expect((await postTo(publicChannelId, { body: 'eleven files', attachments: eleven })).status).toBe(400);
+  });
 });
 
 describe('/api/chat-messages · system messages and pin alerts', () => {

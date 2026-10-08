@@ -64,6 +64,7 @@ import * as commonService from '../../services/team/common-concepts';
 import * as activityService from '../../services/team/activity';
 import * as memberAccessService from '../../services/team/member-access';
 import { getWorkspaceSeatLimit } from '../../services/seat-limits';
+import { syncClerkSeatLimit } from '../../services/billing';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -434,6 +435,52 @@ export function describeGuestAddFailure(failure: GuestAddFailure): {
 }
 
 /**
+ * The `max_allowed_memberships` Clerk needs for one more membership to fit, or
+ * null when it already fits (or the organization has no cap).
+ */
+export function clerkCapWithRoomForOne(cap: number | null | undefined, occupied: number): number | null {
+  if (!cap || cap <= 0) return null;
+  return occupied < cap ? null : occupied + 1;
+}
+
+/** `total_count` of a Clerk list endpoint, or null when it can't be read. */
+async function clerkListTotal(secretKey: string, url: string): Promise<number | null> {
+  const res = await fetch(url, { headers: clerkHeaders(secretKey) });
+  if (!res.ok) return null;
+  const body = (await res.json()) as { total_count?: number };
+  return typeof body.total_count === 'number' ? body.total_count : null;
+}
+
+/**
+ * Guests don't use a paid seat, but Clerk's `max_allowed_memberships` (billing
+ * sets it to the paid seat limit) counts every membership and pending
+ * invitation, guests included, so on a one-seat plan no guest could ever be
+ * added. When the organization is full, raise the cap by one before adding
+ * a guest. Internal invites never come here: they are checked against the
+ * paid seats instead. Best effort: if Clerk can't be read the add still runs
+ * and Clerk's own answer is reported as before.
+ */
+async function makeClerkRoomForGuest(env: Env, orgId: string): Promise<void> {
+  try {
+    const base = `https://api.clerk.com/v1/organizations/${orgId}`;
+    const orgRes = await fetch(base, { headers: clerkHeaders(env.CLERK_SECRET_KEY) });
+    if (!orgRes.ok) return;
+    const org = (await orgRes.json()) as { max_allowed_memberships?: number | null };
+    if (!org.max_allowed_memberships || org.max_allowed_memberships <= 0) return;
+
+    const [members, pending] = await Promise.all([
+      clerkListTotal(env.CLERK_SECRET_KEY, `${base}/memberships?limit=1`),
+      clerkListTotal(env.CLERK_SECRET_KEY, `${base}/invitations?status=pending&limit=1`),
+    ]);
+    if (members === null) return;
+    const nextCap = clerkCapWithRoomForOne(org.max_allowed_memberships, members + (pending ?? 0));
+    if (nextCap !== null) await syncClerkSeatLimit(env.CLERK_SECRET_KEY, orgId, nextCap);
+  } catch (err) {
+    console.error('[app-api/team-members] Could not make room for a guest in Clerk:', err);
+  }
+}
+
+/**
  * For guests: try to short-circuit the email-invitation by adding the
  * existing Clerk user directly to the org. This is what makes "one
  * identity, many workspaces" work.
@@ -663,6 +710,7 @@ app.post('/invite', async (c) => {
   // which matters most on Free, where the cap is a single seat.
   const seatLimitMessage = isGuest ? null : await getSeatLimitMessage(c.env, orgId);
   if (seatLimitMessage) return error.forbidden(c, seatLimitMessage);
+  if (isGuest) await makeClerkRoomForGuest(c.env, orgId);
 
   const direct: GuestDirectAddResult = isGuest
     ? await addExistingClerkUserAsGuest({

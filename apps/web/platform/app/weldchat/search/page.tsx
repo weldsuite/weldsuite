@@ -14,6 +14,7 @@ import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { messagePreviewText } from '../lib/render-message-content';
 
 interface SearchFilters {
   authorId?: string;
@@ -257,8 +258,8 @@ export default function SearchPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-foreground/90 mt-0.5 whitespace-pre-wrap break-words line-clamp-3">
-                      {msg.content}
+                    <p className="text-sm text-foreground/90 mt-0.5 break-words line-clamp-3">
+                      {messagePreviewText(msg.content ?? '', memberNameByUserId)}
                     </p>
                   </div>
                 </div>
