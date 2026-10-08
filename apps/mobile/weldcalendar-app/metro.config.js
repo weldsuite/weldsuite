@@ -27,7 +27,7 @@ config.resolver.unstable_enablePackageExports = true;
 
 // Keep one copy of native/runtime packages — prefer the app's SDK 57 copies,
 // fall back to hoisted monorepo deps for packages not installed locally.
-const fs = require('fs');
+const fs = require('node:fs');
 
 function resolvePackageDir(pkg) {
   const local = path.join(projectRoot, 'node_modules', pkg);
