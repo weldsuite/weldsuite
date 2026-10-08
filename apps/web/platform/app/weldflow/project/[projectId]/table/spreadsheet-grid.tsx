@@ -576,6 +576,17 @@ export function SpreadsheetGrid({
   const [fillDragEnd, setFillDragEnd] = useState<CellCoord | null>(null);
   // Open dropdown (data-validation list) picker, anchored at the chevron.
   const [openDropdown, setOpenDropdown] = useState<{ col: number; row: number; x: number; y: number; options: string[] } | null>(null);
+
+  // Escape closes the dropdown picker (keyboard equivalent of clicking the backdrop).
+  const isDropdownOpen = openDropdown !== null;
+  useEffect(() => {
+    if (!isDropdownOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenDropdown(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isDropdownOpen]);
   const [colWidths, setColWidths] = useState<Record<number, number>>({});
   const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
   const [editingHeader, setEditingHeader] = useState<number | null>(null);
@@ -1711,7 +1722,7 @@ export function SpreadsheetGrid({
       {/* Dropdown (data-validation list) picker */}
       {openDropdown && (
         <>
-          <div role="presentation" className="fixed inset-0 z-40" onMouseDown={() => setOpenDropdown(null)} />
+          <div aria-hidden="true" className="fixed inset-0 z-40" onMouseDown={() => setOpenDropdown(null)} />
           <div
             role="presentation"
             className="fixed z-50 max-h-60 w-44 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"

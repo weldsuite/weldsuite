@@ -191,6 +191,16 @@ export function EntityDetailPanel({
     return () => window.removeEventListener('close-detail-panels', handler);
   }, [onClose]);
 
+  // Close on Escape while open (keyboard counterpart of the backdrop click)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   // Debounced description change handler
   const handleDescriptionChange = useCallback((value: string) => {
     setLocalDescription(value);
@@ -258,6 +268,7 @@ export function EntityDetailPanel({
       {/* Mobile backdrop */}
       <div
         className="fixed inset-0 bg-black/50 z-40 md:hidden"
+        aria-hidden="true"
         onClick={onClose}
       />
       {/* Desktop size constraints */}
@@ -445,16 +456,27 @@ export function EntityDetailPanel({
                           {item.isCompleted && <Check className="h-3 w-3" />}
                         </button>
                       )}
-                      <span
-                        className={cn(
-                          "text-sm flex-1",
-                          onSubItemClick && "cursor-pointer",
-                          item.isCompleted && "line-through text-gray-400"
-                        )}
-                        onClick={() => onSubItemClick?.(item.id)}
-                      >
-                        {item.title}
-                      </span>
+                      {onSubItemClick ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            "text-sm flex-1 text-left cursor-pointer",
+                            item.isCompleted && "line-through text-gray-400"
+                          )}
+                          onClick={() => onSubItemClick(item.id)}
+                        >
+                          {item.title}
+                        </button>
+                      ) : (
+                        <span
+                          className={cn(
+                            "text-sm flex-1",
+                            item.isCompleted && "line-through text-gray-400"
+                          )}
+                        >
+                          {item.title}
+                        </span>
+                      )}
                       {onRemoveSubItem && (
                         <button
                           className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-accent rounded transition-opacity"

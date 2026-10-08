@@ -16,6 +16,7 @@ export type CatalogInput = {
   howItWorks?: unknown;
   isActive?: unknown;
   isPublished?: unknown;
+  isBeta?: unknown;
   sortOrder?: unknown;
   version?: unknown;
   provider?: unknown;
@@ -40,6 +41,7 @@ export interface ParsedCatalog {
   howItWorks: ParsedHowItWorks[];
   isActive: boolean;
   isPublished: boolean;
+  isBeta: boolean;
   sortOrder: number;
   version: string;
   provider: string;
@@ -175,7 +177,7 @@ const parseHowItWorks: Section = (body, out, partial) => {
 };
 
 /** Optional boolean field that defaults to `defaultValue` on a full (non-partial) parse. */
-function booleanField(key: 'isActive' | 'isPublished' | 'verified', defaultValue: boolean): Section {
+function booleanField(key: 'isActive' | 'isPublished' | 'isBeta' | 'verified', defaultValue: boolean): Section {
   return (body, out, partial) => {
     const value = body[key];
     if (value === undefined) {
@@ -256,6 +258,7 @@ const CATALOG_SECTIONS: readonly Section[] = [
   parseHowItWorks,
   booleanField('isActive', true),
   booleanField('isPublished', false),
+  booleanField('isBeta', false),
   parseSortOrder,
   shortTextField('version', 20, '1.0.0'),
   shortTextField('provider', 100, 'WeldSuite'),

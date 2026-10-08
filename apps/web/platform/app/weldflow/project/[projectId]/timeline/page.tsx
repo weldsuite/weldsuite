@@ -46,6 +46,7 @@ import {
 import { Badge } from "@weldsuite/ui/components/badge";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "@weldsuite/i18n/client";
+import { activateOnKey } from "@/lib/activate-on-key";
 
 interface Task {
   id: string;
@@ -507,7 +508,10 @@ export default function TimelinePage() {
                     selectedTask?.id === task.id && "selected"
                   )}
                   style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedTask(task)}
+                  onKeyDown={activateOnKey(() => setSelectedTask(task))}
                 >
                   {isParent && (
                     <Button
@@ -629,7 +633,8 @@ export default function TimelinePage() {
                 
                 return (
                   <div key={task.id} className="timeline-row">
-                    <div
+                    <button
+                      type="button"
                       className={cn(
                         "timeline-task",
                         task.type === "milestone" && "milestone",
@@ -655,7 +660,7 @@ export default function TimelinePage() {
                           )}
                         </>
                       )}
-                    </div>
+                    </button>
                   </div>
                 );
               })}
