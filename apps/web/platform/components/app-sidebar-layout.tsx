@@ -307,7 +307,7 @@ function ActionDropdownItems({ actions }: Readonly<{ actions: ItemAction[] }>) {
         const ActionIcon = action.icon;
         const isDelete = action.label.toLowerCase() === 'delete';
         return (
-          <React.Fragment key={idx}>
+          <React.Fragment key={action.label}>
             <DropdownMenuItem
               onClick={action.onClick}
               className={isDelete ? "text-red-600 focus:text-red-600 focus:bg-red-600/10 hover:bg-red-600/10" : ""}
@@ -926,7 +926,7 @@ function ActionsContextContent({ actions }: Readonly<{ actions: ItemAction[] }>)
         const isArchive = action.label.toLowerCase() === 'archive';
         const needsSeparator = (isDelete || isArchive) && idx > 0;
         return (
-          <React.Fragment key={idx}>
+          <React.Fragment key={action.label}>
             {needsSeparator && <ContextMenuSeparator />}
             <ContextMenuItem
               onClick={action.onClick}

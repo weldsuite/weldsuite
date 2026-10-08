@@ -2889,9 +2889,9 @@ export function CalendarScheduleCard({ isDemo = false, title = 'WeldCalendar —
             </span>
           </div>
           {/* Events */}
-          {group.events.map((event, i) => (
+          {group.events.map((event) => (
             <div
-              key={i}
+              key={`${event.time}-${event.title}`}
               className="flex items-center gap-3 px-4 h-[44px] hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border last:border-b-0"
             >
               <div className="w-[50px] shrink-0">
@@ -2920,7 +2920,7 @@ export function CalendarFourDayCard({ isDemo = false, title = 'WeldCalendar — 
         {CAL_DAY_LABELS.map((day, i) => {
           const events = CAL_EVENTS.filter((e) => e.day === i);
           return (
-            <div key={i} className="flex-1 min-w-0 flex flex-col min-h-0">
+            <div key={day.date} className="flex-1 min-w-0 flex flex-col min-h-0">
               {/* Day header */}
               <div className={cn(
                 'flex flex-col items-center justify-center py-2 border-b border-border/60 shrink-0',
@@ -2942,9 +2942,9 @@ export function CalendarFourDayCard({ isDemo = false, title = 'WeldCalendar — 
               </div>
               {/* Event blocks */}
               <div className="flex flex-col gap-1 p-1.5 flex-1">
-                {events.map((event, j) => (
+                {events.map((event) => (
                   <div
-                    key={j}
+                    key={`${event.time}-${event.title}`}
                     className={cn('rounded px-1.5 py-1 text-white text-[10px] cursor-pointer', event.color)}
                   >
                     <div className="font-mono opacity-80">{event.time}</div>
@@ -2970,9 +2970,9 @@ export function CalendarDayCard({ isDemo = false, title = 'WeldCalendar — Day'
         <span className="text-xs font-semibold text-foreground">{CAL_DAY_LABELS[0].full}</span>
         <span className="text-xs text-muted-foreground tabular-nums">{todayEvents.length} events</span>
       </div>
-      {todayEvents.map((event, i) => (
+      {todayEvents.map((event) => (
         <div
-          key={i}
+          key={`${event.time}-${event.title}`}
           className="flex items-center gap-3 px-4 h-[75px] hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border last:border-b-0"
         >
           {/* Time range */}

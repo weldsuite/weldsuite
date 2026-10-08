@@ -2788,8 +2788,8 @@ function MonthView({
         className="grid flex-1 min-h-0 overflow-hidden"
         style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}
       >
-        {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 grid-rows-1 min-h-0 border-b last:border-b-0 overflow-hidden">
+        {weeks.map((week) => (
+          <div key={format(week[0], 'yyyy-MM-dd')} className="grid grid-cols-7 grid-rows-1 min-h-0 border-b last:border-b-0 overflow-hidden">
             {week.map((day) => {
               const key = format(day, 'yyyy-MM-dd');
               const dayEvents = eventsByDay.get(key) ?? NO_MONTH_ENTRIES;

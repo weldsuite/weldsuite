@@ -142,6 +142,26 @@ interface EditableMapping {
   isRequired?: boolean;
 }
 
+// Mappings carry no id, so each row object gets a stable render key the first
+// time it is seen; updates carry the key over to the replacement object.
+const mappingKeys = new WeakMap<object, string>();
+let mappingKeySeq = 0;
+
+function getMappingKey(mapping: object): string {
+  let key = mappingKeys.get(mapping);
+  if (!key) {
+    mappingKeySeq += 1;
+    key = `mapping-${mappingKeySeq}`;
+    mappingKeys.set(mapping, key);
+  }
+  return key;
+}
+
+function carryMappingKey<T extends object>(previous: object, next: T): T {
+  mappingKeys.set(next, getMappingKey(previous));
+  return next;
+}
+
 export function FieldMappingEditor({ connectionId }: Readonly<{ connectionId: string }>) {
   const t = useTranslations();
   const ENTITY_TYPES = React.useMemo(() => getEntityTypes(t), [t]);
@@ -213,7 +233,7 @@ export function FieldMappingEditor({ connectionId }: Readonly<{ connectionId: st
 
   const handleUpdateMapping = (index: number, field: keyof EditableMapping, value: string) => {
     setLocalMappings(prev => prev.map((m, i) =>
-      i === index ? { ...m, [field]: value } : m
+      i === index ? carryMappingKey(m, { ...m, [field]: value }) : m
     ));
     setIsDirty(true);
   };
@@ -223,7 +243,7 @@ export function FieldMappingEditor({ connectionId }: Readonly<{ connectionId: st
     setLocalMappings(prev => prev.map((m, i) => {
       if (i !== index) return m;
       const nextIdx = (order.indexOf(m.direction) + 1) % order.length;
-      return { ...m, direction: order[nextIdx] };
+      return carryMappingKey(m, { ...m, direction: order[nextIdx] });
     }));
     setIsDirty(true);
   };
@@ -278,7 +298,7 @@ export function FieldMappingEditor({ connectionId }: Readonly<{ connectionId: st
           <div className="divide-y divide-border">
             {localMappings.map((mapping, index) => (
               <div
-                key={index}
+                key={getMappingKey(mapping)}
                 className="grid grid-cols-[1fr_32px_1fr_80px_32px] gap-2 items-center px-4 py-2"
               >
                 <Select

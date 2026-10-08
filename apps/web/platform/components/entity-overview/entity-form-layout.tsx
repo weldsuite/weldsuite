@@ -125,9 +125,9 @@ export function EntityFormLayout({
               {backButton}
             </div>
             <h2 className="text-2xl font-semibold">{title}</h2>
-            {sections.map((section, index) => (
+            {sections.map((section) => (
               <div
-                key={index}
+                key={section.title}
                 className="bg-background px-6 pt-5 pb-6 rounded-lg border border-border"
               >
                 <div className="mb-4">
@@ -159,7 +159,7 @@ export function EntityFormLayout({
               <div className="space-y-4">
                 {/* Summary Fields */}
                 <div className="space-y-2">
-                  {summaryFields.map((field, index) => {
+                  {summaryFields.map((field) => {
                     // Check if field should be hidden when empty
                     if (field.hideIfEmpty && !field.value) {
                       return null;
@@ -167,7 +167,7 @@ export function EntityFormLayout({
 
                     return (
                       <div
-                        key={index}
+                        key={field.label}
                         className={`flex justify-between text-sm ${
                           field.bordered ? "border-t pt-6 mt-6" : ""
                         }`}
