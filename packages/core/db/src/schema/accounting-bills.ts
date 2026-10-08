@@ -3,12 +3,14 @@ import {
   varchar,
   timestamp,
   integer,
+  boolean,
   numeric,
   text,
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
 import type { StoredPostalAddress } from './accounting-address';
+import type { DocumentTaxBreakdownRow } from './accounting-tax-lines';
 
 export const bills = pgTable('bills', {
   id: varchar('id', { length: 30 }).primaryKey(),
@@ -59,21 +61,9 @@ export const bills = pgTable('bills', {
   rejectionReason: text('rejection_reason'),
 
   attachmentKeys: jsonb('attachment_keys').$type<string[]>(),
-  taxBreakdown: jsonb('tax_breakdown').$type<Array<{
-    taxRateId: string;
-    taxRateName: string;
-    taxRate: number;
-    taxableAmount: number;
-    taxAmount: number;
-    /** GST component when expanded (cgst / sgst / igst). */
-    component?: string;
-    /** System account role for journal posting. */
-    accountRole?: string;
-    /** The rate's tax category (standard, reduced, reverse_charge, ...). */
-    taxCategoryCode?: string;
-    /** Purchase tax the buyer self-assesses (reverse charge, imports): not owed to the supplier. */
-    selfAssessed?: boolean;
-  }>>(),
+  taxBreakdown: jsonb('tax_breakdown').$type<DocumentTaxBreakdownRow[]>(),
+  /** Where the goods were delivered; sets the US use tax rate. Defaults to the entity address. */
+  deliveryAddress: jsonb('delivery_address').$type<StoredPostalAddress>(),
 
   journalEntryId: varchar('journal_entry_id', { length: 30 }),
   createdBy: varchar('created_by', { length: 255 }),
@@ -111,6 +101,14 @@ export const billItems = pgTable('bill_items', {
   productId: varchar('product_id', { length: 30 }),
   period: jsonb('period').$type<{ from?: string; to?: string }>(),
   sortOrder: integer('sort_order').default(0),
+  /** WeldBooks product tax code; used for the use tax rate. */
+  taxCode: varchar('tax_code', { length: 30 }),
+  /** US: the vendor charged no sales tax, so the buyer accrues use tax on this line. */
+  accrueUseTax: boolean('accrue_use_tax').default(false),
+  /** 1099 box for payments of this line, overriding the account's default (`omit` to leave out). */
+  form1099Box: varchar('form_1099_box', { length: 20 }),
+  classId: varchar('class_id', { length: 30 }),
+  locationId: varchar('location_id', { length: 30 }),
 }, (table) => [
   index('acct_bill_items_entity_idx').on(table.entityId),
   index('acct_bill_items_bill_idx').on(table.billId),

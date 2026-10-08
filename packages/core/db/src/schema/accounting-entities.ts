@@ -5,6 +5,7 @@ import {
   date,
   integer,
   boolean,
+  text,
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
@@ -72,6 +73,38 @@ export const entities = pgTable('entities', {
   taxLockDate: date('tax_lock_date'),
   periodLockDate: date('period_lock_date'),
   hardLockDate: date('hard_lock_date'),
+
+  /** Doing-business-as name, printed with the legal name (US). */
+  dba: varchar('dba', { length: 255 }),
+  /**
+   * How the IRS taxes the entity: sole_proprietor | disregarded | partnership |
+   * s_corp | c_corp | exempt. Picks the income-tax line catalog (Schedule C,
+   * 1065, 1120-S, 1120, 990).
+   */
+  taxClassification: varchar('tax_classification', { length: 20 }),
+  /** Default report basis: accrual | cash. Falls back to settings.accounting_method. */
+  accountingMethod: varchar('accounting_method', { length: 10 }),
+  /** US sales tax engine: manual | stripe_tax | avalara. */
+  salesTaxEngine: varchar('sales_tax_engine', { length: 30 }),
+  /** Non-secret engine settings (Avalara company code and environment, ...). */
+  salesTaxEngineConfig: jsonb('sales_tax_engine_config').$type<Record<string, unknown>>(),
+  /** AES-GCM blob of the engine credentials (the customer's own key). Never returned. */
+  salesTaxCredentialsEncrypted: text('sales_tax_credentials_encrypted'),
+  /** AES-GCM blob of the owner's SSN, for a sole proprietor without an EIN. */
+  ssnEncrypted: text('ssn_encrypted'),
+  ssnLast4: varchar('ssn_last4', { length: 4 }),
+  /**
+   * 52–53-week fiscal year: the year ends on the last (or nearest to the end
+   * of the month) given weekday of `endMonth`. Null = month-based year from
+   * `fiscalYearStart`.
+   */
+  fiscalYearConfig: jsonb('fiscal_year_config').$type<{
+    type: 'fifty_two_fifty_three';
+    endMonth: number;
+    /** 0 = Sunday … 6 = Saturday */
+    weekday: number;
+    rule: 'last' | 'nearest';
+  }>(),
 
   isDefault: boolean('is_default').default(false),
   isActive: boolean('is_active').default(true),

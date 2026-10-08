@@ -672,6 +672,39 @@ export const postpeerPostIndex = pgTable('postpeer_post_index', {
 export type PostpeerPostIndex = typeof postpeerPostIndex.$inferSelect;
 export type NewPostpeerPostIndex = typeof postpeerPostIndex.$inferInsert;
 
+// ----------------------------------------------------------------------------
+// Bank feed connection index — webhook routing + sync due-index
+// ----------------------------------------------------------------------------
+// Bank-feed webhooks (Plaid, Stripe Financial Connections, Teller, ...) carry
+// the provider's connection id and nothing about the workspace. This maps
+// (provider, provider connection id) → clerkOrgId + the tenant
+// `bank_connections.id`, so integration-webhook-worker can ask books-api to
+// sync the right tenant. `next_sync_at` doubles as the due-index the
+// integration-sync-worker sweep reads for providers without webhooks and as a
+// daily safety net, so tenant databases stay asleep until a sync is due.
+export const bankFeedConnectionIndex = pgTable('bank_feed_connection_index', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  provider: varchar('provider', { length: 30 }).notNull(),
+  providerConnectionId: varchar('provider_connection_id', { length: 255 }).notNull(),
+  clerkOrgId: varchar('clerk_org_id', { length: 255 }).notNull(),
+  connectionId: varchar('connection_id', { length: 30 }).notNull(), // bank_connections.id in tenant DB
+  entityId: varchar('entity_id', { length: 30 }).notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  syncIntervalHours: integer('sync_interval_hours').notNull().default(24),
+  nextSyncAt: timestamp('next_sync_at', { withTimezone: true }),
+  lastTriggeredAt: timestamp('last_triggered_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('bank_feed_connection_index_provider_uidx').on(table.provider, table.providerConnectionId),
+  index('bank_feed_connection_index_org_idx').on(table.clerkOrgId),
+  index('bank_feed_connection_index_next_sync_idx').on(table.nextSyncAt),
+]);
+
+export type BankFeedConnectionIndex = typeof bankFeedConnectionIndex.$inferSelect;
+export type NewBankFeedConnectionIndex = typeof bankFeedConnectionIndex.$inferInsert;
+
 // ============================================================================
 // BILLING INVOICES
 // ============================================================================
