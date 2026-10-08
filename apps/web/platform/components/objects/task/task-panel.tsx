@@ -196,12 +196,21 @@ function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: 
   return (
     <div
       ref={editorRef}
+      role={isEditing ? 'textbox' : 'button'}
+      tabIndex={isEditing ? undefined : 0}
       contentEditable={isEditing}
       suppressContentEditableWarning
       onClick={() => { if (!isEditing) setIsEditing(true); }}
       onBlur={commit}
       onKeyDown={(e) => {
-        if (!isEditing) return;
+        if (!isEditing) {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setIsEditing(true);
+          }
+          return;
+        }
         if (e.key === 'Enter') {
           e.preventDefault();
           (e.target as HTMLDivElement).blur();

@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { activateOnKey } from '@/lib/activate-on-key';
 import { NoteActionsMenu } from '@/components/weldcrm/notes/note-actions-menu';
 import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
 import { useCreateCustomerNote, useUpdateCustomerNote, useDeleteCustomerNote } from '@/hooks/queries/use-customer-notes-queries';
@@ -278,7 +279,10 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
     <div key={note.id}>
       {/* Desktop row - hidden in panel mode */}
       {!isPanel && <div
+        role="button"
+        tabIndex={0}
         onClick={() => openEditDialog(note)}
+        onKeyDown={activateOnKey(() => openEditDialog(note))}
         className="hidden md:flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/50"
       >
         {/* Favorite */}
@@ -319,11 +323,14 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
 
       {/* Compact row - always in panel mode, mobile-only otherwise */}
       <div
+        role="button"
+        tabIndex={0}
         className={cn(
           isPanel ? "flex" : "md:hidden flex",
           "group items-center gap-3 px-3 py-3 border-b border-border/70 cursor-pointer hover:bg-muted/50"
         )}
         onClick={() => openEditDialog(note)}
+        onKeyDown={activateOnKey(() => openEditDialog(note))}
       >
         <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
           <Button

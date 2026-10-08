@@ -126,22 +126,24 @@ function EditableField({
   let valueContent: ReactNode;
   if (field.editable && !displayValue) {
     valueContent = (
-      <span
+      <button
+        type="button"
         className="text-sm text-primary ml-auto cursor-pointer hover:underline"
         onClick={handleClick}
       >
         {t('sweep.weldcrm.personDetailSidebar.add')}
-      </span>
+      </button>
     );
   } else if (field.editable && displayValue) {
     valueContent = (
-      <span
+      <button
+        type="button"
         className="text-sm text-foreground ml-auto truncate max-w-[180px] cursor-pointer hover:text-primary"
         onClick={handleClick}
         title={t('sweep.weldcrm.personDetailSidebar.clickToEdit')}
       >
         {displayValue}
-      </span>
+      </button>
     );
   } else {
     valueContent = (
