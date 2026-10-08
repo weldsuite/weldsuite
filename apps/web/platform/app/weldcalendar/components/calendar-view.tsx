@@ -821,11 +821,6 @@ export function CalendarView() {
     }
   }, [quickCreateOpen, isPreviewDragging, quickCreatePos.y, quickCreatePos.cardBottomY]);
 
-  const handleOpenFullDialog = useCallback(() => {
-    setQuickCreateOpen(false);
-    setDialogOpen(true);
-  }, []);
-
   // Drag / resize of an event with guests: asked once ("send update?") before
   // anything is saved, instead of one "rescheduled" email per adjustment.
   const [guestDrop, setGuestDrop] = useState<{ event: CalendarEvent; newStart: Date; newEnd: Date } | null>(null);
@@ -1127,7 +1122,6 @@ export function CalendarView() {
               calendars={allCalendars}
               defaultCalendarId={defaultCalendar?.id}
               onClose={() => setQuickCreateOpen(false)}
-              onMoreOptions={handleOpenFullDialog}
             />
           </div>
       )}
@@ -1329,7 +1323,6 @@ function CalendarBody({
         selectedEventId={selectedEventId}
         onSelectSlot={timeGrid.onSelectSlot}
         selectedDate={timeGrid.selectedDate}
-        selectedEndDate={timeGrid.selectedEndDate}
         selectedType={timeGrid.selectedType}
         selectedColor={timeGrid.selectedColor}
         onEventDrop={timeGrid.onEventDrop}
@@ -1985,9 +1978,6 @@ export function QuickCreateCard({
   calendars,
   defaultCalendarId,
   onClose,
-  // onMoreOptions stays in the props contract for callers (new-event-dialog.tsx,
-  // weldmeet's schedule-meeting flow) that still pass it; this simplified inline
-  // card has no "more options" trigger of its own.
   showTypeTabs = true,
   editEvent,
   defaultGuests,
@@ -2006,7 +1996,6 @@ export function QuickCreateCard({
   defaultCalendarId?: string;
   onClose: () => void;
   showTypeTabs?: boolean;
-  onMoreOptions: () => void;
   editEvent?: CalendarEvent | null;
   /** Pre-fill the guest list when creating a new event (e.g. "Schedule again"). */
   defaultGuests?: Array<{ email: string; name?: string }>;
@@ -2592,10 +2581,6 @@ function MonthView({
   /** Opens the given day's own view; used by the "+N more" affordance. */
   onShowDay: (day: Date) => void;
   selectedDate?: Date;
-  // Accepted for parity with the timed views (week/day), which render a
-  // start–end preview block. Month-view slot selection is always same-day
-  // (see the day-cell onClick below), so there is no range to highlight here.
-  selectedEndDate?: Date;
   selectedType?: string;
   selectedColor?: string;
   selectedEventId?: string;
@@ -2788,8 +2773,8 @@ function MonthView({
         className="grid flex-1 min-h-0 overflow-hidden"
         style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}
       >
-        {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 grid-rows-1 min-h-0 border-b last:border-b-0 overflow-hidden">
+        {weeks.map((week) => (
+          <div key={format(week[0], 'yyyy-MM-dd')} className="grid grid-cols-7 grid-rows-1 min-h-0 border-b last:border-b-0 overflow-hidden">
             {week.map((day) => {
               const key = format(day, 'yyyy-MM-dd');
               const dayEvents = eventsByDay.get(key) ?? NO_MONTH_ENTRIES;

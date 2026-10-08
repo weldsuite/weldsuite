@@ -28,8 +28,6 @@ export interface AppHeaderProps {
   onCalendarToggle?: (open: boolean) => void;
   onNotificationsToggle?: (open: boolean) => void;
   onWeldAgentToggle?: (open: boolean) => void;
-  /** Render the calendar/notification drawers from inside the header. Default true. */
-  renderDrawers?: boolean;
 }
 
 export function AppHeader({

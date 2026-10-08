@@ -1,6 +1,5 @@
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import type { PipelineCustomerLike } from './pipeline-kanban';
 import {
   Dialog,
   DialogContent,
@@ -62,7 +61,6 @@ interface DealDetailsModalProps {
   onOpenChange: (open: boolean) => void;
   stages: Stage[];
   selectedStageId: string;
-  customers: PipelineCustomerLike[];
   onSubmit: (data: Record<string, unknown>) => Promise<void>;
   lockedCustomer?: { id: string; name: string };
 }

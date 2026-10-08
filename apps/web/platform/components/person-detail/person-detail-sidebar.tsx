@@ -173,9 +173,9 @@ export function PersonDetailSidebar({ sections, className, onFieldSave }: Readon
           {section.title && (
             <p className="text-sm font-medium text-foreground mb-3">{section.title}</p>
           )}
-          {section.fields.map((field, fieldIndex) => (
+          {section.fields.map((field) => (
             <EditableField
-              key={fieldIndex}
+              key={field.key ?? field.label}
               field={field}
               onSave={onFieldSave}
             />

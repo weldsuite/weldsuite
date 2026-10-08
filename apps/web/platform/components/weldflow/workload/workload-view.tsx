@@ -794,7 +794,6 @@ const TaskDetailPanel = memo(({
       activities={activities}
       onShare={() => {}}
       onCopyLink={() => {}}
-      onMaximize={() => {}}
     />
   );
 });

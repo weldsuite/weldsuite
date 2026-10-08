@@ -428,7 +428,6 @@ export default function NewMeetingPage() {
               calendars={calendars}
               defaultCalendarId={calendars[0]?.id}
               onClose={closeSchedule}
-              onMoreOptions={closeSchedule}
               showTypeTabs={false}
             />
           </SchedulePopover>

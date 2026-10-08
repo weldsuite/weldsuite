@@ -326,7 +326,7 @@ function FitContent({
   );
 }
 
-function CardShell({ action, children }: Readonly<{ title?: string; action?: React.ReactNode; children: React.ReactNode }>) {
+function CardShell({ action, children }: Readonly<{ action?: React.ReactNode; children: React.ReactNode }>) {
   return (
     <div className="rounded-2xl border border-border bg-card flex flex-col h-[415px] min-h-[415px] max-h-[415px] overflow-hidden">
       {action && (
@@ -432,23 +432,21 @@ export function MailCard({
   rows = DEMO_EMAILS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldMail',
 }: Readonly<{
   rows?: MailRow[];
   isLoading?: boolean;
   isDemo?: boolean;
-  title?: string;
 }> = {}) {
   if (isLoading) {
     return (
-      <CardShell title={title}>
+      <CardShell>
         <div className="p-3"><SkeletonRows count={5} variant="list" /></div>
       </CardShell>
     );
   }
   if (rows.length === 0) {
     return (
-      <CardShell title={title}>
+      <CardShell>
         <EmptyState kind="mail" />
       </CardShell>
     );
@@ -463,7 +461,7 @@ export function MailCard({
   const grouped = groupByDate(cappedItems);
 
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent stretch>
         {Object.entries(grouped).flatMap(([dateLabel, group]) => {
           const nodes: React.ReactNode[] = [];
@@ -541,31 +539,29 @@ export function FlowCard({
   rows = DEMO_TASKS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldFlow — My tasks',
   onRowClick,
 }: Readonly<{
   rows?: FlowRow[];
   isLoading?: boolean;
   isDemo?: boolean;
-  title?: string;
   onRowClick?: (row: FlowRow) => void;
 }> = {}) {
   if (isLoading) {
     return (
-      <CardShell title={title}>
+      <CardShell>
         <div className="p-3"><SkeletonRows count={7} variant="table" /></div>
       </CardShell>
     );
   }
   if (rows.length === 0) {
     return (
-      <CardShell title={title}>
+      <CardShell>
         <EmptyState kind="tasks" />
       </CardShell>
     );
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent>
         <TableHeader>
           <HeaderCell className="w-4 shrink-0 whitespace-nowrap">Task</HeaderCell>
@@ -662,31 +658,29 @@ export function ProjectsCard({
   rows = DEMO_PROJECTS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldFlow — Projects',
   onRowClick,
 }: Readonly<{
   rows?: ProjectRow[];
   isLoading?: boolean;
   isDemo?: boolean;
-  title?: string;
   onRowClick?: (row: ProjectRow) => void;
 }> = {}) {
   if (isLoading) {
     return (
-      <CardShell title={title}>
+      <CardShell>
         <div className="p-3"><SkeletonRows count={7} variant="table" /></div>
       </CardShell>
     );
   }
   if (rows.length === 0) {
     return (
-      <CardShell title={title}>
+      <CardShell>
         <EmptyState kind="projects" />
       </CardShell>
     );
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="flex-1 min-w-0">Project</HeaderCell>
         <HeaderCell className="w-[90px]">Status</HeaderCell>
@@ -819,10 +813,9 @@ function WorkloadAreaChart({ data, rowHeight }: Readonly<{ data: number[]; rowHe
 
 export function WorkloadCard({
   isDemo = false,
-  title = 'WeldFlow — Workload',
-}: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ isDemo?: boolean }> = {}) {
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       {/* Header bar — split between Members/Availability (sidebar) and Utilization (timeline) */}
       <div className="flex h-[35px] border-b border-border/70 bg-muted/30 sticky top-0 z-10">
         <div className="w-[280px] shrink-0 border-r border-border/70 flex items-center justify-between px-3">
@@ -941,18 +934,17 @@ export function DeskCard({
   rows = DEMO_TICKETS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldDesk — Tickets',
-}: Readonly<{ rows?: DeskTicketRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: DeskTicketRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
     return (
-      <CardShell title={title}>
+      <CardShell>
         <div className="p-3"><SkeletonRows count={5} variant="list" /></div>
       </CardShell>
     );
   }
   if (rows.length === 0) {
     return (
-      <CardShell title={title}>
+      <CardShell>
         <EmptyState kind="tickets" />
       </CardShell>
     );
@@ -963,7 +955,7 @@ export function DeskCard({
   const grouped = groupByDate(cappedItems);
 
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent stretch>
         {Object.entries(grouped).flatMap(([dateLabel, group]) => {
           const nodes: React.ReactNode[] = [];
@@ -1014,16 +1006,15 @@ export function DeskEmailsCard({
   rows = DEMO_DESK_EMAILS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldDesk — Emails',
-}: Readonly<{ rows?: DeskEmailRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: DeskEmailRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="desk-emails" /></CardShell>;
+    return <CardShell><EmptyState kind="desk-emails" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-7" />
         <HeaderCell className="flex-1">From</HeaderCell>
@@ -1073,16 +1064,15 @@ export function DeskLiveChatCard({
   rows = DEMO_DESK_CHATS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldDesk — Live chat',
-}: Readonly<{ rows?: DeskLiveChatRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: DeskLiveChatRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="desk-livechat" /></CardShell>;
+    return <CardShell><EmptyState kind="desk-livechat" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-8" />
         <HeaderCell className="flex-1">Visitor</HeaderCell>
@@ -1272,16 +1262,15 @@ export function DeskAiActiveCard({
   rows = DEMO_DESK_AI_ACTIVE,
   isLoading = false,
   isDemo = false,
-  title = 'WeldDesk — AI agent active',
-}: Readonly<{ rows?: DeskAiActiveRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: DeskAiActiveRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="desk-ai-active" /></CardShell>;
+    return <CardShell><EmptyState kind="desk-ai-active" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-8" />
         <HeaderCell className="flex-1">Conversation</HeaderCell>
@@ -1348,16 +1337,15 @@ export function DeskAiResolvedCard({
   rows = DEMO_DESK_AI_RESOLVED,
   isLoading = false,
   isDemo = false,
-  title = 'WeldDesk — AI agent resolved',
-}: Readonly<{ rows?: DeskAiResolvedRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: DeskAiResolvedRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="desk-ai-resolved" /></CardShell>;
+    return <CardShell><EmptyState kind="desk-ai-resolved" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-8" />
         <HeaderCell className="flex-1">Conversation</HeaderCell>
@@ -1430,16 +1418,15 @@ export function DeskReviewsCard({
   rows = DEMO_DESK_REVIEWS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldDesk — Reviews',
-}: Readonly<{ rows?: DeskReviewRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: DeskReviewRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="reviews" /></CardShell>;
+    return <CardShell><EmptyState kind="reviews" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-8" />
         <HeaderCell className="flex-1">Customer</HeaderCell>
@@ -1530,16 +1517,15 @@ export function CrmCard({
   rows = DEMO_CRM_TASKS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldCRM — My tasks',
-}: Readonly<{ rows?: CrmTaskRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: CrmTaskRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="crm-tasks" /></CardShell>;
+    return <CardShell><EmptyState kind="crm-tasks" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="w-4 shrink-0 whitespace-nowrap">Task</HeaderCell>
         <div className="flex-1" />
@@ -1664,16 +1650,15 @@ export function PipelineCard({
   rows = DEMO_PIPELINE_DEALS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldCRM — Pipeline',
-}: Readonly<{ rows?: PipelineDealRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: PipelineDealRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows variant="kanban" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows variant="kanban" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="pipeline" /></CardShell>;
+    return <CardShell><EmptyState kind="pipeline" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <div className="flex gap-3 p-3">
         {PIPELINE_STAGES.map((stage) => {
           const stageDeals = rows.filter((d) => d.stage === stage.id);
@@ -1761,16 +1746,15 @@ export function SequencesCard({
   rows = DEMO_SEQUENCES,
   isLoading = false,
   isDemo = false,
-  title = 'WeldCRM — Sequences',
-}: Readonly<{ rows?: SequenceRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: SequenceRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="sequences" /></CardShell>;
+    return <CardShell><EmptyState kind="sequences" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent>
       <TableHeader>
         <HeaderCell className="flex-1 min-w-0">Sequence</HeaderCell>
@@ -1897,23 +1881,21 @@ export function ConnectCard({
   rows = DEMO_EXECUTIONS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldConnect — Recent executions',
   onRowClick,
 }: Readonly<{
   rows?: ExecutionRow[];
   isLoading?: boolean;
   isDemo?: boolean;
-  title?: string;
   onRowClick?: (row: ExecutionRow) => void;
 }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="executions" /></CardShell>;
+    return <CardShell><EmptyState kind="executions" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="flex-1 min-w-0">Workflow</HeaderCell>
         <HeaderCell className="w-[110px]">Status</HeaderCell>
@@ -2027,23 +2009,21 @@ export function WorkflowsCard({
   rows = DEMO_WORKFLOWS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldConnect — Workflows',
   onRowClick,
 }: Readonly<{
   rows?: WorkflowRow[];
   isLoading?: boolean;
   isDemo?: boolean;
-  title?: string;
   onRowClick?: (row: WorkflowRow) => void;
 }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="workflows" /></CardShell>;
+    return <CardShell><EmptyState kind="workflows" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="flex-1 min-w-0">Workflow</HeaderCell>
         <HeaderCell className="w-[100px]">Trigger</HeaderCell>
@@ -2138,16 +2118,15 @@ export function MeetCard({
   rows = DEMO_MEETINGS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldMeet',
-}: Readonly<{ rows?: MeetingRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: MeetingRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="meetings" /></CardShell>;
+    return <CardShell><EmptyState kind="meetings" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="w-[90px]">When</HeaderCell>
         <HeaderCell className="flex-1">Title</HeaderCell>
@@ -2199,16 +2178,15 @@ export function MeetHistoryCard({
   rows = DEMO_MEETING_HISTORY,
   isLoading = false,
   isDemo = false,
-  title = 'WeldMeet — History',
-}: Readonly<{ rows?: MeetingHistoryRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: MeetingHistoryRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="meet-history" /></CardShell>;
+    return <CardShell><EmptyState kind="meet-history" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent>
         <TableHeader>
           <HeaderCell className="flex-1 min-w-0">Meeting</HeaderCell>
@@ -2312,16 +2290,15 @@ export function ChatCard({
   rows = DEMO_ACTIVITY,
   isLoading = false,
   isDemo = false,
-  title = 'WeldChat — Activity',
-}: Readonly<{ rows?: ChatActivityRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: ChatActivityRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="chat-activity" /></CardShell>;
+    return <CardShell><EmptyState kind="chat-activity" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="flex-1 min-w-0">Activity</HeaderCell>
         <HeaderCell className="w-[140px]">Channel</HeaderCell>
@@ -2405,16 +2382,15 @@ export function ChatDMsCard({
   rows = DEMO_DMS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldChat — Direct messages',
-}: Readonly<{ rows?: DmRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: DmRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="chat-dms" /></CardShell>;
+    return <CardShell><EmptyState kind="chat-dms" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="flex-1 min-w-0">Person</HeaderCell>
         <HeaderCell className="w-[60px] text-right">When</HeaderCell>
@@ -2480,16 +2456,15 @@ export function ChatChannelsCard({
   rows = DEMO_CHANNELS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldChat — Channels',
-}: Readonly<{ rows?: ChannelRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: ChannelRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="chat-channels" /></CardShell>;
+    return <CardShell><EmptyState kind="chat-channels" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="flex-1 min-w-0">Channel</HeaderCell>
         <HeaderCell className="w-[60px] text-right">When</HeaderCell>
@@ -2556,16 +2531,15 @@ export function HostCard({
   rows = DEMO_DOMAINS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldHost',
-}: Readonly<{ rows?: DomainRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: DomainRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="domains" /></CardShell>;
+    return <CardShell><EmptyState kind="domains" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="flex-1">Domain</HeaderCell>
         <HeaderCell className="w-[70px]">Status</HeaderCell>
@@ -2615,16 +2589,15 @@ export function DriveCard({
   rows = DEMO_FILES,
   isLoading = false,
   isDemo = false,
-  title = 'WeldDrive',
-}: Readonly<{ rows?: FileRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: FileRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="files" /></CardShell>;
+    return <CardShell><EmptyState kind="files" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <HeaderCell className="flex-1">Name</HeaderCell>
         <HeaderCell className="w-[60px]">Size</HeaderCell>
@@ -2685,16 +2658,15 @@ export function CallCard({
   rows = DEMO_CALLS,
   isLoading = false,
   isDemo = false,
-  title = 'WeldCall — History',
-}: Readonly<{ rows?: CallRow[]; isLoading?: boolean; isDemo?: boolean; title?: string }> = {}) {
+}: Readonly<{ rows?: CallRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
   if (isLoading) {
-    return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
+    return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
   if (rows.length === 0) {
-    return <CardShell title={title}><EmptyState kind="calls" /></CardShell>;
+    return <CardShell><EmptyState kind="calls" /></CardShell>;
   }
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent>
       <TableHeader>
         <HeaderCell className="w-[80px]">Direction</HeaderCell>
@@ -2830,9 +2802,9 @@ const AGENDA = [
   { time: '16:00', title: 'Roadmap planning Q3', tone: 'bg-violet-500' },
 ];
 
-export function CalendarCard({ isDemo = false, title = 'WeldCalendar' }: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
+export function CalendarCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> = {}) {
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <div className="border-b border-border/70 bg-background sticky top-0 z-10">
         <div className="grid grid-cols-7 divide-x divide-border/70">
           {WEEK.map((d) => (
@@ -2868,7 +2840,7 @@ export function CalendarCard({ isDemo = false, title = 'WeldCalendar' }: Readonl
 }
 
 // ---------- WeldCalendar Schedule view ----------
-export function CalendarScheduleCard({ isDemo = false, title = 'WeldCalendar — Schedule' }: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
+export function CalendarScheduleCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> = {}) {
   const groups = CAL_DAY_LABELS.map((day, i) => ({
     label: day.full,
     today: day.today,
@@ -2876,7 +2848,7 @@ export function CalendarScheduleCard({ isDemo = false, title = 'WeldCalendar —
   })).filter((g) => g.events.length > 0);
 
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       {groups.map((group) => (
         <div key={group.label}>
           {/* Day header */}
@@ -2889,9 +2861,9 @@ export function CalendarScheduleCard({ isDemo = false, title = 'WeldCalendar —
             </span>
           </div>
           {/* Events */}
-          {group.events.map((event, i) => (
+          {group.events.map((event) => (
             <div
-              key={i}
+              key={`${event.time}-${event.title}`}
               className="flex items-center gap-3 px-4 h-[44px] hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border last:border-b-0"
             >
               <div className="w-[50px] shrink-0">
@@ -2913,14 +2885,14 @@ export function CalendarScheduleCard({ isDemo = false, title = 'WeldCalendar —
 }
 
 // ---------- WeldCalendar 4-Day view ----------
-export function CalendarFourDayCard({ isDemo = false, title = 'WeldCalendar — 4-Day' }: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
+export function CalendarFourDayCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> = {}) {
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       <div className="flex divide-x divide-border/60 h-full">
         {CAL_DAY_LABELS.map((day, i) => {
           const events = CAL_EVENTS.filter((e) => e.day === i);
           return (
-            <div key={i} className="flex-1 min-w-0 flex flex-col min-h-0">
+            <div key={day.date} className="flex-1 min-w-0 flex flex-col min-h-0">
               {/* Day header */}
               <div className={cn(
                 'flex flex-col items-center justify-center py-2 border-b border-border/60 shrink-0',
@@ -2942,9 +2914,9 @@ export function CalendarFourDayCard({ isDemo = false, title = 'WeldCalendar — 
               </div>
               {/* Event blocks */}
               <div className="flex flex-col gap-1 p-1.5 flex-1">
-                {events.map((event, j) => (
+                {events.map((event) => (
                   <div
-                    key={j}
+                    key={`${event.time}-${event.title}`}
                     className={cn('rounded px-1.5 py-1 text-white text-[10px] cursor-pointer', event.color)}
                   >
                     <div className="font-mono opacity-80">{event.time}</div>
@@ -2961,18 +2933,18 @@ export function CalendarFourDayCard({ isDemo = false, title = 'WeldCalendar — 
 }
 
 // ---------- WeldCalendar Day view ----------
-export function CalendarDayCard({ isDemo = false, title = 'WeldCalendar — Day' }: Readonly<{ isDemo?: boolean; title?: string }> = {}) {
+export function CalendarDayCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> = {}) {
   const todayEvents = CAL_EVENTS.filter((e) => e.day === 0);
   return (
-    <CardShell title={title} action={isDemo ? <DemoBadge /> : null}>
+    <CardShell action={isDemo ? <DemoBadge /> : null}>
       {/* Day header */}
       <div className="flex items-center justify-between px-4 h-[35px] border-b border-border/70 bg-muted/30 sticky top-0 z-10">
         <span className="text-xs font-semibold text-foreground">{CAL_DAY_LABELS[0].full}</span>
         <span className="text-xs text-muted-foreground tabular-nums">{todayEvents.length} events</span>
       </div>
-      {todayEvents.map((event, i) => (
+      {todayEvents.map((event) => (
         <div
-          key={i}
+          key={`${event.time}-${event.title}`}
           className="flex items-center gap-3 px-4 h-[75px] hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border last:border-b-0"
         >
           {/* Time range */}

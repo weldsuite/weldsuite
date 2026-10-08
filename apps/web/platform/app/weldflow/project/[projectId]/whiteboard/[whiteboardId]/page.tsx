@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from '@/lib/router';
+import { useParams } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { WhiteboardView } from '@/components/weldflow/whiteboard/whiteboard-view';
 import { whiteboardApi, type WhiteboardElement } from '@/app/weldflow/lib/api-client';
@@ -9,7 +9,6 @@ import { useTranslations } from '@weldsuite/i18n/client';
 export default function WhiteboardDetailPage() {
   const st = useTranslations();
   const params = useParams();
-  const router = useRouter();
   const projectId = params.projectId as string;
   const whiteboardId = params.whiteboardId as string;
 
@@ -49,7 +48,6 @@ export default function WhiteboardDetailPage() {
           projectId={projectId}
           whiteboardId={whiteboardId}
           initialElements={elements}
-          onBack={() => router.push(`/weldflow/project/${projectId}/whiteboard`)}
         />
       </div>
     </div>

@@ -50,7 +50,6 @@ export interface MeetingRightPanelProps {
   scheduledStart?: string | null;
   participants: MeetingPeer[];
   meeting: MeetingClient | null;
-  skipTransition?: boolean;
 
   /** Optional slot — replaces built-in PeoplePanel. */
   peoplePanelSlot?: ReactNode;

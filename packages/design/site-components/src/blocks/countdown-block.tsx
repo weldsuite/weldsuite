@@ -17,7 +17,6 @@ export interface CountdownBlockProps {
   };
   textColor?: string;
   backgroundColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function CountdownBlock({
@@ -84,17 +83,17 @@ export function CountdownBlock({
   }[size];
 
   const units = [
-    { value: timeLeft.days, label: labels.days, show: showDays },
-    { value: timeLeft.hours, label: labels.hours, show: showHours },
-    { value: timeLeft.minutes, label: labels.minutes, show: showMinutes },
-    { value: timeLeft.seconds, label: labels.seconds, show: showSeconds },
+    { id: 'days', value: timeLeft.days, label: labels.days, show: showDays },
+    { id: 'hours', value: timeLeft.hours, label: labels.hours, show: showHours },
+    { id: 'minutes', value: timeLeft.minutes, label: labels.minutes, show: showMinutes },
+    { id: 'seconds', value: timeLeft.seconds, label: labels.seconds, show: showSeconds },
   ].filter((unit) => unit.show);
 
   return (
     <div className="flex gap-4 justify-center flex-wrap">
-      {units.map((unit, index) => (
+      {units.map((unit) => (
         <div
-          key={index}
+          key={unit.id}
           className={`rounded-lg ${sizeClasses.padding} min-w-[80px] text-center`}
           style={{ backgroundColor }}
         >

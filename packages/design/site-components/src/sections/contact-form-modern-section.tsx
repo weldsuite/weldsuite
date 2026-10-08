@@ -199,7 +199,7 @@ export function ContactFormModernSection({
 
                   return rows.map((row, rowIdx) => (
                     <div
-                      key={rowIdx}
+                      key={row.map((field) => field.id).join('|')}
                       style={{
                         display: 'grid',
                         gridTemplateColumns: row.length === 1 ? '1fr' : '1fr 1fr',

@@ -136,12 +136,12 @@ export function ShortcutsSection() {
             <h4 className="text-sm font-semibold text-muted-foreground">{category}</h4>
             <div className="rounded-lg border">
               <div className="divide-y">
-                {items.map((shortcut, index) => (
-                  <div key={index} className="flex items-center justify-between p-3">
+                {items.map((shortcut) => (
+                  <div key={shortcut.description} className="flex items-center justify-between p-3">
                     <span className="text-sm">{shortcut.description}</span>
                     <div className="flex items-center gap-1.5">
                       {shortcut.keys.map((key, keyIndex) => (
-                        <React.Fragment key={keyIndex}>
+                        <React.Fragment key={key}>
                           {keyIndex > 0 && <span className="text-base text-muted-foreground -translate-y-[2px] ml-[0.3px] inline-block">+</span>}
                           <kbd className={cn(
                             "inline-flex items-center justify-center rounded-[6px]",

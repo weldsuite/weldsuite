@@ -145,9 +145,6 @@ export interface SharedMeetingChatPanelProps {
   /** Participants list — used for future @-mention picker (no-op when empty) */
   participants?: ChatParticipant[];
 
-  /** Active typing users — displayed below the input */
-  typingUsers?: string[];
-
   /** Pinned messages — omit or pass empty array to hide the pinned bar */
   pinnedMessages?: PinnedMessage[];
   onPinMessage?: (messageId: string) => void;
@@ -307,9 +304,9 @@ function PinnedBar({
       >
         {pinnedMessages.length > 1 && (
           <div className="flex flex-col justify-center gap-[2px] flex-shrink-0 h-[20px]">
-            {pinnedMessages.map((_: PinnedMessage, i: number) => (
+            {pinnedMessages.map((pinned: PinnedMessage, i: number) => (
               <div
-                key={i}
+                key={pinned.id}
                 className={cn(
                   'w-[3px] rounded-full transition-all',
                   i === safeIndex ? 'flex-[2] bg-primary' : 'flex-1 bg-muted-foreground/30',
@@ -1016,7 +1013,7 @@ function MessageInput({
           <div className="flex flex-wrap gap-2 mb-3 px-[10px]">
             {attachments.map((att, i) => (
               <div
-                key={i}
+                key={att.id ?? i}
                 className="relative group flex items-center gap-2 bg-gray-100 dark:bg-secondary rounded-lg px-3 py-2 text-sm"
               >
                 {att._uploading ? (

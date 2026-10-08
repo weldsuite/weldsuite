@@ -9,24 +9,19 @@ import { useWeldAgentChat } from '@/hooks/queries/use-ai-chat';
 import { useAgents } from '@/hooks/queries/use-agent-queries';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 import { BetaBadge } from '@/components/layout/beta-badge';
-import type { ModuleKey, EntityContext } from '@/lib/weldagent/tools/types';
+import type { EntityContext } from '@/lib/weldagent/tools/types';
 
 interface WeldAgentPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  moduleKey?: ModuleKey;
   entityContext?: EntityContext;
   width?: number;
   disableAnimation?: boolean;
   className?: string;
-  saveHistory?: boolean;
-  onToolResult?: (toolName: string, result: unknown) => void;
-  autoRefreshOnMutation?: boolean;
   forceNewConversation?: boolean;
   onNewConversationCreated?: () => void;
   prefillText?: string | null;
   onPrefillConsumed?: () => void;
-  onWidthChange?: (width: number) => void;
 }
 
 export function WeldAgentPanel({

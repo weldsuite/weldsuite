@@ -376,8 +376,6 @@ export interface ScreenShareTileProps {
   participant: MeetingPeer;
   /** True when the participant is the local user. */
   isSelf?: boolean;
-  /** RTK meeting handle. */
-  meeting?: MeetingClient | null;
   /** When provided, clicking the tile fires this — used to focus the screen
    *  onto the main stage (and to toggle focus back off). */
   onClick?: () => void;

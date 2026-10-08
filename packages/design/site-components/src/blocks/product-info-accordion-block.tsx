@@ -14,7 +14,6 @@ export interface ProductInfoAccordionBlockProps {
   items?: AccordionItem[];
   textColor?: string;
   borderColor?: string;
-  mode?: 'live' | 'edit' | 'preview';
   store?: StoreData;
 }
 

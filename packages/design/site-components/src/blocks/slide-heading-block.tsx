@@ -7,7 +7,6 @@ export interface SlideHeadingBlockProps {
   fontSize?: number;
   fontWeight?: number;
   color?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function SlideHeadingBlock({

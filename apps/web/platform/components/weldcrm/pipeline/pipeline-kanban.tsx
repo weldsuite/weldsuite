@@ -156,13 +156,11 @@ interface RawStage {
 interface PipelineKanbanProps {
   initialDeals?: Deal[];
   initialStages?: RawStage[];
-  workspaceId: string;
   customers?: PipelineCustomerLike[];
   contacts?: Person[];
   onDealMove?: (dealId: string, fromStage: string, toStage: string) => void;
   onDealCreate?: (data: Record<string, unknown>) => Promise<void>;
   pipelineId?: string;
-  pipelineName?: string;
   initialSettings?: PipelineViewSettings;
   lockedCustomer?: { id: string; name: string };
   hideHeader?: boolean;
@@ -1284,7 +1282,6 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
           onOpenChange={setShowDealDetails}
           stages={stages.map(s => ({ id: s.id, name: s.name, color: s.color }))}
           selectedStageId={selectedStageForNewDeal}
-          customers={customers}
           onSubmit={handleCreateDeal}
           lockedCustomer={lockedCustomer}
         />
@@ -1466,6 +1463,13 @@ interface CustomFieldDef {
   options?: string[];
 }
 
+let optionKeySeq = 0;
+
+function nextOptionKey(): string {
+  optionKeySeq += 1;
+  return `option-${optionKeySeq}`;
+}
+
 function PipelineSettingsModal({
   open,
   onOpenChange,
@@ -1517,6 +1521,9 @@ function PipelineSettingsModal({
     required: false,
     options: [] as string[],
   });
+  // Render keys for the select options (plain strings, no ids), kept in step
+  // with newField.options so removing an option doesn't shift input state.
+  const [optionKeys, setOptionKeys] = useState<string[]>([]);
 
   const fieldTypes = [
     { value: 'text', label: t('sweep.weldcrm.pipelineSettingsModal.fieldTypeText') },
@@ -1585,6 +1592,7 @@ function PipelineSettingsModal({
     }
 
     setNewField({ name: '', type: 'text', required: false, options: [] });
+    setOptionKeys([]);
     setShowAddFieldForm(false);
   };
 
@@ -1597,6 +1605,7 @@ function PipelineSettingsModal({
         required: fieldToEdit.required,
         options: fieldToEdit.options || [],
       });
+      setOptionKeys((fieldToEdit.options || []).map(() => nextOptionKey()));
       setEditingFieldId(id);
       setShowAddFieldForm(true);
     }
@@ -2025,7 +2034,7 @@ function PipelineSettingsModal({
                   <Label>{t('sweep.weldcrm.pipelineSettingsModal.options')}</Label>
                   <div className="space-y-2">
                     {(newField.options || []).map((option, index) => (
-                      <div key={index} className="flex gap-2">
+                      <div key={optionKeys[index]} className="flex gap-2">
                         <Input
                           placeholder={t('sweep.weldcrm.pipelineSettingsModal.optionPlaceholder', { number: index + 1 })}
                           value={option}
@@ -2043,6 +2052,7 @@ function PipelineSettingsModal({
                           onClick={() => {
                             const newOptions = (newField.options || []).filter((_, i) => i !== index);
                             setNewField({ ...newField, options: newOptions });
+                            setOptionKeys((keys) => keys.filter((_, i) => i !== index));
                           }}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -2058,6 +2068,7 @@ function PipelineSettingsModal({
                           ...newField,
                           options: [...(newField.options || []), '']
                         });
+                        setOptionKeys((keys) => [...keys, nextOptionKey()]);
                       }}
                     >
                       <Plus className="h-4 w-4 mr-2" />
@@ -2096,6 +2107,7 @@ function PipelineSettingsModal({
                     setShowAddFieldForm(false);
                     setEditingFieldId(null);
                     setNewField({ name: '', type: 'text', required: false, options: [] });
+                    setOptionKeys([]);
                   }}
                 >
                   {t('sweep.weldcrm.pipelineSettingsModal.cancel')}

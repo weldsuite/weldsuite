@@ -512,7 +512,6 @@ export function SupportTeamClient({
           activities={getMemberActivities(selectedMember)}
           onShare={() => {}}
           onCopyLink={() => {}}
-          onMaximize={() => router.push(`/welddesk/teams/${teamId}/members/${selectedMember.id}`)}
         />
       )}
 

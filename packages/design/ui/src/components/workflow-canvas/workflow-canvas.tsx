@@ -331,11 +331,6 @@ export interface WorkflowCanvasProps {
    * English defaults are used for any key you omit.
    */
   labels?: WorkflowCanvasLabels;
-  /**
-   * Called instead of `sonner.toast(...)` so the package stays toast-agnostic.
-   * Wire to your preferred toast library in the host app.
-   */
-  onNotify?: (level: 'success' | 'error' | 'info', message: string) => void;
   className?: string;
 }
 
@@ -680,8 +675,7 @@ function WorkflowCanvasInner({
  *
  * Self-contained and prop-driven — no data fetching, no i18n inside,
  * no router or toast dependencies. The host app maps its domain objects
- * to WorkflowStep / TriggerConfig, passes translated `labels`, and wires
- * `onNotify` to its preferred toast library.
+ * to WorkflowStep / TriggerConfig and passes translated `labels`.
  *
  * Shared by WeldConnect (workflows) and WeldCRM (sequences).
  */

@@ -6,7 +6,6 @@ interface ColumnsBlockProps {
   children?: React.ReactNode;
   columns?: 2 | 3 | 4;
   gap?: number;
-  mode?: string;
 }
 
 export function ColumnsBlock({

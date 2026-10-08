@@ -7,7 +7,6 @@ export interface ProductActionButtonsElementProps {
   buyNowText?: string;
   buttonColor?: string;
   textColor?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductActionButtonsElement({

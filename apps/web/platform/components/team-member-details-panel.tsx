@@ -171,7 +171,6 @@ export interface TeamMemberDetailsPanelProps {
   onMemberUpdated: () => void;
   context: 'settings' | 'projects';
   onRoleChange?: (memberId: string, newRole: string) => Promise<void>;
-  projectsConfig?: { projectId: string };
   closeIcon?: React.ReactNode;
   skipAnimation?: boolean;
   /** When true, skip the outer fixed-position wrapper and render only the inner content. */
@@ -539,7 +538,6 @@ export function TeamMemberDetailsPanel({
 
   const isPending = member?.status === 'PENDING';
   const isOwner = member?.role === 'OWNER';
-  const memberStatus = member?.status || 'ACTIVE';
 
   // Settings-specific React Query hooks — disabled when not in settings context
   const isSettings = context === 'settings';
@@ -742,7 +740,6 @@ export function TeamMemberDetailsPanel({
           memberAsCustomer={memberAsCustomer}
           isPending={isPending}
           isOwner={isOwner}
-          memberStatus={memberStatus}
           localRole={localRole}
           updatingRole={updatingRole}
           canManageMembers={canManageMembers}
@@ -974,7 +971,6 @@ function ExpandedMemberContent({
   memberAsCustomer,
   isPending,
   isOwner,
-  memberStatus,
   localRole,
   updatingRole,
   canManageMembers,
@@ -1003,7 +999,6 @@ function ExpandedMemberContent({
   memberAsCustomer: unknown;
   isPending: boolean;
   isOwner: boolean;
-  memberStatus: string;
   localRole: string;
   updatingRole: boolean;
   canManageMembers: boolean;
@@ -1136,13 +1131,7 @@ function ExpandedMemberContent({
             {activeTab === 'overview' && (
               <div className="px-4 py-10">
                 <div className="w-[848px] max-w-full mx-auto">
-                  <ExpandedOverviewContent
-                    member={member}
-                    memberAsCustomer={memberAsCustomer}
-                    memberStatus={memberStatus}
-                    context={context}
-                    onMemberUpdated={onMemberUpdated}
-                  />
+                  <ExpandedOverviewContent member={member} />
                 </div>
               </div>
             )}
@@ -1154,7 +1143,7 @@ function ExpandedMemberContent({
               </div>
             )}
             {activeTab === 'working-hours' && canManageMembers && (
-              <MemberWorkingHoursContent memberId={member.id} memberName={member.name || member.email} />
+              <MemberWorkingHoursContent memberId={member.id} />
             )}
             {activeTab === 'activity' && (
               <div className="px-4 py-10">
@@ -1249,10 +1238,6 @@ function ExpandedOverviewContent({
   member,
 }: Readonly<{
   member: TeamMemberDetail;
-  memberAsCustomer: unknown;
-  memberStatus: string;
-  context: 'settings' | 'projects';
-  onMemberUpdated: () => void;
 }>) {
   // Render the same Details content the collapsed panel shows, so toggling
   // maximize/minimize doesn't switch the user between two visually different
@@ -1797,7 +1782,7 @@ function MemberProfileTabs({
   );
 }
 
-function MemberWorkingHoursContent({ memberId }: Readonly<{ memberId: string; memberName: string | null }>) {
+function MemberWorkingHoursContent({ memberId }: Readonly<{ memberId: string }>) {
   const { data: workingHours, isLoading } = useMemberWorkingHours(memberId);
   const updateMemberWorkingHours = useUpdateMemberWorkingHours();
   const [hours, setHours] = useState<WorkingHours>(DEFAULT_HOURS);

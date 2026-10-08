@@ -4311,7 +4311,6 @@ export function WorkflowEditorClient({
             triggerLocked={triggerLocked}
             variableItems={canvasVariableItems}
             labels={t.weldconnect.flowEditor as WorkflowCanvasLabels}
-            onNotify={(level, msg) => toast[level](msg)}
             className="w-full h-full"
           />
           )}

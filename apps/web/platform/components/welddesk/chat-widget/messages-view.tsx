@@ -18,26 +18,6 @@ import { cn } from '@/lib/utils';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 import { Button } from '@weldsuite/ui/components/button';
 
-interface WidgetThemeSettings {
-  primaryColor?: string;
-  backgroundColor?: string;
-  textColor?: string;
-  buttonColor?: string;
-  buttonTextColor?: string;
-  borderRadius?: string;
-  fontSize?: string;
-  launcherColor?: string;
-  headerColor?: string;
-  accentColor?: string;
-  companyLogoUrl?: string;
-  // Chat interface colors
-  chatBackgroundColor?: string;
-  userBubbleColor?: string;
-  userBubbleTextColor?: string;
-  agentBubbleColor?: string;
-  agentBubbleTextColor?: string;
-}
-
 interface MessagesViewProps {
   onClose: () => void;
   onOpenChat: () => void;
@@ -51,7 +31,6 @@ interface MessagesViewProps {
   onNavigateEvents?: () => void;
   onNavigateParcelTracking?: () => void;
   enabledPages?: string[];
-  themeSettings?: WidgetThemeSettings;
   hideCloseButton?: boolean;
 }
 

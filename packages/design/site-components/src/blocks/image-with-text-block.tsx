@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from 'react';
 
 interface Block {
@@ -37,9 +36,6 @@ export interface ImageWithTextBlockProps {
   buttonLink?: string;
   buttonStyle?: 'primary' | 'secondary' | 'link';
 
-  // Color Scheme
-  colorScheme?: 'scheme-1' | 'scheme-2' | 'scheme-3';
-
   // Nested blocks for individual elements
   blocks?: Block[];
 
@@ -47,7 +43,6 @@ export interface ImageWithTextBlockProps {
   selectedBlockId?: string;
 
   // Store context
-  store?: StoreData;
 }
 
 export function ImageWithTextBlock({

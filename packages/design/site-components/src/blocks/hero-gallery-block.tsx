@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from 'react';
 import { motion } from 'framer-motion';
 
@@ -34,7 +33,6 @@ export interface HeroGalleryBlockProps {
   textColor?: string;
   animationSpeed?: number;
   mode?: 'live' | 'preview' | 'edit';
-  store?: StoreData;
 }
 
 export function HeroGalleryBlock({

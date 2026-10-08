@@ -28,7 +28,6 @@ export interface MeetingHeaderProps {
   showInfoButton?: boolean;
   showPeopleButton?: boolean;
   showChatButton?: boolean;
-  showHostControlsButton?: boolean;
   showToolsButton?: boolean;
 }
 

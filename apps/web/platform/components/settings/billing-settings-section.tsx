@@ -788,8 +788,8 @@ function PlanPricingCard({
 
       {/* Features */}
       <div className="space-y-3 flex-1">
-        {features.map((feature, featureIndex) => (
-          <div key={featureIndex} className="flex items-start gap-2">
+        {features.map((feature) => (
+          <div key={feature} className="flex items-start gap-2">
             <div className="w-5 h-5 rounded-sm bg-muted flex items-center justify-center flex-shrink-0">
               <Check className="h-3 w-3 text-muted-foreground" />
             </div>

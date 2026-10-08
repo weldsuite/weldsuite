@@ -15,7 +15,6 @@ interface ImageBlockProps {
   alignment?: 'left' | 'center' | 'right';
   objectFit?: 'contain' | 'cover' | 'fill' | 'none' | 'scale-down';
   borderRadius?: number;
-  mode?: string;
 }
 
 export function ImageBlock({

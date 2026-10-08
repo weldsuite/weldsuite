@@ -18,8 +18,6 @@ import {
 interface CallsTabProps {
   entityId: string;
   entityKind: 'company' | 'person';
-  /** Used as the default number when the user clicks "Make call". */
-  defaultDialNumber?: string;
 }
 
 export function CallsTab({ entityId, entityKind }: Readonly<CallsTabProps>) {

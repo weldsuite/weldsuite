@@ -64,8 +64,10 @@ export interface EntityFormLayoutProps {
 
 export function EntityFormLayout({
   title,
+  subtitle,
   sections,
   summaryTitle,
+  summaryIcon: SummaryIcon,
   summaryFields,
   summaryContent,
   onSubmit,
@@ -125,9 +127,12 @@ export function EntityFormLayout({
               {backButton}
             </div>
             <h2 className="text-2xl font-semibold">{title}</h2>
-            {sections.map((section, index) => (
+            {subtitle && (
+              <p className="text-sm text-muted-foreground -mt-2">{subtitle}</p>
+            )}
+            {sections.map((section) => (
               <div
-                key={index}
+                key={section.title}
                 className="bg-background px-6 pt-5 pb-6 rounded-lg border border-border"
               >
                 <div className="mb-4">
@@ -150,7 +155,8 @@ export function EntityFormLayout({
           {/* Right Column - Summary */}
           <div className="space-y-6 mt-[84px]">
             <div className="sticky top-20 bg-background p-6 rounded-lg border border-border">
-              <div className="mb-4">
+              <div className="mb-4 flex items-center gap-2">
+                <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
                 <h3 className="text-base font-semibold">
                   {summaryTitle}
                 </h3>
@@ -159,7 +165,7 @@ export function EntityFormLayout({
               <div className="space-y-4">
                 {/* Summary Fields */}
                 <div className="space-y-2">
-                  {summaryFields.map((field, index) => {
+                  {summaryFields.map((field) => {
                     // Check if field should be hidden when empty
                     if (field.hideIfEmpty && !field.value) {
                       return null;
@@ -167,7 +173,7 @@ export function EntityFormLayout({
 
                     return (
                       <div
-                        key={index}
+                        key={field.label}
                         className={`flex justify-between text-sm ${
                           field.bordered ? "border-t pt-6 mt-6" : ""
                         }`}

@@ -34,14 +34,6 @@ export interface EntityDetailViewProps {
   topOffset?: number | string;
   /** Distance from viewport left in fullscreen-overlay mode (default `64px` = platform sidebar). */
   leftOffset?: number | string;
-  /**
-   * Distance from viewport right. Used by stacked panels so an earlier
-   * (deeper) panel can shift left to make room for newer panels pushed on
-   * top. Defaults to `0` (the right edge). This offset is applied via
-   * `transform: translateX()`, so it animates smoothly with the rest of
-   * the panel's transitions.
-   */
-  rightOffset?: number | string;
   zIndex?: number;
 
   // Header slots
@@ -95,13 +87,6 @@ export interface EntityDetailViewProps {
    * in fullscreen mode — that one uses `sidebarDefaultOpen`.
    */
   sidebarDefaultCollapsed?: boolean;
-  /**
-   * When `false`, the resize-handle line + top border are visually hidden
-   * (the row remains a drag target so the caller can still resize). Used to
-   * suppress the divider until there's something worth resizing for — e.g.
-   * an empty chat with no messages yet.
-   */
-  sidebarShowResizeHandle?: boolean;
 
   /**
    * Lock the sidebar always-open in fullscreen mode — the toggle button is
@@ -172,6 +157,9 @@ export function EntityDetailView(props: Readonly<EntityDetailViewProps>) {
   }, [onToggleExpand]);
 
   const isExpanded = activeMode === "fullscreen";
+
+  // `isOpen={false}` hides the panel; fullscreen ignores it (see the prop docs).
+  if (props.isOpen === false && !isExpanded) return null;
 
   // If mode is controlled but no onToggleExpand is provided, the expand
   // button has no way to act — hide it unless the caller forces it visible.
@@ -354,7 +342,6 @@ function AnimatedShell({
   sidebarPersistKey,
   sidebarDefaultOpen,
   sidebarDefaultCollapsed = false,
-  sidebarShowResizeHandle = true,
   sidebarLocked = false,
   loading,
   className,
@@ -416,7 +403,6 @@ function AnimatedShell({
           sidebarMaxSize={sidebarMaxSize}
           sidebarPersistKey={sidebarPersistKey}
           sidebarDefaultCollapsed={sidebarDefaultCollapsed}
-          sidebarShowResizeHandle={sidebarShowResizeHandle}
         >
           {children}
         </PanelBody>
@@ -483,16 +469,6 @@ interface PanelBodyProps {
   sidebarMaxSize?: number;
   sidebarPersistKey?: string;
   sidebarDefaultCollapsed: boolean;
-  /**
-   * Two-state switch driven by the caller (the panels pass `hasMessages`):
-   *
-   *  - `true`  — a conversation exists. The chat is a resizable region with a
-   *    drag handle + divider line, so the user can adjust its height.
-   *  - `false` — no messages yet. The chat collapses to just the composer and
-   *    the details extend all the way down to the input field. No handle, no
-   *    fixed height (there is nothing to resize until a conversation exists).
-   */
-  sidebarShowResizeHandle?: boolean;
   loading?: boolean;
   contentClassName?: string;
 }
@@ -645,9 +621,7 @@ function PanelBody({
         // its height (double-click to collapse) — this is what lets the
         // Details list above it grow when it would otherwise be cut off and
         // forced to scroll. The grab line is always visible so the affordance
-        // is discoverable regardless of whether a conversation exists yet;
-        // `sidebarShowResizeHandle` only controls whether the top border is
-        // drawn (e.g. once there are messages).
+        // is discoverable regardless of whether a conversation exists yet.
         <div
           className={cn(
             "relative flex-shrink-0 bg-background flex flex-col",

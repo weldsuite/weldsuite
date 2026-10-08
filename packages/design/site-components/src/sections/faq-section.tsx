@@ -22,7 +22,6 @@ interface FAQSectionProps {
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  mode?: 'live' | 'builder';
 }
 
 export function FAQSection({

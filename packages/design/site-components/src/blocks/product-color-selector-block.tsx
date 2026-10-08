@@ -8,7 +8,6 @@ export interface ProductColorSelectorBlockProps {
   availableColors?: Array<{ name: string; color: string }>;
   textColor?: string;
   borderRadius?: number;
-  mode?: 'live' | 'edit' | 'preview';
   store?: StoreData;
 }
 
