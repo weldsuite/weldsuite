@@ -21,8 +21,12 @@ import {
 } from '@weldsuite/worker-kit/testing/sweeps';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
+import { bankAccountsRoutes } from './bank-accounts';
+import { bankDepositsRoutes } from './bank-deposits';
+import { bankReconciliationsRoutes } from './bank-reconciliations';
 import { billsRoutes } from './bills';
 import { invoicesRoutes } from './invoices';
+import { paymentsRoutes } from './payments';
 
 const ROUTES_DIR = __dirname;
 
@@ -38,11 +42,19 @@ const EXEMPT_ROUTES = new Set<string>([
 
 const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/bills', router: billsRoutes, prefix: 'bills' },
+  { mount: '/api/bank-accounts', router: bankAccountsRoutes, prefix: 'banking' },
+  { mount: '/api/bank-deposits', router: bankDepositsRoutes, prefix: 'banking' },
+  { mount: '/api/bank-reconciliations', router: bankReconciliationsRoutes, prefix: 'banking' },
+  { mount: '/api/payments', router: paymentsRoutes, prefix: 'banking', skipPatch: true },
 ];
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/invoices', router: invoicesRoutes, permission: 'invoices:read' },
   { mount: '/api/bills', router: billsRoutes, permission: 'bills:read' },
+  { mount: '/api/bank-accounts', router: bankAccountsRoutes, permission: 'banking:read' },
+  { mount: '/api/bank-deposits', router: bankDepositsRoutes, permission: 'banking:read' },
+  { mount: '/api/bank-reconciliations', router: bankReconciliationsRoutes, permission: 'banking:read' },
+  { mount: '/api/payments', router: paymentsRoutes, permission: 'banking:read' },
 ];
 
 describe('entity-event coverage', () => {

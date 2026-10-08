@@ -54,6 +54,32 @@ export function normalizePaymentMethod(method: string | null | undefined): Payme
   return LEGACY_METHODS[value] ?? 'other';
 }
 
+export type DepositTarget = 'undeposited_funds' | 'bank';
+
+/**
+ * Where a received payment lands. An entity with an Undeposited Funds account
+ * (the US chart) parks checks and cash there until a bank deposit groups them
+ * into the single line the bank shows; every other payment, and every entity
+ * without that account (NL, IN), debits the bank straight away. A payment that
+ * names its bank account or comes from a bank line already is in the bank.
+ */
+export function resolveDepositTarget(
+  input: Pick<RecordPaymentInput, 'type' | 'depositTo' | 'bankAccountId' | 'bankTransactionId'>,
+  method: PaymentMethod | null,
+  hasUndepositedFunds: boolean,
+): DepositTarget {
+  if (input.type !== 'received' || input.depositTo === 'bank') return 'bank';
+  if (!hasUndepositedFunds) {
+    if (input.depositTo === 'undeposited_funds') {
+      throw new PostingError('This accounting entity has no Undeposited Funds account');
+    }
+    return 'bank';
+  }
+  if (input.depositTo === 'undeposited_funds') return 'undeposited_funds';
+  if (input.bankTransactionId || input.bankAccountId) return 'bank';
+  return method === 'check' || method === 'cash' ? 'undeposited_funds' : 'bank';
+}
+
 export interface RecordPaymentInput {
   entityId: string;
   type: 'received' | 'sent';
@@ -63,6 +89,10 @@ export interface RecordPaymentInput {
   date: Date;
   paymentMethod?: string | null;
   checkNumber?: string | null;
+  /** Checks: to_print | printed | voided | cleared. A check we issue defaults to `printed` (payment runs pass `to_print`). */
+  checkStatus?: string | null;
+  /** Received payments: park the money in Undeposited Funds or debit the bank. Defaults per `resolveDepositTarget`. */
+  depositTo?: DepositTarget | null;
   reference?: string | null;
   notes?: string | null;
   contactId?: string | null;
@@ -80,6 +110,8 @@ export interface RecordPaymentResult {
   contactId: string;
   currency: string;
   documents: Array<{ type: 'invoice' | 'bill'; id: string }>;
+  /** True when the money went to Undeposited Funds and still has to be put into a bank deposit. */
+  undeposited: boolean;
 }
 
 type DocumentRow = {
@@ -193,6 +225,15 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
     allocations,
   );
 
+  // Checks and cash on a US entity wait in Undeposited Funds: swap the money line's account.
+  const undepositedFunds = accountForRole(await loadEntityAccounts(db, input.entityId), 'undeposited_funds');
+  const toUndeposited = resolveDepositTarget(input, paymentMethod, Boolean(undepositedFunds)) === 'undeposited_funds';
+  if (toUndeposited && undepositedFunds) {
+    const moneyLine = lines.findIndex((l) => (l.debit ?? 0) > 0);
+    if (moneyLine >= 0) lines[moneyLine] = { ...lines[moneyLine], accountId: undepositedFunds.id };
+  }
+  const checkStatus = input.checkStatus ?? (paymentMethod === 'check' && input.type === 'sent' ? 'printed' : null);
+
   const paymentId = generateId('pay');
   const now = new Date();
   const single = allocations.length === 1 ? allocations[0] : undefined;
@@ -221,6 +262,8 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
           date: input.date,
           paymentMethod,
           checkNumber: input.checkNumber ?? null,
+          checkStatus,
+          checkPrintedAt: checkStatus === 'printed' ? now : null,
           reference: input.reference ?? null,
           invoiceId: single?.invoiceId ?? null,
           billId: single?.billId ?? null,
@@ -310,6 +353,7 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
     documents: allocations.map((a) =>
       a.invoiceId ? { type: 'invoice' as const, id: a.invoiceId } : { type: 'bill' as const, id: a.billId! },
     ),
+    undeposited: toUndeposited && Boolean(undepositedFunds),
   };
 }
 
@@ -384,6 +428,9 @@ export async function voidPayment(
     .where(and(eq(schema.payments.id, paymentId), isNull(schema.payments.deletedAt)))
     .limit(1);
   if (!payment) throw new PostingError('Payment not found');
+  if (payment.depositId) {
+    throw new PostingError('This payment is part of a bank deposit. Void the deposit first, then void the payment.');
+  }
 
   const allocationRows = await db
     .select()
