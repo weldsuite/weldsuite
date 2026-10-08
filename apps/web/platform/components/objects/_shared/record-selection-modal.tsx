@@ -67,7 +67,7 @@ interface ApiPerson {
 
 function getFaviconUrl(domain?: string | null): string | undefined {
   if (!domain) return undefined;
-  const clean = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const clean = domain.replace(/^https?:\/\//, '').replace(/\/[\s\S]*/, '');
   if (!clean?.includes('.')) return undefined;
   return `https://www.google.com/s2/favicons?domain=${clean}&sz=32`;
 }

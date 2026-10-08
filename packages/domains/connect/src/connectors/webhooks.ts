@@ -77,7 +77,7 @@ function moneybirdAttachmentContext(
 
 export function connectorWebhookBaseUrl(env: ConnectorWebhooksEnv): string {
   const explicit = (env as { CONNECTOR_WEBHOOK_BASE_URL?: string }).CONNECTOR_WEBHOOK_BASE_URL;
-  if (explicit) return explicit.replace(/\/+$/, '');
+  if (explicit) return explicit.replace(/(?<!\/)\/+$/, '');
   if (env.ENVIRONMENT === 'production') return 'https://integration-webhooks.weldsuite.org';
   if (env.ENVIRONMENT === 'test') return 'https://integration-webhooks-test.weldsuite.org';
   return 'http://localhost:8787';

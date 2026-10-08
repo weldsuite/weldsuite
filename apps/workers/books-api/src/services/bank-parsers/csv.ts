@@ -313,7 +313,9 @@ function extractCounterpartyFromABN(description: string): {
   }
 
   // Try to extract name (often before IBAN or after specific markers)
-  const nameMatch = /^([A-Z][A-Za-z\s.'-]+?)(?:\s{2,}|\s*[A-Z]{2}\d{2})/.exec(description);
+  // `\s?` (not `\s*`) before the IBAN country code: two or more spaces already
+  // end the name through the first branch, and the overlap made this quadratic.
+  const nameMatch = /^([A-Z][A-Za-z\s.'-]+?)(?:\s{2,}|\s?[A-Z]{2}\d{2})/.exec(description);
   if (nameMatch) {
     result.name = nameMatch[1].trim();
   }

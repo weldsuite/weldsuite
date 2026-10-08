@@ -7,7 +7,7 @@
  */
 
 import type { StepHandler, StepContext, StepResult } from '../../types';
-import { asText } from '@weldsuite/text';
+import { asText, stripTags } from '@weldsuite/text';
 
 export const sendEmailHandler: StepHandler = {
   type: 'send_email',
@@ -57,7 +57,7 @@ export const sendEmailHandler: StepHandler = {
           from,
           subject,
           html: message,
-          text: message.replace(/<[^>]*>/g, ''),
+          text: stripTags(message),
         }),
       });
 

@@ -300,7 +300,7 @@ async function resolveThreadId(
   if (lookupIds.length === 0) return fallbackThreadId;
 
   const providerIds = lookupIds
-    .map((id) => id.replace(/^</, '').replace(/@.*>?$/, ''))
+    .map((id) => id.replace(/^</, '').replace(/@[\s\S]*/, ''))
     .filter(Boolean);
   const [parent] = await db
     .select({ threadId: mailMessages.threadId })

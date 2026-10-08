@@ -18,7 +18,7 @@ import {
   Maximize,
   Contact,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, stripTags } from '@/lib/utils';
 import { NoteActionsMenu } from './note-actions-menu';
 import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
 import {
@@ -60,7 +60,7 @@ interface NotesViewProps {
 
 // Helper to strip HTML tags
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').trim();
+  return stripTags(html).trim();
 }
 
 // Helper to get note title from content

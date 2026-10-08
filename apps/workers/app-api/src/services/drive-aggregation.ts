@@ -107,7 +107,7 @@ export function normalizeGenericFiles(
   rows: (typeof schema.files.$inferSelect)[],
   r2PublicUrl?: string,
 ): UnifiedFile[] {
-  const base = r2PublicUrl?.replace(/\/+$/, '');
+  const base = r2PublicUrl?.replace(/(?<!\/)\/+$/, '');
   return rows.map((r) => ({
     id: r.id,
     name: r.fileName,

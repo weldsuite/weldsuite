@@ -12,7 +12,7 @@ const PROD_PLATFORM = 'https://app.weldsuite.org';
 const TEST_PLATFORM = 'https://app-test.weldsuite.org';
 
 function trimSlash(url: string): string {
-  return url.replace(/\/+$/, '');
+  return url.replace(/(?<!\/)\/+$/, '');
 }
 
 function looksLikeTest(url: string): boolean {

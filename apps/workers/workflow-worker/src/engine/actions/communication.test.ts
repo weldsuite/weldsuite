@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { handleSendEmail, handleSendNotification, handleSlackMessage } from './communication';
+import { handleSendEmail, handleSendNotification, handleSlackMessage, isValidRecipient } from './communication';
 import { makeActionContext } from '../../test/ctx';
 import { createPgliteDb } from '../../test/pglite';
 import { schema, type Database } from '../../db';
@@ -273,6 +273,20 @@ describe('send_email', () => {
   it('throws when no mail account is configured', async () => {
     const ctx = makeActionContext({ db: dbReturningAccounts([]), env: { INTERNAL_API_SECRET: 's' } });
     await expect(handleSendEmail({ to: 'a@b.com', subject: 'x' }, ctx)).rejects.toThrow(/account/i);
+  });
+});
+
+describe('isValidRecipient', () => {
+  it('accepts plain and angled addresses with a dotted domain', () => {
+    for (const ok of ['a@b.co', 'a@b.c.de', 'a@.b.co', 'Ada <ada@mail.example.org>', 'x@y..zz']) {
+      expect(isValidRecipient(ok)).toBe(true);
+    }
+  });
+
+  it('rejects addresses without a usable dot in the domain', () => {
+    for (const bad of ['a@b', 'a@.co', 'a@b.c', 'a@bc.', 'a b@c.de', 'a@b@c.de', '@b.co', `a@${'.'.repeat(50_000)},`]) {
+      expect(isValidRecipient(bad)).toBe(false);
+    }
   });
 });
 

@@ -264,7 +264,7 @@ export class RateLimiter {
  * Token validation utilities
  */
 export class TokenValidator {
-  private static readonly TOKEN_PATTERN = /^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$/;
+  private static readonly TOKEN_PATTERN = /^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=][A-Za-z0-9-_.+/=]*$/;
 
   /**
    * Check if string looks like a JWT token

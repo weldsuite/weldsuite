@@ -626,7 +626,7 @@ async function findThreadByReplyIds(
   // Extract local parts from Message-IDs for provider ID matching
   // e.g. "<abc-123@eu-west-1.amazonses.com>" → "abc-123"
   const providerIds = lookupIds
-    .map((id) => id.replace(/^</, '').replace(/@.*>?$/, ''))
+    .map((id) => id.replace(/^</, '').replace(/@[\s\S]*/, ''))
     .filter(Boolean);
 
   const existingMessages = await tenantDb

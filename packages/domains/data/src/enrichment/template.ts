@@ -44,7 +44,7 @@ export function resolveTemplate(
   // Sibling column values win over base fields when names collide.
   for (const [name, value] of Object.entries(siblingValues)) put(name, value);
 
-  return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_m, token: string) => {
-    return lookup.get(String(token).toLowerCase()) ?? '';
+  return template.replace(/\{\{([^{}]+)\}\}/g, (_m, token: string) => {
+    return lookup.get(String(token).trim().toLowerCase()) ?? '';
   });
 }

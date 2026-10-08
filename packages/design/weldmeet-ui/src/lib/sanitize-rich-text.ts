@@ -1,3 +1,4 @@
+import { stripTags } from '@weldsuite/text';
 /**
  * Rich-text sanitizer for meeting chat.
  *
@@ -41,7 +42,7 @@ export function sanitizeRichText(html: string | null | undefined): string {
 
   // Non-browser (SSR / worker): strip all tags, return escaped text.
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
-    return escapeText(html.replaceAll(/<[^>]*>/g, ''));
+    return escapeText(stripTags(html));
   }
 
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');

@@ -143,7 +143,7 @@ export function userAppRelativePath(pathname: string, appCode: string): string {
   const prefix = `/apps/${appCode}`;
   if (pathname === prefix || pathname === `${prefix}/`) return '/';
   if (pathname.startsWith(`${prefix}/`)) {
-    return `/${pathname.slice(prefix.length + 1)}`.replace(/\/+$/, '') || '/';
+    return `/${pathname.slice(prefix.length + 1)}`.replace(/(?<!\/)\/+$/, '') || '/';
   }
   return '/';
 }

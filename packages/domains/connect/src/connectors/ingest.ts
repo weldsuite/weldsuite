@@ -146,7 +146,8 @@ function applyMappingsToRecord(
 export function sanitiseErrorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : asText(err);
   return raw
-    .replace(/\(([^)]*)\)=\([^)]*\)/g, '($1)=(redacted)')
+    // Postgres key details, e.g. `Key (lower(email))=(a@b.com)`: keep the key, drop the value.
+    .replace(/\)=\([^)]*\)/g, ')=(redacted)')
     .replace(/'[^']*'/g, "'redacted'")
     .slice(0, MAX_ERROR_MESSAGE_LENGTH);
 }

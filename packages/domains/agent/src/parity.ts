@@ -938,7 +938,7 @@ export async function installTemplate(
   const agent = await createAgent(db, {
       name:
         input.name ??
-        (template.name.replace(/\s*template$/i, '').trim() || 'Imported agent'),
+        (template.name.replace(/template$/i, '').trim() || 'Imported agent'),
       description: template.description,
     systemPrompt: payload.systemPrompt ?? '',
     permissions: payload.permissions ?? ['computer:use', 'browser:use'],

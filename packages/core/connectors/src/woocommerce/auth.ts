@@ -24,7 +24,7 @@ export const WOOCOMMERCE_AUTH_CALLBACK_PATH = '/webhooks/woocommerce/auth';
 export const WOOCOMMERCE_AUTH_STATE_TTL_SECONDS = 15 * 60;
 
 export function woocommerceAuthCallbackUrl(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}${WOOCOMMERCE_AUTH_CALLBACK_PATH}`;
+  return `${baseUrl.replace(/(?<!\/)\/+$/, '')}${WOOCOMMERCE_AUTH_CALLBACK_PATH}`;
 }
 
 /**
@@ -119,7 +119,7 @@ export interface WooCommerceAuthState {
 function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCodePoint(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/(?<!=)=+$/, '');
 }
 
 function fromBase64Url(value: string): Uint8Array {
