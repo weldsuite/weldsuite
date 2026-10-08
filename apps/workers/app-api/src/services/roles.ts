@@ -11,6 +11,7 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { getRoleRowPermissions } from '@weldsuite/permissions';
 
 const { roles, workspaceMembers, workspaceInstalledApps } = schema;
 
@@ -82,7 +83,7 @@ function toRoleRow(
     canDelete: !role.isSystem,
     canModify: !role.isSystem,
     memberCount,
-    permissions: (role.permissions as string[]) || [],
+    permissions: getRoleRowPermissions(role),
     apps: (role.apps as string[]) || [],
     createdAt: role.createdAt?.toISOString() || '',
     updatedAt: role.updatedAt?.toISOString() || '',
@@ -201,7 +202,7 @@ export async function createRole(db: Database, args: CreateRoleArgs): Promise<Ro
       .where(and(eq(roles.id, args.copyFromRoleId), isNull(roles.deletedAt)))
       .limit(1);
     if (source) {
-      if (!args.permissions && source.permissions) permissions = source.permissions as string[];
+      if (!args.permissions) permissions = getRoleRowPermissions(source);
       if (!args.apps && source.apps) apps = source.apps as string[];
     }
   }

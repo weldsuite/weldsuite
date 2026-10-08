@@ -15,7 +15,7 @@ import {
   resolveEffectivePermissions,
   type PermissionDbQuery,
 } from '@weldsuite/permissions/server';
-import { EMPLOYEE_MEMBER_PERMISSIONS, checkAppPermission } from '@weldsuite/permissions';
+import { EMPLOYEE_MEMBER_PERMISSIONS, SYSTEM_ROLES, checkAppPermission } from '@weldsuite/permissions';
 import { schema } from '@weldsuite/worker-kit/db';
 
 function queries(member: Awaited<ReturnType<PermissionDbQuery['getMember']>>, role: string[] = []): PermissionDbQuery {
@@ -124,6 +124,25 @@ describe('createDrizzlePermissionQueries', () => {
     const member = await createDrizzlePermissionQueries(db, schema, { eq, and, isNull }).getMember('user_1');
     expect(Object.keys(selected[0]!)).toContain('memberType');
     expect(member?.memberType).toBe('EMPLOYEE');
+  });
+
+  it('answers a seeded system role row from the code, not its stored copy', async () => {
+    // A row seeded before WeldKnow existed: its stored copy has no knowledge keys.
+    const { db } = fakeDb([{ permissions: ['weldcrm:leads:read'], isSystem: true, name: 'Admin' }]);
+    const perms = await createDrizzlePermissionQueries(db, schema, { eq, and, isNull }).getRolePermissions('role_1');
+    expect(perms).toEqual(SYSTEM_ROLES.ADMIN!.permissions);
+    expect(perms).toContain('knowledge:read');
+  });
+
+  it('keeps the stored permissions of a custom role, whatever its name', async () => {
+    const { db } = fakeDb([{ permissions: ['knowledge:read'], isSystem: false, name: 'Admin' }]);
+    const perms = await createDrizzlePermissionQueries(db, schema, { eq, and, isNull }).getRolePermissions('role_1');
+    expect(perms).toEqual(['knowledge:read']);
+  });
+
+  it('returns null for a missing role', async () => {
+    const { db } = fakeDb([]);
+    expect(await createDrizzlePermissionQueries(db, schema, { eq, and, isNull }).getRolePermissions('role_1')).toBeNull();
   });
 
   it('leaves the column out for a schema without it', async () => {
