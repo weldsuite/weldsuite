@@ -27,7 +27,7 @@ export function TaskNumberBadge({ number, className }: Readonly<TaskNumberBadgeP
       e.preventDefault();
       navigator.clipboard
         ?.writeText(label)
-        .then(() => toast.success(t('common.messages.copiedToClipboard')))
+        .then(() => toast.success(t('common.toast.copiedToClipboard')))
         .catch(() => {});
     },
     [label, t],

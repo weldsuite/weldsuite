@@ -5,7 +5,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { usePathname } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
-import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, PictureInPicture2, Copy, LogOut } from 'lucide-react';
+import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, Minus, PictureInPicture2, Copy, LogOut } from 'lucide-react';
 import { useWeldMeetCall, type MeetingCallStatus } from '@/contexts/weldmeet-call-context';
 import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useWorkspaceId } from '@/contexts/workspace-context';
@@ -388,9 +388,9 @@ function deriveFocusedParticipant(
   const focusedHasVideo = !!(focused?.videoEnabled && focused?.videoTrack);
   const focusedTrack = focusedHasVideo ? focused.videoTrack : null;
 
-  // Camera-off appearance — match the maximized ParticipantTile exactly:
-  // deterministic colored tile background + ParticipantAvatar. Seed mirrors the
-  // tile's (customParticipantId → userId → id → name) so colors agree.
+  // Camera-off appearance — the same ParticipantAvatar as the maximized
+  // ParticipantTile, on a neutral tile. Seed mirrors the tile's
+  // (customParticipantId → userId → id → name) so avatar colors agree.
   const focusedTheme = getPersonTheme(
     String(focused?.customParticipantId ?? focused?.userId ?? focused?.id ?? focusedName),
   );
@@ -414,11 +414,13 @@ function widgetClassName({
 }): string {
   const visibilityClass = shouldShow ? 'opacity-100' : 'opacity-0 pointer-events-none sr-only';
   return cn(
-    'group/pip bg-card p-2',
+    'group/pip bg-card overflow-hidden',
     isInPipWindow
       ? 'w-screen h-screen flex flex-col'
       : cn(
-          'fixed z-[9999] w-[290px] rounded-2xl shadow-2xl ring-1 ring-border cursor-grab [&_img]:select-none',
+          // z-50 at the body level (see the portal below): above the app rail
+          // and module sidebar, below dialogs and menus opened afterwards.
+          'fixed z-50 w-[290px] rounded-[12px] shadow-2xl ring-1 ring-border cursor-grab [&_img]:select-none',
           isDragging && 'cursor-grabbing select-none',
           visibilityClass,
           !hasAnimated && shouldShow && !isDragging && 'animate-in slide-in-from-bottom-4 fade-in duration-300',
@@ -434,22 +436,22 @@ interface PipVideoAreaProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onExpand: () => void;
   onPopOut: () => void;
+  onHide: () => void;
 }
 
-/** Video / avatar area — inset, floating inside the panel. */
-function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, onPopOut }: Readonly<PipVideoAreaProps>) {
+const QUICK_ACTION_CLASS =
+  'flex h-7 w-7 items-center justify-center rounded-md bg-black/60 hover:bg-black/75 text-white transition-colors';
+
+/** Video / avatar area — runs edge to edge at the top of the panel. */
+function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, onPopOut, onHide }: Readonly<PipVideoAreaProps>) {
   const { focused, focusedIsSelf, focusedName, focusedTrack, focusedTheme, focusedInitials } = focus;
   const showMutedIcon = focusedIsSelf ? isMuted : !focused?.audioEnabled;
   return (
     <div
       className={cn(
-        // Camera-off → deterministic colored tile (matches ParticipantTile);
-        // with video the track covers it, so only neutral bg-muted is needed.
-        'relative w-full cursor-pointer overflow-hidden rounded-xl ring-1 ring-border',
-        focusedTrack && 'bg-muted',
-        isInPipWindow ? 'flex-1 min-h-0' : 'aspect-[4/3]',
+        'relative w-full cursor-pointer overflow-hidden bg-muted dark:bg-background',
+        isInPipWindow ? 'flex-1 min-h-0' : 'h-[180px]',
       )}
-      style={focusedTrack ? undefined : { backgroundColor: focusedTheme.tile }}
       role="button"
       tabIndex={0}
       aria-label={t.pipWidget.openMeeting}
@@ -476,25 +478,37 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
             initials={focusedInitials}
             color={focusedTheme.avatar}
             picture={focused?.picture}
-            className="h-14 w-14 !rounded-[15px]"
+            className="h-12 w-12 !rounded-[30%] text-base"
           />
         </div>
       )}
 
       {/* Bottom-left: name tag — matches ParticipantTile's design in the expanded meeting view */}
-      <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/60 text-white text-xs px-2 py-1 rounded-md max-w-[70%]">
+      <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/60 text-white text-xs px-2 py-1 rounded-[6px] max-w-[70%]">
         {showMutedIcon && <MicOff className="h-3 w-3 shrink-0" />}
         <span className="truncate">{focusedIsSelf ? t.pipWidget.you : focusedName}</span>
       </div>
 
       {/* Top-right: hover-revealed quick actions */}
       <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/pip:opacity-100 transition-opacity duration-150">
+        {/* Hide the widget — the Document PiP popup has its own window controls. */}
+        {!isInPipWindow && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => { e.stopPropagation(); onHide(); }}
+            title={t.pipWidget.hide}
+            className={QUICK_ACTION_CLASS}
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
           onClick={(e) => { e.stopPropagation(); onPopOut(); }}
           title={t.pipWidget.popOut}
-          className="flex h-7 w-7 items-center justify-center rounded-md bg-black/60 hover:bg-black/75 text-white transition-colors"
+          className={QUICK_ACTION_CLASS}
         >
           <PictureInPicture2 className="h-3.5 w-3.5" />
         </Button>
@@ -503,7 +517,7 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
           size="icon"
           onClick={(e) => { e.stopPropagation(); onExpand(); }}
           title={t.pipWidget.openMeeting}
-          className="flex h-7 w-7 items-center justify-center rounded-md bg-black/60 hover:bg-black/75 text-white transition-colors"
+          className={QUICK_ACTION_CLASS}
         >
           <Maximize className="h-3.5 w-3.5" />
         </Button>
@@ -518,18 +532,18 @@ const NEUTRAL_BUTTON_CLASS = '[&]:hover:brightness-95 dark:[&]:hover:brightness-
 
 function MicControl({ t, isMuted, onToggle }: Readonly<{ t: WeldmeetStrings; isMuted: boolean; onToggle: () => void }>) {
   return (
-    <div className={cn('rounded-[14px] ring-1', isMuted ? 'ring-red-400/40' : 'ring-border')}>
+    <div className={cn('rounded-[12px]', !isMuted && 'ring-1 ring-border')}>
       <Button
         variant="secondary"
         size="icon"
         className={cn(
-          'h-11 w-11 rounded-[14px] border-0 transition-all',
+          'h-10 w-10 rounded-[12px] border-0 transition-all',
           isMuted ? OFF_BUTTON_CLASS : NEUTRAL_BUTTON_CLASS,
         )}
         onClick={onToggle}
         title={isMuted ? t.pipWidget.turnOnMicrophone : t.pipWidget.turnOffMicrophone}
       >
-        {isMuted ? <MicOff className="size-[18px]" /> : <Mic className="size-[18px]" />}
+        {isMuted ? <MicOff className="size-[17px]" /> : <Mic className="size-[17px]" />}
       </Button>
     </div>
   );
@@ -537,19 +551,19 @@ function MicControl({ t, isMuted, onToggle }: Readonly<{ t: WeldmeetStrings; isM
 
 function CameraControl({ t, isVideoOff, onToggle }: Readonly<{ t: WeldmeetStrings; isVideoOff: boolean; onToggle: () => void }>) {
   return (
-    <div className={cn('relative rounded-[14px] ring-1', isVideoOff ? 'ring-red-400/40' : 'ring-border')}>
+    <div className={cn('relative rounded-[12px]', !isVideoOff && 'ring-1 ring-border')}>
       <Button
         variant="secondary"
         size="icon"
         className={cn(
-          'h-11 w-11 rounded-[14px] border-0 transition-all',
+          'h-10 w-10 rounded-[12px] border-0 transition-all',
           isVideoOff ? OFF_BUTTON_CLASS : NEUTRAL_BUTTON_CLASS,
         )}
         onClick={onToggle}
         title={isVideoOff ? t.pipWidget.turnOnCamera : t.pipWidget.turnOffCamera}
       >
         {isVideoOff ? (
-          <VideoOff className="size-[19px]" />
+          <VideoOff className="size-[18px]" />
         ) : (
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -557,7 +571,7 @@ function CameraControl({ t, isVideoOff, onToggle }: Readonly<{ t: WeldmeetString
             viewBox="0 0 24 24"
             strokeWidth={1.5}
             stroke="currentColor"
-            className="size-[21px]"
+            className="size-5"
             aria-hidden="true"
           >
             <path
@@ -587,15 +601,15 @@ function ScreenShareControl({
   onToggle: () => void;
 }>) {
   return (
-    <div className="rounded-[14px] ring-1 ring-border">
+    <div className="rounded-[12px] ring-1 ring-border">
       <Button
         variant={isScreenSharing ? 'default' : 'secondary'}
         size="icon"
-        className="h-11 w-11 rounded-[14px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
+        className="h-10 w-10 rounded-[12px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
         onClick={onToggle}
         title={isScreenSharing ? t.pipWidget.stopSharing : t.pipWidget.shareScreen}
       >
-        <MonitorUp className="size-[18px]" />
+        <MonitorUp className="size-[17px]" />
       </Button>
     </div>
   );
@@ -615,16 +629,16 @@ function MoreControl({
   onCopyJoiningInfo: () => void;
 }>) {
   return (
-    <div className="rounded-[14px] ring-1 ring-border">
+    <div className="rounded-[12px] ring-1 ring-border">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="secondary"
             size="icon"
-            className="h-11 w-11 rounded-[14px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110"
+            className="h-10 w-10 rounded-[12px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110"
             title={t.pipWidget.moreOptions}
           >
-            <MoreVertical className="size-[18px]" />
+            <MoreVertical className="size-[17px]" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="top" align="end" sideOffset={6} className="w-48 z-[10000]">
@@ -663,7 +677,7 @@ interface PipControlsBarProps {
   onEndForAll: () => void;
 }
 
-/** Controls bar — same button style as the main CallControlsBar. */
+/** Controls bar — same button style as the main CallControlsBar; hangup sits on the right. */
 function PipControlsBar({
   t,
   isMuted,
@@ -681,7 +695,7 @@ function PipControlsBar({
   onEndForAll,
 }: Readonly<PipControlsBarProps>) {
   return (
-    <div className="flex items-center justify-center gap-2 px-1 pt-2.5 pb-1">
+    <div className="flex shrink-0 items-center gap-2 px-3 pt-[9px] pb-2.5">
       <MicControl t={t} isMuted={isMuted} onToggle={onToggleMute} />
       <CameraControl t={t} isVideoOff={isVideoOff} onToggle={onToggleVideo} />
       <ScreenShareControl t={t} isScreenSharing={isScreenSharing} onToggle={onScreenShare} />
@@ -703,11 +717,11 @@ function PipControlsBar({
             <Button
               variant="destructive"
               size="icon"
-              className="h-11 w-14 rounded-[14px] transition-all [&]:hover:brightness-90"
+              className="ml-auto h-10 w-[52px] rounded-[12px] transition-all [&]:hover:brightness-90"
               title={t.pipWidget.leaveMeeting}
               aria-label={t.pipWidget.leaveMeeting}
             >
-              <Phone className="!h-[19px] !w-[19px] rotate-[135deg] fill-current" />
+              <Phone className="!h-[18px] !w-[18px] rotate-[135deg] fill-current" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="end" sideOffset={6} className="w-56 z-[10000]">
@@ -725,11 +739,11 @@ function PipControlsBar({
         <Button
           variant="destructive"
           size="icon"
-          className="h-11 w-14 rounded-[14px] transition-all [&]:hover:brightness-90"
+          className="ml-auto h-10 w-[52px] rounded-[12px] transition-all [&]:hover:brightness-90"
           onClick={onLeave}
           title={t.pipWidget.leaveMeeting}
         >
-          <Phone className="!h-[19px] !w-[19px] rotate-[135deg] fill-current" />
+          <Phone className="!h-[18px] !w-[18px] rotate-[135deg] fill-current" />
         </Button>
       )}
     </div>
@@ -739,8 +753,8 @@ function PipControlsBar({
 /**
  * Google-Meet–style picture-in-picture widget. Shown bottom-right when the
  * user navigates away from the meeting room (or explicitly minimizes). One
- * video tile (active speaker / self), with 3 round controls — mic, camera,
- * hangup — that fade in on hover, and a back-to-meeting button in the top.
+ * edge-to-edge video tile (active speaker / self) with hover-revealed pop-out
+ * and back-to-meeting buttons, above the call controls.
  *
  * The underlying RTK call client lives on WeldMeetCallProvider at the
  * app-shell level — the meeting itself stays alive across navigation.
@@ -781,6 +795,8 @@ export function MeetingPiPWidget() {
   const hasAnimatedRef = useRef(false);
   const [, forceUpdate] = useReducer((n: number) => n + 1, 0);
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
+  // Hidden via the widget's minus button — the call itself keeps running.
+  const [hidden, setHidden] = useState(false);
   const panelWidth = usePanelWidth(pathname);
 
   const t = getTranslations('weldmeet');
@@ -794,7 +810,15 @@ export function MeetingPiPWidget() {
   // Drag-to-corner for the in-page minimized widget (disabled in the Document
   // PiP popup, which fills its own OS window).
   const widgetRef = useRef<HTMLDivElement>(null);
-  const pipDrag = usePipCornerDrag(widgetRef, { panelWidth, enabled: !pipWindow && shouldShow });
+
+  // Hiding lasts until the widget would go away anyway (back on the meeting
+  // page, or the call ended) — the next time it is due, it shows again.
+  useEffect(() => {
+    if (!shouldShow) setHidden(false);
+  }, [shouldShow]);
+  // The Document PiP popup is never hidden; it has its own window controls.
+  const isVisible = shouldShow && (!hidden || !!pipWindow);
+  const pipDrag = usePipCornerDrag(widgetRef, { panelWidth, enabled: !pipWindow && isVisible });
 
   // Joining info (copied from the "More" menu) — mirrors the meeting-overlay
   // share URL: <portal>/<workspace>/<joinCode>.
@@ -1138,16 +1162,18 @@ export function MeetingPiPWidget() {
   const widget = (
     <div
       {...interactiveProps}
+      // Out of sight means out of the tab order too — an invisible hangup
+      // button must not be reachable from the keyboard.
+      inert={!isInPipWindow && !isVisible}
       className={widgetClassName({
         isInPipWindow,
         isDragging: pipDrag.isDragging,
-        shouldShow,
+        shouldShow: isVisible,
         hasAnimated: hasAnimatedRef.current,
       })}
     >
-      {/* Video / avatar area — inset, floating inside the panel.
-          Uses fixed 4:3 aspect when in the in-page widget, but flexes to
-          fill the popup window when in Document PiP mode. */}
+      {/* Video / avatar area. Fixed height in the in-page widget; flexes to
+          fill the popup window in Document PiP mode. */}
       <PipVideoArea
         t={t}
         focus={focus}
@@ -1156,6 +1182,7 @@ export function MeetingPiPWidget() {
         videoRef={videoRef}
         onExpand={handleExpand}
         onPopOut={openPopOut}
+        onHide={() => setHidden(true)}
       />
 
       <PipControlsBar
@@ -1184,7 +1211,10 @@ export function MeetingPiPWidget() {
     <>
       {hiddenPipElement}
       {playsRemoteAudio && <RemoteAudio remotes={remoteParticipants} />}
-      {isInPipWindow ? createPortal(widget, pipWindow!.document.body) : widget}
+      {/* In-page, portal to <body>: the shell's content card is its own
+          stacking context, so rendered inline the widget sits under the app
+          rail and module sidebar when dragged to a left corner. */}
+      {createPortal(widget, isInPipWindow ? pipWindow!.document.body : document.body)}
     </>
   );
 }

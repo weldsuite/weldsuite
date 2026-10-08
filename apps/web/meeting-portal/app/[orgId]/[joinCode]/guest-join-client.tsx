@@ -23,6 +23,7 @@ import {
 import {
   enableMicrophone,
   isMicrophonePermissionDenied,
+  useLeaveCallGuard,
   useMicrophoneRecovery,
   useVirtualBackground,
   type ViewMode,
@@ -345,17 +346,16 @@ export default function GuestJoinClient() {
     },
   });
 
-  // ── Leave on tab close ──
+  // ── Confirm reload / tab close in a call, leave once the page goes ──
 
-  useEffect(() => {
-    const handler = () => {
+  useLeaveCallGuard({
+    warn: state === 'connecting' || state === 'connected',
+    onLeave: () => {
       if (meetingId && guestToken) {
         guestLeaveMeeting(orgId, { meetingId, guestToken }, { keepalive: true }).catch(() => {});
       }
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [orgId, meetingId, guestToken]);
+    },
+  });
 
   // ── Camera preview ──
 

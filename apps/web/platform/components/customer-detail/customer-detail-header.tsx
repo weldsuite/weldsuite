@@ -138,14 +138,24 @@ function EditableHeaderName({
     }
   };
 
+  const handleIdleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setIsEditing(true);
+    }
+  };
+
   return (
     <div
       ref={editorRef}
+      role={isEditing ? 'textbox' : 'button'}
+      tabIndex={isEditing ? undefined : 0}
       contentEditable={isEditing}
       suppressContentEditableWarning
       onClick={() => { if (!isEditing) setIsEditing(true); }}
       onBlur={handleSave}
-      onKeyDown={isEditing ? handleKeyDown : undefined}
+      onKeyDown={isEditing ? handleKeyDown : handleIdleKeyDown}
       className={cn(
         'rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 border outline-none whitespace-pre-wrap break-words min-w-0',
         isEditing

@@ -69,6 +69,7 @@ export interface WeldAppProviderProps {
 }
 
 const bannerStyle: CSSProperties = {
+  display: 'block',
   position: 'sticky',
   top: 0,
   zIndex: 9999,
@@ -86,9 +87,9 @@ const bannerStyle: CSSProperties = {
 /** Fixed banner shown during local preview (no platform host). */
 export function LocalPreviewBanner(): ReactNode {
   return (
-    <p role="status" data-weld-local-preview-banner="" style={bannerStyle}>
+    <output data-weld-local-preview-banner="" style={bannerStyle}>
       Local preview — not connected to WeldSuite
-    </p>
+    </output>
   );
 }
 

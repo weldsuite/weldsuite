@@ -45,9 +45,9 @@ export function Muted({ className, ...props }: HTMLAttributes<HTMLParagraphEleme
 
 export function LoadingState({ label = 'Loading…' }: Readonly<{ label?: string }>) {
   return (
-    <div className="wui-loading" role="status">
+    <output className="wui-loading">
       <span className="wui-spinner" aria-hidden="true" />
       <span>{label}</span>
-    </div>
+    </output>
   );
 }

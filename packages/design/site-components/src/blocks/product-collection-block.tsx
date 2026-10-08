@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ChevronDown, ChevronUp, X, SlidersHorizontal, Grid3X3, Grid2X2 } from 'lucide-react';
 
 interface Product {
@@ -274,6 +274,16 @@ export function ProductCollectionBlock({
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<string>('featured');
   const [gridColumns, setGridColumns] = useState(columns);
+
+  // Keyboard users close the mobile filter drawer with Escape (mouse users click the backdrop).
+  useEffect(() => {
+    if (!mobileFiltersOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileFiltersOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [mobileFiltersOpen]);
 
   const products = store?.products?.length ? store.products : DEFAULT_PRODUCTS;
 
@@ -585,6 +595,7 @@ export function ProductCollectionBlock({
       {mobileFiltersOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
+            aria-hidden="true"
             className="absolute inset-0 bg-black/50"
             onClick={() => setMobileFiltersOpen(false)}
           />
